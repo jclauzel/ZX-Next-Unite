@@ -1,0 +1,23 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 18
+VisualStudioVersion = 18.6.11723.189 insiders
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "zx-next-unite", "zx-next-unite.pyproj", "{10782F94-1D4C-4445-9ADA-69166C7CAF85}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{10782F94-1D4C-4445-9ADA-69166C7CAF85}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{10782F94-1D4C-4445-9ADA-69166C7CAF85}.Release|Any CPU.ActiveCfg = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {4A354858-CC7A-4E91-856D-D4DA546F7FC8}
+	EndGlobalSection
+EndGlobal
