@@ -57,7 +57,7 @@ import zipfile, traceback
 import logging
 import ctypes
 
-ZX_NEXT_UNITE_VERSION = "3.3"
+ZX_NEXT_UNITE_VERSION = "4.0"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
@@ -86,6 +86,7 @@ SETTING_NEXTSYNC_SYNCONCE = "nextsync_synconce"
 SETTING_NEXTSYNC_ALWAYSSYNC = "nextsync_alwayssync"
 SETTING_NEXTSYNC_SLOWTRANSFER = "nextsync_slowtransfer"
 SETTING_DEFAULT_TAB_WHEN_OPENING = "default_tab"
+SETTING_WARN_IMAGE_NEARLY_FULL = "warn_image_nearly_full"
 
 PORT = 2048    # Port to listen on (non-privileged ports are > 1023)
 VERSION3 = "NextSync3"
@@ -177,7 +178,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("")
             )
 
-CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING)
+CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL)
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
 
@@ -630,8 +631,12 @@ class MainWindow(QMainWindow):
                         self.nextsync_slowtransfer_checkbox.setChecked(True)
                     else:
                         self.nextsync_slowtransfer_checkbox.setChecked(False)
-                                
-                config_loaded_with_success = True        
+
+                if SETTING_WARN_IMAGE_NEARLY_FULL in configuration_dictionary and configuration_dictionary[SETTING_WARN_IMAGE_NEARLY_FULL] != "":
+                    checked = configuration_dictionary[SETTING_WARN_IMAGE_NEARLY_FULL] != "0" and configuration_dictionary[SETTING_WARN_IMAGE_NEARLY_FULL].lower() != "false"
+                    self.settings_warn_image_nearly_full_checkbox.setChecked(checked)
+
+                config_loaded_with_success = True
                 add_main_log_window("Loaded configuration file.")
                 logging.info("Configuration file loaded successfully.")
 
@@ -840,6 +845,17 @@ class MainWindow(QMainWindow):
             set_treeview_properties()
             self.nextsync_treeview.show()
 
+        def apply_image_filter():
+            text = self.image_filtertext.text().strip().lower()
+            for row in range(self.TableWidgetImage.rowCount()):
+                match = False
+                for col in range(self.TableWidgetImage.columnCount()):
+                    item = self.TableWidgetImage.item(row, col)
+                    if item and text in item.text().lower():
+                        match = True
+                        break
+                self.TableWidgetImage.setRowHidden(row, not match if text else False)
+
         def add_main_log_window(string_to_log:str):
             newItem = QListWidgetItem()
             newItem.setText(string_to_log)
@@ -865,8 +881,9 @@ class MainWindow(QMainWindow):
             
         def set_table_image_properties():
             self.TableWidgetImage.setHorizontalHeaderLabels(["Name", "Type", "Size"])
-            # self.TableWidgetImage.setSortingEnabled(True)
-            # self.TableWidgetImage.sortItems(0, Qt.SortOrder.AscendingOrder)  
+            self.TableWidgetImage.setSortingEnabled(True)
+            self.TableWidgetImage.horizontalHeader().setSortIndicatorShown(True)
+            self.TableWidgetImage.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
 
         def set_treeview_properties():
             self.treeview.setSortingEnabled(True)
@@ -914,7 +931,12 @@ class MainWindow(QMainWindow):
         def image_newfolder_create():
 
             directory_to_create = self.new_folder_input.text()
-            
+
+            if directory_to_create.strip() == "":
+                    logging.warning(f"Please enter a directory name!")
+                    add_main_log_window(f"Please enter a directory name!")
+                    return
+                
             for not_allowed_chars in DIRECTORY_CREATION_NOT_ALLOWED_CHARACTERS:
                 if not_allowed_chars in directory_to_create:
                     nachars = ""
@@ -975,7 +997,8 @@ class MainWindow(QMainWindow):
             # Now try to load it
             if load_image():
                 save_configuration_file()
-                _warn_if_image_nearly_full(self.right_disk_image_path)
+                if self.settings_warn_image_nearly_full_checkbox.isChecked():
+                    _warn_if_image_nearly_full(self.right_disk_image_path)
         
         def _get_image_free_space_pct(image_path):
             """Parse the FAT layout of image_path and return (free_pct, free_mb, total_mb).
@@ -1815,7 +1838,9 @@ class MainWindow(QMainWindow):
                 for idx in self.TableWidgetImage.selectionModel().selectedIndexes():
                     row_number = idx.row()
                     column_number = idx.column()
-                    right_disk_image_selected_files.append(right_disk_image_explorer_content[row_number][0])
+                    name_item = self.TableWidgetImage.item(row_number, 0)
+                    if name_item:
+                        right_disk_image_selected_files.append(name_item.text())
         
         def _run_get_task(signals, cancel_event, image_path, disk_path_fn, files_to_get,
                           dest_dir, dir_nav, is_windows):
@@ -2079,7 +2104,8 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Image not writable", img_err)
                 return
 
-            _warn_if_image_nearly_full(self.right_disk_image_path)
+            if self.settings_warn_image_nearly_full_checkbox.isChecked():
+                _warn_if_image_nearly_full(self.right_disk_image_path)
 
             set_all_buttons_disabled()
 
@@ -2155,7 +2181,14 @@ class MainWindow(QMainWindow):
                     column_number = idx.column()
                     
                 # If user picked to go one directory level up
-                if row_number == 0 and right_disk_image_explorer_content[row_number][0] == UP_DIRECTORY and right_disk_image_explorer_content[row_number][1] == "":
+                name_item = self.TableWidgetImage.item(row_number, 0)
+                type_item = self.TableWidgetImage.item(row_number, 1)
+                row_name = name_item.text() if name_item else ""
+                row_type = type_item.text() if type_item else ""
+
+                if row_number == 0 and row_name == UP_DIRECTORY and row_type == "":
+                    self.image_filtertext.clear()
+                    self.TableWidgetImage.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
                     right_disk_image_explorer_path.pop()
                     hdfmonkeyexecresult = execute_hdf_monkey("ls", self.right_disk_image_path, extra_argv=[generate_disk_file_path()])
 
@@ -2166,8 +2199,10 @@ class MainWindow(QMainWindow):
                         set_all_buttons_enabled()
                         return
 
-                if right_disk_image_explorer_content[row_number][1] == 'DIR':
-                    right_disk_image_explorer_path.append(right_disk_image_explorer_content[row_number][0])
+                if row_type == 'DIR':
+                    self.image_filtertext.clear()
+                    self.TableWidgetImage.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+                    right_disk_image_explorer_path.append(row_name)
                     hdfmonkeyexecresult = execute_hdf_monkey("ls", self.right_disk_image_path, extra_argv=[generate_disk_file_path()])
                 
                     if hdfmonkeyexecresult.returncode == 0:
@@ -2289,9 +2324,11 @@ class MainWindow(QMainWindow):
                         right_disk_image_explorer_content.append((file_name, ""))
                         
                     
-                self.image_explorer_item_list.addItem (file_name)
+                self.image_explorer_item_list.addItem(file_name)
 
                 row += 1
+
+            apply_image_filter()
 
 
         def update_syncpoint(path_to_content, knownfiles):
@@ -2690,6 +2727,22 @@ class MainWindow(QMainWindow):
         
         self.horizontal2.addWidget(self.diskimageexplorerlabelpath)
 
+        self.image_filterlabel = QLabel()
+        self.image_filterlabel.setText("  Filter: ")
+        self.horizontal2.addWidget(self.image_filterlabel)
+
+        self.image_filtertext = QLineEdit()
+        self.image_filtertext.setPlaceholderText("Filter by name, type or size...")
+        self.image_filtertext.setToolTip(
+            "Filter the disk image explorer rows in real-time.\n"
+            "Type any text to show only rows whose Name, Type or Size columns contain that text.\n"
+            "Clear the field to show all entries."
+        )
+        self.image_filtertext.textChanged.connect(apply_image_filter)
+        self.image_filtertext.setMinimumWidth(FILTER_TEXT_WIDTH)
+        self.image_filtertext.setMaximumWidth(FILTER_TEXT_WIDTH)
+        self.horizontal2.addWidget(self.image_filtertext)
+
         self.zx_next_unite_form.addRow(self.horizontal2)
 
         self.model = QFileSystemModel()
@@ -2812,7 +2865,7 @@ class MainWindow(QMainWindow):
        
         self.new_folder_input = QLineEdit()
 
-        self.new_folder_input.setText ("NewDirName")
+        self.new_folder_input.setPlaceholderText("New directory name ...")
         tooltip_text = "Enter new directory name ("
         for not_allowed_chars in DIRECTORY_CREATION_NOT_ALLOWED_CHARACTERS:
             tooltip_text +=not_allowed_chars
@@ -2821,6 +2874,7 @@ class MainWindow(QMainWindow):
         self.new_folder_input.setToolTip(tooltip_text)
         self.new_folder_input.setMinimumWidth(150)
         self.new_folder_input.setMaximumWidth(150)
+        self.new_folder_input.returnPressed.connect(image_newfolder_create)
 
         self.button_create_directory = QPushButton("Create Directory", self)
         self.button_create_directory.setText("Create Directory")
@@ -3156,19 +3210,41 @@ class MainWindow(QMainWindow):
         wid_inner.tab.addTab(zx_next_unite_tab, ZX_NEXT_UNITE_TAB_TITLE_GOOEY)
         
         # Create NextSync Tab
-        hdfm_NextSync_tab = QWidget(wid_inner.tab)
-        grid_tab_nextsync = QGridLayout(hdfm_NextSync_tab)
+        zxnextunite_NextSync_tab = QWidget(wid_inner.tab)
+        grid_tab_nextsync = QGridLayout(zxnextunite_NextSync_tab)
         grid_tab_nextsync.addWidget(nextsync_container) # here use the form container
-        hdfm_NextSync_tab.setLayout(grid_tab_nextsync)
-        hdfm_NextSync_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC
-        wid_inner.tab.addTab(hdfm_NextSync_tab, ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC)
+        zxnextunite_NextSync_tab.setLayout(grid_tab_nextsync)
+        zxnextunite_NextSync_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC
+        wid_inner.tab.addTab(zxnextunite_NextSync_tab, ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC)
 
-         # Create Help Tab
-        hdfm_Help_tab = QWidget(wid_inner.tab)
-        grid_tab_Help = QGridLayout(hdfm_Help_tab)
+        # Create Settings Tab
+        zxnextunite_Settings_tab = QWidget(wid_inner.tab)
+        grid_tab_Settings = QGridLayout(zxnextunite_Settings_tab)
+
+        def settings_warn_image_nearly_full_statechanged():
+            configuration_dictionary[SETTING_WARN_IMAGE_NEARLY_FULL] = "true" if self.settings_warn_image_nearly_full_checkbox.isChecked() else "false"
+            save_configuration_file()
+
+        self.settings_warn_image_nearly_full_checkbox = QCheckBox("SD Card Utility - Warn when an image is nearly full.")
+        self.settings_warn_image_nearly_full_checkbox.setChecked(True)
+        self.settings_warn_image_nearly_full_checkbox.setToolTip(
+            "When enabled, a warning dialog is shown after loading or writing to an SD image\n"
+            "if it has less than 10% free space remaining.\n"
+            "Uncheck this option to suppress that warning."
+        )
+        self.settings_warn_image_nearly_full_checkbox.stateChanged.connect(settings_warn_image_nearly_full_statechanged)
+        grid_tab_Settings.addWidget(self.settings_warn_image_nearly_full_checkbox, 0, 0)
+
+        zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
+        zxnextunite_Settings_tab.tab_name_private = "Settings"
+        wid_inner.tab.addTab(zxnextunite_Settings_tab, "Settings")
+
+          # Create Help Tab
+        zxnextunite_Help_tab = QWidget(wid_inner.tab)
+        grid_tab_Help = QGridLayout(zxnextunite_Help_tab)
         grid_tab_Help.addWidget(self.listWidgetHelp) # TODO as above use the form container of Help use the form container
-        hdfm_Help_tab.setLayout(grid_tab_Help)
-        wid_inner.tab.addTab(hdfm_Help_tab, "?")
+        zxnextunite_Help_tab.setLayout(grid_tab_Help)
+        wid_inner.tab.addTab(zxnextunite_Help_tab, "?")
         
         #wid_inner.tab.tabBarClicked.connect(tab_changed)
         
@@ -3179,13 +3255,15 @@ class MainWindow(QMainWindow):
 
         if is_hdfmonkey_present():
             if load_image():
-                _warn_if_image_nearly_full(self.right_disk_image_path)
+                if self.settings_warn_image_nearly_full_checkbox.isChecked():
+                    _warn_if_image_nearly_full(self.right_disk_image_path)
         else:
             if platform.system() == "Windows":
                 if show_hdf_monkey_download_and_install_buttons():
                     if is_hdfmonkey_present():
                         if load_image():
-                            _warn_if_image_nearly_full(self.right_disk_image_path)
+                            if self.settings_warn_image_nearly_full_checkbox.isChecked():
+                                _warn_if_image_nearly_full(self.right_disk_image_path)
 
         if len(right_disk_image_explorer_content) == 0:
             self.diskimageexplorerlabelpath.setText("Please load an image.")
