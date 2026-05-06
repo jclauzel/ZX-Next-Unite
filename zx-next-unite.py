@@ -87,6 +87,19 @@ SETTING_NEXTSYNC_ALWAYSSYNC = "nextsync_alwayssync"
 SETTING_NEXTSYNC_SLOWTRANSFER = "nextsync_slowtransfer"
 SETTING_DEFAULT_TAB_WHEN_OPENING = "default_tab"
 SETTING_WARN_IMAGE_NEARLY_FULL = "warn_image_nearly_full"
+SETTING_COLOR_UP_DIRECTORY = "color_up_directory"
+SETTING_COLOR_DIR_NAME    = "color_dir_name"
+SETTING_COLOR_DIR_TYPE    = "color_dir_type"
+SETTING_COLOR_FILE_NAME   = "color_file_name"
+SETTING_COLOR_FILE_EXT    = "color_file_ext"
+SETTING_COLOR_FILE_SIZE   = "color_file_size"
+
+DEFAULT_COLOR_UP_DIRECTORY = "#ff0000"
+DEFAULT_COLOR_DIR_NAME    = "#0000ff"
+DEFAULT_COLOR_DIR_TYPE    = "#0000ff"
+DEFAULT_COLOR_FILE_NAME   = "#00ff00"
+DEFAULT_COLOR_FILE_EXT    = "#00ff00"
+DEFAULT_COLOR_FILE_SIZE   = "#00ff00"
 
 PORT = 2048    # Port to listen on (non-privileged ports are > 1023)
 VERSION3 = "NextSync3"
@@ -178,7 +191,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("")
             )
 
-CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL)
+CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME, SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE)
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
 
@@ -192,6 +205,15 @@ CSPECT_BASE_ARGUMENTS = "-basickeys -zxnext -nextrom"
 FONT_GREEN = QColor(0, 255, 0)
 FONT_BLUE = QColor(0, 0, 255)
 FONT_RED = QColor(255, 0, 0)
+
+def qcolor_to_hex(color: QColor) -> str:
+    """Return a lowercase #rrggbb hex string for the given QColor."""
+    return color.name().lower()
+
+def hex_to_qcolor(hex_str: str) -> QColor:
+    """Return a QColor from a #rrggbb hex string, falling back to white on error."""
+    color = QColor(hex_str)
+    return color if color.isValid() else QColor(255, 255, 255)
 
 UP_DIRECTORY = "[Up Directory..]"
 DIRECTORY_CREATION_NOT_ALLOWED_CHARACTERS = ('"', '<', '>', ':', '\\', '/', '|', '?', '*', '!', '(',')', '.', "'", '$', '@')
@@ -377,14 +399,27 @@ class MainWindow(QMainWindow):
 
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
-     
+
+        # Prevent any save_configuration_file() calls from firing while widgets
+        # are being constructed and signals are being connected — the real config
+        # has not been loaded yet at that point.
+        self._initialising = True
+
         global right_disk_image_explorer_content
-        
+
         right_disk_image_explorer_path = []
         right_disk_image_explorer_content = []
         right_disk_image_path = ""
         right_disk_image_selected_files = []
         configuration_dictionary = {}
+
+        # Live QColor instances for the image explorer — updated by Settings pickers
+        self.img_color_up_directory = hex_to_qcolor(DEFAULT_COLOR_UP_DIRECTORY)
+        self.img_color_dir_name     = hex_to_qcolor(DEFAULT_COLOR_DIR_NAME)
+        self.img_color_dir_type     = hex_to_qcolor(DEFAULT_COLOR_DIR_TYPE)
+        self.img_color_file_name    = hex_to_qcolor(DEFAULT_COLOR_FILE_NAME)
+        self.img_color_file_ext     = hex_to_qcolor(DEFAULT_COLOR_FILE_EXT)
+        self.img_color_file_size    = hex_to_qcolor(DEFAULT_COLOR_FILE_SIZE)
         
         self.left_file_explorer_selection_file_name = ""
         self.left_file_explorer_selection_full_filename_path = ""
@@ -578,7 +613,7 @@ class MainWindow(QMainWindow):
 
                 with open(ZX_NEXT_UNITE_CONFIG_FILE_NAME, "r") as config_file:
                     for line in config_file:
-                        config_setting_name, config_setting_value = line.strip().split('=')
+                        config_setting_name, config_setting_value = line.strip().split('=', 1)
                         configuration_dictionary[config_setting_name] = config_setting_value
 
                 
@@ -636,6 +671,20 @@ class MainWindow(QMainWindow):
                     checked = configuration_dictionary[SETTING_WARN_IMAGE_NEARLY_FULL] != "0" and configuration_dictionary[SETTING_WARN_IMAGE_NEARLY_FULL].lower() != "false"
                     self.settings_warn_image_nearly_full_checkbox.setChecked(checked)
 
+                def _load_color_setting(setting_key, default_hex, color_attr, btn_attr):
+                    hex_val = configuration_dictionary.get(setting_key, "").strip()
+                    color = hex_to_qcolor(hex_val) if hex_val else hex_to_qcolor(default_hex)
+                    setattr(self, color_attr, color)
+                    btn = getattr(self, btn_attr)
+                    btn.setStyleSheet(f"background-color: {qcolor_to_hex(color)}; border: 1px solid #888;")
+
+                _load_color_setting(SETTING_COLOR_UP_DIRECTORY, DEFAULT_COLOR_UP_DIRECTORY, "img_color_up_directory", "settings_btn_color_up_directory")
+                _load_color_setting(SETTING_COLOR_DIR_NAME,     DEFAULT_COLOR_DIR_NAME,     "img_color_dir_name",     "settings_btn_color_dir_name")
+                _load_color_setting(SETTING_COLOR_DIR_TYPE,     DEFAULT_COLOR_DIR_TYPE,     "img_color_dir_type",     "settings_btn_color_dir_type")
+                _load_color_setting(SETTING_COLOR_FILE_NAME,    DEFAULT_COLOR_FILE_NAME,    "img_color_file_name",    "settings_btn_color_file_name")
+                _load_color_setting(SETTING_COLOR_FILE_EXT,     DEFAULT_COLOR_FILE_EXT,     "img_color_file_ext",     "settings_btn_color_file_ext")
+                _load_color_setting(SETTING_COLOR_FILE_SIZE,    DEFAULT_COLOR_FILE_SIZE,    "img_color_file_size",    "settings_btn_color_file_size")
+
                 config_loaded_with_success = True
                 add_main_log_window("Loaded configuration file.")
                 logging.info("Configuration file loaded successfully.")
@@ -653,9 +702,14 @@ class MainWindow(QMainWindow):
 
 
         def save_configuration_file():
-            
+
+            # Skip saves that are triggered by signal emissions during __init__
+            # while widgets are being set up (before load_configuration_file runs).
+            if self._initialising:
+                return
+
             get_pyhdfmgooey_currenttab_config()
-            
+
             try:
 
                 config_array = [];
@@ -683,6 +737,12 @@ class MainWindow(QMainWindow):
             
         def get_pyhdfmgooey_currenttab_config():      
             configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING] = wid_inner.tab.currentIndex()
+            configuration_dictionary[SETTING_HDDFILE] = self.imageinput.text()
+            configuration_dictionary[SETTING_SCREENSIZE] = self.cspect_screensize.currentIndex()
+            configuration_dictionary[SETTING_SOUND] = self.cspect_sound.currentIndex()
+            configuration_dictionary[SETTING_VSYNC] = self.cspect_vsync.currentIndex()
+            configuration_dictionary[SETTING_JOYSTICK] = self.cspect_joystick.currentIndex()
+            configuration_dictionary[SETTING_HERTZ] = self.cspect_frequency.currentIndex()
             #save_configuration_file()           
 
         def set_cspect_screen_size():
@@ -2237,7 +2297,7 @@ class MainWindow(QMainWindow):
             if len(right_disk_image_explorer_path)!=0:
 
                 newItemUpDirectory = QTableWidgetItem(UP_DIRECTORY)
-                newItemUpDirectory.setForeground(FONT_RED)
+                newItemUpDirectory.setForeground(self.img_color_up_directory)
                 newItemEmpty1 = QTableWidgetItem("")
                 newItemEmpty2 = QTableWidgetItem("")
                 newItemUpDirectory.setFlags(newItemUpDirectory.flags() & ~Qt.ItemIsEditable) # make non editable
@@ -2272,9 +2332,9 @@ class MainWindow(QMainWindow):
                     newItemEmptyDir = QTableWidgetItem("")
                     
                     newItemFSName.setFlags(newItemFSName.flags() & ~Qt.ItemIsEditable) # make non editable
-                    newItemName.setForeground(FONT_BLUE)
+                    newItemName.setForeground(self.img_color_dir_name)
                     newItemName.setFlags(newItemName.flags() & ~Qt.ItemIsEditable) # make non editable
-                    newItemFSName.setForeground(FONT_BLUE)
+                    newItemFSName.setForeground(self.img_color_dir_type)
                     newItemEmptyDir.setFlags(newItemEmptyDir.flags() & ~Qt.ItemIsEditable) # make non editable
                     
                     newItemFSName.setFlags(~Qt.ItemIsEnabled)
@@ -2300,9 +2360,9 @@ class MainWindow(QMainWindow):
                     file_ext = str.split(file_name, '.')[1] if '.' in file_name else ""
                     newItemExt = QTableWidgetItem(file_ext)
                         
-                    newItemFS.setForeground(FONT_GREEN)
-                    newItemName.setForeground(FONT_GREEN)
-                    newItemExt.setForeground(FONT_GREEN)
+                    newItemFS.setForeground(self.img_color_file_size)
+                    newItemName.setForeground(self.img_color_file_name)
+                    newItemExt.setForeground(self.img_color_file_ext)
                     
                     newItemFS.setFlags(~Qt.ItemIsEnabled)
                     newItemExt.setFlags(~Qt.ItemIsEnabled)                    
@@ -2640,6 +2700,14 @@ class MainWindow(QMainWindow):
         # Initialize configuration dictonnary
         for c in CONFIG_FILE_SETTINGS:
             configuration_dictionary[c] = ""
+
+        # Pre-populate color defaults so save works correctly before first load
+        configuration_dictionary[SETTING_COLOR_UP_DIRECTORY] = DEFAULT_COLOR_UP_DIRECTORY
+        configuration_dictionary[SETTING_COLOR_DIR_NAME]     = DEFAULT_COLOR_DIR_NAME
+        configuration_dictionary[SETTING_COLOR_DIR_TYPE]     = DEFAULT_COLOR_DIR_TYPE
+        configuration_dictionary[SETTING_COLOR_FILE_NAME]    = DEFAULT_COLOR_FILE_NAME
+        configuration_dictionary[SETTING_COLOR_FILE_EXT]     = DEFAULT_COLOR_FILE_EXT
+        configuration_dictionary[SETTING_COLOR_FILE_SIZE]    = DEFAULT_COLOR_FILE_SIZE
 
         # Init UI forms
 
@@ -3233,8 +3301,77 @@ class MainWindow(QMainWindow):
             "Uncheck this option to suppress that warning."
         )
         self.settings_warn_image_nearly_full_checkbox.stateChanged.connect(settings_warn_image_nearly_full_statechanged)
-        grid_tab_Settings.addWidget(self.settings_warn_image_nearly_full_checkbox, 0, 0)
+        grid_tab_Settings.addWidget(self.settings_warn_image_nearly_full_checkbox, 0, 0, 1, 2)
 
+        # ── Image Explorer color customization ────────────────────────────────
+        def _make_color_button(setting_key, color_attr, label_text, tooltip_text, grid_row):
+            """Create a label + color-swatch button at the given grid row."""
+            lbl = QLabel(label_text)
+            lbl.setToolTip(tooltip_text)
+            grid_tab_Settings.addWidget(lbl, grid_row, 0)
+
+            btn = QPushButton()
+            btn.setFixedSize(80, 22)
+            btn.setToolTip(tooltip_text)
+
+            def _update_swatch(color: QColor):
+                setattr(self, color_attr, color)
+                configuration_dictionary[setting_key] = qcolor_to_hex(color)
+                btn.setStyleSheet(f"background-color: {qcolor_to_hex(color)}; border: 1px solid #888;")
+
+            def _apply_color(color: QColor):
+                _update_swatch(color)
+                save_configuration_file()
+
+            def _on_click():
+                from PySide6.QtWidgets import QColorDialog
+                current = getattr(self, color_attr)
+                chosen = QColorDialog.getColor(current, zxnextunite_Settings_tab, f"Choose color — {label_text}")
+                if chosen.isValid():
+                    _apply_color(chosen)
+
+            btn.clicked.connect(_on_click)
+            # initialise swatch to the current live color (no save — config not loaded yet)
+            _update_swatch(getattr(self, color_attr))
+            grid_tab_Settings.addWidget(btn, grid_row, 1)
+            return btn
+
+        settings_section_lbl = QLabel("SD Card Image Explorer — Item Colors:")
+        settings_section_lbl.setToolTip("Customize the foreground color for each item type displayed in the SD card image explorer.")
+        grid_tab_Settings.addWidget(settings_section_lbl, 1, 0, 1, 2)
+
+        self.settings_btn_color_up_directory = _make_color_button(
+            SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory",
+            "  Up Directory item",
+            "Color used for the '[Up Directory..]' navigation row in the image explorer.",
+            2)
+        self.settings_btn_color_dir_name = _make_color_button(
+            SETTING_COLOR_DIR_NAME, "img_color_dir_name",
+            "  Directory name",
+            "Color used for directory name entries in the image explorer.",
+            3)
+        self.settings_btn_color_dir_type = _make_color_button(
+            SETTING_COLOR_DIR_TYPE, "img_color_dir_type",
+            "  Directory type label",
+            "Color used for the 'DIR' type label column of directory entries.",
+            4)
+        self.settings_btn_color_file_name = _make_color_button(
+            SETTING_COLOR_FILE_NAME, "img_color_file_name",
+            "  File name",
+            "Color used for file name entries in the image explorer.",
+            5)
+        self.settings_btn_color_file_ext = _make_color_button(
+            SETTING_COLOR_FILE_EXT, "img_color_file_ext",
+            "  File extension",
+            "Color used for the file extension column in the image explorer.",
+            6)
+        self.settings_btn_color_file_size = _make_color_button(
+            SETTING_COLOR_FILE_SIZE, "img_color_file_size",
+            "  File size",
+            "Color used for the file size column in the image explorer.",
+            7)
+
+        grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
         zxnextunite_Settings_tab.tab_name_private = "Settings"
         wid_inner.tab.addTab(zxnextunite_Settings_tab, "Settings")
@@ -3247,11 +3384,22 @@ class MainWindow(QMainWindow):
         wid_inner.tab.addTab(zxnextunite_Help_tab, "?")
         
         #wid_inner.tab.tabBarClicked.connect(tab_changed)
+
+        def on_tab_changed(index):
+            tab_title = wid_inner.tab.tabText(index)
+            if tab_title == ZX_NEXT_UNITE_TAB_TITLE_GOOEY:
+                if len(right_disk_image_explorer_content) != 0:
+                    hdfmonkeyexecresult = execute_hdf_monkey("ls", self.right_disk_image_path, extra_argv=[generate_disk_file_path()])
+                    if hdfmonkeyexecresult.returncode == 0:
+                        update_disk_manager_widget_table(hdfmonkeyexecresult.stdout)
+
+        wid_inner.tab.currentChanged.connect(on_tab_changed)
         
 
         #  Start main logic
 
         load_configuration_file()
+        self._initialising = False
 
         if is_hdfmonkey_present():
             if load_image():
