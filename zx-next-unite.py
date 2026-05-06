@@ -57,7 +57,7 @@ import zipfile, traceback
 import logging
 import ctypes
 
-ZX_NEXT_UNITE_VERSION = "4.0"
+ZX_NEXT_UNITE_VERSION = "4.1"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
@@ -87,12 +87,15 @@ SETTING_NEXTSYNC_ALWAYSSYNC = "nextsync_alwayssync"
 SETTING_NEXTSYNC_SLOWTRANSFER = "nextsync_slowtransfer"
 SETTING_DEFAULT_TAB_WHEN_OPENING = "default_tab"
 SETTING_WARN_IMAGE_NEARLY_FULL = "warn_image_nearly_full"
+SETTING_NO_PROMPT_ON_DELETION  = "no_prompt_on_deletion"
 SETTING_COLOR_UP_DIRECTORY = "color_up_directory"
 SETTING_COLOR_DIR_NAME    = "color_dir_name"
 SETTING_COLOR_DIR_TYPE    = "color_dir_type"
 SETTING_COLOR_FILE_NAME   = "color_file_name"
 SETTING_COLOR_FILE_EXT    = "color_file_ext"
 SETTING_COLOR_FILE_SIZE   = "color_file_size"
+SETTING_IMAGE_HISTORY     = "image_history"
+MAX_IMAGE_HISTORY         = 10
 
 DEFAULT_COLOR_UP_DIRECTORY = "#ff0000"
 DEFAULT_COLOR_DIR_NAME    = "#0000ff"
@@ -191,7 +194,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("")
             )
 
-CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME, SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE)
+CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME, SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY)
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
 
@@ -619,7 +622,19 @@ class MainWindow(QMainWindow):
                 
                 #  Now set the settings back to the application SETTING_SCREENSIZE and others
 
-                self.imageinput.setText(configuration_dictionary[SETTING_HDDFILE])
+                # Restore image history into the combo (most-recent-first list stored as '|'-delimited)
+                history_raw = configuration_dictionary.get(SETTING_IMAGE_HISTORY, "")
+                if history_raw:
+                    history_entries = [p for p in history_raw.split("|") if p.strip()]
+                    self.imageinput.blockSignals(True)
+                    self.imageinput.clear()
+                    for entry in history_entries[:MAX_IMAGE_HISTORY]:
+                        self.imageinput.addItem(entry)
+                    self.imageinput.blockSignals(False)
+
+                # Set the active image path (most recently used)
+                current_hddfile = configuration_dictionary[SETTING_HDDFILE]
+                self.imageinput.setCurrentText(current_hddfile)
                 self.cspect_sound.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_SOUND]))
                 self.cspect_screensize.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_SCREENSIZE]))
                 self.cspect_vsync.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_VSYNC]))
@@ -670,6 +685,10 @@ class MainWindow(QMainWindow):
                 if SETTING_WARN_IMAGE_NEARLY_FULL in configuration_dictionary and configuration_dictionary[SETTING_WARN_IMAGE_NEARLY_FULL] != "":
                     checked = configuration_dictionary[SETTING_WARN_IMAGE_NEARLY_FULL] != "0" and configuration_dictionary[SETTING_WARN_IMAGE_NEARLY_FULL].lower() != "false"
                     self.settings_warn_image_nearly_full_checkbox.setChecked(checked)
+
+                if SETTING_NO_PROMPT_ON_DELETION in configuration_dictionary and configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION] != "":
+                    checked = configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION] != "0" and configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION].lower() != "false"
+                    self.settings_no_prompt_on_deletion_checkbox.setChecked(checked)
 
                 def _load_color_setting(setting_key, default_hex, color_attr, btn_attr):
                     hex_val = configuration_dictionary.get(setting_key, "").strip()
@@ -737,13 +756,16 @@ class MainWindow(QMainWindow):
             
         def get_pyhdfmgooey_currenttab_config():      
             configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING] = wid_inner.tab.currentIndex()
-            configuration_dictionary[SETTING_HDDFILE] = self.imageinput.text()
+            configuration_dictionary[SETTING_HDDFILE] = self.imageinput.currentText()
             configuration_dictionary[SETTING_SCREENSIZE] = self.cspect_screensize.currentIndex()
             configuration_dictionary[SETTING_SOUND] = self.cspect_sound.currentIndex()
             configuration_dictionary[SETTING_VSYNC] = self.cspect_vsync.currentIndex()
             configuration_dictionary[SETTING_JOYSTICK] = self.cspect_joystick.currentIndex()
             configuration_dictionary[SETTING_HERTZ] = self.cspect_frequency.currentIndex()
-            #save_configuration_file()           
+            # Persist the full history as a '|'-delimited string
+            history_items = [self.imageinput.itemText(i) for i in range(self.imageinput.count()) if self.imageinput.itemText(i)]
+            configuration_dictionary[SETTING_IMAGE_HISTORY] = "|".join(history_items)
+            #save_configuration_file()
 
         def set_cspect_screen_size():
             configuration_dictionary[SETTING_SCREENSIZE] = self.cspect_screensize.currentIndex()
@@ -823,10 +845,13 @@ class MainWindow(QMainWindow):
                 
 
         def delete_files_button_show_confirmation_buttons():
+            if self.settings_no_prompt_on_deletion_checkbox.isChecked():
+                button_confirm_directory_deletion()
+                return
             self.button_confirm_deletion.setVisible(True)
             self.button_cancel.setVisible(True)
             self.button_new_folder.setVisible(False)
-            self.button_delete_files.setVisible(False)            
+            self.button_delete_files.setVisible(False)
            
 
         def button_confirm_directory_deletion():
@@ -859,18 +884,35 @@ class MainWindow(QMainWindow):
                 add_main_log_window(f"Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.... {e}") 
                 return False
  
+        def _add_to_image_history(path: str):
+            """Add *path* to the top of the image history combo and persist it.
+            Duplicates are removed so each path appears only once.
+            The list is capped at MAX_IMAGE_HISTORY entries."""
+            if not path or path == '""':
+                return
+            # Remove any existing occurrence so the new one goes to the top
+            existing_index = self.imageinput.findText(path)
+            if existing_index != -1:
+                self.imageinput.removeItem(existing_index)
+            self.imageinput.insertItem(0, path)
+            # Keep within the max size (skip index 0 which is the current text placeholder)
+            while self.imageinput.count() > MAX_IMAGE_HISTORY:
+                self.imageinput.removeItem(self.imageinput.count() - 1)
+            self.imageinput.setCurrentText(path)
+            save_configuration_file()
+
         def load_image():
 
             global right_disk_image_explorer_content
 
             # Populate right impage path content
-            self.right_disk_image_path = self.imageinput.text()
-            
+            self.right_disk_image_path = self.imageinput.currentText()
+
             right_disk_image_explorer_content = []
             self.TableWidgetImage.clear()
             self.TableWidgetImage.setRowCount(0)
             set_table_image_properties()
-        
+
             if len(self.right_disk_image_path) != 0 and self.right_disk_image_path != '""':
                 hdfmonkeyexecresult = execute_hdf_monkey("ls", self.right_disk_image_path)
 
@@ -879,6 +921,7 @@ class MainWindow(QMainWindow):
                     update_disk_manager_widget_table(command_execution)
                     self.diskimageexplorerlabelpath.setText(generate_disk_file_path().replace('//', '/'))
                     set_all_buttons_enabled()
+                    _add_to_image_history(self.right_disk_image_path)
                     return True
                 else:
                     if hdfmonkeyexecresult is not None:
@@ -890,6 +933,7 @@ class MainWindow(QMainWindow):
 
             set_all_buttons_disabled()
             enable_image_selection()
+            _update_image_usage_gauge("")
 
             return False
 
@@ -1042,8 +1086,8 @@ class MainWindow(QMainWindow):
             dialog.setFileMode(QFileDialog.AnyFile)
             dialog.setViewMode(QFileDialog.Detail)
             fileName = QFileDialog.getOpenFileName(self,"Open File","/home/", "Images (*.img *.hdf)" )
-            self.imageinput.setText('"' + str(fileName[0]) + '"')
-            configuration_dictionary[SETTING_HDDFILE] = self.imageinput.text()
+            self.imageinput.setCurrentText('"' + str(fileName[0]) + '"')
+            configuration_dictionary[SETTING_HDDFILE] = self.imageinput.currentText()
             
             right_disk_image_explorer_path = []
             right_disk_image_explorer_content = []
@@ -1105,6 +1149,46 @@ class MainWindow(QMainWindow):
                     return (free_pct, free_mb, total_mb)
             except Exception:
                 return None
+
+        def _update_image_usage_gauge(image_path=None):
+            """Refresh the SD card usage gauge below the image explorer.
+            Reads the FAT free-space data from the image and updates the bar colour and tooltip.
+            Call with no argument (or empty string) to reset the gauge to an empty state."""
+            if not image_path:
+                image_path = self.right_disk_image_path if hasattr(self, 'right_disk_image_path') else ""
+            result = _get_image_free_space_pct(image_path) if image_path else None
+            gauge = self.image_usage_gauge
+            if result is None:
+                gauge.setValue(0)
+                gauge.setFormat("No image loaded")
+                gauge.setToolTip("No SD card image is currently loaded.")
+                gauge.setStyleSheet("")
+                return
+            free_pct, free_mb, total_mb = result
+            used_pct = 100.0 - free_pct
+            used_mb  = total_mb - free_mb
+            gauge.setValue(int(round(used_pct)))
+            gauge.setFormat(f"{used_pct:.1f} % used")
+            gauge.setToolTip(
+                f"SD Card Image usage: {used_pct:.1f} % used\n"
+                f"{used_mb} MB used / {total_mb} MB total\n"
+                f"{free_mb} MB remaining ({free_pct:.1f} % free)"
+            )
+            if used_pct < 70:
+                color = "#4caf50"   # green
+            elif used_pct < 90:
+                color = "#ff9800"   # orange/yellow
+            else:
+                color = "#f44336"   # red
+            gauge.setStyleSheet(
+                f"QProgressBar {{"
+                f"  border: 1px solid #555; border-radius: 4px;"
+                f"  background: #2b2b2b; text-align: center; color: #ffffff;"
+                f"}}"
+                f"QProgressBar::chunk {{"
+                f"  background-color: {color}; border-radius: 3px;"
+                f"}}"
+            )
 
         def _warn_if_image_nearly_full(image_path):
             """Show a warning dialog if the SD image has less than 10 % free space."""
@@ -2389,6 +2473,7 @@ class MainWindow(QMainWindow):
                 row += 1
 
             apply_image_filter()
+            _update_image_usage_gauge(self.right_disk_image_path)
 
 
         def update_syncpoint(path_to_content, knownfiles):
@@ -2736,9 +2821,20 @@ class MainWindow(QMainWindow):
         self.horizontal16 = QHBoxLayout()
         
 
-        self.imageinput = QLineEdit()
-        
-        self.imageinput.setText ('')
+        self.imageinput = QComboBox()
+        self.imageinput.setEditable(True)
+        self.imageinput.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.imageinput.setToolTip(
+            "Path to the SD card image (.img / .hdf).\n"
+            "Type a path directly, click the arrow to pick from recently loaded images,\n"
+            "or use the 'Select Disk Image' button to browse."
+        )
+        self.imageinput.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.imageinput.lineEdit().setPlaceholderText("SD card image path...")
+        # Pressing Enter in the editable field triggers a load attempt
+        self.imageinput.lineEdit().returnPressed.connect(lambda: load_image())
+        # Selecting an item from the history dropdown loads it immediately
+        self.imageinput.activated.connect(lambda _index: load_image())
         self.selectimage = QPushButton("ToDisk", self)
         self.selectimage.setText("Select Disk Image")
         self.selectimage.toolTip = "Select a disk image to be loaded."
@@ -2851,19 +2947,43 @@ class MainWindow(QMainWindow):
 
         self.TableWidgetImage = QTableWidget(0, 3, self) # https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/QTableWidget.html https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/QListWidget.html
         set_table_image_properties()
-        
+
         self.TableWidgetImage.doubleClicked.connect(disk_image_explorer_item_double_clicked)
         self.TableWidgetImage.itemSelectionChanged.connect(image_explorer_selection_changed)
 
+        def _table_image_key_press(event):
+            if event.key() == Qt.Key.Key_Delete and right_disk_image_selected_files:
+                delete_files_button_show_confirmation_buttons()
+            else:
+                QTableWidget.keyPressEvent(self.TableWidgetImage, event)
+
+        self.TableWidgetImage.keyPressEvent = _table_image_key_press
+
+        # Usage gauge — sits directly below the image explorer table
+        self.image_usage_gauge = QProgressBar()
+        self.image_usage_gauge.setRange(0, 100)
+        self.image_usage_gauge.setValue(0)
+        self.image_usage_gauge.setFormat("No image loaded")
+        self.image_usage_gauge.setFixedHeight(18)
+        self.image_usage_gauge.setToolTip("No SD card image is currently loaded.")
+        self.image_usage_gauge.setTextVisible(True)
+
+        self.image_explorer_container = QWidget()
+        image_explorer_vbox = QVBoxLayout(self.image_explorer_container)
+        image_explorer_vbox.setContentsMargins(0, 0, 0, 0)
+        image_explorer_vbox.setSpacing(2)
+        image_explorer_vbox.addWidget(self.TableWidgetImage)
+        image_explorer_vbox.addWidget(self.image_usage_gauge)
+
         self.horizontal3.addWidget(self.treeview)
-        
+
         self.centralbuttons.addWidget(self.button_to_image)
         self.centralbuttons.addWidget(self.button_to_disk)
-        
+
         self.centralbuttons.setAlignment(Qt.AlignCenter)
         self.centralbuttonscontainer.setLayout(self.centralbuttons)
         self.horizontal3.addWidget(self.centralbuttonscontainer)
-        self.horizontal3.addWidget(self.TableWidgetImage)
+        self.horizontal3.addWidget(self.image_explorer_container)
 
         self.zx_next_unite_form.addRow(self.horizontal3)
 
@@ -3293,7 +3413,7 @@ class MainWindow(QMainWindow):
             configuration_dictionary[SETTING_WARN_IMAGE_NEARLY_FULL] = "true" if self.settings_warn_image_nearly_full_checkbox.isChecked() else "false"
             save_configuration_file()
 
-        self.settings_warn_image_nearly_full_checkbox = QCheckBox("SD Card Utility - Warn when an image is nearly full.")
+        self.settings_warn_image_nearly_full_checkbox = QCheckBox("SD Card - Warn when an image is nearly full.")
         self.settings_warn_image_nearly_full_checkbox.setChecked(True)
         self.settings_warn_image_nearly_full_checkbox.setToolTip(
             "When enabled, a warning dialog is shown after loading or writing to an SD image\n"
@@ -3303,7 +3423,19 @@ class MainWindow(QMainWindow):
         self.settings_warn_image_nearly_full_checkbox.stateChanged.connect(settings_warn_image_nearly_full_statechanged)
         grid_tab_Settings.addWidget(self.settings_warn_image_nearly_full_checkbox, 0, 0, 1, 2)
 
-        # ── Image Explorer color customization ────────────────────────────────
+        def settings_no_prompt_on_deletion_statechanged():
+            configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION] = "true" if self.settings_no_prompt_on_deletion_checkbox.isChecked() else "false"
+            save_configuration_file()
+
+        self.settings_no_prompt_on_deletion_checkbox = QCheckBox("SD Card - Do not prompt for confirmation on deletion.")
+        self.settings_no_prompt_on_deletion_checkbox.setChecked(False)
+        self.settings_no_prompt_on_deletion_checkbox.setToolTip(
+            "When enabled, deleting a file or folder in the SD card image explorer\n"
+            "will proceed immediately without asking for confirmation.\n"
+            "Leave unchecked to keep the confirmation prompt (recommended)."
+        )
+        self.settings_no_prompt_on_deletion_checkbox.stateChanged.connect(settings_no_prompt_on_deletion_statechanged)
+        grid_tab_Settings.addWidget(self.settings_no_prompt_on_deletion_checkbox, 1, 0, 1, 2)
         def _make_color_button(setting_key, color_attr, label_text, tooltip_text, grid_row):
             """Create a label + color-swatch button at the given grid row."""
             lbl = QLabel(label_text)
@@ -3338,38 +3470,38 @@ class MainWindow(QMainWindow):
 
         settings_section_lbl = QLabel("SD Card Image Explorer — Item Colors:")
         settings_section_lbl.setToolTip("Customize the foreground color for each item type displayed in the SD card image explorer.")
-        grid_tab_Settings.addWidget(settings_section_lbl, 1, 0, 1, 2)
+        grid_tab_Settings.addWidget(settings_section_lbl, 2, 0, 1, 2)
 
         self.settings_btn_color_up_directory = _make_color_button(
             SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory",
             "  Up Directory item",
             "Color used for the '[Up Directory..]' navigation row in the image explorer.",
-            2)
+            3)
         self.settings_btn_color_dir_name = _make_color_button(
             SETTING_COLOR_DIR_NAME, "img_color_dir_name",
             "  Directory name",
             "Color used for directory name entries in the image explorer.",
-            3)
+            4)
         self.settings_btn_color_dir_type = _make_color_button(
             SETTING_COLOR_DIR_TYPE, "img_color_dir_type",
             "  Directory type label",
             "Color used for the 'DIR' type label column of directory entries.",
-            4)
+            5)
         self.settings_btn_color_file_name = _make_color_button(
             SETTING_COLOR_FILE_NAME, "img_color_file_name",
             "  File name",
             "Color used for file name entries in the image explorer.",
-            5)
+            6)
         self.settings_btn_color_file_ext = _make_color_button(
             SETTING_COLOR_FILE_EXT, "img_color_file_ext",
             "  File extension",
             "Color used for the file extension column in the image explorer.",
-            6)
+            7)
         self.settings_btn_color_file_size = _make_color_button(
             SETTING_COLOR_FILE_SIZE, "img_color_file_size",
             "  File size",
             "Color used for the file size column in the image explorer.",
-            7)
+            8)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
@@ -3400,6 +3532,8 @@ class MainWindow(QMainWindow):
 
         load_configuration_file()
         self._initialising = False
+        # Expose the nested save function so closeEvent (a class method) can call it.
+        self._save_configuration_file = save_configuration_file
 
         if is_hdfmonkey_present():
             if load_image():
@@ -3424,7 +3558,16 @@ class MainWindow(QMainWindow):
 """ 
     Main application loop        
 """
-        
+
+# closeEvent is defined here (outside __init__) so it is a real class method
+def _mainwindow_close_event(self, event):
+    """Save the active tab and all settings when the user closes the window."""
+    if hasattr(self, '_save_configuration_file'):
+        self._save_configuration_file()
+    super(MainWindow, self).closeEvent(event)
+
+MainWindow.closeEvent = _mainwindow_close_event
+
 app = QApplication(sys.argv)
 
 window = MainWindow()
