@@ -45,14 +45,15 @@
         python zx-next-unite.py
         
 """
-
+7
 from math import log
 import sys, os, string, subprocess, platform, datetime, fnmatch, socket, struct, time, glob, threading, shlex, pathlib
 from PySide6.QtCore import QSize, Qt, QSortFilterProxyModel, QModelIndex, QDir, QRunnable, Slot, Signal, QObject, QThreadPool, QRect, QTimer
-from PySide6.QtGui import QIcon, QColor, QAction, QGuiApplication
+from PySide6.QtGui import QIcon, QColor, QAction, QGuiApplication, QPixmap
 from PySide6.QtWidgets import QApplication, QComboBox, QDialogButtonBox, QLabel, QMainWindow, QPushButton, QTableWidget, QVBoxLayout, QWidget, QFileSystemModel, QTreeView, QFormLayout, QHBoxLayout, QLineEdit, QListWidgetItem, QListWidget, QFileDialog, QTableWidgetItem, QAbstractItemView, QDialog, QGridLayout, QTabWidget, QProgressBar, QCheckBox, QMenu
 from PySide6 import QtCore
 import urllib.request
+import urllib.parse
 import zipfile, traceback
 import logging
 import ctypes
@@ -67,6 +68,10 @@ ZX_NEXT_UNITE_CONFIG_FILE_NAME =  "hdfg.cfg"
 ZX_NEXT_UNITE_TAB_TITLE_GOOEY =  "zx-next-unite - SD Card Utility"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "NextSync - Network Transfer Manager"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC_SYNCON = "NextSync - Sync ON"
+ZX_NEXT_UNITE_TAB_TITLE_GETIT = "GetIt"
+
+GETIT_BASE_URL = "https://zxnext.uk"
+GETIT_PAGE_SIZE = 20
 
 
 HDF_MONKEY_WINDOWS_URL = "https://uto.speccy.org/downloads/hdfmonkey_windows.zip"
@@ -396,6 +401,155 @@ class HdfProgressDialog(QDialog):
     def closeEvent(self, event):
         self._anim_timer.stop()
         super().closeEvent(event)
+
+
+# ---------------------------------------------------------------------------
+# GetIt API helpers
+# ---------------------------------------------------------------------------
+
+def getit_fetch(path: str, timeout: int = 10) -> str:
+    """Fetch a plain-text response from the GetIt server and return the body string."""
+    url = GETIT_BASE_URL + path
+    req = urllib.request.Request(url, headers={"User-Agent": "zx-next-unite-getit/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read()
+    return raw.decode("utf-8", errors="replace")
+
+
+def getit_parse_file_list(text: str):
+    """Parse a ^R^…^END^ file listing into a list of dicts.
+
+    The entire response is a single caret-delimited line:
+      ^R^[total]^[id]^[title]^[author]^[size]^[category]^…^END^
+
+    Returns (entries, total, page, total_pages) where entries is a list of
+    {'id', 'title', 'author', 'size', 'category'} dicts.
+    """
+    text = text.strip()
+    entries = []
+    total = 0
+    page = 1
+    total_pages = 1
+
+    # Split on ^ and drop empty leading/trailing tokens
+    parts = [p for p in text.split("^") if p != ""]
+    # parts[0] == 'R', parts[1] == total (int), then groups of 5: id,title,author,size,category
+    if not parts or parts[0] != "R":
+        return entries, total, page, total_pages
+
+    try:
+        total = int(parts[1])
+    except (IndexError, ValueError):
+        pass
+
+    i = 2
+    while i + 4 < len(parts):
+        chunk = parts[i:i + 5]
+        if chunk[0] == "END":
+            break
+        entries.append({
+            "id":       chunk[0].strip(),
+            "title":    chunk[1].strip(),
+            "author":   chunk[2].strip(),
+            "size":     chunk[3].strip(),
+            "category": chunk[4].strip(),
+        })
+        i += 5
+
+    total_pages = max(1, (total + len(entries) - 1) // max(1, len(entries))) if entries else 1
+
+    return entries, total, page, total_pages
+
+
+def getit_parse_detail(text: str) -> dict:
+    """Parse an entry-detail response into a dict of TAG->value pairs."""
+    text = text.strip()
+    detail = {}
+    TAGS = ["IDID", "TITL", "LINK", "FSIZ", "AUTH", "HITS", "MD5", "VER", "DESC", "DATE", "URL"]
+    for tag in TAGS:
+        marker = f"^{tag}^"
+        idx = text.find(marker)
+        if idx == -1:
+            continue
+        value_start = idx + len(marker)
+        # Find the next known tag or end of string
+        end = len(text)
+        for other_tag in TAGS:
+            if other_tag == tag:
+                continue
+            other_idx = text.find(f"^{other_tag}^", value_start)
+            if other_idx != -1 and other_idx < end:
+                end = other_idx
+        raw_value = text[value_start:end].strip(" \r\n^")
+        # Strip embedded newlines from description per spec
+        raw_value = raw_value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").strip()
+        detail[tag] = raw_value
+    return detail
+
+
+def getit_parse_music_list(text: str):
+    """Parse a music listing response into (entries, total, page, total_pages).
+
+    Each entry: {'filename', 'id', 'size', 'author'}.
+    """
+    text = text.strip()
+    entries = []
+    total = page = total_pages = 0
+
+    lines = text.splitlines()
+    if not lines:
+        return entries, total, page, total_pages
+
+    header = lines[0]
+    if header.startswith("^R^"):
+        parts = header.split("^")
+        try:
+            total       = int(parts[2]) if len(parts) > 2 and parts[2].strip().isdigit() else 0
+            page        = int(parts[3]) if len(parts) > 3 and parts[3].strip().isdigit() else 1
+            total_pages = int(parts[4]) if len(parts) > 4 and parts[4].strip().isdigit() else 1
+        except (IndexError, ValueError):
+            pass
+
+    for line in lines[1:]:
+        line = line.strip()
+        if not line or line == "^END^":
+            break
+        if line.startswith("^"):
+            parts = line.split("^")
+            if len(parts) >= 5:
+                entries.append({
+                    "filename": parts[1].strip(),
+                    "id":       parts[2].strip(),
+                    "size":     parts[3].strip(),
+                    "author":   parts[4].strip(),
+                })
+
+    return entries, total, page, total_pages
+
+
+# ---------------------------------------------------------------------------
+# GetIt QRunnable workers (must be module-level for stable C++ type identity)
+# ---------------------------------------------------------------------------
+
+def getit_run_in_thread(fn, on_result, on_error):
+    """Run *fn* in a daemon thread. Results are marshalled to the main thread
+    via Qt queued signal connections, which are thread-safe."""
+    signals = WorkerSignals()
+    signals.result.connect(on_result)
+    signals.error.connect(on_error)
+
+    def _run():
+        try:
+            result = fn()
+            signals.result.emit(result)
+        except Exception as exc:
+            signals.error.emit((type(exc), exc, ""))
+
+    t = threading.Thread(target=_run, daemon=True)
+    t._getit_signals = signals  # keep signals alive until thread finishes
+    t.start()
+    return t
+
 
 
 class MainWindow(QMainWindow):
@@ -3385,7 +3539,536 @@ class MainWindow(QMainWindow):
         
         
         self.nextsync_form.addRow(self.horizontal15)
-        
+
+        # -----------------------------------------------------------------------
+        # GetIt UI construction
+        # -----------------------------------------------------------------------
+
+        self.getit_form = QFormLayout()
+        self.getit_form.setContentsMargins(4, 4, 4, 4)
+
+        # --- Search row ---
+        getit_search_row = QHBoxLayout()
+        self.getit_search_input = QLineEdit()
+        self.getit_search_input.setPlaceholderText("Search files... (leave empty for latest 20)")
+        self.getit_search_input.setMinimumWidth(280)
+        getit_search_row.addWidget(self.getit_search_input)
+
+        self.getit_search_button = QPushButton("Search")
+        getit_search_row.addWidget(self.getit_search_button)
+
+        self.getit_latest_button = QPushButton("Latest")
+        getit_search_row.addWidget(self.getit_latest_button)
+
+        getit_search_row.addWidget(QLabel("Page:"))
+        self.getit_page_label = QLabel("1")
+        self.getit_page_label.setMinimumWidth(24)
+        getit_search_row.addWidget(self.getit_page_label)
+
+        self.getit_prev_button = QPushButton("< Prev")
+        self.getit_prev_button.setEnabled(False)
+        getit_search_row.addWidget(self.getit_prev_button)
+
+        self.getit_next_button = QPushButton("Next >")
+        self.getit_next_button.setEnabled(False)
+        getit_search_row.addWidget(self.getit_next_button)
+
+        self.getit_status_label = QLabel("")
+        getit_search_row.addWidget(self.getit_status_label, 1)
+
+        getit_search_widget = QWidget()
+        getit_search_widget.setLayout(getit_search_row)
+        self.getit_form.addRow(getit_search_widget)
+
+        # --- Results table ---
+        self.getit_results_table = QTableWidget(0, 5)
+        self.getit_results_table.setHorizontalHeaderLabels(["ID", "Title", "Author", "Size", "Category"])
+        self.getit_results_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.getit_results_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.getit_results_table.horizontalHeader().setStretchLastSection(True)
+        self.getit_results_table.setMinimumHeight(200)
+        self.getit_results_table.setColumnWidth(0, 70)
+        self.getit_results_table.setColumnWidth(1, 300)
+        self.getit_results_table.setColumnWidth(2, 130)
+        self.getit_results_table.setColumnWidth(3, 70)
+        self.getit_form.addRow(self.getit_results_table)
+
+        # --- Detail panel ---
+        getit_detail_outer = QHBoxLayout()
+        getit_detail_form = QFormLayout()
+        getit_detail_form.setContentsMargins(0, 0, 0, 0)
+
+        self.getit_detail_title  = QLabel("")
+        self.getit_detail_author = QLabel("")
+        self.getit_detail_size   = QLabel("")
+        self.getit_detail_date   = QLabel("")
+        self.getit_detail_hits   = QLabel("")
+        self.getit_detail_url    = QLabel("")
+        self.getit_detail_url.setOpenExternalLinks(True)
+        self.getit_detail_desc   = QLabel("")
+        self.getit_detail_desc.setWordWrap(True)
+
+        getit_detail_form.addRow("Title:",       self.getit_detail_title)
+        getit_detail_form.addRow("Author:",      self.getit_detail_author)
+        getit_detail_form.addRow("Size:",        self.getit_detail_size)
+        getit_detail_form.addRow("Date:",        self.getit_detail_date)
+        getit_detail_form.addRow("Hits:",        self.getit_detail_hits)
+        getit_detail_form.addRow("URL:",         self.getit_detail_url)
+        getit_detail_form.addRow("Description:", self.getit_detail_desc)
+
+        getit_detail_widget = QWidget()
+        getit_detail_widget.setLayout(getit_detail_form)
+        getit_detail_outer.addWidget(getit_detail_widget, 1)
+
+        getit_dl_buttons = QVBoxLayout()
+        self.getit_download_button = QPushButton("Download File")
+        self.getit_download_button.setEnabled(False)
+        getit_dl_buttons.addWidget(self.getit_download_button)
+
+        self.getit_screenshot_label = QLabel()
+        self.getit_screenshot_label.setFixedSize(256, 192)
+        self.getit_screenshot_label.setAlignment(Qt.AlignCenter)
+        self.getit_screenshot_label.setStyleSheet("background: #111; border: 1px solid #444;")
+        self.getit_screenshot_label.setText("No preview")
+        getit_dl_buttons.addWidget(self.getit_screenshot_label)
+        getit_dl_buttons.addStretch()
+
+        getit_dl_widget = QWidget()
+        getit_dl_widget.setLayout(getit_dl_buttons)
+        getit_detail_outer.addWidget(getit_dl_widget)
+
+        getit_detail_container = QWidget()
+        getit_detail_container.setLayout(getit_detail_outer)
+        self.getit_form.addRow(getit_detail_container)
+
+        # --- Music section ---
+        getit_music_section_label = QLabel("Music (PT3 / MOD from zxart / modarchive)")
+        getit_music_section_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
+        self.getit_form.addRow(getit_music_section_label)
+
+        getit_music_search_row = QHBoxLayout()
+        self.getit_music_search_input = QLineEdit()
+        self.getit_music_search_input.setPlaceholderText("Search music... (! = artist, # = list view, leave empty for latest)")
+        self.getit_music_search_input.setMinimumWidth(280)
+        getit_music_search_row.addWidget(self.getit_music_search_input)
+
+        self.getit_music_search_button = QPushButton("Search Music")
+        getit_music_search_row.addWidget(self.getit_music_search_button)
+
+        self.getit_music_latest_button = QPushButton("Latest Music")
+        getit_music_search_row.addWidget(self.getit_music_latest_button)
+
+        getit_music_search_row.addWidget(QLabel("Page:"))
+        self.getit_music_page_label = QLabel("1")
+        self.getit_music_page_label.setMinimumWidth(24)
+        getit_music_search_row.addWidget(self.getit_music_page_label)
+
+        self.getit_music_prev_button = QPushButton("< Prev")
+        self.getit_music_prev_button.setEnabled(False)
+        getit_music_search_row.addWidget(self.getit_music_prev_button)
+
+        self.getit_music_next_button = QPushButton("Next >")
+        self.getit_music_next_button.setEnabled(False)
+        getit_music_search_row.addWidget(self.getit_music_next_button)
+
+        self.getit_music_status_label = QLabel("")
+        getit_music_search_row.addWidget(self.getit_music_status_label, 1)
+
+        getit_music_search_widget = QWidget()
+        getit_music_search_widget.setLayout(getit_music_search_row)
+        self.getit_form.addRow(getit_music_search_widget)
+
+        getit_music_result_row = QHBoxLayout()
+        self.getit_music_table = QTableWidget(0, 4)
+        self.getit_music_table.setHorizontalHeaderLabels(["Filename", "ID", "Size", "Author"])
+        self.getit_music_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.getit_music_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.getit_music_table.horizontalHeader().setStretchLastSection(True)
+        self.getit_music_table.setMinimumHeight(130)
+        self.getit_music_table.setColumnWidth(0, 220)
+        self.getit_music_table.setColumnWidth(1, 80)
+        self.getit_music_table.setColumnWidth(2, 70)
+        getit_music_result_row.addWidget(self.getit_music_table, 1)
+
+        getit_music_dl_layout = QVBoxLayout()
+        self.getit_music_download_button = QPushButton("Download MOD")
+        self.getit_music_download_button.setEnabled(False)
+        getit_music_dl_layout.addWidget(self.getit_music_download_button)
+        getit_music_dl_layout.addStretch()
+        getit_music_dl_widget = QWidget()
+        getit_music_dl_widget.setLayout(getit_music_dl_layout)
+        getit_music_result_row.addWidget(getit_music_dl_widget)
+
+        getit_music_result_widget = QWidget()
+        getit_music_result_widget.setLayout(getit_music_result_row)
+        self.getit_form.addRow(getit_music_result_widget)
+
+        # --- MOTD ---
+        getit_motd_label = QLabel("MOTD:")
+        getit_motd_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
+        self.getit_form.addRow(getit_motd_label)
+
+        self.getit_motd_text = QLabel("")
+        self.getit_motd_text.setWordWrap(True)
+        self.getit_motd_text.setStyleSheet("color: #888; font-style: italic;")
+        self.getit_form.addRow(self.getit_motd_text)
+
+        # Internal state
+        self._getit_current_page = 1
+        self._getit_total_pages  = 1
+        self._getit_last_query   = ""
+        self._getit_selected_id  = ""
+        self._getit_selected_link = ""
+
+        self._getit_music_current_page = 1
+        self._getit_music_total_pages  = 1
+        self._getit_music_last_query   = ""
+        self._getit_music_selected_id  = ""
+
+        self._getit_motd_loaded = False
+        self._getit_motd_loading = False
+        self._getit_search_loading = False
+
+        # ---- Internal helpers ----
+
+        def getit_set_status(msg: str):
+            self.getit_status_label.setText(msg)
+
+        def getit_set_music_status(msg: str):
+            self.getit_music_status_label.setText(msg)
+
+        def getit_populate_results(entries, page, total_pages):
+            self._getit_current_page = page
+            self._getit_total_pages  = total_pages
+            self.getit_page_label.setText(str(page))
+            self.getit_prev_button.setEnabled(page > 1)
+            self.getit_next_button.setEnabled(page < total_pages)
+
+            self.getit_results_table.setRowCount(0)
+            for e in entries:
+                row = self.getit_results_table.rowCount()
+                self.getit_results_table.insertRow(row)
+                self.getit_results_table.setItem(row, 0, QTableWidgetItem(e["id"]))
+                self.getit_results_table.setItem(row, 1, QTableWidgetItem(e["title"]))
+                self.getit_results_table.setItem(row, 2, QTableWidgetItem(e["author"]))
+                self.getit_results_table.setItem(row, 3, QTableWidgetItem(e["size"]))
+                self.getit_results_table.setItem(row, 4, QTableWidgetItem(e["category"]))
+
+        def getit_clear_detail():
+            self.getit_detail_title.setText("")
+            self.getit_detail_author.setText("")
+            self.getit_detail_size.setText("")
+            self.getit_detail_date.setText("")
+            self.getit_detail_hits.setText("")
+            self.getit_detail_url.setText("")
+            self.getit_detail_desc.setText("")
+            self.getit_download_button.setEnabled(False)
+            self._getit_selected_id   = ""
+            self._getit_selected_link = ""
+
+        def getit_populate_detail(detail: dict):
+            self.getit_detail_title.setText(detail.get("TITL", ""))
+            self.getit_detail_author.setText(detail.get("AUTH", ""))
+            self.getit_detail_size.setText(detail.get("FSIZ", ""))
+            self.getit_detail_date.setText(detail.get("DATE", ""))
+            self.getit_detail_hits.setText(detail.get("HITS", ""))
+            url_val = detail.get("URL", "")
+            self.getit_detail_url.setText(f'<a href="{url_val}">{url_val}</a>' if url_val else "")
+            self.getit_detail_desc.setText(detail.get("DESC", ""))
+            link = detail.get("LINK", "")
+            self._getit_selected_link = link
+            self.getit_download_button.setEnabled(bool(self._getit_selected_id))
+
+        def getit_populate_music(entries, page, total_pages):
+            self._getit_music_current_page = page
+            self._getit_music_total_pages  = total_pages
+            self.getit_music_page_label.setText(str(page))
+            self.getit_music_prev_button.setEnabled(page > 1)
+            self.getit_music_next_button.setEnabled(page < total_pages)
+
+            self.getit_music_table.setRowCount(0)
+            for e in entries:
+                row = self.getit_music_table.rowCount()
+                self.getit_music_table.insertRow(row)
+                self.getit_music_table.setItem(row, 0, QTableWidgetItem(e["filename"]))
+                self.getit_music_table.setItem(row, 1, QTableWidgetItem(e["id"]))
+                self.getit_music_table.setItem(row, 2, QTableWidgetItem(e["size"]))
+                self.getit_music_table.setItem(row, 3, QTableWidgetItem(e["author"]))
+
+        # ---- Background search task ----
+
+        def getit_run_search(query: str, page: int):
+            if self._getit_search_loading:
+                return
+            self._getit_search_loading = True
+            getit_set_status("Searching…")
+            self.getit_search_button.setEnabled(False)
+            self.getit_latest_button.setEnabled(False)
+            self._getit_last_query = query
+
+            def _search_fn():
+                if query:
+                    path = f"/f?s={urllib.parse.quote(query)}"
+                    if page > 1:
+                        path += f"?p={page}"
+                else:
+                    path = "/f"
+                    if page > 1:
+                        path += f"?p={page}"
+                text = getit_fetch(path)
+                entries, total, pg, total_pages = getit_parse_file_list(text)
+                return (entries, total, pg, total_pages)
+
+            def _on_result(data):
+                self._getit_search_loading = False
+                getit_populate_results(data[0], data[2] or page, data[3] or 1)
+                getit_set_status(f"{data[1]} result(s)  |  page {data[2]}/{data[3]}")
+                self.getit_search_button.setEnabled(True)
+                self.getit_latest_button.setEnabled(True)
+
+            def _on_error(err):
+                self._getit_search_loading = False
+                getit_set_status(f"Error: {err[1]}")
+                self.getit_search_button.setEnabled(True)
+                self.getit_latest_button.setEnabled(True)
+
+            self._getit_search_thread = getit_run_in_thread(_search_fn, _on_result, _on_error)
+
+        def getit_on_search():
+            getit_clear_detail()
+            getit_run_search(self.getit_search_input.text().strip(), 1)
+
+        def getit_on_latest():
+            getit_clear_detail()
+            self.getit_search_input.clear()
+            getit_run_search("", 1)
+
+        def getit_on_prev():
+            getit_run_search(self._getit_last_query, max(1, self._getit_current_page - 1))
+
+        def getit_on_next():
+            getit_run_search(self._getit_last_query, min(self._getit_total_pages, self._getit_current_page + 1))
+
+        self.getit_search_button.clicked.connect(getit_on_search)
+        self.getit_latest_button.clicked.connect(getit_on_latest)
+        self.getit_search_input.returnPressed.connect(getit_on_search)
+        self.getit_prev_button.clicked.connect(getit_on_prev)
+        self.getit_next_button.clicked.connect(getit_on_next)
+
+        # ---- Row selection → fetch detail ----
+
+        def getit_on_row_selected():
+            rows = self.getit_results_table.selectedItems()
+            if not rows:
+                return
+            row = self.getit_results_table.currentRow()
+            entry_id = self.getit_results_table.item(row, 0).text()
+            if not entry_id:
+                return
+            self._getit_selected_id = entry_id
+            getit_set_status(f"Loading details for {entry_id}…")
+            self.getit_download_button.setEnabled(False)
+            self.getit_screenshot_label.setText("Loading…")
+            self.getit_screenshot_label.setPixmap(QPixmap())
+
+            def _scr_fn(eid=entry_id):
+                import tempfile, os
+                url = f"{GETIT_BASE_URL}/nx/{eid}/i/"
+                tmp = tempfile.NamedTemporaryFile(suffix=".bmp", delete=False)
+                tmp.close()
+                urllib.request.urlretrieve(url, tmp.name)
+                return tmp.name
+
+            def _on_scr_done(path):
+                px = QPixmap(path)
+                import os; os.unlink(path)
+                if px.isNull():
+                    self.getit_screenshot_label.setText("No preview")
+                else:
+                    self.getit_screenshot_label.setPixmap(
+                        px.scaled(256, 192, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    )
+
+            def _on_scr_error(err):
+                self.getit_screenshot_label.setText("No preview")
+
+            self._getit_scr_thread = getit_run_in_thread(_scr_fn, _on_scr_done, _on_scr_error)
+
+            def _detail_fn():
+                text   = getit_fetch(f"/nx/{entry_id}/f/")
+                return getit_parse_detail(text)
+
+            def _on_detail(d):
+                getit_populate_detail(d)
+                getit_set_status(f"Details loaded for {entry_id}")
+
+            self._getit_detail_thread = getit_run_in_thread(
+                _detail_fn, _on_detail,
+                lambda err: getit_set_status(f"Detail error: {err[1]}")
+            )
+
+        self.getit_results_table.itemSelectionChanged.connect(getit_on_row_selected)
+
+        # ---- Download file ----
+
+        def getit_on_download():
+            if not self._getit_selected_id:
+                return
+            save_path, _ = QFileDialog.getSaveFileName(
+                None, "Save file", self._getit_selected_link or f"{self._getit_selected_id}.zip"
+            )
+            if not save_path:
+                return
+            eid = self._getit_selected_id
+            getit_set_status(f"Downloading {eid}…")
+            self.getit_download_button.setEnabled(False)
+
+            def _dl_fn():
+                url = f"{GETIT_BASE_URL}/nx/{eid}/"
+                urllib.request.urlretrieve(url, save_path)
+                return save_path
+
+            def _on_dl_done(p):
+                getit_set_status(f"Saved to {p}")
+                self.getit_download_button.setEnabled(True)
+
+            def _on_dl_error(err):
+                getit_set_status(f"Download error: {err[1]}")
+                self.getit_download_button.setEnabled(True)
+
+            self._getit_dl_thread = getit_run_in_thread(_dl_fn, _on_dl_done, _on_dl_error)
+
+        self.getit_download_button.clicked.connect(getit_on_download)
+
+        # ---- Music search ----
+
+        def getit_run_music_search(query: str, page: int):
+            getit_set_music_status("Searching…")
+            self.getit_music_search_button.setEnabled(False)
+            self.getit_music_latest_button.setEnabled(False)
+            self._getit_music_last_query = query
+
+            def _music_fn():
+                if query:
+                    path = f"/scr?s={urllib.parse.quote(query)}&p={page}"
+                else:
+                    path = f"/pt3?p={page}"
+                text = getit_fetch(path)
+                entries, total, pg, total_pages = getit_parse_music_list(text)
+                return (entries, total, pg, total_pages)
+
+            def _on_music_result(data):
+                getit_populate_music(data[0], data[2] or page, data[3] or 1)
+                getit_set_music_status(f"{data[1]} result(s)  |  page {data[2]}/{data[3]}")
+                self.getit_music_search_button.setEnabled(True)
+                self.getit_music_latest_button.setEnabled(True)
+
+            def _on_music_error(err):
+                getit_set_music_status(f"Error: {err[1]}")
+                self.getit_music_search_button.setEnabled(True)
+                self.getit_music_latest_button.setEnabled(True)
+
+            self._getit_music_thread = getit_run_in_thread(_music_fn, _on_music_result, _on_music_error)
+
+        def getit_on_music_search():
+            getit_run_music_search(self.getit_music_search_input.text().strip(), 1)
+
+        def getit_on_music_latest():
+            self.getit_music_search_input.clear()
+            getit_run_music_search("", 1)
+
+        def getit_on_music_prev():
+            getit_run_music_search(self._getit_music_last_query, max(1, self._getit_music_current_page - 1))
+
+        def getit_on_music_next():
+            getit_run_music_search(self._getit_music_last_query, min(self._getit_music_total_pages, self._getit_music_current_page + 1))
+
+        self.getit_music_search_button.clicked.connect(getit_on_music_search)
+        self.getit_music_latest_button.clicked.connect(getit_on_music_latest)
+        self.getit_music_search_input.returnPressed.connect(getit_on_music_search)
+        self.getit_music_prev_button.clicked.connect(getit_on_music_prev)
+        self.getit_music_next_button.clicked.connect(getit_on_music_next)
+
+        # ---- Music row selected → enable download ----
+
+        def getit_on_music_row_selected():
+            rows = self.getit_music_table.selectedItems()
+            if not rows:
+                self.getit_music_download_button.setEnabled(False)
+                self._getit_music_selected_id = ""
+                return
+            row = self.getit_music_table.currentRow()
+            self._getit_music_selected_id = self.getit_music_table.item(row, 1).text()
+            self.getit_music_download_button.setEnabled(bool(self._getit_music_selected_id))
+
+        self.getit_music_table.itemSelectionChanged.connect(getit_on_music_row_selected)
+
+        # ---- Download MOD ----
+
+        def getit_on_music_download():
+            mid = self._getit_music_selected_id
+            if not mid:
+                return
+            filename = ""
+            row = self.getit_music_table.currentRow()
+            if row >= 0:
+                fn_item = self.getit_music_table.item(row, 0)
+                if fn_item:
+                    filename = fn_item.text()
+            save_path, _ = QFileDialog.getSaveFileName(
+                None, "Save MOD", filename or f"{mid}.mod"
+            )
+            if not save_path:
+                return
+            getit_set_music_status(f"Downloading MOD {mid}…")
+            self.getit_music_download_button.setEnabled(False)
+
+            def _mod_fn():
+                url = f"{GETIT_BASE_URL}/mod?id={mid}"
+                urllib.request.urlretrieve(url, save_path)
+                return save_path
+
+            def _on_mod_done(p):
+                getit_set_music_status(f"Saved to {p}")
+                self.getit_music_download_button.setEnabled(True)
+
+            def _on_mod_error(err):
+                getit_set_music_status(f"Download error: {err[1]}")
+                self.getit_music_download_button.setEnabled(True)
+
+            self._getit_mod_thread = getit_run_in_thread(_mod_fn, _on_mod_done, _on_mod_error)
+
+        self.getit_music_download_button.clicked.connect(getit_on_music_download)
+
+        # ---- MOTD fetch ----
+
+        def getit_fetch_motd():
+            if self._getit_motd_loaded or self._getit_motd_loading:
+                return
+            self._getit_motd_loading = True
+
+            def _motd_fn():
+                return getit_fetch("/motd2.txt").strip()
+
+            def _on_motd(t):
+                self._getit_motd_loading = False
+                self._getit_motd_loaded = True
+                self.getit_motd_text.setText(t)
+
+            def _on_motd_error(err):
+                self._getit_motd_loading = False
+                self.getit_motd_text.setText(f"(MOTD unavailable: {err[1]})")
+
+            self._getit_motd_thread = getit_run_in_thread(_motd_fn, _on_motd, _on_motd_error)
+
+        # Store for on_tab_changed wiring below
+        self._getit_fetch_motd      = getit_fetch_motd
+        self._getit_on_latest       = getit_on_latest
+        self._getit_on_music_latest = getit_on_music_latest
+
+        getit_container = QWidget()
+        getit_container.setLayout(self.getit_form)
+
         self.setCentralWidget(wid_inner)
         
 
@@ -3404,6 +4087,14 @@ class MainWindow(QMainWindow):
         zxnextunite_NextSync_tab.setLayout(grid_tab_nextsync)
         zxnextunite_NextSync_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC
         wid_inner.tab.addTab(zxnextunite_NextSync_tab, ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC)
+
+        # Create GetIt Tab
+        zxnextunite_GetIt_tab = QWidget(wid_inner.tab)
+        grid_tab_getit = QGridLayout(zxnextunite_GetIt_tab)
+        grid_tab_getit.addWidget(getit_container)
+        zxnextunite_GetIt_tab.setLayout(grid_tab_getit)
+        zxnextunite_GetIt_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_GETIT
+        wid_inner.tab.addTab(zxnextunite_GetIt_tab, ZX_NEXT_UNITE_TAB_TITLE_GETIT)
 
         # Create Settings Tab
         zxnextunite_Settings_tab = QWidget(wid_inner.tab)
@@ -3518,20 +4209,28 @@ class MainWindow(QMainWindow):
         #wid_inner.tab.tabBarClicked.connect(tab_changed)
 
         def on_tab_changed(index):
+            if self._initialising:
+                return
             tab_title = wid_inner.tab.tabText(index)
             if tab_title == ZX_NEXT_UNITE_TAB_TITLE_GOOEY:
                 if len(right_disk_image_explorer_content) != 0:
                     hdfmonkeyexecresult = execute_hdf_monkey("ls", self.right_disk_image_path, extra_argv=[generate_disk_file_path()])
                     if hdfmonkeyexecresult.returncode == 0:
                         update_disk_manager_widget_table(hdfmonkeyexecresult.stdout)
-
-        wid_inner.tab.currentChanged.connect(on_tab_changed)
+            elif tab_title == ZX_NEXT_UNITE_TAB_TITLE_GETIT:
+                self._getit_fetch_motd()
+                if self.getit_results_table.rowCount() == 0 and not self._getit_search_loading:
+                    self._getit_on_latest()
         
 
         #  Start main logic
 
         load_configuration_file()
         self._initialising = False
+
+        # Connect tab-changed AFTER load so setCurrentIndex during config restore
+        # does not trigger on_tab_changed before state is ready.
+        wid_inner.tab.currentChanged.connect(on_tab_changed)
         # Expose the nested save function so closeEvent (a class method) can call it.
         self._save_configuration_file = save_configuration_file
 
