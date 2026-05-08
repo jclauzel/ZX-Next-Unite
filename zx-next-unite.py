@@ -50,7 +50,7 @@ from math import log
 import sys, os, string, subprocess, platform, datetime, fnmatch, socket, struct, time, glob, threading, shlex, pathlib
 from PySide6.QtCore import QSize, Qt, QSortFilterProxyModel, QModelIndex, QDir, QRunnable, Slot, Signal, QObject, QThreadPool, QRect, QTimer
 from PySide6.QtGui import QIcon, QColor, QAction, QGuiApplication, QPixmap
-from PySide6.QtWidgets import QApplication, QComboBox, QDialogButtonBox, QLabel, QMainWindow, QPushButton, QTableWidget, QVBoxLayout, QWidget, QFileSystemModel, QTreeView, QFormLayout, QHBoxLayout, QLineEdit, QListWidgetItem, QListWidget, QFileDialog, QTableWidgetItem, QAbstractItemView, QDialog, QGridLayout, QTabWidget, QProgressBar, QCheckBox, QMenu, QScrollArea, QStackedWidget, QToolButton, QHeaderView
+from PySide6.QtWidgets import QApplication, QComboBox, QDialogButtonBox, QLabel, QMainWindow, QPushButton, QTableWidget, QVBoxLayout, QWidget, QFileSystemModel, QTreeView, QFormLayout, QHBoxLayout, QLineEdit, QListWidgetItem, QListWidget, QFileDialog, QTableWidgetItem, QAbstractItemView, QDialog, QGridLayout, QTabWidget, QProgressBar, QCheckBox, QMenu, QScrollArea, QStackedWidget, QToolButton, QHeaderView, QInputDialog
 from PySide6 import QtCore
 import urllib.request
 import urllib.parse
@@ -59,7 +59,7 @@ import zipfile, traceback
 import logging
 import ctypes
 
-ZX_NEXT_UNITE_VERSION = "4.2"
+ZX_NEXT_UNITE_VERSION = "4.3"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
@@ -99,6 +99,9 @@ SETTING_NEXTSYNC_SLOWTRANSFER = "nextsync_slowtransfer"
 SETTING_DEFAULT_TAB_WHEN_OPENING = "default_tab"
 SETTING_WARN_IMAGE_NEARLY_FULL = "warn_image_nearly_full"
 SETTING_NO_PROMPT_ON_DELETION  = "no_prompt_on_deletion"
+SETTING_ZXDB_AVAIL_CHECK       = "zxdb_avail_check"
+SETTING_ZXDB_LAST_MODE         = "zxdb_last_mode"
+SETTING_ZXDB_LAST_QUERY        = "zxdb_last_query"
 SETTING_COLOR_UP_DIRECTORY = "color_up_directory"
 SETTING_COLOR_DIR_NAME    = "color_dir_name"
 SETTING_COLOR_DIR_TYPE    = "color_dir_type"
@@ -205,7 +208,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("")
             )
 
-CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME, SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY)
+CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME, SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY)
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
 
@@ -586,7 +589,18 @@ def zxdb_parse_search(payload) -> tuple:
         return entries, total, page, total_pages, page_size
 
     # Pagination metadata (may appear under different keys)
-    total = int(zxdb_pick(payload, "hits_count", "total", "totalHits", default=0) or 0)
+    # ZXInfo v3 uses ES envelope: hits.total.value (or hits.total as int)
+    _hits_meta = payload.get("hits")
+    if isinstance(_hits_meta, dict):
+        _hits_total = _hits_meta.get("total")
+        if isinstance(_hits_total, dict):
+            total = int(_hits_total.get("value", 0) or 0)
+        elif isinstance(_hits_total, (int, float)):
+            total = int(_hits_total)
+        else:
+            total = int(zxdb_pick(payload, "hits_count", "total", "totalHits", default=0) or 0)
+    else:
+        total = int(zxdb_pick(payload, "hits_count", "total", "totalHits", default=0) or 0)
     page  = int(zxdb_pick(payload, "current_page", "currentPage", "page", default=0) or 0)
     total_pages = int(zxdb_pick(payload, "total_pages", "totalPages", "pages", default=0) or 0)
     page_size = int(zxdb_pick(payload, "size", "pageSize", default=ZXDB_PAGE_SIZE) or ZXDB_PAGE_SIZE)
@@ -1145,6 +1159,21 @@ class MainWindow(QMainWindow):
                 if SETTING_NO_PROMPT_ON_DELETION in configuration_dictionary and configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION] != "":
                     checked = configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION] != "0" and configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION].lower() != "false"
                     self.settings_no_prompt_on_deletion_checkbox.setChecked(checked)
+
+                if SETTING_ZXDB_AVAIL_CHECK in configuration_dictionary and configuration_dictionary[SETTING_ZXDB_AVAIL_CHECK] != "":
+                    checked = configuration_dictionary[SETTING_ZXDB_AVAIL_CHECK] != "0" and configuration_dictionary[SETTING_ZXDB_AVAIL_CHECK].lower() != "false"
+                    self.settings_zxdb_avail_check_checkbox.setChecked(checked)
+
+                saved_mode = configuration_dictionary.get(SETTING_ZXDB_LAST_MODE, "").strip()
+                if saved_mode:
+                    for _i in range(self.zxdb_mode_combo.count()):
+                        if self.zxdb_mode_combo.itemData(_i) == saved_mode:
+                            self.zxdb_mode_combo.setCurrentIndex(_i)
+                            break
+
+                saved_query = configuration_dictionary.get(SETTING_ZXDB_LAST_QUERY, "")
+                if saved_query:
+                    self.zxdb_search_input.setText(saved_query)
 
                 def _load_color_setting(setting_key, default_hex, color_attr, btn_attr):
                     hex_val = configuration_dictionary.get(setting_key, "").strip()
@@ -4539,6 +4568,7 @@ class MainWindow(QMainWindow):
         # (display label, internal mode key)
         for label, key in (
             ("Games",       "games"),
+            ("By letter",   "byletter"),
             ("Magazines",   "magazines"),
             ("By author",   "author"),
             ("Suggestions", "suggest"),
@@ -4547,6 +4577,13 @@ class MainWindow(QMainWindow):
         self.zxdb_mode_combo.setCurrentIndex(0)
         self.zxdb_mode_combo.setToolTip("Search mode")
         zxdb_search_row.addWidget(self.zxdb_mode_combo)
+
+        self.zxdb_letter_combo = QComboBox()
+        for _lbl in ["#"] + [chr(c) for c in range(ord("A"), ord("Z") + 1)]:
+            self.zxdb_letter_combo.addItem(_lbl, _lbl.lower())
+        self.zxdb_letter_combo.setToolTip("Pick a letter")
+        self.zxdb_letter_combo.setVisible(False)
+        zxdb_search_row.addWidget(self.zxdb_letter_combo)
 
         self.zxdb_random_button = QPushButton("Random")
         zxdb_search_row.addWidget(self.zxdb_random_button)
@@ -4565,6 +4602,27 @@ class MainWindow(QMainWindow):
         zxdb_search_row.addWidget(self.zxdb_next_button)
 
         self.zxdb_status_label = QLabel("")
+        self.zxdb_status_label.setCursor(Qt.ArrowCursor)
+        self._zxdb_status_open_path = None
+        def _zxdb_status_mouse_press(ev):
+            if ev.button() == Qt.LeftButton and self._zxdb_status_open_path:
+                p = self._zxdb_status_open_path
+                if os.path.isfile(p):
+                    p = os.path.dirname(p)
+                # Ensure the folder exists before trying to open it
+                try:
+                    os.makedirs(p, exist_ok=True)
+                except OSError:
+                    pass
+                if not os.path.isdir(p):
+                    return
+                if sys.platform == "win32":
+                    os.startfile(p)
+                elif sys.platform == "darwin":
+                    import subprocess; subprocess.Popen(["open", p])
+                else:
+                    import subprocess; subprocess.Popen(["xdg-open", p])
+        self.zxdb_status_label.mousePressEvent = _zxdb_status_mouse_press
         zxdb_search_row.addWidget(self.zxdb_status_label, 1)
 
         zxdb_search_widget = QWidget()
@@ -4593,11 +4651,45 @@ class MainWindow(QMainWindow):
         self.zxdb_screenshot_label.setText("No preview")
         self.zxdb_screenshot_label.setToolTip("Double-click to enlarge")
 
+        # Wrap label in a container so overlay QToolButtons receive clicks
+        # (QLabel consumes mouse events and blocks children from receiving them)
+        zxdb_preview_container = QWidget()
+        zxdb_preview_container.setFixedSize(256, 192)
+        self.zxdb_screenshot_label.setParent(zxdb_preview_container)
+        self.zxdb_screenshot_label.move(0, 0)
+
+        _nav_btn_style = (
+            "QToolButton { color: white; background: rgba(0,0,0,140); border: none;"
+            " font-size: 20px; font-weight: bold; padding: 2px 6px; }"
+            "QToolButton:hover { background: rgba(0,0,0,210); }"
+        )
+        self.zxdb_prev_shot_btn = QToolButton(zxdb_preview_container)
+        self.zxdb_prev_shot_btn.setText("<")
+        self.zxdb_prev_shot_btn.setStyleSheet(_nav_btn_style)
+        self.zxdb_prev_shot_btn.setVisible(False)
+        self.zxdb_prev_shot_btn.raise_()
+
+        self.zxdb_next_shot_btn = QToolButton(zxdb_preview_container)
+        self.zxdb_next_shot_btn.setText(">")
+        self.zxdb_next_shot_btn.setStyleSheet(_nav_btn_style)
+        self.zxdb_next_shot_btn.setVisible(False)
+        self.zxdb_next_shot_btn.raise_()
+
+        def _zxdb_reposition_shot_btns():
+            h = zxdb_preview_container.height()
+            bh = self.zxdb_prev_shot_btn.sizeHint().height()
+            by = (h - bh) // 2
+            self.zxdb_prev_shot_btn.move(2, by)
+            bw = self.zxdb_next_shot_btn.sizeHint().width()
+            self.zxdb_next_shot_btn.move(zxdb_preview_container.width() - bw - 2, by)
+
+        _zxdb_reposition_shot_btns()
+
         self.zxdb_download_button = QPushButton("Download File")
         self.zxdb_download_button.setEnabled(False)
 
         zxdb_right_col = QVBoxLayout()
-        zxdb_right_col.addWidget(self.zxdb_screenshot_label)
+        zxdb_right_col.addWidget(zxdb_preview_container)
         zxdb_right_col.addWidget(self.zxdb_download_button)
         zxdb_right_col.addStretch()
         zxdb_right_widget = QWidget()
@@ -4629,6 +4721,7 @@ class MainWindow(QMainWindow):
         self._zxdb_search_loading = False
         self._zxdb_loaded_once   = False
         self._zxdb_results_mode  = "games"
+        self._zxdb_magazine_issues = []   # issues list of the currently-loaded magazine
 
         # Slideshow state
         self._zxdb_screenshots = []        # list of dicts {url, type}
@@ -4640,8 +4733,15 @@ class MainWindow(QMainWindow):
 
         # ---- Helpers ----
 
-        def zxdb_set_status(msg: str):
+        def zxdb_set_status(msg: str, open_path: str = None):
             self.zxdb_status_label.setText(msg)
+            self._zxdb_status_open_path = open_path
+            if open_path:
+                self.zxdb_status_label.setStyleSheet("color: #4fc3f7; text-decoration: underline;")
+                self.zxdb_status_label.setCursor(Qt.PointingHandCursor)
+            else:
+                self.zxdb_status_label.setStyleSheet("")
+                self.zxdb_status_label.setCursor(Qt.ArrowCursor)
 
         def _zxdb_clear_detail_rows():
             while self._zxdb_detail_layout.rowCount() > 0:
@@ -4815,11 +4915,19 @@ class MainWindow(QMainWindow):
                     pm.scaled(fs, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 )
 
+        def zxdb_update_nav_buttons():
+            multi = len(self._zxdb_screenshots) > 1
+            self.zxdb_prev_shot_btn.setVisible(multi)
+            self.zxdb_next_shot_btn.setVisible(multi)
+            self.zxdb_fs_prev_btn.setVisible(multi and self._zxdb_stack.currentIndex() == 1)
+            self.zxdb_fs_next_btn.setVisible(multi and self._zxdb_stack.currentIndex() == 1)
+
         def zxdb_show_shot_at(idx: int):
             if not self._zxdb_screenshots:
                 return
             idx = idx % len(self._zxdb_screenshots)
             self._zxdb_shot_index = idx
+            zxdb_update_nav_buttons()
             url = self._zxdb_screenshots[idx]["url"]
             cached = self._zxdb_shot_cache.get(url)
             if cached is not None:
@@ -4852,6 +4960,21 @@ class MainWindow(QMainWindow):
 
         self._zxdb_slideshow_timer.timeout.connect(zxdb_slideshow_tick)
 
+        def _zxdb_nav_prev():
+            if len(self._zxdb_screenshots) > 1:
+                self._zxdb_slideshow_timer.stop()
+                zxdb_show_shot_at(self._zxdb_shot_index - 1)
+                self._zxdb_slideshow_timer.start()
+
+        def _zxdb_nav_next():
+            if len(self._zxdb_screenshots) > 1:
+                self._zxdb_slideshow_timer.stop()
+                zxdb_show_shot_at(self._zxdb_shot_index + 1)
+                self._zxdb_slideshow_timer.start()
+
+        self.zxdb_prev_shot_btn.clicked.connect(_zxdb_nav_prev)
+        self.zxdb_next_shot_btn.clicked.connect(_zxdb_nav_next)
+
         def zxdb_start_slideshow(screenshots):
             self._zxdb_slideshow_timer.stop()
             self._zxdb_shot_token += 1
@@ -4861,6 +4984,7 @@ class MainWindow(QMainWindow):
             if not self._zxdb_screenshots:
                 self.zxdb_screenshot_label.setText("No preview")
                 self.zxdb_screenshot_label.setPixmap(QPixmap())
+                zxdb_update_nav_buttons()
                 return
             zxdb_show_shot_at(0)
             if len(self._zxdb_screenshots) > 1:
@@ -4876,6 +5000,7 @@ class MainWindow(QMainWindow):
             self.zxdb_search_button.setEnabled(not busy)
             self.zxdb_random_button.setEnabled(not busy and zxdb_current_mode() == "games")
             self.zxdb_mode_combo.setEnabled(not busy)
+            self.zxdb_letter_combo.setEnabled(not busy)
 
         def _zxdb_extract_es_hits(payload):
             """Return the array of hits from an Elasticsearch-style or flat payload."""
@@ -4967,6 +5092,7 @@ class MainWindow(QMainWindow):
         # Column header presets per result mode.
         _ZXDB_HEADERS = {
             "games":     ["ID", "Title", "Year", "Author / Publisher", "Machine", "Genre"],
+            "byletter":  ["ID", "Title", "Year", "Author / Publisher", "Machine", "Genre"],
             "magazines": ["ID", "Magazine", "Year",  "Publisher",          "Type",    "Language / Country"],
             "author":    ["ID", "Title", "Year", "Author / Publisher", "Machine", "Genre"],
             "suggest":   ["ID", "Suggestion", "—", "Label", "Type", "—"],
@@ -5009,24 +5135,56 @@ class MainWindow(QMainWindow):
                         e["_kind"] = "game"
                     return ("games", entries, total, page, total_pages)
 
-            elif mode == "magazines":
+            elif mode == "byletter":
+                letter = self.zxdb_letter_combo.currentData() or "a"
                 params = {
                     "size":   str(ZXDB_PAGE_SIZE),
                     "offset": str(offset),
-                    "sort":   "name_asc",
+                    "mode":   "compact",
+                    "contenttype": "SOFTWARE",
                 }
-                path = f"/magazines/?{urllib.parse.urlencode(params)}"
+                path = f"/games/byletter/{urllib.parse.quote(letter)}?{urllib.parse.urlencode(params)}"
 
                 def _fn():
                     payload = zxdb_fetch_json(path)
-                    entries = _zxdb_parse_magazine_list(payload)
-                    # /magazines ignores `query`, so filter client-side.
-                    if query:
-                        ql = query.lower()
-                        entries = [e for e in entries if ql in e["title"].lower()]
-                    total = _zxdb_extract_es_total(payload) or len(entries)
-                    total_pages = max(1, (total + ZXDB_PAGE_SIZE - 1) // ZXDB_PAGE_SIZE) if total else 1
-                    return ("magazines", entries, total, page, total_pages)
+                    entries, total, _pg, total_pages, _ps = zxdb_parse_search(payload)
+                    for e in entries:
+                        e["_kind"] = "game"
+                    return ("byletter", entries, total, page, total_pages)
+
+            elif mode == "magazines":
+                if query:
+                    # Fetch a specific magazine by name
+                    mag_path = f"/magazines/{urllib.parse.quote(query)}"
+
+                    def _fn():
+                        payload = zxdb_fetch_json(mag_path)
+                        # /magazines/{name} returns a single ES hit: {_id, _source, …}
+                        # Wrap it so _zxdb_parse_magazine_list can handle it uniformly.
+                        if isinstance(payload, dict) and "_source" in payload:
+                            wrapped = {"hits": {"hits": [payload], "total": {"value": 1}}}
+                        elif isinstance(payload, list):
+                            wrapped = {"hits": {"hits": payload, "total": {"value": len(payload)}}}
+                        else:
+                            wrapped = payload
+                        entries = _zxdb_parse_magazine_list(wrapped)
+                        total = len(entries)
+                        return ("magazines", entries, total, 1, 1)
+                else:
+                    # List all magazines
+                    params = {
+                        "size":   str(ZXDB_PAGE_SIZE),
+                        "offset": str(offset),
+                        "sort":   "name_asc",
+                    }
+                    list_path = f"/magazines/?{urllib.parse.urlencode(params)}"
+
+                    def _fn():
+                        payload = zxdb_fetch_json(list_path)
+                        entries = _zxdb_parse_magazine_list(payload)
+                        total = _zxdb_extract_es_total(payload) or len(entries)
+                        total_pages = max(1, (total + ZXDB_PAGE_SIZE - 1) // ZXDB_PAGE_SIZE) if total else 1
+                        return ("magazines", entries, total, page, total_pages)
 
             elif mode == "author":
                 # ZXInfo exposes both /authors/{name}/games and /publishers/{name}/games.
@@ -5073,6 +5231,9 @@ class MainWindow(QMainWindow):
                     zxdb_set_status(f"{len(entries)} suggestion(s)")
                 elif kind == "author":
                     zxdb_set_status(f"{total} result(s) for '{query}'  |  page {pg}/{total_pages}")
+                elif kind == "byletter":
+                    letter_lbl = self.zxdb_letter_combo.currentText()
+                    zxdb_set_status(f"{total} result(s) for '{letter_lbl}'  |  page {pg}/{total_pages}")
                 else:
                     zxdb_set_status(f"{total} result(s)  |  page {pg}/{total_pages}")
                 zxdb_set_busy(False)
@@ -5094,12 +5255,20 @@ class MainWindow(QMainWindow):
 
             def _fn():
                 payload = zxdb_fetch_json(f"/games/random/{ZXDB_PAGE_SIZE}")
-                # /games/random returns a list of game-detail-shaped objects
+                # /games/random returns an ES envelope: { hits: { hits: [...] } }
                 entries = []
-                items = payload if isinstance(payload, list) else (
-                    payload.get("hits", payload.get("items", []))
-                    if isinstance(payload, dict) else []
-                )
+                if isinstance(payload, list):
+                    items = payload
+                elif isinstance(payload, dict):
+                    hits_outer = payload.get("hits", {})
+                    if isinstance(hits_outer, dict):
+                        items = hits_outer.get("hits", [])
+                    elif isinstance(hits_outer, list):
+                        items = hits_outer
+                    else:
+                        items = payload.get("items", [])
+                else:
+                    items = []
                 for it in items:
                     if not isinstance(it, dict):
                         continue
@@ -5142,6 +5311,8 @@ class MainWindow(QMainWindow):
 
         def zxdb_on_search():
             zxdb_clear_detail()
+            configuration_dictionary[SETTING_ZXDB_LAST_QUERY] = self.zxdb_search_input.text().strip()
+            save_configuration_file()
             zxdb_run_search(self.zxdb_search_input.text().strip(), 1)
 
         def zxdb_on_random():
@@ -5165,11 +5336,14 @@ class MainWindow(QMainWindow):
             mode = zxdb_current_mode()
             placeholders = {
                 "games":     "Search ZXDB games... (leave empty for random selection)",
+                "byletter":  "(pick a letter from the list →)",
                 "magazines": "Filter magazines... (leave empty to list all)",
                 "author":    "Type an author name (e.g. 'Matthew Smith')",
                 "suggest":   "Type a term to get suggestions",
             }
             self.zxdb_search_input.setPlaceholderText(placeholders.get(mode, ""))
+            self.zxdb_search_input.setVisible(mode != "byletter")
+            self.zxdb_letter_combo.setVisible(mode == "byletter")
             self.zxdb_random_button.setEnabled(mode == "games")
             # Reset paging/results when switching modes.
             self._zxdb_last_query = ""
@@ -5181,8 +5355,17 @@ class MainWindow(QMainWindow):
             self.zxdb_results_table.setRowCount(0)
             zxdb_clear_detail()
             zxdb_set_status("")
+            configuration_dictionary[SETTING_ZXDB_LAST_MODE] = mode
+            save_configuration_file()
 
         self.zxdb_mode_combo.currentIndexChanged.connect(zxdb_on_mode_changed)
+
+        def zxdb_on_letter_changed(_idx):
+            if zxdb_current_mode() == "byletter":
+                zxdb_clear_detail()
+                zxdb_run_search("", 1)
+
+        self.zxdb_letter_combo.currentIndexChanged.connect(zxdb_on_letter_changed)
 
         # ---- Row selection -> fetch detail + screenshot ----
 
@@ -5232,21 +5415,39 @@ class MainWindow(QMainWindow):
             name = entry.get("_name") or entry.get("title") or ""
             self._zxdb_selected_id    = entry.get("id") or name
             self._zxdb_selected_title = name
+            self._zxdb_magazine_issues = []
             zxdb_set_status(f"Loading magazine '{name}'…")
             self.zxdb_screenshot_label.setText("Loading…")
             _zxdb_reset_preview()
 
             def _fn():
-                return zxdb_fetch_json(f"/magazines/{urllib.parse.quote(name)}/issues")
+                # /magazines/{name} returns a single ES hit whose _source contains
+                # the full issues array (with id, files, cover_image per issue).
+                return zxdb_fetch_json(f"/magazines/{urllib.parse.quote(name)}")
 
             def _on_ok(payload):
                 if self._zxdb_selected_title != name:
                     return
-                zxdb_populate_magazine_detail(name, entry.get("_source") or {}, payload)
-                # Build a slideshow from issue cover_images.
+                src = {}
+                if isinstance(payload, dict) and "_source" in payload:
+                    src = payload["_source"]
+                elif isinstance(payload, dict):
+                    src = payload
+                issues = src.get("issues") or []
+                self._zxdb_magazine_issues = issues
+                # Build summary dict for the detail panel
+                summary = {
+                    "publisher": src.get("publisher") or "",
+                    "type":      src.get("type") or "",
+                    "language":  src.get("language") or "",
+                    "country":   src.get("country") or "",
+                }
+                # Wrap issues as a payload that zxdb_populate_magazine_detail understands
+                issues_payload = {"issues": issues}
+                zxdb_populate_magazine_detail(name, summary, issues_payload)
+                # Build a slideshow from issue cover_images
                 shots = []
                 seen = set()
-                issues = payload.get("issues", []) if isinstance(payload, dict) else []
                 for i in issues:
                     if not isinstance(i, dict):
                         continue
@@ -5265,10 +5466,11 @@ class MainWindow(QMainWindow):
                 zxdb_start_slideshow(shots)
                 n_shots  = len(shots)
                 n_issues = len(issues)
+                hint = "  (double-click or right-click → Retrieve all issues)" if n_issues > 1 else ""
                 if n_shots > 1:
-                    zxdb_set_status(f"Loaded {name}  |  {n_issues} issue(s), {n_shots} cover(s) cycling every 5s")
+                    zxdb_set_status(f"Loaded {name}  |  {n_issues} issue(s), {n_shots} cover(s) cycling every 5s{hint}")
                 else:
-                    zxdb_set_status(f"Loaded {name}  |  {n_issues} issue(s)")
+                    zxdb_set_status(f"Loaded {name}  |  {n_issues} issue(s){hint}")
 
             def _on_err(err):
                 if self._zxdb_selected_title != name:
@@ -5277,6 +5479,140 @@ class MainWindow(QMainWindow):
                 self.zxdb_screenshot_label.setText("No preview")
 
             self._zxdb_detail_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+        def _zxdb_open_issues_dialog(mag_name: str, issues: list):
+            """Show a dialog listing all issues for a magazine.
+            Selecting a row loads its files/preview; right-click offers Download content."""
+            if not issues:
+                zxdb_set_status(f"No issues available for '{mag_name}'.")
+                return
+
+            dlg = QDialog(self)
+            dlg.setWindowTitle(f"All issues — {mag_name}  ({len(issues)} issues)")
+            dlg.resize(860, 500)
+            v = QVBoxLayout(dlg)
+
+            tbl = QTableWidget(len(issues), 5, dlg)
+            tbl.setHorizontalHeaderLabels(["Issue #", "Volume", "Year", "Month", "Files"])
+            tbl.verticalHeader().setVisible(False)
+            tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
+            tbl.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            tbl.setAlternatingRowColors(True)
+            tbl.horizontalHeader().setStretchLastSection(True)
+            tbl.setColumnWidth(0, 80)
+            tbl.setColumnWidth(1, 80)
+            tbl.setColumnWidth(2, 80)
+            tbl.setColumnWidth(3, 80)
+
+            for row, iss in enumerate(issues):
+                if not isinstance(iss, dict):
+                    continue
+                tbl.setItem(row, 0, QTableWidgetItem(str(iss.get("number") or "")))
+                tbl.setItem(row, 1, QTableWidgetItem(str(iss.get("volume") or "")))
+                tbl.setItem(row, 2, QTableWidgetItem(str(iss.get("date_year") or "")))
+                tbl.setItem(row, 3, QTableWidgetItem(str(iss.get("date_month") or "")))
+                files = iss.get("files") or []
+                tbl.setItem(row, 4, QTableWidgetItem(str(len(files))))
+                # Stash the full issue dict
+                tbl.item(row, 0).setData(Qt.UserRole, iss)
+
+            def _load_issue_from_row(row: int):
+                """Load files/preview from the already-fetched issue data."""
+                id_cell = tbl.item(row, 0)
+                if not id_cell:
+                    return
+                iss = id_cell.data(Qt.UserRole)
+                if not isinstance(iss, dict):
+                    return
+                issue_num = iss.get("number") or iss.get("id") or ""
+                issue_id_api = str(iss.get("id") or issue_num)
+                downloads = []
+                shots = []
+                for f in (iss.get("files") or []):
+                    if not isinstance(f, dict):
+                        continue
+                    link = f.get("file_link") or ""
+                    if not link:
+                        continue
+                    url = link if link.startswith("http") else "https://spectrumcomputing.co.uk" + link
+                    ftype = f.get("filetype") or ""
+                    fname = f.get("filename") or os.path.basename(urllib.parse.urlparse(url).path) or ""
+                    downloads.append({
+                        "url":      url,
+                        "filename": fname,
+                        "type":     ftype,
+                        "format":   ftype,
+                        "size":     f.get("file_size"),
+                        "source":   f.get("comments") or "",
+                    })
+                    if url.lower().endswith((".jpg", ".jpeg", ".png", ".gif")):
+                        shots.append({"url": url, "type": ftype})
+                # Update main panel
+                _zxdb_clear_detail_rows()
+                _zxdb_add_row("Magazine:", mag_name)
+                _zxdb_add_row("Issue #:",  str(issue_num))
+                for key, lbl in (
+                    ("date_year",  "Year"),
+                    ("date_month", "Month"),
+                    ("volume",     "Volume"),
+                ):
+                    v2 = iss.get(key)
+                    if v2 is not None:
+                        _zxdb_add_row(f"{lbl}:", str(v2))
+                self._zxdb_selected_downloads = downloads
+                self._zxdb_selected_title = f"{mag_name} #{issue_num}"
+                self._zxdb_selected_id = f"{mag_name}:{issue_id_api}"
+                self.zxdb_download_button.setEnabled(bool(downloads))
+                if shots:
+                    zxdb_start_slideshow(shots)
+                else:
+                    self.zxdb_screenshot_label.setText("No image files")
+                n_files = len(downloads)
+                zxdb_set_status(
+                    f"Issue #{issue_num} of '{mag_name}'"
+                    + (f"  |  {n_files} file(s)" if n_files else "  |  no files")
+                )
+
+            def _on_issue_selected():
+                sel = tbl.selectionModel().selectedRows()
+                if sel:
+                    _load_issue_from_row(sel[0].row())
+
+            def _on_issue_double_clicked(item):
+                _load_issue_from_row(tbl.row(item))
+
+            def _on_issue_context_menu(pos):
+                item = tbl.itemAt(pos)
+                if item is None:
+                    return
+                row = tbl.row(item)
+                tbl.selectRow(row)
+                _load_issue_from_row(row)
+                menu2 = QMenu(tbl)
+                act_dl = menu2.addAction("Download content")
+                act_dl.setEnabled(bool(self._zxdb_selected_downloads))
+                action = menu2.exec(tbl.viewport().mapToGlobal(pos))
+                if action is act_dl:
+                    zxdb_show_downloads_overlay(
+                        self._zxdb_selected_title,
+                        self._zxdb_selected_downloads,
+                    )
+
+            tbl.itemSelectionChanged.connect(_on_issue_selected)
+            tbl.itemDoubleClicked.connect(_on_issue_double_clicked)
+            tbl.setContextMenuPolicy(Qt.CustomContextMenu)
+            tbl.customContextMenuRequested.connect(_on_issue_context_menu)
+
+            v.addWidget(tbl, 1)
+
+            btn_close = QPushButton("Close")
+            btn_close.clicked.connect(dlg.accept)
+            brow = QHBoxLayout()
+            brow.addStretch()
+            brow.addWidget(btn_close)
+            v.addLayout(brow)
+
+            dlg.exec()
 
         def _zxdb_load_suggest(entry: dict):
             stype = (entry.get("_suggest_type") or "").upper()
@@ -5317,6 +5653,32 @@ class MainWindow(QMainWindow):
 
         self.zxdb_results_table.itemSelectionChanged.connect(zxdb_on_row_selected)
 
+        def zxdb_on_row_double_clicked(item):
+            row = self.zxdb_results_table.row(item)
+            id_item = self.zxdb_results_table.item(row, 0)
+            if not id_item:
+                return
+            entry = id_item.data(Qt.UserRole) or {}
+            if (entry.get("_kind") or "").lower() == "magazine":
+                mag_name = entry.get("_name") or entry.get("title") or ""
+                if self._zxdb_magazine_issues and self._zxdb_selected_title == mag_name:
+                    _zxdb_open_issues_dialog(mag_name, self._zxdb_magazine_issues)
+                else:
+                    # Issues not loaded yet — load then open dialog
+                    zxdb_set_status(f"Loading issues for '{mag_name}'…")
+                    def _fn_dbl():
+                        payload = zxdb_fetch_json(f"/magazines/{urllib.parse.quote(mag_name)}")
+                        src = payload.get("_source", payload) if isinstance(payload, dict) else {}
+                        return src.get("issues") or []
+                    def _on_ok_dbl(issues):
+                        self._zxdb_magazine_issues = issues
+                        _zxdb_open_issues_dialog(mag_name, issues)
+                    def _on_err_dbl(err):
+                        zxdb_set_status(f"Error loading issues: {err[1]}")
+                    self._zxdb_detail_thread = getit_run_in_thread(_fn_dbl, _on_ok_dbl, _on_err_dbl)
+
+        self.zxdb_results_table.itemDoubleClicked.connect(zxdb_on_row_double_clicked)
+
         # ---- Download ----
 
         def zxdb_pick_default_download():
@@ -5348,7 +5710,7 @@ class MainWindow(QMainWindow):
                 return save_path
 
             def _on_ok(p):
-                zxdb_set_status(f"Saved to {p}")
+                zxdb_set_status(f"Saved to {p}  ↗ open folder", open_path=os.path.abspath(p))
                 self.zxdb_download_button.setEnabled(bool(self._zxdb_selected_downloads))
 
             def _on_err(err):
@@ -5418,8 +5780,11 @@ class MainWindow(QMainWindow):
             info.setWordWrap(True)
             v.addWidget(info)
 
-            tbl = QTableWidget(len(downloads), 6, dlg)
-            tbl.setHorizontalHeaderLabels(["Type", "Filename", "Size", "Source", "URL", ""])
+            # cols: 0-Type 1-Filename 2-Size 3-Source 4-URL 5-Avail. 6-Download
+            COL_AVAIL = 5
+            COL_DL    = 6
+            tbl = QTableWidget(len(downloads), 7, dlg)
+            tbl.setHorizontalHeaderLabels(["Type", "Filename", "Size", "Source", "URL", "Avail.", ""])
             tbl.verticalHeader().setVisible(False)
             tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
             tbl.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -5428,11 +5793,44 @@ class MainWindow(QMainWindow):
             tbl.setColumnWidth(0, 160)
             tbl.setColumnWidth(2, 90)
             tbl.setColumnWidth(3, 180)
-            tbl.setColumnWidth(5, 110)
+            tbl.setColumnWidth(COL_AVAIL, 52)
+            tbl.setColumnWidth(COL_DL, 100)
             tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
             tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
 
-            folder_root = os.path.join("downloads", zxdb_sanitize_folder(title))
+            folder_root = os.path.abspath(os.path.join("downloads", zxdb_sanitize_folder(title)))
+
+            # Per-row availability: None=pending, True=ok, False=404/error
+            _avail: list = [None] * len(downloads)
+
+            def _set_avail_cell(row: int, ok: bool):
+                item = QTableWidgetItem("✅" if ok else "❌")
+                item.setTextAlignment(Qt.AlignCenter)
+                item.setForeground(Qt.darkGreen if ok else Qt.red)
+                item.setToolTip("File is available" if ok else "File returned 404 / unreachable")
+                _avail[row] = ok
+                tbl.setItem(row, COL_AVAIL, item)
+                btn_w = tbl.cellWidget(row, COL_DL)
+                if btn_w is not None:
+                    btn_w.setEnabled(ok)
+
+            def _check_url(row: int, url: str):
+                def _fn():
+                    try:
+                        req = urllib.request.Request(
+                            url,
+                            method="HEAD",
+                            headers={"User-Agent": ZXDB_USER_AGENT},
+                        )
+                        with urllib.request.urlopen(req, timeout=10) as resp:
+                            return resp.status < 400
+                    except Exception:
+                        return False
+                def _on_ok(result):
+                    _set_avail_cell(row, bool(result))
+                def _on_err(_):
+                    _set_avail_cell(row, False)
+                getit_run_in_thread(_fn, _on_ok, _on_err)
 
             def _make_dl_handler(d):
                 def _go():
@@ -5442,7 +5840,7 @@ class MainWindow(QMainWindow):
                     save_path = os.path.join(folder_root, fname)
                     zxdb_set_status(f"Downloading {fname}…")
                     def _ok(p):
-                        zxdb_set_status(f"Saved {p}")
+                        zxdb_set_status(f"Saved {fname}  ↗ open folder", open_path=os.path.dirname(os.path.abspath(p)))
                     def _err(e):
                         zxdb_set_status(f"Download error: {e[1]}")
                     zxdb_download_to_path(d.get("url", ""), save_path, _ok, _err)
@@ -5460,9 +5858,16 @@ class MainWindow(QMainWindow):
                 url_item = QTableWidgetItem(url_text)
                 url_item.setToolTip(url_text)
                 tbl.setItem(row, 4, url_item)
+                # Availability placeholder until HEAD check completes
+                avail_item = QTableWidgetItem("⏳")
+                avail_item.setTextAlignment(Qt.AlignCenter)
+                avail_item.setToolTip("Checking availability…")
+                tbl.setItem(row, COL_AVAIL, avail_item)
+                # Download button disabled until availability is confirmed
                 btn = QPushButton("Download")
+                btn.setEnabled(False)
                 btn.clicked.connect(_make_dl_handler(d))
-                tbl.setCellWidget(row, 5, btn)
+                tbl.setCellWidget(row, COL_DL, btn)
 
             v.addWidget(tbl, 1)
 
@@ -5479,18 +5884,30 @@ class MainWindow(QMainWindow):
             def _download_all():
                 dl_all_btn.setEnabled(False)
                 dl_all_btn.setText("Downloading…")
-                pending = {"n": len(downloads), "ok": 0, "ko": 0}
+                # Skip files confirmed unavailable (404); include pending/ok ones
+                eligible = [d for i, d in enumerate(downloads) if _avail[i] is not False]
+                if not eligible:
+                    dl_all_btn.setText("Nothing to download")
+                    zxdb_set_status("All files are unavailable (404).")
+                    return
+                pending = {"n": len(eligible), "ok": 0, "ko": 0}
 
                 def _maybe_finish():
                     if pending["ok"] + pending["ko"] >= pending["n"]:
                         dl_all_btn.setText(
                             f"Done — {pending['ok']} ok, {pending['ko']} failed"
                         )
-                        zxdb_set_status(
-                            f"Downloaded {pending['ok']}/{pending['n']} file(s) into {folder_root}"
-                        )
+                        if pending["ok"] > 0:
+                            zxdb_set_status(
+                                f"Downloaded {pending['ok']}/{pending['n']} file(s) into {folder_root}  ↗ open folder",
+                                open_path=folder_root
+                            )
+                        else:
+                            zxdb_set_status(
+                                f"All {pending['n']} download(s) failed — check the URLs"
+                            )
 
-                for d in downloads:
+                for d in eligible:
                     fname = d.get("filename") or os.path.basename(
                         urllib.parse.urlparse(d.get("url", "")).path
                     ) or "file.bin"
@@ -5507,6 +5924,27 @@ class MainWindow(QMainWindow):
 
             dl_all_btn.clicked.connect(_download_all)
 
+            # Fire HEAD checks for every URL now that the table and callbacks are ready
+            avail_check_enabled = getattr(self, "settings_zxdb_avail_check_checkbox", None)
+            avail_check_enabled = avail_check_enabled is not None and avail_check_enabled.isChecked()
+            if avail_check_enabled:
+                for row, d in enumerate(downloads):
+                    url_to_check = d.get("url", "")
+                    if url_to_check:
+                        _check_url(row, url_to_check)
+                    else:
+                        _set_avail_cell(row, False)
+            else:
+                # Setting is off — enable all Download buttons immediately, hide placeholders
+                for row in range(len(downloads)):
+                    avail_item = tbl.item(row, COL_AVAIL)
+                    if avail_item:
+                        avail_item.setText("")
+                        avail_item.setToolTip("Availability check disabled in Settings")
+                    btn_w = tbl.cellWidget(row, COL_DL)
+                    if btn_w is not None:
+                        btn_w.setEnabled(True)
+
             dlg.exec()
 
         def zxdb_on_table_context_menu(pos):
@@ -5520,39 +5958,211 @@ class MainWindow(QMainWindow):
                 return
             eid   = id_item.text()
             title = title_item.text() if title_item else eid
+            entry = id_item.data(Qt.UserRole) or {}
+            kind  = (entry.get("_kind") or "game").lower()
 
             # Make sure the row is selected so the detail is loaded for it.
             self.zxdb_results_table.selectRow(row)
 
-            # If detail for this row is already loaded, show the overlay immediately.
-            if self._zxdb_selected_id == eid and self._zxdb_selected_downloads:
-                zxdb_show_downloads_overlay(self._zxdb_selected_title or title,
-                                            self._zxdb_selected_downloads)
-                return
+            menu = QMenu(self.zxdb_results_table)
 
-            # Otherwise load the detail first, then show the overlay.
-            zxdb_set_status(f"Loading {eid}…")
-
-            def _fn():
-                payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
-                return zxdb_parse_game_detail(payload)
-
-            def _on_ok(detail):
-                zxdb_populate_detail(detail)
-                shots = detail.get("screenshots") or []
-                if not shots and detail.get("screenshot_url"):
-                    shots = [{"url": detail["screenshot_url"], "type": ""}]
-                zxdb_start_slideshow(shots)
-                downloads = detail.get("downloads", []) or []
-                if not downloads:
-                    zxdb_set_status("No downloadable files for this entry.")
+            if kind == "magazine":
+                mag_name = entry.get("_name") or title
+                act_fetch_mag   = menu.addAction("Fetch single magazine by name")
+                act_all_issues  = menu.addAction("Retrieve all issues")
+                act_fetch_issue = menu.addAction("Fetch issue info for this magazine")
+                act_dl_issue    = menu.addAction("Download content")
+                # Only enable download if we already have files loaded for this row
+                has_downloads = (
+                    self._zxdb_selected_id == (entry.get("id") or mag_name)
+                    or self._zxdb_selected_title.startswith(mag_name + " #")
+                ) and bool(self._zxdb_selected_downloads)
+                act_dl_issue.setEnabled(has_downloads)
+                action = menu.exec(self.zxdb_results_table.viewport().mapToGlobal(pos))
+                if action is None:
                     return
-                zxdb_show_downloads_overlay(detail.get("title") or title, downloads)
 
-            def _on_err(err):
-                zxdb_set_status(f"Detail error: {err[1]}")
+                if action is act_dl_issue:
+                    zxdb_show_downloads_overlay(
+                        self._zxdb_selected_title or mag_name,
+                        self._zxdb_selected_downloads,
+                    )
+                    return
 
-            self._zxdb_ctx_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+                if action is act_all_issues:
+                    if self._zxdb_magazine_issues and self._zxdb_selected_title == mag_name:
+                        _zxdb_open_issues_dialog(mag_name, self._zxdb_magazine_issues)
+                    else:
+                        zxdb_set_status(f"Loading issues for '{mag_name}'…")
+                        def _fn_all():
+                            payload = zxdb_fetch_json(f"/magazines/{urllib.parse.quote(mag_name)}")
+                            src = payload.get("_source", payload) if isinstance(payload, dict) else {}
+                            return src.get("issues") or []
+                        def _on_ok_all(issues):
+                            self._zxdb_magazine_issues = issues
+                            _zxdb_open_issues_dialog(mag_name, issues)
+                        def _on_err_all(err):
+                            zxdb_set_status(f"Error loading issues: {err[1]}")
+                        self._zxdb_ctx_thread = getit_run_in_thread(_fn_all, _on_ok_all, _on_err_all)
+                    return
+
+                if action is act_fetch_mag:
+                    zxdb_set_status(f"Fetching magazine '{mag_name}'…")
+
+                    def _fn_mag():
+                        payload = zxdb_fetch_json(f"/magazines/{urllib.parse.quote(mag_name)}")
+                        if isinstance(payload, dict) and "_source" in payload:
+                            wrapped = {"hits": {"hits": [payload], "total": {"value": 1}}}
+                        elif isinstance(payload, list):
+                            wrapped = {"hits": {"hits": payload, "total": {"value": len(payload)}}}
+                        else:
+                            wrapped = payload
+                        entries = _zxdb_parse_magazine_list(wrapped)
+                        return ("magazines", entries, len(entries), 1, 1)
+
+                    def _on_ok_mag(data):
+                        kind2, entries, total, pg, total_pages = data
+                        zxdb_populate_results(entries, pg, total_pages, kind2)
+                        zxdb_set_status(f"Loaded magazine '{mag_name}'")
+
+                    def _on_err_mag(err):
+                        zxdb_set_status(f"Magazine error: {err[1]}")
+
+                    self._zxdb_ctx_thread = getit_run_in_thread(_fn_mag, _on_ok_mag, _on_err_mag)
+
+                elif action is act_fetch_issue:
+                    issue_id, ok = QInputDialog.getText(
+                        self, "Fetch Issue", f"Issue number for '{mag_name}':"
+                    )
+                    if not ok or not issue_id.strip():
+                        return
+                    issue_id = issue_id.strip()
+                    zxdb_set_status(f"Fetching issue {issue_id} of '{mag_name}'…")
+
+                    def _fn_issue():
+                        return zxdb_fetch_json(
+                            f"/magazines/{urllib.parse.quote(mag_name)}"
+                            f"/issues/{urllib.parse.quote(issue_id)}"
+                        )
+
+                    def _on_ok_issue(payload):
+                        _zxdb_clear_detail_rows()
+                        src = payload if isinstance(payload, dict) else {}
+                        _zxdb_add_row("Magazine:", mag_name)
+                        _zxdb_add_row("Issue:",    issue_id)
+                        for key, lbl in (
+                            ("date_year",  "Year"),
+                            ("date_month", "Month"),
+                            ("volume",     "Volume"),
+                            ("number",     "Number"),
+                        ):
+                            v = src.get(key)
+                            if v is not None:
+                                _zxdb_add_row(f"{lbl}:", str(v))
+                        # Build downloads list from files
+                        downloads = []
+                        shots = []
+                        for f in (src.get("files") or []):
+                            if not isinstance(f, dict):
+                                continue
+                            link = f.get("file_link") or ""
+                            if not link:
+                                continue
+                            url = link if link.startswith("http") else "https://spectrumcomputing.co.uk" + link
+                            ftype = f.get("filetype") or ""
+                            downloads.append({
+                                "url":    url,
+                                "type":   ftype,
+                                "format": ftype,
+                                "size":   f.get("file_size"),
+                                "source": f.get("comments") or "",
+                            })
+                            if "cover" in ftype.lower() or "magazine" in ftype.lower():
+                                shots.append({"url": url, "type": ftype})
+                        # Store downloads so the Download action and button can use them
+                        self._zxdb_selected_downloads = downloads
+                        self._zxdb_selected_title = f"{mag_name} #{issue_id}"
+                        self._zxdb_selected_id = f"{mag_name}:{issue_id}"
+                        self.zxdb_download_button.setEnabled(bool(downloads))
+                        if shots:
+                            zxdb_start_slideshow(shots)
+                        else:
+                            self.zxdb_screenshot_label.setText("No cover image")
+                        contents = src.get("contents") or src.get("articles") or []
+                        n_files = len(downloads)
+                        zxdb_set_status(
+                            f"Issue {issue_id} of '{mag_name}'"
+                            + (f"  |  {len(contents)} item(s)" if contents else "")
+                            + (f"  |  {n_files} downloadable file(s)" if n_files else "")
+                        )
+
+                    def _on_err_issue(err):
+                        zxdb_set_status(f"Issue error: {err[1]}")
+
+                    self._zxdb_ctx_thread = getit_run_in_thread(_fn_issue, _on_ok_issue, _on_err_issue)
+
+            else:
+                act_download = menu.addAction("Download content")
+                act_mlt      = menu.addAction("More like this")
+                action = menu.exec(self.zxdb_results_table.viewport().mapToGlobal(pos))
+                if action is None:
+                    return
+
+                if action is act_download:
+                    # If detail for this row is already loaded, show the overlay immediately.
+                    if self._zxdb_selected_id == eid and self._zxdb_selected_downloads:
+                        zxdb_show_downloads_overlay(self._zxdb_selected_title or title,
+                                                    self._zxdb_selected_downloads)
+                        return
+
+                    # Otherwise load the detail first, then show the overlay.
+                    zxdb_set_status(f"Loading {eid}…")
+
+                    def _fn():
+                        payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                        return zxdb_parse_game_detail(payload)
+
+                    def _on_ok(detail):
+                        zxdb_populate_detail(detail)
+                        shots = detail.get("screenshots") or []
+                        if not shots and detail.get("screenshot_url"):
+                            shots = [{"url": detail["screenshot_url"], "type": ""}]
+                        zxdb_start_slideshow(shots)
+                        downloads = detail.get("downloads", []) or []
+                        if not downloads:
+                            zxdb_set_status("No downloadable files for this entry.")
+                            return
+                        zxdb_show_downloads_overlay(detail.get("title") or title, downloads)
+
+                    def _on_err(err):
+                        zxdb_set_status(f"Detail error: {err[1]}")
+
+                    self._zxdb_ctx_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+                elif action is act_mlt:
+                    zxdb_set_status(f"Finding titles similar to '{title}'…")
+
+                    def _fn_mlt():
+                        payload = zxdb_fetch_json(
+                            f"/games/morelikethis/{urllib.parse.quote(eid)}"
+                            f"?mode=compact&size={ZXDB_PAGE_SIZE}"
+                        )
+                        entries, total, _pg, total_pages, _ps = zxdb_parse_search(payload)
+                        for e in entries:
+                            e["_kind"] = "game"
+                        return ("games", entries, total, 1, total_pages)
+
+                    def _on_ok_mlt(data):
+                        kind2, entries, total, pg, total_pages = data
+                        zxdb_populate_results(entries, pg, total_pages, kind2)
+                        zxdb_set_status(
+                            f"{len(entries)} title(s) similar to '{title}'"
+                        )
+
+                    def _on_err_mlt(err):
+                        zxdb_set_status(f"More like this error: {err[1]}")
+
+                    self._zxdb_ctx_thread = getit_run_in_thread(_fn_mlt, _on_ok_mlt, _on_err_mlt)
 
         self.zxdb_results_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.zxdb_results_table.customContextMenuRequested.connect(zxdb_on_table_context_menu)
@@ -5596,6 +6206,36 @@ class MainWindow(QMainWindow):
         self.zxdb_fullscreen_label.setCursor(Qt.PointingHandCursor)
         zxdb_overlay_layout.addWidget(self.zxdb_fullscreen_label, 1)
 
+        _fs_nav_style = (
+            "QToolButton { color: white; background: rgba(0,0,0,140); border: none;"
+            " font-size: 32px; font-weight: bold; padding: 4px 10px; }"
+            "QToolButton:hover { background: rgba(0,0,0,220); }"
+        )
+        self.zxdb_fs_prev_btn = QToolButton(zxdb_overlay)
+        self.zxdb_fs_prev_btn.setText("<")
+        self.zxdb_fs_prev_btn.setStyleSheet(_fs_nav_style)
+        self.zxdb_fs_prev_btn.setVisible(False)
+        self.zxdb_fs_prev_btn.raise_()
+
+        self.zxdb_fs_next_btn = QToolButton(zxdb_overlay)
+        self.zxdb_fs_next_btn.setText(">")
+        self.zxdb_fs_next_btn.setStyleSheet(_fs_nav_style)
+        self.zxdb_fs_next_btn.setVisible(False)
+        self.zxdb_fs_next_btn.raise_()
+
+        def _zxdb_reposition_fs_btns():
+            ow = zxdb_overlay.width()
+            oh = zxdb_overlay.height()
+            bh = self.zxdb_fs_prev_btn.sizeHint().height()
+            by = (oh - bh) // 2
+            self.zxdb_fs_prev_btn.move(8, by)
+            bw = self.zxdb_fs_next_btn.sizeHint().width()
+            self.zxdb_fs_next_btn.move(ow - bw - 8, by)
+
+        self._zxdb_reposition_fs_btns = _zxdb_reposition_fs_btns
+        self.zxdb_fs_prev_btn.clicked.connect(_zxdb_nav_prev)
+        self.zxdb_fs_next_btn.clicked.connect(_zxdb_nav_next)
+
         self._zxdb_stack = QStackedWidget()
         self._zxdb_stack.addWidget(zxdb_scroll)
         self._zxdb_stack.addWidget(zxdb_overlay)
@@ -5608,9 +6248,12 @@ class MainWindow(QMainWindow):
             self._zxdb_fullscreen_pixmap = px
             self._zxdb_stack.setCurrentIndex(1)
             _zxdb_resize_fullscreen()
+            self._zxdb_reposition_fs_btns()
+            zxdb_update_nav_buttons()
 
         def _zxdb_hide_fullscreen():
             self._zxdb_stack.setCurrentIndex(0)
+            zxdb_update_nav_buttons()
 
         def _zxdb_resize_fullscreen():
             px = self._zxdb_fullscreen_pixmap
@@ -5619,6 +6262,7 @@ class MainWindow(QMainWindow):
                 self.zxdb_fullscreen_label.setPixmap(
                     px.scaled(sz, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 )
+            self._zxdb_reposition_fs_btns()
 
         zxdb_close_btn.clicked.connect(_zxdb_hide_fullscreen)
         self.zxdb_fullscreen_label.mousePressEvent = lambda e: _zxdb_hide_fullscreen()
@@ -5704,6 +6348,22 @@ class MainWindow(QMainWindow):
         )
         self.settings_no_prompt_on_deletion_checkbox.stateChanged.connect(settings_no_prompt_on_deletion_statechanged)
         grid_tab_Settings.addWidget(self.settings_no_prompt_on_deletion_checkbox, 1, 0, 1, 2)
+
+        def settings_zxdb_avail_check_statechanged():
+            configuration_dictionary[SETTING_ZXDB_AVAIL_CHECK] = "true" if self.settings_zxdb_avail_check_checkbox.isChecked() else "false"
+            save_configuration_file()
+
+        self.settings_zxdb_avail_check_checkbox = QCheckBox("ZXDB - Perform pre-availability check on Downloads.")
+        self.settings_zxdb_avail_check_checkbox.setChecked(False)
+        self.settings_zxdb_avail_check_checkbox.setToolTip(
+            "When enabled, the Downloads dialog sends a HEAD request for each file\n"
+            "to check whether it is reachable before allowing the download.\n"
+            "Files that return HTTP 404 are marked with \u274c and their Download button\n"
+            "is disabled. Leave unchecked to skip the check (faster dialog open)."
+        )
+        self.settings_zxdb_avail_check_checkbox.stateChanged.connect(settings_zxdb_avail_check_statechanged)
+        grid_tab_Settings.addWidget(self.settings_zxdb_avail_check_checkbox, 2, 0, 1, 2)
+
         def _make_color_button(setting_key, color_attr, label_text, tooltip_text, grid_row):
             """Create a label + color-swatch button at the given grid row."""
             lbl = QLabel(label_text)
@@ -5738,38 +6398,38 @@ class MainWindow(QMainWindow):
 
         settings_section_lbl = QLabel("SD Card Image Explorer — Item Colors:")
         settings_section_lbl.setToolTip("Customize the foreground color for each item type displayed in the SD card image explorer.")
-        grid_tab_Settings.addWidget(settings_section_lbl, 2, 0, 1, 2)
+        grid_tab_Settings.addWidget(settings_section_lbl, 3, 0, 1, 2)
 
         self.settings_btn_color_up_directory = _make_color_button(
             SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory",
             "  Up Directory item",
             "Color used for the '[Up Directory..]' navigation row in the image explorer.",
-            3)
+            4)
         self.settings_btn_color_dir_name = _make_color_button(
             SETTING_COLOR_DIR_NAME, "img_color_dir_name",
             "  Directory name",
             "Color used for directory name entries in the image explorer.",
-            4)
+            5)
         self.settings_btn_color_dir_type = _make_color_button(
             SETTING_COLOR_DIR_TYPE, "img_color_dir_type",
             "  Directory type label",
             "Color used for the 'DIR' type label column of directory entries.",
-            5)
+            6)
         self.settings_btn_color_file_name = _make_color_button(
             SETTING_COLOR_FILE_NAME, "img_color_file_name",
             "  File name",
             "Color used for file name entries in the image explorer.",
-            6)
+            7)
         self.settings_btn_color_file_ext = _make_color_button(
             SETTING_COLOR_FILE_EXT, "img_color_file_ext",
             "  File extension",
             "Color used for the file extension column in the image explorer.",
-            7)
+            8)
         self.settings_btn_color_file_size = _make_color_button(
             SETTING_COLOR_FILE_SIZE, "img_color_file_size",
             "  File size",
             "Color used for the file size column in the image explorer.",
-            8)
+            9)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
