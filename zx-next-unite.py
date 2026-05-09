@@ -47,7 +47,7 @@
 """
 7
 from math import log
-import sys, os, string, subprocess, platform, datetime, fnmatch, socket, struct, time, glob, threading, shlex, pathlib
+import sys, os, re, string, subprocess, platform, datetime, fnmatch, socket, struct, time, glob, threading, shlex, pathlib
 from PySide6.QtCore import QSize, Qt, QSortFilterProxyModel, QModelIndex, QDir, QRunnable, Slot, Signal, QObject, QThreadPool, QRect, QTimer
 from PySide6.QtGui import QIcon, QColor, QAction, QGuiApplication, QPixmap
 from PySide6.QtWidgets import QApplication, QComboBox, QDialogButtonBox, QLabel, QMainWindow, QPushButton, QTableWidget, QVBoxLayout, QWidget, QFileSystemModel, QTreeView, QFormLayout, QHBoxLayout, QLineEdit, QListWidgetItem, QListWidget, QFileDialog, QTableWidgetItem, QAbstractItemView, QDialog, QGridLayout, QTabWidget, QProgressBar, QCheckBox, QMenu, QScrollArea, QStackedWidget, QToolButton, QHeaderView, QInputDialog
@@ -59,13 +59,13 @@ import zipfile, traceback
 import logging
 import ctypes
 
-ZX_NEXT_UNITE_VERSION = "4.3"
+ZX_NEXT_UNITE_VERSION = "4.4"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
 ZX_NEXT_UNITE_UI_WIDTH = 900 * ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER 
 ZX_NEXT_UNITE_UI_HEIGTH = 650 * ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER 
-ZX_NEXT_UNITE_CONFIG_FILE_NAME =  "hdfg.cfg"
+ZX_NEXT_UNITE_CONFIG_FILE_NAME = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "hdfg.cfg")
 ZX_NEXT_UNITE_TAB_TITLE_GOOEY =  "zx-next-unite - SD Card Utility"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "NextSync - Network Transfer Manager"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC_SYNCON = "NextSync - Sync ON"
@@ -73,7 +73,7 @@ ZX_NEXT_UNITE_TAB_TITLE_GETIT = "GetIt"
 ZX_NEXT_UNITE_TAB_TITLE_ZXDB  = "ZXDB"
 
 GETIT_BASE_URL = "https://zxnext.uk"
-GETIT_PAGE_SIZE = 20
+GETIT_PAGE_SIZE = 18
 
 ZXDB_BASE_URL    = "https://api.zxinfo.dk/v3"
 ZXDB_USER_AGENT  = "ZX-Next-Unite"
@@ -275,6 +275,14 @@ class WorkerSignals(QObject):
     progress = Signal(int)
 
 
+class NextSyncSignals(QObject):
+    """Signals used to marshal nextsync progress back to the main thread."""
+    progress = Signal(int)   # 0-100 per-file progress
+    status   = Signal(str)   # single-line status message
+    finished = Signal()      # emitted when the job thread exits
+    cancelled = Signal()     # emitted when job stopped due to cancel request
+
+
 class HdfTaskSignals(QObject):
     """Signals for background hdfmonkey task workers."""
     progress  = Signal(int)   # 0-100
@@ -372,6 +380,7 @@ class HdfProgressDialog(QDialog):
         self._anim_timer.start()
 
     # ------------------------------------------------------------------
+    @Slot()
     def _on_cancel_clicked(self):
         self._cancelled = True
         self._cancel_btn.setEnabled(False)
@@ -379,6 +388,7 @@ class HdfProgressDialog(QDialog):
         self._file_label.setText("")
         self.cancel_requested.emit()
 
+    @Slot()
     def _tick_spinner(self):
         self._spinner_idx = (self._spinner_idx + 1) % len(self._spinner_frames)
         self._spinner_label.setText(self._spinner_frames[self._spinner_idx])
@@ -402,6 +412,7 @@ class HdfProgressDialog(QDialog):
         self._action_label.setText(lines[0])
         self._file_label.setText(lines[1] if len(lines) > 1 else "")
 
+    @Slot()
     def mark_cancelled(self):
         """Called when the worker confirms it stopped early."""
         self._action_label.setText("Cancelled.")
@@ -465,7 +476,7 @@ def getit_parse_file_list(text: str):
         })
         i += 5
 
-    total_pages = max(1, (total + len(entries) - 1) // max(1, len(entries))) if entries else 1
+    total_pages = max(1, (total + GETIT_PAGE_SIZE - 1) // GETIT_PAGE_SIZE) if total else 1
 
     return entries, total, page, total_pages
 
@@ -494,46 +505,6 @@ def getit_parse_detail(text: str) -> dict:
         raw_value = raw_value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").strip()
         detail[tag] = raw_value
     return detail
-
-
-def getit_parse_music_list(text: str):
-    """Parse a music listing response into (entries, total, page, total_pages).
-
-    Each entry: {'filename', 'id', 'size', 'author'}.
-    """
-    text = text.strip()
-    entries = []
-    total = page = total_pages = 0
-
-    lines = text.splitlines()
-    if not lines:
-        return entries, total, page, total_pages
-
-    header = lines[0]
-    if header.startswith("^R^"):
-        parts = header.split("^")
-        try:
-            total       = int(parts[2]) if len(parts) > 2 and parts[2].strip().isdigit() else 0
-            page        = int(parts[3]) if len(parts) > 3 and parts[3].strip().isdigit() else 1
-            total_pages = int(parts[4]) if len(parts) > 4 and parts[4].strip().isdigit() else 1
-        except (IndexError, ValueError):
-            pass
-
-    for line in lines[1:]:
-        line = line.strip()
-        if not line or line == "^END^":
-            break
-        if line.startswith("^"):
-            parts = line.split("^")
-            if len(parts) >= 5:
-                entries.append({
-                    "filename": parts[1].strip(),
-                    "id":       parts[2].strip(),
-                    "size":     parts[3].strip(),
-                    "author":   parts[4].strip(),
-                })
-
-    return entries, total, page, total_pages
 
 
 # ---------------------------------------------------------------------------
@@ -871,14 +842,13 @@ def getit_run_in_thread(fn, on_result, on_error):
 class MainWindow(QMainWindow):
 
     def __init__(self, *args, **kwargs):
+        global right_disk_image_explorer_content
         super(MainWindow, self).__init__(*args, **kwargs)
 
         # Prevent any save_configuration_file() calls from firing while widgets
         # are being constructed and signals are being connected — the real config
         # has not been loaded yet at that point.
         self._initialising = True
-
-        global right_disk_image_explorer_content
 
         right_disk_image_explorer_path = []
         right_disk_image_explorer_content = []
@@ -935,7 +905,8 @@ class MainWindow(QMainWindow):
                     self.signals.result.emit(result)  # Return the result of the processing
                 finally:
                     self.signals.finished.emit()  # Done        
-        
+
+        self._Worker = Worker
         def get_tuple_value(tuple_type, text_value):
             if not tuple_type:  # empty tuple
                 return None
@@ -2127,20 +2098,58 @@ class MainWindow(QMainWindow):
 
 
         def nextsync_start_server():
-             # Pass the function to execute
+            # Guard: don't start a second sync while one is already running
+            t = getattr(self, "_nextsync_thread", None)
+            if t is not None and t.is_alive():
+                add_nextsync_log_window("NextSync is already running — please wait for it to finish.")
+                return
             try:
-                worker = Worker(nextsync_do_server_job) # Any other args, kwargs are passed to the run function
-                #worker.signals.result.connect(print_output)
-                worker.signals.finished.connect(thread_complete)
-                worker.signals.progress.connect(progress_fn)
-                worker.signals.error.connect(nextsync_server_exception_occured)
-                # Execute
-                self.threadpool.start(worker)
+                # --- progress dialog ---
+                dlg = HdfProgressDialog("NextSync — sending to ZX Spectrum Next", parent=self)
+                dlg.set_status("Waiting for ZX Next to connect…\nRun .sync (or .syncfast) on your Next")
+                dlg.set_progress(-1)   # indeterminate spinner until first file
+
+                sig = NextSyncSignals()
+                cancel_flag = threading.Event()
+
+                sig.progress.connect(dlg.set_progress)
+                sig.status.connect(dlg.set_status)
+                sig.finished.connect(lambda: QTimer.singleShot(800, dlg.accept))
+                sig.cancelled.connect(dlg.mark_cancelled)
+                dlg.cancel_requested.connect(lambda: cancel_flag.set())
+
+                def _run():
+                    try:
+                        nextsync_do_server_job(
+                            progress_callback=sig.progress,
+                            status_callback=sig.status,
+                            cancel_flag=cancel_flag,
+                        )
+                    except Exception as ex:
+                        logging.error(f"NextSync thread error: {ex}", exc_info=True)
+                        nextsync_server_exception_occured(ex)
+                    finally:
+                        if cancel_flag.is_set():
+                            sig.cancelled.emit()
+                        sig.finished.emit()
+
+                t = threading.Thread(target=_run, daemon=True)
+                self._nextsync_thread = t
                 nextsync_hide_start_cancel_buttons()
+                t.start()
+                dlg.exec()   # blocks main thread showing the modal dialog
+                # Ensure pane is in the correct state after dialog closes
+                QTimer.singleShot(0, lambda: (
+                    nextsync_hide_start_cancel_buttons(),
+                    self.nextsync_prepare_server.setVisible(True),
+                ))
 
             except Exception as e:
-                logging.error(f"An unexpected error occurred while starting nextsync server. Exception: {e}")          
-       
+                logging.error(f"An unexpected error occurred while starting nextsync server. Exception: {e}", exc_info=True)
+
+        # Store on self so it can be called from any scope (e.g. ZXDB/GetIt Send via NextSync)
+        self._nextsync_start_server_fn = nextsync_start_server
+
         # Copies the selected file to image
         def on_treeview_clicked():
 
@@ -3087,19 +3096,25 @@ class MainWindow(QMainWindow):
             self.nextsync_prepare_server.setVisible(True)
             save_configuration_file()
             
-        def nextsync_do_server_job(progress_callback):
+        def nextsync_do_server_job(progress_callback, status_callback=None, cancel_flag=None):
+            """Run the NextSync server loop.
+
+            progress_callback – Signal(int) or None; emitted with 0-100 per-file progress.
+            status_callback   – Signal(str) or None; emitted with a human-readable status line.
+            cancel_flag       – threading.Event or None; checked between socket accept retries.
+            """
 
             selected_nextsync_explorer_sync_root_directory = ""
-            self.nextsync_progressbar.setValue(0)
-            self.nextsync_progressbar.setVisible(True)
 
-            # hide all buttons
-            self.nextsync_button_create_syncignore.setVisible(False)
-            self.nextsync_button_delete_syncignore.setVisible(False)
-            self.nextsync_button_delete_syncpointfile.setVisible(False)            
-            
-            
-            
+            # Only touch the pane progress bar when running from the pane (no cancel_flag = pane invocation)
+            if cancel_flag is None:
+                self.nextsync_progressbar.setValue(0)
+                self.nextsync_progressbar.setVisible(True)
+                # hide all buttons
+                self.nextsync_button_create_syncignore.setVisible(False)
+                self.nextsync_button_delete_syncignore.setVisible(False)
+                self.nextsync_button_delete_syncpointfile.setVisible(False)
+
             nextsync_show_ip_info()
 
             if len(self.left_file_nextsync_explorer_selection_full_filename_path) !=0:
@@ -3113,6 +3128,9 @@ class MainWindow(QMainWindow):
     
             working = True
             while working:
+                if cancel_flag is not None and cancel_flag.is_set():
+                    working = False
+                    break
                 add_nextsync_log_window (f"{timestamp()} | NextSync listening to port {PORT}")
                 add_nextsync_log_window (f"{timestamp()} | Now start run .sync (or .syncfast) command on your Next!" )
                 totalbytes = 0
@@ -3125,7 +3143,19 @@ class MainWindow(QMainWindow):
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.bind(("", PORT))
                     s.listen()
-                    conn, addr = s.accept()
+                    # Poll for cancel every second while waiting for connection
+                    s.settimeout(1.0)
+                    conn = None
+                    while conn is None:
+                        if cancel_flag is not None and cancel_flag.is_set():
+                            working = False
+                            break
+                        try:
+                            conn, addr = s.accept()
+                        except socket.timeout:
+                            continue
+                    if conn is None:
+                        break  # cancelled during accept
                     # Make sure *nixes close the socket when we ask it to.
                     conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
                     f = getFileList(selected_nextsync_explorer_sync_root_directory)
@@ -3183,7 +3213,14 @@ class MainWindow(QMainWindow):
                                         knownfiles.append(f[fn][0])
                                     fileofs = 0
                                     packetno = 0
-                                    progress_callback.emit(fn*100/len(f)) # send progress update info to UI
+                                    pct = int(fn * 100 / len(f)) if len(f) > 0 else 0
+                                    if progress_callback is not None:
+                                        progress_callback.emit(pct)
+                                    if status_callback is not None:
+                                        status_callback.emit(f"Sending file {fn}/{len(f)}\n{specfn}")
+                                    # also update pane progress bar when running from the pane
+                                    if cancel_flag is None:
+                                        self.nextsync_progressbar.setValue(pct)
                                     fn+=1
                             elif data == b"Get" or data == b"Gee": # Really common mistransmit. Probably uart-esp..
                                 bytecount = MAX_PAYLOAD
@@ -3234,12 +3271,13 @@ class MainWindow(QMainWindow):
 
                 add_nextsync_log_window (f"{timestamp()} | Disconnected")
                 add_nextsync_log_window ("")                 
-                if self.nextsync_synconce_checkbox.isChecked():
+                if self.nextsync_synconce_checkbox.isChecked() or (cancel_flag is not None and cancel_flag.is_set()):
                     working = False
-                    
+
             nextsync_hide_start_cancel_buttons()
             self.nextsync_prepare_server.setVisible(True)
-            self.nextsync_progressbar.setVisible(False)
+            if cancel_flag is None:
+                self.nextsync_progressbar.setVisible(False)
 
         def list_windows_drives():
             """Return a list of drive letters on Windows."""
@@ -3978,69 +4016,6 @@ class MainWindow(QMainWindow):
         getit_detail_container.setLayout(getit_detail_outer)
         self.getit_form.addRow(getit_detail_container)
 
-        # --- Music section ---
-        getit_music_section_label = QLabel("Music (PT3 / MOD from zxart / modarchive)")
-        getit_music_section_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
-        self.getit_form.addRow(getit_music_section_label)
-
-        getit_music_search_row = QHBoxLayout()
-        self.getit_music_search_input = QLineEdit()
-        self.getit_music_search_input.setPlaceholderText("Search music... (! = artist, # = list view, leave empty for latest)")
-        self.getit_music_search_input.setMinimumWidth(280)
-        getit_music_search_row.addWidget(self.getit_music_search_input)
-
-        self.getit_music_search_button = QPushButton("Search Music")
-        getit_music_search_row.addWidget(self.getit_music_search_button)
-
-        self.getit_music_latest_button = QPushButton("Latest Music")
-        getit_music_search_row.addWidget(self.getit_music_latest_button)
-
-        getit_music_search_row.addWidget(QLabel("Page:"))
-        self.getit_music_page_label = QLabel("1")
-        self.getit_music_page_label.setMinimumWidth(24)
-        getit_music_search_row.addWidget(self.getit_music_page_label)
-
-        self.getit_music_prev_button = QPushButton("< Prev")
-        self.getit_music_prev_button.setEnabled(False)
-        getit_music_search_row.addWidget(self.getit_music_prev_button)
-
-        self.getit_music_next_button = QPushButton("Next >")
-        self.getit_music_next_button.setEnabled(False)
-        getit_music_search_row.addWidget(self.getit_music_next_button)
-
-        self.getit_music_status_label = QLabel("")
-        getit_music_search_row.addWidget(self.getit_music_status_label, 1)
-
-        getit_music_search_widget = QWidget()
-        getit_music_search_widget.setLayout(getit_music_search_row)
-        self.getit_form.addRow(getit_music_search_widget)
-
-        getit_music_result_row = QHBoxLayout()
-        self.getit_music_table = QTableWidget(0, 4)
-        self.getit_music_table.setHorizontalHeaderLabels(["ID", "Size", "Author", "Filename"])
-        self.getit_music_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.getit_music_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.getit_music_table.horizontalHeader().setStretchLastSection(True)
-        self.getit_music_table.setMinimumHeight(130)
-        self.getit_music_table.setColumnWidth(0, 80)
-        self.getit_music_table.setColumnWidth(1, 70)
-        self.getit_music_table.setColumnWidth(2, 130)
-        self.getit_music_table.setColumnWidth(3, 220)
-        getit_music_result_row.addWidget(self.getit_music_table, 1)
-
-        getit_music_dl_layout = QVBoxLayout()
-        self.getit_music_download_button = QPushButton("Download MOD")
-        self.getit_music_download_button.setEnabled(False)
-        getit_music_dl_layout.addWidget(self.getit_music_download_button)
-        getit_music_dl_layout.addStretch()
-        getit_music_dl_widget = QWidget()
-        getit_music_dl_widget.setLayout(getit_music_dl_layout)
-        getit_music_result_row.addWidget(getit_music_dl_widget)
-
-        getit_music_result_widget = QWidget()
-        getit_music_result_widget.setLayout(getit_music_result_row)
-        self.getit_form.addRow(getit_music_result_widget)
-
         # --- MOTD ---
         getit_motd_label = QLabel("MOTD:")
         getit_motd_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
@@ -4058,11 +4033,6 @@ class MainWindow(QMainWindow):
         self._getit_selected_id  = ""
         self._getit_selected_link = ""
 
-        self._getit_music_current_page = 1
-        self._getit_music_total_pages  = 1
-        self._getit_music_last_query   = ""
-        self._getit_music_selected_id  = ""
-
         self._getit_motd_loaded = False
         self._getit_motd_loading = False
         self._getit_search_loading = False
@@ -4071,9 +4041,6 @@ class MainWindow(QMainWindow):
 
         def getit_set_status(msg: str):
             self.getit_status_label.setText(msg)
-
-        def getit_set_music_status(msg: str):
-            self.getit_music_status_label.setText(msg)
 
         def getit_populate_results(entries, page, total_pages):
             self._getit_current_page = page
@@ -4117,53 +4084,37 @@ class MainWindow(QMainWindow):
             self._getit_selected_link = link
             self.getit_download_button.setEnabled(bool(self._getit_selected_id))
 
-        def getit_populate_music(entries, page, total_pages):
-            self._getit_music_current_page = page
-            self._getit_music_total_pages  = total_pages
-            self.getit_music_page_label.setText(str(page))
-            self.getit_music_prev_button.setEnabled(page > 1)
-            self.getit_music_next_button.setEnabled(page < total_pages)
-
-            self.getit_music_table.setRowCount(0)
-            for e in entries:
-                row = self.getit_music_table.rowCount()
-                self.getit_music_table.insertRow(row)
-                import os as _os
-                raw_fn = e["filename"]
-                display_fn = raw_fn if _os.path.splitext(raw_fn)[1] else raw_fn + ".pt3"
-                self.getit_music_table.setItem(row, 0, QTableWidgetItem(e["id"]))
-                self.getit_music_table.setItem(row, 1, QTableWidgetItem(e["size"]))
-                self.getit_music_table.setItem(row, 2, QTableWidgetItem(e["author"]))
-                self.getit_music_table.setItem(row, 3, QTableWidgetItem(display_fn))
-
         # ---- Background search task ----
 
         def getit_run_search(query: str, page: int):
             if self._getit_search_loading:
                 return
+            self._getit_last_query = query
             self._getit_search_loading = True
             getit_set_status("Searching…")
             self.getit_search_button.setEnabled(False)
             self.getit_latest_button.setEnabled(False)
-            self._getit_last_query = query
 
             def _search_fn():
+                offset = (page - 1) * GETIT_PAGE_SIZE
                 if query:
                     path = f"/f?s={urllib.parse.quote(query)}"
-                    if page > 1:
-                        path += f"?p={page}"
+                    if offset > 0:
+                        path += f"&o={offset}"
                 else:
                     path = "/f"
-                    if page > 1:
-                        path += f"?p={page}"
+                    if offset > 0:
+                        path += f"?o={offset}"
                 text = getit_fetch(path)
                 entries, total, pg, total_pages = getit_parse_file_list(text)
-                return (entries, total, pg, total_pages)
+                return (entries, total, total_pages)
 
             def _on_result(data):
                 self._getit_search_loading = False
-                getit_populate_results(data[0], data[2] or page, data[3] or 1)
-                getit_set_status(f"{data[1]} result(s)  |  page {data[2]}/{data[3]}")
+                total_pages = data[2] or 1
+                self._getit_total_pages = total_pages
+                getit_populate_results(data[0], page, total_pages)
+                getit_set_status(f"{data[1]} result(s)  |  page {page}/{total_pages}")
                 self.getit_search_button.setEnabled(True)
                 self.getit_latest_button.setEnabled(True)
 
@@ -4174,6 +4125,10 @@ class MainWindow(QMainWindow):
                 self.getit_latest_button.setEnabled(True)
 
             self._getit_search_thread = getit_run_in_thread(_search_fn, _on_result, _on_error)
+
+        def _show_page(page: int):
+            """Navigate to a page by re-running the search with the new page number."""
+            getit_run_search(self._getit_last_query, page)
 
         def getit_on_search():
             getit_clear_detail()
@@ -4286,6 +4241,95 @@ class MainWindow(QMainWindow):
 
         self.getit_download_button.clicked.connect(getit_on_download)
 
+        def _getit_resolve_ns_base_path(configured_path: str) -> str:
+            """Return the NextSync root directory for local-copy sends."""
+            p = (configured_path or "").strip().rstrip("/\\")
+            if p:
+                if os.path.isdir(p):
+                    return p
+                parent = os.path.dirname(p)
+                if parent and os.path.isdir(parent):
+                    return parent
+            return os.path.abspath("downloads")
+
+        def _getit_send_to_image(eid: str, default_name: str, title: str):
+            """Download the GetIt entry to a temp file then hdfmonkey-put it into the
+            currently loaded disk image at the current browse path."""
+            if not right_disk_image_explorer_content:
+                getit_set_status("Please load a disk image first (SD Card tab).")
+                return
+            if not self.right_disk_image_path:
+                getit_set_status("No disk image loaded.")
+                return
+
+            safe_name = re.sub(r'[<>:"/\\|?*]', "", title).strip() or eid
+            fname     = os.path.basename(default_name) if default_name else f"{eid}.bin"
+            img_dir   = (generate_disk_file_path().rstrip("/") + "/" + safe_name).replace("//", "/")
+            img_dest  = (img_dir + "/" + fname).replace("//", "/")
+            url       = f"{GETIT_BASE_URL}/nx/{eid}/"
+            image_path = self.right_disk_image_path
+
+            getit_set_status(f"Sending {eid} → image:{img_dest}…")
+
+            def _dl_and_put():
+                import tempfile
+                tmp = tempfile.NamedTemporaryFile(suffix="_" + fname, delete=False)
+                tmp.close()
+                try:
+                    urllib.request.urlretrieve(url, tmp.name)
+                    # Create the sub-directory in the image (ignore errors — may already exist)
+                    execute_hdf_monkey("mkdir", image_path, extra_argv=[img_dir])
+                    # Upload the file into the image
+                    result = execute_hdf_monkey("put", image_path,
+                                               extra_argv=[tmp.name.replace("\\", "/"), img_dest])
+                    if result.returncode != 0:
+                        raise RuntimeError(f"hdfmonkey put failed (rc={result.returncode})")
+                finally:
+                    try:
+                        os.unlink(tmp.name)
+                    except OSError:
+                        pass
+                return img_dest
+
+            def _on_done(dest):
+                getit_set_status(f"Sent to image: {dest}")
+                # Refresh the disk image table so the new folder appears
+                res = execute_hdf_monkey("ls", image_path,
+                                         extra_argv=[generate_disk_file_path()])
+                if res.returncode == 0:
+                    update_disk_manager_widget_table(res.stdout)
+
+            def _on_err(err):
+                getit_set_status(f"Send to image failed: {err[1]}")
+
+            getit_run_in_thread(_dl_and_put, _on_done, _on_err)
+
+        def _getit_send_to_ns_folder(eid: str, default_name: str, dest_root: str,
+                                     title: str, post_action=None):
+            """Download the GetIt entry into dest_root/{sanitized_title}/ on the local
+            filesystem (used for NextSync sends)."""
+            safe_folder = re.sub(r'[<>:"/\\|?*]', "", title or default_name or eid).strip() or eid
+            folder      = os.path.join(dest_root, safe_folder)
+            os.makedirs(folder, exist_ok=True)
+            fname       = os.path.basename(default_name) if default_name else f"{eid}.bin"
+            save_path   = os.path.join(folder, fname or f"{eid}.bin")
+            url         = f"{GETIT_BASE_URL}/nx/{eid}/"
+            getit_set_status(f"Sending {eid} → {folder}…")
+
+            def _dl_fn():
+                urllib.request.urlretrieve(url, save_path)
+                return save_path
+
+            def _on_done(p):
+                getit_set_status(f"Sent → {p}")
+                if post_action:
+                    post_action(folder)
+
+            def _on_err(err):
+                getit_set_status(f"Send error: {err[1]}")
+
+            getit_run_in_thread(_dl_fn, _on_done, _on_err)
+
         # ---- Context menu on results table ----
 
         def getit_on_table_context_menu(pos):
@@ -4293,152 +4337,48 @@ class MainWindow(QMainWindow):
             if item is None:
                 return
             row = self.getit_results_table.row(item)
-            eid_item = self.getit_results_table.item(row, 0)
+            eid_item   = self.getit_results_table.item(row, 0)
             title_item = self.getit_results_table.item(row, 1)
             if not eid_item:
                 return
-            eid = eid_item.text()
+            eid   = eid_item.text()
             title = title_item.text() if title_item else eid
+            default_name = self._getit_selected_link or f"{eid}.zip"
+
+            _safe_title = re.sub(r'[<>:"/\\|?*]', "", title).strip() or eid
+
+            # SD card: destination is inside the currently loaded disk image
+            _img_path  = self.right_disk_image_path or ""
+            _img_label = (generate_disk_file_path().rstrip("/") + "/" + _safe_title
+                         ) if _img_path else "(no image loaded)"
+            _sd_dest   = f"{_img_path}  :  {_img_label}" if _img_path else "(no image loaded)"
+
+            # NextSync: destination is a sub-folder inside the NextSync root on the local filesystem
+            _ns_base = _getit_resolve_ns_base_path(
+                self.left_file_nextsync_explorer_selection_full_filename_path)
+            _ns_dest = os.path.join(_ns_base, _safe_title)
+
             menu = QMenu(self.getit_results_table)
-            action = menu.addAction(f'Download \u201c{title}\u201d')
+            act_dl      = menu.addAction(f'Download \u201c{title}\u201d')
+            menu.addSeparator()
+            act_send_sd = menu.addAction(f"Send to SD card (image)  →  {_sd_dest}")
+            act_send_sd.setEnabled(bool(self.right_disk_image_path) and len(right_disk_image_explorer_content) != 0)
+            act_send_ns = menu.addAction(f"Send using NextSync  →  {_ns_dest}")
             chosen = menu.exec(self.getit_results_table.viewport().mapToGlobal(pos))
-            if chosen == action:
-                self.getit_results_table.selectRow(row)
-                getit_do_download(eid, self._getit_selected_link or f"{eid}.zip")
+            if chosen is None:
+                return
+            self.getit_results_table.selectRow(row)
+            if chosen is act_dl:
+                getit_do_download(eid, default_name)
+            elif chosen is act_send_sd:
+                _getit_send_to_image(eid, default_name, title)
+            elif chosen is act_send_ns:
+                def _after_ns_dl_gi(_folder):
+                    QTimer.singleShot(0, self._nextsync_start_server_fn)
+                _getit_send_to_ns_folder(eid, default_name, _ns_base, title, _after_ns_dl_gi)
 
         self.getit_results_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.getit_results_table.customContextMenuRequested.connect(getit_on_table_context_menu)
-
-        # ---- Music search ----
-
-        def getit_run_music_search(query: str, page: int):
-            getit_set_music_status("Searching…")
-            self.getit_music_search_button.setEnabled(False)
-            self.getit_music_latest_button.setEnabled(False)
-            self._getit_music_last_query = query
-
-            def _music_fn():
-                if query:
-                    path = f"/scr?s={urllib.parse.quote(query)}&p={page}"
-                else:
-                    path = f"/pt3?p={page}"
-                text = getit_fetch(path)
-                entries, total, pg, total_pages = getit_parse_music_list(text)
-                return (entries, total, pg, total_pages)
-
-            def _on_music_result(data):
-                getit_populate_music(data[0], data[2] or page, data[3] or 1)
-                getit_set_music_status(f"{data[1]} result(s)  |  page {data[2]}/{data[3]}")
-                self.getit_music_search_button.setEnabled(True)
-                self.getit_music_latest_button.setEnabled(True)
-
-            def _on_music_error(err):
-                getit_set_music_status(f"Error: {err[1]}")
-                self.getit_music_search_button.setEnabled(True)
-                self.getit_music_latest_button.setEnabled(True)
-
-            self._getit_music_thread = getit_run_in_thread(_music_fn, _on_music_result, _on_music_error)
-
-        def getit_on_music_search():
-            getit_run_music_search(self.getit_music_search_input.text().strip(), 1)
-
-        def getit_on_music_latest():
-            self.getit_music_search_input.clear()
-            getit_run_music_search("", 1)
-
-        def getit_on_music_prev():
-            getit_run_music_search(self._getit_music_last_query, max(1, self._getit_music_current_page - 1))
-
-        def getit_on_music_next():
-            getit_run_music_search(self._getit_music_last_query, min(self._getit_music_total_pages, self._getit_music_current_page + 1))
-
-        self.getit_music_search_button.clicked.connect(getit_on_music_search)
-        self.getit_music_latest_button.clicked.connect(getit_on_music_latest)
-        self.getit_music_search_input.returnPressed.connect(getit_on_music_search)
-        self.getit_music_prev_button.clicked.connect(getit_on_music_prev)
-        self.getit_music_next_button.clicked.connect(getit_on_music_next)
-
-        # ---- Music row selected → enable download ----
-
-        def getit_on_music_row_selected():
-            rows = self.getit_music_table.selectedItems()
-            if not rows:
-                self.getit_music_download_button.setEnabled(False)
-                self._getit_music_selected_id = ""
-                return
-            row = self.getit_music_table.currentRow()
-            self._getit_music_selected_id = self.getit_music_table.item(row, 0).text()
-            self.getit_music_download_button.setEnabled(bool(self._getit_music_selected_id))
-
-        self.getit_music_table.itemSelectionChanged.connect(getit_on_music_row_selected)
-
-        # ---- Download MOD ----
-
-        def getit_do_music_download(mid, filename):
-            import os as _os
-            ext = _os.path.splitext(filename)[1] if _os.path.splitext(filename)[1] else ".pt3"
-            default_name = filename if _os.path.splitext(filename)[1] else (filename + ".pt3" if filename else f"{mid}.pt3")
-            filter_str = f"{ext.upper().lstrip('.')} files (*{ext});;All files (*)"
-            save_path, _ = QFileDialog.getSaveFileName(
-                None, "Save Music File", default_name, filter_str
-            )
-            if not save_path:
-                return
-            getit_set_music_status(f"Downloading {mid}…")
-            self.getit_music_download_button.setEnabled(False)
-
-            def _mod_fn():
-                url = f"{GETIT_BASE_URL}/mod?id={mid}"
-                urllib.request.urlretrieve(url, save_path)
-                return save_path
-
-            def _on_mod_done(p):
-                getit_set_music_status(f"Saved to {p}")
-                self.getit_music_download_button.setEnabled(True)
-
-            def _on_mod_error(err):
-                getit_set_music_status(f"Download error: {err[1]}")
-                self.getit_music_download_button.setEnabled(True)
-
-            self._getit_mod_thread = getit_run_in_thread(_mod_fn, _on_mod_done, _on_mod_error)
-
-        def getit_on_music_download():
-            mid = self._getit_music_selected_id
-            if not mid:
-                return
-            filename = ""
-            row = self.getit_music_table.currentRow()
-            if row >= 0:
-                fn_item = self.getit_music_table.item(row, 3)
-                if fn_item:
-                    filename = fn_item.text()
-            getit_do_music_download(mid, filename)
-
-        self.getit_music_download_button.clicked.connect(getit_on_music_download)
-
-        # ---- Context menu on music table ----
-
-        def getit_on_music_context_menu(pos):
-            item = self.getit_music_table.itemAt(pos)
-            if item is None:
-                return
-            row = self.getit_music_table.row(item)
-            id_item = self.getit_music_table.item(row, 0)
-            fn_item = self.getit_music_table.item(row, 3)
-            if not id_item:
-                return
-            mid = id_item.text()
-            filename = fn_item.text() if fn_item else ""
-            label = filename or mid
-            menu = QMenu(self.getit_music_table)
-            action = menu.addAction(f'Download \u201c{label}\u201d')
-            chosen = menu.exec(self.getit_music_table.viewport().mapToGlobal(pos))
-            if chosen == action:
-                self.getit_music_table.selectRow(row)
-                getit_do_music_download(mid, filename)
-
-        self.getit_music_table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.getit_music_table.customContextMenuRequested.connect(getit_on_music_context_menu)
 
         # ---- MOTD fetch ----
 
@@ -4462,9 +4402,8 @@ class MainWindow(QMainWindow):
             self._getit_motd_thread = getit_run_in_thread(_motd_fn, _on_motd, _on_motd_error)
 
         # Store for on_tab_changed wiring below
-        self._getit_fetch_motd      = getit_fetch_motd
-        self._getit_on_latest       = getit_on_latest
-        self._getit_on_music_latest = getit_on_music_latest
+        self._getit_fetch_motd = getit_fetch_motd
+        self._getit_on_latest  = getit_on_latest
 
         getit_container = QWidget()
         getit_container.setLayout(self.getit_form)
@@ -5763,6 +5702,118 @@ class MainWindow(QMainWindow):
                 if on_err: on_err(e)
             return getit_run_in_thread(_fn, _ok, _err)
 
+        def _zxdb_resolve_base_path(configured_path: str) -> str:
+            """Return the configured path if it's a valid directory, else fall back to app-local 'downloads'."""
+            p = (configured_path or "").strip().rstrip("/\\")
+            if p and os.path.isdir(p):
+                return p
+            return os.path.abspath("downloads")
+
+        def _zxdb_send_to_path(title: str, downloads: list, dest_root: str, post_action=None):
+            """Download all files in *downloads* into dest_root/{sanitized_title}/, then call post_action(folder)."""
+            if not downloads:
+                zxdb_set_status("No downloadable files for this entry.")
+                return
+            folder = os.path.join(dest_root, zxdb_sanitize_folder(title))
+            os.makedirs(folder, exist_ok=True)
+            pending = {"n": len(downloads), "ok": 0, "ko": 0}
+
+            def _maybe_finish():
+                if pending["ok"] + pending["ko"] >= pending["n"]:
+                    if pending["ok"] > 0:
+                        zxdb_set_status(
+                            f"Sent {pending['ok']}/{pending['n']} file(s) → {folder}  ↗ open folder",
+                            open_path=folder,
+                        )
+                    else:
+                        zxdb_set_status(f"All {pending['n']} download(s) failed — check the URLs")
+                    if post_action:
+                        post_action(folder)
+
+            for d in downloads:
+                fname = d.get("filename") or os.path.basename(
+                    urllib.parse.urlparse(d.get("url", "")).path
+                ) or "file.bin"
+                save_path = os.path.join(folder, fname)
+
+                def _ok(p, _f=fname):
+                    pending["ok"] += 1
+                    zxdb_set_status(f"Downloaded {_f}")
+                    _maybe_finish()
+
+                def _err(e, _f=fname):
+                    pending["ko"] += 1
+                    zxdb_set_status(f"Failed {_f}: {e[1]}")
+                    _maybe_finish()
+
+                zxdb_download_to_path(d.get("url", ""), save_path, _ok, _err)
+
+        def _zxdb_send_to_image(title: str, downloads: list):
+            """Download all ZXDB files to temp then hdfmonkey-put them into the loaded disk image."""
+            if not right_disk_image_explorer_content:
+                zxdb_set_status("Please load a disk image first (SD Card tab).")
+                return
+            if not self.right_disk_image_path:
+                zxdb_set_status("No disk image loaded.")
+                return
+            if not downloads:
+                zxdb_set_status("No downloadable files for this entry.")
+                return
+
+            safe_name  = zxdb_sanitize_folder(title)
+            img_dir    = (generate_disk_file_path().rstrip("/") + "/" + safe_name).replace("//", "/")
+            image_path = self.right_disk_image_path
+            pending    = {"n": len(downloads), "ok": 0, "ko": 0}
+
+            def _maybe_finish():
+                if pending["ok"] + pending["ko"] >= pending["n"]:
+                    if pending["ok"] > 0:
+                        zxdb_set_status(f"Sent {pending['ok']}/{pending['n']} file(s) → image:{img_dir}")
+                        res = execute_hdf_monkey("ls", image_path, extra_argv=[generate_disk_file_path()])
+                        if res.returncode == 0:
+                            update_disk_manager_widget_table(res.stdout)
+                    else:
+                        zxdb_set_status(f"All {pending['n']} download(s) failed — check the URLs")
+
+            # Create the sub-directory in the image once (ignore errors — may already exist)
+            execute_hdf_monkey("mkdir", image_path, extra_argv=[img_dir])
+
+            for d in downloads:
+                fname = d.get("filename") or os.path.basename(
+                    urllib.parse.urlparse(d.get("url", "")).path
+                ) or "file.bin"
+                url      = d.get("url", "")
+                img_dest = (img_dir + "/" + fname).replace("//", "/")
+
+                def _dl_and_put(_url=url, _fname=fname, _img_dest=img_dest):
+                    import tempfile
+                    tmp = tempfile.NamedTemporaryFile(suffix="_" + _fname, delete=False)
+                    tmp.close()
+                    try:
+                        urllib.request.urlretrieve(_url, tmp.name)
+                        result = execute_hdf_monkey("put", image_path,
+                                                   extra_argv=[tmp.name.replace("\\", "/"), _img_dest])
+                        if result.returncode != 0:
+                            raise RuntimeError(f"hdfmonkey put failed (rc={result.returncode})")
+                    finally:
+                        try:
+                            os.unlink(tmp.name)
+                        except OSError:
+                            pass
+                    return _img_dest
+
+                def _ok(dest, _f=fname):
+                    pending["ok"] += 1
+                    zxdb_set_status(f"Sent {_f} → image:{dest}")
+                    _maybe_finish()
+
+                def _err(e, _f=fname):
+                    pending["ko"] += 1
+                    zxdb_set_status(f"Failed {_f}: {e[1]}")
+                    _maybe_finish()
+
+                getit_run_in_thread(_dl_and_put, _ok, _err)
+
         def zxdb_show_downloads_overlay(title: str, downloads: list):
             if not downloads:
                 zxdb_set_status("No downloadable files for this entry.")
@@ -6102,11 +6153,50 @@ class MainWindow(QMainWindow):
                     self._zxdb_ctx_thread = getit_run_in_thread(_fn_issue, _on_ok_issue, _on_err_issue)
 
             else:
-                act_download = menu.addAction("Download content")
-                act_mlt      = menu.addAction("More like this")
+                # ---- Resolve "Send to" destinations ----
+                _img_path     = self.right_disk_image_path or ""
+                _img_label    = (generate_disk_file_path().rstrip("/") + "/" + zxdb_sanitize_folder(title)
+                                 ) if _img_path else "(no image loaded)"
+                _sd_dest      = f"{_img_path}  :  {_img_label}" if _img_path else "(no image loaded)"
+                _ns_base      = _zxdb_resolve_base_path(self.left_file_nextsync_explorer_selection_full_filename_path)
+                _safe_title   = zxdb_sanitize_folder(title)
+                _ns_dest      = os.path.join(_ns_base, _safe_title)
+
+                act_download  = menu.addAction("Download content")
+                act_mlt       = menu.addAction("More like this")
+                menu.addSeparator()
+                act_send_sd   = menu.addAction(f"Send to SD card (image)  →  {_sd_dest}")
+                act_send_sd.setEnabled(bool(self.right_disk_image_path) and len(right_disk_image_explorer_content) != 0)
+                act_send_ns   = menu.addAction(f"Send using NextSync  →  {_ns_dest}")
                 action = menu.exec(self.zxdb_results_table.viewport().mapToGlobal(pos))
                 if action is None:
                     return
+
+                # ---- helper: fetch downloads then send to a path ----
+                def _fetch_and_send(dest_root, post_action=None):
+                    if self._zxdb_selected_id == eid and self._zxdb_selected_downloads:
+                        _zxdb_send_to_path(self._zxdb_selected_title or title,
+                                           self._zxdb_selected_downloads,
+                                           dest_root, post_action)
+                        return
+                    zxdb_set_status(f"Loading {eid}…")
+                    def _fn():
+                        payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                        return zxdb_parse_game_detail(payload)
+                    def _on_ok(detail, _dr=dest_root, _pa=post_action):
+                        zxdb_populate_detail(detail)
+                        shots = detail.get("screenshots") or []
+                        if not shots and detail.get("screenshot_url"):
+                            shots = [{"url": detail["screenshot_url"], "type": ""}]
+                        zxdb_start_slideshow(shots)
+                        dls = detail.get("downloads", []) or []
+                        if not dls:
+                            zxdb_set_status("No downloadable files for this entry.")
+                            return
+                        _zxdb_send_to_path(detail.get("title") or title, dls, _dr, _pa)
+                    def _on_err(err):
+                        zxdb_set_status(f"Detail error: {err[1]}")
+                    self._zxdb_ctx_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
                 if action is act_download:
                     # If detail for this row is already loaded, show the overlay immediately.
@@ -6138,6 +6228,33 @@ class MainWindow(QMainWindow):
                         zxdb_set_status(f"Detail error: {err[1]}")
 
                     self._zxdb_ctx_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+                elif action is act_send_sd:
+                    def _fetch_and_send_to_image():
+                        if self._zxdb_selected_id == eid and self._zxdb_selected_downloads:
+                            _zxdb_send_to_image(self._zxdb_selected_title or title,
+                                                self._zxdb_selected_downloads)
+                            return
+                        zxdb_set_status(f"Loading {eid}…")
+                        def _fn_sd():
+                            payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                            return zxdb_parse_game_detail(payload)
+                        def _on_ok_sd(detail):
+                            zxdb_populate_detail(detail)
+                            dls = detail.get("downloads", []) or []
+                            if not dls:
+                                zxdb_set_status("No downloadable files for this entry.")
+                                return
+                            _zxdb_send_to_image(detail.get("title") or title, dls)
+                        def _on_err_sd(err):
+                            zxdb_set_status(f"Detail error: {err[1]}")
+                        self._zxdb_ctx_thread = getit_run_in_thread(_fn_sd, _on_ok_sd, _on_err_sd)
+                    _fetch_and_send_to_image()
+
+                elif action is act_send_ns:
+                    def _after_ns_dl(_folder):
+                        QTimer.singleShot(0, self._nextsync_start_server_fn)
+                    _fetch_and_send(_ns_base, _after_ns_dl)
 
                 elif action is act_mlt:
                     zxdb_set_status(f"Finding titles similar to '{title}'…")
