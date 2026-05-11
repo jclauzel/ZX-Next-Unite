@@ -65,6 +65,7 @@ import sys
 import tempfile
 import threading
 import time
+import concurrent.futures
 import traceback
 import urllib.parse
 import urllib.request
@@ -74,6 +75,7 @@ import zipfile
 from PySide6 import QtCore
 from PySide6.QtCore import (
     QDir,
+    QMetaObject,
     QModelIndex,
     QObject,
     QRect,
@@ -86,7 +88,8 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QPixmap
+from PySide6.QtCore import Q_ARG
+from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QPainter, QPixmap, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -112,6 +115,8 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSlider,
+    QSpinBox,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -122,7 +127,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "4.4"
+ZX_NEXT_UNITE_VERSION = "4.5"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
@@ -134,6 +139,7 @@ ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "NextSync - Network Transfer Manager"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC_SYNCON = "NextSync - Sync ON"
 ZX_NEXT_UNITE_TAB_TITLE_GETIT = "GetIt"
 ZX_NEXT_UNITE_TAB_TITLE_ZXDB  = "ZXDB"
+ZX_NEXT_UNITE_TAB_TITLE_ZXART = "zxART"
 
 GETIT_BASE_URL = "https://zxnext.uk"
 GETIT_PAGE_SIZE = 18
@@ -141,6 +147,10 @@ GETIT_PAGE_SIZE = 18
 ZXDB_BASE_URL = "https://api.zxinfo.dk/v3"
 ZXDB_USER_AGENT = "ZX-Next-Unite"
 ZXDB_PAGE_SIZE = 20
+
+ZXART_BASE_URL = "https://zxart.ee/api"
+ZXART_USER_AGENT = "ZX-Next-Unite"
+ZXART_PAGE_SIZE = 20
 
 
 HDF_MONKEY_WINDOWS_URL = "https://uto.speccy.org/downloads/hdfmonkey_windows.zip"
@@ -162,9 +172,12 @@ SETTING_NEXTSYNC_SLOWTRANSFER = "nextsync_slowtransfer"
 SETTING_DEFAULT_TAB_WHEN_OPENING = "default_tab"
 SETTING_WARN_IMAGE_NEARLY_FULL = "warn_image_nearly_full"
 SETTING_NO_PROMPT_ON_DELETION  = "no_prompt_on_deletion"
-SETTING_ZXDB_AVAIL_CHECK       = "zxdb_avail_check"
+SETTING_AVAIL_CHECK            = "avail_check"
+SETTING_MULTI_SEARCH           = "multi_search"
 SETTING_ZXDB_LAST_MODE         = "zxdb_last_mode"
 SETTING_ZXDB_LAST_QUERY        = "zxdb_last_query"
+SETTING_ZXART_LAST_MODE        = "zxart_last_mode"
+SETTING_ZXART_LAST_QUERY       = "zxart_last_query"
 SETTING_COLOR_UP_DIRECTORY = "color_up_directory"
 SETTING_COLOR_DIR_NAME    = "color_dir_name"
 SETTING_COLOR_DIR_TYPE    = "color_dir_type"
@@ -172,6 +185,8 @@ SETTING_COLOR_FILE_NAME   = "color_file_name"
 SETTING_COLOR_FILE_EXT    = "color_file_ext"
 SETTING_COLOR_FILE_SIZE   = "color_file_size"
 SETTING_IMAGE_HISTORY     = "image_history"
+SETTING_BG_OPACITY        = "bg_opacity"
+SETTING_CONTENT_DISCLAIMER_AGREED = "content_disclaimer_agreed"
 MAX_IMAGE_HISTORY         = 10
 
 DEFAULT_COLOR_UP_DIRECTORY = "#ff0000"
@@ -196,7 +211,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              (""),
              ("Introduction:"),
              ("--------"),
-             ("zx-next-unite was initialy created by emOOk and NextSync by Jari Komppa."),
+             ("HdfmGooey was initialy created by emOOk and NextSync by Jari Komppa."),
              ("A while back I rambled with the idea of an all in one bootstrapper transfer tool to"),
              ("avoid manipulating SD cards for the Spectrum Next and that was the initial idea of it."),
              ("Last but not the least some source code was lost from HDFM Gooey and the tool was stuck back in that time,"),
@@ -267,11 +282,65 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("-------"),
              ("You will also need to install manualy mono-complete package for example using: sudo apt-get install mono-complete"),
              (""),
+             ("Third-Party Content Sources (GetIt / ZXDB / zxArt):"),
+             ("----------------------------------------------------"),
+             ("zx-next-unite integrates three external databases to let you browse and download"),
+             ("Spectrum-related software and artwork directly from within the application."),
+             ("The application consumes their public APIs — it does not host, mirror, or"),
+             ("redistribute any of the files itself."),
+             (""),
+             ("GetIt:"),
+             ("  GetIt is a community-maintained archive of ZX Spectrum Next software."),
+             ("  API base URL : https://www.specnext.com/getit/"),
+             ("  The application queries the GetIt API to list and search files, then"),
+             ("  downloads them directly from the URLs returned by that API."),
+             (""),
+             ("ZXDB:"),
+             ("  ZXDB is an open-source database of ZX Spectrum and related software,"),
+             ("  maintained by the community at https://github.com/zxdb/ZXDB ."),
+             ("  API base URL : https://api.zxdb.net/v1/"),
+             ("  The application queries the ZXDB REST API for titles, releases, screenshots"),
+             ("  and inlays, then downloads files directly from the URLs returned by that API."),
+             (""),
+             ("zxArt:"),
+             ("  zxArt (https://zxart.ee) is a gallery and archive dedicated to ZX Spectrum"),
+             ("  visual art, music, and productions."),
+             ("  API base URL : https://zxart.ee/api/"),
+             ("  The application sends requests to the zxArt API to search productions and"),
+             ("  pictures, retrieve metadata and preview images, and download productions"),
+             ("  directly from the URLs returned by that API."),
+             (""),
+             ("Legal disclaimer:"),
+             ("  The author of zx-next-unite does NOT distribute any files, ROMs, games,"),
+             ("  demos, graphics, music, or any other content obtained through these APIs."),
+             ("  All content is served exclusively by the respective third-party services."),
+             ("  It is the sole responsibility of the end user to ensure that any content"),
+             ("  they download or use through this application complies with the applicable"),
+             ("  copyright, licensing, and legal requirements in their jurisdiction."),
+             ("  If in doubt, consult the terms of service of the relevant platform and"),
+             ("  seek appropriate legal advice before downloading or using any content."),
+             (""),
              ("Enjoy!"),
              ("")
             )
 
-CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME, SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY)
+# Build the disclaimer text once from INIT_HELP (the "Legal disclaimer:" block)
+def _build_disclaimer_text():
+    lines = []
+    inside = False
+    for line in INIT_HELP:
+        if line.strip().startswith("Legal disclaimer:"):
+            inside = True
+        if inside:
+            if line.strip() == "Enjoy!":
+                break
+            lines.append(line)
+    return "\n".join(lines).rstrip()
+
+_DISCLAIMER_TEXT = _build_disclaimer_text()
+
+CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME, SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH)
+
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
 
@@ -878,6 +947,347 @@ def zxdb_parse_game_detail(payload) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# zxART (zxart.ee) helpers
+# ---------------------------------------------------------------------------
+
+def zxart_fetch_json(path: str, timeout: int = 15):
+    """GET JSON from the zxART API. *path* is appended to ZXART_BASE_URL.
+    Sends the mandatory User-Agent header on every request."""
+    url = ZXART_BASE_URL + path
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": ZXART_USER_AGENT,
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read()
+    return json.loads(raw.decode("utf-8", errors="replace"))
+
+
+def zxart_fetch_bytes(url: str, timeout: int = 30) -> bytes:
+    """Fetch raw bytes from any URL, identifying as zxART user agent."""
+    req = urllib.request.Request(url, headers={"User-Agent": ZXART_USER_AGENT})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def zxart_parse_prod_list(response: dict) -> tuple:
+    """Parse a zxART API response for zxProd entities.
+
+    Returns (entries, total) where each entry has keys:
+    id, title, year, author, machine, genre, _kind, _source.
+    """
+    entries = []
+    if not isinstance(response, dict):
+        return entries, 0
+
+    total = 0
+    try:
+        total = int(response.get("totalAmount") or 0)
+    except (TypeError, ValueError):
+        pass
+
+    prods = (response.get("responseData") or {}).get("zxProd", [])
+    if not isinstance(prods, list):
+        prods = []
+
+    for prod in prods:
+        if not isinstance(prod, dict):
+            continue
+        pid   = str(prod.get("id") or "")
+        title = str(prod.get("title") or "")
+        year  = str(prod.get("year") or "")
+        # groupsIds -> we resolve names separately when detail is loaded;
+        # use description as author placeholder
+        authors_info = prod.get("authorsInfo") or []
+        group_ids    = prod.get("groupsIds") or []
+        author_hint  = ""
+        if group_ids:
+            author_hint = f"{len(group_ids)} group(s)"
+        elif authors_info:
+            author_hint = f"{len(authors_info)} author(s)"
+
+        compo = str(prod.get("compo") or "")
+        party_place = prod.get("partyPlace")
+        genre = compo or ""
+        if party_place:
+            genre = f"{genre} (#{party_place})" if genre else f"#{party_place}"
+
+        entries.append({
+            "id":      pid,
+            "title":   title,
+            "year":    year,
+            "author":  author_hint,
+            "machine": "",
+            "genre":   genre,
+            "_kind":   "zxart_prod",
+            "_source": prod,
+        })
+
+    return entries, total
+
+
+# Letter-to-approximate-offset table for the zxART Games category (zxProdCategory=92177,
+# ~23 000 entries ordered by title,asc).  Values are conservative lower-bound offsets so
+# that a ±500-item window centred on the estimate reliably contains all titles starting
+# with the requested letter.
+# Category ID in zxART that covers all software productions (games + demos)
+_ZXART_SOFTWARE_CATEGORY = 92177
+
+# Approximate total entries in the Games category — used to compute fetch chunks.
+# Updated at runtime on first successful search.
+_ZXART_CATALOG_TOTAL = 23200
+
+# Max items the zxART API returns per request (empirically confirmed).
+_ZXART_FETCH_CHUNK = 2000
+
+# Timeout in seconds for each catalog chunk request (large payload, be generous).
+_ZXART_CHUNK_TIMEOUT = 60
+
+# Retry attempts per chunk on timeout/error.
+_ZXART_CHUNK_RETRIES = 2
+
+# Polite delay (seconds) between sequential chunk requests to avoid HTTP 500s.
+_ZXART_CHUNK_DELAY = 0.5
+
+# How long (seconds) the disk cache is valid when the sentinel probe is
+# unavailable (fallback TTL).  Normal operation uses the sentinel, so this
+# only matters when zxART is unreachable on a subsequent session.
+_ZXART_CACHE_TTL = 86400*7  # 24 hours * 7 (7 days)
+
+# Disk cache file stored next to hdfg.cfg.
+_ZXART_CACHE_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(sys.argv[0])),
+    "cache",
+)
+_ZXART_CACHE_FILE = os.path.join(_ZXART_CACHE_DIR, "zxart_catalog_cache.json.gz")
+
+# In-memory catalog: (wall_time_loaded: float, entries: list) or None.
+_zxart_catalog_cache: tuple | None = None
+_zxart_catalog_lock = threading.Lock()
+
+
+def _zxart_probe_sentinel() -> tuple[int, int]:
+    """Fetch a single-item probe to get (totalAmount, newest_dateModified).
+
+    This is cheap (~1 kB) and tells us whether the catalog has changed since
+    we last downloaded it.  Returns (0, 0) on any error.
+    """
+    try:
+        resp = zxart_fetch_json(
+            f"/export:zxProd/language:eng/start:0/limit:1"
+            f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:date,desc",
+            timeout=10,
+        )
+        total = int(resp.get("totalAmount") or 0)
+        prods = (resp.get("responseData") or {}).get("zxProd", [])
+        stamp = 0
+        if isinstance(prods, list) and prods:
+            stamp = int(prods[0].get("dateModified") or 0)
+        return total, stamp
+    except Exception:
+        return 0, 0
+
+
+def _zxart_load_disk_cache() -> tuple[int, int, list] | None:
+    """Load the gzip-JSON disk cache.
+
+    Returns (saved_total, saved_stamp, entries) or None on any error.
+    The file format is {"total": int, "stamp": int, "entries": [...]}.
+    """
+    try:
+        import gzip
+        with gzip.open(_ZXART_CACHE_FILE, "rt", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return int(data.get("total") or 0), int(data.get("stamp") or 0), data["entries"]
+    except Exception:
+        return None
+
+
+def _zxart_save_disk_cache(entries: list, total: int, stamp: int) -> None:
+    """Write the sentinel header + entry list to the gzip-JSON disk cache."""
+    try:
+        import gzip
+        os.makedirs(_ZXART_CACHE_DIR, exist_ok=True)
+        with gzip.open(_ZXART_CACHE_FILE, "wt", encoding="utf-8") as fh:
+            json.dump({"total": total, "stamp": stamp, "entries": entries}, fh, ensure_ascii=False)
+    except Exception as exc:
+        logging.warning("zxart: could not save disk cache: %s", exc)
+
+
+def _zxart_get_catalog(progress_cb=None) -> list:
+    """Return the full zxART Games catalog, using a multi-layer cache strategy.
+
+    Layer 1 – in-memory:  valid for the lifetime of the process (no re-fetch
+                           needed if the sentinel says nothing changed).
+    Layer 2 – disk cache: gzip-compressed JSON next to hdfg.cfg, valid for up
+                           to 24 h *or* until the sentinel detects a change.
+    Layer 3 – live fetch: parallel chunked download of the full catalog.
+
+    Freshness is determined by a cheap one-item probe (totalAmount +
+    newest dateModified).  If both values match what was stored with the
+    cache, the cache is reused regardless of age.
+
+    progress_cb: optional callable(str) invoked with human-readable status
+                 messages from the background thread.
+    """
+    global _ZXART_CATALOG_TOTAL, _zxart_catalog_cache
+
+    def _notify(msg: str):
+        if progress_cb:
+            try:
+                progress_cb(msg)
+            except Exception:
+                pass
+
+    with _zxart_catalog_lock:
+        # --- sentinel probe (cheap, always attempted) ---
+        _notify("Checking zxART catalog…")
+        live_total, live_stamp = _zxart_probe_sentinel()
+
+        # Read saved sentinels from the disk cache header (no cfg dependency).
+        disk_result = _zxart_load_disk_cache()
+        saved_total, saved_stamp, disk_entries = disk_result if disk_result else (0, 0, None)
+
+        sentinel_matches = (
+            live_total > 0
+            and live_total == saved_total
+            and live_stamp > 0
+            and live_stamp == saved_stamp
+        )
+
+        # --- in-memory hit ---
+        if _zxart_catalog_cache is not None:
+            _, entries = _zxart_catalog_cache
+            if sentinel_matches:
+                _notify("")
+                return entries
+            # sentinel changed — fall through to refresh
+
+        # --- disk cache hit ---
+        if sentinel_matches and disk_entries:
+            _zxart_catalog_cache = (time.monotonic(), disk_entries)
+            _notify("")
+            logging.info("zxart catalog: loaded %d entries from disk cache", len(disk_entries))
+            return disk_entries
+
+        # --- full download ---
+        count_chunks = max(1, ((_ZXART_CATALOG_TOTAL + _ZXART_FETCH_CHUNK - 1) // _ZXART_FETCH_CHUNK))
+        if _zxart_catalog_cache is None:
+            _notify(f"Building zxART catalog cache… (first search only, ~{count_chunks} chunks)")
+        else:
+            _notify("Refreshing zxART catalog cache…")
+
+        base_path = (
+            f"/export:zxProd/language:eng"
+            f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:title,asc"
+        )
+
+        total = _ZXART_CATALOG_TOTAL
+        offsets = list(range(0, total, _ZXART_FETCH_CHUNK))
+
+        all_entries: list = []
+        for idx, start in enumerate(offsets, 1):
+            if idx > 1:
+                time.sleep(_ZXART_CHUNK_DELAY)
+            path = f"{base_path}/start:{start}/limit:{_ZXART_FETCH_CHUNK}"
+            last_exc = None
+            for attempt in range(_ZXART_CHUNK_RETRIES + 1):
+                try:
+                    resp = zxart_fetch_json(path, timeout=_ZXART_CHUNK_TIMEOUT)
+                    try:
+                        reported = int(resp.get("totalAmount") or 0)
+                        if reported > 0:
+                            _ZXART_CATALOG_TOTAL = reported
+                    except (TypeError, ValueError):
+                        pass
+                    chunk_entries, _ = zxart_parse_prod_list(resp)
+                    all_entries.extend(chunk_entries)
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt < _ZXART_CHUNK_RETRIES:
+                        time.sleep(2 ** attempt)  # 1 s, 2 s back-off
+            else:
+                logging.warning("zxart catalog: chunk start=%d failed: %s", start, last_exc)
+            _notify(
+                f"Building zxART catalog cache… "
+                f"({idx}/{len(offsets)} chunks, {len(all_entries)} entries)"
+            )
+
+        all_entries.sort(key=lambda e: e["title"].lower())
+        _zxart_catalog_cache = (time.monotonic(), all_entries)
+
+        # Persist sentinel + entries to disk cache file (self-contained, no cfg needed).
+        _zxart_save_disk_cache(all_entries, live_total, live_stamp)
+
+        _notify(f"zxART catalog ready — {len(all_entries)} entries cached")
+        logging.info("zxart catalog fetched and cached: %d entries", len(all_entries))
+        return all_entries
+
+
+def zxart_client_search(query: str, progress_cb=None) -> tuple:
+    """Search zxART productions by title using a cached full catalog scan.
+
+    The catalog is downloaded once, persisted to disk, and refreshed only
+    when the server reports a change (via a cheap sentinel probe).
+    Subsequent queries filter the in-memory list with zero network I/O.
+
+    progress_cb: optional callable(str) forwarded to _zxart_get_catalog.
+    Returns (matched_entries, total_matched).
+    """
+    if not query:
+        return [], 0
+
+    catalog = _zxart_get_catalog(progress_cb=progress_cb)
+    q_lower = query.lower()
+    matched = [e for e in catalog if q_lower in e["title"].lower()]
+    return matched, len(matched)
+
+
+def zxart_parse_picture_list(response: dict) -> tuple:
+    """Parse a zxART API response for zxPicture entities."""
+    entries = []
+    if not isinstance(response, dict):
+        return entries, 0
+
+    total = 0
+    try:
+        total = int(response.get("totalAmount") or 0)
+    except (TypeError, ValueError):
+        pass
+
+    pics = (response.get("responseData") or {}).get("zxPicture", [])
+    if not isinstance(pics, list):
+        pics = []
+
+    for pic in pics:
+        if not isinstance(pic, dict):
+            continue
+        pid   = str(pic.get("id") or "")
+        title = str(pic.get("title") or "")
+        year  = str(pic.get("year") or "")
+        rating = str(pic.get("rating") or "")
+        tags   = pic.get("tags") or []
+        genre  = ", ".join(str(t) for t in tags[:3]) if tags else ""
+
+        entries.append({
+            "id":      pid,
+            "title":   title,
+            "year":    year,
+            "author":  "",
+            "machine": str(pic.get("type") or ""),
+            "genre":   genre,
+            "_kind":   "zxart_picture",
+            "_source": pic,
+        })
+
+    return entries, total
+
+
+# ---------------------------------------------------------------------------
 # GetIt QRunnable workers (must be module-level for stable C++ type identity)
 # ---------------------------------------------------------------------------
 
@@ -902,6 +1312,49 @@ def getit_run_in_thread(fn, on_result, on_error):
 
 
 
+class BackgroundWidget(QWidget):
+    """A QWidget that paints a randomly chosen image from the 'backgrounds/'
+    directory scaled to fill the entire widget area, blended at a configurable
+    opacity level (0–100 %, default 5 %)."""
+
+    DEFAULT_OPACITY = 45
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._bg_pixmap  = self._load_random_background()
+        self._bg_opacity = self.DEFAULT_OPACITY  # percent 0-100
+
+    def set_bg_opacity(self, percent: int):
+        """Set background image opacity (0 = invisible, 100 = fully opaque)."""
+        self._bg_opacity = max(0, min(100, int(percent)))
+        self.update()
+
+    @staticmethod
+    def _load_random_background():
+        import random
+        bg_dir = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "backgrounds")
+        if not os.path.isdir(bg_dir):
+            return None
+        image_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
+        candidates = [
+            os.path.join(bg_dir, f)
+            for f in os.listdir(bg_dir)
+            if os.path.splitext(f)[1].lower() in image_extensions
+        ]
+        if not candidates:
+            return None
+        chosen = random.choice(candidates)
+        px = QPixmap(chosen)
+        return px if not px.isNull() else None
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._bg_pixmap and self._bg_opacity > 0:
+            painter = QPainter(self)
+            painter.setOpacity(self._bg_opacity / 100.0)
+            painter.drawPixmap(self.rect(), self._bg_pixmap)
+
+
 class MainWindow(QMainWindow):
 
     def __init__(self, *args, **kwargs):
@@ -918,6 +1371,8 @@ class MainWindow(QMainWindow):
         right_disk_image_path = ""
         right_disk_image_selected_files = []
         configuration_dictionary = {}
+        # Initialise defaults for settings that may not exist in older cfg files
+        configuration_dictionary[SETTING_CONTENT_DISCLAIMER_AGREED] = ""
 
         # Live QColor instances for the image explorer — updated by Settings pickers
         self.img_color_up_directory = hex_to_qcolor(DEFAULT_COLOR_UP_DIRECTORY)
@@ -1194,9 +1649,14 @@ class MainWindow(QMainWindow):
                     checked = configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION] != "0" and configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION].lower() != "false"
                     self.settings_no_prompt_on_deletion_checkbox.setChecked(checked)
 
-                if SETTING_ZXDB_AVAIL_CHECK in configuration_dictionary and configuration_dictionary[SETTING_ZXDB_AVAIL_CHECK] != "":
-                    checked = configuration_dictionary[SETTING_ZXDB_AVAIL_CHECK] != "0" and configuration_dictionary[SETTING_ZXDB_AVAIL_CHECK].lower() != "false"
-                    self.settings_zxdb_avail_check_checkbox.setChecked(checked)
+                if SETTING_AVAIL_CHECK in configuration_dictionary and configuration_dictionary[SETTING_AVAIL_CHECK] != "":
+                    checked = configuration_dictionary[SETTING_AVAIL_CHECK] != "0" and configuration_dictionary[SETTING_AVAIL_CHECK].lower() != "false"
+                    self.settings_avail_check_checkbox.setChecked(checked)
+
+                # Multi-search defaults to True; only turn off when explicitly saved as false/0
+                if SETTING_MULTI_SEARCH in configuration_dictionary and configuration_dictionary[SETTING_MULTI_SEARCH] != "":
+                    checked = configuration_dictionary[SETTING_MULTI_SEARCH] != "0" and configuration_dictionary[SETTING_MULTI_SEARCH].lower() != "false"
+                    self.settings_multi_search_checkbox.setChecked(checked)
 
                 saved_mode = configuration_dictionary.get(SETTING_ZXDB_LAST_MODE, "").strip()
                 if saved_mode:
@@ -1222,6 +1682,24 @@ class MainWindow(QMainWindow):
                 _load_color_setting(SETTING_COLOR_FILE_NAME,    DEFAULT_COLOR_FILE_NAME,    "img_color_file_name",    "settings_btn_color_file_name")
                 _load_color_setting(SETTING_COLOR_FILE_EXT,     DEFAULT_COLOR_FILE_EXT,     "img_color_file_ext",     "settings_btn_color_file_ext")
                 _load_color_setting(SETTING_COLOR_FILE_SIZE,    DEFAULT_COLOR_FILE_SIZE,    "img_color_file_size",    "settings_btn_color_file_size")
+
+                # Background opacity
+                _bg_opacity_raw = configuration_dictionary.get(SETTING_BG_OPACITY, "").strip()
+                _bg_opacity_val = BackgroundWidget.DEFAULT_OPACITY
+                if _bg_opacity_raw:
+                    try:
+                        _bg_opacity_val = max(0, min(100, int(_bg_opacity_raw)))
+                    except (TypeError, ValueError):
+                        pass
+                self.settings_bg_opacity_slider.blockSignals(True)
+                self.settings_bg_opacity_spinbox.blockSignals(True)
+                self.settings_bg_opacity_slider.setValue(_bg_opacity_val)
+                self.settings_bg_opacity_spinbox.setValue(_bg_opacity_val)
+                self.settings_bg_opacity_slider.blockSignals(False)
+                self.settings_bg_opacity_spinbox.blockSignals(False)
+                self._bg_widget.set_bg_opacity(_bg_opacity_val)
+                _pane_alpha = max(0, min(255, int(255 - (_bg_opacity_val / 100.0) * 255)))
+                self._tab_widget.setStyleSheet(self._build_tab_stylesheet(_pane_alpha))
 
                 config_loaded_with_success = True
                 add_main_log_window("Loaded configuration file.")
@@ -3761,14 +4239,18 @@ class MainWindow(QMainWindow):
 
         # setting the inner widget and layout
         grid_inner = QGridLayout()
-        wid_inner = QWidget(wid)
+        wid_inner = BackgroundWidget(wid)
         wid_inner.setLayout(grid_inner)
+        self._bg_widget = wid_inner
 
         # add the inner widget to the outer layout
         grid.addWidget(wid_inner)
 
         # add tab frame to widget
         wid_inner.tab = QTabWidget(wid_inner)
+        wid_inner.tab.setAttribute(Qt.WA_TranslucentBackground)
+        wid_inner.tab.setAutoFillBackground(False)
+        self._tab_widget = wid_inner.tab
         grid_inner.addWidget(wid_inner.tab)
 
         zx_next_unite_container = QWidget()
@@ -4141,7 +4623,7 @@ class MainWindow(QMainWindow):
 
         # ---- Background search task ----
 
-        def getit_run_search(query: str, page: int):
+        def getit_run_search(query: str, page: int, on_complete=None):
             if self._getit_search_loading:
                 return
             self._getit_last_query = query
@@ -4172,6 +4654,8 @@ class MainWindow(QMainWindow):
                 getit_set_status(f"{data[1]} result(s)  |  page {page}/{total_pages}")
                 self.getit_search_button.setEnabled(True)
                 self.getit_latest_button.setEnabled(True)
+                if on_complete:
+                    on_complete()
 
             def _on_error(err):
                 self._getit_search_loading = False
@@ -4187,7 +4671,22 @@ class MainWindow(QMainWindow):
 
         def getit_on_search():
             getit_clear_detail()
-            getit_run_search(self.getit_search_input.text().strip(), 1)
+            q = self.getit_search_input.text().strip()
+            if q:
+                _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
+                def _getit_done():
+                    _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
+                    _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT, self.getit_results_table.rowCount())
+                getit_run_search(q, 1, _getit_done)
+            else:
+                getit_run_search(q, 1)
+            if _multi_search_enabled() and q:
+                self.zxdb_search_input.setText(q)
+                self.zxart_search_input.setText(q)
+                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+                _cross_search_zxdb(q)
+                _cross_search_zxart(q)
 
         def getit_on_latest():
             getit_clear_detail()
@@ -4460,6 +4959,8 @@ class MainWindow(QMainWindow):
 
         getit_container = QWidget()
         getit_container.setLayout(self.getit_form)
+        getit_container.setAutoFillBackground(False)
+        getit_container.setAttribute(Qt.WA_TranslucentBackground)
 
         # Wrap in scroll area here so the stack owns the scroll area, not the bare container
         getit_scroll = QScrollArea()
@@ -4467,6 +4968,10 @@ class MainWindow(QMainWindow):
         getit_scroll.setWidgetResizable(True)
         getit_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         getit_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        getit_scroll.setAutoFillBackground(False)
+        getit_scroll.setAttribute(Qt.WA_TranslucentBackground)
+        getit_scroll.viewport().setAutoFillBackground(False)
+        getit_scroll.viewport().setAttribute(Qt.WA_TranslucentBackground)
 
         # ---- Fullscreen preview overlay ----
         self._getit_fullscreen_pixmap = None
@@ -4498,6 +5003,8 @@ class MainWindow(QMainWindow):
         getit_overlay_layout.addWidget(self.getit_fullscreen_label, 1)
 
         self._getit_stack = QStackedWidget()
+        self._getit_stack.setAutoFillBackground(False)
+        self._getit_stack.setAttribute(Qt.WA_TranslucentBackground)
         self._getit_stack.addWidget(getit_scroll)   # index 0 – normal view
         self._getit_stack.addWidget(getit_overlay)  # index 1 – fullscreen preview
         self._getit_stack.setCurrentIndex(0)
@@ -5090,7 +5597,7 @@ class MainWindow(QMainWindow):
             "suggest":   ["ID", "Suggestion", "—", "Label", "Type", "—"],
         }
 
-        def zxdb_run_search(query: str, page: int):
+        def zxdb_run_search(query: str, page: int, on_complete=None):
             if self._zxdb_search_loading:
                 return
             mode = zxdb_current_mode()
@@ -5229,6 +5736,8 @@ class MainWindow(QMainWindow):
                 else:
                     zxdb_set_status(f"{total} result(s)  |  page {pg}/{total_pages}")
                 zxdb_set_busy(False)
+                if on_complete:
+                    on_complete()
 
             def _on_err(err):
                 zxdb_set_status(f"Error: {err[1]}")
@@ -5303,9 +5812,24 @@ class MainWindow(QMainWindow):
 
         def zxdb_on_search():
             zxdb_clear_detail()
-            configuration_dictionary[SETTING_ZXDB_LAST_QUERY] = self.zxdb_search_input.text().strip()
+            q = self.zxdb_search_input.text().strip()
+            configuration_dictionary[SETTING_ZXDB_LAST_QUERY] = q
             save_configuration_file()
-            zxdb_run_search(self.zxdb_search_input.text().strip(), 1)
+            if q:
+                _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                def _zxdb_done():
+                    _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                    _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB, self.zxdb_results_table.rowCount())
+                zxdb_run_search(q, 1, _zxdb_done)
+            else:
+                zxdb_run_search(q, 1)
+            if _multi_search_enabled() and q:
+                self.getit_search_input.setText(q)
+                self.zxart_search_input.setText(q)
+                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
+                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+                _cross_search_getit(q)
+                _cross_search_zxart(q)
 
         def zxdb_on_random():
             zxdb_clear_detail()
@@ -6028,7 +6552,7 @@ class MainWindow(QMainWindow):
             dl_all_btn.clicked.connect(_download_all)
 
             # Fire HEAD checks for every URL now that the table and callbacks are ready
-            avail_check_enabled = getattr(self, "settings_zxdb_avail_check_checkbox", None)
+            avail_check_enabled = getattr(self, "settings_avail_check_checkbox", None)
             avail_check_enabled = avail_check_enabled is not None and avail_check_enabled.isChecked()
             if avail_check_enabled:
                 for row, d in enumerate(downloads):
@@ -6340,12 +6864,18 @@ class MainWindow(QMainWindow):
 
         zxdb_container = QWidget()
         zxdb_container.setLayout(self.zxdb_form)
+        zxdb_container.setAutoFillBackground(False)
+        zxdb_container.setAttribute(Qt.WA_TranslucentBackground)
 
         zxdb_scroll = QScrollArea()
         zxdb_scroll.setWidget(zxdb_container)
         zxdb_scroll.setWidgetResizable(True)
         zxdb_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         zxdb_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        zxdb_scroll.setAutoFillBackground(False)
+        zxdb_scroll.setAttribute(Qt.WA_TranslucentBackground)
+        zxdb_scroll.viewport().setAutoFillBackground(False)
+        zxdb_scroll.viewport().setAttribute(Qt.WA_TranslucentBackground)
 
         self._zxdb_fullscreen_pixmap = None
 
@@ -6406,6 +6936,8 @@ class MainWindow(QMainWindow):
         self.zxdb_fs_next_btn.clicked.connect(_zxdb_nav_next)
 
         self._zxdb_stack = QStackedWidget()
+        self._zxdb_stack.setAutoFillBackground(False)
+        self._zxdb_stack.setAttribute(Qt.WA_TranslucentBackground)
         self._zxdb_stack.addWidget(zxdb_scroll)
         self._zxdb_stack.addWidget(zxdb_overlay)
         self._zxdb_stack.setCurrentIndex(0)
@@ -6449,11 +6981,1412 @@ class MainWindow(QMainWindow):
 
         self._zxdb_on_tab_activated = zxdb_on_tab_activated
 
+        # -----------------------------------------------------------------------
+        # zxART UI construction (zxart.ee API)
+        # -----------------------------------------------------------------------
+
+        self.zxart_form = QFormLayout()
+        self.zxart_form.setContentsMargins(4, 4, 4, 4)
+
+        # --- Search row ---
+        zxart_search_row = QHBoxLayout()
+        self.zxart_search_input = QLineEdit()
+        self.zxart_search_input.setPlaceholderText("Search zxART productions... (leave empty to browse latest)")
+        self.zxart_search_input.setMinimumWidth(280)
+        zxart_search_row.addWidget(self.zxart_search_input)
+
+        self.zxart_search_button = QPushButton("Search")
+        zxart_search_row.addWidget(self.zxart_search_button)
+
+        self.zxart_mode_combo = QComboBox()
+        for _lbl, _key in (
+            ("Productions",  "prods"),
+            ("By letter",    "byletter"),
+            ("Pictures",     "pictures"),
+        ):
+            self.zxart_mode_combo.addItem(_lbl, _key)
+        self.zxart_mode_combo.setCurrentIndex(0)
+        self.zxart_mode_combo.setToolTip("Browse mode")
+        zxart_search_row.addWidget(self.zxart_mode_combo)
+
+        self.zxart_letter_combo = QComboBox()
+        for _lbl in ["#"] + [chr(c) for c in range(ord("A"), ord("Z") + 1)]:
+            self.zxart_letter_combo.addItem(_lbl, _lbl.lower())
+        self.zxart_letter_combo.setToolTip("Pick a letter")
+        self.zxart_letter_combo.setVisible(False)
+        zxart_search_row.addWidget(self.zxart_letter_combo)
+
+        zxart_search_row.addWidget(QLabel("Page:"))
+        self.zxart_page_label = QLabel("1")
+        self.zxart_page_label.setMinimumWidth(24)
+        zxart_search_row.addWidget(self.zxart_page_label)
+
+        self.zxart_prev_button = QPushButton("< Prev")
+        self.zxart_prev_button.setEnabled(False)
+        zxart_search_row.addWidget(self.zxart_prev_button)
+
+        self.zxart_next_button = QPushButton("Next >")
+        self.zxart_next_button.setEnabled(False)
+        zxart_search_row.addWidget(self.zxart_next_button)
+
+        self.zxart_status_label = QLabel("")
+        self.zxart_status_label.setCursor(Qt.ArrowCursor)
+        self._zxart_status_open_path = None
+
+        def _zxart_status_mouse_press(ev):
+            if ev.button() == Qt.LeftButton and self._zxart_status_open_path:
+                p = self._zxart_status_open_path
+                if os.path.isfile(p):
+                    p = os.path.dirname(p)
+                try:
+                    os.makedirs(p, exist_ok=True)
+                except OSError:
+                    pass
+                if not os.path.isdir(p):
+                    return
+                if sys.platform == "win32":
+                    os.startfile(p)
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", p])
+                else:
+                    subprocess.Popen(["xdg-open", p])
+
+        self.zxart_status_label.mousePressEvent = _zxart_status_mouse_press
+        zxart_search_row.addWidget(self.zxart_status_label, 1)
+
+        zxart_search_widget = QWidget()
+        zxart_search_widget.setLayout(zxart_search_row)
+        self.zxart_form.addRow(zxart_search_widget)
+
+        # --- Results table + screenshot/download column ---
+        self.zxart_results_table = QTableWidget(0, 6)
+        self.zxart_results_table.setHorizontalHeaderLabels(
+            ["ID", "Title", "Year", "Author / Group", "Type", "Genre / Compo"]
+        )
+        self.zxart_results_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.zxart_results_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.zxart_results_table.horizontalHeader().setStretchLastSection(True)
+        self.zxart_results_table.setMinimumHeight(220)
+        self.zxart_results_table.setColumnWidth(0, 80)
+        self.zxart_results_table.setColumnWidth(1, 280)
+        self.zxart_results_table.setColumnWidth(2, 60)
+        self.zxart_results_table.setColumnWidth(3, 180)
+        self.zxart_results_table.setColumnWidth(4, 120)
+
+        self.zxart_screenshot_label = QLabel()
+        self.zxart_screenshot_label.setFixedSize(256, 192)
+        self.zxart_screenshot_label.setAlignment(Qt.AlignCenter)
+        self.zxart_screenshot_label.setStyleSheet("background: #111; border: 1px solid #444;")
+        self.zxart_screenshot_label.setText("No preview")
+        self.zxart_screenshot_label.setToolTip("Double-click to enlarge")
+
+        zxart_preview_container = QWidget()
+        zxart_preview_container.setFixedSize(256, 192)
+        self.zxart_screenshot_label.setParent(zxart_preview_container)
+        self.zxart_screenshot_label.move(0, 0)
+
+        _zxart_nav_btn_style = (
+            "QToolButton { color: white; background: rgba(0,0,0,140); border: none;"
+            " font-size: 20px; font-weight: bold; padding: 2px 6px; }"
+            "QToolButton:hover { background: rgba(0,0,0,210); }"
+        )
+        self.zxart_prev_shot_btn = QToolButton(zxart_preview_container)
+        self.zxart_prev_shot_btn.setText("<")
+        self.zxart_prev_shot_btn.setStyleSheet(_zxart_nav_btn_style)
+        self.zxart_prev_shot_btn.setVisible(False)
+        self.zxart_prev_shot_btn.raise_()
+
+        self.zxart_next_shot_btn = QToolButton(zxart_preview_container)
+        self.zxart_next_shot_btn.setText(">")
+        self.zxart_next_shot_btn.setStyleSheet(_zxart_nav_btn_style)
+        self.zxart_next_shot_btn.setVisible(False)
+        self.zxart_next_shot_btn.raise_()
+
+        def _zxart_reposition_shot_btns():
+            h = zxart_preview_container.height()
+            bh = self.zxart_prev_shot_btn.sizeHint().height()
+            by = (h - bh) // 2
+            self.zxart_prev_shot_btn.move(2, by)
+            bw = self.zxart_next_shot_btn.sizeHint().width()
+            self.zxart_next_shot_btn.move(zxart_preview_container.width() - bw - 2, by)
+
+        _zxart_reposition_shot_btns()
+
+        self.zxart_download_button = QPushButton("Download File")
+        self.zxart_download_button.setEnabled(False)
+
+        zxart_right_col = QVBoxLayout()
+        zxart_right_col.addWidget(zxart_preview_container)
+        zxart_right_col.addWidget(self.zxart_download_button)
+        zxart_right_col.addStretch()
+        zxart_right_widget = QWidget()
+        zxart_right_widget.setLayout(zxart_right_col)
+
+        zxart_table_row = QHBoxLayout()
+        zxart_table_row.addWidget(self.zxart_results_table, 1)
+        zxart_table_row.addWidget(zxart_right_widget)
+        zxart_table_container = QWidget()
+        zxart_table_container.setLayout(zxart_table_row)
+        self.zxart_form.addRow(zxart_table_container)
+
+        # --- Detail panel ---
+        self._zxart_detail_layout = QFormLayout()
+        self._zxart_detail_layout.setContentsMargins(0, 0, 0, 0)
+        self._zxart_detail_rows = []
+
+        zxart_detail_widget = QWidget()
+        zxart_detail_widget.setLayout(self._zxart_detail_layout)
+        self.zxart_form.addRow(zxart_detail_widget)
+
+        # --- Internal state ---
+        self._zxart_current_page   = 1
+        self._zxart_total_pages    = 1
+        self._zxart_last_query     = ""
+        self._zxart_selected_id    = ""
+        self._zxart_selected_title = ""
+        self._zxart_selected_downloads = []
+        self._zxart_search_loading = False
+        self._zxart_loaded_once    = False
+        self._zxart_results_mode   = "prods"
+
+        # Slideshow state
+        self._zxart_screenshots    = []
+        self._zxart_shot_cache     = {}
+        self._zxart_shot_index     = 0
+        self._zxart_shot_token     = 0
+        self._zxart_slideshow_timer = QTimer(self)
+        self._zxart_slideshow_timer.setInterval(5000)
+
+        # ---- Helpers ----
+
+        def zxart_set_status(msg: str, open_path: str = None):
+            self.zxart_status_label.setText(msg)
+            self._zxart_status_open_path = open_path
+            if open_path:
+                self.zxart_status_label.setStyleSheet("color: #4fc3f7; text-decoration: underline;")
+                self.zxart_status_label.setCursor(Qt.PointingHandCursor)
+            else:
+                self.zxart_status_label.setStyleSheet("")
+                self.zxart_status_label.setCursor(Qt.ArrowCursor)
+
+        def _zxart_clear_detail_rows():
+            while self._zxart_detail_layout.rowCount() > 0:
+                self._zxart_detail_layout.removeRow(0)
+            self._zxart_detail_rows = []
+
+        def _zxart_add_row(label: str, value: str, *, dim: bool = False, wrap: bool = True):
+            lab = QLabel(label)
+            val = QLabel(value or "")
+            if wrap:
+                val.setWordWrap(True)
+            if dim:
+                val.setStyleSheet("color: #888;")
+            self._zxart_detail_layout.addRow(lab, val)
+            self._zxart_detail_rows.append((lab, val))
+
+        def zxart_clear_detail():
+            _zxart_clear_detail_rows()
+            self.zxart_screenshot_label.setText("No preview")
+            self.zxart_screenshot_label.setPixmap(QPixmap())
+            self.zxart_download_button.setEnabled(False)
+            self._zxart_selected_id = ""
+            self._zxart_selected_title = ""
+            self._zxart_selected_downloads = []
+            self._zxart_slideshow_timer.stop()
+            self._zxart_shot_token += 1
+            self._zxart_screenshots = []
+            self._zxart_shot_cache  = {}
+            self._zxart_shot_index  = 0
+
+        def zxart_sanitize_folder(name: str) -> str:
+            n = (name or "").strip().lower()
+            for ch in '<>:"/\\|?*':
+                n = n.replace(ch, "")
+            n = " ".join(n.split())
+            return n or "untitled"
+
+        def zxart_human_size(n) -> str:
+            try:
+                n = int(n)
+            except (TypeError, ValueError):
+                return str(n) if n else ""
+            if n <= 0:
+                return ""
+            for unit in ("B", "KB", "MB", "GB"):
+                if n < 1024:
+                    return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+                n /= 1024
+            return f"{n:.1f} TB"
+
+        def zxart_download_to_path(url: str, save_path: str, on_done=None, on_err=None):
+            def _fn():
+                data = zxart_fetch_bytes(url, timeout=60)
+                os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+                with open(save_path, "wb") as f:
+                    f.write(data)
+                return save_path
+            def _ok(p):
+                if on_done: on_done(p)
+            def _err(e):
+                if on_err: on_err(e)
+            return getit_run_in_thread(_fn, _ok, _err)
+
+        def _zxart_resolve_base_path(configured_path: str) -> str:
+            p = (configured_path or "").strip().rstrip("/\\")
+            if p and os.path.isdir(p):
+                return p
+            return os.path.abspath("downloads")
+
+        def _zxart_send_to_path(title: str, downloads: list, dest_root: str, post_action=None):
+            if not downloads:
+                zxart_set_status("No downloadable files for this entry.")
+                return
+            folder = os.path.join(dest_root, zxart_sanitize_folder(title))
+            os.makedirs(folder, exist_ok=True)
+            pending = {"n": len(downloads), "ok": 0, "ko": 0}
+
+            def _maybe_finish():
+                if pending["ok"] + pending["ko"] >= pending["n"]:
+                    if pending["ok"] > 0:
+                        zxart_set_status(
+                            f"Sent {pending['ok']}/{pending['n']} file(s) → {folder}  ↗ open folder",
+                            open_path=folder,
+                        )
+                    else:
+                        zxart_set_status(f"All {pending['n']} download(s) failed — check the URLs")
+                    if post_action:
+                        post_action(folder)
+
+            for d in downloads:
+                fname = d.get("filename") or os.path.basename(
+                    urllib.parse.urlparse(d.get("url", "")).path
+                ) or "file.bin"
+                save_path = os.path.join(folder, fname)
+
+                def _ok(p, _f=fname):
+                    pending["ok"] += 1
+                    zxart_set_status(f"Downloaded {_f}")
+                    _maybe_finish()
+
+                def _err(e, _f=fname):
+                    pending["ko"] += 1
+                    zxart_set_status(f"Failed {_f}: {e[1]}")
+                    _maybe_finish()
+
+                zxart_download_to_path(d.get("url", ""), save_path, _ok, _err)
+
+        def _zxart_send_to_image(title: str, downloads: list):
+            if not right_disk_image_explorer_content:
+                zxart_set_status("Please load a disk image first (SD Card tab).")
+                return
+            if not self.right_disk_image_path:
+                zxart_set_status("No disk image loaded.")
+                return
+            if not downloads:
+                zxart_set_status("No downloadable files for this entry.")
+                return
+
+            safe_name  = zxart_sanitize_folder(title)
+            img_dir    = (generate_disk_file_path().rstrip("/") + "/" + safe_name).replace("//", "/")
+            image_path = self.right_disk_image_path
+            pending    = {"n": len(downloads), "ok": 0, "ko": 0}
+
+            def _maybe_finish():
+                if pending["ok"] + pending["ko"] >= pending["n"]:
+                    if pending["ok"] > 0:
+                        zxart_set_status(f"Sent {pending['ok']}/{pending['n']} file(s) → image:{img_dir}")
+                        res = execute_hdf_monkey("ls", image_path, extra_argv=[generate_disk_file_path()])
+                        if res.returncode == 0:
+                            update_disk_manager_widget_table(res.stdout)
+                    else:
+                        zxart_set_status(f"All {pending['n']} download(s) failed — check the URLs")
+
+            execute_hdf_monkey("mkdir", image_path, extra_argv=[img_dir])
+
+            for d in downloads:
+                fname = d.get("filename") or os.path.basename(
+                    urllib.parse.urlparse(d.get("url", "")).path
+                ) or "file.bin"
+                url      = d.get("url", "")
+                img_dest = (img_dir + "/" + fname).replace("//", "/")
+
+                def _dl_and_put(_url=url, _fname=fname, _img_dest=img_dest):
+                    tmp = tempfile.NamedTemporaryFile(suffix="_" + _fname, delete=False)
+                    tmp.close()
+                    try:
+                        req_tmp = urllib.request.Request(_url, headers={"User-Agent": ZXART_USER_AGENT})
+                        with urllib.request.urlopen(req_tmp, timeout=60) as resp_tmp:
+                            with open(tmp.name, "wb") as fh:
+                                fh.write(resp_tmp.read())
+                        result = execute_hdf_monkey("put", image_path,
+                                                   extra_argv=[tmp.name.replace("\\", "/"), _img_dest])
+                        if result.returncode != 0:
+                            raise RuntimeError(f"hdfmonkey put failed (rc={result.returncode})")
+                    finally:
+                        try:
+                            os.unlink(tmp.name)
+                        except OSError:
+                            pass
+                    return _img_dest
+
+                def _ok(dest, _f=fname):
+                    pending["ok"] += 1
+                    zxart_set_status(f"Sent {_f} → image:{dest}")
+                    _maybe_finish()
+
+                def _err(e, _f=fname):
+                    pending["ko"] += 1
+                    zxart_set_status(f"Failed {_f}: {e[1]}")
+                    _maybe_finish()
+
+                getit_run_in_thread(_dl_and_put, _ok, _err)
+
+        def zxart_populate_results(entries, page, total_pages, mode="prods"):
+            self._zxart_current_page = page or 1
+            self._zxart_total_pages  = total_pages or 1
+            self._zxart_results_mode = mode
+            self.zxart_page_label.setText(str(self._zxart_current_page))
+            self.zxart_prev_button.setEnabled(self._zxart_current_page > 1)
+            self.zxart_next_button.setEnabled(self._zxart_current_page < self._zxart_total_pages)
+
+            headers_map = {
+                "prods":    ["ID", "Title", "Year", "Author / Group", "Type", "Genre / Compo"],
+                "byletter": ["ID", "Title", "Year", "Author / Group", "Type", "Genre / Compo"],
+                "pictures": ["ID", "Title", "Year", "Author(s)", "Type", "Tags"],
+            }
+            self.zxart_results_table.setHorizontalHeaderLabels(
+                headers_map.get(mode, headers_map["prods"])
+            )
+
+            self.zxart_results_table.setRowCount(0)
+            for e in entries:
+                row = self.zxart_results_table.rowCount()
+                self.zxart_results_table.insertRow(row)
+                id_item = QTableWidgetItem(e.get("id", ""))
+                id_item.setData(Qt.UserRole, e)
+                self.zxart_results_table.setItem(row, 0, id_item)
+                self.zxart_results_table.setItem(row, 1, QTableWidgetItem(e.get("title", "")))
+                self.zxart_results_table.setItem(row, 2, QTableWidgetItem(e.get("year", "")))
+                self.zxart_results_table.setItem(row, 3, QTableWidgetItem(e.get("author", "")))
+                self.zxart_results_table.setItem(row, 4, QTableWidgetItem(e.get("machine", "")))
+                self.zxart_results_table.setItem(row, 5, QTableWidgetItem(e.get("genre", "")))
+
+        # ---- Slideshow ----
+
+        def zxart_set_pixmap(pm: QPixmap):
+            if pm is None or pm.isNull():
+                self.zxart_screenshot_label.setText("No preview")
+                self.zxart_screenshot_label.setPixmap(QPixmap())
+                return
+            self.zxart_screenshot_label.setPixmap(
+                pm.scaled(
+                    self.zxart_screenshot_label.size(),
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+            )
+            if self._zxart_stack.currentIndex() == 1:
+                self._zxart_fullscreen_pixmap = pm
+                fs = self.zxart_fullscreen_label.size()
+                self.zxart_fullscreen_label.setPixmap(
+                    pm.scaled(fs, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                )
+
+        def zxart_update_nav_buttons():
+            multi = len(self._zxart_screenshots) > 1
+            self.zxart_prev_shot_btn.setVisible(multi)
+            self.zxart_next_shot_btn.setVisible(multi)
+            self.zxart_fs_prev_btn.setVisible(multi and self._zxart_stack.currentIndex() == 1)
+            self.zxart_fs_next_btn.setVisible(multi and self._zxart_stack.currentIndex() == 1)
+
+        def zxart_show_shot_at(idx: int):
+            if not self._zxart_screenshots:
+                return
+            idx = idx % len(self._zxart_screenshots)
+            self._zxart_shot_index = idx
+            zxart_update_nav_buttons()
+            url = self._zxart_screenshots[idx]["url"]
+            cached = self._zxart_shot_cache.get(url)
+            if cached is not None:
+                zxart_set_pixmap(cached)
+                return
+
+            token = self._zxart_shot_token
+
+            def _fn():
+                return zxart_fetch_bytes(url)
+
+            def _on_ok(data):
+                if token != self._zxart_shot_token:
+                    return
+                pm = QPixmap()
+                if pm.loadFromData(data) and not pm.isNull():
+                    self._zxart_shot_cache[url] = pm
+                    if self._zxart_screenshots and self._zxart_screenshots[self._zxart_shot_index]["url"] == url:
+                        zxart_set_pixmap(pm)
+
+            def _on_err(_err):
+                pass
+
+            getit_run_in_thread(_fn, _on_ok, _on_err)
+
+        def zxart_slideshow_tick():
+            if len(self._zxart_screenshots) <= 1:
+                return
+            zxart_show_shot_at(self._zxart_shot_index + 1)
+
+        self._zxart_slideshow_timer.timeout.connect(zxart_slideshow_tick)
+
+        def _zxart_nav_prev():
+            if len(self._zxart_screenshots) > 1:
+                self._zxart_slideshow_timer.stop()
+                zxart_show_shot_at(self._zxart_shot_index - 1)
+                self._zxart_slideshow_timer.start()
+
+        def _zxart_nav_next():
+            if len(self._zxart_screenshots) > 1:
+                self._zxart_slideshow_timer.stop()
+                zxart_show_shot_at(self._zxart_shot_index + 1)
+                self._zxart_slideshow_timer.start()
+
+        self.zxart_prev_shot_btn.clicked.connect(_zxart_nav_prev)
+        self.zxart_next_shot_btn.clicked.connect(_zxart_nav_next)
+
+        def zxart_start_slideshow(screenshots):
+            self._zxart_slideshow_timer.stop()
+            self._zxart_shot_token += 1
+            self._zxart_screenshots = list(screenshots or [])
+            self._zxart_shot_cache  = {}
+            self._zxart_shot_index  = 0
+            if not self._zxart_screenshots:
+                self.zxart_screenshot_label.setText("No preview")
+                self.zxart_screenshot_label.setPixmap(QPixmap())
+                zxart_update_nav_buttons()
+                return
+            zxart_show_shot_at(0)
+            if len(self._zxart_screenshots) > 1:
+                self._zxart_slideshow_timer.start()
+
+        # ---- Detail population ----
+
+        def zxart_populate_prod_detail(detail: dict):
+            _zxart_clear_detail_rows()
+            _zxart_add_row("Title:",       detail.get("title", ""))
+            _zxart_add_row("Year:",        detail.get("year", ""))
+            _zxart_add_row("Authors:",     detail.get("authors", ""))
+            _zxart_add_row("Groups:",      detail.get("groups", ""))
+            _zxart_add_row("Compo:",       detail.get("compo", ""))
+            party_place = detail.get("partyPlace", "")
+            if party_place:
+                _zxart_add_row("Place:", str(party_place))
+            _zxart_add_row("Languages:",   detail.get("language", ""))
+            _zxart_add_row("Legal:",       detail.get("legalStatus", ""))
+            _zxart_add_row("Description:", detail.get("description", ""), dim=True)
+            self._zxart_selected_downloads = detail.get("downloads", []) or []
+            self.zxart_download_button.setEnabled(bool(self._zxart_selected_downloads))
+
+        def zxart_populate_picture_detail(detail: dict):
+            _zxart_clear_detail_rows()
+            _zxart_add_row("Title:",    detail.get("title", ""))
+            _zxart_add_row("Year:",     detail.get("year", ""))
+            _zxart_add_row("Authors:",  detail.get("authors", ""))
+            _zxart_add_row("Type:",     detail.get("pic_type", ""))
+            _zxart_add_row("Rating:",   detail.get("rating", ""))
+            _zxart_add_row("Views:",    detail.get("views", ""))
+            tags = detail.get("tags", "")
+            if tags:
+                _zxart_add_row("Tags:", tags, dim=True)
+            _zxart_add_row("Description:", detail.get("description", ""), dim=True)
+            self._zxart_selected_downloads = detail.get("downloads", []) or []
+            self.zxart_download_button.setEnabled(bool(self._zxart_selected_downloads))
+
+        # ---- Search tasks ----
+
+        def zxart_current_mode():
+            return self.zxart_mode_combo.currentData() or "prods"
+
+        def zxart_set_busy(busy: bool):
+            self._zxart_search_loading = busy
+            self.zxart_search_button.setEnabled(not busy)
+            self.zxart_mode_combo.setEnabled(not busy)
+            self.zxart_letter_combo.setEnabled(not busy)
+
+        def zxart_run_search(query: str, page: int, on_complete=None):
+            if self._zxart_search_loading:
+                return
+            mode = zxart_current_mode()
+            zxart_set_busy(True)
+            zxart_set_status("Searching…")
+            self._zxart_last_query = query
+            offset = max(0, (page - 1) * ZXART_PAGE_SIZE)
+
+            if mode == "pictures":
+                if query:
+                    path = (
+                        f"/export:zxPicture/language:eng/start:{offset}"
+                        f"/limit:{ZXART_PAGE_SIZE}/filter:title~{urllib.parse.quote(query)}"
+                    )
+                else:
+                    path = (
+                        f"/export:zxPicture/language:eng/start:{offset}"
+                        f"/limit:{ZXART_PAGE_SIZE}/order:date,desc"
+                    )
+
+                def _fn_pic():
+                    resp = zxart_fetch_json(path)
+                    entries, total = zxart_parse_picture_list(resp)
+                    total_pages = max(1, (total + ZXART_PAGE_SIZE - 1) // ZXART_PAGE_SIZE) if total else 1
+                    return ("pictures", entries, total, page, total_pages)
+
+                _fn = _fn_pic
+
+            elif mode == "byletter":
+                letter = self.zxart_letter_combo.currentData() or "a"
+                if letter == "#":
+                    filt = "title~0,1,2,3,4,5,6,7,8,9"
+                else:
+                    filt = f"title~{urllib.parse.quote(letter)}"
+                path = (
+                    f"/export:zxProd/language:eng/start:{offset}"
+                    f"/limit:{ZXART_PAGE_SIZE}/filter:{filt}/order:title,asc"
+                )
+
+                def _fn_letter():
+                    resp = zxart_fetch_json(path)
+                    entries, total = zxart_parse_prod_list(resp)
+                    total_pages = max(1, (total + ZXART_PAGE_SIZE - 1) // ZXART_PAGE_SIZE) if total else 1
+                    for e in entries:
+                        e["_kind"] = "zxart_prod"
+                    return ("byletter", entries, total, page, total_pages)
+
+                _fn = _fn_letter
+
+            else:  # prods
+                if query:
+                    def _fn_prods():
+                        def _progress(msg: str):
+                            # Called from background thread — post to Qt main thread.
+                            QMetaObject.invokeMethod(
+                                self.zxart_status_label,
+                                "setText",
+                                Qt.QueuedConnection,
+                                Q_ARG(str, msg),
+                            )
+                        entries, total = zxart_client_search(query, progress_cb=_progress)
+                        for e in entries:
+                            e["_kind"] = "zxart_prod"
+                        return ("prods", entries, total, 1, 1)
+                else:
+                    path = (
+                        f"/export:zxProd/language:eng/start:{offset}"
+                        f"/limit:{ZXART_PAGE_SIZE}/order:date,desc"
+                    )
+
+                    def _fn_prods():
+                        resp = zxart_fetch_json(path)
+                        entries, total = zxart_parse_prod_list(resp)
+                        total_pages = max(1, (total + ZXART_PAGE_SIZE - 1) // ZXART_PAGE_SIZE) if total else 1
+                        for e in entries:
+                            e["_kind"] = "zxart_prod"
+                        return ("prods", entries, total, page, total_pages)
+
+                _fn = _fn_prods
+
+            def _on_ok(data):
+                kind, entries, total, pg, total_pages = data
+                zxart_populate_results(entries, pg, total_pages, kind)
+                if kind == "pictures":
+                    zxart_set_status(f"{total} picture(s)  |  page {pg}/{total_pages}")
+                elif kind == "byletter":
+                    lbl = self.zxart_letter_combo.currentText()
+                    zxart_set_status(f"{total} production(s) for '{lbl}'  |  page {pg}/{total_pages}")
+                elif kind == "prods" and total_pages == 1 and self._zxart_last_query:
+                    zxart_set_status(f"{total} result(s) for '{self._zxart_last_query}'")
+                else:
+                    zxart_set_status(f"{total} production(s)  |  page {pg}/{total_pages}")
+                zxart_set_busy(False)
+                if on_complete:
+                    on_complete()
+
+            def _on_err(err):
+                zxart_set_status(f"Error: {err[1]}")
+                zxart_set_busy(False)
+
+            self._zxart_search_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+        def zxart_on_search():
+            zxart_clear_detail()
+            q = self.zxart_search_input.text().strip()
+            configuration_dictionary[SETTING_ZXART_LAST_QUERY] = q
+            save_configuration_file()
+            if q:
+                _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+                def _zxart_done():
+                    _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+                    _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART, self.zxart_results_table.rowCount())
+                zxart_run_search(q, 1, _zxart_done)
+            else:
+                zxart_run_search(q, 1)
+            if _multi_search_enabled() and q:
+                self.getit_search_input.setText(q)
+                self.zxdb_search_input.setText(q)
+                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
+                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                _cross_search_getit(q)
+                _cross_search_zxdb(q)
+
+        def zxart_on_prev():
+            zxart_run_search(self._zxart_last_query, max(1, self._zxart_current_page - 1))
+
+        def zxart_on_next():
+            zxart_run_search(self._zxart_last_query, min(self._zxart_total_pages, self._zxart_current_page + 1))
+
+        self.zxart_search_button.clicked.connect(zxart_on_search)
+        self.zxart_search_input.returnPressed.connect(zxart_on_search)
+        self.zxart_prev_button.clicked.connect(zxart_on_prev)
+        self.zxart_next_button.clicked.connect(zxart_on_next)
+
+        def zxart_on_mode_changed(_idx):
+            mode = zxart_current_mode()
+            placeholders = {
+                "prods":    "Search zxART productions... (leave empty to browse latest)",
+                "byletter": "(pick a letter from the list →)",
+                "pictures": "Search zxART pictures... (leave empty to browse latest)",
+            }
+            self.zxart_search_input.setPlaceholderText(placeholders.get(mode, ""))
+            self.zxart_search_input.setVisible(mode != "byletter")
+            self.zxart_letter_combo.setVisible(mode == "byletter")
+            self._zxart_last_query = ""
+            self._zxart_current_page = 1
+            self._zxart_total_pages  = 1
+            self.zxart_page_label.setText("1")
+            self.zxart_prev_button.setEnabled(False)
+            self.zxart_next_button.setEnabled(False)
+            self.zxart_results_table.setRowCount(0)
+            zxart_clear_detail()
+            zxart_set_status("")
+            configuration_dictionary[SETTING_ZXART_LAST_MODE] = mode
+            save_configuration_file()
+
+        self.zxart_mode_combo.currentIndexChanged.connect(zxart_on_mode_changed)
+
+        def zxart_on_letter_changed(_idx):
+            if zxart_current_mode() == "byletter":
+                zxart_clear_detail()
+                zxart_run_search("", 1)
+
+        self.zxart_letter_combo.currentIndexChanged.connect(zxart_on_letter_changed)
+
+        # ---- Row selection -> fetch detail ----
+
+        def _zxart_reset_preview():
+            self._zxart_slideshow_timer.stop()
+            self._zxart_shot_token += 1
+            self._zxart_screenshots = []
+            self._zxart_shot_cache  = {}
+            self._zxart_shot_index  = 0
+            self.zxart_screenshot_label.setPixmap(QPixmap())
+
+        def _zxart_load_prod(pid: str, title_hint: str):
+            """Load full production detail including releases."""
+            self._zxart_selected_id    = pid
+            self._zxart_selected_title = title_hint or pid
+            zxart_set_status(f"Loading production {pid}…")
+            self.zxart_screenshot_label.setText("Loading…")
+            _zxart_reset_preview()
+
+            def _fn():
+                # Fetch the production record
+                prod_resp = zxart_fetch_json(
+                    f"/export:zxProd/language:eng/filter:zxProdId={urllib.parse.quote(pid)}"
+                )
+                prods = (prod_resp.get("responseData") or {}).get("zxProd") or []
+                prod = prods[0] if prods else {}
+
+                # Fetch all releases for this production
+                rel_resp = zxart_fetch_json(
+                    f"/action:filter/export:zxRelease/filter:zxProdId={urllib.parse.quote(pid)}"
+                )
+                releases = (rel_resp.get("responseData") or {}).get("zxRelease") or []
+
+                # Build detail dict
+                def _join(lst):
+                    if isinstance(lst, list):
+                        return ", ".join(str(x) for x in lst if x)
+                    return str(lst) if lst else ""
+
+                authors_info = prod.get("authorsInfo") or []
+                author_ids = [str(a.get("authorId", "")) for a in authors_info if isinstance(a, dict)]
+
+                group_ids = prod.get("groupsIds") or []
+                pub_ids   = prod.get("publishersIds") or []
+
+                downloads = []
+                for rel in releases:
+                    if not isinstance(rel, dict):
+                        continue
+                    file_url  = rel.get("file") or ""
+                    file_name = rel.get("fileName") or (
+                        os.path.basename(urllib.parse.urlparse(file_url).path) if file_url else ""
+                    )
+                    if not file_url:
+                        continue
+                    rel_type   = rel.get("releaseType") or ""
+                    rel_format = rel.get("releaseFormat") or ""
+                    rel_title  = rel.get("title") or ""
+                    downloads.append({
+                        "url":      file_url,
+                        "filename": file_name,
+                        "type":     f"{rel_type} / {rel_format}".strip(" /") or "release",
+                        "format":   rel_format,
+                        "size":     "",
+                        "source":   rel_title or "zxart",
+                        "year":     str(rel.get("year") or ""),
+                    })
+
+                # imagesUrls on the prod record are the primary previews (screenshots, inlays)
+                screenshots = []
+                seen_urls = set()
+                for img_url in (prod.get("imagesUrls") or []):
+                    if img_url and img_url not in seen_urls:
+                        seen_urls.add(img_url)
+                        screenshots.append({"url": img_url, "type": "screenshot"})
+
+                # Additional inlays / ads / instructions from releases
+                for rel in releases:
+                    if not isinstance(rel, dict):
+                        continue
+                    for key in ("inlays", "ads", "instructions"):
+                        for img_url in (rel.get(key) or []):
+                            if img_url and img_url not in seen_urls:
+                                seen_urls.add(img_url)
+                                screenshots.append({"url": img_url, "type": key.rstrip("s")})
+
+                detail = {
+                    "id":          pid,
+                    "title":       str(prod.get("title") or ""),
+                    "year":        str(prod.get("year") or ""),
+                    "authors":     ", ".join(author_ids) if author_ids else "",
+                    "groups":      ", ".join(str(g) for g in group_ids),
+                    "compo":       str(prod.get("compo") or ""),
+                    "partyPlace":  prod.get("partyPlace") or "",
+                    "language":    _join(prod.get("language")),
+                    "legalStatus": str(prod.get("legalStatus") or ""),
+                    "description": str(prod.get("description") or ""),
+                    "screenshots": screenshots,
+                    "downloads":   downloads,
+                }
+                return detail
+
+            def _on_ok(detail):
+                if self._zxart_selected_id != pid:
+                    return
+                zxart_populate_prod_detail(detail)
+                shots = detail.get("screenshots") or []
+                zxart_start_slideshow(shots)
+                title = detail.get("title", pid)
+                n = len(shots)
+                n_dl = len(detail.get("downloads") or [])
+                msg = f"Loaded {title}"
+                if n_dl:
+                    msg += f"  |  {n_dl} file(s)"
+                if n > 1:
+                    msg += f"  |  {n} image(s) cycling"
+                zxart_set_status(msg)
+
+            def _on_err(err):
+                if self._zxart_selected_id != pid:
+                    return
+                zxart_set_status(f"Detail error: {err[1]}")
+                self.zxart_screenshot_label.setText("No preview")
+
+            self._zxart_detail_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+        def _zxart_load_picture(pid: str, title_hint: str, source: dict):
+            """Load picture detail – preview from imageUrl, download from originalUrl."""
+            self._zxart_selected_id    = pid
+            self._zxart_selected_title = title_hint or pid
+            zxart_set_status(f"Loading picture {pid}…")
+            self.zxart_screenshot_label.setText("Loading…")
+            _zxart_reset_preview()
+
+            def _fn():
+                pic_resp = zxart_fetch_json(
+                    f"/export:zxPicture/language:eng/filter:zxPictureId={urllib.parse.quote(pid)}"
+                )
+                pics = (pic_resp.get("responseData") or {}).get("zxPicture") or []
+                pic  = pics[0] if pics else source or {}
+
+                image_url    = pic.get("imageUrl") or ""
+                original_url = pic.get("originalUrl") or ""
+                author_ids   = pic.get("authorIds") or []
+                tags         = pic.get("tags") or []
+
+                screenshots = []
+                if image_url:
+                    screenshots.append({"url": image_url, "type": "picture"})
+
+                downloads = []
+                if original_url:
+                    fname = os.path.basename(urllib.parse.urlparse(original_url).path) or f"{pid}.bin"
+                    downloads.append({
+                        "url":      original_url,
+                        "filename": fname,
+                        "type":     "original",
+                        "format":   "",
+                        "size":     "",
+                        "source":   "zxart",
+                    })
+                if image_url and image_url != original_url:
+                    fname_img = os.path.basename(urllib.parse.urlparse(image_url).path) or f"{pid}.png"
+                    downloads.append({
+                        "url":      image_url,
+                        "filename": fname_img,
+                        "type":     "preview (PC)",
+                        "format":   "",
+                        "size":     "",
+                        "source":   "zxart",
+                    })
+
+                detail = {
+                    "id":          pid,
+                    "title":       str(pic.get("title") or ""),
+                    "year":        str(pic.get("year") or ""),
+                    "authors":     ", ".join(str(a) for a in author_ids),
+                    "pic_type":    str(pic.get("type") or ""),
+                    "rating":      str(pic.get("rating") or ""),
+                    "views":       str(pic.get("views") or ""),
+                    "tags":        ", ".join(str(t) for t in tags),
+                    "description": str(pic.get("description") or ""),
+                    "screenshots": screenshots,
+                    "downloads":   downloads,
+                }
+                return detail
+
+            def _on_ok(detail):
+                if self._zxart_selected_id != pid:
+                    return
+                zxart_populate_picture_detail(detail)
+                shots = detail.get("screenshots") or []
+                zxart_start_slideshow(shots)
+                title = detail.get("title", pid)
+                zxart_set_status(f"Loaded picture: {title}")
+
+            def _on_err(err):
+                if self._zxart_selected_id != pid:
+                    return
+                zxart_set_status(f"Detail error: {err[1]}")
+                self.zxart_screenshot_label.setText("No preview")
+
+            self._zxart_detail_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+        def zxart_on_row_selected():
+            sel = self.zxart_results_table.selectionModel().selectedRows()
+            if not sel:
+                return
+            row = sel[0].row()
+            id_item    = self.zxart_results_table.item(row, 0)
+            title_item = self.zxart_results_table.item(row, 1)
+            if not id_item:
+                return
+            entry = id_item.data(Qt.UserRole) or {}
+            kind  = entry.get("_kind", "zxart_prod")
+            pid   = id_item.text()
+            title_hint = title_item.text() if title_item else pid
+            self.zxart_download_button.setEnabled(False)
+            if kind == "zxart_picture":
+                _zxart_load_picture(pid, title_hint, entry.get("_source") or {})
+            else:
+                _zxart_load_prod(pid, title_hint)
+
+        self.zxart_results_table.itemSelectionChanged.connect(zxart_on_row_selected)
+
+        # ---- Download ----
+
+        def zxart_pick_default_download():
+            if not self._zxart_selected_downloads:
+                return None
+            preferred_ext = (".tap", ".tzx", ".z80", ".sna", ".trd", ".dsk", ".scl", ".bin")
+            for d in self._zxart_selected_downloads:
+                u = (d.get("url") or "").lower()
+                if any(u.endswith(ext) for ext in preferred_ext):
+                    return d
+            return self._zxart_selected_downloads[0]
+
+        def zxart_do_download(d: dict):
+            url = d.get("url", "")
+            if not url:
+                return
+            base = os.path.basename(urllib.parse.urlparse(url).path) or f"{self._zxart_selected_id}.bin"
+            save_path, _ = QFileDialog.getSaveFileName(None, "Save file", base)
+            if not save_path:
+                return
+            zxart_set_status(f"Downloading {base}…")
+            self.zxart_download_button.setEnabled(False)
+
+            def _fn():
+                data = zxart_fetch_bytes(url, timeout=60)
+                with open(save_path, "wb") as f:
+                    f.write(data)
+                return save_path
+
+            def _on_ok(p):
+                zxart_set_status(f"Saved to {p}  ↗ open folder", open_path=os.path.abspath(p))
+                self.zxart_download_button.setEnabled(bool(self._zxart_selected_downloads))
+
+            def _on_err(err):
+                zxart_set_status(f"Download error: {err[1]}")
+                self.zxart_download_button.setEnabled(bool(self._zxart_selected_downloads))
+
+            self._zxart_dl_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+        def zxart_on_download_clicked():
+            d = zxart_pick_default_download()
+            if d:
+                zxart_do_download(d)
+
+        self.zxart_download_button.clicked.connect(zxart_on_download_clicked)
+
+        # ---- Downloads overlay dialog ----
+
+        def zxart_show_downloads_overlay(title: str, downloads: list):
+            if not downloads:
+                zxart_set_status("No downloadable files for this entry.")
+                return
+
+            dlg = QDialog(self)
+            dlg.setWindowTitle(f"Downloads — {title}")
+            dlg.resize(820, 420)
+            v = QVBoxLayout(dlg)
+
+            info = QLabel(
+                f"<b>{len(downloads)}</b> file(s) for <b>{title}</b>. "
+                f"'Download all' saves into downloads\\{zxart_sanitize_folder(title)}\\"
+            )
+            info.setWordWrap(True)
+            v.addWidget(info)
+
+            # cols: 0-Type 1-Filename 2-Size 3-Source 4-URL 5-Avail. 6-Download
+            COL_AVAIL = 5
+            COL_DL    = 6
+            tbl = QTableWidget(len(downloads), 7, dlg)
+            tbl.setHorizontalHeaderLabels(["Type", "Filename", "Size", "Source", "URL", "Avail.", ""])
+            tbl.verticalHeader().setVisible(False)
+            tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
+            tbl.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            tbl.setTextElideMode(Qt.ElideMiddle)
+            tbl.horizontalHeader().setStretchLastSection(False)
+            tbl.setColumnWidth(0, 160)
+            tbl.setColumnWidth(2, 90)
+            tbl.setColumnWidth(3, 180)
+            tbl.setColumnWidth(COL_AVAIL, 52)
+            tbl.setColumnWidth(COL_DL, 100)
+            tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
+            tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+
+            folder_root = os.path.abspath(os.path.join("downloads", zxart_sanitize_folder(title)))
+
+            # Per-row availability: None=pending, True=ok, False=404/error
+            _avail: list = [None] * len(downloads)
+
+            def _set_avail_cell(row: int, ok: bool):
+                item = QTableWidgetItem("✅" if ok else "❌")
+                item.setTextAlignment(Qt.AlignCenter)
+                item.setForeground(Qt.darkGreen if ok else Qt.red)
+                item.setToolTip("File is available" if ok else "File returned 404 / unreachable")
+                _avail[row] = ok
+                tbl.setItem(row, COL_AVAIL, item)
+                btn_w = tbl.cellWidget(row, COL_DL)
+                if btn_w is not None:
+                    btn_w.setEnabled(ok)
+
+            def _check_url(row: int, url: str):
+                def _fn():
+                    try:
+                        req = urllib.request.Request(
+                            url,
+                            method="HEAD",
+                            headers={"User-Agent": ZXART_USER_AGENT},
+                        )
+                        with urllib.request.urlopen(req, timeout=10) as resp:
+                            return resp.status < 400
+                    except Exception:
+                        return False
+                def _on_ok(result):
+                    _set_avail_cell(row, bool(result))
+                def _on_err(_):
+                    _set_avail_cell(row, False)
+                getit_run_in_thread(_fn, _on_ok, _on_err)
+
+            def _make_dl_handler(d):
+                def _go():
+                    fname = d.get("filename") or os.path.basename(
+                        urllib.parse.urlparse(d.get("url", "")).path
+                    ) or "file.bin"
+                    save_path = os.path.join(folder_root, fname)
+                    zxart_set_status(f"Downloading {fname}…")
+                    def _ok(p):
+                        zxart_set_status(f"Saved {fname}  ↗ open folder", open_path=os.path.dirname(os.path.abspath(p)))
+                    def _err(e):
+                        zxart_set_status(f"Download error: {e[1]}")
+                    zxart_download_to_path(d.get("url", ""), save_path, _ok, _err)
+                return _go
+
+            for row, d in enumerate(downloads):
+                fname = d.get("filename") or os.path.basename(
+                    urllib.parse.urlparse(d.get("url", "")).path
+                ) or ""
+                tbl.setItem(row, 0, QTableWidgetItem(d.get("type") or d.get("format") or ""))
+                tbl.setItem(row, 1, QTableWidgetItem(fname))
+                tbl.setItem(row, 2, QTableWidgetItem(zxart_human_size(d.get("size"))))
+                tbl.setItem(row, 3, QTableWidgetItem(d.get("source") or ""))
+                url_text = d.get("url", "") or ""
+                url_item = QTableWidgetItem(url_text)
+                url_item.setToolTip(url_text)
+                tbl.setItem(row, 4, url_item)
+                # Availability placeholder until HEAD check completes
+                avail_item = QTableWidgetItem("⏳")
+                avail_item.setTextAlignment(Qt.AlignCenter)
+                avail_item.setToolTip("Checking availability…")
+                tbl.setItem(row, COL_AVAIL, avail_item)
+                # Download button disabled until availability is confirmed
+                btn = QPushButton("Download")
+                btn.setEnabled(False)
+                btn.clicked.connect(_make_dl_handler(d))
+                tbl.setCellWidget(row, COL_DL, btn)
+
+            v.addWidget(tbl, 1)
+
+            btn_row = QHBoxLayout()
+            btn_row.addStretch(1)
+            dl_all_btn = QPushButton(f"Download all → downloads\\{zxart_sanitize_folder(title)}")
+            close_btn  = QPushButton("Close")
+            btn_row.addWidget(dl_all_btn)
+            btn_row.addWidget(close_btn)
+            v.addLayout(btn_row)
+
+            close_btn.clicked.connect(dlg.accept)
+
+            def _download_all():
+                dl_all_btn.setEnabled(False)
+                dl_all_btn.setText("Downloading…")
+                # Skip files confirmed unavailable (404); include pending/ok ones
+                eligible = [d for i, d in enumerate(downloads) if _avail[i] is not False]
+                if not eligible:
+                    dl_all_btn.setText("Nothing to download")
+                    zxart_set_status("All files are unavailable (404).")
+                    return
+                pending = {"n": len(eligible), "ok": 0, "ko": 0}
+
+                def _maybe_finish():
+                    if pending["ok"] + pending["ko"] >= pending["n"]:
+                        dl_all_btn.setText(f"Done — {pending['ok']} ok, {pending['ko']} failed")
+                        if pending["ok"] > 0:
+                            zxart_set_status(
+                                f"Downloaded {pending['ok']}/{pending['n']} file(s) into {folder_root}  ↗ open folder",
+                                open_path=folder_root
+                            )
+                        else:
+                            zxart_set_status(f"All {pending['n']} download(s) failed — check the URLs")
+
+                for d in eligible:
+                    fname = d.get("filename") or os.path.basename(
+                        urllib.parse.urlparse(d.get("url", "")).path
+                    ) or "file.bin"
+                    save_path = os.path.join(folder_root, fname)
+                    def _ok(p, _f=fname):
+                        pending["ok"] += 1
+                        zxart_set_status(f"Saved {_f}")
+                        _maybe_finish()
+                    def _err(e, _f=fname):
+                        pending["ko"] += 1
+                        zxart_set_status(f"Failed {_f}: {e[1]}")
+                        _maybe_finish()
+                    zxart_download_to_path(d.get("url", ""), save_path, _ok, _err)
+
+            dl_all_btn.clicked.connect(_download_all)
+
+            # Fire HEAD checks for every URL now that the table and callbacks are ready
+            avail_check_enabled = getattr(self, "settings_avail_check_checkbox", None)
+            avail_check_enabled = avail_check_enabled is not None and avail_check_enabled.isChecked()
+            if avail_check_enabled:
+                for row, d in enumerate(downloads):
+                    url_to_check = d.get("url", "")
+                    if url_to_check:
+                        _check_url(row, url_to_check)
+                    else:
+                        _set_avail_cell(row, False)
+            else:
+                # Setting is off — enable all Download buttons immediately, hide placeholders
+                for row in range(len(downloads)):
+                    avail_item = tbl.item(row, COL_AVAIL)
+                    if avail_item:
+                        avail_item.setText("")
+                        avail_item.setToolTip("Availability check disabled in Settings")
+                    btn_w = tbl.cellWidget(row, COL_DL)
+                    if btn_w is not None:
+                        btn_w.setEnabled(True)
+
+            dlg.exec()
+
+        # ---- Context menu ----
+
+        def zxart_on_table_context_menu(pos):
+            item = self.zxart_results_table.itemAt(pos)
+            if item is None:
+                return
+            row = self.zxart_results_table.row(item)
+            id_item    = self.zxart_results_table.item(row, 0)
+            title_item = self.zxart_results_table.item(row, 1)
+            if not id_item:
+                return
+            pid   = id_item.text()
+            title = title_item.text() if title_item else pid
+            entry = id_item.data(Qt.UserRole) or {}
+            kind  = entry.get("_kind", "zxart_prod")
+
+            self.zxart_results_table.selectRow(row)
+
+            _img_path   = self.right_disk_image_path or ""
+            _img_label  = (generate_disk_file_path().rstrip("/") + "/" + zxart_sanitize_folder(title)
+                           ) if _img_path else "(no image loaded)"
+            _sd_dest    = f"{_img_path}  :  {_img_label}" if _img_path else "(no image loaded)"
+            _ns_base    = _zxart_resolve_base_path(self.left_file_nextsync_explorer_selection_full_filename_path)
+            _safe_title = zxart_sanitize_folder(title)
+            _ns_dest    = os.path.join(_ns_base, _safe_title)
+
+            menu = QMenu(self.zxart_results_table)
+            act_download = menu.addAction("Download content")
+            menu.addSeparator()
+            act_send_sd  = menu.addAction(f"Send to SD card (image)  →  {_sd_dest}")
+            act_send_sd.setEnabled(bool(self.right_disk_image_path) and bool(right_disk_image_explorer_content))
+            act_send_ns  = menu.addAction(f"Send using NextSync  →  {_ns_dest}")
+            action = menu.exec(self.zxart_results_table.viewport().mapToGlobal(pos))
+            if action is None:
+                return
+
+            def _ensure_detail_then(callback):
+                """If detail for this row is already loaded, call callback immediately."""
+                if self._zxart_selected_id == pid and self._zxart_selected_downloads:
+                    callback(self._zxart_selected_title or title, self._zxart_selected_downloads)
+                    return
+                zxart_set_status(f"Loading {pid}…")
+                if kind == "zxart_picture":
+                    def _fn():
+                        pic_resp = zxart_fetch_json(
+                            f"/export:zxPicture/language:eng/filter:zxPictureId={urllib.parse.quote(pid)}"
+                        )
+                        pics = (pic_resp.get("responseData") or {}).get("zxPicture") or []
+                        pic  = pics[0] if pics else (entry.get("_source") or {})
+                        image_url    = pic.get("imageUrl") or ""
+                        original_url = pic.get("originalUrl") or ""
+                        downloads = []
+                        if original_url:
+                            fname = os.path.basename(urllib.parse.urlparse(original_url).path) or f"{pid}.bin"
+                            downloads.append({"url": original_url, "filename": fname, "type": "original",
+                                              "format": "", "size": "", "source": "zxart"})
+                        if image_url and image_url != original_url:
+                            fname_img = os.path.basename(urllib.parse.urlparse(image_url).path) or f"{pid}.png"
+                            downloads.append({"url": image_url, "filename": fname_img, "type": "preview (PC)",
+                                              "format": "", "size": "", "source": "zxart"})
+                        return (str(pic.get("title") or title), downloads)
+                    def _on_ok(res, _cb=callback):
+                        t2, dls = res
+                        self._zxart_selected_title = t2
+                        self._zxart_selected_downloads = dls
+                        self.zxart_download_button.setEnabled(bool(dls))
+                        _cb(t2, dls)
+                    def _on_err(err):
+                        zxart_set_status(f"Detail error: {err[1]}")
+                    self._zxart_ctx_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+                else:
+                    def _fn():
+                        rel_resp = zxart_fetch_json(
+                            f"/action:filter/export:zxRelease/filter:zxProdId={urllib.parse.quote(pid)}"
+                        )
+                        releases = (rel_resp.get("responseData") or {}).get("zxRelease") or []
+                        prod_resp = zxart_fetch_json(
+                            f"/export:zxProd/language:eng/filter:zxProdId={urllib.parse.quote(pid)}"
+                        )
+                        prods = (prod_resp.get("responseData") or {}).get("zxProd") or []
+                        prod  = prods[0] if prods else {}
+                        downloads = []
+                        for rel in releases:
+                            if not isinstance(rel, dict):
+                                continue
+                            file_url  = rel.get("file") or ""
+                            file_name = rel.get("fileName") or (
+                                os.path.basename(urllib.parse.urlparse(file_url).path) if file_url else ""
+                            )
+                            if not file_url:
+                                continue
+                            downloads.append({
+                                "url":      file_url,
+                                "filename": file_name,
+                                "type":     f"{rel.get('releaseType') or ''} / {rel.get('releaseFormat') or ''}".strip(" /") or "release",
+                                "format":   rel.get("releaseFormat") or "",
+                                "size":     "",
+                                "source":   rel.get("title") or "zxart",
+                            })
+                        return (str(prod.get("title") or title), downloads)
+                    def _on_ok(res, _cb=callback):
+                        t2, dls = res
+                        self._zxart_selected_title = t2
+                        self._zxart_selected_downloads = dls
+                        self.zxart_download_button.setEnabled(bool(dls))
+                        _cb(t2, dls)
+                    def _on_err(err):
+                        zxart_set_status(f"Detail error: {err[1]}")
+                    self._zxart_ctx_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+            if action is act_download:
+                def _show(t, dls):
+                    zxart_show_downloads_overlay(t, dls)
+                _ensure_detail_then(_show)
+
+            elif action is act_send_sd:
+                def _send_sd(t, dls):
+                    _zxart_send_to_image(t, dls)
+                _ensure_detail_then(_send_sd)
+
+            elif action is act_send_ns:
+                def _send_ns(t, dls, _nb=_ns_base):
+                    def _after(_folder):
+                        QTimer.singleShot(0, self._nextsync_start_server_fn)
+                    _zxart_send_to_path(t, dls, _nb, _after)
+                _ensure_detail_then(_send_ns)
+
+        self.zxart_results_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.zxart_results_table.customContextMenuRequested.connect(zxart_on_table_context_menu)
+
+        # ---- Fullscreen preview overlay ----
+
+        zxart_container = QWidget()
+        zxart_container.setLayout(self.zxart_form)
+        zxart_container.setAutoFillBackground(False)
+        zxart_container.setAttribute(Qt.WA_TranslucentBackground)
+
+        zxart_scroll = QScrollArea()
+        zxart_scroll.setWidget(zxart_container)
+        zxart_scroll.setWidgetResizable(True)
+        zxart_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        zxart_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        zxart_scroll.setAutoFillBackground(False)
+        zxart_scroll.setAttribute(Qt.WA_TranslucentBackground)
+        zxart_scroll.viewport().setAutoFillBackground(False)
+        zxart_scroll.viewport().setAttribute(Qt.WA_TranslucentBackground)
+
+        self._zxart_fullscreen_pixmap = None
+
+        zxart_overlay = QWidget()
+        zxart_overlay.setStyleSheet("background: #000;")
+        zxart_overlay_layout = QVBoxLayout(zxart_overlay)
+        zxart_overlay_layout.setContentsMargins(0, 0, 0, 0)
+        zxart_overlay_layout.setSpacing(0)
+
+        zxart_close_btn = QToolButton()
+        zxart_close_btn.setText("✕")
+        zxart_close_btn.setStyleSheet(
+            "QToolButton { color: white; background: #333; border: none; font-size: 18px; padding: 4px 8px; }"
+            "QToolButton:hover { background: #c00; }"
+        )
+        zxart_close_bar = QHBoxLayout()
+        zxart_close_bar.setContentsMargins(4, 4, 4, 0)
+        zxart_close_bar.addWidget(zxart_close_btn, 0)
+        zxart_close_bar.addStretch()
+        zxart_close_bar_widget = QWidget()
+        zxart_close_bar_widget.setLayout(zxart_close_bar)
+        zxart_overlay_layout.addWidget(zxart_close_bar_widget, 0)
+
+        self.zxart_fullscreen_label = QLabel()
+        self.zxart_fullscreen_label.setAlignment(Qt.AlignCenter)
+        self.zxart_fullscreen_label.setStyleSheet("background: #000;")
+        self.zxart_fullscreen_label.setCursor(Qt.PointingHandCursor)
+        zxart_overlay_layout.addWidget(self.zxart_fullscreen_label, 1)
+
+        _zxart_fs_nav_style = (
+            "QToolButton { color: white; background: rgba(0,0,0,140); border: none;"
+            " font-size: 32px; font-weight: bold; padding: 4px 10px; }"
+            "QToolButton:hover { background: rgba(0,0,0,220); }"
+        )
+        self.zxart_fs_prev_btn = QToolButton(zxart_overlay)
+        self.zxart_fs_prev_btn.setText("<")
+        self.zxart_fs_prev_btn.setStyleSheet(_zxart_fs_nav_style)
+        self.zxart_fs_prev_btn.setVisible(False)
+        self.zxart_fs_prev_btn.raise_()
+
+        self.zxart_fs_next_btn = QToolButton(zxart_overlay)
+        self.zxart_fs_next_btn.setText(">")
+        self.zxart_fs_next_btn.setStyleSheet(_zxart_fs_nav_style)
+        self.zxart_fs_next_btn.setVisible(False)
+        self.zxart_fs_next_btn.raise_()
+
+        def _zxart_reposition_fs_btns():
+            ow = zxart_overlay.width()
+            oh = zxart_overlay.height()
+            bh = self.zxart_fs_prev_btn.sizeHint().height()
+            by = (oh - bh) // 2
+            self.zxart_fs_prev_btn.move(8, by)
+            bw = self.zxart_fs_next_btn.sizeHint().width()
+            self.zxart_fs_next_btn.move(ow - bw - 8, by)
+
+        self._zxart_reposition_fs_btns = _zxart_reposition_fs_btns
+        self.zxart_fs_prev_btn.clicked.connect(_zxart_nav_prev)
+        self.zxart_fs_next_btn.clicked.connect(_zxart_nav_next)
+
+        self._zxart_stack = QStackedWidget()
+        self._zxart_stack.setAutoFillBackground(False)
+        self._zxart_stack.setAttribute(Qt.WA_TranslucentBackground)
+        self._zxart_stack.addWidget(zxart_scroll)
+        self._zxart_stack.addWidget(zxart_overlay)
+        self._zxart_stack.setCurrentIndex(0)
+
+        def _zxart_show_fullscreen():
+            px = self.zxart_screenshot_label.pixmap()
+            if px is None or px.isNull():
+                return
+            self._zxart_fullscreen_pixmap = px
+            self._zxart_stack.setCurrentIndex(1)
+            _zxart_resize_fullscreen()
+            self._zxart_reposition_fs_btns()
+            zxart_update_nav_buttons()
+
+        def _zxart_hide_fullscreen():
+            self._zxart_stack.setCurrentIndex(0)
+            zxart_update_nav_buttons()
+
+        def _zxart_resize_fullscreen():
+            px = self._zxart_fullscreen_pixmap
+            if px and not px.isNull():
+                sz = self.zxart_fullscreen_label.size()
+                self.zxart_fullscreen_label.setPixmap(
+                    px.scaled(sz, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                )
+            self._zxart_reposition_fs_btns()
+
+        zxart_close_btn.clicked.connect(_zxart_hide_fullscreen)
+        self.zxart_fullscreen_label.mousePressEvent = lambda e: _zxart_hide_fullscreen()
+
+        self._zxart_dbl_filter = _DblClickFilter(_zxart_show_fullscreen)
+        self.zxart_screenshot_label.installEventFilter(self._zxart_dbl_filter)
+        self.zxart_screenshot_label.setCursor(Qt.PointingHandCursor)
+
+        def zxart_on_tab_activated():
+            if self._zxart_loaded_once or self._zxart_search_loading:
+                return
+            self._zxart_loaded_once = True
+            # Load latest productions on first activation
+            zxart_run_search("", 1)
+
+        self._zxart_on_tab_activated = zxart_on_tab_activated
+
         self.setCentralWidget(wid_inner)
 
 
         # Create zx-next-unite Tab
         zx_next_unite_tab = QWidget(wid_inner.tab)
+        zx_next_unite_tab.setAttribute(Qt.WA_TranslucentBackground)
+        zx_next_unite_tab.setAutoFillBackground(False)
         grid_tab = QGridLayout(zx_next_unite_tab)
         grid_tab.addWidget(zx_next_unite_container) # here use the form container
         zx_next_unite_tab.setLayout(grid_tab)
@@ -6462,6 +8395,8 @@ class MainWindow(QMainWindow):
 
         # Create NextSync Tab
         zxnextunite_NextSync_tab = QWidget(wid_inner.tab)
+        zxnextunite_NextSync_tab.setAttribute(Qt.WA_TranslucentBackground)
+        zxnextunite_NextSync_tab.setAutoFillBackground(False)
         grid_tab_nextsync = QGridLayout(zxnextunite_NextSync_tab)
         grid_tab_nextsync.addWidget(nextsync_container) # here use the form container
         zxnextunite_NextSync_tab.setLayout(grid_tab_nextsync)
@@ -6470,6 +8405,8 @@ class MainWindow(QMainWindow):
 
         # Create GetIt Tab
         zxnextunite_GetIt_tab = QWidget(wid_inner.tab)
+        zxnextunite_GetIt_tab.setAttribute(Qt.WA_TranslucentBackground)
+        zxnextunite_GetIt_tab.setAutoFillBackground(False)
         grid_tab_getit = QGridLayout(zxnextunite_GetIt_tab)
         grid_tab_getit.setContentsMargins(0, 0, 0, 0)
         grid_tab_getit.addWidget(self._getit_stack)
@@ -6479,6 +8416,8 @@ class MainWindow(QMainWindow):
 
         # Create ZXDB Tab (right of GetIt)
         zxnextunite_ZXDB_tab = QWidget(wid_inner.tab)
+        zxnextunite_ZXDB_tab.setAttribute(Qt.WA_TranslucentBackground)
+        zxnextunite_ZXDB_tab.setAutoFillBackground(False)
         grid_tab_zxdb = QGridLayout(zxnextunite_ZXDB_tab)
         grid_tab_zxdb.setContentsMargins(0, 0, 0, 0)
         grid_tab_zxdb.addWidget(self._zxdb_stack)
@@ -6486,8 +8425,21 @@ class MainWindow(QMainWindow):
         zxnextunite_ZXDB_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_ZXDB
         wid_inner.tab.addTab(zxnextunite_ZXDB_tab, ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
 
+        # Create zxART Tab (right of ZXDB)
+        zxnextunite_ZXART_tab = QWidget(wid_inner.tab)
+        zxnextunite_ZXART_tab.setAttribute(Qt.WA_TranslucentBackground)
+        zxnextunite_ZXART_tab.setAutoFillBackground(False)
+        grid_tab_zxart = QGridLayout(zxnextunite_ZXART_tab)
+        grid_tab_zxart.setContentsMargins(0, 0, 0, 0)
+        grid_tab_zxart.addWidget(self._zxart_stack)
+        zxnextunite_ZXART_tab.setLayout(grid_tab_zxart)
+        zxnextunite_ZXART_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_ZXART
+        wid_inner.tab.addTab(zxnextunite_ZXART_tab, ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+
         # Create Settings Tab
         zxnextunite_Settings_tab = QWidget(wid_inner.tab)
+        zxnextunite_Settings_tab.setAttribute(Qt.WA_TranslucentBackground)
+        zxnextunite_Settings_tab.setAutoFillBackground(False)
         grid_tab_Settings = QGridLayout(zxnextunite_Settings_tab)
 
         def settings_warn_image_nearly_full_statechanged():
@@ -6518,20 +8470,34 @@ class MainWindow(QMainWindow):
         self.settings_no_prompt_on_deletion_checkbox.stateChanged.connect(settings_no_prompt_on_deletion_statechanged)
         grid_tab_Settings.addWidget(self.settings_no_prompt_on_deletion_checkbox, 1, 0, 1, 2)
 
-        def settings_zxdb_avail_check_statechanged():
-            configuration_dictionary[SETTING_ZXDB_AVAIL_CHECK] = "true" if self.settings_zxdb_avail_check_checkbox.isChecked() else "false"
+        def settings_avail_check_statechanged():
+            configuration_dictionary[SETTING_AVAIL_CHECK] = "true" if self.settings_avail_check_checkbox.isChecked() else "false"
             save_configuration_file()
 
-        self.settings_zxdb_avail_check_checkbox = QCheckBox("ZXDB - Perform pre-availability check on Downloads.")
-        self.settings_zxdb_avail_check_checkbox.setChecked(False)
-        self.settings_zxdb_avail_check_checkbox.setToolTip(
+        self.settings_avail_check_checkbox = QCheckBox("Perform pre-availability check on Downloads (ZXDB & zxArt).")
+        self.settings_avail_check_checkbox.setChecked(False)
+        self.settings_avail_check_checkbox.setToolTip(
             "When enabled, the Downloads dialog sends a HEAD request for each file\n"
             "to check whether it is reachable before allowing the download.\n"
             "Files that return HTTP 404 are marked with \u274c and their Download button\n"
             "is disabled. Leave unchecked to skip the check (faster dialog open)."
         )
-        self.settings_zxdb_avail_check_checkbox.stateChanged.connect(settings_zxdb_avail_check_statechanged)
-        grid_tab_Settings.addWidget(self.settings_zxdb_avail_check_checkbox, 2, 0, 1, 2)
+        self.settings_avail_check_checkbox.stateChanged.connect(settings_avail_check_statechanged)
+        grid_tab_Settings.addWidget(self.settings_avail_check_checkbox, 2, 0, 1, 2)
+
+        def settings_multi_search_statechanged():
+            configuration_dictionary[SETTING_MULTI_SEARCH] = "true" if self.settings_multi_search_checkbox.isChecked() else "false"
+            save_configuration_file()
+
+        self.settings_multi_search_checkbox = QCheckBox("Enable multi API endpoints search (GetIt, ZXDB & zxArt search together).")
+        self.settings_multi_search_checkbox.setChecked(True)
+        self.settings_multi_search_checkbox.setToolTip(
+            "When enabled, a search on any of GetIt, ZXDB or zxArt also runs the\n"
+            "same query silently on the other two panes. The tab label is updated\n"
+            "with the number of results found, e.g. ZXDB (5)."
+        )
+        self.settings_multi_search_checkbox.stateChanged.connect(settings_multi_search_statechanged)
+        grid_tab_Settings.addWidget(self.settings_multi_search_checkbox, 3, 0, 1, 2)
 
         def _make_color_button(setting_key, color_attr, label_text, tooltip_text, grid_row):
             """Create a label + color-swatch button at the given grid row."""
@@ -6599,6 +8565,98 @@ class MainWindow(QMainWindow):
             "Color used for the file size column in the image explorer.",
             9)
 
+        # ---- Background image opacity ----
+        bg_opacity_lbl = QLabel("Background image opacity (%):")
+        bg_opacity_lbl.setToolTip(
+            "Controls how visible the background image is behind the UI.\n"
+            "0 = fully hidden, 100 = fully visible. Default is 5%."
+        )
+        grid_tab_Settings.addWidget(bg_opacity_lbl, 10, 0)
+
+        bg_opacity_row = QWidget()
+        bg_opacity_row_layout = QHBoxLayout(bg_opacity_row)
+        bg_opacity_row_layout.setContentsMargins(0, 0, 0, 0)
+        bg_opacity_row_layout.setSpacing(6)
+
+        self.settings_bg_opacity_slider = QSlider(Qt.Horizontal)
+        self.settings_bg_opacity_slider.setRange(0, 100)
+        self.settings_bg_opacity_slider.setValue(BackgroundWidget.DEFAULT_OPACITY)
+        self.settings_bg_opacity_slider.setTickInterval(10)
+        self.settings_bg_opacity_slider.setTickPosition(QSlider.TicksBelow)
+        self.settings_bg_opacity_slider.setToolTip(
+            "Drag to set the background image opacity (0–100 %)."
+        )
+
+        self.settings_bg_opacity_spinbox = QSpinBox()
+        self.settings_bg_opacity_spinbox.setRange(0, 100)
+        self.settings_bg_opacity_spinbox.setValue(BackgroundWidget.DEFAULT_OPACITY)
+        self.settings_bg_opacity_spinbox.setSuffix(" %")
+        self.settings_bg_opacity_spinbox.setFixedWidth(60)
+        self.settings_bg_opacity_spinbox.setToolTip(
+            "Type a value 0–100 to set the background image opacity."
+        )
+
+        def _build_tab_stylesheet(alpha: int) -> str:
+            """Return a QTabWidget stylesheet whose pane background uses the
+            given alpha (0–255), allowing the BackgroundWidget behind it to
+            show through at the configured opacity level."""
+            return (
+                f"QTabWidget::pane {{"
+                f"  background: rgba(43,43,43,{alpha});"
+                f"  border: 1px solid #555;"
+                f"}}"
+                f"QTabBar::tab {{"
+                f"  background: rgba(43,43,43,200);"
+                f"  color: #ddd;"
+                f"  padding: 4px 10px;"
+                f"  border: 1px solid #555;"
+                f"  border-bottom: none;"
+                f"}}"
+                f"QTabBar::tab:selected {{"
+                f"  background: rgba(60,60,60,220);"
+                f"  color: #fff;"
+                f"}}"
+                f"QTabBar::tab:hover {{"
+                f"  background: rgba(70,70,70,220);"
+                f"}}"
+                f"QStackedWidget {{"
+                f"  background: transparent;"
+                f"}}"
+                f"QScrollArea {{"
+                f"  background: transparent;"
+                f"  border: none;"
+                f"}}"
+                f"QScrollArea > QWidget > QWidget {{"
+                f"  background: transparent;"
+                f"}}"
+            )
+        self._build_tab_stylesheet = _build_tab_stylesheet
+        # Apply default opacity stylesheet immediately (before config loads)
+        _default_pane_alpha = max(0, min(255, int(255 - (BackgroundWidget.DEFAULT_OPACITY / 100.0) * 255)))
+        self._tab_widget.setStyleSheet(_build_tab_stylesheet(_default_pane_alpha))
+
+        def _apply_bg_opacity(value: int):
+            self.settings_bg_opacity_slider.blockSignals(True)
+            self.settings_bg_opacity_spinbox.blockSignals(True)
+            self.settings_bg_opacity_slider.setValue(value)
+            self.settings_bg_opacity_spinbox.setValue(value)
+            self.settings_bg_opacity_slider.blockSignals(False)
+            self.settings_bg_opacity_spinbox.blockSignals(False)
+            self._bg_widget.set_bg_opacity(value)
+            # Map 0-100 % opacity to 255-0 pane alpha (more opacity = more
+            # background visible = less opaque pane)
+            pane_alpha = max(0, min(255, int(255 - (value / 100.0) * 255)))
+            self._tab_widget.setStyleSheet(_build_tab_stylesheet(pane_alpha))
+            configuration_dictionary[SETTING_BG_OPACITY] = str(value)
+            save_configuration_file()
+
+        self.settings_bg_opacity_slider.valueChanged.connect(_apply_bg_opacity)
+        self.settings_bg_opacity_spinbox.valueChanged.connect(_apply_bg_opacity)
+
+        bg_opacity_row_layout.addWidget(self.settings_bg_opacity_slider, 1)
+        bg_opacity_row_layout.addWidget(self.settings_bg_opacity_spinbox, 0)
+        grid_tab_Settings.addWidget(bg_opacity_row, 10, 1)
+
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
         zxnextunite_Settings_tab.tab_name_private = "Settings"
@@ -6606,6 +8664,8 @@ class MainWindow(QMainWindow):
 
           # Create Help Tab
         zxnextunite_Help_tab = QWidget(wid_inner.tab)
+        zxnextunite_Help_tab.setAttribute(Qt.WA_TranslucentBackground)
+        zxnextunite_Help_tab.setAutoFillBackground(False)
         grid_tab_Help = QGridLayout(zxnextunite_Help_tab)
         grid_tab_Help.addWidget(self.listWidgetHelp) # TODO as above use the form container of Help use the form container
         zxnextunite_Help_tab.setLayout(grid_tab_Help)
@@ -6613,21 +8673,170 @@ class MainWindow(QMainWindow):
 
         #wid_inner.tab.tabBarClicked.connect(tab_changed)
 
+        def _show_content_disclaimer():
+            """Show the legal disclaimer splash for content panes.
+
+            Returns True if the caller should proceed (user agreed previously,
+            or just ticked the checkbox).  Returns False if the user dismissed
+            with Close (no agreement) — caller should still open the pane but
+            will be shown the dialog again next time.
+            """
+            if configuration_dictionary.get(SETTING_CONTENT_DISCLAIMER_AGREED, "") == "1":
+                return True
+
+            from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QCheckBox, QPushButton, QLabel, QSizePolicy
+
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Content Sources — Legal Disclaimer")
+            dlg.setMinimumWidth(620)
+            dlg.setMinimumHeight(440)
+            dlg.setModal(True)
+
+            layout = QVBoxLayout(dlg)
+            layout.setSpacing(10)
+            layout.setContentsMargins(16, 16, 16, 12)
+
+            title_lbl = QLabel("<b>Third-Party Content Sources — Legal Disclaimer</b>")
+            title_lbl.setWordWrap(True)
+            layout.addWidget(title_lbl)
+
+            text_edit = QTextEdit()
+            text_edit.setReadOnly(True)
+            text_edit.setPlainText(_DISCLAIMER_TEXT)
+            text_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            layout.addWidget(text_edit, 1)
+
+            agree_cb = QCheckBox("I agree and understand. Do not show this message again.")
+            layout.addWidget(agree_cb)
+
+            btn_row = QHBoxLayout()
+            btn_row.addStretch()
+            close_btn = QPushButton("Close")
+            close_btn.setDefault(True)
+            btn_row.addWidget(close_btn)
+            layout.addLayout(btn_row)
+
+            def _on_agree(checked):
+                if checked:
+                    configuration_dictionary[SETTING_CONTENT_DISCLAIMER_AGREED] = "1"
+                    save_configuration_file()
+                    dlg.accept()
+
+            def _on_close():
+                dlg.reject()
+
+            agree_cb.stateChanged.connect(_on_agree)
+            close_btn.clicked.connect(_on_close)
+
+            dlg.exec()
+            return configuration_dictionary.get(SETTING_CONTENT_DISCLAIMER_AGREED, "") == "1"
+
+        # ---- Multi-API cross-search helpers ----
+
+        def _multi_search_enabled() -> bool:
+            cb = getattr(self, "settings_multi_search_checkbox", None)
+            return cb is not None and cb.isChecked()
+
+        def _cross_search_getit(query: str):
+            """Run a full GetIt search in the background, populate the table and badge the tab."""
+            if not query:
+                return
+            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
+            def _after_search():
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
+                n = self.getit_results_table.rowCount()
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT, n)
+            getit_run_search(query, 1, _after_search)
+
+        def _cross_search_zxdb(query: str):
+            """Run a full ZXDB search in the background, populate the table and badge the tab."""
+            if not query:
+                return
+            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+            def _after_search():
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                n = self.zxdb_results_table.rowCount()
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB, n)
+            zxdb_run_search(query, 1, _after_search)
+
+        def _cross_search_zxart(query: str):
+            """Run a full zxART search in the background, populate the table and badge the tab."""
+            if not query:
+                return
+            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+            def _after_search():
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+                n = self.zxart_results_table.rowCount()
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART, n)
+            zxart_run_search(query, 1, _after_search)
+
+        # ---- Tab badge helpers (multi-search result counts) ----
+
+        def _tab_index(base_title: str) -> int:
+            """Return the tab index whose text starts with base_title (ignores badge suffix)."""
+            tw = self._tab_widget
+            for i in range(tw.count()):
+                if tw.tabText(i).startswith(base_title):
+                    return i
+            return -1
+
+        def _set_tab_badge(base_title: str, count: int):
+            idx = _tab_index(base_title)
+            if idx >= 0:
+                self._tab_widget.setTabText(idx, f"{base_title} ({count})")
+
+        def _clear_tab_badge(base_title: str):
+            idx = _tab_index(base_title)
+            if idx >= 0:
+                self._tab_widget.setTabText(idx, base_title)
+
+        # ---- Tab spinner (animated progress while cross-search is running) ----
+        _SPINNER_FRAMES = ["...", "0..", ".0.", "..0"]
+        self._spinner_tabs: dict = {}   # base_title -> frame index
+        self._spinner_timer = QTimer(self)
+        self._spinner_timer.setInterval(200)
+
+        def _spinner_tick():
+            for base_title in list(self._spinner_tabs.keys()):
+                frame_idx = self._spinner_tabs[base_title]
+                frame = _SPINNER_FRAMES[frame_idx % len(_SPINNER_FRAMES)]
+                self._spinner_tabs[base_title] = frame_idx + 1
+                idx = _tab_index(base_title)
+                if idx >= 0:
+                    self._tab_widget.setTabText(idx, f"{base_title} ({frame})")
+
+        self._spinner_timer.timeout.connect(_spinner_tick)
+
+        def _start_tab_spinner(base_title: str):
+            self._spinner_tabs[base_title] = 0
+            if not self._spinner_timer.isActive():
+                self._spinner_timer.start()
+
+        def _stop_tab_spinner(base_title: str):
+            self._spinner_tabs.pop(base_title, None)
+            if not self._spinner_tabs:
+                self._spinner_timer.stop()
+
         def on_tab_changed(index):
             if self._initialising:
                 return
             tab_title = wid_inner.tab.tabText(index)
-            if tab_title == ZX_NEXT_UNITE_TAB_TITLE_GOOEY:
+            if tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GOOEY):
                 if right_disk_image_explorer_content:
-                    hdfmonkeyexecresult = execute_hdf_monkey
+                    hdfmonkeyexecresult = execute_hdf_monkey("ls", self.right_disk_image_path)
                     if hdfmonkeyexecresult.returncode == 0:
                         update_disk_manager_widget_table(hdfmonkeyexecresult.stdout)
-            elif tab_title == ZX_NEXT_UNITE_TAB_TITLE_GETIT:
+            elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GETIT):
+                _show_content_disclaimer()
                 self._getit_fetch_motd()
                 if self.getit_results_table.rowCount() == 0 and not self._getit_search_loading:
                     self._getit_on_latest()
-            elif tab_title == ZX_NEXT_UNITE_TAB_TITLE_ZXDB:
+            elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ZXDB):
+                _show_content_disclaimer()
                 self._zxdb_on_tab_activated()
+            elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ZXART):
+                _show_content_disclaimer()
+                self._zxart_on_tab_activated()
 
 
         #  Start main logic
@@ -6642,11 +8851,16 @@ class MainWindow(QMainWindow):
         # If the GetIt tab is already active after restoring config, trigger its
         # initialisation manually (currentChanged was not connected during load).
         if wid_inner.tab.tabText(wid_inner.tab.currentIndex()) == ZX_NEXT_UNITE_TAB_TITLE_GETIT:
+            _show_content_disclaimer()
             self._getit_fetch_motd()
             if self.getit_results_table.rowCount() == 0 and not self._getit_search_loading:
                 self._getit_on_latest()
         elif wid_inner.tab.tabText(wid_inner.tab.currentIndex()) == ZX_NEXT_UNITE_TAB_TITLE_ZXDB:
+            _show_content_disclaimer()
             self._zxdb_on_tab_activated()
+        elif wid_inner.tab.tabText(wid_inner.tab.currentIndex()) == ZX_NEXT_UNITE_TAB_TITLE_ZXART:
+            _show_content_disclaimer()
+            self._zxart_on_tab_activated()
         # Expose the nested save function so closeEvent (a class method) can call it.
         self._save_configuration_file = save_configuration_file
 
@@ -6684,6 +8898,9 @@ def _mainwindow_close_event(self, event):
 MainWindow.closeEvent = _mainwindow_close_event
 
 app = QApplication(sys.argv)
+_app_font = QFont("Consolas")
+_app_font.setStyleHint(QFont.StyleHint.Monospace)
+app.setFont(_app_font)
 
 window = MainWindow()
 window.show()
