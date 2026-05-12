@@ -69,6 +69,7 @@ import concurrent.futures
 import traceback
 import urllib.parse
 import urllib.request
+import urllib.error
 import zipfile
 
 # Third-party imports
@@ -127,7 +128,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "4.5"
+ZX_NEXT_UNITE_VERSION = "4.6"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
@@ -139,7 +140,7 @@ ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "NextSync - Network Transfer Manager"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC_SYNCON = "NextSync - Sync ON"
 ZX_NEXT_UNITE_TAB_TITLE_GETIT = "GetIt"
 ZX_NEXT_UNITE_TAB_TITLE_ZXDB  = "ZXDB"
-ZX_NEXT_UNITE_TAB_TITLE_ZXART = "zxART"
+ZX_NEXT_UNITE_TAB_TITLE_ZXART = "zxART.ee"
 
 GETIT_BASE_URL = "https://zxnext.uk"
 GETIT_PAGE_SIZE = 18
@@ -952,18 +953,42 @@ def zxdb_parse_game_detail(payload) -> dict:
 
 def zxart_fetch_json(path: str, timeout: int = 15):
     """GET JSON from the zxART API. *path* is appended to ZXART_BASE_URL.
-    Sends the mandatory User-Agent header on every request."""
+    Sends the mandatory User-Agent header on every request.
+    Retries up to 3 times on HTTP 5xx errors with an exponential back-off."""
+    import urllib.error
     url = ZXART_BASE_URL + path
     req = urllib.request.Request(
         url,
         headers={
             "User-Agent": ZXART_USER_AGENT,
             "Accept": "application/json",
+            "Connection": "close",
         },
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read()
-    return json.loads(raw.decode("utf-8", errors="replace"))
+    _RETRIES = 10
+    _BACKOFF  = 2  # seconds; doubled on each retry
+    delay = _BACKOFF
+    last_exc = None
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read()
+            return json.loads(raw.decode("utf-8", errors="replace"))
+        except urllib.error.HTTPError as exc:
+            if exc.code >= 500:
+                last_exc = exc
+                logging.warning(
+                    "zxart_fetch_json: HTTP %d on attempt %d/%d for %s",
+                    exc.code, attempt, _RETRIES, path,
+                )
+                if attempt < _RETRIES:
+                    time.sleep(delay)
+                    delay *= 2
+            else:
+                raise
+        except Exception as exc:
+            raise
+    raise last_exc
 
 
 def zxart_fetch_bytes(url: str, timeout: int = 30) -> bytes:
@@ -1036,22 +1061,6 @@ def zxart_parse_prod_list(response: dict) -> tuple:
 # Category ID in zxART that covers all software productions (games + demos)
 _ZXART_SOFTWARE_CATEGORY = 92177
 
-# Approximate total entries in the Games category — used to compute fetch chunks.
-# Updated at runtime on first successful search.
-_ZXART_CATALOG_TOTAL = 23200
-
-# Max items the zxART API returns per request (empirically confirmed).
-_ZXART_FETCH_CHUNK = 2000
-
-# Timeout in seconds for each catalog chunk request (large payload, be generous).
-_ZXART_CHUNK_TIMEOUT = 60
-
-# Retry attempts per chunk on timeout/error.
-_ZXART_CHUNK_RETRIES = 2
-
-# Polite delay (seconds) between sequential chunk requests to avoid HTTP 500s.
-_ZXART_CHUNK_DELAY = 0.5
-
 # How long (seconds) the disk cache is valid when the sentinel probe is
 # unavailable (fallback TTL).  Normal operation uses the sentinel, so this
 # only matters when zxART is unreachable on a subsequent session.
@@ -1067,6 +1076,11 @@ _ZXART_CACHE_FILE = os.path.join(_ZXART_CACHE_DIR, "zxart_catalog_cache.json.gz"
 # In-memory catalog: (wall_time_loaded: float, entries: list) or None.
 _zxart_catalog_cache: tuple | None = None
 _zxart_catalog_lock = threading.Lock()
+# True while the background catalog download is running.
+_zxart_catalog_downloading: bool = False
+# Download progress 0-100 (updated from the background thread).
+_zxart_catalog_download_progress: int = 0
+
 
 
 def _zxart_probe_sentinel() -> tuple[int, int]:
@@ -1133,7 +1147,7 @@ def _zxart_get_catalog(progress_cb=None) -> list:
     progress_cb: optional callable(str) invoked with human-readable status
                  messages from the background thread.
     """
-    global _ZXART_CATALOG_TOTAL, _zxart_catalog_cache
+    global _zxart_catalog_cache, _zxart_catalog_downloading, _zxart_catalog_download_progress
 
     def _notify(msg: str):
         if progress_cb:
@@ -1173,49 +1187,109 @@ def _zxart_get_catalog(progress_cb=None) -> list:
             logging.info("zxart catalog: loaded %d entries from disk cache", len(disk_entries))
             return disk_entries
 
-        # --- full download ---
-        count_chunks = max(1, ((_ZXART_CATALOG_TOTAL + _ZXART_FETCH_CHUNK - 1) // _ZXART_FETCH_CHUNK))
+        # --- chunked parallel download (12 workers, 3 retries per chunk) ---
         if _zxart_catalog_cache is None:
-            _notify(f"Building zxART catalog cache… (first search only, ~{count_chunks} chunks)")
+            _notify("Building zxART catalog cache… (first search only)")
         else:
             _notify("Refreshing zxART catalog cache…")
 
+        _ZXART_NUM_WORKERS   = 1
+        _ZXART_CHUNK_SIZE    = 500   # items per request
+        _ZXART_CHUNK_RETRIES = 5
+        _ZXART_CHUNK_TIMEOUT = 60 * 5
+        _ZXART_RETRY_DELAY   = 3     # seconds between retries
+
+        # Use the sentinel total (or a safe fallback) to build offsets.
+        catalog_total = live_total if live_total > 0 else 24000
+        offsets = list(range(0, catalog_total, _ZXART_CHUNK_SIZE))
         base_path = (
             f"/export:zxProd/language:eng"
             f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:title,asc"
         )
 
-        total = _ZXART_CATALOG_TOTAL
-        offsets = list(range(0, total, _ZXART_FETCH_CHUNK))
+        _zxart_catalog_downloading = True
+        _zxart_catalog_download_progress = 0
+        completed_chunks = [0]   # mutable counter shared with worker closures
+        total_chunks = len(offsets)
+        progress_lock = threading.Lock()
 
-        all_entries: list = []
-        for idx, start in enumerate(offsets, 1):
-            if idx > 1:
-                time.sleep(_ZXART_CHUNK_DELAY)
-            path = f"{base_path}/start:{start}/limit:{_ZXART_FETCH_CHUNK}"
+        def _fetch_chunk(start: int, limit: int = _ZXART_CHUNK_SIZE) -> list:
+            """Fetch one page with retries; subdivide on persistent HTTP 500.
+
+            The zxART backend has individual records it cannot serialize.
+            Any window that covers such a record returns HTTP 500.  Smaller
+            windows are far less likely to overlap a bad record, and
+            ``limit:1`` always succeeds — so on persistent 500s we recurse
+            with half the limit until the bad records are bypassed.
+            """
+            path = f"{base_path}/start:{start}/limit:{limit}"
             last_exc = None
-            for attempt in range(_ZXART_CHUNK_RETRIES + 1):
+            for attempt in range(1, _ZXART_CHUNK_RETRIES + 1):
                 try:
                     resp = zxart_fetch_json(path, timeout=_ZXART_CHUNK_TIMEOUT)
-                    try:
-                        reported = int(resp.get("totalAmount") or 0)
-                        if reported > 0:
-                            _ZXART_CATALOG_TOTAL = reported
-                    except (TypeError, ValueError):
-                        pass
-                    chunk_entries, _ = zxart_parse_prod_list(resp)
-                    all_entries.extend(chunk_entries)
-                    break
+                    entries, _ = zxart_parse_prod_list(resp)
+                    if limit == _ZXART_CHUNK_SIZE:
+                        with progress_lock:
+                            completed_chunks[0] += 1
+                            pct = int(completed_chunks[0] * 100 / total_chunks)
+                            global _zxart_catalog_download_progress
+                            _zxart_catalog_download_progress = min(99, pct)
+                    return entries
+                except urllib.error.HTTPError as exc:
+                    last_exc = exc
+                    if 500 <= exc.code < 600 and limit > 1:
+                        # Subdivide and skip the offending record(s).
+                        logging.info(
+                            "zxart catalog: HTTP %d on start=%d limit=%d — subdividing",
+                            exc.code, start, limit,
+                        )
+                        half = max(1, limit // 2)
+                        results: list = []
+                        sub = start
+                        while sub < start + limit:
+                            sub_limit = min(half, start + limit - sub)
+                            try:
+                                results.extend(_fetch_chunk(sub, sub_limit))
+                            except Exception as sub_exc:
+                                # If even limit:1 fails we drop that single record.
+                                logging.warning(
+                                    "zxart catalog: skipping bad record at offset %d (%s)",
+                                    sub, sub_exc,
+                                )
+                            sub += sub_limit
+                        if limit == _ZXART_CHUNK_SIZE:
+                            with progress_lock:
+                                completed_chunks[0] += 1
+                                pct = int(completed_chunks[0] * 100 / total_chunks)
+                                _zxart_catalog_download_progress = min(99, pct)
+                        return results
                 except Exception as exc:
                     last_exc = exc
-                    if attempt < _ZXART_CHUNK_RETRIES:
-                        time.sleep(2 ** attempt)  # 1 s, 2 s back-off
-            else:
-                logging.warning("zxart catalog: chunk start=%d failed: %s", start, last_exc)
-            _notify(
-                f"Building zxART catalog cache… "
-                f"({idx}/{len(offsets)} chunks, {len(all_entries)} entries)"
-            )
+                logging.warning(
+                    "zxart catalog: chunk start=%d limit=%d attempt %d/%d failed: %s",
+                    start, limit, attempt, _ZXART_CHUNK_RETRIES, last_exc,
+                )
+                if attempt < _ZXART_CHUNK_RETRIES:
+                    time.sleep(_ZXART_RETRY_DELAY)
+            raise last_exc
+
+        try:
+            all_entries = []
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=_ZXART_NUM_WORKERS, thread_name_prefix="zxart-chunk"
+            ) as executor:
+                futures = {executor.submit(_fetch_chunk, start): start for start in offsets}
+                for future in concurrent.futures.as_completed(futures):
+                    start = futures[future]
+                    try:
+                        all_entries.extend(future.result())
+                    except Exception as exc:
+                        logging.error(
+                            "zxart catalog: chunk start=%d permanently failed: %s", start, exc
+                        )
+        finally:
+            _zxart_catalog_downloading = False
+            _zxart_catalog_download_progress = 100
 
         all_entries.sort(key=lambda e: e["title"].lower())
         _zxart_catalog_cache = (time.monotonic(), all_entries)
@@ -1228,22 +1302,185 @@ def _zxart_get_catalog(progress_cb=None) -> list:
         return all_entries
 
 
-def zxart_client_search(query: str, progress_cb=None) -> tuple:
-    """Search zxART productions by title using a cached full catalog scan.
+def _zxart_prefetch_cache_if_stale() -> None:
+    """Check whether the zxART disk cache is missing or stale and, if so,
+    start a background download immediately so it is ready before the user
+    triggers a search.  Safe to call from the main thread right after the
+    window is shown.
+    """
+    global _zxart_catalog_downloading
 
-    The catalog is downloaded once, persisted to disk, and refreshed only
-    when the server reports a change (via a cheap sentinel probe).
-    Subsequent queries filter the in-memory list with zero network I/O.
+    if _zxart_catalog_downloading:
+        return  # already in progress
 
-    progress_cb: optional callable(str) forwarded to _zxart_get_catalog.
+    live_total, live_stamp = _zxart_probe_sentinel()
+    disk_result = _zxart_load_disk_cache()
+    saved_total, saved_stamp, _ = disk_result if disk_result else (0, 0, None)
+
+    sentinel_matches = (
+        live_total > 0
+        and live_total == saved_total
+        and live_stamp > 0
+        and live_stamp == saved_stamp
+    )
+
+    if sentinel_matches and disk_result:
+        logging.info("zxart prefetch: cache is up-to-date, no download needed")
+        return
+
+    logging.info("zxart prefetch: cache is missing or stale — starting background download")
+
+    def _bg_download():
+        try:
+            _zxart_get_catalog()
+        except Exception as exc:
+            logging.warning("zxart prefetch: background download failed: %s", exc)
+
+    t = threading.Thread(target=_bg_download, daemon=True, name="zxart-prefetch")
+    t.start()
+
+
+def _zxart_title_at(offset: int) -> str:
+    """Return the lowercase title at ``offset`` within the title-asc ordering.
+
+    Uses a ``limit:1`` probe which is reliable at any depth in the catalog
+    (unlike larger windows which can hit HTTP 500 on some offsets).
+    Returns an empty string on error.
+    """
+    try:
+        resp = zxart_fetch_json(
+            f"/export:zxProd/language:eng/start:{offset}/limit:1"
+            f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:title,asc",
+            timeout=15,
+        )
+        prods = (resp.get("responseData") or {}).get("zxProd", [])
+        if isinstance(prods, list) and prods:
+            return str(prods[0].get("title") or "").lower()
+    except Exception as exc:
+        logging.warning("_zxart_title_at(%d) failed: %s", offset, exc)
+    return ""
+
+
+def zxart_prefix_search(query: str, progress_cb=None,
+                        window: int = 200, max_results: int = 200) -> tuple:
+    """Find zxART productions whose title *starts with* ``query``.
+
+    Strategy:
+      1. Probe the total catalog size via the sentinel.
+      2. Binary-search the title-asc ordering using single-item probes
+         to locate the first offset whose title >= query.
+      3. Fetch a small window starting at that offset and keep entries
+         whose lowercase title starts with the query.
+
+    Issues roughly log2(N) + 1 small requests (~16 total for 23k entries).
+    Each request is a few hundred bytes to a few KB.  Returns
+    ``(entries, total_matched)``.
+    """
+    if not query:
+        return [], 0
+
+    q_lower = query.lower()
+
+    def _notify(msg: str):
+        if progress_cb:
+            try:
+                progress_cb(msg)
+            except Exception:
+                pass
+
+    _notify(f"Searching zxART for titles starting with '{query}'…")
+
+    # 1. catalog size
+    total, _ = _zxart_probe_sentinel()
+    if total <= 0:
+        # fallback: try a single window at offset 0
+        total = 1000
+
+    # 2. binary search for the first offset whose title >= query
+    lo, hi = 0, total
+    while lo < hi:
+        mid = (lo + hi) // 2
+        title = _zxart_title_at(mid)
+        if not title:
+            # treat unknown as "past the query" so we shrink to the lower half
+            hi = mid
+            continue
+        if title < q_lower:
+            lo = mid + 1
+        else:
+            hi = mid
+
+    start = max(0, lo - 5)  # small back-step in case of rounding
+
+    # 3. fetch a window and filter client-side
+    path = (
+        f"/export:zxProd/language:eng/start:{start}/limit:{window}"
+        f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:title,asc"
+    )
+    try:
+        resp = zxart_fetch_json(path, timeout=30)
+        entries, _ = zxart_parse_prod_list(resp)
+    except Exception as exc:
+        # If the window straddles a known bad offset, shrink it.
+        logging.warning("zxart_prefix_search window fetch failed: %s — retrying smaller", exc)
+        entries = []
+        for sub_off in range(start, start + window, 25):
+            try:
+                resp = zxart_fetch_json(
+                    f"/export:zxProd/language:eng/start:{sub_off}/limit:25"
+                    f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:title,asc",
+                    timeout=20,
+                )
+                sub, _ = zxart_parse_prod_list(resp)
+                entries.extend(sub)
+            except Exception as sub_exc:
+                logging.warning("zxart_prefix_search sub-window %d failed: %s", sub_off, sub_exc)
+
+    # The window may begin slightly before the prefix and extend slightly past
+    # it.  Trim to the contiguous run of entries that start with the query.
+    matched = []
+    seen_match = False
+    for e in entries:
+        title = (e.get("title") or "").lower()
+        if title.startswith(q_lower):
+            matched.append(e)
+            seen_match = True
+        elif seen_match:
+            # past the prefix range — done
+            break
+
+    for e in matched:
+        e["_kind"] = "zxart_prod"
+    _notify("")
+    return matched[:max_results], len(matched)
+
+
+def zxart_client_search(query: str, progress_cb=None, deep: bool = False) -> tuple:
+    """Search zxART productions by title.
+
+    Two modes:
+
+    * ``deep=False`` (default) — fast prefix search via binary-searched
+      pagination.  Single small request per query.  Finds titles that
+      *start with* the query.
+    * ``deep=True`` — substring search across the full catalog, using
+      the on-disk catalog cache (downloaded on first use, then refreshed
+      only when the server sentinel changes).
+
+    progress_cb: optional callable(str) for status messages.
     Returns (matched_entries, total_matched).
     """
     if not query:
         return [], 0
 
+    if not deep:
+        return zxart_prefix_search(query, progress_cb=progress_cb)
+
     catalog = _zxart_get_catalog(progress_cb=progress_cb)
     q_lower = query.lower()
-    matched = [e for e in catalog if q_lower in e["title"].lower()]
+    matched = [e for e in catalog if q_lower in (e.get("title") or "").lower()]
+    for e in matched:
+        e["_kind"] = "zxart_prod"
     return matched, len(matched)
 
 
@@ -4509,6 +4746,11 @@ class MainWindow(QMainWindow):
         self.getit_download_button.setEnabled(False)
 
         getit_right_col = QVBoxLayout()
+        _getit_link_label = QLabel('<a href="http://zxnext.uk">http://zxnext.uk</a>')
+        _getit_link_label.setOpenExternalLinks(True)
+        _getit_link_label.setTextFormat(Qt.RichText)
+        _getit_link_label.setAlignment(Qt.AlignCenter)
+        getit_right_col.addWidget(_getit_link_label)
         getit_right_col.addWidget(self.getit_screenshot_label)
         getit_right_col.addWidget(self.getit_download_button)
         getit_right_col.addStretch()
@@ -5188,6 +5430,11 @@ class MainWindow(QMainWindow):
         self.zxdb_download_button.setEnabled(False)
 
         zxdb_right_col = QVBoxLayout()
+        _zxdb_link_label = QLabel('<a href="https://zxinfo.dk/">https://zxinfo.dk/</a>')
+        _zxdb_link_label.setOpenExternalLinks(True)
+        _zxdb_link_label.setTextFormat(Qt.RichText)
+        _zxdb_link_label.setAlignment(Qt.AlignCenter)
+        zxdb_right_col.addWidget(_zxdb_link_label)
         zxdb_right_col.addWidget(zxdb_preview_container)
         zxdb_right_col.addWidget(self.zxdb_download_button)
         zxdb_right_col.addStretch()
@@ -6998,6 +7245,14 @@ class MainWindow(QMainWindow):
         self.zxart_search_button = QPushButton("Search")
         zxart_search_row.addWidget(self.zxart_search_button)
 
+        self.zxart_deep_search_cb = QCheckBox("Deep")
+        self.zxart_deep_search_cb.setToolTip(
+            "Off: fast prefix search (finds titles that start with the query).\n"
+            "On: substring search across the full catalog. The first deep\n"
+            "search builds a local catalog cache (one-time download)."
+        )
+        zxart_search_row.addWidget(self.zxart_deep_search_cb)
+
         self.zxart_mode_combo = QComboBox()
         for _lbl, _key in (
             ("Productions",  "prods"),
@@ -7116,7 +7371,47 @@ class MainWindow(QMainWindow):
         self.zxart_download_button.setEnabled(False)
 
         zxart_right_col = QVBoxLayout()
+        _zxart_link_label = QLabel('<a href="https://zxart.ee/">https://zxart.ee/</a>')
+        _zxart_link_label.setOpenExternalLinks(True)
+        _zxart_link_label.setTextFormat(Qt.RichText)
+        _zxart_link_label.setAlignment(Qt.AlignCenter)
+        zxart_right_col.addWidget(_zxart_link_label)
         zxart_right_col.addWidget(zxart_preview_container)
+
+        self.zxart_cache_progress_bar = QProgressBar()
+        self.zxart_cache_progress_bar.setMinimum(0)
+        self.zxart_cache_progress_bar.setMaximum(100)
+        self.zxart_cache_progress_bar.setValue(0)
+        self.zxart_cache_progress_bar.setFixedWidth(256)
+        self.zxart_cache_progress_bar.setTextVisible(True)
+        self.zxart_cache_progress_bar.setFormat("Catalog cache: %p%")
+        self.zxart_cache_progress_bar.setVisible(False)
+        zxart_right_col.addWidget(self.zxart_cache_progress_bar)
+
+        self._zxart_cache_poll_timer = QTimer(self)
+        self._zxart_cache_poll_timer.setInterval(250)
+
+        def _zxart_cache_poll_tick():
+            pct = _zxart_catalog_download_progress
+            downloading = _zxart_catalog_downloading
+            if downloading:
+                self.zxart_cache_progress_bar.setVisible(True)
+                if pct < 0:
+                    # indeterminate — use built-in marquee animation
+                    self.zxart_cache_progress_bar.setMaximum(0)
+                else:
+                    self.zxart_cache_progress_bar.setMaximum(100)
+                    self.zxart_cache_progress_bar.setValue(pct)
+            else:
+                self.zxart_cache_progress_bar.setVisible(False)
+
+        self._zxart_cache_poll_timer.timeout.connect(_zxart_cache_poll_tick)
+
+        # Always start the poll timer — it will show the bar as soon as a
+        # download begins (including the startup prefetch) and stop itself
+        # once the download completes.
+        self._zxart_cache_poll_timer.start()
+
         zxart_right_col.addWidget(self.zxart_download_button)
         zxart_right_col.addStretch()
         zxart_right_widget = QWidget()
@@ -7563,6 +7858,7 @@ class MainWindow(QMainWindow):
 
             else:  # prods
                 if query:
+                    deep = self.zxart_deep_search_cb.isChecked()
                     def _fn_prods():
                         def _progress(msg: str):
                             # Called from background thread — post to Qt main thread.
@@ -7572,7 +7868,9 @@ class MainWindow(QMainWindow):
                                 Qt.QueuedConnection,
                                 Q_ARG(str, msg),
                             )
-                        entries, total = zxart_client_search(query, progress_cb=_progress)
+                        entries, total = zxart_client_search(
+                            query, progress_cb=_progress, deep=deep
+                        )
                         for e in entries:
                             e["_kind"] = "zxart_prod"
                         return ("prods", entries, total, 1, 1)
@@ -8763,6 +9061,9 @@ class MainWindow(QMainWindow):
             """Run a full zxART search in the background, populate the table and badge the tab."""
             if not query:
                 return
+            if _zxart_catalog_downloading:
+                logging.info("zxart cross-search skipped: catalog download in progress")
+                return
             _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
             def _after_search():
                 _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
@@ -8904,5 +9205,9 @@ app.setFont(_app_font)
 
 window = MainWindow()
 window.show()
+
+# Catalog prefetch disabled — zxart_client_search now uses a direct
+# server-side title filter, so no upfront catalog download is needed.
+# _zxart_prefetch_cache_if_stale()
 
 app.exec()
