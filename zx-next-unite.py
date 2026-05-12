@@ -128,7 +128,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "4.6"
+ZX_NEXT_UNITE_VERSION = "4.7"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
@@ -4796,9 +4796,6 @@ class MainWindow(QMainWindow):
         self.getit_form.addRow(getit_detail_container)
 
         # --- MOTD ---
-        getit_motd_label = QLabel("MOTD:")
-        getit_motd_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
-        self.getit_form.addRow(getit_motd_label)
 
         self.getit_motd_text = QLabel("")
         self.getit_motd_text.setWordWrap(True)
@@ -8830,38 +8827,38 @@ class MainWindow(QMainWindow):
 
         settings_section_lbl = QLabel("SD Card Image Explorer — Item Colors:")
         settings_section_lbl.setToolTip("Customize the foreground color for each item type displayed in the SD card image explorer.")
-        grid_tab_Settings.addWidget(settings_section_lbl, 3, 0, 1, 2)
+        grid_tab_Settings.addWidget(settings_section_lbl, 4, 0, 1, 2)
 
         self.settings_btn_color_up_directory = _make_color_button(
             SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory",
             "  Up Directory item",
             "Color used for the '[Up Directory..]' navigation row in the image explorer.",
-            4)
+            5)
         self.settings_btn_color_dir_name = _make_color_button(
             SETTING_COLOR_DIR_NAME, "img_color_dir_name",
             "  Directory name",
             "Color used for directory name entries in the image explorer.",
-            5)
+            6)
         self.settings_btn_color_dir_type = _make_color_button(
             SETTING_COLOR_DIR_TYPE, "img_color_dir_type",
             "  Directory type label",
             "Color used for the 'DIR' type label column of directory entries.",
-            6)
+            7)
         self.settings_btn_color_file_name = _make_color_button(
             SETTING_COLOR_FILE_NAME, "img_color_file_name",
             "  File name",
             "Color used for file name entries in the image explorer.",
-            7)
+            8)
         self.settings_btn_color_file_ext = _make_color_button(
             SETTING_COLOR_FILE_EXT, "img_color_file_ext",
             "  File extension",
             "Color used for the file extension column in the image explorer.",
-            8)
+            9)
         self.settings_btn_color_file_size = _make_color_button(
             SETTING_COLOR_FILE_SIZE, "img_color_file_size",
             "  File size",
             "Color used for the file size column in the image explorer.",
-            9)
+            10)
 
         # ---- Background image opacity ----
         bg_opacity_lbl = QLabel("Background image opacity (%):")
@@ -8869,7 +8866,7 @@ class MainWindow(QMainWindow):
             "Controls how visible the background image is behind the UI.\n"
             "0 = fully hidden, 100 = fully visible. Default is 5%."
         )
-        grid_tab_Settings.addWidget(bg_opacity_lbl, 10, 0)
+        grid_tab_Settings.addWidget(bg_opacity_lbl, 11, 0)
 
         bg_opacity_row = QWidget()
         bg_opacity_row_layout = QHBoxLayout(bg_opacity_row)
@@ -8953,7 +8950,7 @@ class MainWindow(QMainWindow):
 
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_slider, 1)
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_spinbox, 0)
-        grid_tab_Settings.addWidget(bg_opacity_row, 10, 1)
+        grid_tab_Settings.addWidget(bg_opacity_row, 11, 1)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
