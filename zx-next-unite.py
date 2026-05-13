@@ -131,7 +131,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "4.8"
+ZX_NEXT_UNITE_VERSION = "4.9"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
@@ -196,6 +196,77 @@ SETTING_GALLERY_ROWS_PER_PAGE  = "gallery_rows_per_page"    # int 1..10, default
 SETTING_GETIT_VIEW_MODE        = "getit_view_mode"          # "table" (default) or "gallery"
 SETTING_ZXDB_VIEW_MODE         = "zxdb_view_mode"
 SETTING_ZXART_VIEW_MODE        = "zxart_view_mode"
+SETTING_ZXART_LANGUAGE         = "zxart_language"          # "eng" | "pol" | "spa"
+DEFAULT_ZXART_LANGUAGE         = "eng"
+ZXART_LANGUAGE_CHOICES         = (
+    ("English", "eng"),
+    ("Polish",  "pol"),
+    ("Spanish", "spa"),
+)
+
+# UI translation table for the zxArt pane.  Keys are the English source
+# strings; values map language codes -> localised label.  Strings not
+# present in the table fall back to the source key.
+ZXART_UI_TRANSLATIONS = {
+    # Toolbar / controls
+    "Search":           {"pol": "Szukaj",         "spa": "Buscar"},
+    "Deep":             {"pol": "Głęboko",        "spa": "Profundo"},
+    "Productions":      {"pol": "Produkcje",      "spa": "Producciones"},
+    "By letter":        {"pol": "Wg litery",      "spa": "Por letra"},
+    "Pictures":         {"pol": "Obrazy",         "spa": "Imágenes"},
+    "Page:":            {"pol": "Strona:",        "spa": "Página:"},
+    "< Prev":           {"pol": "< Poprzednia",   "spa": "< Anterior"},
+    "Next >":           {"pol": "Następna >",     "spa": "Siguiente >"},
+    "View:":            {"pol": "Widok:",         "spa": "Vista:"},
+    "Table":            {"pol": "Tabela",         "spa": "Tabla"},
+    "Gallery":          {"pol": "Galeria",        "spa": "Galería"},
+    "Language:":        {"pol": "Język:",         "spa": "Idioma:"},
+    # Detail / metadata field names
+    "Title:":           {"pol": "Tytuł:",         "spa": "Título:"},
+    "Year:":            {"pol": "Rok:",           "spa": "Año:"},
+    "Authors:":         {"pol": "Autorzy:",       "spa": "Autores:"},
+    "Groups:":          {"pol": "Grupy:",         "spa": "Grupos:"},
+    "Compo:":           {"pol": "Konkurs:",       "spa": "Concurso:"},
+    "Place:":           {"pol": "Miejsce:",       "spa": "Puesto:"},
+    "Languages:":       {"pol": "Języki:",        "spa": "Idiomas:"},
+    "Legal:":           {"pol": "Status prawny:", "spa": "Estado legal:"},
+    "Description:":     {"pol": "Opis:",          "spa": "Descripción:"},
+    "Type:":            {"pol": "Typ:",           "spa": "Tipo:"},
+    "Rating:":          {"pol": "Ocena:",         "spa": "Valoración:"},
+    "Views:":           {"pol": "Wyświetlenia:",  "spa": "Vistas:"},
+    "Tags:":            {"pol": "Tagi:",          "spa": "Etiquetas:"},
+    "Language:":        {"pol": "Język:",         "spa": "Idioma:"},
+    # Table headers
+    "ID":               {"pol": "ID",             "spa": "ID"},
+    "Title":            {"pol": "Tytuł",          "spa": "Título"},
+    "Year":             {"pol": "Rok",            "spa": "Año"},
+    "Author / Group":   {"pol": "Autor / Grupa",  "spa": "Autor / Grupo"},
+    "Author(s)":        {"pol": "Autor(zy)",      "spa": "Autor(es)"},
+    "Genre / Compo":    {"pol": "Gatunek / Konkurs", "spa": "Género / Concurso"},
+    "Tags":             {"pol": "Tagi",           "spa": "Etiquetas"},
+    # Action buttons / context menu
+    "Download":         {"pol": "Pobierz",        "spa": "Descargar"},
+    "Download File":    {"pol": "Pobierz plik",   "spa": "Descargar archivo"},
+    "Send to SD card":  {"pol": "Wyślij na kartę SD", "spa": "Enviar a tarjeta SD"},
+    "Send via NextSync":{"pol": "Wyślij przez NextSync", "spa": "Enviar por NextSync"},
+    # Status/messages
+    "No preview":       {"pol": "Brak podglądu",  "spa": "Sin vista previa"},
+}
+
+
+def _zxart_tr(text: str) -> str:
+    """Translate a zxArt UI string into the currently-selected language."""
+    if not isinstance(text, str) or not text:
+        return text
+    lang = _zxart_lang()
+    if lang == "eng":
+        return text
+    entry = ZXART_UI_TRANSLATIONS.get(text)
+    if not entry:
+        return text
+    return entry.get(lang, text)
+
+
 DEFAULT_GALLERY_ANIM_MODE      = "hover"
 DEFAULT_GALLERY_ROWS_PER_PAGE  = 2
 GALLERY_COLS                   = 4
@@ -353,7 +424,7 @@ def _build_disclaimer_text():
 
 _DISCLAIMER_TEXT = _build_disclaimer_text()
 
-CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME, SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_GALLERY_ANIM_MODE, SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE, SETTING_ZXART_VIEW_MODE)
+CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME, SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_GALLERY_ANIM_MODE, SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE, SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
@@ -978,7 +1049,7 @@ def zxart_fetch_json(path: str, timeout: int = 15):
             "Connection": "close",
         },
     )
-    _RETRIES = 10
+    _RETRIES = 3
     _BACKOFF  = 2  # seconds; doubled on each retry
     delay = _BACKOFF
     last_exc = None
@@ -1009,6 +1080,88 @@ def zxart_fetch_bytes(url: str, timeout: int = 30) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": ZXART_USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read()
+
+
+# Process-level caches for zxArt author / group name lookups.
+# The API answers one entity per call, so we memoize to avoid re-querying.
+_ZXART_AUTHOR_NAME_CACHE: dict = {}
+_ZXART_GROUP_NAME_CACHE:  dict = {}
+
+
+def _zxart_resolve_author_name(author_id) -> str:
+    """Resolve a numeric zxArt authorId to its display title via the API.
+
+    Uses the documented /export:author/filter:authorId=<id>/ endpoint.
+    Returns the title string, or "" if the lookup fails / yields nothing.
+    Results are cached for the lifetime of the process.
+    """
+    if author_id in (None, "", 0, "0"):
+        return ""
+    try:
+        key = int(author_id)
+    except (TypeError, ValueError):
+        return str(author_id)
+    if key in _ZXART_AUTHOR_NAME_CACHE:
+        return _ZXART_AUTHOR_NAME_CACHE[key]
+    name = ""
+    try:
+        resp = zxart_fetch_json(f"/export:author/filter:authorId={key}/")
+        rows = (resp.get("responseData") or {}).get("author") or []
+        if rows:
+            name = str(rows[0].get("title") or "")
+    except Exception:
+        name = ""
+    _ZXART_AUTHOR_NAME_CACHE[key] = name
+    return name
+
+
+def _zxart_resolve_group_name(group_id) -> str:
+    """Resolve a numeric zxArt groupId to its display title via the API.
+
+    Uses the documented /export:group/filter:groupId=<id>/ endpoint.
+    Returns the title string, or "" if the lookup fails / yields nothing.
+    Results are cached for the lifetime of the process.
+    """
+    if group_id in (None, "", 0, "0"):
+        return ""
+    try:
+        key = int(group_id)
+    except (TypeError, ValueError):
+        return str(group_id)
+    if key in _ZXART_GROUP_NAME_CACHE:
+        return _ZXART_GROUP_NAME_CACHE[key]
+    name = ""
+    try:
+        resp = zxart_fetch_json(f"/export:group/filter:groupId={key}/")
+        rows = (resp.get("responseData") or {}).get("group") or []
+        if rows:
+            name = str(rows[0].get("title") or "")
+    except Exception:
+        name = ""
+    _ZXART_GROUP_NAME_CACHE[key] = name
+    return name
+
+
+def _zxart_resolve_author_names(author_ids) -> str:
+    """Resolve a list of authorIds to a comma-separated display string.
+
+    Unknown IDs fall back to the raw numeric value so we never silently
+    drop information.
+    """
+    out = []
+    for aid in author_ids or []:
+        name = _zxart_resolve_author_name(aid)
+        out.append(name if name else str(aid))
+    return ", ".join(s for s in out if s)
+
+
+def _zxart_resolve_group_names(group_ids) -> str:
+    """Resolve a list of groupIds to a comma-separated display string."""
+    out = []
+    for gid in group_ids or []:
+        name = _zxart_resolve_group_name(gid)
+        out.append(name if name else str(gid))
+    return ", ".join(s for s in out if s)
 
 
 def zxart_parse_prod_list(response: dict) -> tuple:
@@ -1058,7 +1211,7 @@ def zxart_parse_prod_list(response: dict) -> tuple:
             "title":   title,
             "year":    year,
             "author":  author_hint,
-            "machine": "",
+            "machine": ", ".join(str(h) for h in (prod.get("hardwareRequired") or [])),
             "genre":   genre,
             "_kind":   "zxart_prod",
             "_source": prod,
@@ -1094,6 +1247,34 @@ _zxart_catalog_downloading: bool = False
 # Download progress 0-100 (updated from the background thread).
 _zxart_catalog_download_progress: int = 0
 
+# Selected zxART API language ("eng" | "pol" | "spa").  Mutated by the
+# language combo in the zxArt pane and persisted to the cfg file.  All
+# zxART HTTP request builders use _zxart_lang() to honour this value.
+_zxart_current_language: str = DEFAULT_ZXART_LANGUAGE
+
+
+def _zxart_lang() -> str:
+    """Return the currently-selected zxART API language code."""
+    lang = (_zxart_current_language or DEFAULT_ZXART_LANGUAGE).strip().lower()
+    if lang not in ("eng", "pol", "spa"):
+        lang = DEFAULT_ZXART_LANGUAGE
+    return lang
+
+
+def _zxart_set_language(code: str) -> None:
+    """Update the global zxART API language and invalidate language-sensitive caches."""
+    global _zxart_current_language, _zxart_catalog_cache
+    code = (code or DEFAULT_ZXART_LANGUAGE).strip().lower()
+    if code not in ("eng", "pol", "spa"):
+        code = DEFAULT_ZXART_LANGUAGE
+    if code == _zxart_current_language:
+        return
+    _zxart_current_language = code
+    # Drop the in-memory catalog cache; the on-disk cache stays but
+    # _zxart_get_catalog() rebuilds language-tagged content on next use.
+    with _zxart_catalog_lock:
+        _zxart_catalog_cache = None
+
 
 
 def _zxart_probe_sentinel() -> tuple[int, int]:
@@ -1104,7 +1285,7 @@ def _zxart_probe_sentinel() -> tuple[int, int]:
     """
     try:
         resp = zxart_fetch_json(
-            f"/export:zxProd/language:eng/start:0/limit:1"
+            f"/export:zxProd/language:{_zxart_lang()}/start:0/limit:1"
             f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:date,desc",
             timeout=10,
         )
@@ -1216,7 +1397,7 @@ def _zxart_get_catalog(progress_cb=None) -> list:
         catalog_total = live_total if live_total > 0 else 24000
         offsets = list(range(0, catalog_total, _ZXART_CHUNK_SIZE))
         base_path = (
-            f"/export:zxProd/language:eng"
+            f"/export:zxProd/language:{_zxart_lang()}"
             f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:title,asc"
         )
 
@@ -1362,7 +1543,7 @@ def _zxart_title_at(offset: int) -> str:
     """
     try:
         resp = zxart_fetch_json(
-            f"/export:zxProd/language:eng/start:{offset}/limit:1"
+            f"/export:zxProd/language:{_zxart_lang()}/start:{offset}/limit:1"
             f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:title,asc",
             timeout=15,
         )
@@ -1427,7 +1608,7 @@ def zxart_prefix_search(query: str, progress_cb=None,
 
     # 3. fetch a window and filter client-side
     path = (
-        f"/export:zxProd/language:eng/start:{start}/limit:{window}"
+        f"/export:zxProd/language:{_zxart_lang()}/start:{start}/limit:{window}"
         f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:title,asc"
     )
     try:
@@ -1440,7 +1621,7 @@ def zxart_prefix_search(query: str, progress_cb=None,
         for sub_off in range(start, start + window, 25):
             try:
                 resp = zxart_fetch_json(
-                    f"/export:zxProd/language:eng/start:{sub_off}/limit:25"
+                    f"/export:zxProd/language:{_zxart_lang()}/start:{sub_off}/limit:25"
                     f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:title,asc",
                     timeout=20,
                 )
@@ -1541,12 +1722,49 @@ def zxart_parse_picture_list(response: dict) -> tuple:
 # GetIt QRunnable workers (must be module-level for stable C++ type identity)
 # ---------------------------------------------------------------------------
 
+# Module-level registry that strongly references in-flight WorkerSignals
+# objects until the queued slot invocation has actually completed on the main
+# thread. Without this the worker thread terminates (dropping its sole strong
+# reference), Python GC then destroys the QObject *before* the queued event
+# has been dispatched, and Qt ends up delivering a signal to a deleted C++
+# sender — which on Windows manifests as an access violation in the main
+# thread's event loop. This bug was especially visible at startup with the
+# Gallery view active because dozens of WorkerSignals objects are created
+# and destroyed in rapid succession.
+_GETIT_INFLIGHT_SIGNALS = set()
+_GETIT_INFLIGHT_LOCK = threading.Lock()
+
+
 def getit_run_in_thread(fn, on_result, on_error):
     """Run *fn* in a daemon thread. Results are marshalled to the main thread
-    via Qt queued signal connections, which are thread-safe."""
-    signals = WorkerSignals()
-    signals.result.connect(on_result)
-    signals.error.connect(on_error)
+    via Qt queued signal connections, which are thread-safe.
+
+    The WorkerSignals object is parented to the QApplication and kept alive in
+    a module-level registry until *after* the main-thread slot has executed,
+    avoiding a race where the QObject is garbage-collected while a queued
+    signal is still being dispatched into Python widgets."""
+    app = QApplication.instance()
+    signals = WorkerSignals(app)  # parent to QApplication for stable ownership
+
+    with _GETIT_INFLIGHT_LOCK:
+        _GETIT_INFLIGHT_SIGNALS.add(signals)
+
+    def _release(_obj=signals):
+        # Runs on the main thread (queued slot). Drop our hard reference and
+        # schedule Qt-side deletion via deleteLater so Qt finishes any pending
+        # bookkeeping for this sender before the C++ object is destroyed.
+        with _GETIT_INFLIGHT_LOCK:
+            _GETIT_INFLIGHT_SIGNALS.discard(_obj)
+        try:
+            _obj.deleteLater()
+        except RuntimeError:
+            pass
+
+    # Use Qt::QueuedConnection explicitly so user callbacks always run on the
+    # main (GUI) thread, even if `fn` happens to complete synchronously.
+    signals.result.connect(on_result, Qt.QueuedConnection)
+    signals.error.connect(on_error,  Qt.QueuedConnection)
+    signals.finished.connect(_release, Qt.QueuedConnection)
 
     def _run():
         try:
@@ -1554,12 +1772,165 @@ def getit_run_in_thread(fn, on_result, on_error):
             signals.result.emit(result)
         except Exception as exc:
             signals.error.emit((type(exc), exc, ""))
+        finally:
+            # Emitted last so _release is enqueued *after* result/error and
+            # therefore runs only once the receiver slot has been dispatched.
+            try:
+                signals.finished.emit()
+            except RuntimeError:
+                pass
 
     t = threading.Thread(target=_run, daemon=True)
-    t._getit_signals = signals  # keep signals alive until thread finishes
     t.start()
     return t
 
+
+# ---------------------------------------------------------------------------
+# Gallery tag extraction (zxArt / ZXDB / GetIt agnostic helper)
+# ---------------------------------------------------------------------------
+#
+# zxART exposes a small set of short tag-like descriptors on each gallery
+# thumbnail (visible on https://zxart.ee/eng/mainpage/) such as:
+#   "GS"     – General Sound (sound hardware)
+#   "AY/YM"  – AY-3-8910 / YM2149 sound chip
+#   "Tape"   – tape-based release
+#   "TR-DOS" – TR-DOS (5.25"/3.5" disc)
+#   "48"     – Spectrum 48K
+#   "128"    – Spectrum 128K / +2
+#   "Pent"   – Pentagon / Pent128
+#   "KS8"    – Kondratiev Sprinter / KS8
+#   "TS"     – ZX-Evolution TS-Conf basic
+#   "TS-Conf"– TS-Conf advanced
+# The API does not return these as a single field; we derive them from
+# release formats, hardware requirements, and prod-level flags.
+
+_ZXART_RELEASE_FORMAT_TAGS = {
+    # Tape / cassette
+    "tap": "Tape", "tzx": "Tape", "wav": "Tape", "csw": "Tape",
+    # TR-DOS / Beta-disc
+    "trd": "TR-DOS", "scl": "TR-DOS", "fdi": "TR-DOS", "td0": "TR-DOS",
+    # CP/M / +3 disc
+    "dsk": "+3 Disk",
+    # General storage / mass-storage / TR-DOS images
+    "img": "HDD", "hdf": "HDD",
+}
+
+_ZXART_HARDWARE_TAGS = {
+    # Sound / extension hardware
+    "generalsound":   "GS",
+    "gs":             "GS",
+    "ay":             "AY/YM",
+    "ay-3-8912":      "AY/YM",
+    "ym":             "AY/YM",
+    "beeper":         "Beeper",
+    "covox":          "Covox",
+    "soundrive":      "Soundrive",
+    # Storage / disc systems
+    "trdos":          "TR-DOS",
+    "tr-dos":         "TR-DOS",
+    "dosbase":        "TR-DOS",
+    # CPU / machine class (zxArt uses zx48/zx128/zx, etc.)
+    "zx":             "48",
+    "zx48":           "48",
+    "zxspectrum48":   "48",
+    "zx128":          "128",
+    "zxspectrum128":  "128",
+    "pentagon":       "Pent",
+    "pent":           "Pent",
+    "pent128":        "Pent128",
+    "pentagon128":    "Pent128",
+    "pent512":        "Pent512",
+    "pentagon512":    "Pent512",
+    "pent1024":       "Pent1024",
+    "pentagon1024":   "Pent1024",
+    "scorpion":       "Scorpion",
+    "scorpion256":    "Scorpion256",
+    "atm":            "ATM",
+    "atm2":           "ATM2",
+    "atm3":           "ATM3",
+    "ts-conf":        "TS-Conf",
+    "tsconf":         "TS-Conf",
+    "evolution":      "TS",
+    "zxevolution":    "TS",
+    "ks8":            "KS8",
+    "sprinter":       "KS8",
+    "zxnext":         "Next",
+    "next":           "Next",
+}
+
+
+def _zxart_tag_for_format(fmt: str) -> str:
+    if not fmt:
+        return ""
+    f = str(fmt).strip().lower().lstrip(".")
+    return _ZXART_RELEASE_FORMAT_TAGS.get(f, "")
+
+
+def _zxart_tag_for_hardware(name) -> str:
+    if not name:
+        return ""
+    n = str(name).strip().lower().replace(" ", "").replace("_", "")
+    return _ZXART_HARDWARE_TAGS.get(n, "")
+
+
+def _gallery_extract_tags(entry: dict) -> list:
+    """Return a de-duplicated list of short overlay tags for a gallery entry.
+
+    For zxArt entries we look at the production's release formats and
+    hardware-required list. For pictures we surface the picture type (e.g.
+    "standard", "border", "multicolor"). For non-zxArt entries we fall back
+    to the entry's `machine` and `genre` keys when they look tag-like.
+    """
+    if not isinstance(entry, dict):
+        return []
+
+    tags = []
+    seen = set()
+
+    def _add(t):
+        t = (t or "").strip()
+        if not t:
+            return
+        k = t.lower()
+        if k in seen:
+            return
+        seen.add(k)
+        tags.append(t)
+
+    src  = entry.get("_source") or {}
+    kind = (entry.get("_kind") or "").lower()
+
+    if kind == "zxart_picture":
+        ptype = src.get("type") or ""
+        if ptype:
+            _add(str(ptype))
+        for t in (src.get("tags") or [])[:3]:
+            _add(str(t))
+    else:
+        # Prefer release-level info (most accurate); fall back to prod fields.
+        for rel in (src.get("releases") or []):
+            if not isinstance(rel, dict):
+                continue
+            rf = rel.get("releaseFormat")
+            if isinstance(rf, list):
+                for f in rf:
+                    _add(_zxart_tag_for_format(f))
+            else:
+                _add(_zxart_tag_for_format(rf or ""))
+            for hw in (rel.get("hardwareRequired") or []):
+                _add(_zxart_tag_for_hardware(hw))
+        for fmt in (src.get("releaseFormats") or []):
+            _add(_zxart_tag_for_format(fmt))
+        for hw in (src.get("hardwareRequired") or []):
+            _add(_zxart_tag_for_hardware(hw))
+        # Some prod payloads expose machine names in plain text.
+        machine = entry.get("machine") or ""
+        if machine:
+            for piece in str(machine).replace(",", " ").split():
+                _add(_zxart_tag_for_hardware(piece))
+
+    # Cap the badge count so the overlay stays readable.
+    return tags[:5]
 
 
 class GalleryCell(QFrame):
@@ -1578,24 +1949,28 @@ class GalleryCell(QFrame):
     entry dict. Animation honors the global animation mode ("hover"/"timer").
     """
 
-    clicked = Signal(object)
+    clicked     = Signal(object)
+    dbl_clicked = Signal(object)
 
     _PLACEHOLDER_COLOR = QColor("#222")
 
     def __init__(self, entry, anim_mode_getter,
                  thumb_fetch_cb, extra_fetch_cb,
-                 title_text="", info_text="", parent=None):
+                 title_text="", info_text="", context_menu_cb=None,
+                 tags=None, parent=None):
         super().__init__(parent)
         self._entry = entry
         self._anim_mode_getter = anim_mode_getter  # callable -> "hover"|"timer"
         self._thumb_fetch_cb = thumb_fetch_cb
         self._extra_fetch_cb = extra_fetch_cb
+        self._context_menu_cb = context_menu_cb
         self._screenshots = []        # list of URL strings (or dicts {"url": ...})
         self._shot_cache  = {}        # url -> QPixmap
         self._shot_index  = 0
         self._hovered     = False
         self._selected    = False
         self._thumb_w     = 160       # last applied width hint
+        self._tags        = [str(t) for t in (tags or []) if t]
 
         self.setFrameShape(QFrame.StyledPanel)
         self.setFrameShadow(QFrame.Plain)
@@ -1617,9 +1992,20 @@ class GalleryCell(QFrame):
         self._thumb_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         lay.addWidget(self._thumb_lbl, 1)
 
+        # Overlay tag badges (top-right of the thumbnail). Floats above the
+        # pixmap via a child QLabel that we re-position in resizeEvent.
+        self._tag_overlay = QLabel(self._thumb_lbl)
+        self._tag_overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._tag_overlay.setAlignment(Qt.AlignTop | Qt.AlignRight)
+        self._tag_overlay.setTextFormat(Qt.RichText)
+        self._tag_overlay.setStyleSheet("background: transparent;")
+        self._tag_overlay.setVisible(False)
+        self._refresh_tag_overlay()
+
         self._title_lbl = QLabel(title_text or "", self)
         self._title_lbl.setAlignment(Qt.AlignCenter)
         self._title_lbl.setWordWrap(True)
+        self._title_lbl.setTextFormat(Qt.RichText)
         f = self._title_lbl.font()
         f.setBold(True)
         self._title_lbl.setFont(f)
@@ -1661,9 +2047,63 @@ class GalleryCell(QFrame):
         if cur is not None:
             self._apply_pixmap(cur)
 
+    def set_tags(self, tags):
+        """Replace the overlay tag badges."""
+        self._tags = [str(t) for t in (tags or []) if t]
+        self._refresh_tag_overlay()
+
+    def _refresh_tag_overlay(self):
+        if not getattr(self, "_tag_overlay", None):
+            return
+        if not self._tags:
+            self._tag_overlay.setVisible(False)
+            self._tag_overlay.setText("")
+            return
+        # Build a row of HTML chips. Inline-block keeps them right-aligned and
+        # wrapping naturally on narrow tiles.
+        chip_css = (
+            "background:#1c3a52;color:#bfe6ff;border:1px solid #2f6f9a;"
+            "border-radius:3px;padding:1px 5px;margin:1px 2px;"
+            "font-size:9pt;font-weight:600;"
+        )
+        chips = "&nbsp;".join(
+            f"<span style='{chip_css}'>{t}</span>"
+            for t in self._tags
+        )
+        html = f"<div style='text-align:right;'>{chips}</div>"
+        self._tag_overlay.setText(html)
+        self._tag_overlay.setVisible(True)
+        self._position_tag_overlay()
+
+    def _position_tag_overlay(self):
+        ov = getattr(self, "_tag_overlay", None)
+        if ov is None or not ov.isVisible():
+            return
+        # Anchor to top-right with a small padding inside the thumb label.
+        pad = 4
+        max_w = max(40, self._thumb_lbl.width() - 2 * pad)
+        ov.adjustSize()
+        w = min(ov.width(), max_w)
+        h = ov.sizeHint().height()
+        ov.setGeometry(self._thumb_lbl.width() - w - pad, pad, w, h)
+        ov.raise_()
+
+    def _is_alive(self) -> bool:
+        """Return False if the underlying C++ QWidget has already been deleted
+        (which happens when GalleryView.populate() tears cells down while
+        background thumbnail fetches are still in flight)."""
+        try:
+            # Touching any property forces shiboken to validate the C++ object.
+            self.objectName()
+            return True
+        except RuntimeError:
+            return False
+
     def set_screenshots(self, urls):
         """Replace the list of cycle-able image URLs. The first entry is also
         the main thumbnail (used immediately if already cached)."""
+        if not self._is_alive():
+            return
         urls = [u for u in (urls or []) if u]
         self._screenshots = urls
         if urls and urls[0] in self._shot_cache:
@@ -1672,6 +2112,8 @@ class GalleryCell(QFrame):
 
     def set_main_pixmap(self, pm: QPixmap, url: str = ""):
         if pm is None or pm.isNull():
+            return
+        if not self._is_alive():
             return
         if url:
             self._shot_cache[url] = pm
@@ -1708,11 +2150,24 @@ class GalleryCell(QFrame):
             self.clicked.emit(self._entry)
         super().mousePressEvent(ev)
 
+    def mouseDoubleClickEvent(self, ev):
+        if ev.button() == Qt.LeftButton:
+            self.dbl_clicked.emit(self._entry)
+        super().mouseDoubleClickEvent(ev)
+
+    def contextMenuEvent(self, ev):
+        if self._context_menu_cb and self._is_alive():
+            self._context_menu_cb(self._entry, ev.globalPos())
+            ev.accept()
+        else:
+            super().contextMenuEvent(ev)
+
     def resizeEvent(self, ev):
         # Re-scale the currently shown pixmap to the new width.
         cur = self._current_pixmap()
         if cur is not None:
             self._apply_pixmap(cur)
+        self._position_tag_overlay()
         super().resizeEvent(ev)
 
     # ---- internals -----------------------------------------------------
@@ -1727,8 +2182,17 @@ class GalleryCell(QFrame):
     def _kickoff_initial_fetch(self):
         if not self._thumb_fetch_cb:
             return
+        if not self._is_alive():
+            return
         try:
-            self._thumb_fetch_cb(self._entry, self.set_main_pixmap, self.set_screenshots)
+            # Newer callbacks accept an extra `set_tags` callable so that
+            # tags can be derived asynchronously (e.g. from a release lookup).
+            try:
+                self._thumb_fetch_cb(self._entry, self.set_main_pixmap,
+                                     self.set_screenshots, self.set_tags)
+            except TypeError:
+                self._thumb_fetch_cb(self._entry, self.set_main_pixmap,
+                                     self.set_screenshots)
         except Exception:
             pass
 
@@ -1779,12 +2243,15 @@ class GalleryCell(QFrame):
     def _apply_pixmap(self, pm: QPixmap):
         if pm is None or pm.isNull():
             return
+        if not self._is_alive():
+            return
         target_w = max(40, self._thumb_lbl.width() or self._thumb_w)
         # Reserve a 4:3 area, but let the pixmap aspect ratio decide
         scaled = pm.scaled(target_w, int(target_w * 3 / 4),
                            Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self._thumb_lbl.setPixmap(scaled)
         self._thumb_lbl.setText("")
+        self._position_tag_overlay()
 
 
 class GalleryView(QWidget):
@@ -1794,11 +2261,13 @@ class GalleryView(QWidget):
     per page. The grid resizes columns equally; cell widgets are GalleryCell.
     """
 
-    cell_clicked = Signal(object)
+    cell_clicked     = Signal(object)
+    cell_dbl_clicked = Signal(object)
 
     def __init__(self, rows_per_page_getter, anim_mode_getter,
                  thumb_fetch_cb, extra_fetch_cb,
-                 title_getter, info_getter, parent=None):
+                 title_getter, info_getter, context_menu_cb=None,
+                 tags_getter=None, parent=None):
         super().__init__(parent)
         self._rows_per_page_getter = rows_per_page_getter
         self._anim_mode_getter     = anim_mode_getter
@@ -1806,6 +2275,8 @@ class GalleryView(QWidget):
         self._extra_fetch_cb       = extra_fetch_cb
         self._title_getter         = title_getter
         self._info_getter          = info_getter
+        self._context_menu_cb      = context_menu_cb
+        self._tags_getter          = tags_getter or _gallery_extract_tags
         self._cells = []
         self._selected_cell = None
 
@@ -1864,6 +2335,12 @@ class GalleryView(QWidget):
             r, c = divmod(i, GALLERY_COLS)
             title = self._title_getter(e) if self._title_getter else ""
             info  = self._info_getter(e)  if self._info_getter  else ""
+            tags  = []
+            if self._tags_getter:
+                try:
+                    tags = list(self._tags_getter(e) or [])
+                except Exception:
+                    tags = []
             cell = GalleryCell(
                 entry=e,
                 anim_mode_getter=self._anim_mode_getter,
@@ -1871,10 +2348,13 @@ class GalleryView(QWidget):
                 extra_fetch_cb=self._extra_fetch_cb,
                 title_text=title,
                 info_text=info,
+                context_menu_cb=self._context_menu_cb,
+                tags=tags,
                 parent=self._table,
             )
             cell.set_thumb_width(col_w)
             cell.clicked.connect(self._on_cell_clicked)
+            cell.dbl_clicked.connect(self._on_cell_dbl_clicked)
             self._table.setCellWidget(r, c, cell)
             self._cells.append(cell)
 
@@ -1911,6 +2391,435 @@ class GalleryView(QWidget):
             cell.set_selected(cell is sender)
         self._selected_cell = sender
         self.cell_clicked.emit(entry)
+
+    def _on_cell_dbl_clicked(self, entry):
+        self.cell_dbl_clicked.emit(entry)
+
+
+def _gallery_stars(rating_value) -> str:
+    """Return a 5-star unicode string for a 0–10 or 0–5 rating value."""
+    try:
+        v = float(rating_value)
+    except (TypeError, ValueError):
+        return ""
+    # Normalise: values > 5 are assumed to be on a 0–10 scale
+    if v > 5:
+        v = v / 2.0
+    v = max(0.0, min(5.0, v))
+    full  = int(v + 0.5)
+    empty = 5 - full
+    return "★" * full + "☆" * empty + f"  ({rating_value})"
+
+
+class GalleryItemViewer(QWidget):
+    """In-pane item viewer opened from Gallery mode (double-click on a cell).
+
+    Displayed inside the pane's QStackedWidget (index 2) rather than as a
+    separate OS window, so it fills the same area as the normal pane view.
+
+    Layout
+    ------
+    Left (stretch 3)  – large screenshot, auto-cycling slideshow, ◀/▶ nav
+    Right (fixed 340) – scrollable metadata (title, key/value rows, star
+                        rating) + action bar (Download / Send to SD / NextSync)
+
+    Close: ✕ button (top-right) or Escape key → pops stack back to index 0.
+    """
+
+    _BTN_STYLE = (
+        "QPushButton { color: #eee; background: #2a2a2a; border: 1px solid #444;"
+        " border-radius: 4px; padding: 6px 12px; text-align: left; }"
+        "QPushButton:hover { background: #3a3a3a; border-color: #666; }"
+        "QPushButton:disabled { color: #555; background: #1a1a1a; border-color: #333; }"
+    )
+
+    def __init__(self, title: str, info_rows: list, screenshots: list,
+                 extra_fetch_cb, tags=None, parent=None):
+        """
+        Parameters
+        ----------
+        title          : program name shown at top of metadata panel
+        info_rows      : list of (label, value) tuples; empty value → skip row
+        screenshots    : list of image URL strings for the slideshow
+        extra_fetch_cb : callable(url, on_pixmap_cb) – async image loader
+        """
+        super().__init__(parent)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setStyleSheet("background: #0d0d0d;")
+
+        self._screenshots    = list(screenshots or [])
+        self._shot_index     = 0
+        self._shot_cache     = {}
+        self._extra_fetch_cb = extra_fetch_cb
+        self._close_fn       = None   # set by install_into_stack()
+        self._tags           = [str(t) for t in (tags or []) if t]
+
+        # ── root layout ──────────────────────────────────────────────────
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── LEFT: image area ─────────────────────────────────────────────
+        img_panel = QWidget()
+        img_panel.setStyleSheet("background: #0a0a0a;")
+        img_layout = QVBoxLayout(img_panel)
+        img_layout.setContentsMargins(8, 8, 8, 8)
+        img_layout.setSpacing(4)
+
+        self._img_lbl = QLabel()
+        self._img_lbl.setAlignment(Qt.AlignCenter)
+        self._img_lbl.setStyleSheet("background: #0a0a0a; color: #666;")
+        self._img_lbl.setText("Loading…")
+        self._img_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        img_layout.addWidget(self._img_lbl, 1)
+
+        # Tag overlay floating in the top-right corner of the image area.
+        self._tag_overlay = QLabel(self._img_lbl)
+        self._tag_overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._tag_overlay.setAlignment(Qt.AlignTop | Qt.AlignRight)
+        self._tag_overlay.setTextFormat(Qt.RichText)
+        self._tag_overlay.setStyleSheet("background: transparent;")
+        self._tag_overlay.setVisible(False)
+        self._img_lbl.installEventFilter(self)
+        self._refresh_tag_overlay()
+
+        # ◀ counter ▶
+        nav_row = QHBoxLayout()
+        _nav_ss = (
+            "QToolButton { color: white; background: #2b2b2b; border: none;"
+            " font-size: 20px; padding: 5px 14px; }"
+            "QToolButton:hover { background: #484848; }"
+        )
+        self._prev_btn = QToolButton()
+        self._prev_btn.setText("◀")
+        self._prev_btn.setStyleSheet(_nav_ss)
+        self._next_btn = QToolButton()
+        self._next_btn.setText("▶")
+        self._next_btn.setStyleSheet(_nav_ss)
+        self._shot_counter = QLabel("")
+        self._shot_counter.setAlignment(Qt.AlignCenter)
+        self._shot_counter.setStyleSheet("color: #777; font-size: 11px; min-width: 60px;")
+        nav_row.addStretch()
+        nav_row.addWidget(self._prev_btn)
+        nav_row.addWidget(self._shot_counter)
+        nav_row.addWidget(self._next_btn)
+        nav_row.addStretch()
+        img_layout.addLayout(nav_row)
+
+        self._prev_btn.clicked.connect(self._go_prev)
+        self._next_btn.clicked.connect(self._go_next)
+
+        root.addWidget(img_panel, 3)
+
+        # ── RIGHT: metadata + actions ────────────────────────────────────
+        right_panel = QWidget()
+        right_panel.setStyleSheet("background: #111;")
+        right_panel.setMinimumWidth(300)
+        right_panel.setMaximumWidth(400)
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+
+        # ── close bar ────────────────────────────────────────────────────
+        close_bar = QHBoxLayout()
+        close_bar.setContentsMargins(10, 8, 10, 4)
+        close_bar.addStretch()
+        self._close_btn = QToolButton()
+        self._close_btn.setText("✕")
+        self._close_btn.setStyleSheet(
+            "QToolButton { color: white; background: #2b2b2b; border: none;"
+            " font-size: 15px; padding: 3px 10px; }"
+            "QToolButton:hover { background: #c00; }"
+        )
+        self._close_btn.clicked.connect(self._do_close)
+        close_bar.addWidget(self._close_btn)
+        right_layout.addLayout(close_bar)
+
+        # ── scrollable metadata ───────────────────────────────────────────
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setStyleSheet("QScrollArea { border: none; background: #111; }")
+        self._meta_widget = QWidget()
+        self._rebuild_meta(title, info_rows)
+        right_layout.addWidget(self._scroll, 1)
+
+        # ── action bar ────────────────────────────────────────────────────
+        action_bar = QWidget()
+        action_bar.setStyleSheet("background: #0d0d0d; border-top: 1px solid #2a2a2a;")
+        ab_layout = QVBoxLayout(action_bar)
+        ab_layout.setContentsMargins(10, 8, 10, 10)
+        ab_layout.setSpacing(6)
+
+        self.btn_download = QPushButton("⬇  Download")
+        self.btn_send_sd  = QPushButton("💾  Send to SD card")
+        self.btn_send_ns  = QPushButton("🔁  Send via NextSync")
+        for btn in (self.btn_download, self.btn_send_sd, self.btn_send_ns):
+            btn.setStyleSheet(self._BTN_STYLE)
+            btn.setEnabled(False)
+            ab_layout.addWidget(btn)
+
+        right_layout.addWidget(action_bar)
+        root.addWidget(right_panel, 0)
+
+        # ── slideshow timer ───────────────────────────────────────────────
+        self._timer = QTimer(self)
+        self._timer.setInterval(4000)
+        self._timer.timeout.connect(self._go_next)
+
+        self._update_nav()
+        if self._screenshots:
+            self._show_index(0)
+
+    # ── public API ────────────────────────────────────────────────────────
+
+    def install_into_stack(self, stack: QStackedWidget, close_fn=None):
+        """Add this widget to *stack* (if not already there) and show it."""
+        self._close_fn = close_fn
+        if stack.indexOf(self) == -1:
+            stack.addWidget(self)
+        stack.setCurrentWidget(self)
+        self.setFocus()
+        if len(self._screenshots) > 1:
+            self._timer.start()
+
+    def set_screenshots(self, urls: list):
+        """Replace screenshot list and restart slideshow."""
+        self._timer.stop()
+        self._screenshots = list(urls or [])
+        self._shot_index  = 0
+        self._shot_cache  = {}
+        self._update_nav()
+        if self._screenshots:
+            self._show_index(0)
+            if len(self._screenshots) > 1:
+                self._timer.start()
+        else:
+            self._img_lbl.setText("No preview available")
+            self._img_lbl.setPixmap(QPixmap())
+
+    def refresh_meta(self, title: str, rows: list):
+        """Rebuild the metadata scroll panel (called from async callbacks)."""
+        self._rebuild_meta(title, rows)
+
+    def set_tags(self, tags):
+        """Replace the overlay tag badges shown over the screenshot area."""
+        self._tags = [str(t) for t in (tags or []) if t]
+        self._refresh_tag_overlay()
+
+    def _refresh_tag_overlay(self):
+        ov = getattr(self, "_tag_overlay", None)
+        if ov is None:
+            return
+        if not self._tags:
+            ov.setVisible(False)
+            ov.setText("")
+            return
+        chip_css = (
+            "background:#1c3a52;color:#bfe6ff;border:1px solid #2f6f9a;"
+            "border-radius:3px;padding:2px 7px;margin:2px 3px;"
+            "font-size:10pt;font-weight:600;"
+        )
+        chips = "&nbsp;".join(
+            f"<span style='{chip_css}'>{t}</span>" for t in self._tags
+        )
+        ov.setText(f"<div style='text-align:right;'>{chips}</div>")
+        ov.setVisible(True)
+        self._position_tag_overlay()
+
+    def _position_tag_overlay(self):
+        ov = getattr(self, "_tag_overlay", None)
+        if ov is None or not ov.isVisible():
+            return
+        pad = 8
+        max_w = max(60, self._img_lbl.width() - 2 * pad)
+        ov.adjustSize()
+        w = min(ov.width(), max_w)
+        h = ov.sizeHint().height()
+        ov.setGeometry(self._img_lbl.width() - w - pad, pad, w, h)
+        ov.raise_()
+
+    def eventFilter(self, obj, ev):
+        if obj is self._img_lbl and ev.type() == QEvent.Resize:
+            self._position_tag_overlay()
+        return super().eventFilter(obj, ev)
+
+    def set_actions(self, download_cb=None, send_sd_cb=None, send_ns_cb=None,
+                    sd_enabled=False, ns_enabled=False,
+                    sd_tooltip="", ns_tooltip=""):
+        """Wire action buttons.  Pass None to keep a button disabled."""
+        self._wire_btn(self.btn_download, download_cb, True)
+        self._wire_btn(self.btn_send_sd,  send_sd_cb,  sd_enabled, sd_tooltip)
+        self._wire_btn(self.btn_send_ns,  send_ns_cb,  ns_enabled, ns_tooltip)
+
+    # ── private helpers ───────────────────────────────────────────────────
+
+    def _wire_btn(self, btn, cb, enabled, tooltip=""):
+        try:
+            btn.clicked.disconnect()
+        except RuntimeError:
+            pass
+        btn.setEnabled(bool(enabled) and cb is not None)
+        if tooltip:
+            btn.setToolTip(tooltip)
+        if cb is not None:
+            btn.clicked.connect(cb)
+
+    def _rebuild_meta(self, title: str, rows: list):
+        meta_widget = QWidget()
+        meta_widget.setStyleSheet("background: #111;")
+        ml = QVBoxLayout(meta_widget)
+        ml.setContentsMargins(16, 12, 16, 12)
+        ml.setSpacing(6)
+
+        title_lbl = QLabel(title or "")
+        tf = title_lbl.font()
+        tf.setPointSize(tf.pointSize() + 4)
+        tf.setBold(True)
+        title_lbl.setFont(tf)
+        title_lbl.setWordWrap(True)
+        title_lbl.setStyleSheet("color: #fff; margin-bottom: 8px;")
+        ml.addWidget(title_lbl)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color: #2e2e2e;")
+        ml.addWidget(sep)
+
+        for label, value in (rows or []):
+            if not value:
+                continue
+            rw = QWidget()
+            rw.setStyleSheet("background: transparent;")
+            rh = QHBoxLayout(rw)
+            rh.setContentsMargins(0, 2, 0, 2)
+            rh.setSpacing(8)
+
+            lw = QLabel(label)
+            lw.setAlignment(Qt.AlignTop | Qt.AlignRight)
+            lw.setFixedWidth(90)
+            lf = lw.font()
+            lf.setBold(True)
+            lw.setFont(lf)
+            lw.setStyleSheet("color: #888;")
+            rh.addWidget(lw, 0)
+
+            vw = QLabel(value)
+            vw.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+            vw.setWordWrap(True)
+            vw.setStyleSheet("color: #ddd;")
+            rh.addWidget(vw, 1)
+
+            ml.addWidget(rw)
+
+        ml.addStretch()
+        old = self._scroll.widget()
+        self._scroll.setWidget(meta_widget)
+        if old:
+            old.deleteLater()
+        self._meta_widget = meta_widget
+
+    def _do_close(self):
+        self._timer.stop()
+        if self._close_fn:
+            self._close_fn()
+
+    # ── keyboard ──────────────────────────────────────────────────────────
+
+    def keyPressEvent(self, ev):
+        if ev.key() == Qt.Key_Escape:
+            self._do_close()
+        elif ev.key() == Qt.Key_Left:
+            self._go_prev()
+        elif ev.key() == Qt.Key_Right:
+            self._go_next()
+        else:
+            super().keyPressEvent(ev)
+
+    # ── navigation ────────────────────────────────────────────────────────
+
+    def _go_prev(self):
+        if not self._screenshots:
+            return
+        self._timer.stop()
+        self._shot_index = (self._shot_index - 1) % len(self._screenshots)
+        self._show_index(self._shot_index)
+        self._timer.start()
+
+    def _go_next(self):
+        if not self._screenshots:
+            return
+        self._timer.stop()
+        self._shot_index = (self._shot_index + 1) % len(self._screenshots)
+        self._show_index(self._shot_index)
+        self._timer.start()
+
+    def _update_nav(self):
+        multi = len(self._screenshots) > 1
+        self._prev_btn.setVisible(multi)
+        self._next_btn.setVisible(multi)
+        self._shot_counter.setText(
+            f"{self._shot_index + 1} / {len(self._screenshots)}" if self._screenshots else ""
+        )
+
+    def _show_index(self, idx: int):
+        if not self._screenshots:
+            return
+        url = self._screenshots[idx]
+        self._shot_index = idx
+        self._update_nav()
+        cached = self._shot_cache.get(url)
+        if cached is not None:
+            self._display_pixmap(cached)
+            return
+        self._img_lbl.setPixmap(QPixmap())
+        self._img_lbl.setText("Loading…")
+        if self._extra_fetch_cb:
+            def _on_px(pm, _u=url):
+                if pm is None or pm.isNull():
+                    if self._screenshots and self._screenshots[self._shot_index] == _u:
+                        self._img_lbl.setText("No preview")
+                    return
+                self._shot_cache[_u] = pm
+                if self._screenshots and self._screenshots[self._shot_index] == _u:
+                    self._display_pixmap(pm)
+            try:
+                self._extra_fetch_cb(url, _on_px)
+            except Exception:
+                self._img_lbl.setText("No preview")
+
+    def _display_pixmap(self, pm: QPixmap):
+        if pm is None or pm.isNull():
+            return
+        sz = self._img_lbl.size()
+        self._img_lbl.setPixmap(
+            pm.scaled(sz, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
+        self._img_lbl.setText("")
+        self._position_tag_overlay()
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        if self._screenshots and self._shot_index < len(self._screenshots):
+            cached = self._shot_cache.get(self._screenshots[self._shot_index])
+            if cached:
+                self._display_pixmap(cached)
+
+    def hideEvent(self, ev):
+        self._timer.stop()
+        super().hideEvent(ev)
+
+
+def _gallery_viewer_refresh_meta(viewer: "GalleryItemViewer",
+                                  title: str, rows: list):
+    """Rebuild the metadata scroll area of an already-shown GalleryItemViewer.
+
+    Delegates to viewer.refresh_meta() which handles the widget swap cleanly.
+    Called from async callbacks after the viewer is already embedded in the pane.
+    """
+    try:
+        viewer.refresh_meta(title, rows)
+    except Exception:
+        pass
 
 
 class BackgroundWidget(QWidget):
@@ -1974,6 +2883,7 @@ class MainWindow(QMainWindow):
         configuration_dictionary = {}
         # Initialise defaults for settings that may not exist in older cfg files
         configuration_dictionary[SETTING_CONTENT_DISCLAIMER_AGREED] = ""
+        configuration_dictionary[SETTING_ZXART_LANGUAGE] = DEFAULT_ZXART_LANGUAGE
 
         # Live QColor instances for the image explorer — updated by Settings pickers
         self.img_color_up_directory = hex_to_qcolor(DEFAULT_COLOR_UP_DIRECTORY)
@@ -2300,6 +3210,20 @@ class MainWindow(QMainWindow):
                         val = configuration_dictionary[_pane_key].strip().lower()
                         if val in ("table", "gallery"):
                             setattr(self, _attr, val)
+
+                # zxART API language (eng/pol/spa)
+                _zxart_lang_cfg = configuration_dictionary.get(SETTING_ZXART_LANGUAGE, "").strip().lower()
+                if _zxart_lang_cfg in ("eng", "pol", "spa"):
+                    _zxart_set_language(_zxart_lang_cfg)
+                if hasattr(self, "zxart_language_combo"):
+                    cb = self.zxart_language_combo
+                    code = _zxart_lang()
+                    for _i in range(cb.count()):
+                        if cb.itemData(_i) == code:
+                            cb.blockSignals(True)
+                            cb.setCurrentIndex(_i)
+                            cb.blockSignals(False)
+                            break
 
                 saved_mode = configuration_dictionary.get(SETTING_ZXDB_LAST_MODE, "").strip()
                 if saved_mode:
@@ -3277,7 +4201,7 @@ class MainWindow(QMainWindow):
             save_configuration_file()
 
 
-        def nextsync_start_server():
+        def nextsync_start_server(serve_folder=None):
             # Guard: don't start a second sync while one is already running
             t = getattr(self, "_nextsync_thread", None)
             if t is not None and t.is_alive():
@@ -3298,12 +4222,13 @@ class MainWindow(QMainWindow):
                 sig.cancelled.connect(dlg.mark_cancelled)
                 dlg.cancel_requested.connect(lambda: cancel_flag.set())
 
-                def _run():
+                def _run(_sf=serve_folder):
                     try:
                         nextsync_do_server_job(
                             progress_callback=sig.progress,
                             status_callback=sig.status,
                             cancel_flag=cancel_flag,
+                            serve_folder=_sf,
                         )
                     except Exception as ex:
                         logging.error(f"NextSync thread error: {ex}", exc_info=True)
@@ -4272,12 +5197,14 @@ class MainWindow(QMainWindow):
             self.nextsync_prepare_server.setVisible(True)
             save_configuration_file()
 
-        def nextsync_do_server_job(progress_callback, status_callback=None, cancel_flag=None):
+        def nextsync_do_server_job(progress_callback, status_callback=None, cancel_flag=None, serve_folder=None):
             """Run the NextSync server loop.
 
             progress_callback – Signal(int) or None; emitted with 0-100 per-file progress.
             status_callback   – Signal(str) or None; emitted with a human-readable status line.
             cancel_flag       – threading.Event or None; checked between socket accept retries.
+            serve_folder      – str or None; when provided, serve exactly this folder instead of
+                                the folder selected in the NextSync pane.
             """
 
             selected_nextsync_explorer_sync_root_directory = ""
@@ -4293,7 +5220,10 @@ class MainWindow(QMainWindow):
 
             nextsync_show_ip_info()
 
-            if self.left_file_nextsync_explorer_selection_full_filename_path:
+            if serve_folder and os.path.isdir(serve_folder):
+                # Caller specified an exact folder (e.g. downloads/comix) — use it directly.
+                selected_nextsync_explorer_sync_root_directory = serve_folder.rstrip("/\\") + "/"
+            elif self.left_file_nextsync_explorer_selection_full_filename_path:
                 splitted_filepath = self.left_file_nextsync_explorer_selection_full_filename_path.split('/')
                 if not os.path.isdir(self.left_file_nextsync_explorer_selection_full_filename_path):
                 # if '.' in dest_file_content:
@@ -4367,13 +5297,24 @@ class MainWindow(QMainWindow):
                             elif data == b"Next" or data == b"Neex": # Really common mistransmit. Probably uart-esp..
                                 if data == b"Neex":
                                     gee += 1
-                                if fn >= len(f):
-                                    add_nextsync_log_window (f"{timestamp()} | Nothing (more) to sync")
+                                # If the user pressed Cancel, finish gracefully at the next
+                                # file boundary: the previously requested file has already
+                                # been fully transferred at this point, so we just tell the
+                                # client there is nothing more to sync.
+                                _cancel_now = cancel_flag is not None and cancel_flag.is_set()
+                                if fn >= len(f) or _cancel_now:
+                                    if _cancel_now:
+                                        add_nextsync_log_window (f"{timestamp()} | Cancel requested — stopping after current file")
+                                        if status_callback is not None:
+                                            status_callback.emit("Cancelled — finishing current file…")
+                                    else:
+                                        add_nextsync_log_window (f"{timestamp()} | Nothing (more) to sync")
                                     packet = b'\x00\x00\x00\x00\x00' # end of.
                                     packets += 1
                                     sendpacket(conn, packet, 0)
                                     totalbytes += len(packet)
-                                    # Sync complete, set sync point
+                                    # Persist sync point even on cancel so already-sent
+                                    # files aren't re-sent next time.
                                     update_syncpoint(selected_nextsync_explorer_sync_root_directory, knownfiles)
                                 else:
                                     specfn = f[fn][0].replace('\\','/')
@@ -5210,6 +6151,52 @@ class MainWindow(QMainWindow):
             # GetIt only exposes a single screenshot per entry; nothing to do.
             pass
 
+        def _getit_extra_fetch_url(url, on_pixmap):
+            """Generic URL → QPixmap fetcher used by GalleryItemViewer."""
+            def _fn(_u=url):
+                tmp = tempfile.NamedTemporaryFile(suffix=".bmp", delete=False)
+                tmp.close()
+                urllib.request.urlretrieve(_u, tmp.name)
+                return tmp.name
+            def _on_done(path):
+                px = QPixmap(path)
+                try: os.unlink(path)
+                except Exception: pass
+                if not px.isNull():
+                    on_pixmap(px)
+            def _on_err(_e): pass
+            getit_run_in_thread(_fn, _on_done, _on_err)
+
+        def _getit_gallery_context_menu(entry, global_pos):
+            eid   = entry.get("id") or ""
+            title = entry.get("title") or eid
+            default_name = self._getit_selected_link or f"{eid}.zip"
+            _safe_title  = re.sub(r'[<>:"/\\|?*]', "", title).strip() or eid
+            _img_path    = self.right_disk_image_path or ""
+            _img_label   = (generate_disk_file_path().rstrip("/") + "/" + _safe_title
+                            ) if _img_path else "(no image loaded)"
+            _sd_dest     = f"{_img_path}  :  {_img_label}" if _img_path else "(no image loaded)"
+            _ns_base     = _getit_resolve_ns_base_path(
+                self.left_file_nextsync_explorer_selection_full_filename_path)
+            _ns_dest     = os.path.join(_ns_base, _safe_title)
+            menu = QMenu()
+            act_dl      = menu.addAction(f'Download \u201c{title}\u201d')
+            menu.addSeparator()
+            act_send_sd = menu.addAction(f"Send to SD card (image)  \u2192  {_sd_dest}")
+            act_send_sd.setEnabled(bool(self.right_disk_image_path) and bool(right_disk_image_explorer_content))
+            act_send_ns = menu.addAction(f"Send using NextSync  \u2192  {_ns_dest}")
+            chosen = menu.exec(global_pos)
+            if chosen is None:
+                return
+            if chosen is act_dl:
+                getit_do_download(eid, default_name)
+            elif chosen is act_send_sd:
+                _getit_send_to_image(eid, default_name, title)
+            elif chosen is act_send_ns:
+                def _after_ns_dl_gi(_folder):
+                    QTimer.singleShot(0, self._nextsync_start_server_fn)
+                _getit_send_to_ns_folder(eid, default_name, _ns_base, title, _after_ns_dl_gi)
+
         self.getit_gallery_view = GalleryView(
             rows_per_page_getter=lambda: self._gallery_rows_per_page,
             anim_mode_getter=lambda: self._gallery_anim_mode,
@@ -5217,6 +6204,7 @@ class MainWindow(QMainWindow):
             extra_fetch_cb=_getit_extra_fetch,
             title_getter=_getit_gallery_title,
             info_getter=_getit_gallery_info,
+            context_menu_cb=_getit_gallery_context_menu,
         )
         self.getit_view_stack.addWidget(self.getit_gallery_view)  # index 1: Gallery
 
@@ -5479,6 +6467,62 @@ class MainWindow(QMainWindow):
 
         self.getit_gallery_view.cell_clicked.connect(getit_on_gallery_cell)
 
+        def _getit_open_gallery_viewer(entry):
+            eid   = entry.get("id") or ""
+            title = entry.get("title") or eid
+            if not eid:
+                return
+            info_rows = [
+                ("Title:",    title),
+                ("Author:",   entry.get("author", "")),
+                ("Category:", entry.get("category", "")),
+                ("Size:",     entry.get("size", "")),
+            ]
+            scr_url = f"{GETIT_BASE_URL}/nx/{eid}/i/"
+            viewer = GalleryItemViewer(
+                title=title,
+                info_rows=info_rows,
+                screenshots=[scr_url],
+                extra_fetch_cb=_getit_extra_fetch_url,
+                tags=_gallery_extract_tags(entry),
+                parent=self,
+            )
+
+            # ── action buttons ──────────────────────────────────────────
+            default_name = self._getit_selected_link or f"{eid}.zip"
+            _safe_title  = re.sub(r'[<>:"/\\|?*]', "", title).strip() or eid
+            _img_path    = self.right_disk_image_path or ""
+            _img_label   = (generate_disk_file_path().rstrip("/") + "/" + _safe_title
+                            ) if _img_path else ""
+            _sd_dest     = f"{_img_path}  →  {_img_label}" if _img_path else "(no image loaded)"
+            _ns_base     = _getit_resolve_ns_base_path(
+                self.left_file_nextsync_explorer_selection_full_filename_path)
+            _ns_dest     = os.path.join(_ns_base, _safe_title)
+            _sd_ok       = bool(self.right_disk_image_path) and bool(right_disk_image_explorer_content)
+
+            def _dl():
+                getit_do_download(eid, default_name)
+            def _sd():
+                _getit_send_to_image(eid, default_name, title)
+            def _ns():
+                def _after(_folder):
+                    QTimer.singleShot(0, lambda _f=_folder: self._nextsync_start_server_fn(_f))
+                _getit_send_to_ns_folder(eid, default_name, _ns_base, title, _after)
+
+            viewer.set_actions(
+                download_cb=_dl, send_sd_cb=_sd, send_ns_cb=_ns,
+                sd_enabled=_sd_ok,  sd_tooltip=_sd_dest,
+                ns_enabled=True,    ns_tooltip=_ns_dest,
+            )
+
+            # ── push into pane stack ────────────────────────────────────
+            viewer.install_into_stack(
+                self._getit_stack,
+                close_fn=lambda: self._getit_stack.setCurrentIndex(0),
+            )
+
+        self.getit_gallery_view.cell_dbl_clicked.connect(_getit_open_gallery_viewer)
+
         def _getit_apply_view_mode(mode: str, *, persist: bool = True):
             mode = (mode or "table").lower()
             if mode not in ("table", "gallery"):
@@ -5493,7 +6537,14 @@ class MainWindow(QMainWindow):
                 cb.setCurrentIndex(target_idx)
                 cb.blockSignals(False)
             if persist:
+                # sync other panes to the same view mode
+                if hasattr(self, '_zxdb_apply_view_mode'):
+                    self._zxdb_apply_view_mode(mode, persist=False)
+                if hasattr(self, '_zxart_apply_view_mode'):
+                    self._zxart_apply_view_mode(mode, persist=False)
                 configuration_dictionary[SETTING_GETIT_VIEW_MODE] = mode
+                configuration_dictionary[SETTING_ZXDB_VIEW_MODE]  = mode
+                configuration_dictionary[SETTING_ZXART_VIEW_MODE] = mode
                 save_configuration_file()
 
         self._getit_apply_view_mode = _getit_apply_view_mode
@@ -5575,8 +6626,8 @@ class MainWindow(QMainWindow):
                 tmp.close()
                 try:
                     urllib.request.urlretrieve(url, tmp.name)
-                    # Create the sub-directory in the image (ignore errors — may already exist)
-                    execute_hdf_monkey("mkdir", image_path, extra_argv=[img_dir])
+                     # Create the sub-directory in the image (ignore errors — may already exist)
+                    execute_hdf_monkey("mkdir", image_path, extra_argv=[img_dir], silent=True)
                     # Upload the file into the image
                     result = execute_hdf_monkey("put", image_path,
                                                extra_argv=[tmp.name.replace("\\", "/"), img_dest])
@@ -6010,6 +7061,114 @@ class MainWindow(QMainWindow):
                     on_pixmap(px)
             getit_run_in_thread(_fn, _on_ok, lambda _e: None)
 
+        def _zxdb_gallery_context_menu(entry, global_pos):
+            eid   = entry.get("id") or ""
+            title = entry.get("title") or eid
+            kind  = (entry.get("_kind") or "game").lower()
+            _safe_title = zxdb_sanitize_folder(title)
+            _img_path   = self.right_disk_image_path or ""
+            _img_label  = (generate_disk_file_path().rstrip("/") + "/" + _safe_title
+                           ) if _img_path else "(no image loaded)"
+            _sd_dest    = f"{_img_path}  :  {_img_label}" if _img_path else "(no image loaded)"
+            _ns_base    = _zxdb_resolve_base_path(self.left_file_nextsync_explorer_selection_full_filename_path)
+            _ns_dest    = os.path.join(_ns_base, _safe_title)
+            menu = QMenu()
+            act_download = menu.addAction("Download content")
+            act_mlt      = menu.addAction("More like this")
+            menu.addSeparator()
+            act_send_sd  = menu.addAction(f"Send to SD card (image)  \u2192  {_sd_dest}")
+            act_send_sd.setEnabled(bool(self.right_disk_image_path) and bool(right_disk_image_explorer_content))
+            act_send_ns  = menu.addAction(f"Send using NextSync  \u2192  {_ns_dest}")
+            action = menu.exec(global_pos)
+            if action is None:
+                return
+            if kind == "magazine":
+                # For magazine cells just show the download overlay if detail is loaded
+                if action is act_download:
+                    if self._zxdb_selected_downloads:
+                        zxdb_show_downloads_overlay(self._zxdb_selected_title or title,
+                                                    self._zxdb_selected_downloads)
+                return
+            def _fetch_and_send(dest_root, post_action=None):
+                if self._zxdb_selected_id == eid and self._zxdb_selected_downloads:
+                    _zxdb_send_to_path(self._zxdb_selected_title or title,
+                                       self._zxdb_selected_downloads, dest_root, post_action)
+                    return
+                zxdb_set_status(f"Loading {eid}\u2026")
+                def _fn():
+                    payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                    return zxdb_parse_game_detail(payload)
+                def _on_ok(detail, _dr=dest_root, _pa=post_action):
+                    zxdb_populate_detail(detail)
+                    dls = detail.get("downloads", []) or []
+                    if not dls:
+                        zxdb_set_status("No downloadable files for this entry.")
+                        return
+                    _zxdb_send_to_path(detail.get("title") or title, dls, _dr, _pa)
+                def _on_err(err):
+                    zxdb_set_status(f"Detail error: {err[1]}")
+                self._zxdb_ctx_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+            if action is act_download:
+                if self._zxdb_selected_id == eid and self._zxdb_selected_downloads:
+                    zxdb_show_downloads_overlay(self._zxdb_selected_title or title,
+                                                self._zxdb_selected_downloads)
+                    return
+                zxdb_set_status(f"Loading {eid}\u2026")
+                def _fn_dl():
+                    payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                    return zxdb_parse_game_detail(payload)
+                def _on_ok_dl(detail):
+                    zxdb_populate_detail(detail)
+                    downloads = detail.get("downloads", []) or []
+                    if not downloads:
+                        zxdb_set_status("No downloadable files for this entry.")
+                        return
+                    zxdb_show_downloads_overlay(detail.get("title") or title, downloads)
+                def _on_err_dl(err):
+                    zxdb_set_status(f"Detail error: {err[1]}")
+                self._zxdb_ctx_thread = getit_run_in_thread(_fn_dl, _on_ok_dl, _on_err_dl)
+            elif action is act_send_sd:
+                if self._zxdb_selected_id == eid and self._zxdb_selected_downloads:
+                    _zxdb_send_to_image(self._zxdb_selected_title or title,
+                                        self._zxdb_selected_downloads)
+                    return
+                zxdb_set_status(f"Loading {eid}\u2026")
+                def _fn_sd():
+                    payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                    return zxdb_parse_game_detail(payload)
+                def _on_ok_sd(detail):
+                    zxdb_populate_detail(detail)
+                    dls = detail.get("downloads", []) or []
+                    if not dls:
+                        zxdb_set_status("No downloadable files for this entry.")
+                        return
+                    _zxdb_send_to_image(detail.get("title") or title, dls)
+                def _on_err_sd(err):
+                    zxdb_set_status(f"Detail error: {err[1]}")
+                self._zxdb_ctx_thread = getit_run_in_thread(_fn_sd, _on_ok_sd, _on_err_sd)
+            elif action is act_send_ns:
+                def _after_ns_dl(_folder):
+                    QTimer.singleShot(0, self._nextsync_start_server_fn)
+                _fetch_and_send(_ns_base, _after_ns_dl)
+            elif action is act_mlt:
+                zxdb_set_status(f"Finding titles similar to '{title}'\u2026")
+                def _fn_mlt():
+                    payload = zxdb_fetch_json(
+                        f"/games/morelikethis/{urllib.parse.quote(eid)}"
+                        f"?mode=compact&size={ZXDB_PAGE_SIZE}"
+                    )
+                    entries, total, _pg, total_pages, _ps = zxdb_parse_search(payload)
+                    for e in entries:
+                        e["_kind"] = "game"
+                    return ("games", entries, total, 1, total_pages)
+                def _on_ok_mlt(data):
+                    kind2, entries, total, pg, total_pages = data
+                    zxdb_populate_results(entries, pg, total_pages, kind2)
+                    zxdb_set_status(f"{len(entries)} title(s) similar to '{title}'")
+                def _on_err_mlt(err):
+                    zxdb_set_status(f"More like this error: {err[1]}")
+                self._zxdb_ctx_thread = getit_run_in_thread(_fn_mlt, _on_ok_mlt, _on_err_mlt)
+
         self.zxdb_gallery_view = GalleryView(
             rows_per_page_getter=lambda: self._gallery_rows_per_page,
             anim_mode_getter=lambda: self._gallery_anim_mode,
@@ -6017,6 +7176,7 @@ class MainWindow(QMainWindow):
             extra_fetch_cb=_zxdb_extra_fetch,
             title_getter=_zxdb_gallery_title,
             info_getter=_zxdb_gallery_info,
+            context_menu_cb=_zxdb_gallery_context_menu,
         )
         self.zxdb_view_stack.addWidget(self.zxdb_gallery_view)  # index 1
 
@@ -7013,6 +8173,154 @@ class MainWindow(QMainWindow):
 
         self.zxdb_gallery_view.cell_clicked.connect(zxdb_on_gallery_cell)
 
+        def _zxdb_open_gallery_viewer(entry):
+            eid   = entry.get("id") or ""
+            title = entry.get("title") or eid
+            if not eid:
+                return
+            kind = (entry.get("_kind") or "game").lower()
+
+            info_rows_base = [
+                ("Title:",   title),
+                ("Author:",  entry.get("author", "")),
+                ("Year:",    str(entry.get("year", "") or "")),
+                ("Machine:", entry.get("machine", "")),
+                ("Genre:",   entry.get("genre", "")),
+            ]
+            viewer = GalleryItemViewer(
+                title=title,
+                info_rows=info_rows_base,
+                screenshots=[],
+                extra_fetch_cb=_zxdb_extra_fetch,
+                tags=_gallery_extract_tags(entry),
+                parent=self,
+            )
+
+            # ── action buttons ──────────────────────────────────────────
+            _safe_title = zxdb_sanitize_folder(title)
+            _img_path   = self.right_disk_image_path or ""
+            _img_label  = (generate_disk_file_path().rstrip("/") + "/" + _safe_title
+                           ) if _img_path else ""
+            _sd_dest    = f"{_img_path}  →  {_img_label}" if _img_path else "(no image loaded)"
+            _ns_base    = _zxdb_resolve_base_path(
+                self.left_file_nextsync_explorer_selection_full_filename_path)
+            _ns_dest    = os.path.join(_ns_base, _safe_title)
+            _sd_ok      = bool(self.right_disk_image_path) and bool(right_disk_image_explorer_content)
+
+            def _dl_btn():
+                if kind == "magazine":
+                    if self._zxdb_selected_downloads:
+                        zxdb_show_downloads_overlay(self._zxdb_selected_title or title,
+                                                    self._zxdb_selected_downloads)
+                    return
+                if self._zxdb_selected_id == eid and self._zxdb_selected_downloads:
+                    zxdb_show_downloads_overlay(self._zxdb_selected_title or title,
+                                                self._zxdb_selected_downloads)
+                    return
+                zxdb_set_status(f"Loading {eid}\u2026")
+                def _fn():
+                    payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                    return zxdb_parse_game_detail(payload)
+                def _on_ok(detail):
+                    zxdb_populate_detail(detail)
+                    dls = detail.get("downloads", []) or []
+                    if not dls:
+                        zxdb_set_status("No downloadable files for this entry.")
+                        return
+                    zxdb_show_downloads_overlay(detail.get("title") or title, dls)
+                def _on_err(err):
+                    zxdb_set_status(f"Detail error: {err[1]}")
+                self._zxdb_ctx_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+            def _sd_btn():
+                if self._zxdb_selected_id == eid and self._zxdb_selected_downloads:
+                    _zxdb_send_to_image(self._zxdb_selected_title or title,
+                                        self._zxdb_selected_downloads)
+                    return
+                zxdb_set_status(f"Loading {eid}\u2026")
+                def _fn():
+                    payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                    return zxdb_parse_game_detail(payload)
+                def _on_ok(detail):
+                    zxdb_populate_detail(detail)
+                    dls = detail.get("downloads", []) or []
+                    if not dls:
+                        zxdb_set_status("No downloadable files for this entry.")
+                        return
+                    _zxdb_send_to_image(detail.get("title") or title, dls)
+                def _on_err(err):
+                    zxdb_set_status(f"Detail error: {err[1]}")
+                self._zxdb_ctx_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+            def _ns_btn():
+                if self._zxdb_selected_id == eid and self._zxdb_selected_downloads:
+                    def _after(_f):
+                        QTimer.singleShot(0, lambda _folder=_f: self._nextsync_start_server_fn(_folder))
+                    _zxdb_send_to_path(self._zxdb_selected_title or title,
+                                       self._zxdb_selected_downloads, _ns_base, _after)
+                    return
+                zxdb_set_status(f"Loading {eid}\u2026")
+                def _fn():
+                    payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                    return zxdb_parse_game_detail(payload)
+                def _on_ok(detail):
+                    zxdb_populate_detail(detail)
+                    dls = detail.get("downloads", []) or []
+                    if not dls:
+                        zxdb_set_status("No downloadable files for this entry.")
+                        return
+                    def _after(_f):
+                        QTimer.singleShot(0, lambda _folder=_f: self._nextsync_start_server_fn(_folder))
+                    _zxdb_send_to_path(detail.get("title") or title, dls, _ns_base, _after)
+                def _on_err(err):
+                    zxdb_set_status(f"Detail error: {err[1]}")
+                self._zxdb_ctx_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+            viewer.set_actions(
+                download_cb=_dl_btn, send_sd_cb=_sd_btn, send_ns_cb=_ns_btn,
+                sd_enabled=_sd_ok, sd_tooltip=_sd_dest,
+                ns_enabled=True,   ns_tooltip=_ns_dest,
+            )
+
+            # ── async enrich (screenshots + full metadata) ──────────────
+            def _fn():
+                if kind == "magazine":
+                    return ("magazine", {}, [])
+                payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                detail  = zxdb_parse_game_detail(payload)
+                shots   = detail.get("screenshots") or []
+                if not shots and detail.get("screenshot_url"):
+                    shots = [{"url": detail["screenshot_url"], "type": ""}]
+                return ("game", detail, shots)
+            def _on_ok(res):
+                kind2, detail, shots = res
+                if kind2 == "magazine":
+                    return
+                urls = [s.get("url") for s in shots if isinstance(s, dict) and s.get("url")]
+                if urls:
+                    viewer.set_screenshots(urls)
+                rows = [
+                    ("Title:",       detail.get("title", title)),
+                    ("Year:",        str(detail.get("year", "") or "")),
+                    ("Authors:",     detail.get("authors", "")),
+                    ("Publishers:",  detail.get("publishers", "")),
+                    ("Machine:",     detail.get("machine", "")),
+                    ("Genre:",       detail.get("genre", "")),
+                    ("Language:",    detail.get("language", "")),
+                    ("Description:", detail.get("description") or detail.get("remarks", "")),
+                ]
+                _gallery_viewer_refresh_meta(viewer, detail.get("title") or title, rows)
+            def _on_err(_e): pass
+            self._zxdb_gallery_viewer_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+            # ── push into pane stack ────────────────────────────────────
+            viewer.install_into_stack(
+                self._zxdb_stack,
+                close_fn=lambda: self._zxdb_stack.setCurrentIndex(0),
+            )
+
+        self.zxdb_gallery_view.cell_dbl_clicked.connect(_zxdb_open_gallery_viewer)
+
         def _zxdb_apply_view_mode(mode: str, *, persist: bool = True):
             mode = (mode or "table").lower()
             if mode not in ("table", "gallery"):
@@ -7026,7 +8334,14 @@ class MainWindow(QMainWindow):
                 cb.setCurrentIndex(target_idx)
                 cb.blockSignals(False)
             if persist:
-                configuration_dictionary[SETTING_ZXDB_VIEW_MODE] = mode
+                # sync other panes to the same view mode
+                if hasattr(self, '_getit_apply_view_mode'):
+                    self._getit_apply_view_mode(mode, persist=False)
+                if hasattr(self, '_zxart_apply_view_mode'):
+                    self._zxart_apply_view_mode(mode, persist=False)
+                configuration_dictionary[SETTING_GETIT_VIEW_MODE] = mode
+                configuration_dictionary[SETTING_ZXDB_VIEW_MODE]  = mode
+                configuration_dictionary[SETTING_ZXART_VIEW_MODE] = mode
                 save_configuration_file()
 
         self._zxdb_apply_view_mode = _zxdb_apply_view_mode
@@ -7220,9 +8535,6 @@ class MainWindow(QMainWindow):
                     else:
                         zxdb_set_status(f"All {pending['n']} download(s) failed — check the URLs")
 
-            # Create the sub-directory in the image once (ignore errors — may already exist)
-            execute_hdf_monkey("mkdir", image_path, extra_argv=[img_dir])
-
             for d in downloads:
                 fname = d.get("filename") or os.path.basename(
                     urllib.parse.urlparse(d.get("url", "")).path
@@ -7235,6 +8547,7 @@ class MainWindow(QMainWindow):
                     tmp.close()
                     try:
                         urllib.request.urlretrieve(_url, tmp.name)
+                        execute_hdf_monkey("mkdir", image_path, extra_argv=[img_dir], silent=True)
                         result = execute_hdf_monkey("put", image_path,
                                                    extra_argv=[tmp.name.replace("\\", "/"), _img_dest])
                         if result.returncode != 0:
@@ -7863,10 +9176,10 @@ class MainWindow(QMainWindow):
         self.zxart_search_input.setMinimumWidth(280)
         zxart_search_row.addWidget(self.zxart_search_input)
 
-        self.zxart_search_button = QPushButton("Search")
+        self.zxart_search_button = QPushButton(_zxart_tr("Search"))
         zxart_search_row.addWidget(self.zxart_search_button)
 
-        self.zxart_deep_search_cb = QCheckBox("Deep")
+        self.zxart_deep_search_cb = QCheckBox(_zxart_tr("Deep"))
         self.zxart_deep_search_cb.setToolTip(
             "Off: fast prefix search (finds titles that start with the query).\n"
             "On: substring search across the full catalog. The first deep\n"
@@ -7880,7 +9193,7 @@ class MainWindow(QMainWindow):
             ("By letter",    "byletter"),
             ("Pictures",     "pictures"),
         ):
-            self.zxart_mode_combo.addItem(_lbl, _key)
+            self.zxart_mode_combo.addItem(_zxart_tr(_lbl), _key)
         self.zxart_mode_combo.setCurrentIndex(0)
         self.zxart_mode_combo.setToolTip("Browse mode")
         zxart_search_row.addWidget(self.zxart_mode_combo)
@@ -7892,28 +9205,41 @@ class MainWindow(QMainWindow):
         self.zxart_letter_combo.setVisible(False)
         zxart_search_row.addWidget(self.zxart_letter_combo)
 
-        zxart_search_row.addWidget(QLabel("Page:"))
+        self.zxart_page_text_label = QLabel(_zxart_tr("Page:"))
+        zxart_search_row.addWidget(self.zxart_page_text_label)
         self.zxart_page_label = QLabel("1")
         self.zxart_page_label.setMinimumWidth(24)
         zxart_search_row.addWidget(self.zxart_page_label)
 
-        self.zxart_prev_button = QPushButton("< Prev")
+        self.zxart_prev_button = QPushButton(_zxart_tr("< Prev"))
         self.zxart_prev_button.setEnabled(False)
         zxart_search_row.addWidget(self.zxart_prev_button)
 
-        self.zxart_next_button = QPushButton("Next >")
+        self.zxart_next_button = QPushButton(_zxart_tr("Next >"))
         self.zxart_next_button.setEnabled(False)
         zxart_search_row.addWidget(self.zxart_next_button)
 
-        zxart_search_row.addWidget(QLabel("View:"))
+        self.zxart_view_text_label = QLabel(_zxart_tr("View:"))
+        zxart_search_row.addWidget(self.zxart_view_text_label)
         self.zxart_view_combo = QComboBox()
-        self.zxart_view_combo.addItem("Table",   "table")
-        self.zxart_view_combo.addItem("Gallery", "gallery")
+        self.zxart_view_combo.addItem(_zxart_tr("Table"),   "table")
+        self.zxart_view_combo.addItem(_zxart_tr("Gallery"), "gallery")
         self.zxart_view_combo.setToolTip(
             "Switch between the classic table view and the picture (gallery) view.\n"
             "Persisted across sessions in the config file."
         )
         zxart_search_row.addWidget(self.zxart_view_combo)
+
+        self.zxart_language_text_label = QLabel(_zxart_tr("Language:"))
+        zxart_search_row.addWidget(self.zxart_language_text_label)
+        self.zxart_language_combo = QComboBox()
+        for _lbl, _code in ZXART_LANGUAGE_CHOICES:
+            self.zxart_language_combo.addItem(_lbl, _code)
+        self.zxart_language_combo.setToolTip(
+            "zxART catalog display language.\n"
+            "Persisted across sessions in the config file."
+        )
+        zxart_search_row.addWidget(self.zxart_language_combo)
 
         self.zxart_status_label = QLabel("")
         self.zxart_status_label.setCursor(Qt.ArrowCursor)
@@ -7947,7 +9273,7 @@ class MainWindow(QMainWindow):
         # --- Results table + screenshot/download column ---
         self.zxart_results_table = QTableWidget(0, 6)
         self.zxart_results_table.setHorizontalHeaderLabels(
-            ["ID", "Title", "Year", "Author / Group", "Type", "Genre / Compo"]
+            [_zxart_tr(h) for h in ["ID", "Title", "Year", "Author / Group", "Type", "Genre / Compo"]]
         )
         self.zxart_results_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.zxart_results_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -7963,7 +9289,7 @@ class MainWindow(QMainWindow):
         self.zxart_screenshot_label.setFixedSize(256, 192)
         self.zxart_screenshot_label.setAlignment(Qt.AlignCenter)
         self.zxart_screenshot_label.setStyleSheet("background: #111; border: 1px solid #444;")
-        self.zxart_screenshot_label.setText("No preview")
+        self.zxart_screenshot_label.setText(_zxart_tr("No preview"))
         self.zxart_screenshot_label.setToolTip("Double-click to enlarge")
 
         zxart_preview_container = QWidget()
@@ -7998,7 +9324,7 @@ class MainWindow(QMainWindow):
 
         _zxart_reposition_shot_btns()
 
-        self.zxart_download_button = QPushButton("Download File")
+        self.zxart_download_button = QPushButton(_zxart_tr("Download File"))
         self.zxart_download_button.setEnabled(False)
 
         zxart_right_col = QVBoxLayout()
@@ -8054,7 +9380,20 @@ class MainWindow(QMainWindow):
         self.zxart_view_stack.addWidget(self.zxart_results_table)  # index 0
 
         def _zxart_gallery_title(e):
-            return (e.get("title") or e.get("id") or "")[:80]
+            title = (e.get("title") or e.get("id") or "")[:80]
+            src = e.get("_source") or {}
+            # Prods expose "votes" (avg 0–5); pictures expose "rating" (0–10).
+            rating_val = src.get("votes")
+            if rating_val in (None, "", 0, "0"):
+                rating_val = src.get("rating")
+            stars = _gallery_stars(rating_val) if rating_val not in (None, "") else ""
+            if stars:
+                # Title gets rich text so we can show stars on a second line.
+                safe = (title.replace("&", "&amp;")
+                              .replace("<", "&lt;")
+                              .replace(">", "&gt;"))
+                return f"{safe}<br><span style='color:#ffcc44;'>{stars}</span>"
+            return title
         def _zxart_gallery_info(e):
             parts = []
             if e.get("author"):  parts.append(e["author"])
@@ -8063,7 +9402,7 @@ class MainWindow(QMainWindow):
             if e.get("genre"):   parts.append(e["genre"])
             return " · ".join(parts)
 
-        def _zxart_thumb_fetch(entry, set_pixmap, set_screenshots):
+        def _zxart_thumb_fetch(entry, set_pixmap, set_screenshots, set_tags=None):
             src = entry.get("_source") or {}
             kind = (entry.get("_kind") or "").lower()
             # Pictures expose imageUrl directly; prods carry imagesUrls list.
@@ -8074,6 +9413,35 @@ class MainWindow(QMainWindow):
             else:
                 for u in (src.get("imagesUrls") or []):
                     if u: urls.append(u)
+
+            # Apply tags we can derive immediately (pictures + any cached
+            # release info), then start an async release lookup for prods
+            # so we can show hardware/format badges like on zxart.ee.
+            if set_tags is not None:
+                try:
+                    set_tags(_gallery_extract_tags(entry))
+                except Exception:
+                    pass
+                if kind != "zxart_picture" and not src.get("releases"):
+                    pid = str(entry.get("id") or "")
+                    if pid:
+                        def _rel_fn(_pid=pid):
+                            resp = zxart_fetch_json(
+                                f"/action:filter/export:zxRelease"
+                                f"/filter:zxProdId={urllib.parse.quote(_pid)}",
+                                timeout=20,
+                            )
+                            return (resp.get("responseData") or {}).get("zxRelease") or []
+                        def _rel_ok(rels, _e=entry, _st=set_tags):
+                            try:
+                                src2 = _e.get("_source") or {}
+                                src2["releases"] = rels
+                                _e["_source"] = src2
+                                _st(_gallery_extract_tags(_e))
+                            except Exception:
+                                pass
+                        getit_run_in_thread(_rel_fn, _rel_ok, lambda _e: None)
+
             if not urls:
                 return
             set_screenshots(urls)
@@ -8101,6 +9469,110 @@ class MainWindow(QMainWindow):
                     on_pixmap(px)
             getit_run_in_thread(_fn, _on_ok, lambda _e: None)
 
+        def _zxart_gallery_context_menu(entry, global_pos):
+            pid   = entry.get("id") or ""
+            title = entry.get("title") or pid
+            kind  = entry.get("_kind", "zxart_prod")
+            _safe_title = zxart_sanitize_folder(title)
+            _img_path   = self.right_disk_image_path or ""
+            _img_label  = (generate_disk_file_path().rstrip("/") + "/" + _safe_title
+                           ) if _img_path else "(no image loaded)"
+            _sd_dest    = f"{_img_path}  :  {_img_label}" if _img_path else "(no image loaded)"
+            _ns_base    = _zxart_resolve_base_path(self.left_file_nextsync_explorer_selection_full_filename_path)
+            _ns_dest    = os.path.join(_ns_base, _safe_title)
+            menu = QMenu()
+            act_download = menu.addAction("Download content")
+            menu.addSeparator()
+            act_send_sd  = menu.addAction(f"Send to SD card (image)  \u2192  {_sd_dest}")
+            act_send_sd.setEnabled(bool(self.right_disk_image_path) and bool(right_disk_image_explorer_content))
+            act_send_ns  = menu.addAction(f"Send using NextSync  \u2192  {_ns_dest}")
+            action = menu.exec(global_pos)
+            if action is None:
+                return
+
+            def _ensure_detail_then(callback):
+                if self._zxart_selected_id == pid and self._zxart_selected_downloads:
+                    callback(self._zxart_selected_title or title, self._zxart_selected_downloads)
+                    return
+                zxart_set_status(f"Loading {pid}\u2026")
+                if kind == "zxart_picture":
+                    def _fn():
+                        pic_resp = zxart_fetch_json(
+                            f"/export:zxPicture/language:{_zxart_lang()}/filter:zxPictureId={urllib.parse.quote(pid)}"
+                        )
+                        pics = (pic_resp.get("responseData") or {}).get("zxPicture") or []
+                        pic  = pics[0] if pics else (entry.get("_source") or {})
+                        image_url    = pic.get("imageUrl") or ""
+                        original_url = pic.get("originalUrl") or ""
+                        downloads = []
+                        if original_url:
+                            fname = os.path.basename(urllib.parse.urlparse(original_url).path) or f"{pid}.bin"
+                            downloads.append({"url": original_url, "filename": fname,
+                                              "type": "original", "format": "", "size": "", "source": "zxart"})
+                        if image_url and image_url != original_url:
+                            fname_img = os.path.basename(urllib.parse.urlparse(image_url).path) or f"{pid}.png"
+                            downloads.append({"url": image_url, "filename": fname_img,
+                                              "type": "preview (PC)", "format": "", "size": "", "source": "zxart"})
+                        return (str(pic.get("title") or title), downloads)
+                    def _on_ok(res, _cb=callback):
+                        t2, dls = res
+                        self._zxart_selected_title = t2
+                        self._zxart_selected_downloads = dls
+                        self.zxart_download_button.setEnabled(bool(dls))
+                        _cb(t2, dls)
+                    def _on_err(err):
+                        zxart_set_status(f"Detail error: {err[1]}")
+                    self._zxart_ctx_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+                else:
+                    def _fn():
+                        rel_resp = zxart_fetch_json(
+                            f"/action:filter/export:zxRelease/filter:zxProdId={urllib.parse.quote(pid)}"
+                        )
+                        releases = (rel_resp.get("responseData") or {}).get("zxRelease") or []
+                        prod_resp = zxart_fetch_json(
+                            f"/export:zxProd/language:{_zxart_lang()}/filter:zxProdId={urllib.parse.quote(pid)}"
+                        )
+                        prods = (prod_resp.get("responseData") or {}).get("zxProd") or []
+                        prod  = prods[0] if prods else {}
+                        downloads = []
+                        for rel in releases:
+                            if not isinstance(rel, dict): continue
+                            file_url  = rel.get("file") or ""
+                            file_name = rel.get("fileName") or (
+                                os.path.basename(urllib.parse.urlparse(file_url).path) if file_url else "")
+                            if not file_url: continue
+                            downloads.append({
+                                "url": file_url, "filename": file_name,
+                                "type": f"{rel.get('releaseType') or ''} / {rel.get('releaseFormat') or ''}".strip(" /") or "release",
+                                "format": rel.get("releaseFormat") or "",
+                                "size": "", "source": rel.get("title") or "zxart",
+                            })
+                        return (str(prod.get("title") or title), downloads)
+                    def _on_ok(res, _cb=callback):
+                        t2, dls = res
+                        self._zxart_selected_title = t2
+                        self._zxart_selected_downloads = dls
+                        self.zxart_download_button.setEnabled(bool(dls))
+                        _cb(t2, dls)
+                    def _on_err(err):
+                        zxart_set_status(f"Detail error: {err[1]}")
+                    self._zxart_ctx_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+            if action is act_download:
+                def _show(t, dls):
+                    zxart_show_downloads_overlay(t, dls)
+                _ensure_detail_then(_show)
+            elif action is act_send_sd:
+                def _send_sd(t, dls):
+                    _zxart_send_to_image(t, dls)
+                _ensure_detail_then(_send_sd)
+            elif action is act_send_ns:
+                def _send_ns(t, dls, _nb=_ns_base):
+                    def _after(_folder):
+                        QTimer.singleShot(0, self._nextsync_start_server_fn)
+                    _zxart_send_to_path(t, dls, _nb, _after)
+                _ensure_detail_then(_send_ns)
+
         self.zxart_gallery_view = GalleryView(
             rows_per_page_getter=lambda: self._gallery_rows_per_page,
             anim_mode_getter=lambda: self._gallery_anim_mode,
@@ -8108,6 +9580,7 @@ class MainWindow(QMainWindow):
             extra_fetch_cb=_zxart_extra_fetch,
             title_getter=_zxart_gallery_title,
             info_getter=_zxart_gallery_info,
+            context_menu_cb=_zxart_gallery_context_menu,
         )
         self.zxart_view_stack.addWidget(self.zxart_gallery_view)  # index 1
 
@@ -8164,7 +9637,7 @@ class MainWindow(QMainWindow):
             self._zxart_detail_rows = []
 
         def _zxart_add_row(label: str, value: str, *, dim: bool = False, wrap: bool = True):
-            lab = QLabel(label)
+            lab = QLabel(_zxart_tr(label))
             val = QLabel(value or "")
             if wrap:
                 val.setWordWrap(True)
@@ -8290,8 +9763,6 @@ class MainWindow(QMainWindow):
                     else:
                         zxart_set_status(f"All {pending['n']} download(s) failed — check the URLs")
 
-            execute_hdf_monkey("mkdir", image_path, extra_argv=[img_dir])
-
             for d in downloads:
                 fname = d.get("filename") or os.path.basename(
                     urllib.parse.urlparse(d.get("url", "")).path
@@ -8307,6 +9778,7 @@ class MainWindow(QMainWindow):
                         with urllib.request.urlopen(req_tmp, timeout=60) as resp_tmp:
                             with open(tmp.name, "wb") as fh:
                                 fh.write(resp_tmp.read())
+                        execute_hdf_monkey("mkdir", image_path, extra_argv=[img_dir], silent=True)
                         result = execute_hdf_monkey("put", image_path,
                                                    extra_argv=[tmp.name.replace("\\", "/"), _img_dest])
                         if result.returncode != 0:
@@ -8344,7 +9816,7 @@ class MainWindow(QMainWindow):
                 "pictures": ["ID", "Title", "Year", "Author(s)", "Type", "Tags"],
             }
             self.zxart_results_table.setHorizontalHeaderLabels(
-                headers_map.get(mode, headers_map["prods"])
+                [_zxart_tr(h) for h in headers_map.get(mode, headers_map["prods"])]
             )
 
             self.zxart_results_table.setRowCount(0)
@@ -8517,12 +9989,12 @@ class MainWindow(QMainWindow):
             if mode == "pictures":
                 if query:
                     path = (
-                        f"/export:zxPicture/language:eng/start:{offset}"
+                        f"/export:zxPicture/language:{_zxart_lang()}/start:{offset}"
                         f"/limit:{ZXART_PAGE_SIZE}/filter:title~{urllib.parse.quote(query)}"
                     )
                 else:
                     path = (
-                        f"/export:zxPicture/language:eng/start:{offset}"
+                        f"/export:zxPicture/language:{_zxart_lang()}/start:{offset}"
                         f"/limit:{ZXART_PAGE_SIZE}/order:date,desc"
                     )
 
@@ -8541,7 +10013,7 @@ class MainWindow(QMainWindow):
                 else:
                     filt = f"title~{urllib.parse.quote(letter)}"
                 path = (
-                    f"/export:zxProd/language:eng/start:{offset}"
+                    f"/export:zxProd/language:{_zxart_lang()}/start:{offset}"
                     f"/limit:{ZXART_PAGE_SIZE}/filter:{filt}/order:title,asc"
                 )
 
@@ -8575,7 +10047,7 @@ class MainWindow(QMainWindow):
                         return ("prods", entries, total, 1, 1)
                 else:
                     path = (
-                        f"/export:zxProd/language:eng/start:{offset}"
+                        f"/export:zxProd/language:{_zxart_lang()}/start:{offset}"
                         f"/limit:{ZXART_PAGE_SIZE}/order:date,desc"
                     )
 
@@ -8695,7 +10167,7 @@ class MainWindow(QMainWindow):
             def _fn():
                 # Fetch the production record
                 prod_resp = zxart_fetch_json(
-                    f"/export:zxProd/language:eng/filter:zxProdId={urllib.parse.quote(pid)}"
+                    f"/export:zxProd/language:{_zxart_lang()}/filter:zxProdId={urllib.parse.quote(pid)}"
                 )
                 prods = (prod_resp.get("responseData") or {}).get("zxProd") or []
                 prod = prods[0] if prods else {}
@@ -8713,10 +10185,37 @@ class MainWindow(QMainWindow):
                     return str(lst) if lst else ""
 
                 authors_info = prod.get("authorsInfo") or []
-                author_ids = [str(a.get("authorId", "")) for a in authors_info if isinstance(a, dict)]
+                author_ids = [a.get("authorId") for a in authors_info if isinstance(a, dict) and a.get("authorId")]
 
                 group_ids = prod.get("groupsIds") or []
                 pub_ids   = prod.get("publishersIds") or []
+
+                # Resolve human-readable names via the zxArt API.
+                # Bulk endpoint resolves most authors in a single call; per-id
+                # lookups (cached) cover any IDs the bulk filter omits.
+                bulk_authors = {}
+                try:
+                    a_resp = zxart_fetch_json(
+                        f"/export:author/filter:zxProdId={urllib.parse.quote(pid)}/limit:200/"
+                    )
+                    for a in (a_resp.get("responseData") or {}).get("author", []) or []:
+                        if isinstance(a, dict) and a.get("id"):
+                            bulk_authors[int(a["id"])] = str(a.get("title") or "")
+                except Exception:
+                    pass
+
+                author_display_parts = []
+                for aid in author_ids:
+                    try:
+                        key = int(aid)
+                    except (TypeError, ValueError):
+                        author_display_parts.append(str(aid))
+                        continue
+                    name = bulk_authors.get(key) or _zxart_resolve_author_name(key)
+                    author_display_parts.append(name if name else str(aid))
+                authors_display = ", ".join(s for s in author_display_parts if s)
+
+                groups_display = _zxart_resolve_group_names(group_ids)
 
                 downloads = []
                 for rel in releases:
@@ -8763,8 +10262,8 @@ class MainWindow(QMainWindow):
                     "id":          pid,
                     "title":       str(prod.get("title") or ""),
                     "year":        str(prod.get("year") or ""),
-                    "authors":     ", ".join(author_ids) if author_ids else "",
-                    "groups":      ", ".join(str(g) for g in group_ids),
+                    "authors":     authors_display,
+                    "groups":      groups_display,
                     "compo":       str(prod.get("compo") or ""),
                     "partyPlace":  prod.get("partyPlace") or "",
                     "language":    _join(prod.get("language")),
@@ -8809,7 +10308,7 @@ class MainWindow(QMainWindow):
 
             def _fn():
                 pic_resp = zxart_fetch_json(
-                    f"/export:zxPicture/language:eng/filter:zxPictureId={urllib.parse.quote(pid)}"
+                    f"/export:zxPicture/language:{_zxart_lang()}/filter:zxPictureId={urllib.parse.quote(pid)}"
                 )
                 pics = (pic_resp.get("responseData") or {}).get("zxPicture") or []
                 pic  = pics[0] if pics else source or {}
@@ -8818,6 +10317,34 @@ class MainWindow(QMainWindow):
                 original_url = pic.get("originalUrl") or ""
                 author_ids   = pic.get("authorIds") or []
                 tags         = pic.get("tags") or []
+
+                # Resolve human-readable author names via the zxArt API.
+                # /export:author/filter:zxPictureId=<id>/ returns one row per
+                # contributor with id + title, in one call.
+                authors_display = ""
+                try:
+                    a_resp = zxart_fetch_json(
+                        f"/export:author/filter:zxPictureId={urllib.parse.quote(pid)}/limit:200/"
+                    )
+                    names_by_id = {
+                        int(a["id"]): str(a.get("title") or "")
+                        for a in (a_resp.get("responseData") or {}).get("author", []) or []
+                        if isinstance(a, dict) and a.get("id")
+                    }
+                    parts = []
+                    for aid in author_ids:
+                        try:
+                            key = int(aid)
+                        except (TypeError, ValueError):
+                            parts.append(str(aid))
+                            continue
+                        name = names_by_id.get(key) or _zxart_resolve_author_name(key)
+                        parts.append(name if name else str(aid))
+                    if not author_ids and names_by_id:
+                        parts = list(names_by_id.values())
+                    authors_display = ", ".join(s for s in parts if s)
+                except Exception:
+                    authors_display = _zxart_resolve_author_names(author_ids)
 
                 screenshots = []
                 if image_url:
@@ -8849,7 +10376,7 @@ class MainWindow(QMainWindow):
                     "id":          pid,
                     "title":       str(pic.get("title") or ""),
                     "year":        str(pic.get("year") or ""),
-                    "authors":     ", ".join(str(a) for a in author_ids),
+                    "authors":     authors_display,
                     "pic_type":    str(pic.get("type") or ""),
                     "rating":      str(pic.get("rating") or ""),
                     "views":       str(pic.get("views") or ""),
@@ -8911,6 +10438,215 @@ class MainWindow(QMainWindow):
 
         self.zxart_gallery_view.cell_clicked.connect(zxart_on_gallery_cell)
 
+        def _zxart_open_gallery_viewer(entry):
+            eid   = entry.get("id") or ""
+            title = entry.get("title") or eid
+            if not eid:
+                return
+            kind = entry.get("_kind", "zxart_prod")
+
+            info_rows_base = [
+                ("Title:",  title),
+                ("Author:", entry.get("author", "")),
+                ("Year:",   str(entry.get("year", "") or "")),
+                ("Type:",   entry.get("prodType", "") or entry.get("pic_type", "")),
+            ]
+            viewer = GalleryItemViewer(
+                title=title,
+                info_rows=info_rows_base,
+                screenshots=[],
+                extra_fetch_cb=_zxart_extra_fetch,
+                tags=_gallery_extract_tags(entry),
+                parent=self,
+            )
+
+            # ── action buttons ──────────────────────────────────────────
+            _safe_title = zxart_sanitize_folder(title)
+            _img_path   = self.right_disk_image_path or ""
+            _img_label  = (generate_disk_file_path().rstrip("/") + "/" + _safe_title
+                           ) if _img_path else ""
+            _sd_dest    = f"{_img_path}  →  {_img_label}" if _img_path else "(no image loaded)"
+            _ns_base    = _zxart_resolve_base_path(
+                self.left_file_nextsync_explorer_selection_full_filename_path)
+            _ns_dest    = os.path.join(_ns_base, _safe_title)
+            _sd_ok      = bool(self.right_disk_image_path) and bool(right_disk_image_explorer_content)
+
+            def _ensure_detail_then(callback, _pid=eid, _kind=kind, _title=title):
+                if self._zxart_selected_id == _pid and self._zxart_selected_downloads:
+                    callback(self._zxart_selected_title or _title,
+                             self._zxart_selected_downloads)
+                    return
+                zxart_set_status(f"Loading {_pid}\u2026")
+                if _kind == "zxart_picture":
+                    def _fn():
+                        pic_resp = zxart_fetch_json(
+                            f"/export:zxPicture/language:{_zxart_lang()}/filter:zxPictureId={urllib.parse.quote(_pid)}"
+                        )
+                        pics = (pic_resp.get("responseData") or {}).get("zxPicture") or []
+                        pic  = pics[0] if pics else (entry.get("_source") or {})
+                        image_url    = pic.get("imageUrl") or ""
+                        original_url = pic.get("originalUrl") or ""
+                        downloads = []
+                        if original_url:
+                            fname = os.path.basename(urllib.parse.urlparse(original_url).path) or f"{_pid}.bin"
+                            downloads.append({"url": original_url, "filename": fname,
+                                              "type": "original", "format": "", "size": "", "source": "zxart"})
+                        if image_url and image_url != original_url:
+                            fname_img = os.path.basename(urllib.parse.urlparse(image_url).path) or f"{_pid}.png"
+                            downloads.append({"url": image_url, "filename": fname_img,
+                                              "type": "preview (PC)", "format": "", "size": "", "source": "zxart"})
+                        return (str(pic.get("title") or _title), downloads)
+                    def _on_ok(res, _cb=callback):
+                        t2, dls = res
+                        self._zxart_selected_title     = t2
+                        self._zxart_selected_downloads = dls
+                        self.zxart_download_button.setEnabled(bool(dls))
+                        _cb(t2, dls)
+                    def _on_err(err):
+                        zxart_set_status(f"Detail error: {err[1]}")
+                    self._zxart_ctx_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+                else:
+                    def _fn():
+                        rel_resp = zxart_fetch_json(
+                            f"/action:filter/export:zxRelease/filter:zxProdId={urllib.parse.quote(_pid)}"
+                        )
+                        releases = (rel_resp.get("responseData") or {}).get("zxRelease") or []
+                        prod_resp = zxart_fetch_json(
+                            f"/export:zxProd/language:{_zxart_lang()}/filter:zxProdId={urllib.parse.quote(_pid)}"
+                        )
+                        prods = (prod_resp.get("responseData") or {}).get("zxProd") or []
+                        prod  = prods[0] if prods else {}
+                        downloads = []
+                        for rel in releases:
+                            if not isinstance(rel, dict): continue
+                            file_url  = rel.get("file") or ""
+                            file_name = rel.get("fileName") or (
+                                os.path.basename(urllib.parse.urlparse(file_url).path) if file_url else "")
+                            if not file_url: continue
+                            downloads.append({
+                                "url": file_url, "filename": file_name,
+                                "type": f"{rel.get('releaseType') or ''} / {rel.get('releaseFormat') or ''}".strip(" /") or "release",
+                                "format": rel.get("releaseFormat") or "",
+                                "size": "", "source": rel.get("title") or "zxart",
+                            })
+                        return (str(prod.get("title") or _title), downloads)
+                    def _on_ok(res, _cb=callback):
+                        t2, dls = res
+                        self._zxart_selected_title     = t2
+                        self._zxart_selected_downloads = dls
+                        self.zxart_download_button.setEnabled(bool(dls))
+                        _cb(t2, dls)
+                    def _on_err(err):
+                        zxart_set_status(f"Detail error: {err[1]}")
+                    self._zxart_ctx_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+            def _dl_btn():
+                _ensure_detail_then(lambda t, dls: zxart_show_downloads_overlay(t, dls))
+            def _sd_btn():
+                _ensure_detail_then(lambda t, dls: _zxart_send_to_image(t, dls))
+            _captured_ns_base = _ns_base
+            def _ns_btn():
+                def _do(t, dls):
+                    def _after(_folder):
+                        QTimer.singleShot(0, lambda _f=_folder: self._nextsync_start_server_fn(_f))
+                    _zxart_send_to_path(t, dls, _captured_ns_base, _after)
+                _ensure_detail_then(_do)
+
+            viewer.set_actions(
+                download_cb=_dl_btn, send_sd_cb=_sd_btn, send_ns_cb=_ns_btn,
+                sd_enabled=_sd_ok, sd_tooltip=_sd_dest,
+                ns_enabled=True,   ns_tooltip=_ns_dest,
+            )
+
+            # ── async enrich (screenshots + full metadata) ──────────────
+            def _fn():
+                if kind == "zxart_picture":
+                    pic_resp = zxart_fetch_json(
+                        f"/export:zxPicture/language:{_zxart_lang()}/filter:zxPictureId={urllib.parse.quote(eid)}"
+                    )
+                    pics = (pic_resp.get("responseData") or {}).get("zxPicture") or []
+                    pic  = pics[0] if pics else {}
+                    image_url = pic.get("imageUrl") or ""
+                    screenshots = [image_url] if image_url else []
+                    _raw_rating = pic.get("rating")
+                    rating = str(_raw_rating) if _raw_rating is not None else ""
+                    rows = [
+                        (_zxart_tr("Title:"),       str(pic.get("title") or title)),
+                        (_zxart_tr("Year:"),        str(pic.get("year") or "")),
+                        (_zxart_tr("Authors:"),     ", ".join(str(a) for a in (pic.get("authors") or []))),
+                        (_zxart_tr("Type:"),        str(pic.get("type") or "")),
+                        (_zxart_tr("Rating:"),      _gallery_stars(rating) if rating else ""),
+                        (_zxart_tr("Views:"),       str(pic.get("views") or "")),
+                        (_zxart_tr("Description:"), str(pic.get("description") or "")),
+                    ]
+                    return (screenshots, rows, str(pic.get("title") or title))
+                else:
+                    prod_resp = zxart_fetch_json(
+                        f"/export:zxProd/language:{_zxart_lang()}/filter:zxProdId={urllib.parse.quote(eid)}"
+                    )
+                    prods = (prod_resp.get("responseData") or {}).get("zxProd") or []
+                    prod  = prods[0] if prods else {}
+                    # Also pull releases so we can derive hardware/format tags.
+                    try:
+                        rel_resp = zxart_fetch_json(
+                            f"/action:filter/export:zxRelease/filter:zxProdId={urllib.parse.quote(eid)}",
+                            timeout=20,
+                        )
+                        releases = (rel_resp.get("responseData") or {}).get("zxRelease") or []
+                    except Exception:
+                        releases = []
+                    screenshots = [u for u in (prod.get("imagesUrls") or []) if u]
+                    votes        = prod.get("votes")
+                    votes_amount = prod.get("votesAmount")
+                    try:
+                        # "votes" is already the average score (e.g. 4.14 out of 5);
+                        # "votesAmount" is the number of voters — do NOT divide.
+                        rating = f"{float(votes):.2f}" if votes is not None else ""
+                    except (TypeError, ValueError):
+                        rating = ""
+                    rows = [
+                        (_zxart_tr("Title:"),       str(prod.get("title") or title)),
+                        (_zxart_tr("Year:"),        str(prod.get("year") or "")),
+                        (_zxart_tr("Authors:"),     ", ".join(str(a) for a in (prod.get("authors") or []))),
+                        (_zxart_tr("Groups:"),      ", ".join(str(g) for g in (prod.get("groups")  or []))),
+                        (_zxart_tr("Compo:"),       str(prod.get("compo") or "")),
+                        (_zxart_tr("Place:"),       str(prod.get("partyPlace") or "")),
+                        (_zxart_tr("Rating:"),      _gallery_stars(rating) if rating else ""),
+                        (_zxart_tr("Language:"),    str(prod.get("language") or "")),
+                        (_zxart_tr("Legal:"),       str(prod.get("legalStatus") or "")),
+                        (_zxart_tr("Description:"), str(prod.get("description") or "")),
+                    ]
+                    return (screenshots, rows, str(prod.get("title") or title), releases)
+
+            def _on_ok(res):
+                if len(res) == 4:
+                    screenshots, rows, fetched_title, releases = res
+                else:
+                    screenshots, rows, fetched_title = res
+                    releases = None
+                if screenshots:
+                    viewer.set_screenshots(screenshots)
+                _gallery_viewer_refresh_meta(viewer, fetched_title, rows)
+                if releases:
+                    try:
+                        src2 = entry.get("_source") or {}
+                        src2["releases"] = releases
+                        entry["_source"] = src2
+                        viewer.set_tags(_gallery_extract_tags(entry))
+                    except Exception:
+                        pass
+
+            def _on_err(_e): pass
+            self._zxart_gallery_viewer_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+            # ── push into pane stack ────────────────────────────────────
+            viewer.install_into_stack(
+                self._zxart_stack,
+                close_fn=lambda: self._zxart_stack.setCurrentIndex(0),
+            )
+
+        self.zxart_gallery_view.cell_dbl_clicked.connect(_zxart_open_gallery_viewer)
+
         def _zxart_apply_view_mode(mode: str, *, persist: bool = True):
             mode = (mode or "table").lower()
             if mode not in ("table", "gallery"):
@@ -8924,6 +10660,13 @@ class MainWindow(QMainWindow):
                 cb.setCurrentIndex(target_idx)
                 cb.blockSignals(False)
             if persist:
+                # sync other panes to the same view mode
+                if hasattr(self, '_getit_apply_view_mode'):
+                    self._getit_apply_view_mode(mode, persist=False)
+                if hasattr(self, '_zxdb_apply_view_mode'):
+                    self._zxdb_apply_view_mode(mode, persist=False)
+                configuration_dictionary[SETTING_GETIT_VIEW_MODE] = mode
+                configuration_dictionary[SETTING_ZXDB_VIEW_MODE]  = mode
                 configuration_dictionary[SETTING_ZXART_VIEW_MODE] = mode
                 save_configuration_file()
 
@@ -8934,6 +10677,81 @@ class MainWindow(QMainWindow):
 
         self.zxart_view_combo.currentIndexChanged.connect(_on_zxart_view_combo_changed)
         _zxart_apply_view_mode(self._zxart_view_mode, persist=False)
+
+        # ---- Language selector ----
+
+        # Initialise combo from the global zxART language (already populated
+        # from cfg in load_configuration_file when present).
+        def _zxart_sync_language_combo():
+            code = _zxart_lang()
+            cb = self.zxart_language_combo
+            for i in range(cb.count()):
+                if cb.itemData(i) == code:
+                    if cb.currentIndex() != i:
+                        cb.blockSignals(True)
+                        cb.setCurrentIndex(i)
+                        cb.blockSignals(False)
+                    break
+
+        _zxart_sync_language_combo()
+
+        def _zxart_retranslate_ui():
+            try:
+                self.zxart_search_button.setText(_zxart_tr("Search"))
+                self.zxart_deep_search_cb.setText(_zxart_tr("Deep"))
+                for i, (_lbl, _key) in enumerate(
+                    (("Productions", "prods"),
+                     ("By letter",  "byletter"),
+                     ("Pictures",   "pictures"))
+                ):
+                    self.zxart_mode_combo.setItemText(i, _zxart_tr(_lbl))
+                self.zxart_page_text_label.setText(_zxart_tr("Page:"))
+                self.zxart_prev_button.setText(_zxart_tr("< Prev"))
+                self.zxart_next_button.setText(_zxart_tr("Next >"))
+                self.zxart_view_text_label.setText(_zxart_tr("View:"))
+                self.zxart_view_combo.setItemText(0, _zxart_tr("Table"))
+                self.zxart_view_combo.setItemText(1, _zxart_tr("Gallery"))
+                self.zxart_language_text_label.setText(_zxart_tr("Language:"))
+                self.zxart_download_button.setText(_zxart_tr("Download File"))
+                # Re-apply table headers for the current mode
+                headers_map = {
+                    "prods":    ["ID", "Title", "Year", "Author / Group", "Type", "Genre / Compo"],
+                    "byletter": ["ID", "Title", "Year", "Author / Group", "Type", "Genre / Compo"],
+                    "pictures": ["ID", "Title", "Year", "Author(s)",      "Type", "Tags"],
+                }
+                mode = zxart_current_mode()
+                self.zxart_results_table.setHorizontalHeaderLabels(
+                    [_zxart_tr(h) for h in headers_map.get(mode, headers_map["prods"])]
+                )
+                # Translate the "No preview" placeholder when no pixmap is shown
+                if self.zxart_screenshot_label.pixmap() is None or self.zxart_screenshot_label.pixmap().isNull():
+                    cur = self.zxart_screenshot_label.text()
+                    if cur in ("No preview", "Brak podglądu", "Sin vista previa", ""):
+                        self.zxart_screenshot_label.setText(_zxart_tr("No preview"))
+            except Exception as _exc:
+                logging.warning("zxart: retranslate UI failed: %s", _exc)
+
+        self._zxart_retranslate_ui = _zxart_retranslate_ui
+
+        def _on_zxart_language_changed(_idx):
+            code = self.zxart_language_combo.currentData() or DEFAULT_ZXART_LANGUAGE
+            _zxart_set_language(code)
+            configuration_dictionary[SETTING_ZXART_LANGUAGE] = _zxart_lang()
+            save_configuration_file()
+            # Update all static UI labels to the new language.
+            _zxart_retranslate_ui()
+            # Re-run the current view so titles/metadata reload in the new language.
+            try:
+                zxart_clear_detail()
+            except Exception:
+                pass
+            try:
+                zxart_run_search(self._zxart_last_query or "",
+                                 max(1, self._zxart_current_page))
+            except Exception as _exc:
+                logging.warning("zxart: language reload failed: %s", _exc)
+
+        self.zxart_language_combo.currentIndexChanged.connect(_on_zxart_language_changed)
 
         # ---- Download ----
 
@@ -9208,7 +11026,7 @@ class MainWindow(QMainWindow):
                 if kind == "zxart_picture":
                     def _fn():
                         pic_resp = zxart_fetch_json(
-                            f"/export:zxPicture/language:eng/filter:zxPictureId={urllib.parse.quote(pid)}"
+                            f"/export:zxPicture/language:{_zxart_lang()}/filter:zxPictureId={urllib.parse.quote(pid)}"
                         )
                         pics = (pic_resp.get("responseData") or {}).get("zxPicture") or []
                         pic  = pics[0] if pics else (entry.get("_source") or {})
@@ -9240,7 +11058,7 @@ class MainWindow(QMainWindow):
                         )
                         releases = (rel_resp.get("responseData") or {}).get("zxRelease") or []
                         prod_resp = zxart_fetch_json(
-                            f"/export:zxProd/language:eng/filter:zxProdId={urllib.parse.quote(pid)}"
+                            f"/export:zxProd/language:{_zxart_lang()}/filter:zxProdId={urllib.parse.quote(pid)}"
                         )
                         prods = (prod_resp.get("responseData") or {}).get("zxProd") or []
                         prod  = prods[0] if prods else {}
@@ -9926,23 +11744,44 @@ class MainWindow(QMainWindow):
         load_configuration_file()
         self._initialising = False
 
+        # Re-apply view modes now that config has been loaded (the per-pane setup
+        # runs before load_configuration_file, so the combos/stacks need updating).
+        self._getit_apply_view_mode(self._getit_view_mode, persist=False)
+        self._zxdb_apply_view_mode(self._zxdb_view_mode,   persist=False)
+        self._zxart_apply_view_mode(self._zxart_view_mode, persist=False)
+
         # Connect tab-changed AFTER load so setCurrentIndex during config restore
         # does not trigger on_tab_changed before state is ready.
         wid_inner.tab.currentChanged.connect(on_tab_changed)
 
         # If the GetIt tab is already active after restoring config, trigger its
         # initialisation manually (currentChanged was not connected during load).
-        if wid_inner.tab.tabText(wid_inner.tab.currentIndex()) == ZX_NEXT_UNITE_TAB_TITLE_GETIT:
-            _show_content_disclaimer()
-            self._getit_fetch_motd()
-            if self.getit_results_table.rowCount() == 0 and not self._getit_search_loading:
-                self._getit_on_latest()
-        elif wid_inner.tab.tabText(wid_inner.tab.currentIndex()) == ZX_NEXT_UNITE_TAB_TITLE_ZXDB:
-            _show_content_disclaimer()
-            self._zxdb_on_tab_activated()
-        elif wid_inner.tab.tabText(wid_inner.tab.currentIndex()) == ZX_NEXT_UNITE_TAB_TITLE_ZXART:
-            _show_content_disclaimer()
-            self._zxart_on_tab_activated()
+        # NOTE: defer to the event loop so widgets (especially Gallery cells)
+        # are fully realised before any background fetcher emits queued signals
+        # back into them. Running this synchronously inside __init__ launches
+        # network threads before window.show()/event loop is up, and the queued
+        # results land in half-constructed Qt widgets, causing access violations
+        # on Windows when starting in Gallery mode.
+        def _deferred_startup_tab_activation():
+            try:
+                current_title = wid_inner.tab.tabText(wid_inner.tab.currentIndex())
+            except Exception:
+                return
+            if current_title == ZX_NEXT_UNITE_TAB_TITLE_GETIT:
+                _show_content_disclaimer()
+                self._getit_fetch_motd()
+                if self.getit_results_table.rowCount() == 0 and not self._getit_search_loading:
+                    self._getit_on_latest()
+            elif current_title == ZX_NEXT_UNITE_TAB_TITLE_ZXDB:
+                _show_content_disclaimer()
+                self._zxdb_on_tab_activated()
+            elif current_title == ZX_NEXT_UNITE_TAB_TITLE_ZXART:
+                _show_content_disclaimer()
+                self._zxart_on_tab_activated()
+
+        # Use a small delay (not 0) so the first paint/show events have a
+        # chance to be processed before any thumbnail fetch threads spin up.
+        QTimer.singleShot(150, _deferred_startup_tab_activation)
         # Expose the nested save function so closeEvent (a class method) can call it.
         self._save_configuration_file = save_configuration_file
 
