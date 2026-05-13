@@ -27,6 +27,10 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="zx-next-unite.py" />
+    <Compile Include="_probe_alias.py" />
+    <Compile Include="_probe_authors.py" />
+    <Compile Include="_probe_authors2.py" />
+    <Compile Include="_probe_names.py" />
     <Compile Include="_probe_zxart.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
