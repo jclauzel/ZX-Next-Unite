@@ -76,6 +76,7 @@ import zipfile
 from PySide6 import QtCore
 from PySide6.QtCore import (
     QDir,
+    QEvent,
     QMetaObject,
     QModelIndex,
     QObject,
@@ -102,6 +103,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFileSystemModel,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
@@ -116,6 +118,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QStackedWidget,
@@ -128,7 +131,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "4.7"
+ZX_NEXT_UNITE_VERSION = "4.8"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
@@ -188,6 +191,16 @@ SETTING_COLOR_FILE_SIZE   = "color_file_size"
 SETTING_IMAGE_HISTORY     = "image_history"
 SETTING_BG_OPACITY        = "bg_opacity"
 SETTING_CONTENT_DISCLAIMER_AGREED = "content_disclaimer_agreed"
+SETTING_GALLERY_ANIM_MODE      = "gallery_anim_mode"        # "hover" (default) or "timer"
+SETTING_GALLERY_ROWS_PER_PAGE  = "gallery_rows_per_page"    # int 1..10, default 2
+SETTING_GETIT_VIEW_MODE        = "getit_view_mode"          # "table" (default) or "gallery"
+SETTING_ZXDB_VIEW_MODE         = "zxdb_view_mode"
+SETTING_ZXART_VIEW_MODE        = "zxart_view_mode"
+DEFAULT_GALLERY_ANIM_MODE      = "hover"
+DEFAULT_GALLERY_ROWS_PER_PAGE  = 2
+GALLERY_COLS                   = 4
+GALLERY_MIN_ROWS               = 1
+GALLERY_MAX_ROWS               = 10
 MAX_IMAGE_HISTORY         = 10
 
 DEFAULT_COLOR_UP_DIRECTORY = "#ff0000"
@@ -340,7 +353,7 @@ def _build_disclaimer_text():
 
 _DISCLAIMER_TEXT = _build_disclaimer_text()
 
-CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME, SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH)
+CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME, SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_GALLERY_ANIM_MODE, SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE, SETTING_ZXART_VIEW_MODE)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
@@ -1549,6 +1562,357 @@ def getit_run_in_thread(fn, on_result, on_error):
 
 
 
+class GalleryCell(QFrame):
+    """A picture-view tile: thumbnail + title + (hover-only) info line.
+
+    The cell is fully asynchronous:
+      * `thumb_fetch_cb(entry, set_pixmap, set_screenshots)` is invoked once
+        when the cell is shown. The callback is responsible for resolving the
+        main screenshot bytes off the UI thread and calling `set_pixmap(QPixmap)`
+        on the UI thread. If extra screenshots become available it should call
+        `set_screenshots([url, ...])` and the cell will then start cycling.
+      * `extra_fetch_cb(url, on_pixmap)` is invoked lazily when a new url is
+        about to be displayed and the pixmap is not yet cached.
+
+    Selection is communicated via the `clicked` signal which forwards the
+    entry dict. Animation honors the global animation mode ("hover"/"timer").
+    """
+
+    clicked = Signal(object)
+
+    _PLACEHOLDER_COLOR = QColor("#222")
+
+    def __init__(self, entry, anim_mode_getter,
+                 thumb_fetch_cb, extra_fetch_cb,
+                 title_text="", info_text="", parent=None):
+        super().__init__(parent)
+        self._entry = entry
+        self._anim_mode_getter = anim_mode_getter  # callable -> "hover"|"timer"
+        self._thumb_fetch_cb = thumb_fetch_cb
+        self._extra_fetch_cb = extra_fetch_cb
+        self._screenshots = []        # list of URL strings (or dicts {"url": ...})
+        self._shot_cache  = {}        # url -> QPixmap
+        self._shot_index  = 0
+        self._hovered     = False
+        self._selected    = False
+        self._thumb_w     = 160       # last applied width hint
+
+        self.setFrameShape(QFrame.StyledPanel)
+        self.setFrameShadow(QFrame.Plain)
+        self.setLineWidth(1)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setMouseTracking(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self._apply_style()
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(4, 4, 4, 4)
+        lay.setSpacing(2)
+
+        self._thumb_lbl = QLabel(self)
+        self._thumb_lbl.setAlignment(Qt.AlignCenter)
+        self._thumb_lbl.setMinimumHeight(60)
+        self._thumb_lbl.setStyleSheet("background-color: #222; color: #888;")
+        self._thumb_lbl.setText("…")
+        self._thumb_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        lay.addWidget(self._thumb_lbl, 1)
+
+        self._title_lbl = QLabel(title_text or "", self)
+        self._title_lbl.setAlignment(Qt.AlignCenter)
+        self._title_lbl.setWordWrap(True)
+        f = self._title_lbl.font()
+        f.setBold(True)
+        self._title_lbl.setFont(f)
+        lay.addWidget(self._title_lbl, 0)
+
+        self._info_lbl = QLabel(info_text or "", self)
+        self._info_lbl.setAlignment(Qt.AlignCenter)
+        self._info_lbl.setWordWrap(True)
+        self._info_lbl.setStyleSheet("color: #aaa;")
+        self._info_lbl.setVisible(False)
+        lay.addWidget(self._info_lbl, 0)
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(1500)
+        self._timer.timeout.connect(self._advance)
+
+        # Defer initial fetch until the cell is actually shown
+        QTimer.singleShot(0, self._kickoff_initial_fetch)
+
+    # ---- public API ----------------------------------------------------
+
+    def entry(self):
+        return self._entry
+
+    def set_selected(self, selected: bool):
+        if self._selected == selected:
+            return
+        self._selected = selected
+        self._apply_style()
+
+    def set_thumb_width(self, w: int):
+        """Called by the parent gallery view when the column width changes."""
+        w = max(40, int(w))
+        if abs(w - self._thumb_w) < 4:
+            return
+        self._thumb_w = w
+        # rescale current pixmap if any
+        cur = self._current_pixmap()
+        if cur is not None:
+            self._apply_pixmap(cur)
+
+    def set_screenshots(self, urls):
+        """Replace the list of cycle-able image URLs. The first entry is also
+        the main thumbnail (used immediately if already cached)."""
+        urls = [u for u in (urls or []) if u]
+        self._screenshots = urls
+        if urls and urls[0] in self._shot_cache:
+            self._apply_pixmap(self._shot_cache[urls[0]])
+        self._maybe_start_anim()
+
+    def set_main_pixmap(self, pm: QPixmap, url: str = ""):
+        if pm is None or pm.isNull():
+            return
+        if url:
+            self._shot_cache[url] = pm
+            if not self._screenshots:
+                self._screenshots = [url]
+        if self._shot_index < len(self._screenshots):
+            cur_url = self._screenshots[self._shot_index]
+            if not url or cur_url == url:
+                self._apply_pixmap(pm)
+
+    # ---- events --------------------------------------------------------
+
+    def enterEvent(self, ev):
+        self._hovered = True
+        self._info_lbl.setVisible(True)
+        if self._anim_mode_getter() == "hover":
+            # advance to next frame eagerly on hover, then keep cycling
+            if len(self._screenshots) > 1:
+                self._timer.start()
+        super().enterEvent(ev)
+
+    def leaveEvent(self, ev):
+        self._hovered = False
+        self._info_lbl.setVisible(False)
+        if self._anim_mode_getter() == "hover":
+            self._timer.stop()
+            if self._screenshots:
+                self._shot_index = 0
+                self._show_index(0)
+        super().leaveEvent(ev)
+
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.LeftButton:
+            self.clicked.emit(self._entry)
+        super().mousePressEvent(ev)
+
+    def resizeEvent(self, ev):
+        # Re-scale the currently shown pixmap to the new width.
+        cur = self._current_pixmap()
+        if cur is not None:
+            self._apply_pixmap(cur)
+        super().resizeEvent(ev)
+
+    # ---- internals -----------------------------------------------------
+
+    def _apply_style(self):
+        border = "#4fc3f7" if self._selected else "#555"
+        bg = "#1a2733" if self._selected else "#181818"
+        self.setStyleSheet(
+            f"GalleryCell {{ background-color: {bg}; border: 1px solid {border}; border-radius: 4px; }}"
+        )
+
+    def _kickoff_initial_fetch(self):
+        if not self._thumb_fetch_cb:
+            return
+        try:
+            self._thumb_fetch_cb(self._entry, self.set_main_pixmap, self.set_screenshots)
+        except Exception:
+            pass
+
+    def _maybe_start_anim(self):
+        if len(self._screenshots) <= 1:
+            self._timer.stop()
+            return
+        mode = self._anim_mode_getter()
+        if mode == "timer":
+            self._timer.start()
+        elif mode == "hover" and self._hovered:
+            self._timer.start()
+
+    def _advance(self):
+        if not self._screenshots:
+            return
+        nxt = (self._shot_index + 1) % len(self._screenshots)
+        self._shot_index = nxt
+        self._show_index(nxt)
+
+    def _show_index(self, idx: int):
+        if not self._screenshots:
+            return
+        url = self._screenshots[idx]
+        cached = self._shot_cache.get(url)
+        if cached is not None:
+            self._apply_pixmap(cached)
+            return
+        if self._extra_fetch_cb:
+            def _on_px(pm, _u=url):
+                if pm is None or pm.isNull():
+                    return
+                self._shot_cache[_u] = pm
+                if self._shot_index < len(self._screenshots) and self._screenshots[self._shot_index] == _u:
+                    self._apply_pixmap(pm)
+            try:
+                self._extra_fetch_cb(url, _on_px)
+            except Exception:
+                pass
+
+    def _current_pixmap(self):
+        if not self._screenshots:
+            return None
+        if self._shot_index >= len(self._screenshots):
+            return None
+        return self._shot_cache.get(self._screenshots[self._shot_index])
+
+    def _apply_pixmap(self, pm: QPixmap):
+        if pm is None or pm.isNull():
+            return
+        target_w = max(40, self._thumb_lbl.width() or self._thumb_w)
+        # Reserve a 4:3 area, but let the pixmap aspect ratio decide
+        scaled = pm.scaled(target_w, int(target_w * 3 / 4),
+                           Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self._thumb_lbl.setPixmap(scaled)
+        self._thumb_lbl.setText("")
+
+
+class GalleryView(QWidget):
+    """4-column thumbnail grid wrapper around a QTableWidget.
+
+    The view does NOT own pagination — the surrounding pane drives populate()
+    per page. The grid resizes columns equally; cell widgets are GalleryCell.
+    """
+
+    cell_clicked = Signal(object)
+
+    def __init__(self, rows_per_page_getter, anim_mode_getter,
+                 thumb_fetch_cb, extra_fetch_cb,
+                 title_getter, info_getter, parent=None):
+        super().__init__(parent)
+        self._rows_per_page_getter = rows_per_page_getter
+        self._anim_mode_getter     = anim_mode_getter
+        self._thumb_fetch_cb       = thumb_fetch_cb
+        self._extra_fetch_cb       = extra_fetch_cb
+        self._title_getter         = title_getter
+        self._info_getter          = info_getter
+        self._cells = []
+        self._selected_cell = None
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        self._table = QTableWidget(0, GALLERY_COLS, self)
+        self._table.horizontalHeader().setVisible(False)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setSelectionMode(QAbstractItemView.NoSelection)
+        self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._table.setFocusPolicy(Qt.NoFocus)
+        self._table.setShowGrid(False)
+        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self._table.horizontalHeader().setStretchLastSection(True)
+        self._table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
+        lay.addWidget(self._table)
+
+        self._table.viewport().installEventFilter(self)
+
+    def page_size(self) -> int:
+        try:
+            n = int(self._rows_per_page_getter())
+        except Exception:
+            n = DEFAULT_GALLERY_ROWS_PER_PAGE
+        n = max(GALLERY_MIN_ROWS, min(GALLERY_MAX_ROWS, n))
+        return n * GALLERY_COLS
+
+    def populate(self, entries):
+        """Render `entries` (list of dicts) into the grid. Excess capacity is
+        cleared. Caller must have already paged the entries appropriately."""
+        entries = list(entries or [])
+        rows_needed = (len(entries) + GALLERY_COLS - 1) // GALLERY_COLS if entries else 0
+        # Tear down any existing cells
+        for c in self._cells:
+            try:
+                c.setParent(None)
+                c.deleteLater()
+            except Exception:
+                pass
+        self._cells = []
+        self._selected_cell = None
+        self._table.clearContents()
+        self._table.setRowCount(rows_needed)
+
+        # Compute a sane row height: thumbnail (~target column width * 3/4)
+        # plus title + info. We re-apply this on resize as well.
+        vp_w = max(200, self._table.viewport().width())
+        col_w = max(80, vp_w // GALLERY_COLS - 6)
+        row_h = int(col_w * 3 / 4) + 56
+        for r in range(rows_needed):
+            self._table.setRowHeight(r, row_h)
+
+        for i, e in enumerate(entries):
+            r, c = divmod(i, GALLERY_COLS)
+            title = self._title_getter(e) if self._title_getter else ""
+            info  = self._info_getter(e)  if self._info_getter  else ""
+            cell = GalleryCell(
+                entry=e,
+                anim_mode_getter=self._anim_mode_getter,
+                thumb_fetch_cb=self._thumb_fetch_cb,
+                extra_fetch_cb=self._extra_fetch_cb,
+                title_text=title,
+                info_text=info,
+                parent=self._table,
+            )
+            cell.set_thumb_width(col_w)
+            cell.clicked.connect(self._on_cell_clicked)
+            self._table.setCellWidget(r, c, cell)
+            self._cells.append(cell)
+
+    def select_entry(self, predicate):
+        """Mark the first cell whose entry satisfies `predicate(entry)` as
+        selected. Pass `lambda e: False` to clear."""
+        for cell in self._cells:
+            sel = False
+            try:
+                sel = bool(predicate(cell.entry()))
+            except Exception:
+                sel = False
+            cell.set_selected(sel)
+            if sel:
+                self._selected_cell = cell
+
+    def eventFilter(self, obj, ev):
+        if ev.type() == QEvent.Resize and obj is self._table.viewport():
+            self._apply_dimensions()
+        return super().eventFilter(obj, ev)
+
+    def _apply_dimensions(self):
+        vp_w = max(200, self._table.viewport().width())
+        col_w = max(80, vp_w // GALLERY_COLS - 6)
+        row_h = int(col_w * 3 / 4) + 56
+        for r in range(self._table.rowCount()):
+            self._table.setRowHeight(r, row_h)
+        for cell in self._cells:
+            cell.set_thumb_width(col_w)
+
+    def _on_cell_clicked(self, entry):
+        sender = self.sender()
+        for cell in self._cells:
+            cell.set_selected(cell is sender)
+        self._selected_cell = sender
+        self.cell_clicked.emit(entry)
+
+
 class BackgroundWidget(QWidget):
     """A QWidget that paints a randomly chosen image from the 'backgrounds/'
     directory scaled to fill the entire widget area, blended at a configurable
@@ -1623,6 +1987,13 @@ class MainWindow(QMainWindow):
         self.left_file_explorer_selection_full_filename_path = ""
         self.left_file_nextsync_explorer_selection_file_name = ""
         self.left_file_nextsync_explorer_selection_full_filename_path = ""
+
+        # Gallery (picture view) defaults — may be overridden when the cfg file loads.
+        self._gallery_anim_mode      = DEFAULT_GALLERY_ANIM_MODE
+        self._gallery_rows_per_page  = DEFAULT_GALLERY_ROWS_PER_PAGE
+        self._getit_view_mode        = "table"
+        self._zxdb_view_mode         = "table"
+        self._zxart_view_mode        = "table"
 
         self.image_explorer_item_list = QListWidget()
 
@@ -1894,6 +2265,41 @@ class MainWindow(QMainWindow):
                 if SETTING_MULTI_SEARCH in configuration_dictionary and configuration_dictionary[SETTING_MULTI_SEARCH] != "":
                     checked = configuration_dictionary[SETTING_MULTI_SEARCH] != "0" and configuration_dictionary[SETTING_MULTI_SEARCH].lower() != "false"
                     self.settings_multi_search_checkbox.setChecked(checked)
+
+                # Gallery animation mode: "hover" (default) or "timer"
+                if SETTING_GALLERY_ANIM_MODE in configuration_dictionary and configuration_dictionary[SETTING_GALLERY_ANIM_MODE] != "":
+                    val = configuration_dictionary[SETTING_GALLERY_ANIM_MODE].strip().lower()
+                    if val in ("hover", "timer"):
+                        self._gallery_anim_mode = val
+                        cb = getattr(self, "settings_gallery_anim_combo", None)
+                        if cb is not None:
+                            for _i in range(cb.count()):
+                                if cb.itemData(_i) == val:
+                                    cb.setCurrentIndex(_i)
+                                    break
+
+                # Gallery rows per page: int 1..10
+                if SETTING_GALLERY_ROWS_PER_PAGE in configuration_dictionary and configuration_dictionary[SETTING_GALLERY_ROWS_PER_PAGE] != "":
+                    try:
+                        n = int(configuration_dictionary[SETTING_GALLERY_ROWS_PER_PAGE])
+                    except (TypeError, ValueError):
+                        n = DEFAULT_GALLERY_ROWS_PER_PAGE
+                    n = max(GALLERY_MIN_ROWS, min(GALLERY_MAX_ROWS, n))
+                    self._gallery_rows_per_page = n
+                    sp = getattr(self, "settings_gallery_rows_spin", None)
+                    if sp is not None:
+                        sp.setValue(n)
+
+                # Per-pane view mode: "table" (default) or "gallery"
+                for _pane_key, _attr in (
+                    (SETTING_GETIT_VIEW_MODE, "_getit_view_mode"),
+                    (SETTING_ZXDB_VIEW_MODE,  "_zxdb_view_mode"),
+                    (SETTING_ZXART_VIEW_MODE, "_zxart_view_mode"),
+                ):
+                    if _pane_key in configuration_dictionary and configuration_dictionary[_pane_key] != "":
+                        val = configuration_dictionary[_pane_key].strip().lower()
+                        if val in ("table", "gallery"):
+                            setattr(self, _attr, val)
 
                 saved_mode = configuration_dictionary.get(SETTING_ZXDB_LAST_MODE, "").strip()
                 if saved_mode:
@@ -4716,6 +5122,16 @@ class MainWindow(QMainWindow):
         self.getit_next_button.setEnabled(False)
         getit_search_row.addWidget(self.getit_next_button)
 
+        getit_search_row.addWidget(QLabel("View:"))
+        self.getit_view_combo = QComboBox()
+        self.getit_view_combo.addItem("Table",   "table")
+        self.getit_view_combo.addItem("Gallery", "gallery")
+        self.getit_view_combo.setToolTip(
+            "Switch between the classic table view and the picture (gallery) view.\n"
+            "Persisted across sessions in the config file."
+        )
+        getit_search_row.addWidget(self.getit_view_combo)
+
         self.getit_status_label = QLabel("")
         getit_search_row.addWidget(self.getit_status_label, 1)
 
@@ -4758,7 +5174,53 @@ class MainWindow(QMainWindow):
         getit_right_widget.setLayout(getit_right_col)
 
         getit_table_row = QHBoxLayout()
-        getit_table_row.addWidget(self.getit_results_table, 1)
+
+        self.getit_view_stack = QStackedWidget()
+        self.getit_view_stack.addWidget(self.getit_results_table)  # index 0: Table
+
+        def _getit_gallery_title(e):
+            return (e.get("title") or e.get("id") or "")[:80]
+        def _getit_gallery_info(e):
+            parts = []
+            if e.get("author"):   parts.append(e["author"])
+            if e.get("category"): parts.append(e["category"])
+            if e.get("size"):     parts.append(e["size"])
+            return " · ".join(parts)
+
+        def _getit_thumb_fetch(entry, set_pixmap, set_screenshots):
+            eid = entry.get("id") or ""
+            url = f"{GETIT_BASE_URL}/nx/{eid}/i/"
+            set_screenshots([url])
+            def _fn(_u=url):
+                tmp = tempfile.NamedTemporaryFile(suffix=".bmp", delete=False)
+                tmp.close()
+                urllib.request.urlretrieve(_u, tmp.name)
+                return (tmp.name, _u)
+            def _on_done(res, _set=set_pixmap):
+                path, u = res
+                px = QPixmap(path)
+                try: os.unlink(path)
+                except Exception: pass
+                if not px.isNull():
+                    _set(px, u)
+            def _on_err(_err): pass
+            getit_run_in_thread(_fn, _on_done, _on_err)
+
+        def _getit_extra_fetch(url, on_pixmap):
+            # GetIt only exposes a single screenshot per entry; nothing to do.
+            pass
+
+        self.getit_gallery_view = GalleryView(
+            rows_per_page_getter=lambda: self._gallery_rows_per_page,
+            anim_mode_getter=lambda: self._gallery_anim_mode,
+            thumb_fetch_cb=_getit_thumb_fetch,
+            extra_fetch_cb=_getit_extra_fetch,
+            title_getter=_getit_gallery_title,
+            info_getter=_getit_gallery_info,
+        )
+        self.getit_view_stack.addWidget(self.getit_gallery_view)  # index 1: Gallery
+
+        getit_table_row.addWidget(self.getit_view_stack, 1)
         getit_table_row.addWidget(getit_right_widget)
         getit_table_container = QWidget()
         getit_table_container.setLayout(getit_table_row)
@@ -4812,6 +5274,7 @@ class MainWindow(QMainWindow):
         self._getit_motd_loaded = False
         self._getit_motd_loading = False
         self._getit_search_loading = False
+        self._getit_last_entries = []  # cached page entries for gallery refresh
 
         # ---- Internal helpers ----
 
@@ -4834,6 +5297,11 @@ class MainWindow(QMainWindow):
                 self.getit_results_table.setItem(row, 2, QTableWidgetItem(e["author"]))
                 self.getit_results_table.setItem(row, 3, QTableWidgetItem(e["size"]))
                 self.getit_results_table.setItem(row, 4, QTableWidgetItem(e["category"]))
+            self._getit_last_entries = list(entries)
+            self.getit_gallery_view.populate(entries)
+            self.getit_gallery_view.select_entry(
+                lambda _e, _sel=self._getit_selected_id: bool(_sel) and _e.get("id") == _sel
+            )
 
         def getit_clear_detail():
             self.getit_detail_title.setText("")
@@ -4996,6 +5464,45 @@ class MainWindow(QMainWindow):
             )
 
         self.getit_results_table.itemSelectionChanged.connect(getit_on_row_selected)
+
+        def getit_on_gallery_cell(entry):
+            eid = entry.get("id") or ""
+            if not eid:
+                return
+            # Try to mirror selection in the table so existing detail logic runs once.
+            for r in range(self.getit_results_table.rowCount()):
+                item = self.getit_results_table.item(r, 0)
+                if item is not None and item.text() == eid:
+                    self.getit_results_table.selectRow(r)
+                    break
+            self.getit_gallery_view.select_entry(lambda _e, _e0=entry: _e is _e0)
+
+        self.getit_gallery_view.cell_clicked.connect(getit_on_gallery_cell)
+
+        def _getit_apply_view_mode(mode: str, *, persist: bool = True):
+            mode = (mode or "table").lower()
+            if mode not in ("table", "gallery"):
+                mode = "table"
+            self._getit_view_mode = mode
+            self.getit_view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
+            # keep combo in sync without re-triggering
+            cb = self.getit_view_combo
+            target_idx = 1 if mode == "gallery" else 0
+            if cb.currentIndex() != target_idx:
+                cb.blockSignals(True)
+                cb.setCurrentIndex(target_idx)
+                cb.blockSignals(False)
+            if persist:
+                configuration_dictionary[SETTING_GETIT_VIEW_MODE] = mode
+                save_configuration_file()
+
+        self._getit_apply_view_mode = _getit_apply_view_mode
+
+        def _on_getit_view_combo_changed(_idx):
+            _getit_apply_view_mode(self.getit_view_combo.currentData() or "table")
+
+        self.getit_view_combo.currentIndexChanged.connect(_on_getit_view_combo_changed)
+        _getit_apply_view_mode(self._getit_view_mode, persist=False)
 
         # ---- Download file ----
 
@@ -5339,6 +5846,16 @@ class MainWindow(QMainWindow):
         self.zxdb_next_button.setEnabled(False)
         zxdb_search_row.addWidget(self.zxdb_next_button)
 
+        zxdb_search_row.addWidget(QLabel("View:"))
+        self.zxdb_view_combo = QComboBox()
+        self.zxdb_view_combo.addItem("Table",   "table")
+        self.zxdb_view_combo.addItem("Gallery", "gallery")
+        self.zxdb_view_combo.setToolTip(
+            "Switch between the classic table view and the picture (gallery) view.\n"
+            "Persisted across sessions in the config file."
+        )
+        zxdb_search_row.addWidget(self.zxdb_view_combo)
+
         self.zxdb_status_label = QLabel("")
         self.zxdb_status_label.setCursor(Qt.ArrowCursor)
         self._zxdb_status_open_path = None
@@ -5439,7 +5956,71 @@ class MainWindow(QMainWindow):
         zxdb_right_widget.setLayout(zxdb_right_col)
 
         zxdb_table_row = QHBoxLayout()
-        zxdb_table_row.addWidget(self.zxdb_results_table, 1)
+
+        self.zxdb_view_stack = QStackedWidget()
+        self.zxdb_view_stack.addWidget(self.zxdb_results_table)  # index 0
+
+        def _zxdb_gallery_title(e):
+            return (e.get("title") or e.get("id") or "")[:80]
+        def _zxdb_gallery_info(e):
+            parts = []
+            if e.get("author"):  parts.append(e["author"])
+            if e.get("year"):    parts.append(str(e["year"]))
+            if e.get("machine"): parts.append(e["machine"])
+            if e.get("genre"):   parts.append(e["genre"])
+            return " · ".join(parts)
+
+        def _zxdb_thumb_fetch(entry, set_pixmap, set_screenshots):
+            eid = entry.get("id") or ""
+            if not eid:
+                return
+            def _fn():
+                payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                detail  = zxdb_parse_game_detail(payload)
+                shots = detail.get("screenshots") or []
+                if not shots and detail.get("screenshot_url"):
+                    shots = [{"url": detail["screenshot_url"], "type": ""}]
+                return [s.get("url") for s in shots if isinstance(s, dict) and s.get("url")]
+            def _on_ok(urls):
+                if not urls:
+                    return
+                set_screenshots(urls)
+                def _img_fn(_u=urls[0]):
+                    req = urllib.request.Request(_u, headers={"User-Agent": ZXDB_USER_AGENT})
+                    with urllib.request.urlopen(req, timeout=20) as resp:
+                        return (_u, resp.read())
+                def _img_ok(res):
+                    u, data = res
+                    px = QPixmap()
+                    px.loadFromData(data)
+                    if not px.isNull():
+                        set_pixmap(px, u)
+                getit_run_in_thread(_img_fn, _img_ok, lambda _e: None)
+            getit_run_in_thread(_fn, _on_ok, lambda _e: None)
+
+        def _zxdb_extra_fetch(url, on_pixmap):
+            def _fn(_u=url):
+                req = urllib.request.Request(_u, headers={"User-Agent": ZXDB_USER_AGENT})
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    return resp.read()
+            def _on_ok(data):
+                px = QPixmap()
+                px.loadFromData(data)
+                if not px.isNull():
+                    on_pixmap(px)
+            getit_run_in_thread(_fn, _on_ok, lambda _e: None)
+
+        self.zxdb_gallery_view = GalleryView(
+            rows_per_page_getter=lambda: self._gallery_rows_per_page,
+            anim_mode_getter=lambda: self._gallery_anim_mode,
+            thumb_fetch_cb=_zxdb_thumb_fetch,
+            extra_fetch_cb=_zxdb_extra_fetch,
+            title_getter=_zxdb_gallery_title,
+            info_getter=_zxdb_gallery_info,
+        )
+        self.zxdb_view_stack.addWidget(self.zxdb_gallery_view)  # index 1
+
+        zxdb_table_row.addWidget(self.zxdb_view_stack, 1)
         zxdb_table_row.addWidget(zxdb_right_widget)
         zxdb_table_container = QWidget()
         zxdb_table_container.setLayout(zxdb_table_row)
@@ -5465,6 +6046,7 @@ class MainWindow(QMainWindow):
         self._zxdb_loaded_once   = False
         self._zxdb_results_mode  = "games"
         self._zxdb_magazine_issues = []   # issues list of the currently-loaded magazine
+        self._zxdb_last_entries = []
 
         # Slideshow state
         self._zxdb_screenshots = []        # list of dicts {url, type}
@@ -5540,6 +6122,11 @@ class MainWindow(QMainWindow):
                 self.zxdb_results_table.setItem(row, 3, QTableWidgetItem(e.get("author", "")))
                 self.zxdb_results_table.setItem(row, 4, QTableWidgetItem(e.get("machine", "")))
                 self.zxdb_results_table.setItem(row, 5, QTableWidgetItem(e.get("genre", "")))
+            self._zxdb_last_entries = list(entries)
+            self.zxdb_gallery_view.populate(entries)
+            self.zxdb_gallery_view.select_entry(
+                lambda _e, _sel=self._zxdb_selected_id: bool(_sel) and _e.get("id") == _sel
+            )
 
         def zxdb_populate_detail(detail: dict):
             """Game detail (used for games and by-author results)."""
@@ -6413,6 +7000,43 @@ class MainWindow(QMainWindow):
 
         self.zxdb_results_table.itemSelectionChanged.connect(zxdb_on_row_selected)
 
+        def zxdb_on_gallery_cell(entry):
+            eid = entry.get("id") or ""
+            if not eid:
+                return
+            for r in range(self.zxdb_results_table.rowCount()):
+                item = self.zxdb_results_table.item(r, 0)
+                if item is not None and item.text() == eid:
+                    self.zxdb_results_table.selectRow(r)
+                    break
+            self.zxdb_gallery_view.select_entry(lambda _e, _e0=entry: _e is _e0)
+
+        self.zxdb_gallery_view.cell_clicked.connect(zxdb_on_gallery_cell)
+
+        def _zxdb_apply_view_mode(mode: str, *, persist: bool = True):
+            mode = (mode or "table").lower()
+            if mode not in ("table", "gallery"):
+                mode = "table"
+            self._zxdb_view_mode = mode
+            self.zxdb_view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
+            cb = self.zxdb_view_combo
+            target_idx = 1 if mode == "gallery" else 0
+            if cb.currentIndex() != target_idx:
+                cb.blockSignals(True)
+                cb.setCurrentIndex(target_idx)
+                cb.blockSignals(False)
+            if persist:
+                configuration_dictionary[SETTING_ZXDB_VIEW_MODE] = mode
+                save_configuration_file()
+
+        self._zxdb_apply_view_mode = _zxdb_apply_view_mode
+
+        def _on_zxdb_view_combo_changed(_idx):
+            _zxdb_apply_view_mode(self.zxdb_view_combo.currentData() or "table")
+
+        self.zxdb_view_combo.currentIndexChanged.connect(_on_zxdb_view_combo_changed)
+        _zxdb_apply_view_mode(self._zxdb_view_mode, persist=False)
+
         def zxdb_on_row_double_clicked(item):
             row = self.zxdb_results_table.row(item)
             id_item = self.zxdb_results_table.item(row, 0)
@@ -7281,6 +7905,16 @@ class MainWindow(QMainWindow):
         self.zxart_next_button.setEnabled(False)
         zxart_search_row.addWidget(self.zxart_next_button)
 
+        zxart_search_row.addWidget(QLabel("View:"))
+        self.zxart_view_combo = QComboBox()
+        self.zxart_view_combo.addItem("Table",   "table")
+        self.zxart_view_combo.addItem("Gallery", "gallery")
+        self.zxart_view_combo.setToolTip(
+            "Switch between the classic table view and the picture (gallery) view.\n"
+            "Persisted across sessions in the config file."
+        )
+        zxart_search_row.addWidget(self.zxart_view_combo)
+
         self.zxart_status_label = QLabel("")
         self.zxart_status_label.setCursor(Qt.ArrowCursor)
         self._zxart_status_open_path = None
@@ -7415,7 +8049,69 @@ class MainWindow(QMainWindow):
         zxart_right_widget.setLayout(zxart_right_col)
 
         zxart_table_row = QHBoxLayout()
-        zxart_table_row.addWidget(self.zxart_results_table, 1)
+
+        self.zxart_view_stack = QStackedWidget()
+        self.zxart_view_stack.addWidget(self.zxart_results_table)  # index 0
+
+        def _zxart_gallery_title(e):
+            return (e.get("title") or e.get("id") or "")[:80]
+        def _zxart_gallery_info(e):
+            parts = []
+            if e.get("author"):  parts.append(e["author"])
+            if e.get("year"):    parts.append(str(e["year"]))
+            if e.get("machine"): parts.append(e["machine"])
+            if e.get("genre"):   parts.append(e["genre"])
+            return " · ".join(parts)
+
+        def _zxart_thumb_fetch(entry, set_pixmap, set_screenshots):
+            src = entry.get("_source") or {}
+            kind = (entry.get("_kind") or "").lower()
+            # Pictures expose imageUrl directly; prods carry imagesUrls list.
+            urls = []
+            if kind == "zxart_picture":
+                u = src.get("imageUrl") or src.get("originalUrl") or ""
+                if u: urls.append(u)
+            else:
+                for u in (src.get("imagesUrls") or []):
+                    if u: urls.append(u)
+            if not urls:
+                return
+            set_screenshots(urls)
+            def _img_fn(_u=urls[0]):
+                req = urllib.request.Request(_u, headers={"User-Agent": ZXART_USER_AGENT})
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    return (_u, resp.read())
+            def _img_ok(res):
+                u, data = res
+                px = QPixmap()
+                px.loadFromData(data)
+                if not px.isNull():
+                    set_pixmap(px, u)
+            getit_run_in_thread(_img_fn, _img_ok, lambda _e: None)
+
+        def _zxart_extra_fetch(url, on_pixmap):
+            def _fn(_u=url):
+                req = urllib.request.Request(_u, headers={"User-Agent": ZXART_USER_AGENT})
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    return resp.read()
+            def _on_ok(data):
+                px = QPixmap()
+                px.loadFromData(data)
+                if not px.isNull():
+                    on_pixmap(px)
+            getit_run_in_thread(_fn, _on_ok, lambda _e: None)
+
+        self.zxart_gallery_view = GalleryView(
+            rows_per_page_getter=lambda: self._gallery_rows_per_page,
+            anim_mode_getter=lambda: self._gallery_anim_mode,
+            thumb_fetch_cb=_zxart_thumb_fetch,
+            extra_fetch_cb=_zxart_extra_fetch,
+            title_getter=_zxart_gallery_title,
+            info_getter=_zxart_gallery_info,
+        )
+        self.zxart_view_stack.addWidget(self.zxart_gallery_view)  # index 1
+
+        zxart_table_row.addWidget(self.zxart_view_stack, 1)
         zxart_table_row.addWidget(zxart_right_widget)
         zxart_table_container = QWidget()
         zxart_table_container.setLayout(zxart_table_row)
@@ -7440,6 +8136,7 @@ class MainWindow(QMainWindow):
         self._zxart_search_loading = False
         self._zxart_loaded_once    = False
         self._zxart_results_mode   = "prods"
+        self._zxart_last_entries   = []
 
         # Slideshow state
         self._zxart_screenshots    = []
@@ -7662,6 +8359,11 @@ class MainWindow(QMainWindow):
                 self.zxart_results_table.setItem(row, 3, QTableWidgetItem(e.get("author", "")))
                 self.zxart_results_table.setItem(row, 4, QTableWidgetItem(e.get("machine", "")))
                 self.zxart_results_table.setItem(row, 5, QTableWidgetItem(e.get("genre", "")))
+            self._zxart_last_entries = list(entries)
+            self.zxart_gallery_view.populate(entries)
+            self.zxart_gallery_view.select_entry(
+                lambda _e, _sel=self._zxart_selected_id: bool(_sel) and _e.get("id") == _sel
+            )
 
         # ---- Slideshow ----
 
@@ -8195,6 +8897,43 @@ class MainWindow(QMainWindow):
                 _zxart_load_prod(pid, title_hint)
 
         self.zxart_results_table.itemSelectionChanged.connect(zxart_on_row_selected)
+
+        def zxart_on_gallery_cell(entry):
+            eid = entry.get("id") or ""
+            if not eid:
+                return
+            for r in range(self.zxart_results_table.rowCount()):
+                item = self.zxart_results_table.item(r, 0)
+                if item is not None and item.text() == eid:
+                    self.zxart_results_table.selectRow(r)
+                    break
+            self.zxart_gallery_view.select_entry(lambda _e, _e0=entry: _e is _e0)
+
+        self.zxart_gallery_view.cell_clicked.connect(zxart_on_gallery_cell)
+
+        def _zxart_apply_view_mode(mode: str, *, persist: bool = True):
+            mode = (mode or "table").lower()
+            if mode not in ("table", "gallery"):
+                mode = "table"
+            self._zxart_view_mode = mode
+            self.zxart_view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
+            cb = self.zxart_view_combo
+            target_idx = 1 if mode == "gallery" else 0
+            if cb.currentIndex() != target_idx:
+                cb.blockSignals(True)
+                cb.setCurrentIndex(target_idx)
+                cb.blockSignals(False)
+            if persist:
+                configuration_dictionary[SETTING_ZXART_VIEW_MODE] = mode
+                save_configuration_file()
+
+        self._zxart_apply_view_mode = _zxart_apply_view_mode
+
+        def _on_zxart_view_combo_changed(_idx):
+            _zxart_apply_view_mode(self.zxart_view_combo.currentData() or "table")
+
+        self.zxart_view_combo.currentIndexChanged.connect(_on_zxart_view_combo_changed)
+        _zxart_apply_view_mode(self._zxart_view_mode, persist=False)
 
         # ---- Download ----
 
@@ -8794,6 +9533,51 @@ class MainWindow(QMainWindow):
         self.settings_multi_search_checkbox.stateChanged.connect(settings_multi_search_statechanged)
         grid_tab_Settings.addWidget(self.settings_multi_search_checkbox, 3, 0, 1, 2)
 
+        # ---- Gallery (picture view) settings ----
+        def _settings_gallery_anim_changed():
+            data = self.settings_gallery_anim_combo.currentData() or DEFAULT_GALLERY_ANIM_MODE
+            self._gallery_anim_mode = data
+            configuration_dictionary[SETTING_GALLERY_ANIM_MODE] = data
+            save_configuration_file()
+
+        gallery_anim_lbl = QLabel("Gallery animation:")
+        gallery_anim_lbl.setToolTip(
+            "Controls when multi-screenshot tiles cycle through their images\n"
+            "in the GetIt / ZXDB / zxArt 'Gallery' (picture) view.\n"
+            "  • On hover (default): cycles only while the mouse is over the tile.\n"
+            "  • Timed: cycles continuously while the gallery is visible."
+        )
+        grid_tab_Settings.addWidget(gallery_anim_lbl, 4, 0)
+
+        self.settings_gallery_anim_combo = QComboBox()
+        self.settings_gallery_anim_combo.addItem("On hover (default)", "hover")
+        self.settings_gallery_anim_combo.addItem("Timed",              "timer")
+        self.settings_gallery_anim_combo.setToolTip(gallery_anim_lbl.toolTip())
+        self.settings_gallery_anim_combo.currentIndexChanged.connect(
+            lambda _i: _settings_gallery_anim_changed()
+        )
+        grid_tab_Settings.addWidget(self.settings_gallery_anim_combo, 4, 1)
+
+        def _settings_gallery_rows_changed(val: int):
+            val = max(GALLERY_MIN_ROWS, min(GALLERY_MAX_ROWS, int(val)))
+            self._gallery_rows_per_page = val
+            configuration_dictionary[SETTING_GALLERY_ROWS_PER_PAGE] = str(val)
+            save_configuration_file()
+
+        gallery_rows_lbl = QLabel("Gallery rows per page:")
+        gallery_rows_lbl.setToolTip(
+            "Number of thumbnail rows shown per gallery page (4 thumbnails per row).\n"
+            f"Range {GALLERY_MIN_ROWS}–{GALLERY_MAX_ROWS}. Default {DEFAULT_GALLERY_ROWS_PER_PAGE}."
+        )
+        grid_tab_Settings.addWidget(gallery_rows_lbl, 5, 0)
+
+        self.settings_gallery_rows_spin = QSpinBox()
+        self.settings_gallery_rows_spin.setRange(GALLERY_MIN_ROWS, GALLERY_MAX_ROWS)
+        self.settings_gallery_rows_spin.setValue(DEFAULT_GALLERY_ROWS_PER_PAGE)
+        self.settings_gallery_rows_spin.setToolTip(gallery_rows_lbl.toolTip())
+        self.settings_gallery_rows_spin.valueChanged.connect(_settings_gallery_rows_changed)
+        grid_tab_Settings.addWidget(self.settings_gallery_rows_spin, 5, 1)
+
         def _make_color_button(setting_key, color_attr, label_text, tooltip_text, grid_row):
             """Create a label + color-swatch button at the given grid row."""
             lbl = QLabel(label_text)
@@ -8827,38 +9611,38 @@ class MainWindow(QMainWindow):
 
         settings_section_lbl = QLabel("SD Card Image Explorer — Item Colors:")
         settings_section_lbl.setToolTip("Customize the foreground color for each item type displayed in the SD card image explorer.")
-        grid_tab_Settings.addWidget(settings_section_lbl, 4, 0, 1, 2)
+        grid_tab_Settings.addWidget(settings_section_lbl, 6, 0, 1, 2)
 
         self.settings_btn_color_up_directory = _make_color_button(
             SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory",
             "  Up Directory item",
             "Color used for the '[Up Directory..]' navigation row in the image explorer.",
-            5)
+            7)
         self.settings_btn_color_dir_name = _make_color_button(
             SETTING_COLOR_DIR_NAME, "img_color_dir_name",
             "  Directory name",
             "Color used for directory name entries in the image explorer.",
-            6)
+            8)
         self.settings_btn_color_dir_type = _make_color_button(
             SETTING_COLOR_DIR_TYPE, "img_color_dir_type",
             "  Directory type label",
             "Color used for the 'DIR' type label column of directory entries.",
-            7)
+            9)
         self.settings_btn_color_file_name = _make_color_button(
             SETTING_COLOR_FILE_NAME, "img_color_file_name",
             "  File name",
             "Color used for file name entries in the image explorer.",
-            8)
+            10)
         self.settings_btn_color_file_ext = _make_color_button(
             SETTING_COLOR_FILE_EXT, "img_color_file_ext",
             "  File extension",
             "Color used for the file extension column in the image explorer.",
-            9)
+            11)
         self.settings_btn_color_file_size = _make_color_button(
             SETTING_COLOR_FILE_SIZE, "img_color_file_size",
             "  File size",
             "Color used for the file size column in the image explorer.",
-            10)
+            12)
 
         # ---- Background image opacity ----
         bg_opacity_lbl = QLabel("Background image opacity (%):")
@@ -8866,7 +9650,7 @@ class MainWindow(QMainWindow):
             "Controls how visible the background image is behind the UI.\n"
             "0 = fully hidden, 100 = fully visible. Default is 5%."
         )
-        grid_tab_Settings.addWidget(bg_opacity_lbl, 11, 0)
+        grid_tab_Settings.addWidget(bg_opacity_lbl, 13, 0)
 
         bg_opacity_row = QWidget()
         bg_opacity_row_layout = QHBoxLayout(bg_opacity_row)
@@ -8950,7 +9734,7 @@ class MainWindow(QMainWindow):
 
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_slider, 1)
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_spinbox, 0)
-        grid_tab_Settings.addWidget(bg_opacity_row, 11, 1)
+        grid_tab_Settings.addWidget(bg_opacity_row, 13, 1)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
