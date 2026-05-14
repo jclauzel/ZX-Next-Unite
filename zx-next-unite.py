@@ -131,19 +131,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "4.9"
+ZX_NEXT_UNITE_VERSION = "5.0"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
 ZX_NEXT_UNITE_UI_WIDTH = 900 * ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER
 ZX_NEXT_UNITE_UI_HEIGTH = 650 * ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER
 ZX_NEXT_UNITE_CONFIG_FILE_NAME = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "hdfg.cfg")
-ZX_NEXT_UNITE_TAB_TITLE_GOOEY = "zx-next-unite - SD Card Utility"
-ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "NextSync - Network Transfer Manager"
+ZX_NEXT_UNITE_TAB_TITLE_GOOEY = "TOOL: zx-next-unite - SD Card Utility"
+ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "TOOL: NextSync - Network Transfer Manager"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC_SYNCON = "NextSync - Sync ON"
-ZX_NEXT_UNITE_TAB_TITLE_GETIT = "GetIt"
-ZX_NEXT_UNITE_TAB_TITLE_ZXDB  = "ZXDB"
-ZX_NEXT_UNITE_TAB_TITLE_ZXART = "zxART.ee"
+ZX_NEXT_UNITE_TAB_TITLE_GETIT = "ONLINE: GetIt"
+ZX_NEXT_UNITE_TAB_TITLE_ZXDB  = "ONLINE: ZXDB"
+ZX_NEXT_UNITE_TAB_TITLE_ZXART = "ONLINE: zxART.ee"
 
 GETIT_BASE_URL = "https://zxnext.uk"
 GETIT_PAGE_SIZE = 18
@@ -923,7 +923,10 @@ def zxdb_parse_game_detail(payload) -> dict:
         if not u:
             return ""
         if u.startswith("/"):
-            return "https://spectrumcomputing.co.uk" + u
+            # ZXInfo serves screen/asset paths under https://zxinfo.dk/media.
+            # The older spectrumcomputing.co.uk host returns 404 for these
+            # relative paths (e.g. /zxscreens/0037705/0037705-load-1.png).
+            return "https://zxinfo.dk/media" + u
         return u
 
     # Gather candidate "asset" lists from top-level AND from each release.
@@ -1035,12 +1038,37 @@ def zxdb_parse_game_detail(payload) -> dict:
 # zxART (zxart.ee) helpers
 # ---------------------------------------------------------------------------
 
+def zxart_safe_url(url: str) -> str:
+    """Percent-encode any non-ASCII characters in *url* so the request can be
+    sent over HTTP. Some zxArt asset URLs (e.g. Clive prod images) include
+    Cyrillic characters in their filenames which would otherwise cause
+    ``UnicodeEncodeError`` inside ``http.client``."""
+    try:
+        if not url:
+            return url
+        # Already pure ASCII -> nothing to do.
+        url.encode("ascii")
+        return url
+    except UnicodeEncodeError:
+        pass
+    try:
+        parts = urllib.parse.urlsplit(url)
+        # Preserve reserved characters that are legal in their respective
+        # components; only percent-encode the bytes that are not valid ASCII.
+        path     = urllib.parse.quote(parts.path,     safe="/:@!$&'()*+,;=-._~%")
+        query    = urllib.parse.quote(parts.query,    safe="=&%:/@!$'()*+,;-._~")
+        fragment = urllib.parse.quote(parts.fragment, safe="=&%:/@!$'()*+,;-._~")
+        return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, query, fragment))
+    except Exception:
+        return url
+
+
 def zxart_fetch_json(path: str, timeout: int = 15):
     """GET JSON from the zxART API. *path* is appended to ZXART_BASE_URL.
     Sends the mandatory User-Agent header on every request.
     Retries up to 3 times on HTTP 5xx errors with an exponential back-off."""
     import urllib.error
-    url = ZXART_BASE_URL + path
+    url = zxart_safe_url(ZXART_BASE_URL + path)
     req = urllib.request.Request(
         url,
         headers={
@@ -1077,7 +1105,8 @@ def zxart_fetch_json(path: str, timeout: int = 15):
 
 def zxart_fetch_bytes(url: str, timeout: int = 30) -> bytes:
     """Fetch raw bytes from any URL, identifying as zxART user agent."""
-    req = urllib.request.Request(url, headers={"User-Agent": ZXART_USER_AGENT})
+    req = urllib.request.Request(zxart_safe_url(url),
+                                 headers={"User-Agent": ZXART_USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read()
 
@@ -2039,18 +2068,32 @@ class GalleryCell(QFrame):
     def set_thumb_width(self, w: int):
         """Called by the parent gallery view when the column width changes."""
         w = max(40, int(w))
-        if abs(w - self._thumb_w) < 4:
-            return
+        changed = abs(w - self._thumb_w) >= 4
         self._thumb_w = w
-        # rescale current pixmap if any
+        # Always rescale the current pixmap. Even when the requested width is
+        # unchanged, the pixmap may have been left at the wrong size after
+        # returning from a fullscreen / in-pane viewer where the underlying
+        # QLabel briefly reported a much larger geometry.
         cur = self._current_pixmap()
         if cur is not None:
             self._apply_pixmap(cur)
+        return changed
 
     def set_tags(self, tags):
         """Replace the overlay tag badges."""
         self._tags = [str(t) for t in (tags or []) if t]
         self._refresh_tag_overlay()
+
+    def set_info_text(self, text: str):
+        """Update the hover-only info line (author / date / category, …).
+
+        Called asynchronously by thumb-fetch callbacks once richer metadata
+        becomes available (e.g. GetIt detail records that include the date).
+        """
+        try:
+            self._info_lbl.setText(text or "")
+        except Exception:
+            pass
 
     def _refresh_tag_overlay(self):
         if not getattr(self, "_tag_overlay", None):
@@ -2189,10 +2232,15 @@ class GalleryCell(QFrame):
             # tags can be derived asynchronously (e.g. from a release lookup).
             try:
                 self._thumb_fetch_cb(self._entry, self.set_main_pixmap,
-                                     self.set_screenshots, self.set_tags)
+                                     self.set_screenshots, self.set_tags,
+                                     self.set_info_text)
             except TypeError:
-                self._thumb_fetch_cb(self._entry, self.set_main_pixmap,
-                                     self.set_screenshots)
+                try:
+                    self._thumb_fetch_cb(self._entry, self.set_main_pixmap,
+                                         self.set_screenshots, self.set_tags)
+                except TypeError:
+                    self._thumb_fetch_cb(self._entry, self.set_main_pixmap,
+                                         self.set_screenshots)
         except Exception:
             pass
 
@@ -2245,7 +2293,18 @@ class GalleryCell(QFrame):
             return
         if not self._is_alive():
             return
-        target_w = max(40, self._thumb_lbl.width() or self._thumb_w)
+        # Always cap the target width to the value last requested by the parent
+        # GalleryView (set_thumb_width).  Relying solely on QLabel.width() is
+        # unsafe because, after returning from an in-pane image viewer, the
+        # label's reported width can momentarily exceed the column slot before
+        # the next layout pass — which would scale the pixmap to a giant size
+        # and break the 4-column gallery line.
+        live_w = self._thumb_lbl.width()
+        if live_w > 0:
+            target_w = min(live_w, self._thumb_w)
+        else:
+            target_w = self._thumb_w
+        target_w = max(40, target_w)
         # Reserve a 4:3 area, but let the pixmap aspect ratio decide
         scaled = pm.scaled(target_w, int(target_w * 3 / 4),
                            Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -2375,6 +2434,16 @@ class GalleryView(QWidget):
         if ev.type() == QEvent.Resize and obj is self._table.viewport():
             self._apply_dimensions()
         return super().eventFilter(obj, ev)
+
+    def showEvent(self, ev):
+        # When the gallery becomes visible again — for example after the user
+        # closes the in-pane fullscreen viewer that lives in the same
+        # QStackedWidget — re-apply dimensions so every cell rescales its
+        # thumbnail to the current column width.  Without this, a cell's
+        # QPixmap can remain at the size it was rendered at right before the
+        # viewer was shown and visibly overflow the 4-column row.
+        super().showEvent(ev)
+        QTimer.singleShot(0, self._apply_dimensions)
 
     def _apply_dimensions(self):
         vp_w = max(200, self._table.viewport().width())
@@ -2654,9 +2723,12 @@ class GalleryItemViewer(QWidget):
     # ── private helpers ───────────────────────────────────────────────────
 
     def _wire_btn(self, btn, cb, enabled, tooltip=""):
+        import warnings
         try:
-            btn.clicked.disconnect()
-        except RuntimeError:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                btn.clicked.disconnect()
+        except (RuntimeError, TypeError):
             pass
         btn.setEnabled(bool(enabled) and cb is not None)
         if tooltip:
@@ -2901,7 +2973,7 @@ class MainWindow(QMainWindow):
         # Gallery (picture view) defaults — may be overridden when the cfg file loads.
         self._gallery_anim_mode      = DEFAULT_GALLERY_ANIM_MODE
         self._gallery_rows_per_page  = DEFAULT_GALLERY_ROWS_PER_PAGE
-        self._getit_view_mode        = "table"
+        self._getit_view_mode        = "gallery"
         self._zxdb_view_mode         = "table"
         self._zxart_view_mode        = "table"
 
@@ -6050,6 +6122,12 @@ class MainWindow(QMainWindow):
         self.getit_latest_button = QPushButton("Latest")
         getit_search_row.addWidget(self.getit_latest_button)
 
+        self.getit_random_button = QPushButton("Random")
+        self.getit_random_button.setToolTip(
+            "Pick a random page from the full GetIt catalogue and show its entries."
+        )
+        getit_search_row.addWidget(self.getit_random_button)
+
         getit_search_row.addWidget(QLabel("Page:"))
         self.getit_page_label = QLabel("1")
         self.getit_page_label.setMinimumWidth(24)
@@ -6117,6 +6195,9 @@ class MainWindow(QMainWindow):
         getit_table_row = QHBoxLayout()
 
         self.getit_view_stack = QStackedWidget()
+        # Ensure the stacked area is tall enough to display ~4 rows of
+        # gallery items by default (matches the other panes' density).
+        self.getit_view_stack.setMinimumHeight(620)
         self.getit_view_stack.addWidget(self.getit_results_table)  # index 0: Table
 
         def _getit_gallery_title(e):
@@ -6124,11 +6205,12 @@ class MainWindow(QMainWindow):
         def _getit_gallery_info(e):
             parts = []
             if e.get("author"):   parts.append(e["author"])
+            if e.get("date"):     parts.append(str(e["date"]))
             if e.get("category"): parts.append(e["category"])
-            if e.get("size"):     parts.append(e["size"])
             return " · ".join(parts)
 
-        def _getit_thumb_fetch(entry, set_pixmap, set_screenshots):
+        def _getit_thumb_fetch(entry, set_pixmap, set_screenshots,
+                               set_tags=None, set_info_text=None):
             eid = entry.get("id") or ""
             url = f"{GETIT_BASE_URL}/nx/{eid}/i/"
             set_screenshots([url])
@@ -6146,6 +6228,23 @@ class MainWindow(QMainWindow):
                     _set(px, u)
             def _on_err(_err): pass
             getit_run_in_thread(_fn, _on_done, _on_err)
+
+            # Lazily enrich the hover-info line with the entry date, which is
+            # not part of the list endpoint. Author and category already come
+            # from the list payload, so the cell shows useful info immediately.
+            if set_info_text is not None and eid:
+                def _det_fn(_eid=eid):
+                    text = getit_fetch(f"/nx/{_eid}/f/")
+                    return getit_parse_detail(text)
+                def _det_ok(d, _e=entry, _set=set_info_text):
+                    parts = []
+                    if _e.get("author"):  parts.append(_e["author"])
+                    date = (d.get("DATE") or "").strip() if isinstance(d, dict) else ""
+                    if date:              parts.append(date)
+                    if _e.get("category"):parts.append(_e["category"])
+                    _set(" · ".join(parts))
+                def _det_err(_e): pass
+                getit_run_in_thread(_det_fn, _det_ok, _det_err)
 
         def _getit_extra_fetch(url, on_pixmap):
             # GetIt only exposes a single screenshot per entry; nothing to do.
@@ -6170,7 +6269,7 @@ class MainWindow(QMainWindow):
         def _getit_gallery_context_menu(entry, global_pos):
             eid   = entry.get("id") or ""
             title = entry.get("title") or eid
-            default_name = self._getit_selected_link or f"{eid}.zip"
+            default_name = self._getit_selected_link or f"{eid}.bin"
             _safe_title  = re.sub(r'[<>:"/\\|?*]', "", title).strip() or eid
             _img_path    = self.right_disk_image_path or ""
             _img_label   = (generate_disk_file_path().rstrip("/") + "/" + _safe_title
@@ -6388,6 +6487,58 @@ class MainWindow(QMainWindow):
             self.getit_search_input.clear()
             getit_run_search("", 1)
 
+        def getit_on_random():
+            if self._getit_search_loading:
+                return
+            import random as _random
+            getit_clear_detail()
+            self.getit_search_input.clear()
+            self._getit_last_query = ""
+            self._getit_search_loading = True
+            getit_set_status("Picking random GetIt entries…")
+            self.getit_search_button.setEnabled(False)
+            self.getit_latest_button.setEnabled(False)
+            self.getit_random_button.setEnabled(False)
+
+            def _fn():
+                # Probe the catalogue to find the number of pages, then load
+                # a random one.  GetIt has no random endpoint, so we sample
+                # client-side by page.
+                text = getit_fetch("/f")
+                _entries, _total, _pg, total_pages = getit_parse_file_list(text)
+                tp = max(1, int(total_pages or 1))
+                page = _random.randint(1, tp)
+                if page == 1:
+                    path = "/f"
+                else:
+                    path = f"/f?o={(page - 1) * GETIT_PAGE_SIZE}"
+                text2 = getit_fetch(path)
+                entries, total, _pg2, tp2 = getit_parse_file_list(text2)
+                # Shuffle the page entries so consecutive random clicks differ
+                # even when the random page repeats.
+                _random.shuffle(entries)
+                return (entries, total, page, max(1, int(tp2 or tp)))
+
+            def _on_ok(data):
+                entries, total, page, total_pages = data
+                self._getit_search_loading = False
+                getit_populate_results(entries, page, total_pages)
+                getit_set_status(
+                    f"{len(entries)} random entry(ies)  |  page {page}/{total_pages}"
+                )
+                self.getit_search_button.setEnabled(True)
+                self.getit_latest_button.setEnabled(True)
+                self.getit_random_button.setEnabled(True)
+
+            def _on_err(err):
+                self._getit_search_loading = False
+                getit_set_status(f"Error: {err[1]}")
+                self.getit_search_button.setEnabled(True)
+                self.getit_latest_button.setEnabled(True)
+                self.getit_random_button.setEnabled(True)
+
+            self._getit_random_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
         def getit_on_prev():
             getit_run_search(self._getit_last_query, max(1, self._getit_current_page - 1))
 
@@ -6396,6 +6547,7 @@ class MainWindow(QMainWindow):
 
         self.getit_search_button.clicked.connect(getit_on_search)
         self.getit_latest_button.clicked.connect(getit_on_latest)
+        self.getit_random_button.clicked.connect(getit_on_random)
         self.getit_search_input.returnPressed.connect(getit_on_search)
         self.getit_prev_button.clicked.connect(getit_on_prev)
         self.getit_next_button.clicked.connect(getit_on_next)
@@ -6489,7 +6641,7 @@ class MainWindow(QMainWindow):
             )
 
             # ── action buttons ──────────────────────────────────────────
-            default_name = self._getit_selected_link or f"{eid}.zip"
+            default_name = self._getit_selected_link or f"{eid}.bin"
             _safe_title  = re.sub(r'[<>:"/\\|?*]', "", title).strip() or eid
             _img_path    = self.right_disk_image_path or ""
             _img_label   = (generate_disk_file_path().rstrip("/") + "/" + _safe_title
@@ -6558,35 +6710,109 @@ class MainWindow(QMainWindow):
         # ---- Download file ----
 
         def getit_do_download(eid, default_name):
-            save_path, _ = QFileDialog.getSaveFileName(
-                None, "Save file", default_name
-            )
-            if not save_path:
-                return
-            getit_set_status(f"Downloading {eid}…")
+            getit_set_status(f"Preparing download for {eid}…")
             self.getit_download_button.setEnabled(False)
 
-            def _dl_fn():
+            def _probe_fn():
+                """HEAD request to resolve the server-side filename before we ask
+                the user where to save, so the dialog shows the correct extension."""
                 url = f"{GETIT_BASE_URL}/nx/{eid}/"
-                urllib.request.urlretrieve(url, save_path)
-                return save_path
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": "zx-next-unite-getit/1.0"}
+                )
+                # We open but read nothing — we only want the headers.
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    cd = resp.headers.get("Content-Disposition", "")
+                # Parse: attachment; filename=HeadOverHeels.tap
+                real_name = ""
+                for part in cd.split(";"):
+                    part = part.strip()
+                    if part.lower().startswith("filename="):
+                        real_name = part[len("filename="):].strip().strip('"').strip("'")
+                        break
+                return real_name or os.path.basename(default_name) or f"{eid}.bin"
 
-            def _on_dl_done(p):
-                getit_set_status(f"Saved to {p}")
+            def _on_probe_done(server_filename):
                 self.getit_download_button.setEnabled(True)
+                getit_set_status("")
+                # Show save dialog with the server-provided filename as the default.
+                save_path, _ = QFileDialog.getSaveFileName(
+                    None, "Save file", server_filename
+                )
+                if not save_path:
+                    return
 
-            def _on_dl_error(err):
-                getit_set_status(f"Download error: {err[1]}")
+                # Ensure the save path keeps the correct extension even if the
+                # user typed a different name without an extension.
+                server_ext = os.path.splitext(server_filename)[1]
+                user_ext   = os.path.splitext(save_path)[1]
+                if server_ext and not user_ext:
+                    save_path = save_path + server_ext
+
+                getit_set_status(f"Downloading {eid}…")
+                self.getit_download_button.setEnabled(False)
+
+                def _dl_fn():
+                    url = f"{GETIT_BASE_URL}/nx/{eid}/"
+                    req = urllib.request.Request(
+                        url, headers={"User-Agent": "zx-next-unite-getit/1.0"}
+                    )
+                    with urllib.request.urlopen(req, timeout=60) as resp:
+                        data = resp.read()
+                    with open(save_path, "wb") as fh:
+                        fh.write(data)
+                    return save_path
+
+                def _on_dl_done(p):
+                    getit_set_status(f"Saved to {p}")
+                    self.getit_download_button.setEnabled(True)
+
+                def _on_dl_error(err):
+                    getit_set_status(f"Download error: {err[1]}")
+                    self.getit_download_button.setEnabled(True)
+
+                self._getit_dl_thread = getit_run_in_thread(_dl_fn, _on_dl_done, _on_dl_error)
+
+            def _on_probe_error(err):
+                # Fall back to the old behaviour if the probe fails.
                 self.getit_download_button.setEnabled(True)
+                getit_set_status("")
+                fallback = os.path.basename(default_name) or f"{eid}.bin"
+                save_path, _ = QFileDialog.getSaveFileName(None, "Save file", fallback)
+                if not save_path:
+                    return
+                getit_set_status(f"Downloading {eid}…")
+                self.getit_download_button.setEnabled(False)
 
-            self._getit_dl_thread = getit_run_in_thread(_dl_fn, _on_dl_done, _on_dl_error)
+                def _dl_fn2():
+                    url = f"{GETIT_BASE_URL}/nx/{eid}/"
+                    req = urllib.request.Request(
+                        url, headers={"User-Agent": "zx-next-unite-getit/1.0"}
+                    )
+                    with urllib.request.urlopen(req, timeout=60) as resp:
+                        data = resp.read()
+                    with open(save_path, "wb") as fh:
+                        fh.write(data)
+                    return save_path
+
+                def _on_done2(p):
+                    getit_set_status(f"Saved to {p}")
+                    self.getit_download_button.setEnabled(True)
+
+                def _on_err2(e2):
+                    getit_set_status(f"Download error: {e2[1]}")
+                    self.getit_download_button.setEnabled(True)
+
+                self._getit_dl_thread = getit_run_in_thread(_dl_fn2, _on_done2, _on_err2)
+
+            self._getit_probe_thread = getit_run_in_thread(_probe_fn, _on_probe_done, _on_probe_error)
 
         def getit_on_download():
             if not self._getit_selected_id:
                 return
             getit_do_download(
                 self._getit_selected_id,
-                self._getit_selected_link or f"{self._getit_selected_id}.zip"
+                self._getit_selected_link or f"{self._getit_selected_id}.bin"
             )
 
         self.getit_download_button.clicked.connect(getit_on_download)
@@ -6622,10 +6848,28 @@ class MainWindow(QMainWindow):
             getit_set_status(f"Sending {eid} → image:{img_dest}…")
 
             def _dl_and_put():
-                tmp = tempfile.NamedTemporaryFile(suffix="_" + fname, delete=False)
+                # Resolve the server filename so we use the correct extension.
+                req_h = urllib.request.Request(
+                    url, headers={"User-Agent": "zx-next-unite-getit/1.0"}
+                )
+                with urllib.request.urlopen(req_h, timeout=60) as _resp:
+                    _cd = _resp.headers.get("Content-Disposition", "")
+                    _data = _resp.read()
+                _real = ""
+                for _part in _cd.split(";"):
+                    _part = _part.strip()
+                    if _part.lower().startswith("filename="):
+                        _real = _part[len("filename="):].strip().strip('"').strip("'")
+                        break
+                _use_fname = _real or fname
+                tmp = tempfile.NamedTemporaryFile(suffix="_" + _use_fname, delete=False)
                 tmp.close()
                 try:
-                    urllib.request.urlretrieve(url, tmp.name)
+                    with open(tmp.name, "wb") as _fh:
+                        _fh.write(_data)
+                    # Update dest path with real filename
+                    nonlocal img_dest
+                    img_dest = (img_dir + "/" + _use_fname).replace("//", "/")
                      # Create the sub-directory in the image (ignore errors — may already exist)
                     execute_hdf_monkey("mkdir", image_path, extra_argv=[img_dir], silent=True)
                     # Upload the file into the image
@@ -6666,8 +6910,23 @@ class MainWindow(QMainWindow):
             getit_set_status(f"Sending {eid} → {folder}…")
 
             def _dl_fn():
-                urllib.request.urlretrieve(url, save_path)
-                return save_path
+                req_h = urllib.request.Request(
+                    url, headers={"User-Agent": "zx-next-unite-getit/1.0"}
+                )
+                with urllib.request.urlopen(req_h, timeout=60) as resp:
+                    cd   = resp.headers.get("Content-Disposition", "")
+                    data = resp.read()
+                real = ""
+                for part in cd.split(";"):
+                    part = part.strip()
+                    if part.lower().startswith("filename="):
+                        real = part[len("filename="):].strip().strip('"').strip("'")
+                        break
+                use_fname = real or fname
+                dest = os.path.join(folder, use_fname)
+                with open(dest, "wb") as fh:
+                    fh.write(data)
+                return dest
 
             def _on_done(p):
                 getit_set_status(f"Sent → {p}")
@@ -6692,7 +6951,7 @@ class MainWindow(QMainWindow):
                 return
             eid   = eid_item.text()
             title = title_item.text() if title_item else eid
-            default_name = self._getit_selected_link or f"{eid}.zip"
+            default_name = self._getit_selected_link or f"{eid}.bin"
 
             _safe_title = re.sub(r'[<>:"/\\|?*]', "", title).strip() or eid
 
@@ -6723,10 +6982,10 @@ class MainWindow(QMainWindow):
                 _getit_send_to_image(eid, default_name, title)
             elif chosen is act_send_ns:
                 def _after_ns_dl_gi(_folder):
-                    QTimer.singleShot(0, self._nextsync_start_server_fn)
+                    QTimer.singleShot(0, lambda _f=_folder: self._nextsync_start_server_fn(_f))
                 _getit_send_to_ns_folder(eid, default_name, _ns_base, title, _after_ns_dl_gi)
 
-        self.getit_results_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.getit_results_table.setContextMenuPolicy
         self.getit_results_table.customContextMenuRequested.connect(getit_on_table_context_menu)
 
         # ---- MOTD fetch ----
@@ -9179,13 +9438,11 @@ class MainWindow(QMainWindow):
         self.zxart_search_button = QPushButton(_zxart_tr("Search"))
         zxart_search_row.addWidget(self.zxart_search_button)
 
-        self.zxart_deep_search_cb = QCheckBox(_zxart_tr("Deep"))
-        self.zxart_deep_search_cb.setToolTip(
-            "Off: fast prefix search (finds titles that start with the query).\n"
-            "On: substring search across the full catalog. The first deep\n"
-            "search builds a local catalog cache (one-time download)."
+        self.zxart_random_button = QPushButton(_zxart_tr("Random"))
+        self.zxart_random_button.setToolTip(
+            "Pick a random page of zxART productions and show its entries."
         )
-        zxart_search_row.addWidget(self.zxart_deep_search_cb)
+        zxart_search_row.addWidget(self.zxart_random_button)
 
         self.zxart_mode_combo = QComboBox()
         for _lbl, _key in (
@@ -9446,7 +9703,8 @@ class MainWindow(QMainWindow):
                 return
             set_screenshots(urls)
             def _img_fn(_u=urls[0]):
-                req = urllib.request.Request(_u, headers={"User-Agent": ZXART_USER_AGENT})
+                req = urllib.request.Request(zxart_safe_url(_u),
+                                             headers={"User-Agent": ZXART_USER_AGENT})
                 with urllib.request.urlopen(req, timeout=20) as resp:
                     return (_u, resp.read())
             def _img_ok(res):
@@ -9459,7 +9717,8 @@ class MainWindow(QMainWindow):
 
         def _zxart_extra_fetch(url, on_pixmap):
             def _fn(_u=url):
-                req = urllib.request.Request(_u, headers={"User-Agent": ZXART_USER_AGENT})
+                req = urllib.request.Request(zxart_safe_url(_u),
+                                             headers={"User-Agent": ZXART_USER_AGENT})
                 with urllib.request.urlopen(req, timeout=20) as resp:
                     return resp.read()
             def _on_ok(data):
@@ -9774,7 +10033,8 @@ class MainWindow(QMainWindow):
                     tmp = tempfile.NamedTemporaryFile(suffix="_" + _fname, delete=False)
                     tmp.close()
                     try:
-                        req_tmp = urllib.request.Request(_url, headers={"User-Agent": ZXART_USER_AGENT})
+                        req_tmp = urllib.request.Request(zxart_safe_url(_url),
+                                                         headers={"User-Agent": ZXART_USER_AGENT})
                         with urllib.request.urlopen(req_tmp, timeout=60) as resp_tmp:
                             with open(tmp.name, "wb") as fh:
                                 fh.write(resp_tmp.read())
@@ -9976,6 +10236,10 @@ class MainWindow(QMainWindow):
             self.zxart_search_button.setEnabled(not busy)
             self.zxart_mode_combo.setEnabled(not busy)
             self.zxart_letter_combo.setEnabled(not busy)
+            try:
+                self.zxart_random_button.setEnabled(not busy)
+            except AttributeError:
+                pass
 
         def zxart_run_search(query: str, page: int, on_complete=None):
             if self._zxart_search_loading:
@@ -10029,7 +10293,6 @@ class MainWindow(QMainWindow):
 
             else:  # prods
                 if query:
-                    deep = self.zxart_deep_search_cb.isChecked()
                     def _fn_prods():
                         def _progress(msg: str):
                             # Called from background thread — post to Qt main thread.
@@ -10040,7 +10303,7 @@ class MainWindow(QMainWindow):
                                 Q_ARG(str, msg),
                             )
                         entries, total = zxart_client_search(
-                            query, progress_cb=_progress, deep=deep
+                            query, progress_cb=_progress, deep=False
                         )
                         for e in entries:
                             e["_kind"] = "zxart_prod"
@@ -10110,10 +10373,74 @@ class MainWindow(QMainWindow):
         def zxart_on_next():
             zxart_run_search(self._zxart_last_query, min(self._zxart_total_pages, self._zxart_current_page + 1))
 
+        def zxart_on_random():
+            if self._zxart_search_loading:
+                return
+            import random as _random
+            zxart_clear_detail()
+            self.zxart_search_input.clear()
+            self._zxart_last_query = ""
+            mode = zxart_current_mode()
+            zxart_set_busy(True)
+            zxart_set_status("Picking random zxART entries…")
+
+            def _fn():
+                if mode == "pictures":
+                    export = "zxPicture"
+                    kind = "pictures"
+                else:
+                    export = "zxProd"
+                    kind = "prods"
+                # Probe first page to learn the total number of entries.
+                probe_path = (
+                    f"/export:{export}/language:{_zxart_lang()}/start:0"
+                    f"/limit:{ZXART_PAGE_SIZE}/order:date,desc"
+                )
+                probe_resp = zxart_fetch_json(probe_path)
+                if kind == "pictures":
+                    _e, total = zxart_parse_picture_list(probe_resp)
+                else:
+                    _e, total = zxart_parse_prod_list(probe_resp)
+                total = max(1, int(total or 1))
+                total_pages = max(1, (total + ZXART_PAGE_SIZE - 1) // ZXART_PAGE_SIZE)
+                page = _random.randint(1, total_pages)
+                offset = (page - 1) * ZXART_PAGE_SIZE
+                path = (
+                    f"/export:{export}/language:{_zxart_lang()}/start:{offset}"
+                    f"/limit:{ZXART_PAGE_SIZE}/order:date,desc"
+                )
+                resp = zxart_fetch_json(path)
+                if kind == "pictures":
+                    entries, _tot = zxart_parse_picture_list(resp)
+                    for e in entries:
+                        e["_kind"] = "zxart_pic"
+                else:
+                    entries, _tot = zxart_parse_prod_list(resp)
+                    for e in entries:
+                        e["_kind"] = "zxart_prod"
+                _random.shuffle(entries)
+                return (kind, entries, total, page, total_pages)
+
+            def _on_ok(data):
+                kind, entries, total, page, total_pages = data
+                zxart_populate_results(entries, page, total_pages, kind)
+                noun = "picture(s)" if kind == "pictures" else "production(s)"
+                zxart_set_status(
+                    f"{len(entries)} random {noun}  |  page {page}/{total_pages}"
+                )
+                zxart_set_busy(False)
+
+            def _on_err(err):
+                zxart_set_status(f"Error: {err[1]}")
+                zxart_set_busy(False)
+
+            self._zxart_random_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
         self.zxart_search_button.clicked.connect(zxart_on_search)
         self.zxart_search_input.returnPressed.connect(zxart_on_search)
         self.zxart_prev_button.clicked.connect(zxart_on_prev)
         self.zxart_next_button.clicked.connect(zxart_on_next)
+        self.zxart_random_button.clicked.connect(zxart_on_random)
 
         def zxart_on_mode_changed(_idx):
             mode = zxart_current_mode()
@@ -10698,7 +11025,7 @@ class MainWindow(QMainWindow):
         def _zxart_retranslate_ui():
             try:
                 self.zxart_search_button.setText(_zxart_tr("Search"))
-                self.zxart_deep_search_cb.setText(_zxart_tr("Deep"))
+                self.zxart_random_button.setText(_zxart_tr("Random"))
                 for i, (_lbl, _key) in enumerate(
                     (("Productions", "prods"),
                      ("By letter",  "byletter"),
@@ -10856,7 +11183,7 @@ class MainWindow(QMainWindow):
                 def _fn():
                     try:
                         req = urllib.request.Request(
-                            url,
+                            zxart_safe_url(url),
                             method="HEAD",
                             headers={"User-Agent": ZXART_USER_AGENT},
                         )
