@@ -131,7 +131,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "5.0"
+ZX_NEXT_UNITE_VERSION = "5.1"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
@@ -2000,6 +2000,13 @@ class GalleryCell(QFrame):
         self._selected    = False
         self._thumb_w     = 160       # last applied width hint
         self._tags        = [str(t) for t in (tags or []) if t]
+        # Callable set by GalleryView when this cell ends up with no usable
+        # image (either an explicit empty set_screenshots, or every URL in
+        # the cycling list failed to load).  The view uses it to move the
+        # cell to the end of the grid so the user sees items with pictures
+        # first.  We call it at most once per cell.
+        self._no_image_cb = None
+        self._no_image_notified = False
 
         self.setFrameShape(QFrame.StyledPanel)
         self.setFrameShadow(QFrame.Plain)
@@ -2152,6 +2159,32 @@ class GalleryCell(QFrame):
         if urls and urls[0] in self._shot_cache:
             self._apply_pixmap(self._shot_cache[urls[0]])
         self._maybe_start_anim()
+        # Proactively validate every URL so broken ones (HTTP 404, network
+        # error, etc.) are dropped from the cycling list up front rather
+        # than producing a black frame when the timer lands on them.
+        self._prefetch_all()
+        if not urls:
+            self._notify_no_image()
+
+    def _prefetch_all(self):
+        if not self._extra_fetch_cb or not self._is_alive():
+            return
+        for url in list(self._screenshots):
+            if url in self._shot_cache:
+                continue
+            def _on_px(pm, _u=url):
+                if not self._is_alive():
+                    return
+                if pm is None or pm.isNull():
+                    self._drop_bad_url(_u)
+                    return
+                self._shot_cache[_u] = pm
+                if self._shot_index < len(self._screenshots) and self._screenshots[self._shot_index] == _u:
+                    self._apply_pixmap(pm)
+            try:
+                self._extra_fetch_cb(url, _on_px)
+            except Exception:
+                self._drop_bad_url(url)
 
     def set_main_pixmap(self, pm: QPixmap, url: str = ""):
         if pm is None or pm.isNull():
@@ -2272,6 +2305,9 @@ class GalleryCell(QFrame):
         if self._extra_fetch_cb:
             def _on_px(pm, _u=url):
                 if pm is None or pm.isNull():
+                    # Drop the broken URL so it never causes a black frame
+                    # in the cycling thumbnail.
+                    self._drop_bad_url(_u)
                     return
                 self._shot_cache[_u] = pm
                 if self._shot_index < len(self._screenshots) and self._screenshots[self._shot_index] == _u:
@@ -2279,7 +2315,46 @@ class GalleryCell(QFrame):
             try:
                 self._extra_fetch_cb(url, _on_px)
             except Exception:
-                pass
+                self._drop_bad_url(url)
+
+    def _drop_bad_url(self, url: str):
+        """Remove a URL that failed to load from the cycling list and refresh
+        the displayed frame if necessary."""
+        if not self._is_alive():
+            return
+        try:
+            i = self._screenshots.index(url)
+        except ValueError:
+            return
+        del self._screenshots[i]
+        self._shot_cache.pop(url, None)
+        if not self._screenshots:
+            self._timer.stop()
+            self._shot_index = 0
+            self._notify_no_image()
+            return
+        new_idx = self._shot_index
+        if i < self._shot_index:
+            new_idx = self._shot_index - 1
+        if new_idx >= len(self._screenshots):
+            new_idx = 0
+        self._shot_index = new_idx
+        if len(self._screenshots) <= 1:
+            self._timer.stop()
+        # Show whichever URL is now at this slot (cached or trigger a fetch).
+        self._show_index(new_idx)
+
+    def _notify_no_image(self):
+        if self._no_image_notified:
+            return
+        self._no_image_notified = True
+        cb = self._no_image_cb
+        if cb is None:
+            return
+        try:
+            cb(self)
+        except Exception:
+            pass
 
     def _current_pixmap(self):
         if not self._screenshots:
@@ -2293,18 +2368,14 @@ class GalleryCell(QFrame):
             return
         if not self._is_alive():
             return
-        # Always cap the target width to the value last requested by the parent
-        # GalleryView (set_thumb_width).  Relying solely on QLabel.width() is
-        # unsafe because, after returning from an in-pane image viewer, the
-        # label's reported width can momentarily exceed the column slot before
-        # the next layout pass — which would scale the pixmap to a giant size
-        # and break the 4-column gallery line.
-        live_w = self._thumb_lbl.width()
-        if live_w > 0:
-            target_w = min(live_w, self._thumb_w)
-        else:
-            target_w = self._thumb_w
-        target_w = max(40, target_w)
+        # The pixmap width is driven exclusively by the value last requested
+        # by the parent GalleryView (set_thumb_width).  We deliberately ignore
+        # QLabel.width() here: live geometry can momentarily report a much
+        # larger value during a style polish (e.g. after a click toggles the
+        # selection stylesheet) or after returning from a fullscreen viewer,
+        # which would otherwise scale every cell's pixmap to a giant size and
+        # visibly break the 4-column gallery row.
+        target_w = max(40, int(self._thumb_w))
         # Reserve a 4:3 area, but let the pixmap aspect ratio decide
         scaled = pm.scaled(target_w, int(target_w * 3 / 4),
                            Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -2326,7 +2397,7 @@ class GalleryView(QWidget):
     def __init__(self, rows_per_page_getter, anim_mode_getter,
                  thumb_fetch_cb, extra_fetch_cb,
                  title_getter, info_getter, context_menu_cb=None,
-                 tags_getter=None, parent=None):
+                 tags_getter=None, image_predicate=None, parent=None):
         super().__init__(parent)
         self._rows_per_page_getter = rows_per_page_getter
         self._anim_mode_getter     = anim_mode_getter
@@ -2336,6 +2407,11 @@ class GalleryView(QWidget):
         self._info_getter          = info_getter
         self._context_menu_cb      = context_menu_cb
         self._tags_getter          = tags_getter or _gallery_extract_tags
+        # Optional predicate(entry) -> bool returning True when the entry
+        # is known to have at least one image at populate-time.  Entries
+        # for which the predicate returns False are moved to the end of
+        # the grid so the user sees items with images first.
+        self._image_predicate      = image_predicate
         self._cells = []
         self._selected_cell = None
 
@@ -2369,6 +2445,18 @@ class GalleryView(QWidget):
         """Render `entries` (list of dicts) into the grid. Excess capacity is
         cleared. Caller must have already paged the entries appropriately."""
         entries = list(entries or [])
+        # When an image_predicate is provided, push entries with no known
+        # picture to the end of the grid (stable) so the user sees items
+        # with images first.
+        if self._image_predicate is not None and entries:
+            def _has_img(e):
+                try:
+                    return bool(self._image_predicate(e))
+                except Exception:
+                    return True
+            with_img    = [e for e in entries if _has_img(e)]
+            without_img = [e for e in entries if not _has_img(e)]
+            entries = with_img + without_img
         rows_needed = (len(entries) + GALLERY_COLS - 1) // GALLERY_COLS if entries else 0
         # Tear down any existing cells
         for c in self._cells:
@@ -2414,6 +2502,7 @@ class GalleryView(QWidget):
             cell.set_thumb_width(col_w)
             cell.clicked.connect(self._on_cell_clicked)
             cell.dbl_clicked.connect(self._on_cell_dbl_clicked)
+            cell._no_image_cb = self._on_cell_no_image
             self._table.setCellWidget(r, c, cell)
             self._cells.append(cell)
 
@@ -2463,6 +2552,55 @@ class GalleryView(QWidget):
 
     def _on_cell_dbl_clicked(self, entry):
         self.cell_dbl_clicked.emit(entry)
+
+    def _on_cell_no_image(self, cell):
+        """Called by a GalleryCell when it has determined it has no usable
+        image (either an explicit empty screenshot list, or every URL in the
+        cycling list failed to load).  Move the cell to the end of the grid
+        so the user sees items with pictures first."""
+        if cell is None:
+            return
+        try:
+            idx = self._cells.index(cell)
+        except ValueError:
+            return
+        # If the cell is already in the tail-of-no-image bucket, do nothing.
+        # Detect by counting trailing cells already marked.
+        tail_start = len(self._cells)
+        for j in range(len(self._cells) - 1, -1, -1):
+            if getattr(self._cells[j], "_no_image_notified", False):
+                tail_start = j
+            else:
+                break
+        if idx >= tail_start:
+            return
+        # Move cell to just before the existing tail (preserving order
+        # among no-image cells in the order they got reported).
+        self._cells.pop(idx)
+        self._cells.insert(tail_start - 1, cell)
+        self._relayout_cells()
+
+    def _relayout_cells(self):
+        """Re-bind every cell in self._cells to its new (row, col) slot."""
+        rows_needed = (len(self._cells) + GALLERY_COLS - 1) // GALLERY_COLS if self._cells else 0
+        # Detach existing cells from their current slots without deleting
+        # them.  setCellWidget(r,c,None) would delete the previously set
+        # widget, so we use removeCellWidget which only detaches.
+        total_rows = self._table.rowCount()
+        for r in range(total_rows):
+            for c in range(GALLERY_COLS):
+                if self._table.cellWidget(r, c) is not None:
+                    self._table.removeCellWidget(r, c)
+        self._table.setRowCount(rows_needed)
+        # Re-apply current row height to all rows.
+        vp_w = max(200, self._table.viewport().width())
+        col_w = max(80, vp_w // GALLERY_COLS - 6)
+        row_h = int(col_w * 3 / 4) + 56
+        for r in range(rows_needed):
+            self._table.setRowHeight(r, row_h)
+        for i, cell in enumerate(self._cells):
+            r, c = divmod(i, GALLERY_COLS)
+            self._table.setCellWidget(r, c, cell)
 
 
 def _gallery_stars(rating_value) -> str:
@@ -2607,6 +2745,11 @@ class GalleryItemViewer(QWidget):
         # ── scrollable metadata ───────────────────────────────────────────
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
+        # Long Description values would otherwise let the inner widget grow
+        # horizontally and shift the row labels (e.g. "Description:") under
+        # the left image area.  Forbid the horizontal scrollbar so the
+        # content has to wrap inside the available right-panel width.
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._scroll.setStyleSheet("QScrollArea { border: none; background: #111; }")
         self._meta_widget = QWidget()
         self._rebuild_meta(title, info_rows)
@@ -2638,6 +2781,9 @@ class GalleryItemViewer(QWidget):
         self._update_nav()
         if self._screenshots:
             self._show_index(0)
+            # Proactively validate every URL so broken ones are pruned
+            # before the cycling timer reaches them.
+            self._prefetch_all()
 
     # ── public API ────────────────────────────────────────────────────────
 
@@ -2662,9 +2808,35 @@ class GalleryItemViewer(QWidget):
             self._show_index(0)
             if len(self._screenshots) > 1:
                 self._timer.start()
+            # Proactively fetch every URL so that broken ones (HTTP 404,
+            # network error, etc.) are pruned up front rather than only
+            # when the cycling timer happens to land on them.
+            self._prefetch_all()
         else:
             self._img_lbl.setText("No preview available")
             self._img_lbl.setPixmap(QPixmap())
+
+    def _prefetch_all(self):
+        """Fire an async fetch for every URL in the cycling list so that
+        unreachable images get removed from the list ASAP."""
+        if not self._extra_fetch_cb:
+            return
+        for url in list(self._screenshots):
+            if url in self._shot_cache:
+                continue
+            def _on_px(pm, _u=url):
+                if pm is None or pm.isNull():
+                    self._drop_bad_url(_u)
+                    return
+                self._shot_cache[_u] = pm
+                # If this URL is currently displayed, refresh the view.
+                if self._screenshots and self._shot_index < len(self._screenshots) \
+                        and self._screenshots[self._shot_index] == _u:
+                    self._display_pixmap(pm)
+            try:
+                self._extra_fetch_cb(url, _on_px)
+            except Exception:
+                self._drop_bad_url(url)
 
     def refresh_meta(self, title: str, rows: list):
         """Rebuild the metadata scroll panel (called from async callbacks)."""
@@ -2739,6 +2911,9 @@ class GalleryItemViewer(QWidget):
     def _rebuild_meta(self, title: str, rows: list):
         meta_widget = QWidget()
         meta_widget.setStyleSheet("background: #111;")
+        # Match the right-panel max width so long descriptions never push
+        # the layout horizontally and hide the row labels.
+        meta_widget.setMaximumWidth(400)
         ml = QVBoxLayout(meta_widget)
         ml.setContentsMargins(16, 12, 16, 12)
         ml.setSpacing(6)
@@ -2775,9 +2950,25 @@ class GalleryItemViewer(QWidget):
             lw.setStyleSheet("color: #888;")
             rh.addWidget(lw, 0)
 
-            vw = QLabel(value)
+            vw = QLabel()
+            # Use RichText with explicit word-break so even long unbroken
+            # tokens (URLs, paths, etc.) wrap inside the right panel instead
+            # of forcing the row wider than the QScrollArea viewport, which
+            # would shift the "Description:" caption behind the image area.
+            import html as _html
+            _escaped = _html.escape(str(value or "")).replace("\n", "<br>")
+            vw.setText(
+                f'<div style="word-wrap:break-word; word-break:break-all;">{_escaped}</div>'
+            )
+            vw.setTextFormat(Qt.RichText)
             vw.setAlignment(Qt.AlignTop | Qt.AlignLeft)
             vw.setWordWrap(True)
+            vw.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            vw.setMinimumWidth(0)
+            # Hard cap so the row can never exceed the right-panel width
+            # even if the label's own minimumSizeHint says otherwise.
+            vw.setMaximumWidth(260)
+            vw.setTextInteractionFlags(Qt.TextSelectableByMouse)
             vw.setStyleSheet("color: #ddd;")
             rh.addWidget(vw, 1)
 
@@ -2836,6 +3027,8 @@ class GalleryItemViewer(QWidget):
     def _show_index(self, idx: int):
         if not self._screenshots:
             return
+        if idx < 0 or idx >= len(self._screenshots):
+            idx = 0
         url = self._screenshots[idx]
         self._shot_index = idx
         self._update_nav()
@@ -2848,16 +3041,47 @@ class GalleryItemViewer(QWidget):
         if self._extra_fetch_cb:
             def _on_px(pm, _u=url):
                 if pm is None or pm.isNull():
-                    if self._screenshots and self._screenshots[self._shot_index] == _u:
-                        self._img_lbl.setText("No preview")
+                    # The image failed to download (e.g. HTTP 404).
+                    # Drop it from the cycling list so the slideshow
+                    # never shows a black frame for that slot, and
+                    # advance to a usable neighbour.
+                    self._drop_bad_url(_u)
                     return
                 self._shot_cache[_u] = pm
-                if self._screenshots and self._screenshots[self._shot_index] == _u:
+                if self._screenshots and self._shot_index < len(self._screenshots) \
+                        and self._screenshots[self._shot_index] == _u:
                     self._display_pixmap(pm)
             try:
                 self._extra_fetch_cb(url, _on_px)
             except Exception:
-                self._img_lbl.setText("No preview")
+                self._drop_bad_url(url)
+
+    def _drop_bad_url(self, url: str):
+        """Remove a URL that failed to load from the cycling list."""
+        try:
+            i = self._screenshots.index(url)
+        except ValueError:
+            return
+        del self._screenshots[i]
+        self._shot_cache.pop(url, None)
+        if not self._screenshots:
+            self._timer.stop()
+            self._shot_index = 0
+            self._update_nav()
+            self._img_lbl.setPixmap(QPixmap())
+            self._img_lbl.setText("No preview available")
+            return
+        # Pick a new index that still points to a valid entry.
+        new_idx = self._shot_index
+        if i < self._shot_index:
+            new_idx = self._shot_index - 1
+        if new_idx >= len(self._screenshots):
+            new_idx = 0
+        self._shot_index = new_idx
+        self._update_nav()
+        if len(self._screenshots) <= 1:
+            self._timer.stop()
+        self._show_index(new_idx)
 
     def _display_pixmap(self, pm: QPixmap):
         if pm is None or pm.isNull():
@@ -7140,6 +7364,10 @@ class MainWindow(QMainWindow):
         self.zxdb_letter_combo.setVisible(False)
         zxdb_search_row.addWidget(self.zxdb_letter_combo)
 
+        self.zxdb_latest_button = QPushButton("Latest")
+        self.zxdb_latest_button.setToolTip("Show the most recently added/updated ZXDB games.")
+        zxdb_search_row.addWidget(self.zxdb_latest_button)
+
         self.zxdb_random_button = QPushButton("Random")
         zxdb_search_row.addWidget(self.zxdb_random_button)
 
@@ -7748,6 +7976,7 @@ class MainWindow(QMainWindow):
             self._zxdb_search_loading = busy
             self.zxdb_search_button.setEnabled(not busy)
             self.zxdb_random_button.setEnabled(not busy and zxdb_current_mode() == "games")
+            self.zxdb_latest_button.setEnabled(not busy and zxdb_current_mode() == "games")
             self.zxdb_mode_combo.setEnabled(not busy)
             self.zxdb_letter_combo.setEnabled(not busy)
 
@@ -8060,6 +8289,50 @@ class MainWindow(QMainWindow):
 
             self._zxdb_random_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
+        def zxdb_run_latest():
+            if self._zxdb_search_loading:
+                return
+            self._zxdb_search_loading = True
+            zxdb_set_status("Fetching latest games…")
+            self.zxdb_search_button.setEnabled(False)
+            self.zxdb_random_button.setEnabled(False)
+            self.zxdb_latest_button.setEnabled(False)
+            self._zxdb_last_query = ""
+
+            params = {
+                "size":   str(ZXDB_PAGE_SIZE),
+                "offset": "0",
+                "mode":   "compact",
+                "sort":   "date_desc",
+                "contenttype": "SOFTWARE",
+            }
+            path = f"/search?{urllib.parse.urlencode(params)}"
+
+            def _fn():
+                payload = zxdb_fetch_json(path)
+                entries, total, _pg, total_pages, _ps = zxdb_parse_search(payload)
+                for e in entries:
+                    e["_kind"] = "game"
+                return (entries, total, total_pages)
+
+            def _on_ok(data):
+                entries, total, total_pages = data
+                self._zxdb_search_loading = False
+                zxdb_populate_results(entries, 1, total_pages or 1, "games")
+                zxdb_set_status(f"{len(entries)} latest game(s)")
+                self.zxdb_search_button.setEnabled(True)
+                self.zxdb_random_button.setEnabled(zxdb_current_mode() == "games")
+                self.zxdb_latest_button.setEnabled(zxdb_current_mode() == "games")
+
+            def _on_err(err):
+                self._zxdb_search_loading = False
+                zxdb_set_status(f"Error: {err[1]}")
+                self.zxdb_search_button.setEnabled(True)
+                self.zxdb_random_button.setEnabled(zxdb_current_mode() == "games")
+                self.zxdb_latest_button.setEnabled(zxdb_current_mode() == "games")
+
+            self._zxdb_latest_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
         def zxdb_on_search():
             zxdb_clear_detail()
             q = self.zxdb_search_input.text().strip()
@@ -8086,6 +8359,17 @@ class MainWindow(QMainWindow):
             self.zxdb_search_input.clear()
             zxdb_run_random()
 
+        def zxdb_on_latest():
+            zxdb_clear_detail()
+            self.zxdb_search_input.clear()
+            # Force the mode to 'games' so the latest list is meaningful.
+            for i in range(self.zxdb_mode_combo.count()):
+                if self.zxdb_mode_combo.itemData(i) == "games":
+                    if self.zxdb_mode_combo.currentIndex() != i:
+                        self.zxdb_mode_combo.setCurrentIndex(i)
+                    break
+            zxdb_run_latest()
+
         def zxdb_on_prev():
             zxdb_run_search(self._zxdb_last_query, max(1, self._zxdb_current_page - 1))
 
@@ -8094,6 +8378,7 @@ class MainWindow(QMainWindow):
 
         self.zxdb_search_button.clicked.connect(zxdb_on_search)
         self.zxdb_random_button.clicked.connect(zxdb_on_random)
+        self.zxdb_latest_button.clicked.connect(zxdb_on_latest)
         self.zxdb_search_input.returnPressed.connect(zxdb_on_search)
         self.zxdb_prev_button.clicked.connect(zxdb_on_prev)
         self.zxdb_next_button.clicked.connect(zxdb_on_next)
@@ -8111,6 +8396,7 @@ class MainWindow(QMainWindow):
             self.zxdb_search_input.setVisible(mode != "byletter")
             self.zxdb_letter_combo.setVisible(mode == "byletter")
             self.zxdb_random_button.setEnabled(mode == "games")
+            self.zxdb_latest_button.setEnabled(mode == "games")
             # Reset paging/results when switching modes.
             self._zxdb_last_query = ""
             self._zxdb_current_page = 1
@@ -9438,6 +9724,12 @@ class MainWindow(QMainWindow):
         self.zxart_search_button = QPushButton(_zxart_tr("Search"))
         zxart_search_row.addWidget(self.zxart_search_button)
 
+        self.zxart_latest_button = QPushButton(_zxart_tr("Latest"))
+        self.zxart_latest_button.setToolTip(
+            "Show the most recent zxART productions/pictures (sorted by date)."
+        )
+        zxart_search_row.addWidget(self.zxart_latest_button)
+
         self.zxart_random_button = QPushButton(_zxart_tr("Random"))
         self.zxart_random_button.setToolTip(
             "Pick a random page of zxART productions and show its entries."
@@ -9832,6 +10124,16 @@ class MainWindow(QMainWindow):
                     _zxart_send_to_path(t, dls, _nb, _after)
                 _ensure_detail_then(_send_ns)
 
+        def _zxart_has_image(e):
+            src = e.get("_source") or {}
+            kind = (e.get("_kind") or "").lower()
+            if kind == "zxart_picture":
+                return bool(src.get("imageUrl") or src.get("originalUrl"))
+            for u in (src.get("imagesUrls") or []):
+                if u:
+                    return True
+            return False
+
         self.zxart_gallery_view = GalleryView(
             rows_per_page_getter=lambda: self._gallery_rows_per_page,
             anim_mode_getter=lambda: self._gallery_anim_mode,
@@ -9840,6 +10142,7 @@ class MainWindow(QMainWindow):
             title_getter=_zxart_gallery_title,
             info_getter=_zxart_gallery_info,
             context_menu_cb=_zxart_gallery_context_menu,
+            image_predicate=_zxart_has_image,
         )
         self.zxart_view_stack.addWidget(self.zxart_gallery_view)  # index 1
 
@@ -9897,9 +10200,33 @@ class MainWindow(QMainWindow):
 
         def _zxart_add_row(label: str, value: str, *, dim: bool = False, wrap: bool = True):
             lab = QLabel(_zxart_tr(label))
-            val = QLabel(value or "")
+            full_text = value or ""
+            # Cap very long values (e.g. Description / Tags) so they cannot
+            # grow the detail panel tall enough to push the gallery row out of
+            # view. The full text remains accessible via the tooltip.
+            MAX_CHARS = 400
+            if len(full_text) > MAX_CHARS:
+                display_text = full_text[:MAX_CHARS].rstrip() + "…"
+            else:
+                display_text = full_text
+            val = QLabel(display_text)
+            if full_text and full_text != display_text:
+                val.setToolTip(full_text)
             if wrap:
                 val.setWordWrap(True)
+                # A word-wrapping QLabel reports its *unwrapped* width via
+                # sizeHint(). For long Description / Tags values that pushes
+                # the surrounding QFormLayout — and ultimately the whole pane
+                # — much wider, which in turn enlarges the gallery viewport
+                # and causes every GalleryCell thumbnail to rescale up on the
+                # next click/layout pass. Ignoring the horizontal hint keeps
+                # the label inside whatever width the layout gives it.
+                val.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+                val.setMinimumWidth(0)
+                # Cap vertical growth to a few lines so the gallery above
+                # always remains visible.
+                fm = val.fontMetrics()
+                val.setMaximumHeight(fm.lineSpacing() * 4 + 4)
             if dim:
                 val.setStyleSheet("color: #888;")
             self._zxart_detail_layout.addRow(lab, val)
@@ -10240,6 +10567,10 @@ class MainWindow(QMainWindow):
                 self.zxart_random_button.setEnabled(not busy)
             except AttributeError:
                 pass
+            try:
+                self.zxart_latest_button.setEnabled(not busy)
+            except AttributeError:
+                pass
 
         def zxart_run_search(query: str, page: int, on_complete=None):
             if self._zxart_search_loading:
@@ -10373,6 +10704,14 @@ class MainWindow(QMainWindow):
         def zxart_on_next():
             zxart_run_search(self._zxart_last_query, min(self._zxart_total_pages, self._zxart_current_page + 1))
 
+        def zxart_on_latest():
+            zxart_clear_detail()
+            self.zxart_search_input.clear()
+            self._zxart_last_query = ""
+            # zxart_run_search with empty query already uses order:date,desc for
+            # both 'prods' and 'pictures' modes, returning the most recent items.
+            zxart_run_search("", 1)
+
         def zxart_on_random():
             if self._zxart_search_loading:
                 return
@@ -10441,6 +10780,7 @@ class MainWindow(QMainWindow):
         self.zxart_prev_button.clicked.connect(zxart_on_prev)
         self.zxart_next_button.clicked.connect(zxart_on_next)
         self.zxart_random_button.clicked.connect(zxart_on_random)
+        self.zxart_latest_button.clicked.connect(zxart_on_latest)
 
         def zxart_on_mode_changed(_idx):
             mode = zxart_current_mode()
@@ -11026,6 +11366,7 @@ class MainWindow(QMainWindow):
             try:
                 self.zxart_search_button.setText(_zxart_tr("Search"))
                 self.zxart_random_button.setText(_zxart_tr("Random"))
+                self.zxart_latest_button.setText(_zxart_tr("Latest"))
                 for i, (_lbl, _key) in enumerate(
                     (("Productions", "prods"),
                      ("By letter",  "byletter"),
