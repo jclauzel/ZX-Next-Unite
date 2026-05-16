@@ -131,7 +131,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "5.2"
+ZX_NEXT_UNITE_VERSION = "5.3"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
@@ -144,6 +144,7 @@ ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC_SYNCON = "NextSync - Sync ON"
 ZX_NEXT_UNITE_TAB_TITLE_GETIT = "ONLINE: GetIt"
 ZX_NEXT_UNITE_TAB_TITLE_ZXDB  = "ONLINE: ZXDB"
 ZX_NEXT_UNITE_TAB_TITLE_ZXART = "ONLINE: zxART.ee"
+ZX_NEXT_UNITE_TAB_TITLE_FAVORITES = "ONLINE: ♥ Favorites"
 
 GETIT_BASE_URL = "https://zxnext.uk"
 GETIT_PAGE_SIZE = 18
@@ -197,6 +198,8 @@ SETTING_GETIT_VIEW_MODE        = "getit_view_mode"          # "table" (default) 
 SETTING_ZXDB_VIEW_MODE         = "zxdb_view_mode"
 SETTING_ZXART_VIEW_MODE        = "zxart_view_mode"
 SETTING_ZXART_LANGUAGE         = "zxart_language"          # "eng" | "pol" | "spa"
+SETTING_FAVORITES              = "favorites"               # JSON list of favorite entries
+SETTING_FAVORITES_VIEW_MODE    = "favorites_view_mode"     # "gallery" (default) or "table"
 DEFAULT_ZXART_LANGUAGE         = "eng"
 ZXART_LANGUAGE_CHOICES         = (
     ("English", "eng"),
@@ -424,7 +427,11 @@ def _build_disclaimer_text():
 
 _DISCLAIMER_TEXT = _build_disclaimer_text()
 
-CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE, SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME, SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_GALLERY_ANIM_MODE, SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE, SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE)
+CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE,
+SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME,
+SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_GALLERY_ANIM_MODE,
+SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
+SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
@@ -1962,6 +1969,257 @@ def _gallery_extract_tags(entry: dict) -> list:
     return tags[:5]
 
 
+# ---------------------------------------------------------------------------
+# ZX Spectrum file-format helpers (used for gallery placeholder thumbnails
+# when a content entry has no actual picture available).  Reference list:
+#   https://worldofspectrum.org/faq/reference/formats.htm
+# ---------------------------------------------------------------------------
+
+# Recognised image-bearing extensions (real screenshots/cover scans).
+ZXFMT_IMAGE_EXTS = (
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp",
+    ".scr",                 # Spectrum native screen$
+    ".mlt",                 # MULTITECH ULAplus 8x1 attribute screen
+    ".ifl", ".bsc", ".mc",  # 8x1, BiFROST, multicolour screens
+    ".nxi",                 # ZX Spectrum Next layer-2 raw screen
+    ".slr", ".sli",         # SamRam Spectrum / scanline images
+    ".chr$",                # Char-mapped images
+)
+
+# Format -> short tag shown in big letters in the placeholder thumbnail.
+# Keep ordering meaningful (specific before generic).  Bucketed by category.
+ZXFMT_PLACEHOLDER_LABELS = (
+    # Snapshots
+    ("sna",  "SNA"),
+    ("z80",  "Z80"),
+    ("szx",  "SZX"),
+    ("sp",   "SP"),
+    ("zx",   "ZX"),
+    ("slt",  "SLT"),
+    # Tape images
+    ("tap",  "TAP"),
+    ("tzx",  "TZX"),
+    ("pzx",  "PZX"),
+    ("cdt",  "CDT"),
+    ("csw",  "CSW"),
+    ("voc",  "VOC"),
+    ("wav",  "WAV"),
+    ("mp3",  "MP3"),
+    ("ogg",  "OGG"),
+    ("flac", "FLAC"),
+    # Disk images
+    ("dsk",  "DSK"),
+    ("trd",  "TRD"),
+    ("scl",  "SCL"),
+    ("fdi",  "FDI"),
+    ("td0",  "TD0"),
+    ("img",  "IMG"),
+    ("mgt",  "MGT"),
+    ("opd",  "OPD"),
+    ("opu",  "OPU"),
+    ("hdf",  "HDF"),
+    ("$b",   "$B"),
+    ("$c",   "$C"),
+    # Cartridges / ROM
+    ("rom",  "ROM"),
+    ("dck",  "DCK"),
+    # Pokes / cheats
+    ("pok",  "POK"),
+    # Source / code
+    ("bas",  "BAS"),
+    ("asm",  "ASM"),
+    ("z80s", "ASM"),
+    ("c",    "C"),
+    ("h",    "H"),
+    ("pas",  "PAS"),
+    # Documents
+    ("pdf",  "PDF"),
+    ("txt",  "TXT"),
+    ("doc",  "DOC"),
+    ("docx", "DOCX"),
+    ("rtf",  "RTF"),
+    ("htm",  "HTM"),
+    ("html", "HTML"),
+    ("nfo",  "NFO"),
+    ("diz",  "DIZ"),
+    ("md",   "MD"),
+    # Archives
+    ("zip",  "ZIP"),
+    ("7z",   "7Z"),
+    ("rar",  "RAR"),
+    ("tar",  "TAR"),
+    ("gz",   "GZ"),
+    ("xz",   "XZ"),
+    # Misc / fallback
+    ("xml",  "XML"),
+    ("json", "JSON"),
+)
+
+
+def zxfmt_split_ext(name: str) -> str:
+    """Return the lower-case extension (without the dot) of *name*, handling
+    composite/uncommon Spectrum extensions like ``.tap.zip`` and ``$b``."""
+    if not name:
+        return ""
+    n = name.lower().strip()
+    # Strip query strings / fragments if a URL was passed in.
+    for sep in ("?", "#"):
+        if sep in n:
+            n = n.split(sep, 1)[0]
+    n = os.path.basename(n)
+    # Composite ``foo.tap.zip`` -> use the inner format as the primary hint.
+    parts = n.split(".")
+    if len(parts) >= 3 and parts[-1] in ("zip", "gz", "xz", "7z", "rar"):
+        inner = parts[-2]
+        if inner:
+            return inner
+    if "." in n:
+        return n.rsplit(".", 1)[-1]
+    # Files like ``foo$b`` (BASIC) or ``foo$c`` (CODE) come from +D / DISCiPLE.
+    if "$" in n:
+        return "$" + n.rsplit("$", 1)[-1]
+    return ""
+
+
+def zxfmt_is_image_name(name: str) -> bool:
+    """Return True if *name* points at an actual picture (not a generic
+    document or binary)."""
+    if not name:
+        return False
+    n = name.lower()
+    for sep in ("?", "#"):
+        if sep in n:
+            n = n.split(sep, 1)[0]
+    return any(n.endswith(ext) for ext in ZXFMT_IMAGE_EXTS)
+
+
+def zxfmt_label_for_name(name: str) -> str:
+    """Return a short upper-case label to render in a placeholder thumbnail
+    for *name* (e.g. ``"TAP"``, ``"PDF"``, ``"POK"``).  Falls back to the
+    extension itself, then to ``"FILE"``."""
+    ext = zxfmt_split_ext(name)
+    if not ext:
+        return "FILE"
+    for needle, label in ZXFMT_PLACEHOLDER_LABELS:
+        if ext == needle:
+            return label
+    return ext.upper()[:6]
+
+
+def zxfmt_make_placeholder_pixmap(label: str, subtitle: str = "",
+                                  width: int = 320) -> QPixmap:
+    """Render a 4:3 placeholder QPixmap with *label* in big letters and an
+    optional *subtitle* (typically the file name) below.  Used by the
+    gallery cells when no real screenshot is available so the user can still
+    tell at a glance what kind of content the entry holds."""
+    w = max(160, int(width))
+    h = int(w * 3 / 4)
+    pm = QPixmap(w, h)
+    pm.fill(QColor("#101820"))
+    p = QPainter(pm)
+    try:
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setRenderHint(QPainter.TextAntialiasing, True)
+        # Frame
+        p.setPen(QColor("#3a4a5a"))
+        p.drawRect(2, 2, w - 5, h - 5)
+        # Big label
+        big = QFont()
+        big.setBold(True)
+        # Scale font size to roughly fit the label width.
+        target_w = int(w * 0.7)
+        size = max(18, int(h * 0.42))
+        big.setPointSize(size)
+        p.setFont(big)
+        # Reduce until the label fits.
+        for _ in range(12):
+            fm = p.fontMetrics()
+            if fm.horizontalAdvance(label) <= target_w:
+                break
+            size = max(10, size - 2)
+            big.setPointSize(size)
+            p.setFont(big)
+        p.setPen(QColor("#ffd24a"))
+        fm = p.fontMetrics()
+        label_h = fm.height()
+        label_y = int(h / 2) - 4
+        p.drawText(QRect(0, label_y - label_h, w, label_h),
+                   Qt.AlignCenter, label)
+        # Subtitle (file name) underneath
+        if subtitle:
+            sub = QFont()
+            sub.setPointSize(max(8, int(h * 0.09)))
+            p.setFont(sub)
+            p.setPen(QColor("#cfd8dc"))
+            fm2 = p.fontMetrics()
+            sub_text = subtitle
+            avail = w - 16
+            if fm2.horizontalAdvance(sub_text) > avail:
+                sub_text = fm2.elidedText(sub_text, Qt.ElideMiddle, avail)
+            sub_y = label_y + 6
+            p.drawText(QRect(8, sub_y, w - 16, fm2.height() + 4),
+                       Qt.AlignHCenter | Qt.AlignTop, sub_text)
+    finally:
+        p.end()
+    return pm
+
+
+def zxfmt_pick_best_download(downloads):
+    """From a list of download dicts (each may have ``url``/``filename``/
+    ``format``/``type``), pick the entry most suitable for a placeholder
+    thumbnail label.  Preference order: tape > disk > snapshot > pok > docs
+    > anything else.  Returns ``(label, filename)`` or ``("FILE", "")`` if
+    *downloads* is empty / unusable."""
+    if not downloads:
+        return ("FILE", "")
+    priority = {
+        # tapes
+        "tap": 0, "tzx": 0, "pzx": 0, "cdt": 0, "csw": 1,
+        # disks
+        "trd": 2, "scl": 2, "dsk": 2, "fdi": 2, "td0": 2, "mgt": 2, "img": 2,
+        # snapshots
+        "sna": 3, "z80": 3, "szx": 3, "sp": 3, "slt": 3,
+        # cartridges
+        "rom": 4, "dck": 4,
+        # pokes
+        "pok": 5,
+        # docs
+        "pdf": 6, "txt": 6, "nfo": 6, "diz": 6,
+        # archives
+        "zip": 8, "7z": 8, "rar": 8, "tar": 8, "gz": 8, "xz": 8,
+    }
+    best = None
+    best_rank = 999
+    for d in downloads:
+        if not isinstance(d, dict):
+            continue
+        name = str(d.get("filename") or "")
+        url  = str(d.get("url") or "")
+        ref  = name or url
+        if not ref:
+            continue
+        ext  = zxfmt_split_ext(ref)
+        rank = priority.get(ext, 7)
+        if rank < best_rank:
+            best_rank = rank
+            best = (zxfmt_label_for_name(ref), name or os.path.basename(
+                urllib.parse.urlparse(url).path) if url else name)
+    if best is None:
+        # Fall back to the first usable entry.
+        for d in downloads:
+            if not isinstance(d, dict):
+                continue
+            name = str(d.get("filename") or "")
+            url  = str(d.get("url") or "")
+            ref  = name or url
+            if not ref:
+                continue
+            return (zxfmt_label_for_name(ref),
+                    name or os.path.basename(urllib.parse.urlparse(url).path))
+        return ("FILE", "")
+    return best
+
+
 class GalleryCell(QFrame):
     """A picture-view tile: thumbnail + title + (hover-only) info line.
 
@@ -1986,13 +2244,18 @@ class GalleryCell(QFrame):
     def __init__(self, entry, anim_mode_getter,
                  thumb_fetch_cb, extra_fetch_cb,
                  title_text="", info_text="", context_menu_cb=None,
-                 tags=None, parent=None):
+                 tags=None, parent=None,
+                 is_favorite_cb=None, toggle_favorite_cb=None,
+                 source_label_getter=None):
         super().__init__(parent)
         self._entry = entry
         self._anim_mode_getter = anim_mode_getter  # callable -> "hover"|"timer"
         self._thumb_fetch_cb = thumb_fetch_cb
         self._extra_fetch_cb = extra_fetch_cb
         self._context_menu_cb = context_menu_cb
+        self._is_favorite_cb     = is_favorite_cb
+        self._toggle_favorite_cb = toggle_favorite_cb
+        self._source_label_getter = source_label_getter
         self._screenshots = []        # list of URL strings (or dicts {"url": ...})
         self._shot_cache  = {}        # url -> QPixmap
         self._shot_index  = 0
@@ -2037,6 +2300,35 @@ class GalleryCell(QFrame):
         self._tag_overlay.setStyleSheet("background: transparent;")
         self._tag_overlay.setVisible(False)
         self._refresh_tag_overlay()
+
+        # Heart (favorite) button overlay – bottom-right of the thumbnail.
+        self._heart_btn = QToolButton(self._thumb_lbl)
+        self._heart_btn.setCursor(Qt.PointingHandCursor)
+        self._heart_btn.setAutoRaise(True)
+        self._heart_btn.setFocusPolicy(Qt.NoFocus)
+        self._heart_btn.setText("♡")
+        self._heart_btn.setToolTip("Add to favorites")
+        self._heart_btn.setStyleSheet(
+            "QToolButton { color: #ff5577; background: rgba(0,0,0,140);"
+            " border: 1px solid rgba(255,255,255,40); border-radius: 10px;"
+            " padding: 0px 4px; font-size: 14pt; font-weight: bold; }"
+            "QToolButton:hover { background: rgba(0,0,0,200);"
+            " border-color: #ff5577; }"
+        )
+        self._heart_btn.setVisible(bool(self._toggle_favorite_cb))
+        self._heart_btn.clicked.connect(self._on_heart_clicked)
+
+        # Source-pane overlay badge (top-left of thumbnail).  Used by the
+        # Favorites gallery to show whether an item came from GetIt / ZXDB /
+        # zxArt.  Hidden by default for the regular galleries.
+        self._source_overlay = QLabel(self._thumb_lbl)
+        self._source_overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._source_overlay.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self._source_overlay.setTextFormat(Qt.RichText)
+        self._source_overlay.setStyleSheet("background: transparent;")
+        self._source_overlay.setVisible(False)
+        self._refresh_source_overlay()
+        self._refresh_heart()
 
         self._title_lbl = QLabel(title_text or "", self)
         self._title_lbl.setAlignment(Qt.AlignCenter)
@@ -2138,6 +2430,86 @@ class GalleryCell(QFrame):
         ov.setGeometry(self._thumb_lbl.width() - w - pad, pad, w, h)
         ov.raise_()
 
+    def _refresh_source_overlay(self):
+        ov = getattr(self, "_source_overlay", None)
+        if ov is None:
+            return
+        getter = self._source_label_getter
+        label = ""
+        if getter is not None:
+            try:
+                label = str(getter(self._entry) or "").strip()
+            except Exception:
+                label = ""
+        if not label:
+            ov.setVisible(False)
+            ov.setText("")
+            return
+        chip_css = (
+            "background:#3a1c52;color:#e8bfff;border:1px solid #6f2f9a;"
+            "border-radius:3px;padding:1px 6px;margin:1px 2px;"
+            "font-size:9pt;font-weight:600;"
+        )
+        ov.setText(f"<div style='text-align:left;'>"
+                   f"<span style='{chip_css}'>{label}</span></div>")
+        ov.setVisible(True)
+        self._position_source_overlay()
+
+    def _position_source_overlay(self):
+        ov = getattr(self, "_source_overlay", None)
+        if ov is None or not ov.isVisible():
+            return
+        pad = 4
+        ov.adjustSize()
+        w = min(ov.width(), max(40, self._thumb_lbl.width() - 2 * pad))
+        h = ov.sizeHint().height()
+        ov.setGeometry(pad, pad, w, h)
+        ov.raise_()
+
+    def _refresh_heart(self):
+        btn = getattr(self, "_heart_btn", None)
+        if btn is None:
+            return
+        if not self._toggle_favorite_cb:
+            btn.setVisible(False)
+            return
+        is_fav = False
+        if self._is_favorite_cb is not None:
+            try:
+                is_fav = bool(self._is_favorite_cb(self._entry))
+            except Exception:
+                is_fav = False
+        btn.setText("♥" if is_fav else "♡")
+        btn.setToolTip("Remove from favorites" if is_fav else "Add to favorites")
+        btn.setVisible(True)
+        self._position_heart()
+
+    def _position_heart(self):
+        btn = getattr(self, "_heart_btn", None)
+        if btn is None or not btn.isVisible():
+            return
+        pad = 4
+        btn.adjustSize()
+        w = btn.sizeHint().width()
+        h = btn.sizeHint().height()
+        btn.setGeometry(self._thumb_lbl.width() - w - pad,
+                         self._thumb_lbl.height() - h - pad, w, h)
+        btn.raise_()
+
+    def _on_heart_clicked(self):
+        if not self._toggle_favorite_cb:
+            return
+        try:
+            self._toggle_favorite_cb(self._entry)
+        except Exception:
+            pass
+        self._refresh_heart()
+
+    def set_favorite_state_changed(self):
+        """External hook: re-query the favorite predicate (e.g. when another
+        view toggled the favorite state for this entry)."""
+        self._refresh_heart()
+
     def _is_alive(self) -> bool:
         """Return False if the underlying C++ QWidget has already been deleted
         (which happens when GalleryView.populate() tears cells down while
@@ -2163,7 +2535,13 @@ class GalleryCell(QFrame):
         # error, etc.) are dropped from the cycling list up front rather
         # than producing a black frame when the timer lands on them.
         self._prefetch_all()
+        # An entry made of nothing but synthetic placeholder URLs has no
+        # real picture: notify the view so it can move the cell to the end
+        # of the grid (the user wants image-bearing items first).
         if not urls:
+            self._notify_no_image()
+        elif all(isinstance(u, str) and u.startswith("placeholder://")
+                 for u in urls):
             self._notify_no_image()
 
     def _prefetch_all(self):
@@ -2244,6 +2622,8 @@ class GalleryCell(QFrame):
         if cur is not None:
             self._apply_pixmap(cur)
         self._position_tag_overlay()
+        self._position_source_overlay()
+        self._position_heart()
         super().resizeEvent(ev)
 
     # ---- internals -----------------------------------------------------
@@ -2382,6 +2762,8 @@ class GalleryCell(QFrame):
         self._thumb_lbl.setPixmap(scaled)
         self._thumb_lbl.setText("")
         self._position_tag_overlay()
+        self._position_source_overlay()
+        self._position_heart()
 
 
 class GalleryView(QWidget):
@@ -2397,7 +2779,9 @@ class GalleryView(QWidget):
     def __init__(self, rows_per_page_getter, anim_mode_getter,
                  thumb_fetch_cb, extra_fetch_cb,
                  title_getter, info_getter, context_menu_cb=None,
-                 tags_getter=None, image_predicate=None, parent=None):
+                 tags_getter=None, image_predicate=None,
+                 is_favorite_cb=None, toggle_favorite_cb=None,
+                 source_label_getter=None, parent=None):
         super().__init__(parent)
         self._rows_per_page_getter = rows_per_page_getter
         self._anim_mode_getter     = anim_mode_getter
@@ -2407,6 +2791,9 @@ class GalleryView(QWidget):
         self._info_getter          = info_getter
         self._context_menu_cb      = context_menu_cb
         self._tags_getter          = tags_getter or _gallery_extract_tags
+        self._is_favorite_cb       = is_favorite_cb
+        self._toggle_favorite_cb   = toggle_favorite_cb
+        self._source_label_getter  = source_label_getter
         # Optional predicate(entry) -> bool returning True when the entry
         # is known to have at least one image at populate-time.  Entries
         # for which the predicate returns False are moved to the end of
@@ -2498,6 +2885,9 @@ class GalleryView(QWidget):
                 context_menu_cb=self._context_menu_cb,
                 tags=tags,
                 parent=self._table,
+                is_favorite_cb=self._is_favorite_cb,
+                toggle_favorite_cb=self._toggle_favorite_cb,
+                source_label_getter=self._source_label_getter,
             )
             cell.set_thumb_width(col_w)
             cell.clicked.connect(self._on_cell_clicked)
@@ -2523,6 +2913,16 @@ class GalleryView(QWidget):
         if ev.type() == QEvent.Resize and obj is self._table.viewport():
             self._apply_dimensions()
         return super().eventFilter(obj, ev)
+
+    def refresh_favorites(self):
+        """Re-query the favorite predicate on every cell. Called when the
+        favorite state changes externally (e.g. via the fullscreen viewer
+        or another pane's favorite toggle)."""
+        for cell in self._cells:
+            try:
+                cell.set_favorite_state_changed()
+            except Exception:
+                pass
 
     def showEvent(self, ev):
         # When the gallery becomes visible again — for example after the user
@@ -2555,30 +2955,20 @@ class GalleryView(QWidget):
 
     def _on_cell_no_image(self, cell):
         """Called by a GalleryCell when it has determined it has no usable
-        image (either an explicit empty screenshot list, or every URL in the
-        cycling list failed to load).  Move the cell to the end of the grid
-        so the user sees items with pictures first."""
-        if cell is None:
-            return
-        try:
-            idx = self._cells.index(cell)
-        except ValueError:
-            return
-        # If the cell is already in the tail-of-no-image bucket, do nothing.
-        # Detect by counting trailing cells already marked.
-        tail_start = len(self._cells)
-        for j in range(len(self._cells) - 1, -1, -1):
-            if getattr(self._cells[j], "_no_image_notified", False):
-                tail_start = j
-            else:
-                break
-        if idx >= tail_start:
-            return
-        # Move cell to just before the existing tail (preserving order
-        # among no-image cells in the order they got reported).
-        self._cells.pop(idx)
-        self._cells.insert(tail_start - 1, cell)
-        self._relayout_cells()
+        image.  The desired "image-bearing first" ordering is applied at
+        populate-time via the ``image_predicate`` callback, so we do NOT
+        try to move widgets between table cells here: ``QTableWidget``'s
+        ``removeCellWidget`` / ``setCellWidget(r,c,None)`` both delete the
+        previously installed widget (per Qt's ``setIndexWidget`` semantics),
+        which would tear down every cell in the grid the moment a single
+        thumb-less entry reported no image.  The cell flag remains set so
+        callers can still query it, but the grid layout stays intact."""
+        return
+
+    def _apply_no_image_relayout(self):
+        # Retained for backwards compatibility; intentionally a no-op now
+        # that runtime reordering is disabled (see ``_on_cell_no_image``).
+        return
 
     def _relayout_cells(self):
         """Re-bind every cell in self._cells to its new (row, col) slot."""
@@ -2660,6 +3050,9 @@ class GalleryItemViewer(QWidget):
         self._extra_fetch_cb = extra_fetch_cb
         self._close_fn       = None   # set by install_into_stack()
         self._tags           = [str(t) for t in (tags or []) if t]
+        self._is_favorite_cb     = None
+        self._toggle_favorite_cb = None
+        self._fav_entry          = None
 
         # ── root layout ──────────────────────────────────────────────────
         root = QHBoxLayout(self)
@@ -2731,6 +3124,17 @@ class GalleryItemViewer(QWidget):
         close_bar = QHBoxLayout()
         close_bar.setContentsMargins(10, 8, 10, 4)
         close_bar.addStretch()
+        self._heart_btn = QToolButton()
+        self._heart_btn.setText("♡")
+        self._heart_btn.setCursor(Qt.PointingHandCursor)
+        self._heart_btn.setStyleSheet(
+            "QToolButton { color: #ff5577; background: #2b2b2b; border: none;"
+            " font-size: 17px; padding: 3px 10px; }"
+            "QToolButton:hover { background: #4a2a35; }"
+        )
+        self._heart_btn.setVisible(False)
+        self._heart_btn.clicked.connect(self._on_heart_clicked)
+        close_bar.addWidget(self._heart_btn)
         self._close_btn = QToolButton()
         self._close_btn.setText("✕")
         self._close_btn.setStyleSheet(
@@ -2846,6 +3250,39 @@ class GalleryItemViewer(QWidget):
         """Replace the overlay tag badges shown over the screenshot area."""
         self._tags = [str(t) for t in (tags or []) if t]
         self._refresh_tag_overlay()
+
+    def set_favorite_hooks(self, entry, is_favorite_cb, toggle_favorite_cb):
+        """Wire up the heart control to a (de)favorite callback for *entry*."""
+        self._fav_entry          = entry
+        self._is_favorite_cb     = is_favorite_cb
+        self._toggle_favorite_cb = toggle_favorite_cb
+        self._refresh_heart()
+
+    def _refresh_heart(self):
+        btn = getattr(self, "_heart_btn", None)
+        if btn is None:
+            return
+        if not self._toggle_favorite_cb or self._fav_entry is None:
+            btn.setVisible(False)
+            return
+        is_fav = False
+        if self._is_favorite_cb is not None:
+            try:
+                is_fav = bool(self._is_favorite_cb(self._fav_entry))
+            except Exception:
+                is_fav = False
+        btn.setText("♥" if is_fav else "♡")
+        btn.setToolTip("Remove from favorites" if is_fav else "Add to favorites")
+        btn.setVisible(True)
+
+    def _on_heart_clicked(self):
+        if not self._toggle_favorite_cb or self._fav_entry is None:
+            return
+        try:
+            self._toggle_favorite_cb(self._fav_entry)
+        except Exception:
+            pass
+        self._refresh_heart()
 
     def _refresh_tag_overlay(self):
         ov = getattr(self, "_tag_overlay", None)
@@ -3200,6 +3637,18 @@ class MainWindow(QMainWindow):
         self._getit_view_mode        = "gallery"
         self._zxdb_view_mode         = "gallery"
         self._zxart_view_mode        = "gallery"
+        self._favorites_view_mode    = "gallery"
+
+        # ── Favorites (cross-pane, persisted to hdfg.cfg) ──────────────
+        # Each favorite is a dict: { "source": "getit"|"zxdb"|"zxart",
+        #                            "id": str, "title": str,
+        #                            "author": str, "year": str,
+        #                            "kind": str, "image": str (optional) }
+        self._favorites = []                 # list of fav dicts
+        self._favorites_index = set()        # set of (source, id)
+        # Re-entrancy guard: when refresh_favorites() is called on the
+        # Favorites gallery itself, avoid an infinite loop.
+        self._favorites_refreshing = False
 
         self.image_explorer_item_list = QListWidget()
 
@@ -3506,6 +3955,7 @@ class MainWindow(QMainWindow):
                     (SETTING_GETIT_VIEW_MODE, "_getit_view_mode"),
                     (SETTING_ZXDB_VIEW_MODE,  "_zxdb_view_mode"),
                     (SETTING_ZXART_VIEW_MODE, "_zxart_view_mode"),
+                    (SETTING_FAVORITES_VIEW_MODE, "_favorites_view_mode"),
                 ):
                     if _pane_key in configuration_dictionary and configuration_dictionary[_pane_key] != "":
                         val = configuration_dictionary[_pane_key].strip().lower()
@@ -3568,6 +4018,30 @@ class MainWindow(QMainWindow):
                 self._bg_widget.set_bg_opacity(_bg_opacity_val)
                 _pane_alpha = max(0, min(255, int(255 - (_bg_opacity_val / 100.0) * 255)))
                 self._tab_widget.setStyleSheet(self._build_tab_stylesheet(_pane_alpha))
+
+                # Favorites
+                try:
+                    _fav_raw = configuration_dictionary.get(SETTING_FAVORITES, "").strip()
+                    if _fav_raw:
+                        _fav_list = json.loads(_fav_raw)
+                        if isinstance(_fav_list, list):
+                            self._favorites = []
+                            self._favorites_index = set()
+                            for _it in _fav_list:
+                                if not isinstance(_it, dict):
+                                    continue
+                                _src = str(_it.get("source") or "")
+                                _id  = str(_it.get("id") or "")
+                                if not _src or not _id:
+                                    continue
+                                self._favorites.append(_it)
+                                self._favorites_index.add((_src, _id))
+                    if hasattr(self, "_fav_update_tab_badge"):
+                        self._fav_update_tab_badge()
+                    if hasattr(self, "_fav_refresh_all"):
+                        self._fav_refresh_all()
+                except Exception:
+                    pass
 
                 config_loaded_with_success = True
                 add_main_log_window("Loaded configuration file.")
@@ -6140,6 +6614,180 @@ class MainWindow(QMainWindow):
         self._tab_widget = wid_inner.tab
         grid_inner.addWidget(wid_inner.tab)
 
+        # ── Favorites helpers (cross-pane, captured by closures below) ──
+        _FAV_SOURCE_LABELS = {"getit": "GetIt", "zxdb": "ZXDB", "zxart": "zxArt"}
+
+        def _fav_source_of(entry):
+            """Best-effort detection of which pane an entry came from."""
+            if not isinstance(entry, dict):
+                return ""
+            s = (entry.get("_fav_source") or entry.get("source") or "").lower()
+            if s in _FAV_SOURCE_LABELS:
+                return s
+            kind = (entry.get("_kind") or "").lower()
+            if kind.startswith("zxart"):
+                return "zxart"
+            if kind in ("game", "magazine", "suggest"):
+                return "zxdb"
+            if entry.get("category") is not None or "size" in entry:
+                return "getit"
+            return ""
+
+        def _fav_key(source, entry_id):
+            return (str(source or ""), str(entry_id or ""))
+
+        def _fav_is(entry):
+            if not isinstance(entry, dict):
+                return False
+            src = _fav_source_of(entry)
+            eid = entry.get("id") or ""
+            if not src or not eid:
+                return False
+            return _fav_key(src, eid) in self._favorites_index
+
+        def _fav_make_record(entry, source):
+            rec = {}
+            try:
+                # Deep copy via JSON so we keep a serializable, decoupled
+                # snapshot of the upstream entry (incl. _source, _kind, etc).
+                rec = json.loads(json.dumps(entry, ensure_ascii=False, default=str))
+            except Exception:
+                rec = {}
+            rec["source"]      = source
+            rec["_fav_source"] = source
+            rec["id"]          = str(entry.get("id") or "")
+            return rec
+
+        def _fav_save():
+            try:
+                configuration_dictionary[SETTING_FAVORITES] = json.dumps(
+                    self._favorites, ensure_ascii=False, separators=(",", ":"))
+            except Exception:
+                configuration_dictionary[SETTING_FAVORITES] = "[]"
+            save_configuration_file()
+
+        def _fav_update_tab_badge():
+            try:
+                idx = -1
+                for i in range(self._tab_widget.count()):
+                    if self._tab_widget.tabText(i).startswith(
+                            ZX_NEXT_UNITE_TAB_TITLE_FAVORITES):
+                        idx = i
+                        break
+                if idx < 0:
+                    return
+                n = len(self._favorites)
+                self._tab_widget.setTabText(
+                    idx, f"{ZX_NEXT_UNITE_TAB_TITLE_FAVORITES} ({n})")
+            except Exception:
+                pass
+
+        def _fav_refresh_all_galleries():
+            for attr in ("getit_gallery_view", "zxdb_gallery_view",
+                         "zxart_gallery_view", "favorites_gallery_view"):
+                gv = getattr(self, attr, None)
+                if gv is not None:
+                    try:
+                        gv.refresh_favorites()
+                    except Exception:
+                        pass
+            # Re-populate the favorites grid so removals disappear and adds
+            # show up.
+            try:
+                _fav_repopulate = getattr(self, "_fav_repopulate_fn", None)
+                if _fav_repopulate is not None and not self._favorites_refreshing:
+                    self._favorites_refreshing = True
+                    try:
+                        _fav_repopulate()
+                    finally:
+                        self._favorites_refreshing = False
+            except Exception:
+                pass
+
+        def _fav_toggle(entry):
+            if not isinstance(entry, dict):
+                return
+            src = _fav_source_of(entry)
+            eid = entry.get("id") or ""
+            if not src or not eid:
+                return
+            key = _fav_key(src, eid)
+            if key in self._favorites_index:
+                self._favorites = [
+                    f for f in self._favorites
+                    if _fav_key(f.get("source"), f.get("id")) != key
+                ]
+                self._favorites_index.discard(key)
+            else:
+                rec = _fav_make_record(entry, src)
+                self._favorites.append(rec)
+                self._favorites_index.add(key)
+            _fav_save()
+            _fav_update_tab_badge()
+            _fav_refresh_all_galleries()
+
+        self._fav_is               = _fav_is
+        self._fav_toggle           = _fav_toggle
+        self._fav_source_of        = _fav_source_of
+        self._fav_update_tab_badge = _fav_update_tab_badge
+        self._fav_refresh_all      = _fav_refresh_all_galleries
+        self._fav_source_label_for = lambda e: _FAV_SOURCE_LABELS.get(
+            _fav_source_of(e), "")
+
+        def _fav_navigate_to_source(entry):
+            if not isinstance(entry, dict):
+                return
+            src   = self._fav_source_of(entry)
+            eid   = entry.get("id") or ""
+            title = entry.get("title") or ""
+            query = str(title or eid).strip()
+            if not src:
+                return
+            try:
+                if src == "getit":
+                    target_title = ZX_NEXT_UNITE_TAB_TITLE_GETIT
+                elif src == "zxdb":
+                    target_title = ZX_NEXT_UNITE_TAB_TITLE_ZXDB
+                elif src == "zxart":
+                    target_title = ZX_NEXT_UNITE_TAB_TITLE_ZXART
+                else:
+                    return
+                # Switch to the proper pane first.
+                for i in range(self._tab_widget.count()):
+                    if self._tab_widget.tabText(i).startswith(target_title):
+                        self._tab_widget.setCurrentIndex(i)
+                        break
+
+                def _select_in(view_attr):
+                    gv = getattr(self, view_attr, None)
+                    if gv is None:
+                        return
+                    try:
+                        gv.select_entry(lambda e, _eid=str(eid):
+                                        str(e.get("id") or "") == _eid)
+                    except Exception:
+                        pass
+
+                if src == "getit":
+                    self.getit_search_input.setText(query)
+                    def _gi_done(_va="getit_gallery_view"):
+                        _select_in(_va)
+                    getit_run_search(query, 1, _gi_done)
+                elif src == "zxdb":
+                    self.zxdb_search_input.setText(query)
+                    def _zd_done(_va="zxdb_gallery_view"):
+                        _select_in(_va)
+                    zxdb_run_search(query, 1, _zd_done)
+                elif src == "zxart":
+                    self.zxart_search_input.setText(query)
+                    def _za_done(_va="zxart_gallery_view"):
+                        _select_in(_va)
+                    zxart_run_search(query, 1, _za_done)
+            except Exception:
+                pass
+
+        self._fav_navigate_to_source = _fav_navigate_to_source
+
         zx_next_unite_container = QWidget()
         zx_next_unite_container.setLayout(self.zx_next_unite_form)
 
@@ -6445,6 +7093,23 @@ class MainWindow(QMainWindow):
             eid = entry.get("id") or ""
             url = f"{GETIT_BASE_URL}/nx/{eid}/i/"
             set_screenshots([url])
+            def _make_placeholder():
+                # GetIt entries always describe a downloadable artefact; use
+                # the entry filename / category as the typed label so a
+                # missing image still shows the format (e.g. TAP, POK).
+                link = self._getit_selected_link or ""
+                title = entry.get("title") or eid
+                ref = link or title
+                label = zxfmt_label_for_name(ref) if ref else "FILE"
+                if label == "FILE":
+                    cat = (entry.get("category") or "").upper()
+                    if cat:
+                        label = cat[:6]
+                placeholder_url = f"placeholder://{label}/{title}"
+                set_screenshots([placeholder_url])
+                pm = zxfmt_make_placeholder_pixmap(label, title)
+                if not pm.isNull():
+                    set_pixmap(pm, placeholder_url)
             def _fn(_u=url):
                 tmp = tempfile.NamedTemporaryFile(suffix=".bmp", delete=False)
                 tmp.close()
@@ -6455,9 +7120,12 @@ class MainWindow(QMainWindow):
                 px = QPixmap(path)
                 try: os.unlink(path)
                 except Exception: pass
-                if not px.isNull():
-                    _set(px, u)
-            def _on_err(_err): pass
+                if px.isNull():
+                    _make_placeholder()
+                    return
+                _set(px, u)
+            def _on_err(_err):
+                _make_placeholder()
             getit_run_in_thread(_fn, _on_done, _on_err)
 
             # Lazily enrich the hover-info line with the entry date, which is
@@ -6483,6 +7151,13 @@ class MainWindow(QMainWindow):
 
         def _getit_extra_fetch_url(url, on_pixmap):
             """Generic URL → QPixmap fetcher used by GalleryItemViewer."""
+            if isinstance(url, str) and url.startswith("placeholder://"):
+                rest = url[len("placeholder://"):]
+                label, _, sub = rest.partition("/")
+                pm = zxfmt_make_placeholder_pixmap(label or "FILE", sub)
+                if not pm.isNull():
+                    on_pixmap(pm)
+                return
             def _fn(_u=url):
                 tmp = tempfile.NamedTemporaryFile(suffix=".bmp", delete=False)
                 tmp.close()
@@ -6535,7 +7210,16 @@ class MainWindow(QMainWindow):
             title_getter=_getit_gallery_title,
             info_getter=_getit_gallery_info,
             context_menu_cb=_getit_gallery_context_menu,
+            is_favorite_cb=lambda e: self._fav_is({**e, "_fav_source": "getit"}),
+            toggle_favorite_cb=lambda e: self._fav_toggle({**e, "_fav_source": "getit"}),
         )
+        self._fav_fetchers = getattr(self, "_fav_fetchers", {})
+        self._fav_fetchers["getit"] = {
+            "thumb": _getit_thumb_fetch,
+            "extra": _getit_extra_fetch,
+            "title": _getit_gallery_title,
+            "info":  _getit_gallery_info,
+        }
         self.getit_view_stack.addWidget(self.getit_gallery_view)  # index 1: Gallery
 
         getit_table_row.addWidget(self.getit_view_stack, 1)
@@ -6870,6 +7554,8 @@ class MainWindow(QMainWindow):
                 tags=_gallery_extract_tags(entry),
                 parent=self,
             )
+            _fav_entry_getit = {**entry, "_fav_source": "getit"}
+            viewer.set_favorite_hooks(_fav_entry_getit, self._fav_is, self._fav_toggle)
 
             # ── action buttons ──────────────────────────────────────────
             default_name = self._getit_selected_link or f"{eid}.bin"
@@ -6925,9 +7611,12 @@ class MainWindow(QMainWindow):
                     self._zxdb_apply_view_mode(mode, persist=False)
                 if hasattr(self, '_zxart_apply_view_mode'):
                     self._zxart_apply_view_mode(mode, persist=False)
-                configuration_dictionary[SETTING_GETIT_VIEW_MODE] = mode
-                configuration_dictionary[SETTING_ZXDB_VIEW_MODE]  = mode
-                configuration_dictionary[SETTING_ZXART_VIEW_MODE] = mode
+                if hasattr(self, '_favorites_apply_view_mode'):
+                    self._favorites_apply_view_mode(mode, persist=False)
+                configuration_dictionary[SETTING_GETIT_VIEW_MODE]     = mode
+                configuration_dictionary[SETTING_ZXDB_VIEW_MODE]      = mode
+                configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
+                configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
                 save_configuration_file()
 
         self._getit_apply_view_mode = _getit_apply_view_mode
@@ -7525,25 +8214,57 @@ class MainWindow(QMainWindow):
                 shots = detail.get("screenshots") or []
                 if not shots and detail.get("screenshot_url"):
                     shots = [{"url": detail["screenshot_url"], "type": ""}]
-                return [s.get("url") for s in shots if isinstance(s, dict) and s.get("url")]
-            def _on_ok(urls):
-                if not urls:
+                # ZXDB's parser already restricts screenshots to image
+                # assets, so we trust the upstream classification here
+                # (extensions on the CDN URLs are not always one of the
+                # canonical image suffixes we know about).
+                urls = []
+                for s in shots:
+                    if not isinstance(s, dict):
+                        continue
+                    u = s.get("url") or ""
+                    if u:
+                        urls.append(u)
+                # Also collect downloads so we can render a typed
+                # placeholder if no real image is available.
+                return (urls, detail.get("downloads") or [])
+            def _on_ok(res):
+                urls, downloads = res
+                if urls:
+                    set_screenshots(urls)
+                    def _img_fn(_u=urls[0]):
+                        req = urllib.request.Request(_u, headers={"User-Agent": ZXDB_USER_AGENT})
+                        with urllib.request.urlopen(req, timeout=20) as resp:
+                            return (_u, resp.read())
+                    def _img_ok(r):
+                        u, data = r
+                        px = QPixmap()
+                        px.loadFromData(data)
+                        if not px.isNull():
+                            set_pixmap(px, u)
+                    getit_run_in_thread(_img_fn, _img_ok, lambda _e: None)
                     return
-                set_screenshots(urls)
-                def _img_fn(_u=urls[0]):
-                    req = urllib.request.Request(_u, headers={"User-Agent": ZXDB_USER_AGENT})
-                    with urllib.request.urlopen(req, timeout=20) as resp:
-                        return (_u, resp.read())
-                def _img_ok(res):
-                    u, data = res
-                    px = QPixmap()
-                    px.loadFromData(data)
-                    if not px.isNull():
-                        set_pixmap(px, u)
-                getit_run_in_thread(_img_fn, _img_ok, lambda _e: None)
+                # No real image: render a typed placeholder showing the
+                # primary download format (e.g. TAP, POK, PDF) so the cell
+                # is still informative instead of a black square.
+                label, fname = zxfmt_pick_best_download(downloads)
+                title = entry.get("title") or eid
+                sub = fname or title
+                placeholder_url = f"placeholder://{label}/{sub}"
+                set_screenshots([placeholder_url])
+                pm = zxfmt_make_placeholder_pixmap(label, sub)
+                if not pm.isNull():
+                    set_pixmap(pm, placeholder_url)
             getit_run_in_thread(_fn, _on_ok, lambda _e: None)
 
         def _zxdb_extra_fetch(url, on_pixmap):
+            if isinstance(url, str) and url.startswith("placeholder://"):
+                rest = url[len("placeholder://"):]
+                label, _, sub = rest.partition("/")
+                pm = zxfmt_make_placeholder_pixmap(label or "FILE", sub)
+                if not pm.isNull():
+                    on_pixmap(pm)
+                return
             def _fn(_u=url):
                 req = urllib.request.Request(_u, headers={"User-Agent": ZXDB_USER_AGENT})
                 with urllib.request.urlopen(req, timeout=20) as resp:
@@ -7671,7 +8392,16 @@ class MainWindow(QMainWindow):
             title_getter=_zxdb_gallery_title,
             info_getter=_zxdb_gallery_info,
             context_menu_cb=_zxdb_gallery_context_menu,
+            is_favorite_cb=lambda e: self._fav_is({**e, "_fav_source": "zxdb"}),
+            toggle_favorite_cb=lambda e: self._fav_toggle({**e, "_fav_source": "zxdb"}),
         )
+        self._fav_fetchers = getattr(self, "_fav_fetchers", {})
+        self._fav_fetchers["zxdb"] = {
+            "thumb": _zxdb_thumb_fetch,
+            "extra": _zxdb_extra_fetch,
+            "title": _zxdb_gallery_title,
+            "info":  _zxdb_gallery_info,
+        }
         self.zxdb_view_stack.addWidget(self.zxdb_gallery_view)  # index 1
 
         zxdb_table_row.addWidget(self.zxdb_view_stack, 1)
@@ -8747,6 +9477,8 @@ class MainWindow(QMainWindow):
                 tags=_gallery_extract_tags(entry),
                 parent=self,
             )
+            _fav_entry_zxdb = {**entry, "_fav_source": "zxdb"}
+            viewer.set_favorite_hooks(_fav_entry_zxdb, self._fav_is, self._fav_toggle)
 
             # ── action buttons ──────────────────────────────────────────
             _safe_title = zxdb_sanitize_folder(title)
@@ -8891,9 +9623,12 @@ class MainWindow(QMainWindow):
                     self._getit_apply_view_mode(mode, persist=False)
                 if hasattr(self, '_zxart_apply_view_mode'):
                     self._zxart_apply_view_mode(mode, persist=False)
-                configuration_dictionary[SETTING_GETIT_VIEW_MODE] = mode
-                configuration_dictionary[SETTING_ZXDB_VIEW_MODE]  = mode
-                configuration_dictionary[SETTING_ZXART_VIEW_MODE] = mode
+                if hasattr(self, '_favorites_apply_view_mode'):
+                    self._favorites_apply_view_mode(mode, persist=False)
+                configuration_dictionary[SETTING_GETIT_VIEW_MODE]     = mode
+                configuration_dictionary[SETTING_ZXDB_VIEW_MODE]      = mode
+                configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
+                configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
                 save_configuration_file()
 
         self._zxdb_apply_view_mode = _zxdb_apply_view_mode
@@ -9962,13 +10697,18 @@ class MainWindow(QMainWindow):
             src = entry.get("_source") or {}
             kind = (entry.get("_kind") or "").lower()
             # Pictures expose imageUrl directly; prods carry imagesUrls list.
+            # zxArt's API guarantees these are image URLs (even when the
+            # path has no extension like /file/id:123/), so we trust the
+            # upstream field rather than re-filtering by extension.
             urls = []
             if kind == "zxart_picture":
                 u = src.get("imageUrl") or src.get("originalUrl") or ""
-                if u: urls.append(u)
+                if u:
+                    urls.append(u)
             else:
                 for u in (src.get("imagesUrls") or []):
-                    if u: urls.append(u)
+                    if u:
+                        urls.append(u)
 
             # Apply tags we can derive immediately (pictures + any cached
             # release info), then start an async release lookup for prods
@@ -9999,6 +10739,34 @@ class MainWindow(QMainWindow):
                         getit_run_in_thread(_rel_fn, _rel_ok, lambda _e: None)
 
             if not urls:
+                # No real picture for this entry: render a typed placeholder
+                # using release formats / known download names so the cell
+                # shows e.g. "TAP" or "POK" instead of a black square.
+                label = "FILE"
+                formats = []
+                rf = src.get("releaseFormats") or []
+                if isinstance(rf, list):
+                    formats.extend([str(x) for x in rf if x])
+                for rel in (src.get("releases") or []):
+                    if not isinstance(rel, dict):
+                        continue
+                    v = rel.get("releaseFormat")
+                    if isinstance(v, list):
+                        formats.extend([str(x) for x in v if x])
+                    elif v:
+                        formats.append(str(v))
+                    fn = rel.get("fileName") or ""
+                    if fn:
+                        label = zxfmt_label_for_name(fn)
+                        break
+                if label == "FILE" and formats:
+                    label = zxfmt_label_for_name("x." + formats[0].lower())
+                title = entry.get("title") or str(entry.get("id") or "")
+                placeholder_url = f"placeholder://{label}/{title}"
+                set_screenshots([placeholder_url])
+                pm = zxfmt_make_placeholder_pixmap(label, title)
+                if not pm.isNull():
+                    set_pixmap(pm, placeholder_url)
                 return
             set_screenshots(urls)
             def _img_fn(_u=urls[0]):
@@ -10015,6 +10783,13 @@ class MainWindow(QMainWindow):
             getit_run_in_thread(_img_fn, _img_ok, lambda _e: None)
 
         def _zxart_extra_fetch(url, on_pixmap):
+            if isinstance(url, str) and url.startswith("placeholder://"):
+                rest = url[len("placeholder://"):]
+                label, _, sub = rest.partition("/")
+                pm = zxfmt_make_placeholder_pixmap(label or "FILE", sub)
+                if not pm.isNull():
+                    on_pixmap(pm)
+                return
             def _fn(_u=url):
                 req = urllib.request.Request(zxart_safe_url(_u),
                                              headers={"User-Agent": ZXART_USER_AGENT})
@@ -10150,7 +10925,16 @@ class MainWindow(QMainWindow):
             info_getter=_zxart_gallery_info,
             context_menu_cb=_zxart_gallery_context_menu,
             image_predicate=_zxart_has_image,
+            is_favorite_cb=lambda e: self._fav_is({**e, "_fav_source": "zxart"}),
+            toggle_favorite_cb=lambda e: self._fav_toggle({**e, "_fav_source": "zxart"}),
         )
+        self._fav_fetchers = getattr(self, "_fav_fetchers", {})
+        self._fav_fetchers["zxart"] = {
+            "thumb": _zxart_thumb_fetch,
+            "extra": _zxart_extra_fetch,
+            "title": _zxart_gallery_title,
+            "info":  _zxart_gallery_info,
+        }
         self.zxart_view_stack.addWidget(self.zxart_gallery_view)  # index 1
 
         zxart_table_row.addWidget(self.zxart_view_stack, 1)
@@ -11133,6 +11917,8 @@ class MainWindow(QMainWindow):
                 tags=_gallery_extract_tags(entry),
                 parent=self,
             )
+            _fav_entry_zxart = {**entry, "_fav_source": "zxart"}
+            viewer.set_favorite_hooks(_fav_entry_zxart, self._fav_is, self._fav_toggle)
 
             # ── action buttons ──────────────────────────────────────────
             _safe_title = zxart_sanitize_folder(title)
@@ -11339,9 +12125,12 @@ class MainWindow(QMainWindow):
                     self._getit_apply_view_mode(mode, persist=False)
                 if hasattr(self, '_zxdb_apply_view_mode'):
                     self._zxdb_apply_view_mode(mode, persist=False)
-                configuration_dictionary[SETTING_GETIT_VIEW_MODE] = mode
-                configuration_dictionary[SETTING_ZXDB_VIEW_MODE]  = mode
-                configuration_dictionary[SETTING_ZXART_VIEW_MODE] = mode
+                if hasattr(self, '_favorites_apply_view_mode'):
+                    self._favorites_apply_view_mode(mode, persist=False)
+                configuration_dictionary[SETTING_GETIT_VIEW_MODE]     = mode
+                configuration_dictionary[SETTING_ZXDB_VIEW_MODE]      = mode
+                configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
+                configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
                 save_configuration_file()
 
         self._zxart_apply_view_mode = _zxart_apply_view_mode
@@ -11962,6 +12751,255 @@ class MainWindow(QMainWindow):
         zxnextunite_ZXART_tab.setLayout(grid_tab_zxart)
         zxnextunite_ZXART_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_ZXART
         wid_inner.tab.addTab(zxnextunite_ZXART_tab, ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+
+        # Create ONLINE Favorites Tab (right of zxArt, before Settings)
+        zxnextunite_Favorites_tab = QWidget(wid_inner.tab)
+        zxnextunite_Favorites_tab.setAttribute(Qt.WA_TranslucentBackground)
+        zxnextunite_Favorites_tab.setAutoFillBackground(False)
+        grid_tab_favorites = QGridLayout(zxnextunite_Favorites_tab)
+        grid_tab_favorites.setContentsMargins(0, 0, 0, 0)
+
+        def _fav_title_getter(e):
+            src = (e.get("_fav_source") or e.get("source") or "").lower()
+            fetch = (self._fav_fetchers or {}).get(src) or {}
+            tg = fetch.get("title")
+            if tg:
+                try:
+                    return tg(e)
+                except Exception:
+                    pass
+            return str(e.get("title") or e.get("id") or "")
+
+        def _fav_info_getter(e):
+            src = (e.get("_fav_source") or e.get("source") or "").lower()
+            fetch = (self._fav_fetchers or {}).get(src) or {}
+            ig = fetch.get("info")
+            if ig:
+                try:
+                    return ig(e)
+                except Exception:
+                    pass
+            parts = []
+            if e.get("author"): parts.append(str(e["author"]))
+            if e.get("year"):   parts.append(str(e["year"]))
+            return " · ".join(parts)
+
+        def _fav_thumb_fetch(entry, set_pixmap, set_screenshots,
+                             set_tags=None, set_info_text=None):
+            src = (entry.get("_fav_source") or entry.get("source") or "").lower()
+            fetch = (self._fav_fetchers or {}).get(src) or {}
+            tf = fetch.get("thumb")
+            if tf is None:
+                return
+            try:
+                # Each pane's thumb fetcher has a slightly different signature.
+                if src == "getit":
+                    tf(entry, set_pixmap, set_screenshots,
+                       set_tags=set_tags, set_info_text=set_info_text)
+                elif src == "zxart":
+                    tf(entry, set_pixmap, set_screenshots, set_tags=set_tags)
+                else:
+                    tf(entry, set_pixmap, set_screenshots)
+            except Exception:
+                pass
+
+        def _fav_extra_fetch(url, on_pixmap):
+            for src in ("getit", "zxdb", "zxart"):
+                fetch = (self._fav_fetchers or {}).get(src) or {}
+                ef = fetch.get("extra")
+                if ef is not None:
+                    try:
+                        ef(url, on_pixmap)
+                    except Exception:
+                        pass
+
+        def _fav_context_menu(entry, global_pos):
+            menu = QMenu()
+            src_lbl = self._fav_source_label_for(entry) or "source"
+            act_go = menu.addAction(f"Open in {src_lbl}")
+            act_rm = menu.addAction("Remove from Favorites")
+            chosen = menu.exec(global_pos)
+            if chosen is act_go:
+                self._fav_navigate_to_source(entry)
+            elif chosen is act_rm:
+                self._fav_toggle(entry)
+
+        self.favorites_gallery_view = GalleryView(
+            rows_per_page_getter=lambda: self._gallery_rows_per_page,
+            anim_mode_getter=lambda: self._gallery_anim_mode,
+            thumb_fetch_cb=_fav_thumb_fetch,
+            extra_fetch_cb=_fav_extra_fetch,
+            title_getter=_fav_title_getter,
+            info_getter=_fav_info_getter,
+            context_menu_cb=_fav_context_menu,
+            is_favorite_cb=lambda e: True,
+            toggle_favorite_cb=lambda e: self._fav_toggle(e),
+            source_label_getter=self._fav_source_label_for,
+        )
+
+        def _fav_on_cell_clicked(entry):
+            self._fav_navigate_to_source(entry)
+        def _fav_on_cell_dbl_clicked(entry):
+            self._fav_navigate_to_source(entry)
+        self.favorites_gallery_view.cell_clicked.connect(_fav_on_cell_clicked)
+        self.favorites_gallery_view.cell_dbl_clicked.connect(_fav_on_cell_dbl_clicked)
+
+        # ── View: Table / Gallery selector row ──────────────────────────────
+        fav_top_row = QHBoxLayout()
+        fav_top_row.setContentsMargins(0, 0, 0, 0)
+        self.favorites_view_text_label = QLabel("View:")
+        fav_top_row.addWidget(self.favorites_view_text_label)
+        self.favorites_view_combo = QComboBox()
+        self.favorites_view_combo.addItem("Table",   "table")
+        self.favorites_view_combo.addItem("Gallery", "gallery")
+        self.favorites_view_combo.setToolTip(
+            "Switch between the classic table view and the picture (gallery) view.\n"
+            "Persisted across sessions in the config file."
+        )
+        fav_top_row.addWidget(self.favorites_view_combo)
+        fav_top_row.addStretch(1)
+
+        # ── Table view of favorites ────────────────────────────────────────
+        self.favorites_results_table = QTableWidget(0, 4)
+        self.favorites_results_table.setHorizontalHeaderLabels(
+            ["Source", "Title", "Info", "Year"]
+        )
+        self.favorites_results_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.favorites_results_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.favorites_results_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.favorites_results_table.verticalHeader().setVisible(False)
+        try:
+            hh = self.favorites_results_table.horizontalHeader()
+            hh.setStretchLastSection(False)
+            hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            hh.setSectionResizeMode(1, QHeaderView.Stretch)
+            hh.setSectionResizeMode(2, QHeaderView.Stretch)
+            hh.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        except Exception:
+            pass
+
+        def _fav_table_entry_for_row(row):
+            try:
+                if row < 0 or row >= self.favorites_results_table.rowCount():
+                    return None
+                it = self.favorites_results_table.item(row, 0)
+                if it is None:
+                    return None
+                idx = it.data(Qt.UserRole)
+                if isinstance(idx, int) and 0 <= idx < len(self._favorites):
+                    return self._favorites[idx]
+            except Exception:
+                pass
+            return None
+
+        def _fav_table_on_double_clicked(_idx):
+            row = self.favorites_results_table.currentRow()
+            entry = _fav_table_entry_for_row(row)
+            if entry is not None:
+                self._fav_navigate_to_source(entry)
+
+        def _fav_table_on_context_menu(pos):
+            row = self.favorites_results_table.rowAt(pos.y())
+            entry = _fav_table_entry_for_row(row)
+            if entry is None:
+                return
+            self.favorites_results_table.selectRow(row)
+            _fav_context_menu(
+                entry,
+                self.favorites_results_table.viewport().mapToGlobal(pos),
+            )
+
+        self.favorites_results_table.doubleClicked.connect(_fav_table_on_double_clicked)
+        self.favorites_results_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.favorites_results_table.customContextMenuRequested.connect(
+            _fav_table_on_context_menu
+        )
+
+        # ── Stack the two views ────────────────────────────────────────────
+        self.favorites_view_stack = QStackedWidget()
+        self.favorites_view_stack.addWidget(self.favorites_results_table)   # idx 0 = table
+        self.favorites_view_stack.addWidget(self.favorites_gallery_view)    # idx 1 = gallery
+
+        fav_container = QWidget()
+        fav_v = QVBoxLayout(fav_container)
+        fav_v.setContentsMargins(0, 0, 0, 0)
+        fav_v.addLayout(fav_top_row)
+        fav_v.addWidget(self.favorites_view_stack)
+        fav_container.setLayout(fav_v)
+
+        grid_tab_favorites.addWidget(fav_container)
+        zxnextunite_Favorites_tab.setLayout(grid_tab_favorites)
+        zxnextunite_Favorites_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_FAVORITES
+        wid_inner.tab.addTab(zxnextunite_Favorites_tab,
+                             f"{ZX_NEXT_UNITE_TAB_TITLE_FAVORITES} (0)")
+
+        def _fav_repopulate():
+            try:
+                self.favorites_gallery_view.populate(list(self._favorites))
+            except Exception:
+                pass
+            try:
+                tbl = self.favorites_results_table
+                tbl.setRowCount(0)
+                for i, entry in enumerate(self._favorites):
+                    src_lbl = self._fav_source_label_for(entry) or ""
+                    title = _fav_title_getter(entry) or ""
+                    info  = _fav_info_getter(entry) or ""
+                    year  = str(entry.get("year") or "")
+                    row = tbl.rowCount()
+                    tbl.insertRow(row)
+                    src_item   = QTableWidgetItem(src_lbl)
+                    src_item.setData(Qt.UserRole, i)
+                    title_item = QTableWidgetItem(title)
+                    info_item  = QTableWidgetItem(info)
+                    year_item  = QTableWidgetItem(year)
+                    tbl.setItem(row, 0, src_item)
+                    tbl.setItem(row, 1, title_item)
+                    tbl.setItem(row, 2, info_item)
+                    tbl.setItem(row, 3, year_item)
+            except Exception:
+                pass
+        self._fav_repopulate_fn = _fav_repopulate
+        _fav_repopulate()
+        self._fav_update_tab_badge()
+
+        # ── View-mode apply helper (mirrors GetIt/ZXDB/zxArt) ──────────────
+        def _favorites_apply_view_mode(mode: str, *, persist: bool = True):
+            mode = (mode or "gallery").lower()
+            if mode not in ("table", "gallery"):
+                mode = "gallery"
+            self._favorites_view_mode = mode
+            self.favorites_view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
+            cb = self.favorites_view_combo
+            target_idx = 1 if mode == "gallery" else 0
+            if cb.currentIndex() != target_idx:
+                cb.blockSignals(True)
+                cb.setCurrentIndex(target_idx)
+                cb.blockSignals(False)
+            if persist:
+                if hasattr(self, '_getit_apply_view_mode'):
+                    self._getit_apply_view_mode(mode, persist=False)
+                if hasattr(self, '_zxdb_apply_view_mode'):
+                    self._zxdb_apply_view_mode(mode, persist=False)
+                if hasattr(self, '_zxart_apply_view_mode'):
+                    self._zxart_apply_view_mode(mode, persist=False)
+                configuration_dictionary[SETTING_GETIT_VIEW_MODE]     = mode
+                configuration_dictionary[SETTING_ZXDB_VIEW_MODE]      = mode
+                configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
+                configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
+                save_configuration_file()
+
+        self._favorites_apply_view_mode = _favorites_apply_view_mode
+
+        def _on_favorites_view_combo_changed(_idx):
+            _favorites_apply_view_mode(
+                self.favorites_view_combo.currentData() or "gallery"
+            )
+
+        self.favorites_view_combo.currentIndexChanged.connect(
+            _on_favorites_view_combo_changed
+        )
+        _favorites_apply_view_mode(self._favorites_view_mode, persist=False)
 
         # Create Settings Tab
         zxnextunite_Settings_tab = QWidget(wid_inner.tab)
