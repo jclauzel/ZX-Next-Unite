@@ -383,14 +383,14 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("ZXDB:"),
              ("  ZXDB is an open-source database of ZX Spectrum and related software,"),
              ("  maintained by the community at https://github.com/zxdb/ZXDB ."),
-             ("  API base URL : https://api.zxdb.net/v1/"),
+             (f"  API base URL : {ZXDB_BASE_URL}"),
              ("  The application queries the ZXDB REST API for titles, releases, screenshots"),
              ("  and inlays, then downloads files directly from the URLs returned by that API."),
              (""),
              ("zxArt:"),
              ("  zxArt (https://zxart.ee) is a gallery and archive dedicated to ZX Spectrum"),
              ("  visual art, music, and productions."),
-             ("  API base URL : https://zxart.ee/api/"),
+             (f"  API base URL : {ZXART_BASE_URL}"),
              ("  The application sends requests to the zxArt API to search productions and"),
              ("  pictures, retrieve metadata and preview images, and download productions"),
              ("  directly from the URLs returned by that API."),
@@ -12493,6 +12493,8 @@ def _mainwindow_close_event(self, event):
 
 MainWindow.closeEvent = _mainwindow_close_event
 
+import signal
+
 app = QApplication(sys.argv)
 _app_font = QFont("Consolas")
 _app_font.setStyleHint(QFont.StyleHint.Monospace)
@@ -12501,8 +12503,22 @@ app.setFont(_app_font)
 window = MainWindow()
 window.show()
 
+# Allow Ctrl-C (SIGINT) to terminate the application cleanly.
+# Qt's event loop blocks Python signal delivery unless we periodically
+# yield back to the Python interpreter via a no-op timer.
+def _handle_sigint(*_args):
+    print("\nInterrupted — exiting.", flush=True)
+    app.quit()
+
+signal.signal(signal.SIGINT, _handle_sigint)
+
+_sigint_timer = QTimer()
+_sigint_timer.setInterval(200)   # check every 200 ms
+_sigint_timer.timeout.connect(lambda: None)   # no-op; just wakes Python
+_sigint_timer.start()
+
 # Catalog prefetch disabled — zxart_client_search now uses a direct
 # server-side title filter, so no upfront catalog download is needed.
 # _zxart_prefetch_cache_if_stale()
 
-app.exec()
+sys.exit(app.exec())
