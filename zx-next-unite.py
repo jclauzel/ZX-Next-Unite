@@ -131,7 +131,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "5.1"
+ZX_NEXT_UNITE_VERSION = "5.2"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
@@ -3198,8 +3198,8 @@ class MainWindow(QMainWindow):
         self._gallery_anim_mode      = DEFAULT_GALLERY_ANIM_MODE
         self._gallery_rows_per_page  = DEFAULT_GALLERY_ROWS_PER_PAGE
         self._getit_view_mode        = "gallery"
-        self._zxdb_view_mode         = "table"
-        self._zxart_view_mode        = "table"
+        self._zxdb_view_mode         = "gallery"
+        self._zxart_view_mode        = "gallery"
 
         self.image_explorer_item_list = QListWidget()
 
@@ -3348,6 +3348,11 @@ class MainWindow(QMainWindow):
 
         def download_and_install_hdflonkey():
             try:
+                # Set a proper User-Agent header to avoid connection rejection
+                opener = urllib.request.build_opener()
+                opener.addheaders = [('User-Agent', ZXART_USER_AGENT)]
+                urllib.request.install_opener(opener)
+
                 zip_path, _ = urllib.request.urlretrieve(HDF_MONKEY_WINDOWS_URL)
                 with zipfile.ZipFile(zip_path, "r") as f:
                     f.extractall()
@@ -3363,8 +3368,8 @@ class MainWindow(QMainWindow):
 
                 return True
             except Exception as e:
-                logging.error(f"Failed downloading & installing hdfmonkey: {e}")
-                add_main_log_window(f"Failed downloading & installing hdfmonkey: {e}")
+                logging.error(f"Failed downloading & installing hdfmonkey: {e}, please download and install manually in current folder the executable from: {HDF_MONKEY_WINDOWS_URL} ")
+                add_main_log_window(f"Failed downloading & installing hdfmonkey: {e}, please download and install manually in current folder the executable from: {HDF_MONKEY_WINDOWS_URL} ")
                 #set_all_buttons_enabled()
                 return False
 
@@ -4156,14 +4161,16 @@ class MainWindow(QMainWindow):
                     argv += shlex.split(additional_args, posix=True)
                 exec_process = subprocess.run(argv, shell=False, check=True,
                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            except subprocess.CalledProcessError as ex:
-                    stderr_text = (ex.stderr or b"").decode(errors="replace").strip()
-                    exec_process = subprocess.CompletedProcess(args=ex.cmd, returncode=ex.returncode,
-                                                               stdout=ex.stdout, stderr=ex.stderr)
+
+            except (FileNotFoundError,subprocess.CalledProcessError) as ex:
+                    if not isinstance(ex, FileNotFoundError):
+                        stderr_text = (ex.stderr or b"").decode(errors="replace").strip()
+                        exec_process = subprocess.CompletedProcess(args=ex.cmd, returncode=ex.returncode,
+                                                                   stdout=ex.stdout, stderr=ex.stderr)
                     if silent:
                         logging.debug(f"hdfmonkey {command_to_execute} returned {ex.returncode} (silent): {execution_cmd}"
                                       + (f" | stderr: {stderr_text}" if stderr_text else ""))
-                    elif ex.returncode == 1:
+                    elif isinstance(ex, FileNotFoundError) or ex.returncode == 1:
                         logging.error(f"Failed executing hdfmonkey: {execution_cmd} - Once hdfmonkey is installed in the same directory please close the application and restart it.")
                         add_main_log_window("ERROR: Once hdfmonkey is installed in the same directory please close the application and restart it.")
                         if platform.system() == "Windows":
