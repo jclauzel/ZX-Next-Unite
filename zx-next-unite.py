@@ -89,9 +89,10 @@ from PySide6.QtCore import (
     Qt,
     Signal,
     Slot,
+    qInstallMessageHandler,
 )
 from PySide6.QtCore import Q_ARG
-from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QPainter, QPixmap, QFont
+from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QImage, QFontInfo, QPainter, QPixmap, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -105,6 +106,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGridLayout,
+    QLayout,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -125,13 +127,14 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
+    QTextBrowser,
     QToolButton,
     QTreeView,
     QVBoxLayout,
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "5.3"
+ZX_NEXT_UNITE_VERSION = "5.4"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
@@ -229,6 +232,7 @@ ZXART_UI_TRANSLATIONS = {
     "Year:":            {"pol": "Rok:",           "spa": "Año:"},
     "Authors:":         {"pol": "Autorzy:",       "spa": "Autores:"},
     "Groups:":          {"pol": "Grupy:",         "spa": "Grupos:"},
+    "Produced by:":     {"pol": "Wyprodukowane przez:", "spa": "Producido por:"},
     "Compo:":           {"pol": "Konkurs:",       "spa": "Concurso:"},
     "Place:":           {"pol": "Miejsce:",       "spa": "Puesto:"},
     "Languages:":       {"pol": "Języki:",        "spa": "Idiomas:"},
@@ -574,7 +578,10 @@ class HdfProgressDialog(QDialog):
         self._file_label = QLabel("")
         self._file_label.setWordWrap(True)
         _font = self._file_label.font()
-        _font.setPointSize(max(_font.pointSize() - 1, 8))
+        _ps = _font.pointSize()
+        if _ps <= 0:
+            _ps = max(QFontInfo(_font).pointSize(), 9)
+        _font.setPointSize(max(_ps - 1, 8))
         self._file_label.setFont(_font)
         layout.addWidget(self._file_label)
 
@@ -906,6 +913,27 @@ def zxdb_parse_game_detail(payload) -> dict:
         "downloads":   [],
     }
 
+    # ZXInfo nests publishers inside releases[].publishers in /games/{id}.
+    # Fall back to release-level publishers when top-level is empty.
+    if not detail["publishers"]:
+        rel_pub_names: list = []
+        seen_pub: set = set()
+        rels0 = src.get("releases") or []
+        if isinstance(rels0, list):
+            for rel in rels0:
+                if not isinstance(rel, dict):
+                    continue
+                rp = rel.get("publishers")
+                names_str = _join_names(rp)
+                if not names_str:
+                    continue
+                for nm in [n.strip() for n in names_str.split(",")]:
+                    if nm and nm not in seen_pub:
+                        seen_pub.add(nm)
+                        rel_pub_names.append(nm)
+        if rel_pub_names:
+            detail["publishers"] = ", ".join(rel_pub_names)
+
     # Description: usually under additionals or comments – best-effort.
     desc_candidates = [
         src.get("description"),
@@ -1122,6 +1150,7 @@ def zxart_fetch_bytes(url: str, timeout: int = 30) -> bytes:
 # The API answers one entity per call, so we memoize to avoid re-querying.
 _ZXART_AUTHOR_NAME_CACHE: dict = {}
 _ZXART_GROUP_NAME_CACHE:  dict = {}
+_ZXART_PUBLISHER_NAME_CACHE: dict = {}
 
 
 def _zxart_resolve_author_name(author_id) -> str:
@@ -1198,6 +1227,130 @@ def _zxart_resolve_group_names(group_ids) -> str:
         name = _zxart_resolve_group_name(gid)
         out.append(name if name else str(gid))
     return ", ".join(s for s in out if s)
+
+
+def _zxart_resolve_publisher_name(publisher_id) -> str:
+    """Resolve a numeric zxArt publisherId to a display name.
+
+    The public zxArt API has no working ``export:publisher`` entity, but in
+    practice publisher ids are reused from the ``group`` namespace
+    (e.g. publisherId ``366520`` is the same as groupId ``366520`` →
+    ``ZX Online``). We therefore look the id up via ``export:group`` first.
+    Falls back to the raw numeric id so the caller never gets an empty value.
+    """
+    if publisher_id in (None, "", 0, "0"):
+        return ""
+    name = _zxart_resolve_group_name(publisher_id)
+    if name:
+        return name
+    return str(publisher_id)
+
+
+def _zxart_resolve_publisher_names(publisher_ids) -> str:
+    """Resolve a list of zxArt publisher ids to a comma-separated string.
+
+    Uses :func:`_zxart_resolve_publisher_name` which treats publisher ids as
+    group ids — that matches the actual zxArt data model where the same
+    numeric id is reused across the two namespaces.
+    """
+    out = []
+    for pid in publisher_ids or []:
+        name = _zxart_resolve_publisher_name(pid)
+        out.append(name if name else str(pid))
+    return ", ".join(s for s in out if s)
+
+
+def _zxart_scrape_publishers_from_prod_url(prod_url: str) -> str:
+    """Fetch the English zxArt landing page for *prod_url* and return the
+    publisher name(s) parsed from its ``<meta name="description">`` tag,
+    which is rendered as ``... published by <Publisher> in <Year>``.
+
+    Returns an empty string if the URL is missing or the pattern is not
+    found. Result is cached per-URL for the process lifetime.
+    """
+    if not prod_url:
+        return ""
+    url = str(prod_url)
+    # Force the English landing page so the meta description is in English
+    # regardless of which localized URL the API returned.
+    if "/rus/soft/" in url:
+        url = url.replace("/rus/soft/", "/eng/software/")
+    elif "/rus/" in url:
+        url = url.replace("/rus/", "/eng/")
+    cache_key = ("prod_url", url)
+    if cache_key in _ZXART_PUBLISHER_NAME_CACHE:
+        return _ZXART_PUBLISHER_NAME_CACHE[cache_key]
+    name = ""
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent":      "Mozilla/5.0 ZX-Next-Unite",
+                "Accept-Language": "en",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            html = r.read().decode("utf-8", errors="replace")
+        m = re.search(r"published by ([^\"<]+?) in \d{4}", html, re.IGNORECASE)
+        if m:
+            name = m.group(1).strip()
+    except Exception:
+        name = ""
+    _ZXART_PUBLISHER_NAME_CACHE[cache_key] = name
+    return name
+
+
+def _zxart_resolve_publishers_via_zxdb(title: str, year: str = "") -> str:
+    """Cross-reference a zxArt production *title* against the ZXDB (ZXInfo)
+    API to recover a human-readable publisher name when zxArt only exposes
+    an opaque numeric publisher id.
+
+    Strategy: search ZXDB by title (mode=tit) and return the publishers of
+    the best hit. If *year* is provided, prefer hits whose
+    ``originalYearOfRelease`` / ``yearOfRelease`` matches. Falls back to
+    release-level publishers when the top-level record has none. Results
+    are cached per (title, year) for the process lifetime.
+    """
+    if not title:
+        return ""
+    t = str(title).strip()
+    if not t:
+        return ""
+    y = str(year or "").strip()
+    cache_key = ("zxdb_title", t.lower(), y)
+    if cache_key in _ZXART_PUBLISHER_NAME_CACHE:
+        return _ZXART_PUBLISHER_NAME_CACHE[cache_key]
+    name = ""
+    try:
+        q = urllib.parse.quote(t)
+        payload = zxdb_fetch_json(f"/search?query={q}&mode=tit&size=10")
+        hits = ((payload or {}).get("hits") or {}).get("hits") or []
+        # Prefer year-matched hits when a year is provided.
+        def _pubs_from_hit(hit):
+            d = zxdb_parse_game_detail(hit)
+            return str(d.get("publishers") or "")
+        def _year_of(hit):
+            s = hit.get("_source") or {}
+            return str(s.get("originalYearOfRelease")
+                       or s.get("yearOfRelease")
+                       or s.get("year") or "")
+        if y:
+            for h in hits:
+                if _year_of(h) == y:
+                    p = _pubs_from_hit(h)
+                    if p:
+                        name = p
+                        break
+        if not name:
+            for h in hits:
+                p = _pubs_from_hit(h)
+                if p:
+                    name = p
+                    break
+    except Exception:
+        name = ""
+    _ZXART_PUBLISHER_NAME_CACHE[cache_key] = name
+    return name
 
 
 def zxart_parse_prod_list(response: dict) -> tuple:
@@ -2162,6 +2315,194 @@ def zxfmt_make_placeholder_pixmap(label: str, subtitle: str = "",
     finally:
         p.end()
     return pm
+
+
+# ---------------------------------------------------------------------------
+# ZX Spectrum .scr screen decoder
+# ---------------------------------------------------------------------------
+# The standard Spectrum screen file is a raw memory dump of the display area
+# at address 0x4000..0x5AFF, i.e. exactly 6912 bytes:
+#   * Bytes 0..6143   : 6144 bytes of bitmap (256 x 192 px, 1 bit per pixel).
+#   * Bytes 6144..6911:  768 bytes of attribute cells (32 x 24, 8x8 pixels each).
+#
+# Bitmap row addressing follows the well-known Spectrum interleave: for a
+# pixel row y in 0..191, the byte offset of the leftmost byte of that row is
+#       offset = ((y & 0b11000000) << 5)   # third = y / 64
+#              | ((y & 0b00000111) << 8)   # pixel row within char row
+#              | ((y & 0b00111000) << 2)   # char row within third
+# (each "third" is 2048 bytes; within a third, eight 256-byte pixel-row
+# planes are interleaved with the eight 32-byte text rows.)
+#
+# Attribute byte layout (per 8x8 cell):
+#   bit  7  : FLASH
+#   bit  6  : BRIGHT
+#   bits 5-3: PAPER colour (0..7)
+#   bits 2-0: INK   colour (0..7)
+#
+# The 8 standard Spectrum colours, as 24-bit RGB.  "Bright" uses 0xFF for the
+# non-zero components, "normal" uses 0xCD (a widely used approximation of the
+# real CRT brightness used by emulators and converters).
+ZXSCR_PALETTE_NORMAL = (
+    (0x00, 0x00, 0x00),  # 0 black
+    (0x00, 0x00, 0xCD),  # 1 blue
+    (0xCD, 0x00, 0x00),  # 2 red
+    (0xCD, 0x00, 0xCD),  # 3 magenta
+    (0x00, 0xCD, 0x00),  # 4 green
+    (0x00, 0xCD, 0xCD),  # 5 cyan
+    (0xCD, 0xCD, 0x00),  # 6 yellow
+    (0xCD, 0xCD, 0xCD),  # 7 white
+)
+ZXSCR_PALETTE_BRIGHT = (
+    (0x00, 0x00, 0x00),
+    (0x00, 0x00, 0xFF),
+    (0xFF, 0x00, 0x00),
+    (0xFF, 0x00, 0xFF),
+    (0x00, 0xFF, 0x00),
+    (0x00, 0xFF, 0xFF),
+    (0xFF, 0xFF, 0x00),
+    (0xFF, 0xFF, 0xFF),
+)
+ZXSCR_BYTES = 6912
+
+
+def zxscr_is_screen_bytes(data) -> bool:
+    """Return True if *data* looks like a 6912-byte Spectrum screen dump."""
+    return isinstance(data, (bytes, bytearray)) and len(data) == ZXSCR_BYTES
+
+
+def _zxscr_pixel_row_offset(y: int) -> int:
+    """Offset of the leftmost byte of pixel row *y* in the bitmap plane."""
+    return ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2)
+
+
+class ZxSpectrumScreen:
+    """Decoder for a standard 6912-byte ZX Spectrum SCREEN$ file.
+
+    This is an original Python implementation written from the public
+    description of the Spectrum display format; it does not derive from
+    any third-party converter.  ``flash_phase`` selects which half of the
+    FLASH cycle to render (False = INK/PAPER as stored, True = swapped).
+    """
+
+    def __init__(self, data: bytes):
+        if not zxscr_is_screen_bytes(data):
+            raise ValueError("not a 6912-byte SCR screen")
+        self._data = bytes(data)
+
+    @property
+    def width(self) -> int:
+        return 256
+
+    @property
+    def height(self) -> int:
+        return 192
+
+    def to_qimage(self, flash_phase: bool = False) -> QImage:
+        """Render the screen to a 256x192 ``QImage`` (RGB32)."""
+        img = QImage(256, 192, QImage.Format_RGB32)
+        data = self._data
+        attrs = data  # alias for clarity; offset 6144 onwards
+        for y in range(192):
+            row_off = _zxscr_pixel_row_offset(y)
+            attr_row = (y >> 3) * 32 + 6144
+            char_y = y >> 3  # not used after row_off but kept for clarity
+            for cx in range(32):
+                byte = data[row_off + cx]
+                attr = attrs[attr_row + cx]
+                ink   = attr & 0x07
+                paper = (attr >> 3) & 0x07
+                bright = bool(attr & 0x40)
+                flash  = bool(attr & 0x80)
+                if flash and flash_phase:
+                    ink, paper = paper, ink
+                pal = ZXSCR_PALETTE_BRIGHT if bright else ZXSCR_PALETTE_NORMAL
+                ink_r, ink_g, ink_b = pal[ink]
+                pap_r, pap_g, pap_b = pal[paper]
+                ink_px = (0xFF << 24) | (ink_r << 16) | (ink_g << 8) | ink_b
+                pap_px = (0xFF << 24) | (pap_r << 16) | (pap_g << 8) | pap_b
+                x = cx * 8
+                # MSB is the leftmost pixel of the byte.
+                for bit in range(8):
+                    on = (byte >> (7 - bit)) & 1
+                    img.setPixel(x + bit, y, ink_px if on else pap_px)
+        return img
+
+
+def zxscr_url_is_scr(url) -> bool:
+    """Return True if *url* (string) points at a .scr screen file."""
+    if not isinstance(url, str):
+        return False
+    n = url.lower()
+    for sep in ("?", "#"):
+        if sep in n:
+            n = n.split(sep, 1)[0]
+    return n.endswith(".scr")
+
+
+def _zxscr_cache_root() -> str:
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "cache", "scr")
+    try:
+        os.makedirs(root, exist_ok=True)
+    except Exception:
+        pass
+    return root
+
+
+def _zxscr_basename_for_url(url: str) -> str:
+    """Derive a safe filesystem-friendly base name (no extension) from *url*."""
+    try:
+        from urllib.parse import urlsplit, unquote
+        path = unquote(urlsplit(url).path)
+    except Exception:
+        path = url
+    name = os.path.basename(path) or "screen.scr"
+    # Strip extension and sanitise.
+    stem, _ext = os.path.splitext(name)
+    safe = "".join(ch if (ch.isalnum() or ch in "-_.") else "_" for ch in stem)
+    return safe or "screen"
+
+
+def zxscr_convert_bytes_to_pixmap(data: bytes, base_name: str):
+    """Decode *data* (6912-byte SCR) and cache the result under
+    ``cache/scr/<base_name>/``.  Returns a QPixmap or None on failure."""
+    if not zxscr_is_screen_bytes(data):
+        return None
+    try:
+        sub = os.path.join(_zxscr_cache_root(), base_name)
+        os.makedirs(sub, exist_ok=True)
+        scr_path = os.path.join(sub, base_name + ".scr")
+        png_path = os.path.join(sub, base_name + ".png")
+        if not os.path.exists(scr_path):
+            try:
+                with open(scr_path, "wb") as f:
+                    f.write(data)
+            except Exception:
+                pass
+        if os.path.exists(png_path):
+            pm = QPixmap(png_path)
+            if not pm.isNull():
+                return pm
+        img = ZxSpectrumScreen(data).to_qimage()
+        try:
+            img.save(png_path, "PNG")
+        except Exception:
+            pass
+        return QPixmap.fromImage(img)
+    except Exception:
+        return None
+
+
+def zxscr_try_pixmap_from_url_bytes(url, data):
+    """If *url* / *data* describe a Spectrum .scr screen, return a QPixmap
+    rendered from it (with caching).  Otherwise return ``None`` so the
+    caller can fall back to its normal image-loading path."""
+    if not zxscr_is_screen_bytes(data) and not zxscr_url_is_scr(url):
+        return None
+    if not zxscr_is_screen_bytes(data):
+        return None
+    base = _zxscr_basename_for_url(url) if isinstance(url, str) else "screen"
+    return zxscr_convert_bytes_to_pixmap(data, base)
 
 
 def zxfmt_pick_best_download(downloads):
@@ -3348,16 +3689,20 @@ class GalleryItemViewer(QWidget):
     def _rebuild_meta(self, title: str, rows: list):
         meta_widget = QWidget()
         meta_widget.setStyleSheet("background: #111;")
-        # Match the right-panel max width so long descriptions never push
-        # the layout horizontally and hide the row labels.
-        meta_widget.setMaximumWidth(400)
+        # Constrain the inner widget so it can never grow wider than the
+        # right panel; combined with setMinimumWidth(0) on each row label
+        # this forces text to wrap rather than extend off-screen.
+        meta_widget.setMaximumWidth(380)
         ml = QVBoxLayout(meta_widget)
         ml.setContentsMargins(16, 12, 16, 12)
         ml.setSpacing(6)
 
         title_lbl = QLabel(title or "")
         tf = title_lbl.font()
-        tf.setPointSize(tf.pointSize() + 4)
+        _tps = tf.pointSize()
+        if _tps <= 0:
+            _tps = max(QFontInfo(tf).pointSize(), 9)
+        tf.setPointSize(_tps + 4)
         tf.setBold(True)
         title_lbl.setFont(tf)
         title_lbl.setWordWrap(True)
@@ -3369,47 +3714,49 @@ class GalleryItemViewer(QWidget):
         sep.setStyleSheet("color: #2e2e2e;")
         ml.addWidget(sep)
 
-        for label, value in (rows or []):
+        import html as _html
+        import re as _re
+
+        for row in (rows or []):
+            label, value = row[0], row[1]
+            is_html = row[2] if len(row) > 2 else False
             if not value:
                 continue
-            rw = QWidget()
-            rw.setStyleSheet("background: transparent;")
-            rh = QHBoxLayout(rw)
-            rh.setContentsMargins(0, 2, 0, 2)
-            rh.setSpacing(8)
 
-            lw = QLabel(label)
-            lw.setAlignment(Qt.AlignTop | Qt.AlignRight)
-            lw.setFixedWidth(90)
-            lf = lw.font()
-            lf.setBold(True)
-            lw.setFont(lf)
-            lw.setStyleSheet("color: #888;")
-            rh.addWidget(lw, 0)
+            if is_html:
+                # Strip every HTML tag and decode entities to avoid Qt's
+                # text-engine font warnings (which break metrics and cause
+                # wrapped-text truncation). The value renders as plain text.
+                raw = str(value or "")
+                raw = _re.sub(r"<br\s*/?>", "\n", raw, flags=_re.IGNORECASE)
+                raw = _re.sub(r"</p\s*>", "\n\n", raw, flags=_re.IGNORECASE)
+                raw = _re.sub(r"<[^>]+>", "", raw)
+                raw = _html.unescape(raw)
+                # Collapse excessive blank runs.
+                raw = _re.sub(r"\n{3,}", "\n\n", raw).strip()
+                val_html = _html.escape(raw).replace("\n", "<br>")
+            else:
+                val_html = _html.escape(str(value or "")).replace("\n", "<br>")
 
-            vw = QLabel()
-            # Use RichText with explicit word-break so even long unbroken
-            # tokens (URLs, paths, etc.) wrap inside the right panel instead
-            # of forcing the row wider than the QScrollArea viewport, which
-            # would shift the "Description:" caption behind the image area.
-            import html as _html
-            _escaped = _html.escape(str(value or "")).replace("\n", "<br>")
-            vw.setText(
-                f'<div style="word-wrap:break-word; word-break:break-all;">{_escaped}</div>'
+            row_lbl = QLabel(
+                '<span style="color:#888; font-weight:bold;">'
+                + _html.escape(str(label)) + '</span><br>'
+                '<span style="color:#ddd; word-wrap:break-word; '
+                'word-break:break-all;">' + val_html + '</span>'
             )
-            vw.setTextFormat(Qt.RichText)
-            vw.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-            vw.setWordWrap(True)
-            vw.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-            vw.setMinimumWidth(0)
-            # Hard cap so the row can never exceed the right-panel width
-            # even if the label's own minimumSizeHint says otherwise.
-            vw.setMaximumWidth(260)
-            vw.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            vw.setStyleSheet("color: #ddd;")
-            rh.addWidget(vw, 1)
-
-            ml.addWidget(rw)
+            row_lbl.setTextFormat(Qt.RichText)
+            row_lbl.setWordWrap(True)
+            row_lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+            row_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            row_lbl.setOpenExternalLinks(True)
+            # Critical: Ignored horizontal policy + minimum width 0 means
+            # the label cannot inflate to its unwrapped sizeHint() width,
+            # so long unbroken text MUST wrap inside the available space.
+            row_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.MinimumExpanding)
+            row_lbl.setMinimumWidth(0)
+            row_lbl.setMaximumWidth(340)
+            row_lbl.setContentsMargins(0, 2, 0, 6)
+            ml.addWidget(row_lbl)
 
         ml.addStretch()
         old = self._scroll.widget()
@@ -7158,6 +7505,25 @@ class MainWindow(QMainWindow):
                 if not pm.isNull():
                     on_pixmap(pm)
                 return
+            if zxscr_url_is_scr(url):
+                base = _zxscr_basename_for_url(url)
+                cached = os.path.join(_zxscr_cache_root(), base, base + ".png")
+                if os.path.exists(cached):
+                    pm = QPixmap(cached)
+                    if not pm.isNull():
+                        on_pixmap(pm)
+                        return
+                def _scr_fn(_u=url, _b=base):
+                    req = urllib.request.Request(_u)
+                    with urllib.request.urlopen(req, timeout=20) as resp:
+                        return (resp.read(), _b)
+                def _scr_ok(res):
+                    data, b = res
+                    pm = zxscr_convert_bytes_to_pixmap(data, b)
+                    if pm is not None and not pm.isNull():
+                        on_pixmap(pm)
+                getit_run_in_thread(_scr_fn, _scr_ok, lambda _e: None)
+                return
             def _fn(_u=url):
                 tmp = tempfile.NamedTemporaryFile(suffix=".bmp", delete=False)
                 tmp.close()
@@ -7995,6 +8361,7 @@ class MainWindow(QMainWindow):
 
         def _getit_hide_fullscreen():
             self._getit_stack.setCurrentIndex(0)
+        self._hide_fullscreen_getit = _getit_hide_fullscreen
 
         def _getit_resize_fullscreen():
             px = self._getit_fullscreen_pixmap
@@ -8238,6 +8605,12 @@ class MainWindow(QMainWindow):
                             return (_u, resp.read())
                     def _img_ok(r):
                         u, data = r
+                        if zxscr_url_is_scr(u):
+                            pm = zxscr_convert_bytes_to_pixmap(
+                                data, _zxscr_basename_for_url(u))
+                            if pm is not None and not pm.isNull():
+                                set_pixmap(pm, u)
+                                return
                         px = QPixmap()
                         px.loadFromData(data)
                         if not px.isNull():
@@ -8265,11 +8638,26 @@ class MainWindow(QMainWindow):
                 if not pm.isNull():
                     on_pixmap(pm)
                 return
+            scr_url = zxscr_url_is_scr(url)
+            if scr_url:
+                base = _zxscr_basename_for_url(url)
+                cached = os.path.join(_zxscr_cache_root(), base, base + ".png")
+                if os.path.exists(cached):
+                    pm = QPixmap(cached)
+                    if not pm.isNull():
+                        on_pixmap(pm)
+                        return
             def _fn(_u=url):
                 req = urllib.request.Request(_u, headers={"User-Agent": ZXDB_USER_AGENT})
                 with urllib.request.urlopen(req, timeout=20) as resp:
                     return resp.read()
-            def _on_ok(data):
+            def _on_ok(data, _u=url, _scr=scr_url):
+                if _scr:
+                    pm = zxscr_convert_bytes_to_pixmap(
+                        data, _zxscr_basename_for_url(_u))
+                    if pm is not None and not pm.isNull():
+                        on_pixmap(pm)
+                        return
                 px = QPixmap()
                 px.loadFromData(data)
                 if not px.isNull():
@@ -8457,11 +8845,23 @@ class MainWindow(QMainWindow):
                 self._zxdb_detail_layout.removeRow(0)
             self._zxdb_detail_rows = []
 
-        def _zxdb_add_row(label: str, value: str, *, dim: bool = False, wrap: bool = True):
+        def _zxdb_add_row(label: str, value: str, *, dim: bool = False, wrap: bool = True, is_html: bool = False):
             lab = QLabel(label)
-            val = QLabel(value or "")
+            val = QLabel()
+            import html as _html
+            if is_html:
+                inner = str(value or "")
+            else:
+                inner = _html.escape(str(value or "")).replace("\n", "<br>")
+            val.setText(
+                f'<div style="word-wrap:break-word; word-break:break-all;">{inner}</div>'
+            )
+            val.setTextFormat(Qt.RichText)
             if wrap:
                 val.setWordWrap(True)
+                val.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.MinimumExpanding)
+                val.setMinimumWidth(0)
+            val.setTextInteractionFlags(Qt.TextSelectableByMouse)
             if dim:
                 val.setStyleSheet("color: #888;")
             self._zxdb_detail_layout.addRow(lab, val)
@@ -8518,7 +8918,7 @@ class MainWindow(QMainWindow):
             _zxdb_add_row("Title:",       detail.get("title", ""))
             _zxdb_add_row("Year:",        detail.get("year", ""))
             _zxdb_add_row("Authors:",     detail.get("authors", ""))
-            _zxdb_add_row("Publishers:",  detail.get("publishers", ""))
+            _zxdb_add_row("Published by:", detail.get("publishers", ""))
             _zxdb_add_row("Machine:",     detail.get("machine", ""))
             _zxdb_add_row("Genre:",       detail.get("genre", ""))
             _zxdb_add_row(
@@ -9587,7 +9987,7 @@ class MainWindow(QMainWindow):
                     ("Title:",       detail.get("title", title)),
                     ("Year:",        str(detail.get("year", "") or "")),
                     ("Authors:",     detail.get("authors", "")),
-                    ("Publishers:",  detail.get("publishers", "")),
+                    ("Published by:", detail.get("publishers", "")),
                     ("Machine:",     detail.get("machine", "")),
                     ("Genre:",       detail.get("genre", "")),
                     ("Language:",    detail.get("language", "")),
@@ -10423,6 +10823,7 @@ class MainWindow(QMainWindow):
         def _zxdb_hide_fullscreen():
             self._zxdb_stack.setCurrentIndex(0)
             zxdb_update_nav_buttons()
+        self._hide_fullscreen_zxdb = _zxdb_hide_fullscreen
 
         def _zxdb_resize_fullscreen():
             px = self._zxdb_fullscreen_pixmap
@@ -10776,6 +11177,12 @@ class MainWindow(QMainWindow):
                     return (_u, resp.read())
             def _img_ok(res):
                 u, data = res
+                if zxscr_url_is_scr(u):
+                    pm = zxscr_convert_bytes_to_pixmap(
+                        data, _zxscr_basename_for_url(u))
+                    if pm is not None and not pm.isNull():
+                        set_pixmap(pm, u)
+                        return
                 px = QPixmap()
                 px.loadFromData(data)
                 if not px.isNull():
@@ -10790,12 +11197,27 @@ class MainWindow(QMainWindow):
                 if not pm.isNull():
                     on_pixmap(pm)
                 return
+            scr_url = zxscr_url_is_scr(url)
+            if scr_url:
+                base = _zxscr_basename_for_url(url)
+                cached = os.path.join(_zxscr_cache_root(), base, base + ".png")
+                if os.path.exists(cached):
+                    pm = QPixmap(cached)
+                    if not pm.isNull():
+                        on_pixmap(pm)
+                        return
             def _fn(_u=url):
                 req = urllib.request.Request(zxart_safe_url(_u),
                                              headers={"User-Agent": ZXART_USER_AGENT})
                 with urllib.request.urlopen(req, timeout=20) as resp:
                     return resp.read()
-            def _on_ok(data):
+            def _on_ok(data, _u=url, _scr=scr_url):
+                if _scr:
+                    pm = zxscr_convert_bytes_to_pixmap(
+                        data, _zxscr_basename_for_url(_u))
+                    if pm is not None and not pm.isNull():
+                        on_pixmap(pm)
+                        return
                 px = QPixmap()
                 px.loadFromData(data)
                 if not px.isNull():
@@ -10989,35 +11411,23 @@ class MainWindow(QMainWindow):
                 self._zxart_detail_layout.removeRow(0)
             self._zxart_detail_rows = []
 
-        def _zxart_add_row(label: str, value: str, *, dim: bool = False, wrap: bool = True):
+        def _zxart_add_row(label: str, value: str, *, dim: bool = False, wrap: bool = True, is_html: bool = False):
             lab = QLabel(_zxart_tr(label))
-            full_text = value or ""
-            # Cap very long values (e.g. Description / Tags) so they cannot
-            # grow the detail panel tall enough to push the gallery row out of
-            # view. The full text remains accessible via the tooltip.
-            MAX_CHARS = 400
-            if len(full_text) > MAX_CHARS:
-                display_text = full_text[:MAX_CHARS].rstrip() + "…"
+            val = QLabel()
+            import html as _html
+            if is_html:
+                inner = str(value or "")
             else:
-                display_text = full_text
-            val = QLabel(display_text)
-            if full_text and full_text != display_text:
-                val.setToolTip(full_text)
+                inner = _html.escape(str(value or "")).replace("\n", "<br>")
+            val.setText(
+                f'<div style="word-wrap:break-word; word-break:break-all;">{inner}</div>'
+            )
+            val.setTextFormat(Qt.RichText)
             if wrap:
                 val.setWordWrap(True)
-                # A word-wrapping QLabel reports its *unwrapped* width via
-                # sizeHint(). For long Description / Tags values that pushes
-                # the surrounding QFormLayout — and ultimately the whole pane
-                # — much wider, which in turn enlarges the gallery viewport
-                # and causes every GalleryCell thumbnail to rescale up on the
-                # next click/layout pass. Ignoring the horizontal hint keeps
-                # the label inside whatever width the layout gives it.
-                val.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+                val.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.MinimumExpanding)
                 val.setMinimumWidth(0)
-                # Cap vertical growth to a few lines so the gallery above
-                # always remains visible.
-                fm = val.fontMetrics()
-                val.setMaximumHeight(fm.lineSpacing() * 4 + 4)
+            val.setTextInteractionFlags(Qt.TextSelectableByMouse)
             if dim:
                 val.setStyleSheet("color: #888;")
             self._zxart_detail_layout.addRow(lab, val)
@@ -11319,13 +11729,15 @@ class MainWindow(QMainWindow):
             _zxart_add_row("Year:",        detail.get("year", ""))
             _zxart_add_row("Authors:",     detail.get("authors", ""))
             _zxart_add_row("Groups:",      detail.get("groups", ""))
+            _zxart_add_row("Produced by:", detail.get("produced_by", ""))
+            _zxart_add_row("Published by:", detail.get("publishers", ""))
             _zxart_add_row("Compo:",       detail.get("compo", ""))
             party_place = detail.get("partyPlace", "")
             if party_place:
                 _zxart_add_row("Place:", str(party_place))
             _zxart_add_row("Languages:",   detail.get("language", ""))
             _zxart_add_row("Legal:",       detail.get("legalStatus", ""))
-            _zxart_add_row("Description:", detail.get("description", ""), dim=True)
+            _zxart_add_row("Description:", detail.get("description", ""), dim=True, is_html=True)
             self._zxart_selected_downloads = detail.get("downloads", []) or []
             self.zxart_download_button.setEnabled(bool(self._zxart_selected_downloads))
 
@@ -11340,7 +11752,7 @@ class MainWindow(QMainWindow):
             tags = detail.get("tags", "")
             if tags:
                 _zxart_add_row("Tags:", tags, dim=True)
-            _zxart_add_row("Description:", detail.get("description", ""), dim=True)
+            _zxart_add_row("Description:", detail.get("description", ""), dim=True, is_html=True)
             self._zxart_selected_downloads = detail.get("downloads", []) or []
             self.zxart_download_button.setEnabled(bool(self._zxart_selected_downloads))
 
@@ -11674,6 +12086,11 @@ class MainWindow(QMainWindow):
                 authors_display = ", ".join(s for s in author_display_parts if s)
 
                 groups_display = _zxart_resolve_group_names(group_ids)
+                publishers_display = _zxart_resolve_publisher_names(pub_ids)
+                if not publishers_display:
+                    publishers_display = _zxart_scrape_publishers_from_prod_url(
+                        str(prod.get("url") or "")
+                    )
 
                 downloads = []
                 for rel in releases:
@@ -11722,6 +12139,8 @@ class MainWindow(QMainWindow):
                     "year":        str(prod.get("year") or ""),
                     "authors":     authors_display,
                     "groups":      groups_display,
+                    "publishers":  publishers_display,
+                    "produced_by": groups_display,
                     "compo":       str(prod.get("compo") or ""),
                     "partyPlace":  prod.get("partyPlace") or "",
                     "language":    _join(prod.get("language")),
@@ -12064,17 +12483,27 @@ class MainWindow(QMainWindow):
                         rating = f"{float(votes):.2f}" if votes is not None else ""
                     except (TypeError, ValueError):
                         rating = ""
+                    pub_ids_fs = prod.get("publishersIds") or []
+                    publishers_fs = _zxart_resolve_publisher_names(pub_ids_fs)
+                    if not publishers_fs:
+                        publishers_fs = _zxart_scrape_publishers_from_prod_url(
+                            str(prod.get("url") or "")
+                        )
+                    grp_ids_fs = prod.get("groupsIds") or []
+                    produced_by_fs = _zxart_resolve_group_names(grp_ids_fs)
                     rows = [
                         (_zxart_tr("Title:"),       str(prod.get("title") or title)),
                         (_zxart_tr("Year:"),        str(prod.get("year") or "")),
                         (_zxart_tr("Authors:"),     ", ".join(str(a) for a in (prod.get("authors") or []))),
                         (_zxart_tr("Groups:"),      ", ".join(str(g) for g in (prod.get("groups")  or []))),
+                        (_zxart_tr("Produced by:"), produced_by_fs),
+                        (_zxart_tr("Published by:"), publishers_fs),
                         (_zxart_tr("Compo:"),       str(prod.get("compo") or "")),
                         (_zxart_tr("Place:"),       str(prod.get("partyPlace") or "")),
                         (_zxart_tr("Rating:"),      _gallery_stars(rating) if rating else ""),
                         (_zxart_tr("Language:"),    str(prod.get("language") or "")),
                         (_zxart_tr("Legal:"),       str(prod.get("legalStatus") or "")),
-                        (_zxart_tr("Description:"), str(prod.get("description") or "")),
+                        (_zxart_tr("Description:"), str(prod.get("description") or ""), True),
                     ]
                     return (screenshots, rows, str(prod.get("title") or title), releases)
 
@@ -12670,6 +13099,7 @@ class MainWindow(QMainWindow):
         def _zxart_hide_fullscreen():
             self._zxart_stack.setCurrentIndex(0)
             zxart_update_nav_buttons()
+        self._hide_fullscreen_zxart = _zxart_hide_fullscreen
 
         def _zxart_resize_fullscreen():
             px = self._zxart_fullscreen_pixmap
@@ -12837,10 +13267,38 @@ class MainWindow(QMainWindow):
             source_label_getter=self._fav_source_label_for,
         )
 
+        def _fav_open_fullscreen(entry):
+            if not isinstance(entry, dict):
+                return
+            src = self._fav_source_of(entry)
+            if src == "getit":
+                target_title = ZX_NEXT_UNITE_TAB_TITLE_GETIT
+                opener = _getit_open_gallery_viewer
+            elif src == "zxdb":
+                target_title = ZX_NEXT_UNITE_TAB_TITLE_ZXDB
+                opener = _zxdb_open_gallery_viewer
+            elif src == "zxart":
+                target_title = ZX_NEXT_UNITE_TAB_TITLE_ZXART
+                opener = _zxart_open_gallery_viewer
+            else:
+                self._fav_navigate_to_source(entry)
+                return
+            # Switch to the source tab so the viewer stack is visible.
+            for i in range(self._tab_widget.count()):
+                if self._tab_widget.tabText(i).startswith(target_title):
+                    self._tab_widget.setCurrentIndex(i)
+                    break
+            try:
+                opener(entry)
+            except Exception:
+                pass
+
+        self._fav_open_fullscreen = _fav_open_fullscreen
+
         def _fav_on_cell_clicked(entry):
-            self._fav_navigate_to_source(entry)
+            _fav_open_fullscreen(entry)
         def _fav_on_cell_dbl_clicked(entry):
-            self._fav_navigate_to_source(entry)
+            _fav_open_fullscreen(entry)
         self.favorites_gallery_view.cell_clicked.connect(_fav_on_cell_clicked)
         self.favorites_gallery_view.cell_dbl_clicked.connect(_fav_on_cell_dbl_clicked)
 
@@ -12896,7 +13354,7 @@ class MainWindow(QMainWindow):
             row = self.favorites_results_table.currentRow()
             entry = _fav_table_entry_for_row(row)
             if entry is not None:
-                self._fav_navigate_to_source(entry)
+                _fav_open_fullscreen(entry)
 
         def _fav_table_on_context_menu(pos):
             row = self.favorites_results_table.rowAt(pos.y())
@@ -13433,6 +13891,24 @@ class MainWindow(QMainWindow):
         def on_tab_changed(index):
             if self._initialising:
                 return
+            # If any pane is currently in fullscreen mode (stack index 1),
+            # dismiss it before activating the new tab so the user always
+            # lands on the gallery view of the destination pane.
+            try:
+                if self._getit_stack.currentIndex() == 1:
+                    self._hide_fullscreen_getit()
+            except Exception:
+                pass
+            try:
+                if self._zxdb_stack.currentIndex() == 1:
+                    self._hide_fullscreen_zxdb()
+            except Exception:
+                pass
+            try:
+                if self._zxart_stack.currentIndex() == 1:
+                    self._hide_fullscreen_zxart()
+            except Exception:
+                pass
             tab_title = wid_inner.tab.tabText(index)
             if tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GOOEY):
                 if right_disk_image_explorer_content:
@@ -13534,8 +14010,28 @@ MainWindow.closeEvent = _mainwindow_close_event
 import signal
 
 app = QApplication(sys.argv)
+
+# Suppress a Qt-internal warning that fires when its rich-text engine
+# constructs a QFont from CSS that has no explicit point/pixel size (the
+# font inherits a pixel-size-only font and Qt resolves it as -1pt).
+# This is a known Qt bug; the label still renders correctly.
+_QT_SUPPRESS_MSGS = ("Point size <= 0",)
+def _qt_message_handler(msg_type, context, message):
+    if any(s in message for s in _QT_SUPPRESS_MSGS):
+        return
+    import sys as _sys
+    print(message, file=_sys.stderr)
+qInstallMessageHandler(_qt_message_handler)
 _app_font = QFont("Consolas")
 _app_font.setStyleHint(QFont.StyleHint.Monospace)
+# Ensure the application font always has a valid positive point size so that
+# widgets which inherit it and then call font().pointSize() never receive -1
+# (which happens when only pixelSize or no size is set on the QFont).
+_resolved_ps = QFontInfo(_app_font).pointSize()
+if _resolved_ps > 0:
+    _app_font.setPointSize(_resolved_ps)
+else:
+    _app_font.setPointSize(10)
 app.setFont(_app_font)
 
 window = MainWindow()
