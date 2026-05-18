@@ -279,6 +279,7 @@ DEFAULT_GALLERY_ROWS_PER_PAGE  = 2
 GALLERY_COLS                   = 4
 GALLERY_MIN_ROWS               = 1
 GALLERY_MAX_ROWS               = 10
+MAX_ALT_TEXT_LINES             = 5
 MAX_IMAGE_HISTORY         = 10
 
 DEFAULT_COLOR_UP_DIRECTORY = "#ff0000"
@@ -1072,6 +1073,26 @@ def zxdb_parse_game_detail(payload) -> dict:
 # ---------------------------------------------------------------------------
 # zxART (zxart.ee) helpers
 # ---------------------------------------------------------------------------
+
+_RE_ID_ONLY_URL = re.compile(r"/id:\d+/?$", re.IGNORECASE)
+
+def _filter_download_urls(downloads: list) -> list:
+    """Remove entries whose URL looks like a bare id-only path with no file
+    extension (e.g. ``…/id:12345/``).  These are API browse URLs, not
+    downloadable files, and will not work as direct downloads."""
+    if not downloads:
+        return downloads
+    filtered = []
+    for d in downloads:
+        url = (d.get("url") or "").strip()
+        if not url:
+            continue
+        path = urllib.parse.urlparse(url).path
+        if _RE_ID_ONLY_URL.search(path):
+            continue
+        filtered.append(d)
+    return filtered
+
 
 def zxart_safe_url(url: str) -> str:
     """Percent-encode any non-ASCII characters in *url* so the request can be
@@ -1993,16 +2014,41 @@ def getit_run_in_thread(fn, on_result, on_error):
 # The API does not return these as a single field; we derive them from
 # release formats, hardware requirements, and prod-level flags.
 
-_ZXART_RELEASE_FORMAT_TAGS = {
-    # Tape / cassette
-    "tap": "Tape", "tzx": "Tape", "wav": "Tape", "csw": "Tape",
-    # TR-DOS / Beta-disc
-    "trd": "TR-DOS", "scl": "TR-DOS", "fdi": "TR-DOS", "td0": "TR-DOS",
-    # CP/M / +3 disc
-    "dsk": "+3 Disk",
-    # General storage / mass-storage / TR-DOS images
-    "img": "HDD", "hdf": "HDD",
-}
+# Base map: every extension from ZXFMT_PLACEHOLDER_LABELS gets its own label
+# so the overlay always shows something for any known format.  The grouped
+# overrides below replace generic labels with friendlier cluster names (e.g.
+# several tape formats all collapse to "Tape").
+_ZXART_RELEASE_FORMAT_TAGS: dict = {}
+
+# Populated lazily once ZXFMT_PLACEHOLDER_LABELS is defined (see below).
+def _build_release_format_tags() -> dict:
+    d = {ext: label for ext, label in ZXFMT_PLACEHOLDER_LABELS}
+    # Grouped / friendlier overrides
+    for _ext in ("tap", "tzx", "pzx", "cdt", "csw", "voc", "wav", "mp3", "ogg", "flac"):
+        if _ext in d:
+            d[_ext] = "Tape"
+    for _ext in ("trd", "scl", "fdi", "td0", "opd", "opu"):
+        if _ext in d:
+            d[_ext] = "TR-DOS"
+    for _ext in ("dsk", "mgt"):
+        if _ext in d:
+            d[_ext] = "+3 Disk"
+    for _ext in ("img", "hdf"):
+        if _ext in d:
+            d[_ext] = "HDD"
+    for _ext in ("sna", "z80", "szx", "sp", "zx", "slt"):
+        if _ext in d:
+            d[_ext] = "Snapshot"
+    for _ext in ("zip", "7z", "rar", "tar", "gz", "xz"):
+        if _ext in d:
+            d[_ext] = "Archive"
+    for _ext in ("bas", "asm", "z80s", "c", "h", "pas"):
+        if _ext in d:
+            d[_ext] = "Source"
+    for _ext in ("pdf", "txt", "doc", "docx", "rtf", "htm", "html", "nfo", "diz", "md"):
+        if _ext in d:
+            d[_ext] = "Docs"
+    return d
 
 _ZXART_HARDWARE_TAGS = {
     # Sound / extension hardware
@@ -2207,6 +2253,10 @@ ZXFMT_PLACEHOLDER_LABELS = (
     ("xml",  "XML"),
     ("json", "JSON"),
 )
+
+# Now that ZXFMT_PLACEHOLDER_LABELS is defined, build the release-format tag
+# map used by _zxart_tag_for_format() (defined earlier in the file).
+_ZXART_RELEASE_FORMAT_TAGS.update(_build_release_format_tags())
 
 
 def zxfmt_split_ext(name: str) -> str:
@@ -2561,6 +2611,18 @@ def zxfmt_pick_best_download(downloads):
     return best
 
 
+def _build_tooltip_text(lines: list) -> str:
+    """Join `lines` into a tooltip string, truncating to MAX_ALT_TEXT_LINES.
+
+    If the total number of non-empty lines exceeds MAX_ALT_TEXT_LINES, the
+    list is cut at that limit and a trailing "..." line is appended.
+    """
+    non_empty = [ln for ln in lines if ln and str(ln).strip()]
+    if len(non_empty) > MAX_ALT_TEXT_LINES:
+        non_empty = non_empty[:MAX_ALT_TEXT_LINES] + ["..."]
+    return "\n".join(non_empty)
+
+
 class GalleryCell(QFrame):
     """A picture-view tile: thumbnail + title + (hover-only) info line.
 
@@ -2584,11 +2646,14 @@ class GalleryCell(QFrame):
 
     def __init__(self, entry, anim_mode_getter,
                  thumb_fetch_cb, extra_fetch_cb,
-                 title_text="", info_text="", context_menu_cb=None,
+                 title_text="", info_text="", tooltip_text="",
+                 context_menu_cb=None,
                  tags=None, parent=None,
                  is_favorite_cb=None, toggle_favorite_cb=None,
                  source_label_getter=None):
         super().__init__(parent)
+        if tooltip_text:
+            self.setToolTip(tooltip_text)
         self._entry = entry
         self._anim_mode_getter = anim_mode_getter  # callable -> "hover"|"timer"
         self._thumb_fetch_cb = thumb_fetch_cb
@@ -3122,7 +3187,7 @@ class GalleryView(QWidget):
                  title_getter, info_getter, context_menu_cb=None,
                  tags_getter=None, image_predicate=None,
                  is_favorite_cb=None, toggle_favorite_cb=None,
-                 source_label_getter=None, parent=None):
+                 source_label_getter=None, tooltip_getter=None, parent=None):
         super().__init__(parent)
         self._rows_per_page_getter = rows_per_page_getter
         self._anim_mode_getter     = anim_mode_getter
@@ -3130,6 +3195,7 @@ class GalleryView(QWidget):
         self._extra_fetch_cb       = extra_fetch_cb
         self._title_getter         = title_getter
         self._info_getter          = info_getter
+        self._tooltip_getter       = tooltip_getter
         self._context_menu_cb      = context_menu_cb
         self._tags_getter          = tags_getter or _gallery_extract_tags
         self._is_favorite_cb       = is_favorite_cb
@@ -3208,8 +3274,9 @@ class GalleryView(QWidget):
 
         for i, e in enumerate(entries):
             r, c = divmod(i, GALLERY_COLS)
-            title = self._title_getter(e) if self._title_getter else ""
-            info  = self._info_getter(e)  if self._info_getter  else ""
+            title   = self._title_getter(e) if self._title_getter   else ""
+            info    = self._info_getter(e)  if self._info_getter    else ""
+            tooltip = self._tooltip_getter(e) if self._tooltip_getter else ""
             tags  = []
             if self._tags_getter:
                 try:
@@ -3223,6 +3290,7 @@ class GalleryView(QWidget):
                 extra_fetch_cb=self._extra_fetch_cb,
                 title_text=title,
                 info_text=info,
+                tooltip_text=tooltip,
                 context_menu_cb=self._context_menu_cb,
                 tags=tags,
                 parent=self._table,
@@ -3412,6 +3480,7 @@ class GalleryItemViewer(QWidget):
         self._img_lbl.setStyleSheet("background: #0a0a0a; color: #666;")
         self._img_lbl.setText("Loading…")
         self._img_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._img_lbl.setCursor(Qt.PointingHandCursor)
         img_layout.addWidget(self._img_lbl, 1)
 
         # Tag overlay floating in the top-right corner of the image area.
@@ -3658,8 +3727,13 @@ class GalleryItemViewer(QWidget):
         ov.raise_()
 
     def eventFilter(self, obj, ev):
-        if obj is self._img_lbl and ev.type() == QEvent.Resize:
-            self._position_tag_overlay()
+        if obj is self._img_lbl:
+            if ev.type() == QEvent.Resize:
+                self._position_tag_overlay()
+            elif ev.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick):
+                if ev.button() == Qt.LeftButton:
+                    self._do_close()
+                    return True
         return super().eventFilter(obj, ev)
 
     def set_actions(self, download_cb=None, send_sd_cb=None, send_ns_cb=None,
@@ -3669,6 +3743,12 @@ class GalleryItemViewer(QWidget):
         self._wire_btn(self.btn_download, download_cb, True)
         self._wire_btn(self.btn_send_sd,  send_sd_cb,  sd_enabled, sd_tooltip)
         self._wire_btn(self.btn_send_ns,  send_ns_cb,  ns_enabled, ns_tooltip)
+
+    def set_download_available(self, has_dl: bool):
+        """Show or hide all three action buttons depending on whether any
+        downloadable files exist for this entry."""
+        for btn in (self.btn_download, self.btn_send_sd, self.btn_send_ns):
+            btn.setVisible(bool(has_dl))
 
     # ── private helpers ───────────────────────────────────────────────────
 
@@ -7412,6 +7492,8 @@ class MainWindow(QMainWindow):
         _getit_link_label.setTextFormat(Qt.RichText)
         _getit_link_label.setAlignment(Qt.AlignCenter)
         getit_right_col.addWidget(_getit_link_label)
+        self.getit_screenshot_label.setVisible(False)
+        self.getit_download_button.setVisible(False)
         getit_right_col.addWidget(self.getit_screenshot_label)
         getit_right_col.addWidget(self.getit_download_button)
         getit_right_col.addStretch()
@@ -7711,22 +7793,35 @@ class MainWindow(QMainWindow):
                 offset = (page - 1) * GETIT_PAGE_SIZE
                 if query:
                     path = f"/f?s={urllib.parse.quote(query)}"
-                    if offset > 0:
-                        path += f"&o={offset}"
                 else:
-                    path = "/f"
-                    if offset > 0:
-                        path += f"?o={offset}"
+                    # Empty-search path (/f?s=) is the only endpoint that
+                    # supports offset-based pagination; bare /f ignores ?o=.
+                    path = "/f?s="
+                if offset > 0:
+                    path += f"&o={offset}"
                 text = getit_fetch(path)
                 entries, total, pg, total_pages = getit_parse_file_list(text)
                 return (entries, total, total_pages)
 
             def _on_result(data):
                 self._getit_search_loading = False
-                total_pages = data[2] or 1
+                entries, total, total_pages = data[0], data[1], data[2] or 1
+                # The GetIt /f endpoint reports only the item count on the
+                # current page as "total", never the full catalogue size, so
+                # total_pages always computes to 1.
+                # - For no-search browsing: always allow Next as long as we
+                #   got any results (the endpoint doesn't expose a catalogue
+                #   total, so we optimistically enable Next and let the next
+                #   fetch return empty to signal the real end).
+                # - For search queries: only allow Next when a full page was
+                #   returned (the search endpoint does return a reliable total
+                #   when results span multiple pages).
+                if total_pages <= page and len(entries) > 0:
+                    if not query or len(entries) >= GETIT_PAGE_SIZE:
+                        total_pages = page + 1
                 self._getit_total_pages = total_pages
-                getit_populate_results(data[0], page, total_pages)
-                getit_set_status(f"{data[1]} result(s)  |  page {page}/{total_pages}")
+                getit_populate_results(entries, page, total_pages)
+                getit_set_status(f"{total} result(s)  |  page {page}/{total_pages}")
                 self.getit_search_button.setEnabled(True)
                 self.getit_latest_button.setEnabled(True)
                 if on_complete:
@@ -7784,21 +7879,20 @@ class MainWindow(QMainWindow):
             def _fn():
                 # Probe the catalogue to find the number of pages, then load
                 # a random one.  GetIt has no random endpoint, so we sample
-                # client-side by page.
-                text = getit_fetch("/f")
+                # client-side by page.  Use /f?s= (empty search) because bare
+                # /f ignores offset params and doesn't return a catalogue total.
+                text = getit_fetch("/f?s=")
                 _entries, _total, _pg, total_pages = getit_parse_file_list(text)
-                tp = max(1, int(total_pages or 1))
+                tp = max(1, (_total + GETIT_PAGE_SIZE - 1) // GETIT_PAGE_SIZE) if _total else 1
                 page = _random.randint(1, tp)
-                if page == 1:
-                    path = "/f"
-                else:
-                    path = f"/f?o={(page - 1) * GETIT_PAGE_SIZE}"
+                path = f"/f?s=&o={(page - 1) * GETIT_PAGE_SIZE}" if page > 1 else "/f?s="
                 text2 = getit_fetch(path)
                 entries, total, _pg2, tp2 = getit_parse_file_list(text2)
+                tp2 = max(1, (_total + GETIT_PAGE_SIZE - 1) // GETIT_PAGE_SIZE) if _total else tp
                 # Shuffle the page entries so consecutive random clicks differ
                 # even when the random page repeats.
                 _random.shuffle(entries)
-                return (entries, total, page, max(1, int(tp2 or tp)))
+                return (entries, total, page, tp2)
 
             def _on_ok(data):
                 entries, total, page, total_pages = data
@@ -8550,6 +8644,8 @@ class MainWindow(QMainWindow):
         _zxdb_link_label.setTextFormat(Qt.RichText)
         _zxdb_link_label.setAlignment(Qt.AlignCenter)
         zxdb_right_col.addWidget(_zxdb_link_label)
+        zxdb_preview_container.setVisible(False)
+        self.zxdb_download_button.setVisible(False)
         zxdb_right_col.addWidget(zxdb_preview_container)
         zxdb_right_col.addWidget(self.zxdb_download_button)
         zxdb_right_col.addStretch()
@@ -8570,6 +8666,15 @@ class MainWindow(QMainWindow):
             if e.get("machine"): parts.append(e["machine"])
             if e.get("genre"):   parts.append(e["genre"])
             return " · ".join(parts)
+
+        def _zxdb_tooltip_getter(e):
+            lines = []
+            if e.get("title"):   lines.append(f"Title: {e['title']}")
+            if e.get("year"):    lines.append(f"Year: {e['year']}")
+            if e.get("author"):  lines.append(f"Author: {e['author']}")
+            if e.get("machine"): lines.append(f"Machine: {e['machine']}")
+            if e.get("genre"):   lines.append(f"Genre: {e['genre']}")
+            return _build_tooltip_text(lines)
 
         def _zxdb_thumb_fetch(entry, set_pixmap, set_screenshots):
             eid = entry.get("id") or ""
@@ -8782,6 +8887,7 @@ class MainWindow(QMainWindow):
             context_menu_cb=_zxdb_gallery_context_menu,
             is_favorite_cb=lambda e: self._fav_is({**e, "_fav_source": "zxdb"}),
             toggle_favorite_cb=lambda e: self._fav_toggle({**e, "_fav_source": "zxdb"}),
+            tooltip_getter=_zxdb_tooltip_getter,
         )
         self._fav_fetchers = getattr(self, "_fav_fetchers", {})
         self._fav_fetchers["zxdb"] = {
@@ -8803,9 +8909,9 @@ class MainWindow(QMainWindow):
         self._zxdb_detail_layout.setContentsMargins(0, 0, 0, 0)
         self._zxdb_detail_rows = []   # list of (label_widget, value_widget) pairs
 
-        zxdb_detail_widget = QWidget()
-        zxdb_detail_widget.setLayout(self._zxdb_detail_layout)
-        self.zxdb_form.addRow(zxdb_detail_widget)
+        self._zxdb_detail_widget = QWidget()
+        self._zxdb_detail_widget.setLayout(self._zxdb_detail_layout)
+        # Detail widget intentionally not added to form; info shown via cell tooltips instead.
 
         # --- Internal state ---
         self._zxdb_current_page  = 1
@@ -8927,7 +9033,9 @@ class MainWindow(QMainWindow):
                 dim=True,
             )
 
-            self._zxdb_selected_downloads = detail.get("downloads", []) or []
+            self._zxdb_selected_downloads = _filter_download_urls(
+                detail.get("downloads", []) or []
+            )
             self.zxdb_download_button.setEnabled(bool(self._zxdb_selected_downloads))
 
         def zxdb_populate_magazine_detail(name: str, summary: dict, issues_payload):
@@ -9907,7 +10015,8 @@ class MainWindow(QMainWindow):
                     return zxdb_parse_game_detail(payload)
                 def _on_ok(detail):
                     zxdb_populate_detail(detail)
-                    dls = detail.get("downloads", []) or []
+                    dls = _filter_download_urls(detail.get("downloads", []) or [])
+                    viewer.set_download_available(bool(dls))
                     if not dls:
                         zxdb_set_status("No downloadable files for this entry.")
                         return
@@ -9927,7 +10036,8 @@ class MainWindow(QMainWindow):
                     return zxdb_parse_game_detail(payload)
                 def _on_ok(detail):
                     zxdb_populate_detail(detail)
-                    dls = detail.get("downloads", []) or []
+                    dls = _filter_download_urls(detail.get("downloads", []) or [])
+                    viewer.set_download_available(bool(dls))
                     if not dls:
                         zxdb_set_status("No downloadable files for this entry.")
                         return
@@ -9949,7 +10059,8 @@ class MainWindow(QMainWindow):
                     return zxdb_parse_game_detail(payload)
                 def _on_ok(detail):
                     zxdb_populate_detail(detail)
-                    dls = detail.get("downloads", []) or []
+                    dls = _filter_download_urls(detail.get("downloads", []) or [])
+                    viewer.set_download_available(bool(dls))
                     if not dls:
                         zxdb_set_status("No downloadable files for this entry.")
                         return
@@ -9965,6 +10076,13 @@ class MainWindow(QMainWindow):
                 sd_enabled=_sd_ok, sd_tooltip=_sd_dest,
                 ns_enabled=True,   ns_tooltip=_ns_dest,
             )
+            # If we already have cached (filtered) downloads, use them to set
+            # initial button visibility; otherwise keep buttons visible until
+            # the async enrich resolves.
+            if self._zxdb_selected_id == eid:
+                viewer.set_download_available(
+                    bool(_filter_download_urls(self._zxdb_selected_downloads or []))
+                )
 
             # ── async enrich (screenshots + full metadata) ──────────────
             def _fn():
@@ -9994,6 +10112,8 @@ class MainWindow(QMainWindow):
                     ("Description:", detail.get("description") or detail.get("remarks", "")),
                 ]
                 _gallery_viewer_refresh_meta(viewer, detail.get("title") or title, rows)
+                dls = _filter_download_urls(detail.get("downloads", []) or [])
+                viewer.set_download_available(bool(dls))
             def _on_err(_e): pass
             self._zxdb_gallery_viewer_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
@@ -11025,6 +11145,7 @@ class MainWindow(QMainWindow):
         _zxart_link_label.setTextFormat(Qt.RichText)
         _zxart_link_label.setAlignment(Qt.AlignCenter)
         zxart_right_col.addWidget(_zxart_link_label)
+        zxart_preview_container.setVisible(False)
         zxart_right_col.addWidget(zxart_preview_container)
 
         self.zxart_cache_progress_bar = QProgressBar()
@@ -11061,6 +11182,7 @@ class MainWindow(QMainWindow):
         # once the download completes.
         self._zxart_cache_poll_timer.start()
 
+        self.zxart_download_button.setVisible(False)
         zxart_right_col.addWidget(self.zxart_download_button)
         zxart_right_col.addStretch()
         zxart_right_widget = QWidget()
@@ -11093,6 +11215,18 @@ class MainWindow(QMainWindow):
             if e.get("machine"): parts.append(e["machine"])
             if e.get("genre"):   parts.append(e["genre"])
             return " · ".join(parts)
+
+        def _zxart_tooltip_getter(e):
+            src = e.get("_source") or {}
+            lines = []
+            if e.get("title"):   lines.append(f"Title: {e['title']}")
+            if e.get("year"):    lines.append(f"Year: {e['year']}")
+            if e.get("author"):  lines.append(f"Author: {e['author']}")
+            if e.get("machine"): lines.append(f"Machine: {e['machine']}")
+            if e.get("genre"):   lines.append(f"Genre: {e['genre']}")
+            party = src.get("partyName") or src.get("party")
+            if party:            lines.append(f"Party: {party}")
+            return _build_tooltip_text(lines)
 
         def _zxart_thumb_fetch(entry, set_pixmap, set_screenshots, set_tags=None):
             src = entry.get("_source") or {}
@@ -11349,6 +11483,7 @@ class MainWindow(QMainWindow):
             image_predicate=_zxart_has_image,
             is_favorite_cb=lambda e: self._fav_is({**e, "_fav_source": "zxart"}),
             toggle_favorite_cb=lambda e: self._fav_toggle({**e, "_fav_source": "zxart"}),
+            tooltip_getter=_zxart_tooltip_getter,
         )
         self._fav_fetchers = getattr(self, "_fav_fetchers", {})
         self._fav_fetchers["zxart"] = {
@@ -11370,9 +11505,9 @@ class MainWindow(QMainWindow):
         self._zxart_detail_layout.setContentsMargins(0, 0, 0, 0)
         self._zxart_detail_rows = []
 
-        zxart_detail_widget = QWidget()
-        zxart_detail_widget.setLayout(self._zxart_detail_layout)
-        self.zxart_form.addRow(zxart_detail_widget)
+        self._zxart_detail_widget = QWidget()
+        self._zxart_detail_widget.setLayout(self._zxart_detail_layout)
+        # Detail widget intentionally not added to form; info shown via cell tooltips instead.
 
         # --- Internal state ---
         self._zxart_current_page   = 1
@@ -12377,9 +12512,11 @@ class MainWindow(QMainWindow):
                         return (str(pic.get("title") or _title), downloads)
                     def _on_ok(res, _cb=callback):
                         t2, dls = res
+                        dls = _filter_download_urls(dls)
                         self._zxart_selected_title     = t2
                         self._zxart_selected_downloads = dls
                         self.zxart_download_button.setEnabled(bool(dls))
+                        viewer.set_download_available(bool(dls))
                         _cb(t2, dls)
                     def _on_err(err):
                         zxart_set_status(f"Detail error: {err[1]}")
@@ -12411,9 +12548,11 @@ class MainWindow(QMainWindow):
                         return (str(prod.get("title") or _title), downloads)
                     def _on_ok(res, _cb=callback):
                         t2, dls = res
+                        dls = _filter_download_urls(dls)
                         self._zxart_selected_title     = t2
                         self._zxart_selected_downloads = dls
                         self.zxart_download_button.setEnabled(bool(dls))
+                        viewer.set_download_available(bool(dls))
                         _cb(t2, dls)
                     def _on_err(err):
                         zxart_set_status(f"Detail error: {err[1]}")
@@ -12436,6 +12575,10 @@ class MainWindow(QMainWindow):
                 sd_enabled=_sd_ok, sd_tooltip=_sd_dest,
                 ns_enabled=True,   ns_tooltip=_ns_dest,
             )
+            if self._zxart_selected_id == eid:
+                viewer.set_download_available(
+                    bool(_filter_download_urls(self._zxart_selected_downloads or []))
+                )
 
             # ── async enrich (screenshots + full metadata) ──────────────
             def _fn():
