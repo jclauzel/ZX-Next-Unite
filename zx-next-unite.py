@@ -84,6 +84,7 @@ from PySide6.QtCore import (
     QRunnable,
     QSize,
     QSortFilterProxyModel,
+    QStringListModel,
     QThreadPool,
     QTimer,
     Qt,
@@ -99,6 +100,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QColorDialog,
     QComboBox,
+    QCompleter,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -134,7 +136,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "5.4"
+ZX_NEXT_UNITE_VERSION = "5.5"
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
@@ -194,6 +196,7 @@ SETTING_COLOR_FILE_EXT    = "color_file_ext"
 SETTING_COLOR_FILE_SIZE   = "color_file_size"
 SETTING_IMAGE_HISTORY     = "image_history"
 SETTING_BG_OPACITY        = "bg_opacity"
+SETTING_BG_IMAGE          = "bg_image"          # "" = Random, else filename (basename only)
 SETTING_CONTENT_DISCLAIMER_AGREED = "content_disclaimer_agreed"
 SETTING_GALLERY_ANIM_MODE      = "gallery_anim_mode"        # "hover" (default) or "timer"
 SETTING_GALLERY_ROWS_PER_PAGE  = "gallery_rows_per_page"    # int 1..10, default 2
@@ -407,6 +410,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("  The author of zx-next-unite does NOT distribute any files, ROMs, games,"),
              ("  demos, graphics, music, or any other content obtained through these APIs."),
              ("  All content is served exclusively by the respective third-party services."),
+             ("  This application and author do not control third-party content."),
              ("  It is the sole responsibility of the end user to ensure that any content"),
              ("  they download or use through this application complies with the applicable"),
              ("  copyright, licensing, and legal requirements in their jurisdiction."),
@@ -436,7 +440,8 @@ CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZ
 SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME,
 SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_GALLERY_ANIM_MODE,
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
-SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE)
+SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
+SETTING_BG_IMAGE)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
@@ -3983,22 +3988,105 @@ def _gallery_viewer_refresh_meta(viewer: "GalleryItemViewer",
 
 
 class BackgroundWidget(QWidget):
-    """A QWidget that paints a randomly chosen image from the 'backgrounds/'
-    directory scaled to fill the entire widget area, blended at a configurable
-    opacity level (0–100 %, default 5 %)."""
+    """A QWidget that paints a chosen (or randomly cycling) image from the
+    'backgrounds/' directory scaled to fill the entire widget area, blended at
+    a configurable opacity level (0–100 %, default 45 %).
 
-    DEFAULT_OPACITY = 45
+    Modes
+    -----
+    Random (default): cycles through all available background images every
+    BG_CYCLE_INTERVAL_MS milliseconds using a QTimer.
+    Fixed: a specific image path is set via set_bg_image(path); the timer stops.
+    """
+
+    DEFAULT_OPACITY      = 45
+    BG_CYCLE_INTERVAL_MS = 5000   # 5 seconds
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._bg_pixmap  = self._load_random_background()
-        self._bg_opacity = self.DEFAULT_OPACITY  # percent 0-100
+        self._bg_pixmap   = None
+        self._bg_opacity  = self.DEFAULT_OPACITY  # percent 0-100
+        self._bg_paths    = []                     # all discovered image paths
+        self._bg_index    = -1                     # current index for cycling
+        self._bg_fixed    = False                  # True = specific image locked
+        self._cycle_timer = QTimer(self)
+        self._cycle_timer.setInterval(self.BG_CYCLE_INTERVAL_MS)
+        self._cycle_timer.timeout.connect(self._cycle_next)
+        # Start in random-cycling mode immediately
+        self._bg_paths = self._discover_backgrounds()
+        if self._bg_paths:
+            import random
+            self._bg_index = random.randrange(len(self._bg_paths))
+            self._bg_pixmap = self._load_path(self._bg_paths[self._bg_index])
+            self._cycle_timer.start()
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def set_bg_opacity(self, percent: int):
         """Set background image opacity (0 = invisible, 100 = fully opaque)."""
         self._bg_opacity = max(0, min(100, int(percent)))
         self.update()
 
+    def set_bg_image(self, path: str):
+        """Switch to a fixed image (non-empty path) or back to random cycling
+        (empty / None path).  *path* should be an absolute file path."""
+        if path:
+            self._bg_fixed = True
+            self._cycle_timer.stop()
+            self._bg_pixmap = self._load_path(path)
+            self.update()
+        else:
+            self._bg_fixed = False
+            self._bg_paths = self._discover_backgrounds()
+            if self._bg_paths:
+                import random
+                self._bg_index = random.randrange(len(self._bg_paths))
+                self._bg_pixmap = self._load_path(self._bg_paths[self._bg_index])
+                self._cycle_timer.start()
+            else:
+                self._bg_pixmap = None
+                self.update()
+
+    def bg_paths(self) -> list:
+        """Return the list of discovered background image paths (may be empty)."""
+        return list(self._bg_paths)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _discover_backgrounds() -> list:
+        """Return a sorted list of absolute paths for all image files inside
+        the 'backgrounds/' directory next to the running script."""
+        bg_dir = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "backgrounds")
+        if not os.path.isdir(bg_dir):
+            return []
+        image_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
+        return sorted(
+            os.path.join(bg_dir, f)
+            for f in os.listdir(bg_dir)
+            if os.path.splitext(f)[1].lower() in image_extensions
+        )
+
+    @staticmethod
+    def _load_path(path: str):
+        if not path:
+            return None
+        px = QPixmap(path)
+        return px if not px.isNull() else None
+
+    def _cycle_next(self):
+        """Advance to the next image in the rotation."""
+        if not self._bg_paths:
+            return
+        self._bg_index = (self._bg_index + 1) % len(self._bg_paths)
+        self._bg_pixmap = self._load_path(self._bg_paths[self._bg_index])
+        self.update()
+
+    # kept for backward-compat (not used internally anymore)
     @staticmethod
     def _load_random_background():
         import random
@@ -4445,6 +4533,33 @@ class MainWindow(QMainWindow):
                 self._bg_widget.set_bg_opacity(_bg_opacity_val)
                 _pane_alpha = max(0, min(255, int(255 - (_bg_opacity_val / 100.0) * 255)))
                 self._tab_widget.setStyleSheet(self._build_tab_stylesheet(_pane_alpha))
+
+                # Background image selection
+                _bg_image_raw = configuration_dictionary.get(SETTING_BG_IMAGE, "").strip()
+                if _bg_image_raw:
+                    _bg_dir_load = os.path.join(
+                        os.path.dirname(os.path.abspath(sys.argv[0])), "backgrounds"
+                    )
+                    _bg_full_load = os.path.join(_bg_dir_load, _bg_image_raw)
+                    if os.path.isfile(_bg_full_load):
+                        # Find matching combo entry
+                        _cb = getattr(self, "settings_bg_image_combo", None)
+                        if _cb is not None:
+                            for _ci in range(_cb.count()):
+                                if _cb.itemData(_ci) == _bg_full_load:
+                                    _cb.blockSignals(True)
+                                    _cb.setCurrentIndex(_ci)
+                                    _cb.blockSignals(False)
+                                    break
+                        self._bg_widget.set_bg_image(_bg_full_load)
+                        _prev = getattr(self, "settings_bg_image_preview", None)
+                        if _prev is not None:
+                            _px = QPixmap(_bg_full_load)
+                            if not _px.isNull():
+                                _prev.setPixmap(
+                                    _px.scaled(160, 90, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                                )
+                # If empty / not found, BackgroundWidget is already in random-cycling mode
 
                 # Favorites
                 try:
@@ -7492,10 +7607,13 @@ class MainWindow(QMainWindow):
         _getit_link_label.setTextFormat(Qt.RichText)
         _getit_link_label.setAlignment(Qt.AlignCenter)
         getit_right_col.addWidget(_getit_link_label)
+        # Visibility is controlled by _getit_apply_view_mode (shown in Table, hidden in Gallery)
         self.getit_screenshot_label.setVisible(False)
         self.getit_download_button.setVisible(False)
         getit_right_col.addWidget(self.getit_screenshot_label)
         getit_right_col.addWidget(self.getit_download_button)
+        self._getit_preview_label = self.getit_screenshot_label
+        self._getit_preview_download_btn = self.getit_download_button
         getit_right_col.addStretch()
         getit_right_widget = QWidget()
         getit_right_widget.setLayout(getit_right_col)
@@ -7725,6 +7843,8 @@ class MainWindow(QMainWindow):
         self._getit_motd_loading = False
         self._getit_search_loading = False
         self._getit_last_entries = []  # cached page entries for gallery refresh
+        self._getit_ac_titles: list = []   # autocomplete title cache (loaded once)
+        self._getit_ac_loading = False     # guard against duplicate fetch
 
         # ---- Internal helpers ----
 
@@ -7927,6 +8047,83 @@ class MainWindow(QMainWindow):
         self.getit_prev_button.clicked.connect(getit_on_prev)
         self.getit_next_button.clicked.connect(getit_on_next)
 
+        # ---- GetIt autocomplete ----
+
+        self._getit_ac_model = QStringListModel(self)
+        _getit_completer = QCompleter(self._getit_ac_model, self)
+        _getit_completer.setCompletionMode(QCompleter.PopupCompletion)
+        _getit_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        _getit_completer.setFilterMode(Qt.MatchStartsWith)
+        self.getit_search_input.setCompleter(_getit_completer)
+
+        def _getit_ac_update_model(text: str):
+            """Filter the cached title list to those starting with *text*."""
+            if not text:
+                self._getit_ac_model.setStringList([])
+                return
+            tl = text.lower()
+            matches = sorted(
+                (t for t in self._getit_ac_titles if t.lower().startswith(tl)),
+                key=str.lower,
+            )
+            self._getit_ac_model.setStringList(matches[:80])
+
+        def _getit_ac_populate_cache(titles: list):
+            """Called on the main thread once the full-catalog fetch completes."""
+            self._getit_ac_titles = titles
+            # Update the model for whatever text is already in the box.
+            _getit_ac_update_model(self.getit_search_input.text().strip())
+
+        def _getit_ac_fetch():
+            """Background worker: fetch all titles from the GetIt catalog once."""
+            results = []
+            # Walk pages until we run out of entries.
+            offset = 0
+            while True:
+                path = "/f?s=" if offset == 0 else f"/f?s=&o={offset}"
+                try:
+                    raw = getit_fetch(path)
+                    entries, _total, _pg, _tp = getit_parse_file_list(raw)
+                except Exception:
+                    break
+                if not entries:
+                    break
+                results.extend(e["title"] for e in entries if e.get("title"))
+                if len(entries) < GETIT_PAGE_SIZE:
+                    break
+                offset += GETIT_PAGE_SIZE
+            return results
+
+        def _getit_ac_start_fetch():
+            """Kick off a one-time background fetch of all GetIt titles."""
+            if self._getit_ac_loading or self._getit_ac_titles:
+                return
+            self._getit_ac_loading = True
+
+            def _on_ok(titles):
+                self._getit_ac_loading = False
+                _getit_ac_populate_cache(titles)
+
+            def _on_err(_err):
+                self._getit_ac_loading = False
+
+            self._getit_ac_thread = getit_run_in_thread(
+                _getit_ac_fetch, _on_ok, _on_err
+            )
+
+        def _getit_ac_on_text_changed(text: str):
+            text = text.strip()
+            if not text:
+                self._getit_ac_model.setStringList([])
+                return
+            if not self._getit_ac_titles:
+                _getit_ac_start_fetch()
+                return
+            _getit_ac_update_model(text)
+
+        self.getit_search_input.textChanged.connect(_getit_ac_on_text_changed)
+        _getit_completer.activated.connect(getit_on_search)
+
         # ---- Row selection → fetch detail ----
 
         def getit_on_row_selected():
@@ -8058,6 +8255,11 @@ class MainWindow(QMainWindow):
                 mode = "table"
             self._getit_view_mode = mode
             self.getit_view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
+            _table = (mode == "table")
+            if hasattr(self, '_getit_preview_label'):
+                self._getit_preview_label.setVisible(_table)
+            if hasattr(self, '_getit_preview_download_btn'):
+                self._getit_preview_download_btn.setVisible(_table)
             # keep combo in sync without re-triggering
             cb = self.getit_view_combo
             target_idx = 1 if mode == "gallery" else 0
@@ -8644,10 +8846,13 @@ class MainWindow(QMainWindow):
         _zxdb_link_label.setTextFormat(Qt.RichText)
         _zxdb_link_label.setAlignment(Qt.AlignCenter)
         zxdb_right_col.addWidget(_zxdb_link_label)
+        # Visibility is controlled by _zxdb_apply_view_mode (shown in Table, hidden in Gallery)
         zxdb_preview_container.setVisible(False)
         self.zxdb_download_button.setVisible(False)
         zxdb_right_col.addWidget(zxdb_preview_container)
         zxdb_right_col.addWidget(self.zxdb_download_button)
+        self._zxdb_preview_container = zxdb_preview_container
+        self._zxdb_preview_download_btn = self.zxdb_download_button
         zxdb_right_col.addStretch()
         zxdb_right_widget = QWidget()
         zxdb_right_widget.setLayout(zxdb_right_col)
@@ -8925,6 +9130,8 @@ class MainWindow(QMainWindow):
         self._zxdb_results_mode  = "games"
         self._zxdb_magazine_issues = []   # issues list of the currently-loaded magazine
         self._zxdb_last_entries = []
+        self._zxdb_ac_cache: dict = {}    # letter -> sorted list of titles
+        self._zxdb_ac_fetching: set = set()  # letters currently being fetched
 
         # Slideshow state
         self._zxdb_screenshots = []        # list of dicts {url, type}
@@ -9628,6 +9835,93 @@ class MainWindow(QMainWindow):
         self.zxdb_prev_button.clicked.connect(zxdb_on_prev)
         self.zxdb_next_button.clicked.connect(zxdb_on_next)
 
+        # ---- ZXDB autocomplete ----
+
+        self._zxdb_ac_model = QStringListModel(self)
+        _zxdb_completer = QCompleter(self._zxdb_ac_model, self)
+        _zxdb_completer.setCompletionMode(QCompleter.PopupCompletion)
+        _zxdb_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        _zxdb_completer.setFilterMode(Qt.MatchStartsWith)
+        self.zxdb_search_input.setCompleter(_zxdb_completer)
+
+        _zxdb_ac_timer = QTimer(self)
+        _zxdb_ac_timer.setSingleShot(True)
+        _zxdb_ac_timer.setInterval(300)
+
+        def _zxdb_ac_update_model(text: str):
+            """Filter cached letter titles to those starting with *text*."""
+            if not text:
+                self._zxdb_ac_model.setStringList([])
+                return
+            letter = text[0].lower()
+            cached = self._zxdb_ac_cache.get(letter, [])
+            tl = text.lower()
+            matches = [t for t in cached if t.lower().startswith(tl)]
+            self._zxdb_ac_model.setStringList(matches[:80])
+
+        def _zxdb_ac_fetch_letter(letter: str):
+            """Fetch all titles for *letter* via /games/byletter, cache, then refresh model."""
+            if letter in self._zxdb_ac_fetching:
+                return
+            self._zxdb_ac_fetching.add(letter)
+
+            def _fn():
+                titles = []
+                offset = 0
+                fetch_size = 500
+                while True:
+                    params = {
+                        "size":        str(fetch_size),
+                        "offset":      str(offset),
+                        "mode":        "compact",
+                        "contenttype": "SOFTWARE",
+                    }
+                    path = f"/games/byletter/{urllib.parse.quote(letter)}?{urllib.parse.urlencode(params)}"
+                    try:
+                        payload = zxdb_fetch_json(path)
+                        entries, total, _pg, _tp, _ps = zxdb_parse_search(payload)
+                    except Exception:
+                        break
+                    titles.extend(e["title"] for e in entries if e.get("title"))
+                    if len(entries) < fetch_size:
+                        break
+                    offset += fetch_size
+                return (letter, sorted(set(titles), key=str.lower))
+
+            def _on_ok(result):
+                ltr, sorted_titles = result
+                self._zxdb_ac_fetching.discard(ltr)
+                self._zxdb_ac_cache[ltr] = sorted_titles
+                # Refresh model if the user is still on this prefix.
+                _zxdb_ac_update_model(self.zxdb_search_input.text().strip())
+
+            def _on_err(_err):
+                self._zxdb_ac_fetching.discard(letter)
+
+            self._zxdb_ac_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+        def _zxdb_ac_trigger():
+            mode = zxdb_current_mode()
+            if mode not in ("games", "byletter", "author"):
+                self._zxdb_ac_model.setStringList([])
+                return
+            text = self.zxdb_search_input.text().strip()
+            if not text:
+                self._zxdb_ac_model.setStringList([])
+                return
+            letter = text[0].lower()
+            if letter in self._zxdb_ac_cache:
+                _zxdb_ac_update_model(text)
+            else:
+                _zxdb_ac_fetch_letter(letter)
+
+        def _zxdb_ac_on_text_changed(_text: str):
+            _zxdb_ac_timer.start()
+
+        _zxdb_ac_timer.timeout.connect(_zxdb_ac_trigger)
+        self.zxdb_search_input.textChanged.connect(_zxdb_ac_on_text_changed)
+        _zxdb_completer.activated.connect(zxdb_on_search)
+
         def zxdb_on_mode_changed(_idx):
             mode = zxdb_current_mode()
             placeholders = {
@@ -10131,6 +10425,11 @@ class MainWindow(QMainWindow):
                 mode = "table"
             self._zxdb_view_mode = mode
             self.zxdb_view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
+            _table = (mode == "table")
+            if hasattr(self, '_zxdb_preview_container'):
+                self._zxdb_preview_container.setVisible(_table)
+            if hasattr(self, '_zxdb_preview_download_btn'):
+                self._zxdb_preview_download_btn.setVisible(_table)
             cb = self.zxdb_view_combo
             target_idx = 1 if mode == "gallery" else 0
             if cb.currentIndex() != target_idx:
@@ -10385,7 +10684,7 @@ class MainWindow(QMainWindow):
 
             dlg = QDialog(self)
             dlg.setWindowTitle(f"Downloads — {title}")
-            dlg.resize(820, 420)
+            dlg.resize(1180, 460)
             v = QVBoxLayout(dlg)
 
             info = QLabel(
@@ -10395,11 +10694,13 @@ class MainWindow(QMainWindow):
             info.setWordWrap(True)
             v.addWidget(info)
 
-            # cols: 0-Type 1-Filename 2-Size 3-Source 4-URL 5-Avail. 6-Download
+            # cols: 0-Type 1-Filename 2-Size 3-Source 4-URL 5-Avail. 6-Download 7-SD 8-NextSync
             COL_AVAIL = 5
             COL_DL    = 6
-            tbl = QTableWidget(len(downloads), 7, dlg)
-            tbl.setHorizontalHeaderLabels(["Type", "Filename", "Size", "Source", "URL", "Avail.", ""])
+            COL_SD    = 7
+            COL_NS    = 8
+            tbl = QTableWidget(len(downloads), 9, dlg)
+            tbl.setHorizontalHeaderLabels(["Type", "Filename", "Size", "Source", "URL", "Avail.", "", "", ""])
             tbl.verticalHeader().setVisible(False)
             tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
             tbl.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -10410,10 +10711,14 @@ class MainWindow(QMainWindow):
             tbl.setColumnWidth(3, 180)
             tbl.setColumnWidth(COL_AVAIL, 52)
             tbl.setColumnWidth(COL_DL, 100)
+            tbl.setColumnWidth(COL_SD, 140)
+            tbl.setColumnWidth(COL_NS, 160)
             tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
             tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
 
             folder_root = os.path.abspath(os.path.join("downloads", zxdb_sanitize_folder(title)))
+            _ns_base_dlg = _zxdb_resolve_base_path(
+                self.left_file_nextsync_explorer_selection_full_filename_path)
 
             # Per-row availability: None=pending, True=ok, False=404/error
             _avail: list = [None] * len(downloads)
@@ -10425,9 +10730,10 @@ class MainWindow(QMainWindow):
                 item.setToolTip("File is available" if ok else "File returned 404 / unreachable")
                 _avail[row] = ok
                 tbl.setItem(row, COL_AVAIL, item)
-                btn_w = tbl.cellWidget(row, COL_DL)
-                if btn_w is not None:
-                    btn_w.setEnabled(ok)
+                for _col in (COL_DL, COL_SD, COL_NS):
+                    btn_w = tbl.cellWidget(row, _col)
+                    if btn_w is not None:
+                        btn_w.setEnabled(ok)
 
             def _check_url(row: int, url: str):
                 def _fn():
@@ -10461,6 +10767,21 @@ class MainWindow(QMainWindow):
                     zxdb_download_to_path(d.get("url", ""), save_path, _ok, _err)
                 return _go
 
+            def _make_sd_handler(d):
+                def _go():
+                    if not right_disk_image_explorer_content or not self.right_disk_image_path:
+                        zxdb_set_status("Please load a disk image first (SD Card tab).")
+                        return
+                    _zxdb_send_to_image(title, [d])
+                return _go
+
+            def _make_ns_handler(d):
+                def _go():
+                    def _after(_folder):
+                        QTimer.singleShot(0, lambda _f=_folder: self._nextsync_start_server_fn(_f))
+                    _zxdb_send_to_path(title, [d], _ns_base_dlg, _after)
+                return _go
+
             for row, d in enumerate(downloads):
                 fname = d.get("filename") or os.path.basename(
                     urllib.parse.urlparse(d.get("url", "")).path
@@ -10478,23 +10799,62 @@ class MainWindow(QMainWindow):
                 avail_item.setTextAlignment(Qt.AlignCenter)
                 avail_item.setToolTip("Checking availability…")
                 tbl.setItem(row, COL_AVAIL, avail_item)
-                # Download button disabled until availability is confirmed
+                # Action buttons disabled until availability is confirmed
                 btn = QPushButton("Download")
                 btn.setEnabled(False)
                 btn.clicked.connect(_make_dl_handler(d))
                 tbl.setCellWidget(row, COL_DL, btn)
+
+                sd_btn = QPushButton("Send to SD Card")
+                sd_btn.setEnabled(False)
+                sd_btn.clicked.connect(_make_sd_handler(d))
+                tbl.setCellWidget(row, COL_SD, sd_btn)
+
+                ns_btn = QPushButton("Send via NextSync")
+                ns_btn.setEnabled(False)
+                ns_btn.clicked.connect(_make_ns_handler(d))
+                tbl.setCellWidget(row, COL_NS, ns_btn)
 
             v.addWidget(tbl, 1)
 
             btn_row = QHBoxLayout()
             btn_row.addStretch(1)
             dl_all_btn = QPushButton(f"Download all → downloads\\{zxdb_sanitize_folder(title)}")
+            sd_all_btn = QPushButton("Send all to SD Card")
+            ns_all_btn = QPushButton("Send all via NextSync")
             close_btn  = QPushButton("Close")
             btn_row.addWidget(dl_all_btn)
+            btn_row.addWidget(sd_all_btn)
+            btn_row.addWidget(ns_all_btn)
             btn_row.addWidget(close_btn)
             v.addLayout(btn_row)
 
             close_btn.clicked.connect(dlg.accept)
+
+            def _eligible():
+                return [d for i, d in enumerate(downloads) if _avail[i] is not False]
+
+            def _send_all_sd():
+                if not right_disk_image_explorer_content or not self.right_disk_image_path:
+                    zxdb_set_status("Please load a disk image first (SD Card tab).")
+                    return
+                items = _eligible()
+                if not items:
+                    zxdb_set_status("All files are unavailable (404).")
+                    return
+                _zxdb_send_to_image(title, items)
+
+            def _send_all_ns():
+                items = _eligible()
+                if not items:
+                    zxdb_set_status("All files are unavailable (404).")
+                    return
+                def _after(_folder):
+                    QTimer.singleShot(0, lambda _f=_folder: self._nextsync_start_server_fn(_f))
+                _zxdb_send_to_path(title, items, _ns_base_dlg, _after)
+
+            sd_all_btn.clicked.connect(_send_all_sd)
+            ns_all_btn.clicked.connect(_send_all_ns)
 
             def _download_all():
                 dl_all_btn.setEnabled(False)
@@ -10556,9 +10916,10 @@ class MainWindow(QMainWindow):
                     if avail_item:
                         avail_item.setText("")
                         avail_item.setToolTip("Availability check disabled in Settings")
-                    btn_w = tbl.cellWidget(row, COL_DL)
-                    if btn_w is not None:
-                        btn_w.setEnabled(True)
+                    for _col in (COL_DL, COL_SD, COL_NS):
+                        btn_w = tbl.cellWidget(row, _col)
+                        if btn_w is not None:
+                            btn_w.setEnabled(True)
 
             dlg.exec()
 
@@ -11145,8 +11506,10 @@ class MainWindow(QMainWindow):
         _zxart_link_label.setTextFormat(Qt.RichText)
         _zxart_link_label.setAlignment(Qt.AlignCenter)
         zxart_right_col.addWidget(_zxart_link_label)
+        # Visibility is controlled by _zxart_apply_view_mode (shown in Table, hidden in Gallery)
         zxart_preview_container.setVisible(False)
         zxart_right_col.addWidget(zxart_preview_container)
+        self._zxart_preview_container = zxart_preview_container
 
         self.zxart_cache_progress_bar = QProgressBar()
         self.zxart_cache_progress_bar.setMinimum(0)
@@ -11184,6 +11547,7 @@ class MainWindow(QMainWindow):
 
         self.zxart_download_button.setVisible(False)
         zxart_right_col.addWidget(self.zxart_download_button)
+        self._zxart_preview_download_btn = self.zxart_download_button
         zxart_right_col.addStretch()
         zxart_right_widget = QWidget()
         zxart_right_widget.setLayout(zxart_right_col)
@@ -11520,6 +11884,7 @@ class MainWindow(QMainWindow):
         self._zxart_loaded_once    = False
         self._zxart_results_mode   = "prods"
         self._zxart_last_entries   = []
+        self._zxart_ac_cache: dict = {}   # prefix -> sorted title list (short-lived cache)
 
         # Slideshow state
         self._zxart_screenshots    = []
@@ -12120,6 +12485,79 @@ class MainWindow(QMainWindow):
         self.zxart_random_button.clicked.connect(zxart_on_random)
         self.zxart_latest_button.clicked.connect(zxart_on_latest)
 
+        # ---- ZxArt autocomplete ----
+
+        self._zxart_ac_model = QStringListModel(self)
+        _zxart_completer = QCompleter(self._zxart_ac_model, self)
+        _zxart_completer.setCompletionMode(QCompleter.PopupCompletion)
+        _zxart_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        _zxart_completer.setFilterMode(Qt.MatchStartsWith)
+        self.zxart_search_input.setCompleter(_zxart_completer)
+
+        _zxart_ac_timer = QTimer(self)
+        _zxart_ac_timer.setSingleShot(True)
+        _zxart_ac_timer.setInterval(400)
+        self._zxart_ac_pending: str = ""
+
+        def _zxart_ac_trigger():
+            mode = zxart_current_mode()
+            if mode not in ("prods", "byletter"):
+                self._zxart_ac_model.setStringList([])
+                return
+            text = self.zxart_search_input.text().strip()
+            if not text:
+                self._zxart_ac_model.setStringList([])
+                return
+
+            # Serve from short-lived prefix cache if available.
+            if text in self._zxart_ac_cache:
+                self._zxart_ac_model.setStringList(self._zxart_ac_cache[text])
+                return
+
+            # Also try to derive results from a cached longer prefix.
+            tl = text.lower()
+            for cached_prefix, cached_list in self._zxart_ac_cache.items():
+                if tl.startswith(cached_prefix.lower()):
+                    matches = sorted(
+                        (t for t in cached_list if t.lower().startswith(tl)),
+                        key=str.lower,
+                    )
+                    self._zxart_ac_model.setStringList(matches[:80])
+                    return
+
+            self._zxart_ac_pending = text
+
+            def _fn():
+                entries, _total = zxart_client_search(text, deep=False)
+                titles = sorted(
+                    {e["title"] for e in entries if e.get("title")},
+                    key=str.lower,
+                )
+                return (text, titles)
+
+            def _on_ok(result):
+                queried, titles = result
+                # Evict oldest cache entries to cap memory (keep last 10 prefixes).
+                if len(self._zxart_ac_cache) >= 10:
+                    oldest = next(iter(self._zxart_ac_cache))
+                    del self._zxart_ac_cache[oldest]
+                self._zxart_ac_cache[queried] = titles
+                # Only update the model if user hasn't moved on to a different prefix.
+                if self.zxart_search_input.text().strip() == queried:
+                    self._zxart_ac_model.setStringList(titles[:80])
+
+            def _on_err(_err):
+                pass
+
+            self._zxart_ac_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+        def _zxart_ac_on_text_changed(_text: str):
+            _zxart_ac_timer.start()
+
+        _zxart_ac_timer.timeout.connect(_zxart_ac_trigger)
+        self.zxart_search_input.textChanged.connect(_zxart_ac_on_text_changed)
+        _zxart_completer.activated.connect(zxart_on_search)
+
         def zxart_on_mode_changed(_idx):
             mode = zxart_current_mode()
             placeholders = {
@@ -12685,6 +13123,11 @@ class MainWindow(QMainWindow):
                 mode = "table"
             self._zxart_view_mode = mode
             self.zxart_view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
+            _table = (mode == "table")
+            if hasattr(self, '_zxart_preview_container'):
+                self._zxart_preview_container.setVisible(_table)
+            if hasattr(self, '_zxart_preview_download_btn'):
+                self._zxart_preview_download_btn.setVisible(_table)
             cb = self.zxart_view_combo
             target_idx = 1 if mode == "gallery" else 0
             if cb.currentIndex() != target_idx:
@@ -12844,7 +13287,7 @@ class MainWindow(QMainWindow):
 
             dlg = QDialog(self)
             dlg.setWindowTitle(f"Downloads — {title}")
-            dlg.resize(820, 420)
+            dlg.resize(1180, 460)
             v = QVBoxLayout(dlg)
 
             info = QLabel(
@@ -12854,11 +13297,13 @@ class MainWindow(QMainWindow):
             info.setWordWrap(True)
             v.addWidget(info)
 
-            # cols: 0-Type 1-Filename 2-Size 3-Source 4-URL 5-Avail. 6-Download
+            # cols: 0-Type 1-Filename 2-Size 3-Source 4-URL 5-Avail. 6-Download 7-SD 8-NextSync
             COL_AVAIL = 5
             COL_DL    = 6
-            tbl = QTableWidget(len(downloads), 7, dlg)
-            tbl.setHorizontalHeaderLabels(["Type", "Filename", "Size", "Source", "URL", "Avail.", ""])
+            COL_SD    = 7
+            COL_NS    = 8
+            tbl = QTableWidget(len(downloads), 9, dlg)
+            tbl.setHorizontalHeaderLabels(["Type", "Filename", "Size", "Source", "URL", "Avail.", "", "", ""])
             tbl.verticalHeader().setVisible(False)
             tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
             tbl.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -12869,10 +13314,14 @@ class MainWindow(QMainWindow):
             tbl.setColumnWidth(3, 180)
             tbl.setColumnWidth(COL_AVAIL, 52)
             tbl.setColumnWidth(COL_DL, 100)
+            tbl.setColumnWidth(COL_SD, 140)
+            tbl.setColumnWidth(COL_NS, 160)
             tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
             tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
 
             folder_root = os.path.abspath(os.path.join("downloads", zxart_sanitize_folder(title)))
+            _ns_base_dlg = _zxart_resolve_base_path(
+                self.left_file_nextsync_explorer_selection_full_filename_path)
 
             # Per-row availability: None=pending, True=ok, False=404/error
             _avail: list = [None] * len(downloads)
@@ -12884,9 +13333,10 @@ class MainWindow(QMainWindow):
                 item.setToolTip("File is available" if ok else "File returned 404 / unreachable")
                 _avail[row] = ok
                 tbl.setItem(row, COL_AVAIL, item)
-                btn_w = tbl.cellWidget(row, COL_DL)
-                if btn_w is not None:
-                    btn_w.setEnabled(ok)
+                for _col in (COL_DL, COL_SD, COL_NS):
+                    btn_w = tbl.cellWidget(row, _col)
+                    if btn_w is not None:
+                        btn_w.setEnabled(ok)
 
             def _check_url(row: int, url: str):
                 def _fn():
@@ -12920,6 +13370,21 @@ class MainWindow(QMainWindow):
                     zxart_download_to_path(d.get("url", ""), save_path, _ok, _err)
                 return _go
 
+            def _make_sd_handler(d):
+                def _go():
+                    if not right_disk_image_explorer_content or not self.right_disk_image_path:
+                        zxart_set_status("Please load a disk image first (SD Card tab).")
+                        return
+                    _zxart_send_to_image(title, [d])
+                return _go
+
+            def _make_ns_handler(d):
+                def _go():
+                    def _after(_folder):
+                        QTimer.singleShot(0, lambda _f=_folder: self._nextsync_start_server_fn(_f))
+                    _zxart_send_to_path(title, [d], _ns_base_dlg, _after)
+                return _go
+
             for row, d in enumerate(downloads):
                 fname = d.get("filename") or os.path.basename(
                     urllib.parse.urlparse(d.get("url", "")).path
@@ -12937,23 +13402,62 @@ class MainWindow(QMainWindow):
                 avail_item.setTextAlignment(Qt.AlignCenter)
                 avail_item.setToolTip("Checking availability…")
                 tbl.setItem(row, COL_AVAIL, avail_item)
-                # Download button disabled until availability is confirmed
+                # Action buttons disabled until availability is confirmed
                 btn = QPushButton("Download")
                 btn.setEnabled(False)
                 btn.clicked.connect(_make_dl_handler(d))
                 tbl.setCellWidget(row, COL_DL, btn)
+
+                sd_btn = QPushButton("Send to SD Card")
+                sd_btn.setEnabled(False)
+                sd_btn.clicked.connect(_make_sd_handler(d))
+                tbl.setCellWidget(row, COL_SD, sd_btn)
+
+                ns_btn = QPushButton("Send via NextSync")
+                ns_btn.setEnabled(False)
+                ns_btn.clicked.connect(_make_ns_handler(d))
+                tbl.setCellWidget(row, COL_NS, ns_btn)
 
             v.addWidget(tbl, 1)
 
             btn_row = QHBoxLayout()
             btn_row.addStretch(1)
             dl_all_btn = QPushButton(f"Download all → downloads\\{zxart_sanitize_folder(title)}")
+            sd_all_btn = QPushButton("Send all to SD Card")
+            ns_all_btn = QPushButton("Send all via NextSync")
             close_btn  = QPushButton("Close")
             btn_row.addWidget(dl_all_btn)
+            btn_row.addWidget(sd_all_btn)
+            btn_row.addWidget(ns_all_btn)
             btn_row.addWidget(close_btn)
             v.addLayout(btn_row)
 
             close_btn.clicked.connect(dlg.accept)
+
+            def _eligible():
+                return [d for i, d in enumerate(downloads) if _avail[i] is not False]
+
+            def _send_all_sd():
+                if not right_disk_image_explorer_content or not self.right_disk_image_path:
+                    zxart_set_status("Please load a disk image first (SD Card tab).")
+                    return
+                items = _eligible()
+                if not items:
+                    zxart_set_status("All files are unavailable (404).")
+                    return
+                _zxart_send_to_image(title, items)
+
+            def _send_all_ns():
+                items = _eligible()
+                if not items:
+                    zxart_set_status("All files are unavailable (404).")
+                    return
+                def _after(_folder):
+                    QTimer.singleShot(0, lambda _f=_folder: self._nextsync_start_server_fn(_f))
+                _zxart_send_to_path(title, items, _ns_base_dlg, _after)
+
+            sd_all_btn.clicked.connect(_send_all_sd)
+            ns_all_btn.clicked.connect(_send_all_ns)
 
             def _download_all():
                 dl_all_btn.setEnabled(False)
@@ -13011,9 +13515,10 @@ class MainWindow(QMainWindow):
                     if avail_item:
                         avail_item.setText("")
                         avail_item.setToolTip("Availability check disabled in Settings")
-                    btn_w = tbl.cellWidget(row, COL_DL)
-                    if btn_w is not None:
-                        btn_w.setEnabled(True)
+                    for _col in (COL_DL, COL_SD, COL_NS):
+                        btn_w = tbl.cellWidget(row, _col)
+                        if btn_w is not None:
+                            btn_w.setEnabled(True)
 
             dlg.exec()
 
@@ -13867,6 +14372,88 @@ class MainWindow(QMainWindow):
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_slider, 1)
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_spinbox, 0)
         grid_tab_Settings.addWidget(bg_opacity_row, 13, 1)
+
+        # ---- Background image selector ----
+        bg_image_lbl = QLabel("Background image:")
+        bg_image_lbl.setToolTip(
+            "Choose a specific background image or 'Random' to cycle through\n"
+            "all images in the backgrounds/ folder every 5 seconds."
+        )
+        grid_tab_Settings.addWidget(bg_image_lbl, 14, 0)
+
+        bg_image_row = QWidget()
+        bg_image_row_layout = QHBoxLayout(bg_image_row)
+        bg_image_row_layout.setContentsMargins(0, 0, 0, 0)
+        bg_image_row_layout.setSpacing(8)
+
+        self.settings_bg_image_combo = QComboBox()
+        self.settings_bg_image_combo.setToolTip(
+            "Select 'Random' to cycle through all available backgrounds,\n"
+            "or pick a specific image to lock it."
+        )
+        # Populate: first entry = Random (empty data = random mode)
+        self.settings_bg_image_combo.addItem("Random", "")
+        _bg_dir = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "backgrounds")
+        _bg_image_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
+        _bg_candidates = sorted(
+            f for f in os.listdir(_bg_dir)
+            if os.path.splitext(f)[1].lower() in _bg_image_extensions
+        ) if os.path.isdir(_bg_dir) else []
+        for _bg_fname in _bg_candidates:
+            _bg_full = os.path.join(_bg_dir, _bg_fname)
+            self.settings_bg_image_combo.addItem(os.path.splitext(_bg_fname)[0], _bg_full)
+
+        bg_image_row_layout.addWidget(self.settings_bg_image_combo, 1)
+
+        # Small QLabel used as a thumbnail preview of the selected image
+        self.settings_bg_image_preview = QLabel()
+        self.settings_bg_image_preview.setFixedSize(160, 90)
+        self.settings_bg_image_preview.setAlignment(Qt.AlignCenter)
+        self.settings_bg_image_preview.setStyleSheet(
+            "border: 1px solid #666; background: #222;"
+        )
+        self.settings_bg_image_preview.setToolTip("Preview of the selected background image.")
+        bg_image_row_layout.addWidget(self.settings_bg_image_preview, 0)
+
+        grid_tab_Settings.addWidget(bg_image_row, 14, 1)
+
+        def _update_bg_image_preview(path: str):
+            """Refresh the thumbnail label for the given absolute image path."""
+            if path:
+                px = QPixmap(path)
+                if not px.isNull():
+                    self.settings_bg_image_preview.setPixmap(
+                        px.scaled(160, 90, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    )
+                    return
+            self.settings_bg_image_preview.clear()
+            self.settings_bg_image_preview.setText("(cycling)")
+
+        def _on_bg_image_combo_changed(index: int):
+            path = self.settings_bg_image_combo.itemData(index) or ""
+            self._bg_widget.set_bg_image(path)
+            _update_bg_image_preview(path)
+            configuration_dictionary[SETTING_BG_IMAGE] = os.path.basename(path) if path else ""
+            save_configuration_file()
+
+        self.settings_bg_image_combo.currentIndexChanged.connect(_on_bg_image_combo_changed)
+
+        # Initialise preview to match the current (Random) state — show first
+        # available image as a hint, or "(cycling)" if none found.
+        if _bg_candidates:
+            _hint_path = os.path.join(_bg_dir, _bg_candidates[0])
+            _update_bg_image_preview(_hint_path)
+        else:
+            _update_bg_image_preview("")
+
+        # Also keep the preview in sync when the background cycles (random mode)
+        def _on_bg_cycle_update():
+            if not self._bg_widget._bg_fixed:
+                _p = (self._bg_widget._bg_paths[self._bg_widget._bg_index]
+                      if self._bg_widget._bg_paths else "")
+                _update_bg_image_preview(_p)
+
+        self._bg_widget._cycle_timer.timeout.connect(_on_bg_cycle_update)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
