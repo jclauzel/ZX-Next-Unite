@@ -70,6 +70,7 @@ import traceback
 import urllib.parse
 import urllib.request
 import urllib.error
+import webbrowser
 import zipfile
 
 # Third-party imports
@@ -136,7 +137,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "5.5"
+ZX_NEXT_UNITE_VERSION = "5.6"
+# Set to False to hide all Download / Send to SD Card / Send via NextSync
+# buttons and context-menu actions for the respective pane.
+ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
+ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS = False
+ZX_NEXT_UNITE_SHOW_ZXDB_PANE = False
+ZX_NEXT_UNITE_SHOW_ZXART_PANE = True
+
 ZX_NEXT_UNITE_ICON_IMAGE_FILE = "zx-next-unite.png"
 ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
@@ -147,19 +155,20 @@ ZX_NEXT_UNITE_TAB_TITLE_GOOEY = "TOOL: zx-next-unite - SD Card Utility"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "TOOL: NextSync - Network Transfer Manager"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC_SYNCON = "NextSync - Sync ON"
 ZX_NEXT_UNITE_TAB_TITLE_GETIT = "ONLINE: GetIt"
-ZX_NEXT_UNITE_TAB_TITLE_ZXDB  = "ONLINE: ZXDB"
+ZX_NEXT_UNITE_TAB_TITLE_ZXDB  = "ONLINE: ZXDB/ZXinfo.dk"
 ZX_NEXT_UNITE_TAB_TITLE_ZXART = "ONLINE: zxART.ee"
 ZX_NEXT_UNITE_TAB_TITLE_FAVORITES = "ONLINE: ♥ Favorites"
 
 GETIT_BASE_URL = "https://zxnext.uk"
+GETIT_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
 GETIT_PAGE_SIZE = 18
 
 ZXDB_BASE_URL = "https://api.zxinfo.dk/v3"
-ZXDB_USER_AGENT = "ZX-Next-Unite"
+ZXDB_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
 ZXDB_PAGE_SIZE = 20
 
 ZXART_BASE_URL = "https://zxart.ee/api"
-ZXART_USER_AGENT = "ZX-Next-Unite"
+ZXART_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
 ZXART_PAGE_SIZE = 20
 
 
@@ -184,6 +193,7 @@ SETTING_WARN_IMAGE_NEARLY_FULL = "warn_image_nearly_full"
 SETTING_NO_PROMPT_ON_DELETION  = "no_prompt_on_deletion"
 SETTING_AVAIL_CHECK            = "avail_check"
 SETTING_MULTI_SEARCH           = "multi_search"
+SETTING_SEARCH_AUTOCOMPLETE    = "search_autocomplete"
 SETTING_ZXDB_LAST_MODE         = "zxdb_last_mode"
 SETTING_ZXDB_LAST_QUERY        = "zxdb_last_query"
 SETTING_ZXART_LAST_MODE        = "zxart_last_mode"
@@ -436,9 +446,53 @@ def _build_disclaimer_text():
 
 _DISCLAIMER_TEXT = _build_disclaimer_text()
 
+# Single-line cycling ticker text derived from the disclaimer (spaces join lines)
+_DISCLAIMER_TICKER_TEXT = "  •  ".join(
+    l.strip() for l in _DISCLAIMER_TEXT.splitlines() if l.strip()
+) + "     "
+
+
+def _make_disclaimer_ticker(parent):
+    """Return a (QLabel, QTimer) pair that scrolls the legal disclaimer
+    continuously across the label.  The caller must add the label to a layout
+    and keep both the label and timer alive (e.g. by parenting to *parent*).
+    The timer is started automatically and stops when *parent* is destroyed."""
+    _COLORS = ("#ff4444", "#4488ff", "#ffee00")
+    lbl = QLabel(parent)
+    lbl.setFixedHeight(30)
+    lbl.setTextFormat(Qt.PlainText)
+    # We scroll a doubled copy so the cycle is seamless
+    _full = _DISCLAIMER_TICKER_TEXT + _DISCLAIMER_TICKER_TEXT
+    _state = {"pos": 0, "text": _full, "step": 1, "color_idx": 0, "color_tick": 0}
+
+    def _tick():
+        t = _state["text"]
+        p = _state["pos"]
+        visible = t[p:p + 120]
+        lbl.setText(visible)
+        _state["pos"] = (p + _state["step"]) % len(_DISCLAIMER_TICKER_TEXT)
+        # Cycle colour every 8 ticks (~480 ms)
+        _state["color_tick"] += 1
+        if _state["color_tick"] >= 8:
+            _state["color_tick"] = 0
+            _state["color_idx"] = (_state["color_idx"] + 1) % len(_COLORS)
+        color = _COLORS[_state["color_idx"]]
+        lbl.setStyleSheet(
+            f"QLabel {{ font-size: 22px; font-weight: bold; color: {color}; "
+            "background: transparent; padding: 0 4px; }"
+        )
+
+    timer = QTimer(parent)
+    timer.setInterval(60)   # ~16 chars/sec at step=1
+    timer.timeout.connect(_tick)
+    timer.start()
+    _tick()  # populate immediately so label isn't blank on first paint
+    return lbl, timer
+
+
 CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE,
 SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME,
-SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_GALLERY_ANIM_MODE,
+SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_GALLERY_ANIM_MODE,
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_BG_IMAGE)
@@ -661,16 +715,188 @@ class HdfProgressDialog(QDialog):
 
 
 # ---------------------------------------------------------------------------
+# Shared HTTP retry helper
+# ---------------------------------------------------------------------------
+
+_HTTP_RETRYABLE = (429, 502, 503, 504)
+
+
+def _is_retryable_connection_error(exc: OSError) -> bool:
+    """Return True for transient connection-level errors that are worth retrying.
+
+    Covers:
+    - ``ConnectionResetError`` / WinError 10054 ("An existing connection was
+      forcibly closed by the remote host") — raised directly or wrapped inside
+      ``urllib.error.URLError`` whose ``__str__`` reads "urlopen error [WinError
+      10054] …".
+    - ``ConnectionRefusedError``, ``BrokenPipeError``, ``TimeoutError``.
+    - Any ``urllib.error.URLError`` whose *reason* is one of the above.
+    """
+    import urllib.error as _ue
+    # URLError wraps the underlying socket/OS error in .reason
+    inner = exc.reason if isinstance(exc, _ue.URLError) else exc
+    return isinstance(inner, (
+        ConnectionResetError,
+        ConnectionRefusedError,
+        BrokenPipeError,
+        TimeoutError,
+        OSError,  # catches generic errno-based errors (ECONNRESET etc.)
+    ))
+
+
+def _http_fetch_bytes_with_retry(
+    url: str,
+    *,
+    headers: dict = None,
+    method: str = "GET",
+    timeout: int = 20,
+    _retries: int = 3,
+    _backoff: float = 1.5,
+) -> bytes:
+    """Fetch *url* as bytes with retry/back-off on transient errors.
+
+    Retries on HTTP 429/502/503/504 and on connection-level OS errors,
+    including ``ConnectionResetError`` / WinError 10054 ("An existing
+    connection was forcibly closed by the remote host") whether raised
+    directly or wrapped inside ``urllib.error.URLError``.
+    Closes the HTTPError response before sleeping on retryable HTTP codes.
+    """
+    import urllib.error as _ue
+    req = urllib.request.Request(url, headers=headers or {}, method=method)
+    delay = _backoff
+    last_exc = None
+    for attempt in range(1, _retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except _ue.HTTPError as exc:
+            if exc.code in _HTTP_RETRYABLE:
+                last_exc = exc
+                exc.close()
+                # logging.warning(
+                #     "_http_fetch_bytes_with_retry: HTTP %d on attempt %d/%d for %s",
+                #     exc.code, attempt, _retries, url,
+                # )
+                if attempt < _retries:
+                    time.sleep(delay)
+                    delay *= 2
+            else:
+                raise
+        except OSError as exc:
+            # Catches urllib.error.URLError (subclass of OSError) and direct
+            # socket errors such as ConnectionResetError (WinError 10054).
+            last_exc = exc
+            # logging.warning(
+            #     "_http_fetch_bytes_with_retry: connection error on attempt %d/%d for %s: %s",
+            #     attempt, _retries, url, exc,
+            # )
+            if attempt < _retries:
+                time.sleep(delay)
+                delay *= 2
+    raise last_exc
+
+
+def _http_fetch_with_cd_retry(
+    url: str,
+    *,
+    headers: dict = None,
+    timeout: int = 60,
+    _retries: int = 3,
+    _backoff: float = 1.5,
+):
+    """Fetch *url*, returning ``(content_disposition_header, bytes)`` with retry.
+
+    Retries on HTTP 429/502/503/504 and on connection-level OS errors,
+    including ``ConnectionResetError`` / WinError 10054.
+    """
+    import urllib.error as _ue
+    req = urllib.request.Request(url, headers=headers or {})
+    delay = _backoff
+    last_exc = None
+    for attempt in range(1, _retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                cd   = resp.headers.get("Content-Disposition", "")
+                data = resp.read()
+            return cd, data
+        except _ue.HTTPError as exc:
+            if exc.code in _HTTP_RETRYABLE:
+                last_exc = exc
+                exc.close()
+                logging.warning(
+                    "_http_fetch_with_cd_retry: HTTP %d on attempt %d/%d for %s",
+                    exc.code, attempt, _retries, url,
+                )
+                if attempt < _retries:
+                    time.sleep(delay)
+                    delay *= 2
+            else:
+                raise
+        except OSError as exc:
+            # Catches urllib.error.URLError and direct socket errors
+            # including ConnectionResetError (WinError 10054).
+            last_exc = exc
+            logging.warning(
+                "_http_fetch_with_cd_retry: connection error on attempt %d/%d for %s: %s",
+                attempt, _retries, url, exc,
+            )
+            if attempt < _retries:
+                time.sleep(delay)
+                delay *= 2
+    raise last_exc
+
+
+def _http_head_ok_with_retry(
+    url: str,
+    *,
+    headers: dict = None,
+    timeout: int = 10,
+    _retries: int = 3,
+    _backoff: float = 1.5,
+) -> bool:
+    """Send a HEAD request; return True when the server responds with status < 400.
+
+    Retries on *_HTTP_RETRYABLE* HTTP codes and on connection-level OS errors,
+    including ``ConnectionResetError`` / WinError 10054 ("An existing
+    connection was forcibly closed by the remote host").
+    Returns False after exhausting retries so callers treat the URL as
+    unavailable rather than propagating an exception.
+    """
+    import urllib.error as _ue
+    req = urllib.request.Request(url, headers=headers or {}, method="HEAD")
+    delay = _backoff
+    for attempt in range(1, _retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.status < 400
+        except _ue.HTTPError as exc:
+            if exc.code in _HTTP_RETRYABLE:
+                exc.close()
+                if attempt < _retries:
+                    time.sleep(delay)
+                    delay *= 2
+            else:
+                return exc.code < 400
+        except OSError:
+            # Catches urllib.error.URLError and direct socket errors
+            # including ConnectionResetError (WinError 10054).
+            if attempt < _retries:
+                time.sleep(delay)
+                delay *= 2
+    return False
+
+
+# ---------------------------------------------------------------------------
 # GetIt API helpers
 # ---------------------------------------------------------------------------
 
 def getit_fetch(path: str, timeout: int = 10) -> str:
     """Fetch a plain-text response from the GetIt server and return the body string."""
     url = GETIT_BASE_URL + path
-    req = urllib.request.Request(url, headers={"User-Agent": "zx-next-unite-getit/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read()
-    return raw.decode("utf-8", errors="replace")
+    data = _http_fetch_bytes_with_retry(
+        url, headers={"User-Agent": GETIT_USER_AGENT}, timeout=timeout
+    )
+    return data.decode("utf-8", errors="replace")
 
 
 def getit_parse_file_list(text: str):
@@ -748,27 +974,89 @@ def getit_parse_detail(text: str) -> dict:
 # ZXDB (zxinfo.dk) helpers
 # ---------------------------------------------------------------------------
 
-def zxdb_fetch_json(path: str, timeout: int = 15):
+def zxdb_entry_website_url(eid) -> str:
+    """Return the public zxinfo.dk landing-page URL for a ZXDB entry id.
+
+    ZXInfo ids are commonly zero-padded to 7 digits but the website happily
+    accepts the unpadded form too. We pass the id through unchanged when it
+    is non-numeric (e.g. magazine ids that may include letters)."""
+    s = str(eid or "").strip()
+    if not s:
+        return ""
+    try:
+        n = int(s)
+        s = f"{n:07d}"
+    except (TypeError, ValueError):
+        pass
+    return f"https://zxinfo.dk/details/{urllib.parse.quote(s)}"
+
+
+def zxart_entry_website_url(entry) -> str:
+    """Return the public zxart.ee landing-page URL for a zxArt gallery entry.
+
+    The url is provided by the zxArt API on each prod / picture record, so
+    we read it from *entry* (which carries the API record under ``_source``).
+    Falls back to a generic search URL if the API record did not include
+    a direct url."""
+    if not isinstance(entry, dict):
+        return ""
+    src = entry.get("_source") if isinstance(entry.get("_source"), dict) else {}
+    for key in ("url", "Url", "URL", "pageUrl", "page_url"):
+        u = src.get(key) if isinstance(src, dict) else None
+        if isinstance(u, str) and u.strip():
+            return u.strip()
+    title = entry.get("title") or ""
+    if title:
+        return "https://zxart.ee/eng/search/?searchString=" + urllib.parse.quote(title)
+    return ""
+
+
+def zxdb_fetch_json(path: str, timeout: int = 15, _retries: int = 3, _backoff: float = 1.5):
     """GET JSON from the ZXInfo API. *path* must include any query string.
-    Identifies the client per API policy via a custom User-Agent."""
+    Identifies the client per API policy via a custom User-Agent.
+    Retries up to *_retries* times on transient server errors (5xx / network)
+    with exponential backoff starting at *_backoff* seconds."""
+    import time as _time
     url = ZXDB_BASE_URL + path
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": ZXDB_USER_AGENT,
-            "Accept": "application/json",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read()
-    return json.loads(raw.decode("utf-8", errors="replace"))
+    last_exc = None
+    for attempt in range(_retries):
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": ZXDB_USER_AGENT,
+                    "Accept": "application/json",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read()
+            return json.loads(raw.decode("utf-8", errors="replace"))
+        except urllib.error.HTTPError as exc:
+            last_exc = exc
+            try:
+                exc.close()
+            except Exception:
+                pass
+            if exc.code in (502, 503, 504, 429) and attempt < _retries - 1:
+                _time.sleep(_backoff * (2 ** attempt))
+                continue
+            raise
+        except (urllib.error.URLError, OSError) as exc:
+            # urllib.error.URLError wraps socket errors such as
+            # ConnectionResetError (WinError 10054) — all are retried here.
+            last_exc = exc
+            if attempt < _retries - 1:
+                _time.sleep(_backoff * (2 ** attempt))
+                continue
+            raise
+    raise last_exc
 
 
 def zxdb_fetch_bytes(url: str, timeout: int = 30) -> bytes:
     """Fetch raw bytes (e.g. a screenshot or game file) using ZXDB UA."""
-    req = urllib.request.Request(url, headers={"User-Agent": ZXDB_USER_AGENT})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+    return _http_fetch_bytes_with_retry(
+        url, headers={"User-Agent": ZXDB_USER_AGENT}, timeout=timeout
+    )
 
 
 def zxdb_pick(d: dict, *keys, default=""):
@@ -1124,52 +1412,57 @@ def zxart_safe_url(url: str) -> str:
         return url
 
 
-def zxart_fetch_json(path: str, timeout: int = 15):
+def zxart_fetch_json(path: str, timeout: int = 15, _retries: int = 3, _backoff: float = 1.5):
     """GET JSON from the zxART API. *path* is appended to ZXART_BASE_URL.
     Sends the mandatory User-Agent header on every request.
-    Retries up to 3 times on HTTP 5xx errors with an exponential back-off."""
+    Retries up to *_retries* times on transient HTTP errors with exponential back-off."""
     import urllib.error
     url = zxart_safe_url(ZXART_BASE_URL + path)
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": ZXART_USER_AGENT,
-            "Accept": "application/json",
-            "Connection": "close",
-        },
-    )
-    _RETRIES = 3
-    _BACKOFF  = 2  # seconds; doubled on each retry
-    delay = _BACKOFF
+    delay = _backoff
     last_exc = None
-    for attempt in range(1, _RETRIES + 1):
+    for attempt in range(1, _retries + 1):
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": ZXART_USER_AGENT,
+                "Accept": "application/json",
+                "Connection": "close",
+            },
+        )
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()
             return json.loads(raw.decode("utf-8", errors="replace"))
         except urllib.error.HTTPError as exc:
-            if exc.code >= 500:
+            if exc.code in _HTTP_RETRYABLE:
                 last_exc = exc
+                exc.close()
                 logging.warning(
                     "zxart_fetch_json: HTTP %d on attempt %d/%d for %s",
-                    exc.code, attempt, _RETRIES, path,
+                    exc.code, attempt, _retries, path,
                 )
-                if attempt < _RETRIES:
+                if attempt < _retries:
                     time.sleep(delay)
                     delay *= 2
             else:
                 raise
-        except Exception as exc:
-            raise
+        except OSError as exc:
+            # urllib.error.URLError (subclass of OSError) wraps socket errors
+            # such as ConnectionResetError (WinError 10054) — all retried here.
+            last_exc = exc
+            if attempt < _retries:
+                time.sleep(delay)
+                delay *= 2
+            else:
+                raise
     raise last_exc
 
 
 def zxart_fetch_bytes(url: str, timeout: int = 30) -> bytes:
     """Fetch raw bytes from any URL, identifying as zxART user agent."""
-    req = urllib.request.Request(zxart_safe_url(url),
-                                 headers={"User-Agent": ZXART_USER_AGENT})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+    return _http_fetch_bytes_with_retry(
+        zxart_safe_url(url), headers={"User-Agent": ZXART_USER_AGENT}, timeout=timeout
+    )
 
 
 # Process-level caches for zxArt author / group name lookups.
@@ -1308,15 +1601,14 @@ def _zxart_scrape_publishers_from_prod_url(prod_url: str) -> str:
         return _ZXART_PUBLISHER_NAME_CACHE[cache_key]
     name = ""
     try:
-        req = urllib.request.Request(
+        html = _http_fetch_bytes_with_retry(
             url,
             headers={
                 "User-Agent":      "Mozilla/5.0 ZX-Next-Unite",
                 "Accept-Language": "en",
             },
-        )
-        with urllib.request.urlopen(req, timeout=15) as r:
-            html = r.read().decode("utf-8", errors="replace")
+            timeout=15,
+        ).decode("utf-8", errors="replace")
         m = re.search(r"published by ([^\"<]+?) in \d{4}", html, re.IGNORECASE)
         if m:
             name = m.group(1).strip()
@@ -2494,56 +2786,37 @@ def zxscr_url_is_scr(url) -> bool:
     return n.endswith(".scr")
 
 
-def _zxscr_cache_root() -> str:
-    root = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "cache", "scr")
-    try:
-        os.makedirs(root, exist_ok=True)
-    except Exception:
-        pass
-    return root
+# In-memory cache: url/base_name -> QPixmap (avoids repeated decoding)
+_ZXSCR_PIXMAP_CACHE: dict = {}
 
 
 def _zxscr_basename_for_url(url: str) -> str:
-    """Derive a safe filesystem-friendly base name (no extension) from *url*."""
+    """Derive a cache key (no extension) from *url*."""
     try:
         from urllib.parse import urlsplit, unquote
         path = unquote(urlsplit(url).path)
     except Exception:
         path = url
     name = os.path.basename(path) or "screen.scr"
-    # Strip extension and sanitise.
     stem, _ext = os.path.splitext(name)
     safe = "".join(ch if (ch.isalnum() or ch in "-_.") else "_" for ch in stem)
     return safe or "screen"
 
 
 def zxscr_convert_bytes_to_pixmap(data: bytes, base_name: str):
-    """Decode *data* (6912-byte SCR) and cache the result under
-    ``cache/scr/<base_name>/``.  Returns a QPixmap or None on failure."""
+    """Decode *data* (6912-byte SCR) and cache the QPixmap in memory.
+    Returns a QPixmap or None on failure."""
     if not zxscr_is_screen_bytes(data):
         return None
+    cached = _ZXSCR_PIXMAP_CACHE.get(base_name)
+    if cached is not None:
+        return cached
     try:
-        sub = os.path.join(_zxscr_cache_root(), base_name)
-        os.makedirs(sub, exist_ok=True)
-        scr_path = os.path.join(sub, base_name + ".scr")
-        png_path = os.path.join(sub, base_name + ".png")
-        if not os.path.exists(scr_path):
-            try:
-                with open(scr_path, "wb") as f:
-                    f.write(data)
-            except Exception:
-                pass
-        if os.path.exists(png_path):
-            pm = QPixmap(png_path)
-            if not pm.isNull():
-                return pm
         img = ZxSpectrumScreen(data).to_qimage()
-        try:
-            img.save(png_path, "PNG")
-        except Exception:
-            pass
-        return QPixmap.fromImage(img)
+        pm = QPixmap.fromImage(img)
+        if not pm.isNull():
+            _ZXSCR_PIXMAP_CACHE[base_name] = pm
+        return pm
     except Exception:
         return None
 
@@ -3581,9 +3854,14 @@ class GalleryItemViewer(QWidget):
         ab_layout.setContentsMargins(10, 8, 10, 10)
         ab_layout.setSpacing(6)
 
+        self.btn_open_web = QPushButton("🌐  Open on website")
         self.btn_download = QPushButton("⬇  Download")
         self.btn_send_sd  = QPushButton("💾  Send to SD card")
         self.btn_send_ns  = QPushButton("🔁  Send via NextSync")
+        self.btn_open_web.setStyleSheet(self._BTN_STYLE)
+        self.btn_open_web.setEnabled(False)
+        self.btn_open_web.setVisible(False)
+        ab_layout.addWidget(self.btn_open_web)
         for btn in (self.btn_download, self.btn_send_sd, self.btn_send_ns):
             btn.setStyleSheet(self._BTN_STYLE)
             btn.setEnabled(False)
@@ -3748,6 +4026,33 @@ class GalleryItemViewer(QWidget):
         self._wire_btn(self.btn_download, download_cb, True)
         self._wire_btn(self.btn_send_sd,  send_sd_cb,  sd_enabled, sd_tooltip)
         self._wire_btn(self.btn_send_ns,  send_ns_cb,  ns_enabled, ns_tooltip)
+
+    def set_open_web_url(self, url: str, site_label: str = ""):
+        """Wire (and show) the 'Open on website' button.  The button opens
+        *url* in the user's default external browser via ``webbrowser.open``.
+        When *url* is empty the button is hidden."""
+        url = (url or "").strip()
+        try:
+            with __import__("warnings").catch_warnings():
+                __import__("warnings").simplefilter("ignore", RuntimeWarning)
+                self.btn_open_web.clicked.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        if not url:
+            self.btn_open_web.setVisible(False)
+            self.btn_open_web.setEnabled(False)
+            return
+        label = f"🌐  Open on {site_label}" if site_label else "🌐  Open on website"
+        self.btn_open_web.setText(label)
+        self.btn_open_web.setToolTip(url)
+        self.btn_open_web.setVisible(True)
+        self.btn_open_web.setEnabled(True)
+        def _go(_=False, _u=url):
+            try:
+                webbrowser.open(_u, new=2)
+            except Exception:
+                pass
+        self.btn_open_web.clicked.connect(_go)
 
     def set_download_available(self, has_dl: bool):
         """Show or hide all three action buttons depending on whether any
@@ -4441,6 +4746,11 @@ class MainWindow(QMainWindow):
                     checked = configuration_dictionary[SETTING_MULTI_SEARCH] != "0" and configuration_dictionary[SETTING_MULTI_SEARCH].lower() != "false"
                     self.settings_multi_search_checkbox.setChecked(checked)
 
+                # Search autocomplete defaults to True; only turn off when explicitly saved as false/0
+                if SETTING_SEARCH_AUTOCOMPLETE in configuration_dictionary and configuration_dictionary[SETTING_SEARCH_AUTOCOMPLETE] != "":
+                    checked = configuration_dictionary[SETTING_SEARCH_AUTOCOMPLETE] != "0" and configuration_dictionary[SETTING_SEARCH_AUTOCOMPLETE].lower() != "false"
+                    self.settings_search_autocomplete_checkbox.setChecked(checked)
+
                 # Gallery animation mode: "hover" (default) or "timer"
                 if SETTING_GALLERY_ANIM_MODE in configuration_dictionary and configuration_dictionary[SETTING_GALLERY_ANIM_MODE] != "":
                     val = configuration_dictionary[SETTING_GALLERY_ANIM_MODE].strip().lower()
@@ -4497,10 +4807,6 @@ class MainWindow(QMainWindow):
                         if self.zxdb_mode_combo.itemData(_i) == saved_mode:
                             self.zxdb_mode_combo.setCurrentIndex(_i)
                             break
-
-                saved_query = configuration_dictionary.get(SETTING_ZXDB_LAST_QUERY, "")
-                if saved_query:
-                    self.zxdb_search_input.setText(saved_query)
 
                 def _load_color_setting(setting_key, default_hex, color_attr, btn_attr):
                     hex_val = configuration_dictionary.get(setting_key, "").strip()
@@ -7660,7 +7966,8 @@ class MainWindow(QMainWindow):
             def _fn(_u=url):
                 tmp = tempfile.NamedTemporaryFile(suffix=".bmp", delete=False)
                 tmp.close()
-                urllib.request.urlretrieve(_u, tmp.name)
+                with open(tmp.name, "wb") as _fh:
+                    _fh.write(_http_fetch_bytes_with_retry(_u, timeout=20))
                 return (tmp.name, _u)
             def _on_done(res, _set=set_pixmap):
                 path, u = res
@@ -7707,16 +8014,12 @@ class MainWindow(QMainWindow):
                 return
             if zxscr_url_is_scr(url):
                 base = _zxscr_basename_for_url(url)
-                cached = os.path.join(_zxscr_cache_root(), base, base + ".png")
-                if os.path.exists(cached):
-                    pm = QPixmap(cached)
-                    if not pm.isNull():
-                        on_pixmap(pm)
-                        return
+                cached = _ZXSCR_PIXMAP_CACHE.get(base)
+                if cached is not None and not cached.isNull():
+                    on_pixmap(cached)
+                    return
                 def _scr_fn(_u=url, _b=base):
-                    req = urllib.request.Request(_u)
-                    with urllib.request.urlopen(req, timeout=20) as resp:
-                        return (resp.read(), _b)
+                    return (_http_fetch_bytes_with_retry(_u, timeout=20), _b)
                 def _scr_ok(res):
                     data, b = res
                     pm = zxscr_convert_bytes_to_pixmap(data, b)
@@ -7727,7 +8030,8 @@ class MainWindow(QMainWindow):
             def _fn(_u=url):
                 tmp = tempfile.NamedTemporaryFile(suffix=".bmp", delete=False)
                 tmp.close()
-                urllib.request.urlretrieve(_u, tmp.name)
+                with open(tmp.name, "wb") as _fh:
+                    _fh.write(_http_fetch_bytes_with_retry(_u, timeout=20))
                 return tmp.name
             def _on_done(path):
                 px = QPixmap(path)
@@ -7971,10 +8275,14 @@ class MainWindow(QMainWindow):
             else:
                 getit_run_search(q, 1)
             if _multi_search_enabled() and q:
-                self.zxdb_search_input.setText(q)
-                self.zxart_search_input.setText(q)
-                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
-                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+                if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                    self.zxdb_search_input.setText(q)
+                if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                    self.zxart_search_input.setText(q)
+                if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                    _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                    _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
                 _cross_search_zxdb(q)
                 _cross_search_zxart(q)
 
@@ -8054,6 +8362,7 @@ class MainWindow(QMainWindow):
         _getit_completer.setCompletionMode(QCompleter.PopupCompletion)
         _getit_completer.setCaseSensitivity(Qt.CaseInsensitive)
         _getit_completer.setFilterMode(Qt.MatchStartsWith)
+        self._getit_completer = _getit_completer
         self.getit_search_input.setCompleter(_getit_completer)
 
         def _getit_ac_update_model(text: str):
@@ -8299,12 +8608,9 @@ class MainWindow(QMainWindow):
                 """HEAD request to resolve the server-side filename before we ask
                 the user where to save, so the dialog shows the correct extension."""
                 url = f"{GETIT_BASE_URL}/nx/{eid}/"
-                req = urllib.request.Request(
-                    url, headers={"User-Agent": "zx-next-unite-getit/1.0"}
+                cd, _ = _http_fetch_with_cd_retry(
+                    url, headers={"User-Agent": GETIT_USER_AGENT}, timeout=15
                 )
-                # We open but read nothing — we only want the headers.
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    cd = resp.headers.get("Content-Disposition", "")
                 # Parse: attachment; filename=HeadOverHeels.tap
                 real_name = ""
                 for part in cd.split(";"):
@@ -8336,11 +8642,9 @@ class MainWindow(QMainWindow):
 
                 def _dl_fn():
                     url = f"{GETIT_BASE_URL}/nx/{eid}/"
-                    req = urllib.request.Request(
-                        url, headers={"User-Agent": "zx-next-unite-getit/1.0"}
+                    data = _http_fetch_bytes_with_retry(
+                        url, headers={"User-Agent": GETIT_USER_AGENT}, timeout=60
                     )
-                    with urllib.request.urlopen(req, timeout=60) as resp:
-                        data = resp.read()
                     with open(save_path, "wb") as fh:
                         fh.write(data)
                     return save_path
@@ -8368,11 +8672,9 @@ class MainWindow(QMainWindow):
 
                 def _dl_fn2():
                     url = f"{GETIT_BASE_URL}/nx/{eid}/"
-                    req = urllib.request.Request(
-                        url, headers={"User-Agent": "zx-next-unite-getit/1.0"}
+                    data = _http_fetch_bytes_with_retry(
+                        url, headers={"User-Agent": GETIT_USER_AGENT}, timeout=60
                     )
-                    with urllib.request.urlopen(req, timeout=60) as resp:
-                        data = resp.read()
                     with open(save_path, "wb") as fh:
                         fh.write(data)
                     return save_path
@@ -8431,12 +8733,9 @@ class MainWindow(QMainWindow):
 
             def _dl_and_put():
                 # Resolve the server filename so we use the correct extension.
-                req_h = urllib.request.Request(
-                    url, headers={"User-Agent": "zx-next-unite-getit/1.0"}
+                _cd, _data = _http_fetch_with_cd_retry(
+                    url, headers={"User-Agent": GETIT_USER_AGENT}, timeout=60
                 )
-                with urllib.request.urlopen(req_h, timeout=60) as _resp:
-                    _cd = _resp.headers.get("Content-Disposition", "")
-                    _data = _resp.read()
                 _real = ""
                 for _part in _cd.split(";"):
                     _part = _part.strip()
@@ -8492,12 +8791,9 @@ class MainWindow(QMainWindow):
             getit_set_status(f"Sending {eid} → {folder}…")
 
             def _dl_fn():
-                req_h = urllib.request.Request(
-                    url, headers={"User-Agent": "zx-next-unite-getit/1.0"}
+                cd, data = _http_fetch_with_cd_retry(
+                    url, headers={"User-Agent": GETIT_USER_AGENT}, timeout=60
                 )
-                with urllib.request.urlopen(req_h, timeout=60) as resp:
-                    cd   = resp.headers.get("Content-Disposition", "")
-                    data = resp.read()
                 real = ""
                 for part in cd.split(";"):
                     part = part.strip()
@@ -8910,9 +9206,8 @@ class MainWindow(QMainWindow):
                 if urls:
                     set_screenshots(urls)
                     def _img_fn(_u=urls[0]):
-                        req = urllib.request.Request(_u, headers={"User-Agent": ZXDB_USER_AGENT})
-                        with urllib.request.urlopen(req, timeout=20) as resp:
-                            return (_u, resp.read())
+                        return (_u, _http_fetch_bytes_with_retry(
+                            _u, headers={"User-Agent": ZXDB_USER_AGENT}, timeout=20))
                     def _img_ok(r):
                         u, data = r
                         if zxscr_url_is_scr(u):
@@ -8951,16 +9246,13 @@ class MainWindow(QMainWindow):
             scr_url = zxscr_url_is_scr(url)
             if scr_url:
                 base = _zxscr_basename_for_url(url)
-                cached = os.path.join(_zxscr_cache_root(), base, base + ".png")
-                if os.path.exists(cached):
-                    pm = QPixmap(cached)
-                    if not pm.isNull():
-                        on_pixmap(pm)
-                        return
+                cached = _ZXSCR_PIXMAP_CACHE.get(base)
+                if cached is not None and not cached.isNull():
+                    on_pixmap(cached)
+                    return
             def _fn(_u=url):
-                req = urllib.request.Request(_u, headers={"User-Agent": ZXDB_USER_AGENT})
-                with urllib.request.urlopen(req, timeout=20) as resp:
-                    return resp.read()
+                return _http_fetch_bytes_with_retry(
+                    _u, headers={"User-Agent": ZXDB_USER_AGENT}, timeout=20)
             def _on_ok(data, _u=url, _scr=scr_url):
                 if _scr:
                     pm = zxscr_convert_bytes_to_pixmap(
@@ -8992,8 +9284,23 @@ class MainWindow(QMainWindow):
             act_send_sd  = menu.addAction(f"Send to SD card (image)  \u2192  {_sd_dest}")
             act_send_sd.setEnabled(bool(self.right_disk_image_path) and bool(right_disk_image_explorer_content))
             act_send_ns  = menu.addAction(f"Send using NextSync  \u2192  {_ns_dest}")
+            if not ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS:
+                act_download.setVisible(False)
+                act_send_sd.setVisible(False)
+                act_send_ns.setVisible(False)
+            menu.addSeparator()
+            _web_url = zxdb_entry_website_url(eid)
+            act_open_web = menu.addAction("Open on website (zxinfo.dk)")
+            act_open_web.setEnabled(bool(_web_url))
             action = menu.exec(global_pos)
             if action is None:
+                return
+            if action is act_open_web:
+                if _web_url:
+                    try:
+                        webbrowser.open(_web_url, new=2)
+                    except Exception:
+                        pass
                 return
             if kind == "magazine":
                 # For magazine cells just show the download overlay if detail is loaded
@@ -9671,7 +9978,11 @@ class MainWindow(QMainWindow):
                     on_complete()
 
             def _on_err(err):
-                zxdb_set_status(f"Error: {err[1]}")
+                exc = err[1]
+                if isinstance(exc, urllib.error.HTTPError) and exc.code in (502, 503, 504):
+                    zxdb_set_status(f"Server temporarily unavailable (HTTP {exc.code}) — please try again.")
+                else:
+                    zxdb_set_status(f"Error: {exc}")
                 zxdb_set_busy(False)
 
             self._zxdb_search_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
@@ -9735,7 +10046,11 @@ class MainWindow(QMainWindow):
 
             def _on_err(err):
                 self._zxdb_search_loading = False
-                zxdb_set_status(f"Error: {err[1]}")
+                exc = err[1]
+                if isinstance(exc, urllib.error.HTTPError) and exc.code in (502, 503, 504):
+                    zxdb_set_status(f"Server temporarily unavailable (HTTP {exc.code}) — please try again.")
+                else:
+                    zxdb_set_status(f"Error: {exc}")
                 self.zxdb_search_button.setEnabled(True)
                 self.zxdb_random_button.setEnabled(True)
 
@@ -9788,7 +10103,6 @@ class MainWindow(QMainWindow):
         def zxdb_on_search():
             zxdb_clear_detail()
             q = self.zxdb_search_input.text().strip()
-            configuration_dictionary[SETTING_ZXDB_LAST_QUERY] = q
             save_configuration_file()
             if q:
                 _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
@@ -9800,9 +10114,11 @@ class MainWindow(QMainWindow):
                 zxdb_run_search(q, 1)
             if _multi_search_enabled() and q:
                 self.getit_search_input.setText(q)
-                self.zxart_search_input.setText(q)
+                if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                    self.zxart_search_input.setText(q)
                 _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
-                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+                if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                    _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
                 _cross_search_getit(q)
                 _cross_search_zxart(q)
 
@@ -9837,11 +10153,13 @@ class MainWindow(QMainWindow):
 
         # ---- ZXDB autocomplete ----
 
+        self._zxdb_ac_ready = False  # suppressed until after startup
         self._zxdb_ac_model = QStringListModel(self)
         _zxdb_completer = QCompleter(self._zxdb_ac_model, self)
         _zxdb_completer.setCompletionMode(QCompleter.PopupCompletion)
         _zxdb_completer.setCaseSensitivity(Qt.CaseInsensitive)
         _zxdb_completer.setFilterMode(Qt.MatchStartsWith)
+        self._zxdb_completer = _zxdb_completer
         self.zxdb_search_input.setCompleter(_zxdb_completer)
 
         _zxdb_ac_timer = QTimer(self)
@@ -9916,7 +10234,8 @@ class MainWindow(QMainWindow):
                 _zxdb_ac_fetch_letter(letter)
 
         def _zxdb_ac_on_text_changed(_text: str):
-            _zxdb_ac_timer.start()
+            if self._zxdb_ac_ready:
+                _zxdb_ac_timer.start()
 
         _zxdb_ac_timer.timeout.connect(_zxdb_ac_trigger)
         self.zxdb_search_input.textChanged.connect(_zxdb_ac_on_text_changed)
@@ -10370,10 +10689,14 @@ class MainWindow(QMainWindow):
                 sd_enabled=_sd_ok, sd_tooltip=_sd_dest,
                 ns_enabled=True,   ns_tooltip=_ns_dest,
             )
+            viewer.set_open_web_url(zxdb_entry_website_url(eid), "zxinfo.dk")
+            # If downloads are disabled globally, hide all action buttons immediately.
+            if not ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS:
+                viewer.set_download_available(False)
             # If we already have cached (filtered) downloads, use them to set
             # initial button visibility; otherwise keep buttons visible until
             # the async enrich resolves.
-            if self._zxdb_selected_id == eid:
+            elif self._zxdb_selected_id == eid:
                 viewer.set_download_available(
                     bool(_filter_download_urls(self._zxdb_selected_downloads or []))
                 )
@@ -10407,7 +10730,8 @@ class MainWindow(QMainWindow):
                 ]
                 _gallery_viewer_refresh_meta(viewer, detail.get("title") or title, rows)
                 dls = _filter_download_urls(detail.get("downloads", []) or [])
-                viewer.set_download_available(bool(dls))
+                if ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS:
+                    viewer.set_download_available(bool(dls))
             def _on_err(_e): pass
             self._zxdb_gallery_viewer_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
@@ -10429,7 +10753,9 @@ class MainWindow(QMainWindow):
             if hasattr(self, '_zxdb_preview_container'):
                 self._zxdb_preview_container.setVisible(_table)
             if hasattr(self, '_zxdb_preview_download_btn'):
-                self._zxdb_preview_download_btn.setVisible(_table)
+                self._zxdb_preview_download_btn.setVisible(
+                    _table and ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS
+                )
             cb = self.zxdb_view_combo
             target_idx = 1 if mode == "gallery" else 0
             if cb.currentIndex() != target_idx:
@@ -10713,6 +11039,10 @@ class MainWindow(QMainWindow):
             tbl.setColumnWidth(COL_DL, 100)
             tbl.setColumnWidth(COL_SD, 140)
             tbl.setColumnWidth(COL_NS, 160)
+            if not ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS:
+                for _c in (COL_SD, COL_NS):
+                    tbl.setColumnWidth(_c, 0)
+                    tbl.setColumnHidden(_c, True)
             tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
             tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
 
@@ -10730,23 +11060,17 @@ class MainWindow(QMainWindow):
                 item.setToolTip("File is available" if ok else "File returned 404 / unreachable")
                 _avail[row] = ok
                 tbl.setItem(row, COL_AVAIL, item)
-                for _col in (COL_DL, COL_SD, COL_NS):
+                _active_cols = [COL_DL] if not ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS else [COL_DL, COL_SD, COL_NS]
+                for _col in _active_cols:
                     btn_w = tbl.cellWidget(row, _col)
                     if btn_w is not None:
                         btn_w.setEnabled(ok)
 
             def _check_url(row: int, url: str):
                 def _fn():
-                    try:
-                        req = urllib.request.Request(
-                            url,
-                            method="HEAD",
-                            headers={"User-Agent": ZXDB_USER_AGENT},
-                        )
-                        with urllib.request.urlopen(req, timeout=10) as resp:
-                            return resp.status < 400
-                    except Exception:
-                        return False
+                    return _http_head_ok_with_retry(
+                        url, headers={"User-Agent": ZXDB_USER_AGENT}, timeout=10
+                    )
                 def _on_ok(result):
                     _set_avail_cell(row, bool(result))
                 def _on_err(_):
@@ -10805,15 +11129,16 @@ class MainWindow(QMainWindow):
                 btn.clicked.connect(_make_dl_handler(d))
                 tbl.setCellWidget(row, COL_DL, btn)
 
-                sd_btn = QPushButton("Send to SD Card")
-                sd_btn.setEnabled(False)
-                sd_btn.clicked.connect(_make_sd_handler(d))
-                tbl.setCellWidget(row, COL_SD, sd_btn)
+                if ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS:
+                    sd_btn = QPushButton("Send to SD Card")
+                    sd_btn.setEnabled(False)
+                    sd_btn.clicked.connect(_make_sd_handler(d))
+                    tbl.setCellWidget(row, COL_SD, sd_btn)
 
-                ns_btn = QPushButton("Send via NextSync")
-                ns_btn.setEnabled(False)
-                ns_btn.clicked.connect(_make_ns_handler(d))
-                tbl.setCellWidget(row, COL_NS, ns_btn)
+                    ns_btn = QPushButton("Send via NextSync")
+                    ns_btn.setEnabled(False)
+                    ns_btn.clicked.connect(_make_ns_handler(d))
+                    tbl.setCellWidget(row, COL_NS, ns_btn)
 
             v.addWidget(tbl, 1)
 
@@ -10824,8 +11149,9 @@ class MainWindow(QMainWindow):
             ns_all_btn = QPushButton("Send all via NextSync")
             close_btn  = QPushButton("Close")
             btn_row.addWidget(dl_all_btn)
-            btn_row.addWidget(sd_all_btn)
-            btn_row.addWidget(ns_all_btn)
+            if ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS:
+                btn_row.addWidget(sd_all_btn)
+                btn_row.addWidget(ns_all_btn)
             btn_row.addWidget(close_btn)
             v.addLayout(btn_row)
 
@@ -10920,6 +11246,9 @@ class MainWindow(QMainWindow):
                         btn_w = tbl.cellWidget(row, _col)
                         if btn_w is not None:
                             btn_w.setEnabled(True)
+
+            _ticker_lbl, _ticker_timer = _make_disclaimer_ticker(dlg)
+            v.addWidget(_ticker_lbl)
 
             dlg.exec()
 
@@ -11093,8 +11422,23 @@ class MainWindow(QMainWindow):
                 act_send_sd   = menu.addAction(f"Send to SD card (image)  →  {_sd_dest}")
                 act_send_sd.setEnabled(bool(self.right_disk_image_path) and bool(right_disk_image_explorer_content))
                 act_send_ns   = menu.addAction(f"Send using NextSync  →  {_ns_dest}")
+                if not ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS:
+                    act_download.setVisible(False)
+                    act_send_sd.setVisible(False)
+                    act_send_ns.setVisible(False)
+                menu.addSeparator()
+                _web_url = zxdb_entry_website_url(eid)
+                act_open_web = menu.addAction("Open on website (zxinfo.dk)")
+                act_open_web.setEnabled(bool(_web_url))
                 action = menu.exec(self.zxdb_results_table.viewport().mapToGlobal(pos))
                 if action is None:
+                    return
+                if action is act_open_web:
+                    if _web_url:
+                        try:
+                            webbrowser.open(_web_url, new=2)
+                        except Exception:
+                            pass
                     return
 
                 # ---- helper: fetch downloads then send to a path ----
@@ -11328,6 +11672,10 @@ class MainWindow(QMainWindow):
                 return
             self._zxdb_loaded_once = True
             zxdb_run_random()
+            # Allow autocomplete only after the initial load has been kicked off
+            # so that config-restored search text doesn't trigger background
+            # by-letter fetches before the first render completes.
+            self._zxdb_ac_ready = True
 
         self._zxdb_on_tab_activated = zxdb_on_tab_activated
 
@@ -11669,10 +12017,8 @@ class MainWindow(QMainWindow):
                 return
             set_screenshots(urls)
             def _img_fn(_u=urls[0]):
-                req = urllib.request.Request(zxart_safe_url(_u),
-                                             headers={"User-Agent": ZXART_USER_AGENT})
-                with urllib.request.urlopen(req, timeout=20) as resp:
-                    return (_u, resp.read())
+                return (_u, _http_fetch_bytes_with_retry(
+                    zxart_safe_url(_u), headers={"User-Agent": ZXART_USER_AGENT}, timeout=20))
             def _img_ok(res):
                 u, data = res
                 if zxscr_url_is_scr(u):
@@ -11698,17 +12044,13 @@ class MainWindow(QMainWindow):
             scr_url = zxscr_url_is_scr(url)
             if scr_url:
                 base = _zxscr_basename_for_url(url)
-                cached = os.path.join(_zxscr_cache_root(), base, base + ".png")
-                if os.path.exists(cached):
-                    pm = QPixmap(cached)
-                    if not pm.isNull():
-                        on_pixmap(pm)
-                        return
+                cached = _ZXSCR_PIXMAP_CACHE.get(base)
+                if cached is not None and not cached.isNull():
+                    on_pixmap(cached)
+                    return
             def _fn(_u=url):
-                req = urllib.request.Request(zxart_safe_url(_u),
-                                             headers={"User-Agent": ZXART_USER_AGENT})
-                with urllib.request.urlopen(req, timeout=20) as resp:
-                    return resp.read()
+                return _http_fetch_bytes_with_retry(
+                    zxart_safe_url(_u), headers={"User-Agent": ZXART_USER_AGENT}, timeout=20)
             def _on_ok(data, _u=url, _scr=scr_url):
                 if _scr:
                     pm = zxscr_convert_bytes_to_pixmap(
@@ -11739,8 +12081,23 @@ class MainWindow(QMainWindow):
             act_send_sd  = menu.addAction(f"Send to SD card (image)  \u2192  {_sd_dest}")
             act_send_sd.setEnabled(bool(self.right_disk_image_path) and bool(right_disk_image_explorer_content))
             act_send_ns  = menu.addAction(f"Send using NextSync  \u2192  {_ns_dest}")
+            if not ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS:
+                act_download.setVisible(False)
+                act_send_sd.setVisible(False)
+                act_send_ns.setVisible(False)
+            menu.addSeparator()
+            _web_url = zxart_entry_website_url(entry)
+            act_open_web = menu.addAction("Open on website (zxart.ee)")
+            act_open_web.setEnabled(bool(_web_url))
             action = menu.exec(global_pos)
             if action is None:
+                return
+            if action is act_open_web:
+                if _web_url:
+                    try:
+                        webbrowser.open(_web_url, new=2)
+                    except Exception:
+                        pass
                 return
 
             def _ensure_detail_then(callback):
@@ -12061,11 +12418,13 @@ class MainWindow(QMainWindow):
                     tmp = tempfile.NamedTemporaryFile(suffix="_" + _fname, delete=False)
                     tmp.close()
                     try:
-                        req_tmp = urllib.request.Request(zxart_safe_url(_url),
-                                                         headers={"User-Agent": ZXART_USER_AGENT})
-                        with urllib.request.urlopen(req_tmp, timeout=60) as resp_tmp:
-                            with open(tmp.name, "wb") as fh:
-                                fh.write(resp_tmp.read())
+                        data = _http_fetch_bytes_with_retry(
+                            zxart_safe_url(_url),
+                            headers={"User-Agent": ZXART_USER_AGENT},
+                            timeout=60,
+                        )
+                        with open(tmp.name, "wb") as fh:
+                            fh.write(data)
                         execute_hdf_monkey("mkdir", image_path, extra_argv=[img_dir], silent=True)
                         result = execute_hdf_monkey("put", image_path,
                                                    extra_argv=[tmp.name.replace("\\", "/"), _img_dest])
@@ -12383,7 +12742,6 @@ class MainWindow(QMainWindow):
         def zxart_on_search():
             zxart_clear_detail()
             q = self.zxart_search_input.text().strip()
-            configuration_dictionary[SETTING_ZXART_LAST_QUERY] = q
             save_configuration_file()
             if q:
                 _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
@@ -12395,9 +12753,11 @@ class MainWindow(QMainWindow):
                 zxart_run_search(q, 1)
             if _multi_search_enabled() and q:
                 self.getit_search_input.setText(q)
-                self.zxdb_search_input.setText(q)
+                if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                    self.zxdb_search_input.setText(q)
                 _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
-                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                    _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
                 _cross_search_getit(q)
                 _cross_search_zxdb(q)
 
@@ -12492,6 +12852,7 @@ class MainWindow(QMainWindow):
         _zxart_completer.setCompletionMode(QCompleter.PopupCompletion)
         _zxart_completer.setCaseSensitivity(Qt.CaseInsensitive)
         _zxart_completer.setFilterMode(Qt.MatchStartsWith)
+        self._zxart_completer = _zxart_completer
         self.zxart_search_input.setCompleter(_zxart_completer)
 
         _zxart_ac_timer = QTimer(self)
@@ -13013,7 +13374,11 @@ class MainWindow(QMainWindow):
                 sd_enabled=_sd_ok, sd_tooltip=_sd_dest,
                 ns_enabled=True,   ns_tooltip=_ns_dest,
             )
-            if self._zxart_selected_id == eid:
+            viewer.set_open_web_url(zxart_entry_website_url(entry), "zxart.ee")
+            # If downloads are disabled globally, hide all action buttons immediately.
+            if not ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS:
+                viewer.set_download_available(False)
+            elif self._zxart_selected_id == eid:
                 viewer.set_download_available(
                     bool(_filter_download_urls(self._zxart_selected_downloads or []))
                 )
@@ -13127,7 +13492,9 @@ class MainWindow(QMainWindow):
             if hasattr(self, '_zxart_preview_container'):
                 self._zxart_preview_container.setVisible(_table)
             if hasattr(self, '_zxart_preview_download_btn'):
-                self._zxart_preview_download_btn.setVisible(_table)
+                self._zxart_preview_download_btn.setVisible(
+                    _table and ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS
+                )
             cb = self.zxart_view_combo
             target_idx = 1 if mode == "gallery" else 0
             if cb.currentIndex() != target_idx:
@@ -13316,6 +13683,10 @@ class MainWindow(QMainWindow):
             tbl.setColumnWidth(COL_DL, 100)
             tbl.setColumnWidth(COL_SD, 140)
             tbl.setColumnWidth(COL_NS, 160)
+            if not ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS:
+                for _c in (COL_SD, COL_NS):
+                    tbl.setColumnWidth(_c, 0)
+                    tbl.setColumnHidden(_c, True)
             tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
             tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
 
@@ -13333,23 +13704,17 @@ class MainWindow(QMainWindow):
                 item.setToolTip("File is available" if ok else "File returned 404 / unreachable")
                 _avail[row] = ok
                 tbl.setItem(row, COL_AVAIL, item)
-                for _col in (COL_DL, COL_SD, COL_NS):
+                _active_cols = [COL_DL] if not ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS else [COL_DL, COL_SD, COL_NS]
+                for _col in _active_cols:
                     btn_w = tbl.cellWidget(row, _col)
                     if btn_w is not None:
                         btn_w.setEnabled(ok)
 
             def _check_url(row: int, url: str):
                 def _fn():
-                    try:
-                        req = urllib.request.Request(
-                            zxart_safe_url(url),
-                            method="HEAD",
-                            headers={"User-Agent": ZXART_USER_AGENT},
-                        )
-                        with urllib.request.urlopen(req, timeout=10) as resp:
-                            return resp.status < 400
-                    except Exception:
-                        return False
+                    return _http_head_ok_with_retry(
+                        zxart_safe_url(url), headers={"User-Agent": ZXART_USER_AGENT}, timeout=10
+                    )
                 def _on_ok(result):
                     _set_avail_cell(row, bool(result))
                 def _on_err(_):
@@ -13408,15 +13773,16 @@ class MainWindow(QMainWindow):
                 btn.clicked.connect(_make_dl_handler(d))
                 tbl.setCellWidget(row, COL_DL, btn)
 
-                sd_btn = QPushButton("Send to SD Card")
-                sd_btn.setEnabled(False)
-                sd_btn.clicked.connect(_make_sd_handler(d))
-                tbl.setCellWidget(row, COL_SD, sd_btn)
+                if ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS:
+                    sd_btn = QPushButton("Send to SD Card")
+                    sd_btn.setEnabled(False)
+                    sd_btn.clicked.connect(_make_sd_handler(d))
+                    tbl.setCellWidget(row, COL_SD, sd_btn)
 
-                ns_btn = QPushButton("Send via NextSync")
-                ns_btn.setEnabled(False)
-                ns_btn.clicked.connect(_make_ns_handler(d))
-                tbl.setCellWidget(row, COL_NS, ns_btn)
+                    ns_btn = QPushButton("Send via NextSync")
+                    ns_btn.setEnabled(False)
+                    ns_btn.clicked.connect(_make_ns_handler(d))
+                    tbl.setCellWidget(row, COL_NS, ns_btn)
 
             v.addWidget(tbl, 1)
 
@@ -13427,8 +13793,9 @@ class MainWindow(QMainWindow):
             ns_all_btn = QPushButton("Send all via NextSync")
             close_btn  = QPushButton("Close")
             btn_row.addWidget(dl_all_btn)
-            btn_row.addWidget(sd_all_btn)
-            btn_row.addWidget(ns_all_btn)
+            if ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS:
+                btn_row.addWidget(sd_all_btn)
+                btn_row.addWidget(ns_all_btn)
             btn_row.addWidget(close_btn)
             v.addLayout(btn_row)
 
@@ -13520,6 +13887,9 @@ class MainWindow(QMainWindow):
                         if btn_w is not None:
                             btn_w.setEnabled(True)
 
+            _ticker_lbl, _ticker_timer = _make_disclaimer_ticker(dlg)
+            v.addWidget(_ticker_lbl)
+
             dlg.exec()
 
         # ---- Context menu ----
@@ -13554,8 +13924,23 @@ class MainWindow(QMainWindow):
             act_send_sd  = menu.addAction(f"Send to SD card (image)  →  {_sd_dest}")
             act_send_sd.setEnabled(bool(self.right_disk_image_path) and bool(right_disk_image_explorer_content))
             act_send_ns  = menu.addAction(f"Send using NextSync  →  {_ns_dest}")
+            if not ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS:
+                act_download.setVisible(False)
+                act_send_sd.setVisible(False)
+                act_send_ns.setVisible(False)
+            menu.addSeparator()
+            _web_url = zxart_entry_website_url(entry)
+            act_open_web = menu.addAction("Open on website (zxart.ee)")
+            act_open_web.setEnabled(bool(_web_url))
             action = menu.exec(self.zxart_results_table.viewport().mapToGlobal(pos))
             if action is None:
+                return
+            if action is act_open_web:
+                if _web_url:
+                    try:
+                        webbrowser.open(_web_url, new=2)
+                    except Exception:
+                        pass
                 return
 
             def _ensure_detail_then(callback):
@@ -13769,6 +14154,9 @@ class MainWindow(QMainWindow):
             if self._zxart_loaded_once or self._zxart_search_loading:
                 return
             self._zxart_loaded_once = True
+            # Skip default load if a cross-search already populated results
+            if self._zxart_last_query:
+                return
             # Load latest productions on first activation
             zxart_run_search("", 1)
 
@@ -13817,7 +14205,10 @@ class MainWindow(QMainWindow):
         grid_tab_zxdb.addWidget(self._zxdb_stack)
         zxnextunite_ZXDB_tab.setLayout(grid_tab_zxdb)
         zxnextunite_ZXDB_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_ZXDB
-        wid_inner.tab.addTab(zxnextunite_ZXDB_tab, ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+        if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+            wid_inner.tab.addTab(zxnextunite_ZXDB_tab, ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+        else:
+            zxnextunite_ZXDB_tab.setParent(None)
 
         # Create zxART Tab (right of ZXDB)
         zxnextunite_ZXART_tab = QWidget(wid_inner.tab)
@@ -13828,7 +14219,13 @@ class MainWindow(QMainWindow):
         grid_tab_zxart.addWidget(self._zxart_stack)
         zxnextunite_ZXART_tab.setLayout(grid_tab_zxart)
         zxnextunite_ZXART_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_ZXART
-        wid_inner.tab.addTab(zxnextunite_ZXART_tab, ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+        if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+            wid_inner.tab.addTab(zxnextunite_ZXART_tab, ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+        else:
+            # Stop the poll timer before unparenting so it never fires against
+            # the destroyed child widgets (zxart_cache_progress_bar etc.).
+            self._zxart_cache_poll_timer.stop()
+            zxnextunite_ZXART_tab.setParent(None)
 
         # Create ONLINE Favorites Tab (right of zxArt, before Settings)
         zxnextunite_Favorites_tab = QWidget(wid_inner.tab)
@@ -14170,6 +14567,22 @@ class MainWindow(QMainWindow):
         self.settings_multi_search_checkbox.stateChanged.connect(settings_multi_search_statechanged)
         grid_tab_Settings.addWidget(self.settings_multi_search_checkbox, 3, 0, 1, 2)
 
+        def settings_search_autocomplete_statechanged():
+            enabled = self.settings_search_autocomplete_checkbox.isChecked()
+            configuration_dictionary[SETTING_SEARCH_AUTOCOMPLETE] = "true" if enabled else "false"
+            save_configuration_file()
+            _apply_autocomplete_setting(enabled)
+
+        self.settings_search_autocomplete_checkbox = QCheckBox("Enable search autocompletion.")
+        self.settings_search_autocomplete_checkbox.setChecked(True)
+        self.settings_search_autocomplete_checkbox.setToolTip(
+            "When enabled, typing in any search box shows an autocomplete dropdown\n"
+            "with matching titles fetched from the respective API.\n"
+            "Uncheck to disable autocomplete suggestions on all search inputs."
+        )
+        self.settings_search_autocomplete_checkbox.stateChanged.connect(settings_search_autocomplete_statechanged)
+        grid_tab_Settings.addWidget(self.settings_search_autocomplete_checkbox, 4, 0, 1, 2)
+
         # ---- Gallery (picture view) settings ----
         def _settings_gallery_anim_changed():
             data = self.settings_gallery_anim_combo.currentData() or DEFAULT_GALLERY_ANIM_MODE
@@ -14184,7 +14597,7 @@ class MainWindow(QMainWindow):
             "  • On hover (default): cycles only while the mouse is over the tile.\n"
             "  • Timed: cycles continuously while the gallery is visible."
         )
-        grid_tab_Settings.addWidget(gallery_anim_lbl, 4, 0)
+        grid_tab_Settings.addWidget(gallery_anim_lbl, 5, 0)
 
         self.settings_gallery_anim_combo = QComboBox()
         self.settings_gallery_anim_combo.addItem("On hover (default)", "hover")
@@ -14193,7 +14606,7 @@ class MainWindow(QMainWindow):
         self.settings_gallery_anim_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_anim_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_anim_combo, 4, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_anim_combo, 5, 1)
 
         def _settings_gallery_rows_changed(val: int):
             val = max(GALLERY_MIN_ROWS, min(GALLERY_MAX_ROWS, int(val)))
@@ -14206,14 +14619,14 @@ class MainWindow(QMainWindow):
             "Number of thumbnail rows shown per gallery page (4 thumbnails per row).\n"
             f"Range {GALLERY_MIN_ROWS}–{GALLERY_MAX_ROWS}. Default {DEFAULT_GALLERY_ROWS_PER_PAGE}."
         )
-        grid_tab_Settings.addWidget(gallery_rows_lbl, 5, 0)
+        grid_tab_Settings.addWidget(gallery_rows_lbl, 6, 0)
 
         self.settings_gallery_rows_spin = QSpinBox()
         self.settings_gallery_rows_spin.setRange(GALLERY_MIN_ROWS, GALLERY_MAX_ROWS)
         self.settings_gallery_rows_spin.setValue(DEFAULT_GALLERY_ROWS_PER_PAGE)
         self.settings_gallery_rows_spin.setToolTip(gallery_rows_lbl.toolTip())
         self.settings_gallery_rows_spin.valueChanged.connect(_settings_gallery_rows_changed)
-        grid_tab_Settings.addWidget(self.settings_gallery_rows_spin, 5, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_rows_spin, 6, 1)
 
         def _make_color_button(setting_key, color_attr, label_text, tooltip_text, grid_row):
             """Create a label + color-swatch button at the given grid row."""
@@ -14248,38 +14661,38 @@ class MainWindow(QMainWindow):
 
         settings_section_lbl = QLabel("SD Card Image Explorer — Item Colors:")
         settings_section_lbl.setToolTip("Customize the foreground color for each item type displayed in the SD card image explorer.")
-        grid_tab_Settings.addWidget(settings_section_lbl, 6, 0, 1, 2)
+        grid_tab_Settings.addWidget(settings_section_lbl, 7, 0, 1, 2)
 
         self.settings_btn_color_up_directory = _make_color_button(
             SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory",
             "  Up Directory item",
             "Color used for the '[Up Directory..]' navigation row in the image explorer.",
-            7)
+            8)
         self.settings_btn_color_dir_name = _make_color_button(
             SETTING_COLOR_DIR_NAME, "img_color_dir_name",
             "  Directory name",
             "Color used for directory name entries in the image explorer.",
-            8)
+            9)
         self.settings_btn_color_dir_type = _make_color_button(
             SETTING_COLOR_DIR_TYPE, "img_color_dir_type",
             "  Directory type label",
             "Color used for the 'DIR' type label column of directory entries.",
-            9)
+            10)
         self.settings_btn_color_file_name = _make_color_button(
             SETTING_COLOR_FILE_NAME, "img_color_file_name",
             "  File name",
             "Color used for file name entries in the image explorer.",
-            10)
+            11)
         self.settings_btn_color_file_ext = _make_color_button(
             SETTING_COLOR_FILE_EXT, "img_color_file_ext",
             "  File extension",
             "Color used for the file extension column in the image explorer.",
-            11)
+            12)
         self.settings_btn_color_file_size = _make_color_button(
             SETTING_COLOR_FILE_SIZE, "img_color_file_size",
             "  File size",
             "Color used for the file size column in the image explorer.",
-            12)
+            13)
 
         # ---- Background image opacity ----
         bg_opacity_lbl = QLabel("Background image opacity (%):")
@@ -14287,7 +14700,7 @@ class MainWindow(QMainWindow):
             "Controls how visible the background image is behind the UI.\n"
             "0 = fully hidden, 100 = fully visible. Default is 5%."
         )
-        grid_tab_Settings.addWidget(bg_opacity_lbl, 13, 0)
+        grid_tab_Settings.addWidget(bg_opacity_lbl, 14, 0)
 
         bg_opacity_row = QWidget()
         bg_opacity_row_layout = QHBoxLayout(bg_opacity_row)
@@ -14371,7 +14784,7 @@ class MainWindow(QMainWindow):
 
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_slider, 1)
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_spinbox, 0)
-        grid_tab_Settings.addWidget(bg_opacity_row, 13, 1)
+        grid_tab_Settings.addWidget(bg_opacity_row, 14, 1)
 
         # ---- Background image selector ----
         bg_image_lbl = QLabel("Background image:")
@@ -14379,7 +14792,7 @@ class MainWindow(QMainWindow):
             "Choose a specific background image or 'Random' to cycle through\n"
             "all images in the backgrounds/ folder every 5 seconds."
         )
-        grid_tab_Settings.addWidget(bg_image_lbl, 14, 0)
+        grid_tab_Settings.addWidget(bg_image_lbl, 15, 0)
 
         bg_image_row = QWidget()
         bg_image_row_layout = QHBoxLayout(bg_image_row)
@@ -14415,7 +14828,7 @@ class MainWindow(QMainWindow):
         self.settings_bg_image_preview.setToolTip("Preview of the selected background image.")
         bg_image_row_layout.addWidget(self.settings_bg_image_preview, 0)
 
-        grid_tab_Settings.addWidget(bg_image_row, 14, 1)
+        grid_tab_Settings.addWidget(bg_image_row, 15, 1)
 
         def _update_bg_image_preview(path: str):
             """Refresh the thumbnail label for the given absolute image path."""
@@ -14531,6 +14944,22 @@ class MainWindow(QMainWindow):
 
         # ---- Multi-API cross-search helpers ----
 
+        def _autocomplete_enabled() -> bool:
+            cb = getattr(self, "settings_search_autocomplete_checkbox", None)
+            return cb is None or cb.isChecked()
+
+        def _apply_autocomplete_setting(enabled: bool):
+            """Attach or detach completers on all three search inputs."""
+            for input_widget, completer in (
+                (self.getit_search_input, getattr(self, "_getit_completer", None)),
+                (self.zxdb_search_input,  getattr(self, "_zxdb_completer",  None)),
+                (self.zxart_search_input, getattr(self, "_zxart_completer", None)),
+            ):
+                try:
+                    input_widget.setCompleter(completer if enabled else None)
+                except RuntimeError:
+                    pass
+
         def _multi_search_enabled() -> bool:
             cb = getattr(self, "settings_multi_search_checkbox", None)
             return cb is not None and cb.isChecked()
@@ -14548,6 +14977,8 @@ class MainWindow(QMainWindow):
 
         def _cross_search_zxdb(query: str):
             """Run a full ZXDB search in the background, populate the table and badge the tab."""
+            if not ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                return
             if not query:
                 return
             _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
@@ -14559,6 +14990,8 @@ class MainWindow(QMainWindow):
 
         def _cross_search_zxart(query: str):
             """Run a full zxART search in the background, populate the table and badge the tab."""
+            if not ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                return
             if not query:
                 return
             if _zxart_catalog_downloading:
