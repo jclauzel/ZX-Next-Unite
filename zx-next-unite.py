@@ -48,6 +48,14 @@
 # Standard library imports
 import ctypes
 import datetime
+import faulthandler
+# Enable a native-stack dump on hard crashes (segfaults, aborts) so issues that
+# kill the process without a Python traceback (e.g. Qt widget/completer races)
+# leave a diagnosable footprint on stderr.
+try:
+    faulthandler.enable()
+except Exception:
+    pass
 import fnmatch
 import glob
 import json
@@ -95,6 +103,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtCore import Q_ARG
 from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QImage, QFontInfo, QPainter, QPixmap, QFont
+from PySide6.QtGui import QImageReader
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -137,7 +146,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "5.8"
+ZX_NEXT_UNITE_VERSION = "5.9"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -8257,6 +8266,31 @@ class MainWindow(QMainWindow):
         self._getit_completer = _getit_completer
         self.getit_search_input.setCompleter(_getit_completer)
 
+        def _getit_safe_show_popup(q: str):
+            """Show the GetIt completer popup without calling QCompleter.complete()."""
+            try:
+                if not self.getit_search_input.hasFocus():
+                    return
+                if self.getit_search_input.text().strip() != q:
+                    return
+                if self._getit_ac_model.rowCount() == 0:
+                    return
+                _getit_completer.setCompletionPrefix(q)
+                popup = _getit_completer.popup()
+                if popup is None:
+                    return
+                le = self.getit_search_input
+                rect = le.rect()
+                pos = le.mapToGlobal(rect.bottomLeft())
+                popup.setMinimumWidth(le.width())
+                popup.move(pos)
+                popup.resize(le.width(), min(220, 22 * min(8, self._getit_ac_model.rowCount()) + 4))
+                popup.show()
+            except RuntimeError:
+                pass
+            except Exception:
+                pass
+
         def _getit_ac_update_model(text: str):
             """Filter the cached title list to those starting with *text*."""
             if not text:
@@ -8268,6 +8302,8 @@ class MainWindow(QMainWindow):
                 key=str.lower,
             )
             self._getit_ac_model.setStringList(matches[:80])
+            if matches:
+                QTimer.singleShot(0, lambda q=text: _getit_safe_show_popup(q))
 
         def _getit_ac_populate_cache(titles: list):
             """Called on the main thread once the full-catalog fetch completes."""
@@ -8323,7 +8359,16 @@ class MainWindow(QMainWindow):
             _getit_ac_update_model(text)
 
         self.getit_search_input.textChanged.connect(_getit_ac_on_text_changed)
-        _getit_completer.activated.connect(getit_on_search)
+
+        def _getit_ac_activated(selected: str):
+            try:
+                if selected:
+                    self.getit_search_input.setText(selected)
+            except Exception:
+                pass
+            getit_on_search()
+
+        _getit_completer.activated.connect(_getit_ac_activated)
 
         def _getit_search_validate(text: str):
             t = text.strip()
@@ -10140,6 +10185,32 @@ class MainWindow(QMainWindow):
         _zxdb_ac_timer.setSingleShot(True)
         _zxdb_ac_timer.setInterval(300)
 
+        def _zxdb_safe_show_popup(q: str):
+            """Show the ZXDB completer popup without calling QCompleter.complete(),
+            which has crashed Qt with a native access violation on Windows."""
+            try:
+                if not self.zxdb_search_input.hasFocus():
+                    return
+                if self.zxdb_search_input.text().strip() != q:
+                    return
+                if self._zxdb_ac_model.rowCount() == 0:
+                    return
+                _zxdb_completer.setCompletionPrefix(q)
+                popup = _zxdb_completer.popup()
+                if popup is None:
+                    return
+                le = self.zxdb_search_input
+                rect = le.rect()
+                pos = le.mapToGlobal(rect.bottomLeft())
+                popup.setMinimumWidth(le.width())
+                popup.move(pos)
+                popup.resize(le.width(), min(220, 22 * min(8, self._zxdb_ac_model.rowCount()) + 4))
+                popup.show()
+            except RuntimeError:
+                pass
+            except Exception:
+                pass
+
         def _zxdb_ac_update_model(text: str):
             """Filter cached letter titles to those starting with *text*."""
             if not text:
@@ -10151,7 +10222,7 @@ class MainWindow(QMainWindow):
             matches = [t for t in cached if t.lower().startswith(tl)]
             self._zxdb_ac_model.setStringList(matches[:80])
             if matches:
-                _zxdb_completer.complete()
+                QTimer.singleShot(0, lambda q=text: _zxdb_safe_show_popup(q))
 
         def _zxdb_ac_fetch_letter(letter: str):
             """Fetch all titles for *letter* via /games/byletter, cache, then refresh model."""
@@ -10214,7 +10285,16 @@ class MainWindow(QMainWindow):
 
         _zxdb_ac_timer.timeout.connect(_zxdb_ac_trigger)
         self.zxdb_search_input.textChanged.connect(_zxdb_ac_on_text_changed)
-        _zxdb_completer.activated.connect(zxdb_on_search)
+
+        def _zxdb_ac_activated(selected: str):
+            try:
+                if selected:
+                    self.zxdb_search_input.setText(selected)
+            except Exception:
+                pass
+            zxdb_on_search()
+
+        _zxdb_completer.activated.connect(_zxdb_ac_activated)
 
         def zxdb_on_mode_changed(_idx):
             mode = zxdb_current_mode()
@@ -12700,6 +12780,27 @@ class MainWindow(QMainWindow):
             save_configuration_file()
             if q and len(q) < SEARCH_MIN_CHARS:
                 return
+            # Invalidate any in-flight autocomplete request and cancel any
+            # pending debounce timer — its async result must not pop the
+            # completer popup while the real search is running, which has
+            # produced a native access violation inside QCompleter.
+            try:
+                self._zxart_ac_gen += 1
+                t = getattr(self, "_zxart_ac_timer", None)
+                if t is not None:
+                    t.stop()
+                if getattr(self, "_zxart_ac_model", None) is not None:
+                    self._zxart_ac_model.setStringList([])
+                comp = getattr(self, "_zxart_completer", None)
+                if comp is not None:
+                    try:
+                        popup = comp.popup()
+                        if popup is not None and popup.isVisible():
+                            popup.hide()
+                    except RuntimeError:
+                        pass
+            except Exception:
+                pass
             if q:
                 _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
                 def _zxart_done():
@@ -12828,7 +12929,13 @@ class MainWindow(QMainWindow):
         _zxart_ac_timer = QTimer(self)
         _zxart_ac_timer.setSingleShot(True)
         _zxart_ac_timer.setInterval(400)
+        self._zxart_ac_timer = _zxart_ac_timer
         self._zxart_ac_pending: str = ""
+        # Generation token: bumped whenever a real search starts or the
+        # input is cleared.  Async autocomplete results carrying an older
+        # token are discarded so they cannot repopulate / re-pop the
+        # completer while a full search (or teardown) is already in flight.
+        self._zxart_ac_gen: int = 0
 
         def _zxart_ac_trigger():
             mode = zxart_current_mode()
@@ -12840,12 +12947,53 @@ class MainWindow(QMainWindow):
                 self._zxart_ac_model.setStringList([])
                 return
 
+            # Avoid firing a heavy zxART network search (binary-search probes +
+            # 200-item window fetch) on very short prefixes such as a single
+            # "p", which both stresses the API and has produced a crash when
+            # the async result repopulates the completer model while the user
+            # is still typing.  Require at least SEARCH_MIN_CHARS like the
+            # full search does.
+            if len(text) < SEARCH_MIN_CHARS:
+                self._zxart_ac_model.setStringList([])
+                return
+
+            # Safe popup helper.  QCompleter.complete() has crashed Qt with
+            # a native access violation on this Windows build, even when
+            # deferred via QTimer.singleShot(0, ...).  We therefore drive
+            # the popup view directly: set the completion prefix on the
+            # completer (which filters the model) and show the popup view
+            # at an explicit geometry, skipping complete()'s internal
+            # event-loop pumping.
+            def _safe_show_popup(_q=text):
+                try:
+                    if not self.zxart_search_input.hasFocus():
+                        return
+                    if self.zxart_search_input.text().strip() != _q:
+                        return
+                    if self._zxart_ac_model.rowCount() == 0:
+                        return
+                    _zxart_completer.setCompletionPrefix(_q)
+                    popup = _zxart_completer.popup()
+                    if popup is None:
+                        return
+                    le = self.zxart_search_input
+                    rect = le.rect()
+                    pos = le.mapToGlobal(rect.bottomLeft())
+                    popup.setMinimumWidth(le.width())
+                    popup.move(pos)
+                    popup.resize(le.width(), min(220, 22 * min(8, self._zxart_ac_model.rowCount()) + 4))
+                    popup.show()
+                except RuntimeError:
+                    pass
+                except Exception:
+                    pass
+
             # Serve from short-lived prefix cache if available.
             if text in self._zxart_ac_cache:
-                titles = self._zxart_ac_cache[text]
+                titles = self._zxart_ac_cache[text][:80]
                 self._zxart_ac_model.setStringList(titles)
                 if titles:
-                    _zxart_completer.complete()
+                    QTimer.singleShot(0, _safe_show_popup)
                 return
 
             # Also try to derive results from a cached longer prefix.
@@ -12855,13 +13003,14 @@ class MainWindow(QMainWindow):
                     matches = sorted(
                         (t for t in cached_list if t.lower().startswith(tl)),
                         key=str.lower,
-                    )
-                    self._zxart_ac_model.setStringList(matches[:80])
+                    )[:80]
+                    self._zxart_ac_model.setStringList(matches)
                     if matches:
-                        _zxart_completer.complete()
+                        QTimer.singleShot(0, _safe_show_popup)
                     return
 
             self._zxart_ac_pending = text
+            gen_at_dispatch = self._zxart_ac_gen
 
             def _fn():
                 entries, _total = zxart_client_search(text)
@@ -12873,16 +13022,31 @@ class MainWindow(QMainWindow):
 
             def _on_ok(result):
                 queried, titles = result
-                # Evict oldest cache entries to cap memory (keep last 10 prefixes).
-                if len(self._zxart_ac_cache) >= 10:
-                    oldest = next(iter(self._zxart_ac_cache))
-                    del self._zxart_ac_cache[oldest]
-                self._zxart_ac_cache[queried] = titles
-                # Only update the model if user hasn't moved on to a different prefix.
-                if self.zxart_search_input.text().strip() == queried:
+                try:
+                    # Evict oldest cache entries to cap memory (keep last 10 prefixes).
+                    if len(self._zxart_ac_cache) >= 10:
+                        oldest = next(iter(self._zxart_ac_cache))
+                        del self._zxart_ac_cache[oldest]
+                    self._zxart_ac_cache[queried] = titles
+                    # Discard the result if a real search has been launched (or
+                    # the input was reset) since we dispatched this fetch — in
+                    # that case popping the completer would re-enter Qt while
+                    # QCompleter/QLineEdit are mid-transition, which has caused
+                    # an access violation on Windows.
+                    if gen_at_dispatch != self._zxart_ac_gen:
+                        return
+                    # Only update the model if user hasn't moved on to a different prefix.
+                    if self.zxart_search_input.text().strip() != queried:
+                        return
+                    if not self.zxart_search_input.hasFocus():
+                        return
                     self._zxart_ac_model.setStringList(titles[:80])
                     if titles:
-                        _zxart_completer.complete()
+                        QTimer.singleShot(0, _safe_show_popup)
+                except RuntimeError:
+                    # Underlying C++ widget/model was deleted while the queued
+                    # result was in flight — safe to drop.
+                    pass
 
             def _on_err(_err):
                 pass
@@ -12894,7 +13058,16 @@ class MainWindow(QMainWindow):
 
         _zxart_ac_timer.timeout.connect(_zxart_ac_trigger)
         self.zxart_search_input.textChanged.connect(_zxart_ac_on_text_changed)
-        _zxart_completer.activated.connect(zxart_on_search)
+
+        def _zxart_ac_activated(selected: str):
+            try:
+                if selected:
+                    self.zxart_search_input.setText(selected)
+            except Exception:
+                pass
+            zxart_on_search()
+
+        _zxart_completer.activated.connect(_zxart_ac_activated)
 
         def zxart_on_mode_changed(_idx):
             mode = zxart_current_mode()
@@ -15048,8 +15221,8 @@ class MainWindow(QMainWindow):
                 return
             if not query:
                 return
-            if _zxart_catalog_downloading:
-                logging.info("zxart cross-search skipped: catalog download in progress")
+            if self._zxart_search_loading:
+                logging.info("zxart cross-search skipped: search already in progress")
                 return
             _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
             def _after_search():
@@ -15228,7 +15401,12 @@ import signal
 
 app = QApplication(sys.argv)
 
-# Suppress a Qt-internal warning that fires when its rich-text engine
+# Remove the 256 MB image allocation cap so that large zxART images
+# (which Qt rejects by default) are loaded without the
+# "QImageIOHandler: Rejecting image" warning.
+QImageReader.setAllocationLimit(0)
+
+# Suppress a Qt-internal warning
 # constructs a QFont from CSS that has no explicit point/pixel size (the
 # font inherits a pixel-size-only font and Qt resolves it as -1pt).
 # This is a known Qt bug; the label still renders correctly.
