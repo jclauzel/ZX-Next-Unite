@@ -137,7 +137,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "5.7"
+ZX_NEXT_UNITE_VERSION = "5.8"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -156,12 +156,15 @@ ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "TOOL: NextSync - Network Transfer Manager"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC_SYNCON = "NextSync - Sync ON"
 ZX_NEXT_UNITE_TAB_TITLE_GETIT = "ONLINE: GetIt"
 ZX_NEXT_UNITE_TAB_TITLE_ZXDB  = "ONLINE: ZXDB/ZXinfo.dk"
-ZX_NEXT_UNITE_TAB_TITLE_ZXART = "ONLINE: zxART.ee"
+ZX_NEXT_UNITE_TAB_TITLE_ZXART = "ONLINE: ZXArt.ee"
 ZX_NEXT_UNITE_TAB_TITLE_FAVORITES = "ONLINE: ♥ Favorites"
 
 GETIT_BASE_URL = "https://zxnext.uk"
 GETIT_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
 GETIT_PAGE_SIZE = 18
+
+# Minimum number of characters required before a keyword search is accepted.
+SEARCH_MIN_CHARS = 3
 
 ZXDB_BASE_URL = "https://api.zxinfo.dk/v3"
 ZXDB_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
@@ -1787,28 +1790,6 @@ def zxart_parse_prod_list(response: dict) -> tuple:
 # that a ±500-item window centred on the estimate reliably contains all titles starting
 # with the requested letter.
 # Category ID in zxART that covers all software productions (games + demos)
-_ZXART_SOFTWARE_CATEGORY = 92177
-
-# How long (seconds) the disk cache is valid when the sentinel probe is
-# unavailable (fallback TTL).  Normal operation uses the sentinel, so this
-# only matters when zxART is unreachable on a subsequent session.
-_ZXART_CACHE_TTL = 86400*7  # 24 hours * 7 (7 days)
-
-# Disk cache file stored next to hdfg.cfg.
-_ZXART_CACHE_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(sys.argv[0])),
-    "cache",
-)
-_ZXART_CACHE_FILE = os.path.join(_ZXART_CACHE_DIR, "zxart_catalog_cache.json.gz")
-
-# In-memory catalog: (wall_time_loaded: float, entries: list) or None.
-_zxart_catalog_cache: tuple | None = None
-_zxart_catalog_lock = threading.Lock()
-# True while the background catalog download is running.
-_zxart_catalog_downloading: bool = False
-# Download progress 0-100 (updated from the background thread).
-_zxart_catalog_download_progress: int = 0
-
 # Selected zxART API language ("eng" | "pol" | "spa").  Mutated by the
 # language combo in the zxArt pane and persisted to the cfg file.  All
 # zxART HTTP request builders use _zxart_lang() to honour this value.
@@ -1824,276 +1805,13 @@ def _zxart_lang() -> str:
 
 
 def _zxart_set_language(code: str) -> None:
-    """Update the global zxART API language and invalidate language-sensitive caches."""
-    global _zxart_current_language, _zxart_catalog_cache
+    """Update the global zxART API language."""
+    global _zxart_current_language
     code = (code or DEFAULT_ZXART_LANGUAGE).strip().lower()
     if code not in ("eng", "pol", "spa"):
         code = DEFAULT_ZXART_LANGUAGE
-    if code == _zxart_current_language:
-        return
     _zxart_current_language = code
-    # Drop the in-memory catalog cache; the on-disk cache stays but
-    # _zxart_get_catalog() rebuilds language-tagged content on next use.
-    with _zxart_catalog_lock:
-        _zxart_catalog_cache = None
 
-
-
-def _zxart_probe_sentinel() -> tuple[int, int]:
-    """Fetch a single-item probe to get (totalAmount, newest_dateModified).
-
-    This is cheap (~1 kB) and tells us whether the catalog has changed since
-    we last downloaded it.  Returns (0, 0) on any error.
-    """
-    try:
-        resp = zxart_fetch_json(
-            f"/export:zxProd/language:{_zxart_lang()}/start:0/limit:1"
-            f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:date,desc",
-            timeout=10,
-        )
-        total = int(resp.get("totalAmount") or 0)
-        prods = (resp.get("responseData") or {}).get("zxProd", [])
-        stamp = 0
-        if isinstance(prods, list) and prods:
-            stamp = int(prods[0].get("dateModified") or 0)
-        return total, stamp
-    except Exception:
-        return 0, 0
-
-
-def _zxart_load_disk_cache() -> tuple[int, int, list] | None:
-    """Load the gzip-JSON disk cache.
-
-    Returns (saved_total, saved_stamp, entries) or None on any error.
-    The file format is {"total": int, "stamp": int, "entries": [...]}.
-    """
-    try:
-        import gzip
-        with gzip.open(_ZXART_CACHE_FILE, "rt", encoding="utf-8") as fh:
-            data = json.load(fh)
-        return int(data.get("total") or 0), int(data.get("stamp") or 0), data["entries"]
-    except Exception:
-        return None
-
-
-def _zxart_save_disk_cache(entries: list, total: int, stamp: int) -> None:
-    """Write the sentinel header + entry list to the gzip-JSON disk cache."""
-    try:
-        import gzip
-        os.makedirs(_ZXART_CACHE_DIR, exist_ok=True)
-        with gzip.open(_ZXART_CACHE_FILE, "wt", encoding="utf-8") as fh:
-            json.dump({"total": total, "stamp": stamp, "entries": entries}, fh, ensure_ascii=False)
-    except Exception as exc:
-        logging.warning("zxart: could not save disk cache: %s", exc)
-
-
-def _zxart_get_catalog(progress_cb=None) -> list:
-    """Return the full zxART Games catalog, using a multi-layer cache strategy.
-
-    Layer 1 – in-memory:  valid for the lifetime of the process (no re-fetch
-                           needed if the sentinel says nothing changed).
-    Layer 2 – disk cache: gzip-compressed JSON next to hdfg.cfg, valid for up
-                           to 24 h *or* until the sentinel detects a change.
-    Layer 3 – live fetch: parallel chunked download of the full catalog.
-
-    Freshness is determined by a cheap one-item probe (totalAmount +
-    newest dateModified).  If both values match what was stored with the
-    cache, the cache is reused regardless of age.
-
-    progress_cb: optional callable(str) invoked with human-readable status
-                 messages from the background thread.
-    """
-    global _zxart_catalog_cache, _zxart_catalog_downloading, _zxart_catalog_download_progress
-
-    def _notify(msg: str):
-        if progress_cb:
-            try:
-                progress_cb(msg)
-            except Exception:
-                pass
-
-    with _zxart_catalog_lock:
-        # --- sentinel probe (cheap, always attempted) ---
-        _notify("Checking zxART catalog…")
-        live_total, live_stamp = _zxart_probe_sentinel()
-
-        # Read saved sentinels from the disk cache header (no cfg dependency).
-        disk_result = _zxart_load_disk_cache()
-        saved_total, saved_stamp, disk_entries = disk_result if disk_result else (0, 0, None)
-
-        sentinel_matches = (
-            live_total > 0
-            and live_total == saved_total
-            and live_stamp > 0
-            and live_stamp == saved_stamp
-        )
-
-        # --- in-memory hit ---
-        if _zxart_catalog_cache is not None:
-            _, entries = _zxart_catalog_cache
-            if sentinel_matches:
-                _notify("")
-                return entries
-            # sentinel changed — fall through to refresh
-
-        # --- disk cache hit ---
-        if sentinel_matches and disk_entries:
-            _zxart_catalog_cache = (time.monotonic(), disk_entries)
-            _notify("")
-            logging.info("zxart catalog: loaded %d entries from disk cache", len(disk_entries))
-            return disk_entries
-
-        # --- chunked parallel download (12 workers, 3 retries per chunk) ---
-        if _zxart_catalog_cache is None:
-            _notify("Building zxART catalog cache… (first search only)")
-        else:
-            _notify("Refreshing zxART catalog cache…")
-
-        _ZXART_NUM_WORKERS   = 1
-        _ZXART_CHUNK_SIZE    = 500   # items per request
-        _ZXART_CHUNK_RETRIES = 5
-        _ZXART_CHUNK_TIMEOUT = 60 * 5
-        _ZXART_RETRY_DELAY   = 3     # seconds between retries
-
-        # Use the sentinel total (or a safe fallback) to build offsets.
-        catalog_total = live_total if live_total > 0 else 24000
-        offsets = list(range(0, catalog_total, _ZXART_CHUNK_SIZE))
-        base_path = (
-            f"/export:zxProd/language:{_zxart_lang()}"
-            f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:title,asc"
-        )
-
-        _zxart_catalog_downloading = True
-        _zxart_catalog_download_progress = 0
-        completed_chunks = [0]   # mutable counter shared with worker closures
-        total_chunks = len(offsets)
-        progress_lock = threading.Lock()
-
-        def _fetch_chunk(start: int, limit: int = _ZXART_CHUNK_SIZE) -> list:
-            """Fetch one page with retries; subdivide on persistent HTTP 500.
-
-            The zxART backend has individual records it cannot serialize.
-            Any window that covers such a record returns HTTP 500.  Smaller
-            windows are far less likely to overlap a bad record, and
-            ``limit:1`` always succeeds — so on persistent 500s we recurse
-            with half the limit until the bad records are bypassed.
-            """
-            path = f"{base_path}/start:{start}/limit:{limit}"
-            last_exc = None
-            for attempt in range(1, _ZXART_CHUNK_RETRIES + 1):
-                try:
-                    resp = zxart_fetch_json(path, timeout=_ZXART_CHUNK_TIMEOUT)
-                    entries, _ = zxart_parse_prod_list(resp)
-                    if limit == _ZXART_CHUNK_SIZE:
-                        with progress_lock:
-                            completed_chunks[0] += 1
-                            pct = int(completed_chunks[0] * 100 / total_chunks)
-                            global _zxart_catalog_download_progress
-                            _zxart_catalog_download_progress = min(99, pct)
-                    return entries
-                except urllib.error.HTTPError as exc:
-                    last_exc = exc
-                    if 500 <= exc.code < 600 and limit > 1:
-                        # Subdivide and skip the offending record(s).
-                        logging.info(
-                            "zxart catalog: HTTP %d on start=%d limit=%d — subdividing",
-                            exc.code, start, limit,
-                        )
-                        half = max(1, limit // 2)
-                        results: list = []
-                        sub = start
-                        while sub < start + limit:
-                            sub_limit = min(half, start + limit - sub)
-                            try:
-                                results.extend(_fetch_chunk(sub, sub_limit))
-                            except Exception as sub_exc:
-                                # If even limit:1 fails we drop that single record.
-                                logging.warning(
-                                    "zxart catalog: skipping bad record at offset %d (%s)",
-                                    sub, sub_exc,
-                                )
-                            sub += sub_limit
-                        if limit == _ZXART_CHUNK_SIZE:
-                            with progress_lock:
-                                completed_chunks[0] += 1
-                                pct = int(completed_chunks[0] * 100 / total_chunks)
-                                _zxart_catalog_download_progress = min(99, pct)
-                        return results
-                except Exception as exc:
-                    last_exc = exc
-                logging.warning(
-                    "zxart catalog: chunk start=%d limit=%d attempt %d/%d failed: %s",
-                    start, limit, attempt, _ZXART_CHUNK_RETRIES, last_exc,
-                )
-                if attempt < _ZXART_CHUNK_RETRIES:
-                    time.sleep(_ZXART_RETRY_DELAY)
-            raise last_exc
-
-        try:
-            all_entries = []
-            with concurrent.futures.ThreadPoolExecutor(
-                max_workers=_ZXART_NUM_WORKERS, thread_name_prefix="zxart-chunk"
-            ) as executor:
-                futures = {executor.submit(_fetch_chunk, start): start for start in offsets}
-                for future in concurrent.futures.as_completed(futures):
-                    start = futures[future]
-                    try:
-                        all_entries.extend(future.result())
-                    except Exception as exc:
-                        logging.error(
-                            "zxart catalog: chunk start=%d permanently failed: %s", start, exc
-                        )
-        finally:
-            _zxart_catalog_downloading = False
-            _zxart_catalog_download_progress = 100
-
-        all_entries.sort(key=lambda e: e["title"].lower())
-        _zxart_catalog_cache = (time.monotonic(), all_entries)
-
-        # Persist sentinel + entries to disk cache file (self-contained, no cfg needed).
-        _zxart_save_disk_cache(all_entries, live_total, live_stamp)
-
-        _notify(f"zxART catalog ready — {len(all_entries)} entries cached")
-        logging.info("zxart catalog fetched and cached: %d entries", len(all_entries))
-        return all_entries
-
-
-def _zxart_prefetch_cache_if_stale() -> None:
-    """Check whether the zxART disk cache is missing or stale and, if so,
-    start a background download immediately so it is ready before the user
-    triggers a search.  Safe to call from the main thread right after the
-    window is shown.
-    """
-    global _zxart_catalog_downloading
-
-    if _zxart_catalog_downloading:
-        return  # already in progress
-
-    live_total, live_stamp = _zxart_probe_sentinel()
-    disk_result = _zxart_load_disk_cache()
-    saved_total, saved_stamp, _ = disk_result if disk_result else (0, 0, None)
-
-    sentinel_matches = (
-        live_total > 0
-        and live_total == saved_total
-        and live_stamp > 0
-        and live_stamp == saved_stamp
-    )
-
-    if sentinel_matches and disk_result:
-        logging.info("zxart prefetch: cache is up-to-date, no download needed")
-        return
-
-    logging.info("zxart prefetch: cache is missing or stale — starting background download")
-
-    def _bg_download():
-        try:
-            _zxart_get_catalog()
-        except Exception as exc:
-            logging.warning("zxart prefetch: background download failed: %s", exc)
-
-    t = threading.Thread(target=_bg_download, daemon=True, name="zxart-prefetch")
-    t.start()
 
 
 def _zxart_title_at(offset: int) -> str:
@@ -2106,7 +1824,7 @@ def _zxart_title_at(offset: int) -> str:
     try:
         resp = zxart_fetch_json(
             f"/export:zxProd/language:{_zxart_lang()}/start:{offset}/limit:1"
-            f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:title,asc",
+            f"/order:title,asc",
             timeout=15,
         )
         prods = (resp.get("responseData") or {}).get("zxProd", [])
@@ -2146,10 +1864,16 @@ def zxart_prefix_search(query: str, progress_cb=None,
 
     _notify(f"Searching zxART for titles starting with '{query}'…")
 
-    # 1. catalog size
-    total, _ = _zxart_probe_sentinel()
+    # 1. catalog size — cheap single-item probe
+    try:
+        resp0 = zxart_fetch_json(
+            f"/export:zxProd/language:{_zxart_lang()}/start:0/limit:1/order:date,desc",
+            timeout=10,
+        )
+        total = int(resp0.get("totalAmount") or 0)
+    except Exception:
+        total = 0
     if total <= 0:
-        # fallback: try a single window at offset 0
         total = 1000
 
     # 2. binary search for the first offset whose title >= query
@@ -2171,7 +1895,7 @@ def zxart_prefix_search(query: str, progress_cb=None,
     # 3. fetch a window and filter client-side
     path = (
         f"/export:zxProd/language:{_zxart_lang()}/start:{start}/limit:{window}"
-        f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:title,asc"
+        f"/order:title,asc"
     )
     try:
         resp = zxart_fetch_json(path, timeout=30)
@@ -2184,7 +1908,7 @@ def zxart_prefix_search(query: str, progress_cb=None,
             try:
                 resp = zxart_fetch_json(
                     f"/export:zxProd/language:{_zxart_lang()}/start:{sub_off}/limit:25"
-                    f"/filter:zxProdCategory={_ZXART_SOFTWARE_CATEGORY}/order:title,asc",
+                    f"/order:title,asc",
                     timeout=20,
                 )
                 sub, _ = zxart_parse_prod_list(resp)
@@ -2211,33 +1935,14 @@ def zxart_prefix_search(query: str, progress_cb=None,
     return matched[:max_results], len(matched)
 
 
-def zxart_client_search(query: str, progress_cb=None, deep: bool = False) -> tuple:
-    """Search zxART productions by title.
+def zxart_client_search(query: str, progress_cb=None) -> tuple:
+    """Search zxART productions by title using fast prefix search.
 
-    Two modes:
-
-    * ``deep=False`` (default) — fast prefix search via binary-searched
-      pagination.  Single small request per query.  Finds titles that
-      *start with* the query.
-    * ``deep=True`` — substring search across the full catalog, using
-      the on-disk catalog cache (downloaded on first use, then refreshed
-      only when the server sentinel changes).
-
-    progress_cb: optional callable(str) for status messages.
     Returns (matched_entries, total_matched).
     """
     if not query:
         return [], 0
-
-    if not deep:
-        return zxart_prefix_search(query, progress_cb=progress_cb)
-
-    catalog = _zxart_get_catalog(progress_cb=progress_cb)
-    q_lower = query.lower()
-    matched = [e for e in catalog if q_lower in (e.get("title") or "").lower()]
-    for e in matched:
-        e["_kind"] = "zxart_prod"
-    return matched, len(matched)
+    return zxart_prefix_search(query, progress_cb=progress_cb)
 
 
 def zxart_parse_picture_list(response: dict) -> tuple:
@@ -4863,7 +4568,9 @@ class MainWindow(QMainWindow):
 
                 if SETTING_AVAIL_CHECK in configuration_dictionary and configuration_dictionary[SETTING_AVAIL_CHECK] != "":
                     checked = configuration_dictionary[SETTING_AVAIL_CHECK] != "0" and configuration_dictionary[SETTING_AVAIL_CHECK].lower() != "false"
-                    self.settings_avail_check_checkbox.setChecked(checked)
+                else:
+                    checked = True
+                self.settings_avail_check_checkbox.setChecked(checked)
 
                 # Multi-search defaults to True; only turn off when explicitly saved as false/0
                 if SETTING_MULTI_SEARCH in configuration_dictionary and configuration_dictionary[SETTING_MULTI_SEARCH] != "":
@@ -7994,6 +7701,10 @@ class MainWindow(QMainWindow):
         self.getit_search_input.setMinimumWidth(280)
         getit_search_row.addWidget(self.getit_search_input)
 
+        self._getit_search_valid_lbl = QLabel()
+        self._getit_search_valid_lbl.setVisible(False)
+        getit_search_row.addWidget(self._getit_search_valid_lbl)
+
         self.getit_search_button = QPushButton("Search")
         getit_search_row.addWidget(self.getit_search_button)
 
@@ -8055,8 +7766,23 @@ class MainWindow(QMainWindow):
         self.getit_screenshot_label.setText("No preview")
         self.getit_screenshot_label.setToolTip("Double-click to enlarge")
 
-        self.getit_download_button = QPushButton("Download File")
+        _GETIT_BTN_STYLE = (
+            "QPushButton { color: #eee; background: #2a2a2a; border: 1px solid #444;"
+            " border-radius: 4px; padding: 6px 12px; text-align: left; }"
+            "QPushButton:hover { background: #3a3a3a; border-color: #666; }"
+            "QPushButton:disabled { color: #555; background: #1a1a1a; border-color: #333; }"
+        )
+        self.getit_download_button = QPushButton("⬇  Download")
+        self.getit_download_button.setStyleSheet(_GETIT_BTN_STYLE)
         self.getit_download_button.setEnabled(False)
+
+        self.getit_send_sd_button = QPushButton("💾  Send to SD card")
+        self.getit_send_sd_button.setStyleSheet(_GETIT_BTN_STYLE)
+        self.getit_send_sd_button.setEnabled(False)
+
+        self.getit_send_ns_button = QPushButton("🔁  Send via NextSync")
+        self.getit_send_ns_button.setStyleSheet(_GETIT_BTN_STYLE)
+        self.getit_send_ns_button.setEnabled(False)
 
         getit_right_col = QVBoxLayout()
         _getit_link_label = QLabel('<a href="http://zxnext.uk">http://zxnext.uk</a>')
@@ -8067,10 +7793,16 @@ class MainWindow(QMainWindow):
         # Visibility is controlled by _getit_apply_view_mode (shown in Table, hidden in Gallery)
         self.getit_screenshot_label.setVisible(False)
         self.getit_download_button.setVisible(False)
+        self.getit_send_sd_button.setVisible(False)
+        self.getit_send_ns_button.setVisible(False)
         getit_right_col.addWidget(self.getit_screenshot_label)
         getit_right_col.addWidget(self.getit_download_button)
-        self._getit_preview_label = self.getit_screenshot_label
+        getit_right_col.addWidget(self.getit_send_sd_button)
+        getit_right_col.addWidget(self.getit_send_ns_button)
+        self._getit_preview_label        = self.getit_screenshot_label
         self._getit_preview_download_btn = self.getit_download_button
+        self._getit_preview_send_sd_btn  = self.getit_send_sd_button
+        self._getit_preview_send_ns_btn  = self.getit_send_ns_button
         getit_right_col.addStretch()
         getit_right_widget = QWidget()
         getit_right_widget.setLayout(getit_right_col)
@@ -8352,7 +8084,11 @@ class MainWindow(QMainWindow):
             self.getit_detail_desc.setText(detail.get("DESC", ""))
             link = detail.get("LINK", "")
             self._getit_selected_link = link
-            self.getit_download_button.setEnabled(bool(self._getit_selected_id))
+            _has_id = bool(self._getit_selected_id)
+            _sd_ok  = bool(self.right_disk_image_path) and bool(right_disk_image_explorer_content)
+            self.getit_download_button.setEnabled(_has_id)
+            self.getit_send_sd_button.setEnabled(_has_id and _sd_ok)
+            self.getit_send_ns_button.setEnabled(_has_id)
 
         # ---- Background search task ----
 
@@ -8408,6 +8144,8 @@ class MainWindow(QMainWindow):
                 getit_set_status(f"Error: {err[1]}")
                 self.getit_search_button.setEnabled(True)
                 self.getit_latest_button.setEnabled(True)
+                if on_complete:
+                    on_complete()
 
             self._getit_search_thread = getit_run_in_thread(_search_fn, _on_result, _on_error)
 
@@ -8418,6 +8156,8 @@ class MainWindow(QMainWindow):
         def getit_on_search():
             getit_clear_detail()
             q = self.getit_search_input.text().strip()
+            if q and len(q) < SEARCH_MIN_CHARS:
+                return
             if q:
                 _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
                 def _getit_done():
@@ -8585,6 +8325,19 @@ class MainWindow(QMainWindow):
         self.getit_search_input.textChanged.connect(_getit_ac_on_text_changed)
         _getit_completer.activated.connect(getit_on_search)
 
+        def _getit_search_validate(text: str):
+            t = text.strip()
+            if not t:
+                self._getit_search_valid_lbl.setVisible(False)
+            elif len(t) < SEARCH_MIN_CHARS:
+                self._getit_search_valid_lbl.setText('<font color="red">❌</font>')
+                self._getit_search_valid_lbl.setToolTip(f"Searches must be at least {SEARCH_MIN_CHARS} characters long")
+                self._getit_search_valid_lbl.setVisible(True)
+            else:
+                self._getit_search_valid_lbl.setText('<font color="green">✔</font>')
+                self._getit_search_valid_lbl.setVisible(True)
+        self.getit_search_input.textChanged.connect(_getit_search_validate)
+
         # ---- Row selection → fetch detail ----
 
         def getit_on_row_selected():
@@ -8598,6 +8351,8 @@ class MainWindow(QMainWindow):
             self._getit_selected_id = entry_id
             getit_set_status(f"Loading details for {entry_id}…")
             self.getit_download_button.setEnabled(False)
+            self.getit_send_sd_button.setEnabled(False)
+            self.getit_send_ns_button.setEnabled(False)
             self.getit_screenshot_label.setText("Loading…")
             self.getit_screenshot_label.setPixmap(QPixmap())
 
@@ -8735,6 +8490,10 @@ class MainWindow(QMainWindow):
                 self._getit_preview_label.setVisible(_table)
             if hasattr(self, '_getit_preview_download_btn'):
                 self._getit_preview_download_btn.setVisible(_table)
+            if hasattr(self, '_getit_preview_send_sd_btn'):
+                self._getit_preview_send_sd_btn.setVisible(_table)
+            if hasattr(self, '_getit_preview_send_ns_btn'):
+                self._getit_preview_send_ns_btn.setVisible(_table)
             # keep combo in sync without re-triggering
             cb = self.getit_view_combo
             target_idx = 1 if mode == "gallery" else 0
@@ -8866,6 +8625,32 @@ class MainWindow(QMainWindow):
             )
 
         self.getit_download_button.clicked.connect(getit_on_download)
+
+        def _getit_on_send_sd():
+            if not self._getit_selected_id:
+                return
+            eid   = self._getit_selected_id
+            title = self.getit_detail_title.text() or eid
+            _getit_send_to_image(
+                eid,
+                self._getit_selected_link or f"{eid}.bin",
+                title,
+            )
+
+        def _getit_on_send_ns():
+            if not self._getit_selected_id:
+                return
+            eid          = self._getit_selected_id
+            title        = self.getit_detail_title.text() or eid
+            default_name = self._getit_selected_link or f"{eid}.bin"
+            _ns_base     = _getit_resolve_ns_base_path(
+                self.left_file_nextsync_explorer_selection_full_filename_path)
+            def _after(_folder):
+                QTimer.singleShot(0, lambda _f=_folder: self._nextsync_start_server_fn(_f))
+            _getit_send_to_ns_folder(eid, default_name, _ns_base, title, _after)
+
+        self.getit_send_sd_button.clicked.connect(_getit_on_send_sd)
+        self.getit_send_ns_button.clicked.connect(_getit_on_send_ns)
 
         def _getit_resolve_ns_base_path(configured_path: str) -> str:
             """Return the NextSync root directory for local-copy sends."""
@@ -9160,6 +8945,10 @@ class MainWindow(QMainWindow):
         self.zxdb_search_input.setPlaceholderText("Search ZXDB games... (leave empty for random selection)")
         self.zxdb_search_input.setMinimumWidth(280)
         zxdb_search_row.addWidget(self.zxdb_search_input)
+
+        self._zxdb_search_valid_lbl = QLabel()
+        self._zxdb_search_valid_lbl.setVisible(False)
+        zxdb_search_row.addWidget(self._zxdb_search_valid_lbl)
 
         self.zxdb_search_button = QPushButton("Search")
         zxdb_search_row.addWidget(self.zxdb_search_button)
@@ -10152,6 +9941,8 @@ class MainWindow(QMainWindow):
                 else:
                     zxdb_set_status(f"Error: {exc}")
                 zxdb_set_busy(False)
+                if on_complete:
+                    on_complete()
 
             self._zxdb_search_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
@@ -10272,6 +10063,8 @@ class MainWindow(QMainWindow):
             zxdb_clear_detail()
             q = self.zxdb_search_input.text().strip()
             save_configuration_file()
+            if q and len(q) < SEARCH_MIN_CHARS:
+                return
             if q:
                 _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
                 def _zxdb_done():
@@ -10319,6 +10112,19 @@ class MainWindow(QMainWindow):
         self.zxdb_prev_button.clicked.connect(zxdb_on_prev)
         self.zxdb_next_button.clicked.connect(zxdb_on_next)
 
+        def _zxdb_search_validate(text: str):
+            t = text.strip()
+            if not t:
+                self._zxdb_search_valid_lbl.setVisible(False)
+            elif len(t) < SEARCH_MIN_CHARS:
+                self._zxdb_search_valid_lbl.setText('<font color="red">❌</font>')
+                self._zxdb_search_valid_lbl.setToolTip(f"Searches must be {SEARCH_MIN_CHARS} characters long")
+                self._zxdb_search_valid_lbl.setVisible(True)
+            else:
+                self._zxdb_search_valid_lbl.setText('<font color="green">✔</font>')
+                self._zxdb_search_valid_lbl.setVisible(True)
+        self.zxdb_search_input.textChanged.connect(_zxdb_search_validate)
+
         # ---- ZXDB autocomplete ----
 
         self._zxdb_ac_ready = False  # suppressed until after startup
@@ -10344,6 +10150,8 @@ class MainWindow(QMainWindow):
             tl = text.lower()
             matches = [t for t in cached if t.lower().startswith(tl)]
             self._zxdb_ac_model.setStringList(matches[:80])
+            if matches:
+                _zxdb_completer.complete()
 
         def _zxdb_ac_fetch_letter(letter: str):
             """Fetch all titles for *letter* via /games/byletter, cache, then refresh model."""
@@ -10402,8 +10210,7 @@ class MainWindow(QMainWindow):
                 _zxdb_ac_fetch_letter(letter)
 
         def _zxdb_ac_on_text_changed(_text: str):
-            if self._zxdb_ac_ready:
-                _zxdb_ac_timer.start()
+            _zxdb_ac_timer.start()
 
         _zxdb_ac_timer.timeout.connect(_zxdb_ac_trigger)
         self.zxdb_search_input.textChanged.connect(_zxdb_ac_on_text_changed)
@@ -11866,6 +11673,10 @@ class MainWindow(QMainWindow):
         self.zxart_search_input.setMinimumWidth(280)
         zxart_search_row.addWidget(self.zxart_search_input)
 
+        self._zxart_search_valid_lbl = QLabel()
+        self._zxart_search_valid_lbl.setVisible(False)
+        zxart_search_row.addWidget(self._zxart_search_valid_lbl)
+
         self.zxart_search_button = QPushButton(_zxart_tr("Search"))
         zxart_search_row.addWidget(self.zxart_search_button)
 
@@ -12032,40 +11843,6 @@ class MainWindow(QMainWindow):
         zxart_preview_container.setVisible(False)
         zxart_right_col.addWidget(zxart_preview_container)
         self._zxart_preview_container = zxart_preview_container
-
-        self.zxart_cache_progress_bar = QProgressBar()
-        self.zxart_cache_progress_bar.setMinimum(0)
-        self.zxart_cache_progress_bar.setMaximum(100)
-        self.zxart_cache_progress_bar.setValue(0)
-        self.zxart_cache_progress_bar.setFixedWidth(256)
-        self.zxart_cache_progress_bar.setTextVisible(True)
-        self.zxart_cache_progress_bar.setFormat("Catalog cache: %p%")
-        self.zxart_cache_progress_bar.setVisible(False)
-        zxart_right_col.addWidget(self.zxart_cache_progress_bar)
-
-        self._zxart_cache_poll_timer = QTimer(self)
-        self._zxart_cache_poll_timer.setInterval(250)
-
-        def _zxart_cache_poll_tick():
-            pct = _zxart_catalog_download_progress
-            downloading = _zxart_catalog_downloading
-            if downloading:
-                self.zxart_cache_progress_bar.setVisible(True)
-                if pct < 0:
-                    # indeterminate — use built-in marquee animation
-                    self.zxart_cache_progress_bar.setMaximum(0)
-                else:
-                    self.zxart_cache_progress_bar.setMaximum(100)
-                    self.zxart_cache_progress_bar.setValue(pct)
-            else:
-                self.zxart_cache_progress_bar.setVisible(False)
-
-        self._zxart_cache_poll_timer.timeout.connect(_zxart_cache_poll_tick)
-
-        # Always start the poll timer — it will show the bar as soon as a
-        # download begins (including the startup prefetch) and stop itself
-        # once the download completes.
-        self._zxart_cache_poll_timer.start()
 
         self.zxart_download_button.setVisible(False)
         zxart_right_col.addWidget(self.zxart_download_button)
@@ -12872,7 +12649,7 @@ class MainWindow(QMainWindow):
                                 Q_ARG(str, msg),
                             )
                         entries, total = zxart_client_search(
-                            query, progress_cb=_progress, deep=False
+                            query, progress_cb=_progress
                         )
                         for e in entries:
                             e["_kind"] = "zxart_prod"
@@ -12912,6 +12689,8 @@ class MainWindow(QMainWindow):
             def _on_err(err):
                 zxart_set_status(f"Error: {err[1]}")
                 zxart_set_busy(False)
+                if on_complete:
+                    on_complete()
 
             self._zxart_search_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
@@ -12919,6 +12698,8 @@ class MainWindow(QMainWindow):
             zxart_clear_detail()
             q = self.zxart_search_input.text().strip()
             save_configuration_file()
+            if q and len(q) < SEARCH_MIN_CHARS:
+                return
             if q:
                 _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
                 def _zxart_done():
@@ -13021,6 +12802,19 @@ class MainWindow(QMainWindow):
         self.zxart_random_button.clicked.connect(zxart_on_random)
         self.zxart_latest_button.clicked.connect(zxart_on_latest)
 
+        def _zxart_search_validate(text: str):
+            t = text.strip()
+            if not t:
+                self._zxart_search_valid_lbl.setVisible(False)
+            elif len(t) < SEARCH_MIN_CHARS:
+                self._zxart_search_valid_lbl.setText('<font color="red">❌</font>')
+                self._zxart_search_valid_lbl.setToolTip(f"Searches must be {SEARCH_MIN_CHARS} characters long")
+                self._zxart_search_valid_lbl.setVisible(True)
+            else:
+                self._zxart_search_valid_lbl.setText('<font color="green">✔</font>')
+                self._zxart_search_valid_lbl.setVisible(True)
+        self.zxart_search_input.textChanged.connect(_zxart_search_validate)
+
         # ---- ZxArt autocomplete ----
 
         self._zxart_ac_model = QStringListModel(self)
@@ -13048,7 +12842,10 @@ class MainWindow(QMainWindow):
 
             # Serve from short-lived prefix cache if available.
             if text in self._zxart_ac_cache:
-                self._zxart_ac_model.setStringList(self._zxart_ac_cache[text])
+                titles = self._zxart_ac_cache[text]
+                self._zxart_ac_model.setStringList(titles)
+                if titles:
+                    _zxart_completer.complete()
                 return
 
             # Also try to derive results from a cached longer prefix.
@@ -13060,12 +12857,14 @@ class MainWindow(QMainWindow):
                         key=str.lower,
                     )
                     self._zxart_ac_model.setStringList(matches[:80])
+                    if matches:
+                        _zxart_completer.complete()
                     return
 
             self._zxart_ac_pending = text
 
             def _fn():
-                entries, _total = zxart_client_search(text, deep=False)
+                entries, _total = zxart_client_search(text)
                 titles = sorted(
                     {e["title"] for e in entries if e.get("title")},
                     key=str.lower,
@@ -13082,6 +12881,8 @@ class MainWindow(QMainWindow):
                 # Only update the model if user hasn't moved on to a different prefix.
                 if self.zxart_search_input.text().strip() == queried:
                     self._zxart_ac_model.setStringList(titles[:80])
+                    if titles:
+                        _zxart_completer.complete()
 
             def _on_err(_err):
                 pass
@@ -14395,21 +14196,7 @@ class MainWindow(QMainWindow):
         zxnextunite_GetIt_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_GETIT
         wid_inner.tab.addTab(zxnextunite_GetIt_tab, ZX_NEXT_UNITE_TAB_TITLE_GETIT)
 
-        # Create ZXDB Tab (right of GetIt)
-        zxnextunite_ZXDB_tab = QWidget(wid_inner.tab)
-        zxnextunite_ZXDB_tab.setAttribute(Qt.WA_TranslucentBackground)
-        zxnextunite_ZXDB_tab.setAutoFillBackground(False)
-        grid_tab_zxdb = QGridLayout(zxnextunite_ZXDB_tab)
-        grid_tab_zxdb.setContentsMargins(0, 0, 0, 0)
-        grid_tab_zxdb.addWidget(self._zxdb_stack)
-        zxnextunite_ZXDB_tab.setLayout(grid_tab_zxdb)
-        zxnextunite_ZXDB_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_ZXDB
-        if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
-            wid_inner.tab.addTab(zxnextunite_ZXDB_tab, ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
-        else:
-            zxnextunite_ZXDB_tab.setParent(None)
-
-        # Create zxART Tab (right of ZXDB)
+        # Create zxART Tab (right of GetIt)
         zxnextunite_ZXART_tab = QWidget(wid_inner.tab)
         zxnextunite_ZXART_tab.setAttribute(Qt.WA_TranslucentBackground)
         zxnextunite_ZXART_tab.setAutoFillBackground(False)
@@ -14425,6 +14212,20 @@ class MainWindow(QMainWindow):
             # the destroyed child widgets (zxart_cache_progress_bar etc.).
             self._zxart_cache_poll_timer.stop()
             zxnextunite_ZXART_tab.setParent(None)
+
+        # Create ZXDB Tab (right of zxART)
+        zxnextunite_ZXDB_tab = QWidget(wid_inner.tab)
+        zxnextunite_ZXDB_tab.setAttribute(Qt.WA_TranslucentBackground)
+        zxnextunite_ZXDB_tab.setAutoFillBackground(False)
+        grid_tab_zxdb = QGridLayout(zxnextunite_ZXDB_tab)
+        grid_tab_zxdb.setContentsMargins(0, 0, 0, 0)
+        grid_tab_zxdb.addWidget(self._zxdb_stack)
+        zxnextunite_ZXDB_tab.setLayout(grid_tab_zxdb)
+        zxnextunite_ZXDB_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_ZXDB
+        if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+            wid_inner.tab.addTab(zxnextunite_ZXDB_tab, ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+        else:
+            zxnextunite_ZXDB_tab.setParent(None)
 
         # Create ONLINE Favorites Tab (right of zxArt, before Settings)
         zxnextunite_Favorites_tab = QWidget(wid_inner.tab)
@@ -14744,7 +14545,7 @@ class MainWindow(QMainWindow):
             save_configuration_file()
 
         self.settings_avail_check_checkbox = QCheckBox("Perform pre-availability check on Downloads (ZXDB & zxArt).")
-        self.settings_avail_check_checkbox.setChecked(False)
+        self.settings_avail_check_checkbox.setChecked(True)
         self.settings_avail_check_checkbox.setToolTip(
             "When enabled, the Downloads dialog sends a HEAD request for each file\n"
             "to check whether it is reachable before allowing the download.\n"
@@ -14752,6 +14553,8 @@ class MainWindow(QMainWindow):
             "is disabled. Leave unchecked to skip the check (faster dialog open)."
         )
         self.settings_avail_check_checkbox.stateChanged.connect(settings_avail_check_statechanged)
+        _avail_check_visible = ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS or ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS
+        self.settings_avail_check_checkbox.setVisible(_avail_check_visible)
         grid_tab_Settings.addWidget(self.settings_avail_check_checkbox, 2, 0, 1, 2)
 
         def settings_multi_search_statechanged():
