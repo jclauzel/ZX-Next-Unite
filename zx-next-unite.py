@@ -1741,6 +1741,28 @@ def _zxart_resolve_publishers_via_zxdb(title: str, year: str = "") -> str:
     return name
 
 
+def _zxart_prefetch_names_for_entries(entries):
+    """Pre-warm the group / publisher name caches for *entries*.
+
+    Intended to be called from a background thread immediately after fetching
+    a page of results.  That way :func:`_zxart_table_author_col` only hits
+    the in-memory cache when it runs on the UI thread, keeping the UI smooth.
+
+    Picture entries are skipped because their author field is already a plain
+    string and they don't use group / publisher IDs.
+    """
+    for e in entries:
+        src  = e.get("_source") or {}
+        kind = (e.get("_kind") or "").lower()
+        if kind == "zxart_picture":
+            continue
+        if not src.get("groups"):
+            for gid in (src.get("groupsIds") or []):
+                _zxart_resolve_group_name(gid)
+        for pid in (src.get("publishersIds") or []):
+            _zxart_resolve_publisher_name(pid)
+
+
 def zxart_parse_prod_list(response: dict) -> tuple:
     """Parse a zxART API response for zxProd entities.
 
@@ -8523,6 +8545,30 @@ class MainWindow(QMainWindow):
 
         self.getit_gallery_view.cell_dbl_clicked.connect(_getit_open_gallery_viewer)
 
+        def _getit_table_on_double_clicked(item):
+            row = self.getit_results_table.currentRow()
+            id_item = self.getit_results_table.item(row, 0)
+            if id_item is None:
+                return
+            eid = id_item.text()
+            if not eid:
+                return
+            # Prefer the fully populated entry from the cached list
+            entry = next((e for e in self._getit_last_entries if e.get("id") == eid), None)
+            if entry is None:
+                entry = {
+                    "id":     eid,
+                    "title":  (self.getit_results_table.item(row, 1).text()
+                               if self.getit_results_table.item(row, 1) else ""),
+                    "author": (self.getit_results_table.item(row, 2).text()
+                               if self.getit_results_table.item(row, 2) else ""),
+                    "size":   (self.getit_results_table.item(row, 3).text()
+                               if self.getit_results_table.item(row, 3) else ""),
+                }
+            _getit_open_gallery_viewer(entry)
+
+        self.getit_results_table.itemDoubleClicked.connect(_getit_table_on_double_clicked)
+
         def _getit_apply_view_mode(mode: str, *, persist: bool = True):
             mode = (mode or "table").lower()
             if mode not in ("table", "gallery"):
@@ -11993,40 +12039,32 @@ class MainWindow(QMainWindow):
 
         def _zxart_table_author_col(e):
             """Resolve 'Produced by / Published by' for the table column.
-            Uses name strings already present in _source before falling back
-            to the process-level cache, so no blocking API calls are needed."""
+            Mirrors the logic of _zxart_fav_table_info: resolves group and
+            publisher IDs via the API (with process-level caching) so the
+            column shows real names instead of raw counts like '3 author(s)'."""
             src  = e.get("_source") or {}
             kind = (e.get("_kind") or "").lower()
             if kind == "zxart_picture":
                 return e.get("author", "")
-            # 1. Groups: prefer direct name strings from the API response
+            # 1. Groups: prefer direct name strings from the API response,
+            #    then resolve IDs via the API (cached after first lookup).
             groups = [str(g) for g in (src.get("groups") or []) if g]
             if not groups:
-                # Fall back to cache-only ID resolution (populated by fullscreen opens)
-                for gid in (src.get("groupsIds") or []):
-                    try:
-                        name = _ZXART_GROUP_NAME_CACHE.get(int(gid))
-                    except (TypeError, ValueError):
-                        name = None
-                    if name:
-                        groups.append(name)
+                groups = [n for n in [_zxart_resolve_group_name(gid)
+                                      for gid in (src.get("groupsIds") or [])] if n]
             produced_by = ", ".join(groups)
             # 2. Authors: direct name strings when no groups
             if not produced_by:
                 authors = [str(a) for a in (src.get("authors") or []) if a]
                 if authors:
                     return ", ".join(authors)
-            # 3. Publishers: cache-only ID resolution (publishers reuse group namespace)
+            # 3. Publishers: resolve via the API (publishers reuse group namespace)
             pub_ids = src.get("publishersIds") or []
-            publishers = []
-            for pid in pub_ids:
-                try:
-                    name = _ZXART_GROUP_NAME_CACHE.get(int(pid))
-                except (TypeError, ValueError):
-                    name = None
-                if name:
-                    publishers.append(name)
-            published_by = ", ".join(publishers)
+            published_by = _zxart_resolve_publisher_names(pub_ids)
+            if not published_by:
+                published_by = _zxart_scrape_publishers_from_prod_url(
+                    str(src.get("url") or "")
+                )
             parts = []
             if produced_by:  parts.append(f"Produced by: {produced_by}")
             if published_by: parts.append(f"Published by: {published_by}")
@@ -12765,6 +12803,7 @@ class MainWindow(QMainWindow):
                     resp = zxart_fetch_json(path)
                     entries, total = zxart_parse_picture_list(resp)
                     total_pages = max(1, (total + ZXART_PAGE_SIZE - 1) // ZXART_PAGE_SIZE) if total else 1
+                    _zxart_prefetch_names_for_entries(entries)
                     return ("pictures", entries, total, page, total_pages)
 
                 _fn = _fn_pic
@@ -12786,6 +12825,7 @@ class MainWindow(QMainWindow):
                     total_pages = max(1, (total + ZXART_PAGE_SIZE - 1) // ZXART_PAGE_SIZE) if total else 1
                     for e in entries:
                         e["_kind"] = "zxart_prod"
+                    _zxart_prefetch_names_for_entries(entries)
                     return ("byletter", entries, total, page, total_pages)
 
                 _fn = _fn_letter
@@ -12806,6 +12846,7 @@ class MainWindow(QMainWindow):
                         )
                         for e in entries:
                             e["_kind"] = "zxart_prod"
+                        _zxart_prefetch_names_for_entries(entries)
                         return ("prods", entries, total, 1, 1)
                 else:
                     path = (
@@ -12819,6 +12860,7 @@ class MainWindow(QMainWindow):
                         total_pages = max(1, (total + ZXART_PAGE_SIZE - 1) // ZXART_PAGE_SIZE) if total else 1
                         for e in entries:
                             e["_kind"] = "zxart_prod"
+                        _zxart_prefetch_names_for_entries(entries)
                         return ("prods", entries, total, page, total_pages)
 
                 _fn = _fn_prods
@@ -15550,3 +15592,4 @@ _sigint_timer.start()
 # _zxart_prefetch_cache_if_stale()
 
 sys.exit(app.exec())
+
