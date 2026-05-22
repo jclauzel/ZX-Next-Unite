@@ -43,6 +43,8 @@
     * Start zx-next-unite.py
         python zx-next-unite.py
 
+    * Windows executables can be created using: pip install pyinstaller
+
 """
 
 # Standard library imports
@@ -146,7 +148,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "5.9"
+ZX_NEXT_UNITE_VERSION = "6.0"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -389,7 +391,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("avoid manipulating SD cards for the Spectrum Next and that was the initial idea of it."),
              ("Last but not the least some source code was lost from HDFM Gooey and the tool was stuck back in that time,"),
              ("with the agreement of emOOk I started a rewrite in Python and later with Jari"),
-             ("I started a rewrite in Python that would also provide MacOS and Linux portability."),
+             ("The point of using Python that would also provide MacOS and Linux portability."),
              ("Here we are now you have it!"),
              (""),
              (""),
@@ -493,6 +495,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("  copyright, licensing, and legal requirements in their jurisdiction."),
              ("  If in doubt, consult the terms of service of the relevant platform and"),
              ("  seek appropriate legal advice before downloading or using any content."),
+             ("  For inquiries you may reach out to me on my github page: https://github.com/jclauzel/ZX-Next-Unite"),
              (""),
              ("Enjoy!"),
              ("")
@@ -4130,7 +4133,7 @@ def _gallery_viewer_refresh_meta(viewer: "GalleryItemViewer",
 
 class BackgroundWidget(QWidget):
     """A QWidget that paints a chosen (or randomly cycling) image from the
-    'backgrounds/' directory scaled to fill the entire widget area, blended at
+    same directory as the script, scaled to fill the entire widget area, blended at
     a configurable opacity level (0–100 %, default 45 %).
 
     Modes
@@ -4201,8 +4204,8 @@ class BackgroundWidget(QWidget):
     @staticmethod
     def _discover_backgrounds() -> list:
         """Return a sorted list of absolute paths for all image files inside
-        the 'backgrounds/' directory next to the running script."""
-        bg_dir = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "backgrounds")
+        the same directory as the running script."""
+        bg_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
         if not os.path.isdir(bg_dir):
             return []
         image_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
@@ -4231,7 +4234,7 @@ class BackgroundWidget(QWidget):
     @staticmethod
     def _load_random_background():
         import random
-        bg_dir = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "backgrounds")
+        bg_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
         if not os.path.isdir(bg_dir):
             return None
         image_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
@@ -4710,9 +4713,7 @@ class MainWindow(QMainWindow):
                 # Background image selection
                 _bg_image_raw = configuration_dictionary.get(SETTING_BG_IMAGE, "").strip()
                 if _bg_image_raw:
-                    _bg_dir_load = os.path.join(
-                        os.path.dirname(os.path.abspath(sys.argv[0])), "backgrounds"
-                    )
+                    _bg_dir_load = os.path.dirname(os.path.abspath(sys.argv[0]))
                     _bg_full_load = os.path.join(_bg_dir_load, _bg_image_raw)
                     if os.path.isfile(_bg_full_load):
                         # Find matching combo entry
@@ -10867,6 +10868,8 @@ class MainWindow(QMainWindow):
                     def _on_err_dbl(err):
                         zxdb_set_status(f"Error loading issues: {err[1]}")
                     self._zxdb_detail_thread = getit_run_in_thread(_fn_dbl, _on_ok_dbl, _on_err_dbl)
+            else:
+                _zxdb_open_gallery_viewer(entry)
 
         self.zxdb_results_table.itemDoubleClicked.connect(zxdb_on_row_double_clicked)
 
@@ -11959,6 +11962,76 @@ class MainWindow(QMainWindow):
             if e.get("genre"):   parts.append(e["genre"])
             return " · ".join(parts)
 
+        def _zxart_fav_table_info(e):
+            """Richer info string for the Favorites table: resolves Produced by / Published by."""
+            src  = e.get("_source") or {}
+            kind = (e.get("_kind") or "").lower()
+            if kind == "zxart_picture" or not src:
+                # Pictures and entries without cached source: fall back to author · year
+                parts = []
+                if e.get("author"): parts.append(str(e["author"]))
+                if e.get("year"):   parts.append(str(e["year"]))
+                return " · ".join(parts)
+            groups = [str(g) for g in (src.get("groups") or []) if g]
+            if not groups:
+                groups = [n for n in [_zxart_resolve_group_name(gid)
+                                      for gid in (src.get("groupsIds") or [])] if n]
+            produced_by = ", ".join(groups)
+            pub_ids = src.get("publishersIds") or []
+            published_by = _zxart_resolve_publisher_names(pub_ids)
+            if not published_by:
+                published_by = _zxart_scrape_publishers_from_prod_url(str(src.get("url") or ""))
+            parts = []
+            if produced_by:
+                parts.append(f"Produced by: {produced_by}")
+            if published_by:
+                parts.append(f"Published by: {published_by}")
+            if not parts:
+                if e.get("author"): parts.append(str(e["author"]))
+                if e.get("year"):   parts.append(str(e["year"]))
+            return " · ".join(parts)
+
+        def _zxart_table_author_col(e):
+            """Resolve 'Produced by / Published by' for the table column.
+            Uses name strings already present in _source before falling back
+            to the process-level cache, so no blocking API calls are needed."""
+            src  = e.get("_source") or {}
+            kind = (e.get("_kind") or "").lower()
+            if kind == "zxart_picture":
+                return e.get("author", "")
+            # 1. Groups: prefer direct name strings from the API response
+            groups = [str(g) for g in (src.get("groups") or []) if g]
+            if not groups:
+                # Fall back to cache-only ID resolution (populated by fullscreen opens)
+                for gid in (src.get("groupsIds") or []):
+                    try:
+                        name = _ZXART_GROUP_NAME_CACHE.get(int(gid))
+                    except (TypeError, ValueError):
+                        name = None
+                    if name:
+                        groups.append(name)
+            produced_by = ", ".join(groups)
+            # 2. Authors: direct name strings when no groups
+            if not produced_by:
+                authors = [str(a) for a in (src.get("authors") or []) if a]
+                if authors:
+                    return ", ".join(authors)
+            # 3. Publishers: cache-only ID resolution (publishers reuse group namespace)
+            pub_ids = src.get("publishersIds") or []
+            publishers = []
+            for pid in pub_ids:
+                try:
+                    name = _ZXART_GROUP_NAME_CACHE.get(int(pid))
+                except (TypeError, ValueError):
+                    name = None
+                if name:
+                    publishers.append(name)
+            published_by = ", ".join(publishers)
+            parts = []
+            if produced_by:  parts.append(f"Produced by: {produced_by}")
+            if published_by: parts.append(f"Published by: {published_by}")
+            return " · ".join(parts) if parts else e.get("author", "")
+
         def _zxart_tooltip_getter(e):
             src = e.get("_source") or {}
             lines = []
@@ -12244,7 +12317,7 @@ class MainWindow(QMainWindow):
             "thumb": _zxart_thumb_fetch,
             "extra": _zxart_extra_fetch,
             "title": _zxart_gallery_title,
-            "info":  _zxart_gallery_info,
+            "info":  _zxart_fav_table_info,
         }
         self.zxart_view_stack.addWidget(self.zxart_gallery_view)  # index 1
 
@@ -12508,7 +12581,7 @@ class MainWindow(QMainWindow):
                 self.zxart_results_table.setItem(row, 0, id_item)
                 self.zxart_results_table.setItem(row, 1, QTableWidgetItem(e.get("title", "")))
                 self.zxart_results_table.setItem(row, 2, QTableWidgetItem(e.get("year", "")))
-                self.zxart_results_table.setItem(row, 3, QTableWidgetItem(e.get("author", "")))
+                self.zxart_results_table.setItem(row, 3, QTableWidgetItem(_zxart_table_author_col(e)))
                 self.zxart_results_table.setItem(row, 4, QTableWidgetItem(e.get("machine", "")))
                 self.zxart_results_table.setItem(row, 5, QTableWidgetItem(e.get("genre", "")))
             self._zxart_last_entries = list(entries)
@@ -13385,6 +13458,17 @@ class MainWindow(QMainWindow):
                 _zxart_load_prod(pid, title_hint)
 
         self.zxart_results_table.itemSelectionChanged.connect(zxart_on_row_selected)
+
+        def zxart_on_row_double_clicked(item):
+            row = self.zxart_results_table.row(item)
+            id_item = self.zxart_results_table.item(row, 0)
+            if not id_item:
+                return
+            entry = id_item.data(Qt.UserRole) or {}
+            if entry:
+                _zxart_open_gallery_viewer(entry)
+
+        self.zxart_results_table.itemDoubleClicked.connect(zxart_on_row_double_clicked)
 
         def zxart_on_gallery_cell(entry):
             eid = entry.get("id") or ""
@@ -14515,11 +14599,8 @@ class MainWindow(QMainWindow):
 
         self._fav_open_fullscreen = _fav_open_fullscreen
 
-        def _fav_on_cell_clicked(entry):
-            _fav_open_fullscreen(entry)
         def _fav_on_cell_dbl_clicked(entry):
             _fav_open_fullscreen(entry)
-        self.favorites_gallery_view.cell_clicked.connect(_fav_on_cell_clicked)
         self.favorites_gallery_view.cell_dbl_clicked.connect(_fav_on_cell_dbl_clicked)
 
         # ── View: Table / Gallery selector row ──────────────────────────────
@@ -14538,9 +14619,9 @@ class MainWindow(QMainWindow):
         fav_top_row.addStretch(1)
 
         # ── Table view of favorites ────────────────────────────────────────
-        self.favorites_results_table = QTableWidget(0, 4)
+        self.favorites_results_table = QTableWidget(0, 5)
         self.favorites_results_table.setHorizontalHeaderLabels(
-            ["Source", "Title", "Info", "Year"]
+            ["Source", "Title", "Rating", "Info", "Year"]
         )
         self.favorites_results_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.favorites_results_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -14551,8 +14632,9 @@ class MainWindow(QMainWindow):
             hh.setStretchLastSection(False)
             hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
             hh.setSectionResizeMode(1, QHeaderView.Stretch)
-            hh.setSectionResizeMode(2, QHeaderView.Stretch)
-            hh.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+            hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+            hh.setSectionResizeMode(3, QHeaderView.Stretch)
+            hh.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         except Exception:
             pass
 
@@ -14620,21 +14702,37 @@ class MainWindow(QMainWindow):
                 tbl = self.favorites_results_table
                 tbl.setRowCount(0)
                 for i, entry in enumerate(self._favorites):
+                    import re as _re
                     src_lbl = self._fav_source_label_for(entry) or ""
-                    title = _fav_title_getter(entry) or ""
+                    raw_title = _fav_title_getter(entry) or ""
+                    # Extract star rating from an HTML <span> if present
+                    _span_match = _re.search(r'<span[^>]*>([^<]+)</span>', raw_title)
+                    rating = _span_match.group(1).strip() if _span_match else ""
+                    # Strip all HTML tags to get a clean title
+                    title = _re.sub(r'<[^>]+>', '', raw_title).strip()
+                    # Also strip any inline star rating remaining in plain text,
+                    # e.g. "Some title★★★★☆  (4.2)" — capture it as rating if not already set
+                    _plain_match = _re.search(r'\s*[★☆]+\s*[\d.,]*\s*(?:\([^)]*\))?\s*$', title)
+                    if _plain_match:
+                        if not rating:
+                            rating = _plain_match.group(0).strip()
+                        title = title[:_plain_match.start()].strip()
                     info  = _fav_info_getter(entry) or ""
                     year  = str(entry.get("year") or "")
                     row = tbl.rowCount()
                     tbl.insertRow(row)
-                    src_item   = QTableWidgetItem(src_lbl)
+                    src_item    = QTableWidgetItem(src_lbl)
                     src_item.setData(Qt.UserRole, i)
-                    title_item = QTableWidgetItem(title)
-                    info_item  = QTableWidgetItem(info)
-                    year_item  = QTableWidgetItem(year)
+                    title_item  = QTableWidgetItem(title)
+                    rating_item = QTableWidgetItem(rating)
+                    rating_item.setTextAlignment(Qt.AlignCenter)
+                    info_item   = QTableWidgetItem(info)
+                    year_item   = QTableWidgetItem(year)
                     tbl.setItem(row, 0, src_item)
                     tbl.setItem(row, 1, title_item)
-                    tbl.setItem(row, 2, info_item)
-                    tbl.setItem(row, 3, year_item)
+                    tbl.setItem(row, 2, rating_item)
+                    tbl.setItem(row, 3, info_item)
+                    tbl.setItem(row, 4, year_item)
             except Exception:
                 pass
         self._fav_repopulate_fn = _fav_repopulate
@@ -15017,7 +15115,7 @@ class MainWindow(QMainWindow):
         bg_image_lbl = QLabel("Background image:")
         bg_image_lbl.setToolTip(
             "Choose a specific background image or 'Random' to cycle through\n"
-            "all images in the backgrounds/ folder every 5 seconds."
+            "all images in the script folder every 5 seconds."
         )
         grid_tab_Settings.addWidget(bg_image_lbl, 17, 0)
 
@@ -15033,7 +15131,7 @@ class MainWindow(QMainWindow):
         )
         # Populate: first entry = Random (empty data = random mode)
         self.settings_bg_image_combo.addItem("Random", "")
-        _bg_dir = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "backgrounds")
+        _bg_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
         _bg_image_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
         _bg_candidates = sorted(
             f for f in os.listdir(_bg_dir)
@@ -15328,6 +15426,7 @@ class MainWindow(QMainWindow):
         self._getit_apply_view_mode(self._getit_view_mode, persist=False)
         self._zxdb_apply_view_mode(self._zxdb_view_mode,   persist=False)
         self._zxart_apply_view_mode(self._zxart_view_mode, persist=False)
+        self._favorites_apply_view_mode(self._favorites_view_mode, persist=False)
 
         # Connect tab-changed AFTER load so setCurrentIndex during config restore
         # does not trigger on_tab_changed before state is ready.
