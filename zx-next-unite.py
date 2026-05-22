@@ -43,8 +43,11 @@
     * Start zx-next-unite.py
         python zx-next-unite.py
 
-    * Windows executables can be created using: pip install pyinstaller
+    * Windows executables can be created using pyinstaller and upx https://upx.github.io/ & https://github.com/upx/upx/: 
+    To update embedded images use: pyside6-rcc rc_backgrounds.qrc -o rc_backgrounds.py
 
+    pip install pyinstaller
+    pyinstaller --onefile --windowed --upx-dir C:\\upx zx-next-unite.py
 """
 
 # Standard library imports
@@ -148,7 +151,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ZX_NEXT_UNITE_VERSION = "6.0"
+import rc_backgrounds
+
+ZX_NEXT_UNITE_VERSION = "6.1"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -268,6 +273,12 @@ ZXART_LEGAL_STATUS_LABELS = {
     "allowed":     "Distribution allowed",
 }
 ZXART_LEGAL_STATUS_CACHE = dict(ZXART_LEGAL_STATUS_LABELS)
+
+def resource_path(relative_path):
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
 
 def zxart_legal_status_label(code) -> str:
     """Return a human-readable label for a zxArt ``legalStatus`` code.
@@ -4225,17 +4236,29 @@ class BackgroundWidget(QWidget):
 
     @staticmethod
     def _discover_backgrounds() -> list:
-        """Return a sorted list of absolute paths for all image files inside
-        the same directory as the running script."""
-        bg_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-        if not os.path.isdir(bg_dir):
-            return []
+        """Return a list of image paths from the script directory first,
+        then from Qt embedded resources (rc_backgrounds)."""
         image_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
-        return sorted(
-            os.path.join(bg_dir, f)
-            for f in os.listdir(bg_dir)
-            if os.path.splitext(f)[1].lower() in image_extensions
-        )
+        paths = []
+
+        # Filesystem images (same directory as the running script/exe)
+        bg_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        if os.path.isdir(bg_dir):
+            paths.extend(sorted(
+                os.path.join(bg_dir, f)
+                for f in os.listdir(bg_dir)
+                if os.path.splitext(f)[1].lower() in image_extensions
+            ))
+
+        # Qt resource images (embedded via rc_backgrounds)
+        from PySide6.QtCore import QDir as _QDir
+        for _name in _QDir(":/").entryList():
+            if os.path.splitext(_name)[1].lower() in image_extensions:
+                rc_path = ":/" + _name
+                if rc_path not in paths:
+                    paths.append(rc_path)
+
+        return paths
 
     @staticmethod
     def _load_path(path: str):
@@ -4735,9 +4758,16 @@ class MainWindow(QMainWindow):
                 # Background image selection
                 _bg_image_raw = configuration_dictionary.get(SETTING_BG_IMAGE, "").strip()
                 if _bg_image_raw:
-                    _bg_dir_load = os.path.dirname(os.path.abspath(sys.argv[0]))
-                    _bg_full_load = os.path.join(_bg_dir_load, _bg_image_raw)
-                    if os.path.isfile(_bg_full_load):
+                    # Resource paths are stored with a :/ prefix; filesystem paths
+                    # are stored as basenames relative to the script directory.
+                    if _bg_image_raw.startswith(":/"):
+                        _bg_full_load = _bg_image_raw
+                        _path_valid = not QPixmap(_bg_full_load).isNull()
+                    else:
+                        _bg_dir_load = os.path.dirname(os.path.abspath(sys.argv[0]))
+                        _bg_full_load = os.path.join(_bg_dir_load, _bg_image_raw)
+                        _path_valid = os.path.isfile(_bg_full_load)
+                    if _path_valid:
                         # Find matching combo entry
                         _cb = getattr(self, "settings_bg_image_combo", None)
                         if _cb is not None:
@@ -6613,9 +6643,15 @@ class MainWindow(QMainWindow):
             gf = glob.glob(path_to_content + "**", recursive=True)
             for g in gf:
                 if os.path.isfile(g):
+                    basename = os.path.basename(g)
+                    # Never send internal control files to the device
+                    if basename in (SYNCPOINT, IGNOREFILE):
+                        continue
                     ignored = False
                     for i in ignorelist:
-                        if fnmatch.fnmatch(g, i):
+                        # Match against full path OR basename so patterns like
+                        # "syncpoint.dat" work alongside glob patterns like "*.py"
+                        if fnmatch.fnmatch(g, i) or fnmatch.fnmatch(basename, i):
                             ignored = True
                             break
                     if not self.nextsync_alwayssync_checkbox.isChecked():
@@ -7984,7 +8020,7 @@ class MainWindow(QMainWindow):
                 _getit_send_to_image(eid, default_name, title)
             elif chosen is act_send_ns:
                 def _after_ns_dl_gi(_folder):
-                    QTimer.singleShot(0, self._nextsync_start_server_fn)
+                    QTimer.singleShot(0, lambda _f=_folder: self._nextsync_start_server_fn(_f))
                 _getit_send_to_ns_folder(eid, default_name, _ns_base, title, _after_ns_dl_gi)
 
         self.getit_gallery_view = GalleryView(
@@ -15182,6 +15218,13 @@ class MainWindow(QMainWindow):
         for _bg_fname in _bg_candidates:
             _bg_full = os.path.join(_bg_dir, _bg_fname)
             self.settings_bg_image_combo.addItem(os.path.splitext(_bg_fname)[0], _bg_full)
+        # Add bundled Qt resource images (embedded via rc_backgrounds)
+        from PySide6.QtCore import QDir as _QDir_bg
+        for _rc_name in _QDir_bg(":/").entryList():
+            if os.path.splitext(_rc_name)[1].lower() in _bg_image_extensions:
+                _rc_path = ":/" + _rc_name
+                _rc_label = os.path.splitext(_rc_name)[0] + " (built-in)"
+                self.settings_bg_image_combo.addItem(_rc_label, _rc_path)
 
         bg_image_row_layout.addWidget(self.settings_bg_image_combo, 1)
 
@@ -15213,7 +15256,7 @@ class MainWindow(QMainWindow):
             path = self.settings_bg_image_combo.itemData(index) or ""
             self._bg_widget.set_bg_image(path)
             _update_bg_image_preview(path)
-            configuration_dictionary[SETTING_BG_IMAGE] = os.path.basename(path) if path else ""
+            configuration_dictionary[SETTING_BG_IMAGE] = path if path.startswith(":/") else (os.path.basename(path) if path else "")
             save_configuration_file()
 
         self.settings_bg_image_combo.currentIndexChanged.connect(_on_bg_image_combo_changed)
