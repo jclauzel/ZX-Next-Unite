@@ -1,0 +1,9 @@
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource>
+    <file>zx-next-unite.png</file>
+    <file>zx-uinite-spaceship.png</file>
+    <file>zx-unite-castle1.png</file>
+    <file>zx-unite-jungle1.png</file>
+    <file>zx-unite-pirates1.png</file>
+</qresource>
+</RCC>
