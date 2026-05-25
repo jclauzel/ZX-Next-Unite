@@ -75,19 +75,27 @@ start using it by running:
 
 * Linux (Debian) / MacOS 
 
-Install hdfmonkey https://github.com/gasman/hdfmonkey
+Install hdfmonkey from: https://github.com/gasman/hdfmonkey
 
-Install using Git:
+Install ZX-Next-Unite using Git:
 
 git clone https://github.com/jclauzel/ZX-Next-Unite
+
 python3 -m venv ./ZX-Next-Unite
+
 source ZX-Next-Unite/bin/activate
+
 pip install PySide6
+
 cd ZX-Next-Unite
+
 python3 zx-next-unite.py
 
+
 If you want to start CSpect automaticaly then:
+
 Install mono-complete (see bellow).
+
 Install CSpect (see bellow).
 
 
