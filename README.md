@@ -73,6 +73,24 @@ start using it by running:
 
 * On Windows download and install OpenAL sound library for CSpect: https://openal.org/
 
+* Linux (Debian) / MacOS 
+
+Install hdfmonkey https://github.com/gasman/hdfmonkey
+
+Install using Git:
+
+git clone https://github.com/jclauzel/ZX-Next-Unite
+python3 -m venv ./ZX-Next-Unite
+source ZX-Next-Unite/bin/activate
+pip install PySide6
+cd ZX-Next-Unite
+python3 zx-next-unite.py
+
+If you want to start CSpect automaticaly then:
+Install mono-complete (see bellow).
+Install CSpect (see bellow).
+
+
 CSpect 
 ----------
 
