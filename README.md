@@ -73,7 +73,8 @@ start using it by running:
 
 * On Windows download and install OpenAL sound library for CSpect: https://openal.org/
 
-* Linux (Debian) / MacOS 
+Linux (Debian) / MacOS Install
+------------------------------
 
 Install hdfmonkey from: https://github.com/gasman/hdfmonkey
 
