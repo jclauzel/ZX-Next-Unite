@@ -4316,6 +4316,7 @@ class MainWindow(QMainWindow):
         right_disk_image_explorer_path = []
         right_disk_image_explorer_content = []
         right_disk_image_path = ""
+        self.right_disk_image_path = ""
         right_disk_image_selected_files = []
         configuration_dictionary = {}
         # Initialise defaults for settings that may not exist in older cfg files
