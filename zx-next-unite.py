@@ -48,17 +48,161 @@
 
     pip install pyinstaller
     pyinstaller --onefile --windowed --upx-dir C:\\upx zx-next-unite.py
+    pyinstaller --onefile --windowed --noupx zx-next-unite.py
 """
 
 # Standard library imports
 import ctypes
 import datetime
 import faulthandler
-# Enable a native-stack dump on hard crashes (segfaults, aborts) so issues that
-# kill the process without a Python traceback (e.g. Qt widget/completer races)
-# leave a diagnosable footprint on stderr.
+import os as _os_early
+import sys as _sys_early
+import traceback as _tb_early
+
+# ---------------------------------------------------------------------------
+# Crash / unhandled-exception log
+# ---------------------------------------------------------------------------
+# When the app is packaged with `pyinstaller --windowed`, sys.stderr is None,
+# so any exception raised inside a Qt slot (e.g. a double-click handler that
+# opens GalleryItemViewer) is silently swallowed and the user just sees
+# "nothing happens". To make such failures diagnosable on end-user machines
+# we redirect both faulthandler and sys.excepthook to a log file next to the
+# executable (or in %TEMP% as a fallback).
+#
+# Generation of the log file is gated by the "crash_log_enabled" setting
+# stored in hdfg.cfg (Settings pane → "Enable crash log file generation").
+# Default is False — no file is produced unless the user opts in.
+def _zxnu_crash_log_path():
+    try:
+        if getattr(_sys_early, "frozen", False):
+            base = _os_early.path.dirname(_sys_early.executable)
+        else:
+            base = _os_early.path.dirname(_os_early.path.abspath(__file__))
+        candidate = _os_early.path.join(base, "zx-next-unite-crash.log")
+        # Probe writability
+        with open(candidate, "a", encoding="utf-8"):
+            pass
+        return candidate
+    except Exception:
+        try:
+            import tempfile as _tf
+            return _os_early.path.join(_tf.gettempdir(), "zx-next-unite-crash.log")
+        except Exception:
+            return None
+
+def _zxnu_read_crash_log_pref():
+    """Return True if the user previously enabled crash-log generation.
+
+    Parses hdfg.cfg directly (the full config loader runs much later) and
+    looks for `crash_log_enabled = true/1`. Any error or missing key →
+    default False.
+    """
+    try:
+        cfg_path = _os_early.path.join(
+            _os_early.path.dirname(_os_early.path.abspath(_sys_early.argv[0])),
+            "hdfg.cfg")
+        if not _os_early.path.isfile(cfg_path):
+            return False
+        with open(cfg_path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if "=" not in line:
+                    continue
+                k, v = line.strip().split("=", 1)
+                if k.strip() == "crash_log_enabled":
+                    v = v.strip().lower()
+                    return v in ("1", "true", "yes", "on")
+    except Exception:
+        pass
+    return False
+
+_ZXNU_CRASH_LOG = _zxnu_crash_log_path()
+_ZXNU_CRASH_FH  = None
+
+def _zxnu_open_crash_log():
+    """Open the crash-log file handle and wire faulthandler to it."""
+    global _ZXNU_CRASH_FH
+    if _ZXNU_CRASH_FH is not None:
+        return
+    if not _ZXNU_CRASH_LOG:
+        return
+    try:
+        _ZXNU_CRASH_FH = open(_ZXNU_CRASH_LOG, "a", encoding="utf-8", buffering=1)
+        _ZXNU_CRASH_FH.write("\n=== zx-next-unite start %s ===\n" %
+                             datetime.datetime.now().isoformat(timespec="seconds"))
+    except Exception:
+        _ZXNU_CRASH_FH = None
+        return
+    try:
+        faulthandler.enable(file=_ZXNU_CRASH_FH)
+    except Exception:
+        pass
+
+def _zxnu_close_crash_log():
+    """Close the crash-log file handle (best-effort)."""
+    global _ZXNU_CRASH_FH
+    try:
+        faulthandler.disable()
+    except Exception:
+        pass
+    fh = _ZXNU_CRASH_FH
+    _ZXNU_CRASH_FH = None
+    if fh is not None:
+        try:
+            fh.close()
+        except Exception:
+            pass
+
+def _zxnu_set_crash_log_enabled(enabled: bool):
+    """Runtime toggle invoked from the Settings checkbox.
+
+    When *enabled* is True, opens the crash-log file (if not already open).
+    When False, closes the handle and deletes the file so no log is produced.
+    """
+    if enabled:
+        _zxnu_open_crash_log()
+    else:
+        _zxnu_close_crash_log()
+        if _ZXNU_CRASH_LOG:
+            try:
+                if _os_early.path.isfile(_ZXNU_CRASH_LOG):
+                    _os_early.remove(_ZXNU_CRASH_LOG)
+            except Exception:
+                pass
+
+# Honour the persisted preference at startup. Default: disabled.
+if _zxnu_read_crash_log_pref():
+    _zxnu_open_crash_log()
+
+def _zxnu_excepthook(exc_type, exc_value, exc_tb):
+    # KeyboardInterrupt should still terminate normally.
+    if issubclass(exc_type, KeyboardInterrupt):
+        _sys_early.__excepthook__(exc_type, exc_value, exc_tb)
+        return
+    msg = "".join(_tb_early.format_exception(exc_type, exc_value, exc_tb))
+    if _ZXNU_CRASH_FH is not None:
+        try:
+            _ZXNU_CRASH_FH.write(
+                "\n--- Unhandled exception %s ---\n%s" %
+                (datetime.datetime.now().isoformat(timespec="seconds"), msg))
+            _ZXNU_CRASH_FH.flush()
+        except Exception:
+            pass
+    # Also try the original hook (no-op in --windowed but useful when run from
+    # a console).
+    try:
+        _sys_early.__excepthook__(exc_type, exc_value, exc_tb)
+    except Exception:
+        pass
+
+_sys_early.excepthook = _zxnu_excepthook
+
+# PySide6 routes slot exceptions through sys.excepthook only if
+# threading.excepthook is also installed; cover both.
 try:
-    faulthandler.enable()
+    import threading as _th_early
+    def _zxnu_thread_excepthook(args):
+        _zxnu_excepthook(args.exc_type, args.exc_value, args.exc_traceback)
+    _th_early.excepthook = _zxnu_thread_excepthook
 except Exception:
     pass
 import fnmatch
@@ -153,7 +297,7 @@ from PySide6.QtWidgets import (
 
 import rc_backgrounds
 
-ZX_NEXT_UNITE_VERSION = "6.1"
+ZX_NEXT_UNITE_VERSION = "6.2"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -213,6 +357,7 @@ SETTING_NO_PROMPT_ON_DELETION  = "no_prompt_on_deletion"
 SETTING_AVAIL_CHECK            = "avail_check"
 SETTING_MULTI_SEARCH           = "multi_search"
 SETTING_SEARCH_AUTOCOMPLETE    = "search_autocomplete"
+SETTING_CRASH_LOG_ENABLED      = "crash_log_enabled"
 SETTING_ZXDB_LAST_MODE         = "zxdb_last_mode"
 SETTING_ZXDB_LAST_QUERY        = "zxdb_last_query"
 SETTING_ZXART_LAST_MODE        = "zxart_last_mode"
@@ -576,7 +721,7 @@ SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_
 SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_GALLERY_ANIM_MODE,
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
-SETTING_BG_IMAGE)
+SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
@@ -4639,6 +4784,22 @@ class MainWindow(QMainWindow):
                 if SETTING_SEARCH_AUTOCOMPLETE in configuration_dictionary and configuration_dictionary[SETTING_SEARCH_AUTOCOMPLETE] != "":
                     checked = configuration_dictionary[SETTING_SEARCH_AUTOCOMPLETE] != "0" and configuration_dictionary[SETTING_SEARCH_AUTOCOMPLETE].lower() != "false"
                     self.settings_search_autocomplete_checkbox.setChecked(checked)
+
+                # Crash-log generation defaults to False; only turn on when explicitly saved as true/1.
+                if SETTING_CRASH_LOG_ENABLED in configuration_dictionary and configuration_dictionary[SETTING_CRASH_LOG_ENABLED] != "":
+                    _crash_checked = configuration_dictionary[SETTING_CRASH_LOG_ENABLED] in ("1", "true", "True", "yes", "on")
+                else:
+                    _crash_checked = False
+                self.settings_crash_log_enabled_checkbox.blockSignals(True)
+                self.settings_crash_log_enabled_checkbox.setChecked(_crash_checked)
+                self.settings_crash_log_enabled_checkbox.blockSignals(False)
+                # Ensure runtime state matches the persisted setting (the
+                # early-bootstrap read already honoured this, but reapply here
+                # so any cfg edits made between launches take immediate effect).
+                try:
+                    _zxnu_set_crash_log_enabled(_crash_checked)
+                except Exception:
+                    pass
 
                 # Gallery animation mode: "hover" (default) or "timer"
                 if SETTING_GALLERY_ANIM_MODE in configuration_dictionary and configuration_dictionary[SETTING_GALLERY_ANIM_MODE] != "":
@@ -15279,6 +15440,29 @@ class MainWindow(QMainWindow):
 
         self._bg_widget._cycle_timer.timeout.connect(_on_bg_cycle_update)
 
+        # ── Crash log toggle (bottom of Settings list) ──────────────────
+        def settings_crash_log_enabled_statechanged():
+            enabled = self.settings_crash_log_enabled_checkbox.isChecked()
+            configuration_dictionary[SETTING_CRASH_LOG_ENABLED] = "true" if enabled else "false"
+            save_configuration_file()
+            try:
+                _zxnu_set_crash_log_enabled(enabled)
+            except Exception:
+                pass
+
+        self.settings_crash_log_enabled_checkbox = QCheckBox("Enable crash log file generation")
+        self.settings_crash_log_enabled_checkbox.setChecked(False)
+        self.settings_crash_log_enabled_checkbox.setToolTip(
+            "When enabled, unhandled Python exceptions and native crashes are written\n"
+            "to 'zx-next-unite-crash.log' next to the executable (or in %TEMP% if that\n"
+            "folder is read-only). This is useful for diagnosing issues in the windowed\n"
+            "(.exe) build where stderr is not visible. Leave unchecked to suppress the\n"
+            "log file entirely (default)."
+        )
+        self.settings_crash_log_enabled_checkbox.stateChanged.connect(
+            settings_crash_log_enabled_statechanged)
+        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 18, 0, 1, 2)
+
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
         zxnextunite_Settings_tab.tab_name_private = "Settings"
@@ -15599,8 +15783,17 @@ _QT_SUPPRESS_MSGS = ("Point size <= 0",)
 def _qt_message_handler(msg_type, context, message):
     if any(s in message for s in _QT_SUPPRESS_MSGS):
         return
+    # Mirror Qt log messages into the crash log so windowed-mode builds can
+    # surface plugin / image-format / font issues that would otherwise be
+    # invisible (sys.stderr is None when packaged with --windowed).
+    try:
+        if _ZXNU_CRASH_FH is not None:
+            _ZXNU_CRASH_FH.write("[Qt] %s\n" % message)
+    except Exception:
+        pass
     import sys as _sys
-    print(message, file=_sys.stderr)
+    if _sys.stderr is not None:
+        print(message, file=_sys.stderr)
 qInstallMessageHandler(_qt_message_handler)
 _app_font = QFont("Consolas")
 _app_font.setStyleHint(QFont.StyleHint.Monospace)
