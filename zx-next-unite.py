@@ -297,7 +297,7 @@ from PySide6.QtWidgets import (
 
 import rc_backgrounds
 
-ZX_NEXT_UNITE_VERSION = "6.2"
+ZX_NEXT_UNITE_VERSION = "6.3"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -318,6 +318,7 @@ ZX_NEXT_UNITE_TAB_TITLE_GETIT = "ONLINE: GetIt"
 ZX_NEXT_UNITE_TAB_TITLE_ZXDB  = "ONLINE: ZXDB/ZXinfo.dk"
 ZX_NEXT_UNITE_TAB_TITLE_ZXART = "ONLINE: ZXArt.ee"
 ZX_NEXT_UNITE_TAB_TITLE_FAVORITES = "ONLINE: ♥ Favorites"
+ZX_NEXT_UNITE_TAB_TITLE_ALLINONE  = "ONLINE: Unite! (AllInOne)"
 
 GETIT_BASE_URL = "https://zxnext.uk"
 GETIT_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
@@ -2878,7 +2879,8 @@ class GalleryCell(QFrame):
                  context_menu_cb=None,
                  tags=None, parent=None,
                  is_favorite_cb=None, toggle_favorite_cb=None,
-                 source_label_getter=None):
+                 source_label_getter=None,
+                 source_overlay_anchor="topleft"):
         super().__init__(parent)
         if tooltip_text:
             self.setToolTip(tooltip_text)
@@ -2890,6 +2892,7 @@ class GalleryCell(QFrame):
         self._is_favorite_cb     = is_favorite_cb
         self._toggle_favorite_cb = toggle_favorite_cb
         self._source_label_getter = source_label_getter
+        self._source_overlay_anchor = source_overlay_anchor or "topleft"
         self._screenshots = []        # list of URL strings (or dicts {"url": ...})
         self._shot_cache  = {}        # url -> QPixmap
         self._shot_index  = 0
@@ -3097,7 +3100,23 @@ class GalleryCell(QFrame):
         ov.adjustSize()
         w = min(ov.width(), max(40, self._thumb_lbl.width() - 2 * pad))
         h = ov.sizeHint().height()
-        ov.setGeometry(pad, pad, w, h)
+        anchor = getattr(self, "_source_overlay_anchor", "topleft")
+        if anchor == "bottomleft":
+            x = pad
+            y = self._thumb_lbl.height() - h - pad
+        elif anchor == "bottomright":
+            # Sit to the left of the heart button (which is anchored bottom-
+            # right) if one is shown, otherwise hug the right edge.
+            heart = getattr(self, "_heart_btn", None)
+            heart_w = 0
+            if heart is not None and heart.isVisible():
+                heart_w = heart.sizeHint().width() + pad
+            x = max(pad, self._thumb_lbl.width() - w - pad - heart_w)
+            y = self._thumb_lbl.height() - h - pad
+        else:
+            x = pad
+            y = pad
+        ov.setGeometry(x, y, w, h)
         ov.raise_()
 
     def _refresh_heart(self):
@@ -3416,7 +3435,8 @@ class GalleryView(QWidget):
                  tags_getter=None, image_predicate=None,
                  is_favorite_cb=None, toggle_favorite_cb=None,
                  source_label_getter=None, tooltip_getter=None,
-                 cols_getter=None, img_size_getter=None, parent=None):
+                 cols_getter=None, img_size_getter=None, parent=None,
+                 source_overlay_anchor="topleft"):
         super().__init__(parent)
         self._rows_per_page_getter = rows_per_page_getter
         self._anim_mode_getter     = anim_mode_getter
@@ -3432,6 +3452,7 @@ class GalleryView(QWidget):
         self._is_favorite_cb       = is_favorite_cb
         self._toggle_favorite_cb   = toggle_favorite_cb
         self._source_label_getter  = source_label_getter
+        self._source_overlay_anchor = source_overlay_anchor or "topleft"
         # Optional predicate(entry) -> bool returning True when the entry
         # is known to have at least one image at populate-time.  Entries
         # for which the predicate returns False are moved to the end of
@@ -3554,6 +3575,7 @@ class GalleryView(QWidget):
                 is_favorite_cb=self._is_favorite_cb,
                 toggle_favorite_cb=self._toggle_favorite_cb,
                 source_label_getter=self._source_label_getter,
+                source_overlay_anchor=self._source_overlay_anchor,
             )
             cell.set_thumb_width(col_w)
             cell.clicked.connect(self._on_cell_clicked)
@@ -8290,6 +8312,12 @@ class MainWindow(QMainWindow):
             self.getit_gallery_view.select_entry(
                 lambda _e, _sel=self._getit_selected_id: bool(_sel) and _e.get("id") == _sel
             )
+            try:
+                _aio = getattr(self, "_allinone_repopulate", None)
+                if _aio is not None:
+                    _aio()
+            except Exception:
+                pass
 
         def getit_clear_detail():
             self.getit_detail_title.setText("")
@@ -9778,6 +9806,12 @@ class MainWindow(QMainWindow):
             self.zxdb_gallery_view.select_entry(
                 lambda _e, _sel=self._zxdb_selected_id: bool(_sel) and _e.get("id") == _sel
             )
+            try:
+                _aio = getattr(self, "_allinone_repopulate", None)
+                if _aio is not None:
+                    _aio()
+            except Exception:
+                pass
 
         def zxdb_populate_detail(detail: dict):
             """Game detail (used for games and by-author results)."""
@@ -12825,6 +12859,12 @@ class MainWindow(QMainWindow):
             self.zxart_gallery_view.select_entry(
                 lambda _e, _sel=self._zxart_selected_id: bool(_sel) and _e.get("id") == _sel
             )
+            try:
+                _aio = getattr(self, "_allinone_repopulate", None)
+                if _aio is not None:
+                    _aio()
+            except Exception:
+                pass
 
         # ---- Slideshow ----
 
@@ -14933,6 +14973,313 @@ class MainWindow(QMainWindow):
         wid_inner.tab.addTab(zxnextunite_Favorites_tab,
                              f"{ZX_NEXT_UNITE_TAB_TITLE_FAVORITES} (0)")
 
+        # ─── ONLINE: AllInOne Tab ───────────────────────────────────────────
+        # Aggregated gallery view of the last GetIt + ZXDB + zxArt search
+        # results. A dedicated search box always runs across the 3 sources
+        # (this pane has no source of its own). Each tile shows a source tag
+        # (bottom-left) so the user can tell which pane produced it. Double-
+        # click opens the proper source-specific full-screen viewer (same
+        # routing as Favorites).
+        zxnextunite_AllInOne_tab = QWidget(wid_inner.tab)
+        zxnextunite_AllInOne_tab.setAttribute(Qt.WA_TranslucentBackground)
+        zxnextunite_AllInOne_tab.setAutoFillBackground(False)
+        allinone_v = QVBoxLayout(zxnextunite_AllInOne_tab)
+        allinone_v.setContentsMargins(4, 4, 4, 4)
+
+        # --- Search row ---
+        allinone_search_row = QHBoxLayout()
+        self.allinone_search_input = QLineEdit()
+        self.allinone_search_input.setPlaceholderText(
+            "Search across GetIt + ZXDB + zxArt..."
+        )
+        self.allinone_search_input.setMinimumWidth(280)
+        allinone_search_row.addWidget(self.allinone_search_input)
+
+        self._allinone_search_valid_lbl = QLabel()
+        self._allinone_search_valid_lbl.setVisible(False)
+        allinone_search_row.addWidget(self._allinone_search_valid_lbl)
+
+        self.allinone_search_button = QPushButton("Search")
+        allinone_search_row.addWidget(self.allinone_search_button)
+
+        self.allinone_random_button = QPushButton("Random")
+        self.allinone_random_button.setToolTip(
+            "Fetch random entries from GetIt + ZXDB + zxArt and merge them here"
+        )
+        allinone_search_row.addWidget(self.allinone_random_button)
+
+        self.allinone_status_label = QLabel("")
+        allinone_search_row.addWidget(self.allinone_status_label, 1)
+
+        allinone_v.addLayout(allinone_search_row)
+
+        # --- Aggregated gallery view ---
+        _ALLINONE_SOURCE_LABELS = {"getit": "GetIt", "zxdb": "ZXDB", "zxart": "ZXArt"}
+
+        def _allinone_source_label(e):
+            try:
+                src = (e.get("_fav_source") or e.get("source") or "").lower()
+            except Exception:
+                src = ""
+            return _ALLINONE_SOURCE_LABELS.get(src, "")
+
+        self.allinone_gallery_view = GalleryView(
+            rows_per_page_getter=lambda: self._gallery_rows_per_page,
+            anim_mode_getter=lambda: self._gallery_anim_mode,
+            cols_getter=lambda: self._gallery_cols,
+            img_size_getter=lambda: self._gallery_img_size,
+            thumb_fetch_cb=_fav_thumb_fetch,
+            extra_fetch_cb=_fav_extra_fetch,
+            title_getter=_fav_title_getter,
+            info_getter=_fav_info_getter,
+            is_favorite_cb=lambda e: self._fav_is(e),
+            toggle_favorite_cb=lambda e: self._fav_toggle(e),
+            source_label_getter=_allinone_source_label,
+            source_overlay_anchor="bottomright",
+        )
+
+        def _allinone_on_cell_dbl_clicked(entry):
+            try:
+                _fav_open_fullscreen(entry)
+            except Exception:
+                pass
+        self.allinone_gallery_view.cell_dbl_clicked.connect(_allinone_on_cell_dbl_clicked)
+
+        allinone_v.addWidget(self.allinone_gallery_view)
+        zxnextunite_AllInOne_tab.setLayout(allinone_v)
+        zxnextunite_AllInOne_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_ALLINONE
+
+        # Insert AllInOne *before* Favorites in the tab bar.
+        _fav_tab_index = wid_inner.tab.indexOf(zxnextunite_Favorites_tab)
+        if _fav_tab_index < 0:
+            _fav_tab_index = wid_inner.tab.count()
+        wid_inner.tab.insertTab(
+            _fav_tab_index, zxnextunite_AllInOne_tab,
+            f"{ZX_NEXT_UNITE_TAB_TITLE_ALLINONE} (0)"
+        )
+
+        # --- Aggregation + tab badge ---
+        def _allinone_collect():
+            merged = []
+            for src, attr in (("getit", "_getit_last_entries"),
+                              ("zxdb",  "_zxdb_last_entries"),
+                              ("zxart", "_zxart_last_entries")):
+                lst = getattr(self, attr, None) or []
+                for e in lst:
+                    if not isinstance(e, dict):
+                        continue
+                    tagged = {**e, "_fav_source": src}
+                    merged.append(tagged)
+            return merged
+
+        def _allinone_update_tab_badge(n):
+            try:
+                for i in range(self._tab_widget.count()):
+                    if self._tab_widget.tabText(i).startswith(
+                            ZX_NEXT_UNITE_TAB_TITLE_ALLINONE):
+                        self._tab_widget.setTabText(
+                            i, f"{ZX_NEXT_UNITE_TAB_TITLE_ALLINONE} ({n})")
+                        break
+            except Exception:
+                pass
+
+        def _allinone_repopulate():
+            try:
+                entries = _allinone_collect()
+                self.allinone_gallery_view.populate(entries)
+                _allinone_update_tab_badge(len(entries))
+            except Exception:
+                pass
+
+        self._allinone_repopulate = _allinone_repopulate
+
+        # --- Search handler: always fan out to GetIt + ZXDB + zxArt ---
+        def allinone_on_search():
+            q = self.allinone_search_input.text().strip()
+            if q and len(q) < SEARCH_MIN_CHARS:
+                return
+            # Mirror the query into each source pane's input box so the
+            # user can see/edit it there too.
+            try:
+                self.getit_search_input.setText(q)
+            except Exception:
+                pass
+            if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                try:
+                    self.zxdb_search_input.setText(q)
+                except Exception:
+                    pass
+            if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                try:
+                    self.zxart_search_input.setText(q)
+                except Exception:
+                    pass
+            # Clear stale badges before searching.
+            try:
+                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
+                if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                    _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                    _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+            except Exception:
+                pass
+            # Run the same searches the per-source panes use. Each will
+            # call its populate_results, which in turn refreshes the
+            # AllInOne gallery via _allinone_repopulate.
+            try:
+                _cross_search_getit(q)
+            except Exception:
+                pass
+            if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                try:
+                    _cross_search_zxdb(q)
+                except Exception:
+                    pass
+            if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                try:
+                    _cross_search_zxart(q)
+                except Exception:
+                    pass
+
+        def _allinone_search_validate(text: str):
+            t = text.strip()
+            if not t:
+                self._allinone_search_valid_lbl.setVisible(False)
+            elif len(t) < SEARCH_MIN_CHARS:
+                self._allinone_search_valid_lbl.setText(
+                    f"Min {SEARCH_MIN_CHARS} chars")
+                self._allinone_search_valid_lbl.setStyleSheet("color: #c33;")
+                self._allinone_search_valid_lbl.setVisible(True)
+            else:
+                self._allinone_search_valid_lbl.setVisible(False)
+
+        self.allinone_search_input.textChanged.connect(_allinone_search_validate)
+        self.allinone_search_button.clicked.connect(allinone_on_search)
+        self.allinone_search_input.returnPressed.connect(allinone_on_search)
+
+        # --- Random handler: fan out to GetIt + ZXDB + zxArt Random buttons.
+        # Each per-source random handler clears its own search box and
+        # ultimately calls its populate_results path, which refreshes the
+        # AllInOne gallery via _allinone_repopulate.
+        def allinone_on_random():
+            # Clear the AllInOne search box too, so the pane reflects the
+            # "random" mode rather than a stale query.
+            try:
+                self.allinone_search_input.clear()
+            except Exception:
+                pass
+            # Clear stale tab badges before kicking off the random fetches.
+            try:
+                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
+                if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                    _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                    _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+            except Exception:
+                pass
+            # GetIt random.
+            try:
+                getit_on_random()
+            except Exception:
+                pass
+            # ZXDB random — only meaningful in 'games' mode; the button
+            # there is auto-disabled outside of it, so guard accordingly.
+            if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                try:
+                    if self.zxdb_random_button.isEnabled():
+                        zxdb_on_random()
+                except Exception:
+                    pass
+            # zxArt random.
+            if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                try:
+                    zxart_on_random()
+                except Exception:
+                    pass
+
+        self.allinone_random_button.clicked.connect(allinone_on_random)
+
+        # --- Autocomplete (reuse the GetIt title cache; it is the broadest
+        #     catalog already fetched in the background by the GetIt pane). ---
+        self._allinone_ac_model = QStringListModel(self)
+        _allinone_completer = QCompleter(self._allinone_ac_model, self)
+        _allinone_completer.setCompletionMode(QCompleter.PopupCompletion)
+        _allinone_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        _allinone_completer.setFilterMode(Qt.MatchStartsWith)
+        self._allinone_completer = _allinone_completer
+        self.allinone_search_input.setCompleter(_allinone_completer)
+
+        def _allinone_safe_show_popup(q: str):
+            try:
+                if not self.allinone_search_input.hasFocus():
+                    return
+                if self.allinone_search_input.text().strip() != q:
+                    return
+                if self._allinone_ac_model.rowCount() == 0:
+                    return
+                _allinone_completer.setCompletionPrefix(q)
+                popup = _allinone_completer.popup()
+                if popup is None:
+                    return
+                le = self.allinone_search_input
+                rect = le.rect()
+                pos = le.mapToGlobal(rect.bottomLeft())
+                popup.setMinimumWidth(le.width())
+                popup.move(pos)
+                popup.resize(le.width(), min(
+                    220, 22 * min(8, self._allinone_ac_model.rowCount()) + 4))
+                popup.show()
+            except RuntimeError:
+                pass
+            except Exception:
+                pass
+
+        def _allinone_ac_update_model(text: str):
+            if not text:
+                self._allinone_ac_model.setStringList([])
+                return
+            tl = text.lower()
+            titles = getattr(self, "_getit_ac_titles", None) or []
+            matches = sorted(
+                (t for t in titles if t.lower().startswith(tl)),
+                key=str.lower,
+            )
+            self._allinone_ac_model.setStringList(matches[:80])
+            if matches:
+                QTimer.singleShot(0, lambda q=text: _allinone_safe_show_popup(q))
+
+        def _allinone_ac_on_text_changed(text: str):
+            text = text.strip()
+            if not text:
+                self._allinone_ac_model.setStringList([])
+                return
+            # Kick off the GetIt title cache fetch on first use if needed.
+            try:
+                titles = getattr(self, "_getit_ac_titles", None) or []
+                if not titles:
+                    starter = globals().get("_getit_ac_start_fetch")
+                    if starter is None:
+                        starter = locals().get("_getit_ac_start_fetch")
+                    # Best-effort: the GetIt pane already exposes its own
+                    # text-changed handler that triggers a fetch; we cannot
+                    # call it directly here without a closure reference, so
+                    # rely on the cache being populated by GetIt usage.
+            except Exception:
+                pass
+            _allinone_ac_update_model(text)
+
+        self.allinone_search_input.textChanged.connect(_allinone_ac_on_text_changed)
+
+        def _allinone_ac_activated(selected: str):
+            try:
+                if selected:
+                    self.allinone_search_input.setText(selected)
+            except Exception:
+                pass
+            allinone_on_search()
+
+        _allinone_completer.activated.connect(_allinone_ac_activated)
+
         def _fav_repopulate():
             try:
                 self.favorites_gallery_view.populate(list(self._favorites))
@@ -15549,7 +15896,11 @@ class MainWindow(QMainWindow):
                 (self.getit_search_input, getattr(self, "_getit_completer", None)),
                 (self.zxdb_search_input,  getattr(self, "_zxdb_completer",  None)),
                 (self.zxart_search_input, getattr(self, "_zxart_completer", None)),
+                (getattr(self, "allinone_search_input", None),
+                 getattr(self, "_allinone_completer", None)),
             ):
+                if input_widget is None:
+                    continue
                 try:
                     input_widget.setCompleter(completer if enabled else None)
                 except RuntimeError:
