@@ -335,6 +335,10 @@ ZXART_BASE_URL = "https://zxart.ee/api"
 ZXART_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
 ZXART_PAGE_SIZE = 20
 
+# AllInOne pane aggregates results from GetIt + ZXDB + zxArt. Paging is
+# applied client-side on the merged result list.
+ALLINONE_PAGE_SIZE = GETIT_PAGE_SIZE + ZXDB_PAGE_SIZE + ZXART_PAGE_SIZE
+
 
 HDF_MONKEY_WINDOWS_URL = "https://uto.speccy.org/downloads/hdfmonkey_windows.zip"
 
@@ -8439,7 +8443,11 @@ class MainWindow(QMainWindow):
         def getit_on_latest():
             getit_clear_detail()
             self.getit_search_input.clear()
-            getit_run_search("", 1)
+            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
+            def _getit_latest_done():
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT, self.getit_results_table.rowCount())
+            getit_run_search("", 1, _getit_latest_done)
 
         def getit_on_random():
             if self._getit_search_loading:
@@ -8585,17 +8593,36 @@ class MainWindow(QMainWindow):
             if self._getit_ac_loading or self._getit_ac_titles:
                 return
             self._getit_ac_loading = True
+            self._ac_anim_start(self.getit_search_input)
 
             def _on_ok(titles):
                 self._getit_ac_loading = False
+                self._ac_anim_stop(self.getit_search_input)
                 _getit_ac_populate_cache(titles)
+                cb = getattr(self, "_allinone_ac_notify", None)
+                if cb:
+                    try:
+                        cb("getit", "")
+                    except Exception:
+                        pass
 
             def _on_err(_err):
                 self._getit_ac_loading = False
+                self._ac_anim_stop(self.getit_search_input)
+                cb = getattr(self, "_allinone_ac_notify", None)
+                if cb:
+                    try:
+                        cb("getit", "")
+                    except Exception:
+                        pass
 
             self._getit_ac_thread = getit_run_in_thread(
                 _getit_ac_fetch, _on_ok, _on_err
             )
+
+        # Expose the starter so the AllInOne pane can piggy-back on the
+        # shared GetIt title cache and animate its own placeholder.
+        self._getit_ac_start_fetch = _getit_ac_start_fetch
 
         def _getit_ac_on_text_changed(text: str):
             text = text.strip()
@@ -10270,7 +10297,7 @@ class MainWindow(QMainWindow):
 
             self._zxdb_search_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
-        def zxdb_run_random():
+        def zxdb_run_random(on_complete=None):
             if self._zxdb_search_loading:
                 return
             self._zxdb_search_loading = True
@@ -10326,6 +10353,8 @@ class MainWindow(QMainWindow):
                 zxdb_set_status(f"{len(entries)} random game(s)")
                 self.zxdb_search_button.setEnabled(True)
                 self.zxdb_random_button.setEnabled(True)
+                if on_complete:
+                    on_complete()
 
             def _on_err(err):
                 self._zxdb_search_loading = False
@@ -10336,6 +10365,8 @@ class MainWindow(QMainWindow):
                     zxdb_set_status(f"Error: {exc}")
                 self.zxdb_search_button.setEnabled(True)
                 self.zxdb_random_button.setEnabled(True)
+                if on_complete:
+                    on_complete()
 
             self._zxdb_random_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
@@ -10508,11 +10539,13 @@ class MainWindow(QMainWindow):
             if letter in self._zxdb_ac_fetching:
                 return
             self._zxdb_ac_fetching.add(letter)
+            self._ac_anim_start(self.zxdb_search_input)
 
             def _fn():
                 titles = []
                 offset = 0
-                fetch_size = 500
+                fetch_size = 200
+                total = None
                 while True:
                     params = {
                         "size":        str(fetch_size),
@@ -10523,26 +10556,58 @@ class MainWindow(QMainWindow):
                     path = f"/games/byletter/{urllib.parse.quote(letter)}?{urllib.parse.urlencode(params)}"
                     try:
                         payload = zxdb_fetch_json(path)
-                        entries, total, _pg, _tp, _ps = zxdb_parse_search(payload)
+                        entries, page_total, _pg, _tp, _ps = zxdb_parse_search(payload)
                     except Exception:
                         break
-                    titles.extend(e["title"] for e in entries if e.get("title"))
-                    if len(entries) < fetch_size:
+                    if not entries:
                         break
-                    offset += fetch_size
+                    titles.extend(e["title"] for e in entries if e.get("title"))
+                    # ZXInfo may cap the effective page size below the value
+                    # we asked for, so do not exit just because we received
+                    # fewer rows than requested.  Drive pagination from the
+                    # server-reported total instead and stop only once we
+                    # have walked the whole letter (or the API stops
+                    # returning new rows).
+                    if total is None and page_total:
+                        total = page_total
+                    offset += len(entries)
+                    if total is not None and offset >= total:
+                        break
+                    # Safety net: if the API keeps returning the same rows
+                    # without advancing, bail out.
+                    if total is None and len(entries) < 10:
+                        break
                 return (letter, sorted(set(titles), key=str.lower))
 
             def _on_ok(result):
                 ltr, sorted_titles = result
                 self._zxdb_ac_fetching.discard(ltr)
                 self._zxdb_ac_cache[ltr] = sorted_titles
+                self._ac_anim_stop(self.zxdb_search_input)
                 # Refresh model if the user is still on this prefix.
                 _zxdb_ac_update_model(self.zxdb_search_input.text().strip())
+                cb = getattr(self, "_allinone_ac_notify", None)
+                if cb:
+                    try:
+                        cb("zxdb", ltr)
+                    except Exception:
+                        pass
 
             def _on_err(_err):
                 self._zxdb_ac_fetching.discard(letter)
+                self._ac_anim_stop(self.zxdb_search_input)
+                cb = getattr(self, "_allinone_ac_notify", None)
+                if cb:
+                    try:
+                        cb("zxdb", letter)
+                    except Exception:
+                        pass
 
             self._zxdb_ac_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
+
+        # Expose the per-letter fetcher so the AllInOne pane can prime the
+        # ZXDB cache for cross-source autocomplete suggestions.
+        self._zxdb_ac_fetch_letter = _zxdb_ac_fetch_letter
 
         def _zxdb_ac_trigger():
             mode = zxdb_current_mode()
@@ -12012,7 +12077,11 @@ class MainWindow(QMainWindow):
             if self._zxdb_loaded_once or self._zxdb_search_loading:
                 return
             self._zxdb_loaded_once = True
-            zxdb_run_random()
+            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+            def _zxdb_random_done():
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB, self.zxdb_results_table.rowCount())
+            zxdb_run_random(_zxdb_random_done)
             # Allow autocomplete only after the initial load has been kicked off
             # so that config-restored search text doesn't trigger background
             # by-letter fetches before the first render completes.
@@ -13301,12 +13370,12 @@ class MainWindow(QMainWindow):
                 return
 
             # Avoid firing a heavy zxART network search (binary-search probes +
-            # 200-item window fetch) on very short prefixes such as a single
-            # "p", which both stresses the API and has produced a crash when
-            # the async result repopulates the completer model while the user
-            # is still typing.  Require at least SEARCH_MIN_CHARS like the
-            # full search does.
-            if len(text) < SEARCH_MIN_CHARS:
+            # 200-item window fetch) on an empty input.  Other panes (GetIt,
+            # ZXDB) already offer suggestions starting at the first typed
+            # character, so allow the autocomplete to trigger as soon as the
+            # user has typed at least one character.  The full search button
+            # itself still enforces SEARCH_MIN_CHARS.
+            if len(text) < 1:
                 self._zxart_ac_model.setStringList([])
                 return
 
@@ -13364,6 +13433,7 @@ class MainWindow(QMainWindow):
 
             self._zxart_ac_pending = text
             gen_at_dispatch = self._zxart_ac_gen
+            self._ac_anim_start(self.zxart_search_input)
 
             def _fn():
                 entries, _total = zxart_client_search(text)
@@ -13375,6 +13445,7 @@ class MainWindow(QMainWindow):
 
             def _on_ok(result):
                 queried, titles = result
+                self._ac_anim_stop(self.zxart_search_input)
                 try:
                     # Evict oldest cache entries to cap memory (keep last 10 prefixes).
                     if len(self._zxart_ac_cache) >= 10:
@@ -13402,7 +13473,7 @@ class MainWindow(QMainWindow):
                     pass
 
             def _on_err(_err):
-                pass
+                self._ac_anim_stop(self.zxart_search_input)
 
             self._zxart_ac_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
@@ -13411,6 +13482,67 @@ class MainWindow(QMainWindow):
 
         _zxart_ac_timer.timeout.connect(_zxart_ac_trigger)
         self.zxart_search_input.textChanged.connect(_zxart_ac_on_text_changed)
+
+        # Tracks zxArt prefix fetches initiated externally (e.g. by the
+        # AllInOne pane) so we don't fire duplicate requests for the same
+        # prefix while one is already in flight.
+        self._zxart_ac_external_fetching: set = set()
+
+        def _zxart_ac_fetch_prefix(prefix: str):
+            """Fetch zxArt titles starting with *prefix* into the shared
+            _zxart_ac_cache.  Used by the AllInOne pane to prime suggestions
+            without touching the zxArt search input/completer."""
+            if not prefix:
+                return
+            if prefix in self._zxart_ac_cache:
+                cb = getattr(self, "_allinone_ac_notify", None)
+                if cb:
+                    try:
+                        cb("zxart", prefix)
+                    except Exception:
+                        pass
+                return
+            if prefix in self._zxart_ac_external_fetching:
+                return
+            self._zxart_ac_external_fetching.add(prefix)
+
+            def _fn():
+                entries, _total = zxart_client_search(prefix)
+                titles = sorted(
+                    {e["title"] for e in entries if e.get("title")},
+                    key=str.lower,
+                )
+                return (prefix, titles)
+
+            def _on_ok(result):
+                pfx, titles = result
+                self._zxart_ac_external_fetching.discard(pfx)
+                try:
+                    if len(self._zxart_ac_cache) >= 10:
+                        oldest = next(iter(self._zxart_ac_cache))
+                        del self._zxart_ac_cache[oldest]
+                    self._zxart_ac_cache[pfx] = titles
+                except Exception:
+                    pass
+                cb = getattr(self, "_allinone_ac_notify", None)
+                if cb:
+                    try:
+                        cb("zxart", pfx)
+                    except Exception:
+                        pass
+
+            def _on_err(_err):
+                self._zxart_ac_external_fetching.discard(prefix)
+                cb = getattr(self, "_allinone_ac_notify", None)
+                if cb:
+                    try:
+                        cb("zxart", prefix)
+                    except Exception:
+                        pass
+
+            getit_run_in_thread(_fn, _on_ok, _on_err)
+
+        self._zxart_ac_fetch_prefix = _zxart_ac_fetch_prefix
 
         def _zxart_ac_activated(selected: str):
             try:
@@ -14695,7 +14827,11 @@ class MainWindow(QMainWindow):
             if self._zxart_last_query:
                 return
             # Load latest productions on first activation
-            zxart_run_search("", 1)
+            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+            def _zxart_initial_done():
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART, self.zxart_results_table.rowCount())
+            zxart_run_search("", 1, _zxart_initial_done)
 
         self._zxart_on_tab_activated = zxart_on_tab_activated
 
@@ -15008,6 +15144,19 @@ class MainWindow(QMainWindow):
         )
         allinone_search_row.addWidget(self.allinone_random_button)
 
+        allinone_search_row.addWidget(QLabel("Page:"))
+        self.allinone_page_label = QLabel("1")
+        self.allinone_page_label.setMinimumWidth(24)
+        allinone_search_row.addWidget(self.allinone_page_label)
+
+        self.allinone_prev_button = QPushButton("< Prev")
+        self.allinone_prev_button.setEnabled(False)
+        allinone_search_row.addWidget(self.allinone_prev_button)
+
+        self.allinone_next_button = QPushButton("Next >")
+        self.allinone_next_button.setEnabled(False)
+        allinone_search_row.addWidget(self.allinone_next_button)
+
         self.allinone_status_label = QLabel("")
         allinone_search_row.addWidget(self.allinone_status_label, 1)
 
@@ -15044,6 +15193,11 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         self.allinone_gallery_view.cell_dbl_clicked.connect(_allinone_on_cell_dbl_clicked)
+
+        # Paging state for the AllInOne aggregated view (client-side paging).
+        self._allinone_all_entries = []
+        self._allinone_current_page = 1
+        self._allinone_total_pages = 1
 
         allinone_v.addWidget(self.allinone_gallery_view)
         zxnextunite_AllInOne_tab.setLayout(allinone_v)
@@ -15086,18 +15240,65 @@ class MainWindow(QMainWindow):
         def _allinone_repopulate():
             try:
                 entries = _allinone_collect()
-                self.allinone_gallery_view.populate(entries)
-                _allinone_update_tab_badge(len(entries))
+                # Cache the full merged list so prev/next can re-slice without
+                # re-aggregating, and keep page state coherent across reloads.
+                self._allinone_all_entries = entries
+                total = len(entries)
+                total_pages = max(1, (total + ALLINONE_PAGE_SIZE - 1) // ALLINONE_PAGE_SIZE)
+                # Clamp current page if the merged set shrank (e.g. fewer
+                # results after a new search).
+                cur = getattr(self, "_allinone_current_page", 1) or 1
+                if cur > total_pages:
+                    cur = total_pages
+                if cur < 1:
+                    cur = 1
+                self._allinone_current_page = cur
+                self._allinone_total_pages = total_pages
+                start = (cur - 1) * ALLINONE_PAGE_SIZE
+                end = start + ALLINONE_PAGE_SIZE
+                page_entries = entries[start:end]
+                self.allinone_gallery_view.populate(page_entries)
+                _allinone_update_tab_badge(total)
+                try:
+                    self.allinone_page_label.setText(str(cur))
+                    self.allinone_prev_button.setEnabled(cur > 1)
+                    self.allinone_next_button.setEnabled(cur < total_pages)
+                    self.allinone_status_label.setText(
+                        f"{total} result(s)  |  page {cur}/{total_pages}"
+                    )
+                except Exception:
+                    pass
             except Exception:
                 pass
 
         self._allinone_repopulate = _allinone_repopulate
+
+        # --- Paging handlers (client-side over the merged result list) ---
+        def allinone_on_prev():
+            cur = getattr(self, "_allinone_current_page", 1) or 1
+            if cur <= 1:
+                return
+            self._allinone_current_page = cur - 1
+            _allinone_repopulate()
+
+        def allinone_on_next():
+            cur = getattr(self, "_allinone_current_page", 1) or 1
+            total_pages = getattr(self, "_allinone_total_pages", 1) or 1
+            if cur >= total_pages:
+                return
+            self._allinone_current_page = cur + 1
+            _allinone_repopulate()
+
+        self.allinone_prev_button.clicked.connect(allinone_on_prev)
+        self.allinone_next_button.clicked.connect(allinone_on_next)
 
         # --- Search handler: always fan out to GetIt + ZXDB + zxArt ---
         def allinone_on_search():
             q = self.allinone_search_input.text().strip()
             if q and len(q) < SEARCH_MIN_CHARS:
                 return
+            # Reset paging on a new search so results start at page 1.
+            self._allinone_current_page = 1
             # Mirror the query into each source pane's input box so the
             # user can see/edit it there too.
             try:
@@ -15168,6 +15369,8 @@ class MainWindow(QMainWindow):
                 self.allinone_search_input.clear()
             except Exception:
                 pass
+            # Reset paging on a new random fetch so results start at page 1.
+            self._allinone_current_page = 1
             # Clear stale tab badges before kicking off the random fetches.
             try:
                 _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
@@ -15199,8 +15402,8 @@ class MainWindow(QMainWindow):
 
         self.allinone_random_button.clicked.connect(allinone_on_random)
 
-        # --- Autocomplete (reuse the GetIt title cache; it is the broadest
-        #     catalog already fetched in the background by the GetIt pane). ---
+        # --- Autocomplete (merge title suggestions from GetIt + ZXDB + zxArt
+        #     caches, triggering source-pane fetches on demand). ---
         self._allinone_ac_model = QStringListModel(self)
         _allinone_completer = QCompleter(self._allinone_ac_model, self)
         _allinone_completer.setCompletionMode(QCompleter.PopupCompletion)
@@ -15239,33 +15442,155 @@ class MainWindow(QMainWindow):
                 self._allinone_ac_model.setStringList([])
                 return
             tl = text.lower()
-            titles = getattr(self, "_getit_ac_titles", None) or []
-            matches = sorted(
-                (t for t in titles if t.lower().startswith(tl)),
-                key=str.lower,
-            )
+            merged: dict = {}  # lower-case title -> original (first seen)
+
+            # GetIt: full title cache, filter by prefix.
+            for t in (getattr(self, "_getit_ac_titles", None) or []):
+                if not t:
+                    continue
+                key = t.lower()
+                if key.startswith(tl) and key not in merged:
+                    merged[key] = t
+
+            # ZXDB: per-letter cache, filter by prefix.
+            zxdb_cache = getattr(self, "_zxdb_ac_cache", None) or {}
+            letter = tl[0]
+            for t in zxdb_cache.get(letter, []):
+                if not t:
+                    continue
+                key = t.lower()
+                if key.startswith(tl) and key not in merged:
+                    merged[key] = t
+
+            # zxArt: prefix cache (may be the exact prefix or a longer one
+            # that still covers the current text).
+            zxart_cache = getattr(self, "_zxart_ac_cache", None) or {}
+            best_pfx = None
+            for cached_prefix in zxart_cache.keys():
+                if tl.startswith(cached_prefix.lower()):
+                    if best_pfx is None or len(cached_prefix) > len(best_pfx):
+                        best_pfx = cached_prefix
+            if best_pfx is not None:
+                for t in zxart_cache.get(best_pfx, []):
+                    if not t:
+                        continue
+                    key = t.lower()
+                    if key.startswith(tl) and key not in merged:
+                        merged[key] = t
+
+            matches = sorted(merged.values(), key=str.lower)
             self._allinone_ac_model.setStringList(matches[:80])
             if matches:
                 QTimer.singleShot(0, lambda q=text: _allinone_safe_show_popup(q))
+
+        def _allinone_ac_notify(_source: str, _key: str):
+            """Called by GetIt / ZXDB / zxArt autocomplete fetchers once their
+            caches receive new data.  Refresh the AllInOne model so newly
+            arrived titles appear in the suggestion list."""
+            try:
+                text = self.allinone_search_input.text().strip()
+                if not text:
+                    return
+                if not self.allinone_search_input.hasFocus():
+                    # Still refresh the model so it's ready when focus returns.
+                    _allinone_ac_update_model(text)
+                    return
+                _allinone_ac_update_model(text)
+            except RuntimeError:
+                pass
+            except Exception:
+                pass
+            # Stop the placeholder animation once any source has responded
+            # and at least one cache is populated.
+            try:
+                if getattr(self, "_allinone_ac_waiting", False):
+                    any_data = (
+                        bool(getattr(self, "_getit_ac_titles", None))
+                        or bool(getattr(self, "_zxdb_ac_cache", None))
+                        or bool(getattr(self, "_zxart_ac_cache", None))
+                    )
+                    if any_data:
+                        self._ac_anim_stop(self.allinone_search_input)
+                        self._allinone_ac_waiting = False
+            except Exception:
+                pass
+
+        self._allinone_ac_notify = _allinone_ac_notify
 
         def _allinone_ac_on_text_changed(text: str):
             text = text.strip()
             if not text:
                 self._allinone_ac_model.setStringList([])
+                if getattr(self, "_allinone_ac_waiting", False):
+                    try:
+                        self._ac_anim_stop(self.allinone_search_input)
+                    except Exception:
+                        pass
+                    self._allinone_ac_waiting = False
                 return
-            # Kick off the GetIt title cache fetch on first use if needed.
-            try:
-                titles = getattr(self, "_getit_ac_titles", None) or []
-                if not titles:
-                    starter = globals().get("_getit_ac_start_fetch")
-                    if starter is None:
-                        starter = locals().get("_getit_ac_start_fetch")
-                    # Best-effort: the GetIt pane already exposes its own
-                    # text-changed handler that triggers a fetch; we cannot
-                    # call it directly here without a closure reference, so
-                    # rely on the cache being populated by GetIt usage.
-            except Exception:
-                pass
+
+            tl = text.lower()
+            need_fetch = False
+
+            # GetIt: prime full title cache once.
+            getit_titles = getattr(self, "_getit_ac_titles", None) or []
+            if not getit_titles and not getattr(self, "_getit_ac_loading", False):
+                starter = getattr(self, "_getit_ac_start_fetch", None)
+                if callable(starter):
+                    try:
+                        starter()
+                        need_fetch = True
+                    except Exception:
+                        pass
+            elif getattr(self, "_getit_ac_loading", False):
+                need_fetch = True
+
+            # ZXDB: prime the relevant per-letter cache.
+            if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                letter = tl[0]
+                zxdb_cache = getattr(self, "_zxdb_ac_cache", None) or {}
+                zxdb_fetching = getattr(self, "_zxdb_ac_fetching", None) or set()
+                if letter not in zxdb_cache and letter not in zxdb_fetching:
+                    fetcher = getattr(self, "_zxdb_ac_fetch_letter", None)
+                    if callable(fetcher):
+                        try:
+                            fetcher(letter)
+                            need_fetch = True
+                        except Exception:
+                            pass
+                elif letter in zxdb_fetching:
+                    need_fetch = True
+
+            # zxArt: prime a prefix fetch if none of the cached prefixes
+            # covers the current text.
+            if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                zxart_cache = getattr(self, "_zxart_ac_cache", None) or {}
+                covered = any(
+                    tl.startswith(p.lower()) for p in zxart_cache.keys()
+                )
+                zxart_inflight = (
+                    getattr(self, "_zxart_ac_external_fetching", None) or set()
+                )
+                already_fetching = any(
+                    tl.startswith(p.lower()) for p in zxart_inflight
+                )
+                if not covered and not already_fetching:
+                    fetcher = getattr(self, "_zxart_ac_fetch_prefix", None)
+                    if callable(fetcher):
+                        try:
+                            fetcher(text)
+                            need_fetch = True
+                        except Exception:
+                            pass
+                elif already_fetching:
+                    need_fetch = True
+
+            if need_fetch and not getattr(self, "_allinone_ac_waiting", False):
+                try:
+                    self._ac_anim_start(self.allinone_search_input)
+                    self._allinone_ac_waiting = True
+                except Exception:
+                    pass
             _allinone_ac_update_model(text)
 
         self.allinone_search_input.textChanged.connect(_allinone_ac_on_text_changed)
@@ -15996,6 +16321,88 @@ class MainWindow(QMainWindow):
             self._spinner_tabs.pop(base_title, None)
             if not self._spinner_tabs:
                 self._spinner_timer.stop()
+            # Reset the tab text so the last spinner frame doesn't linger.
+            # Callers that want a result badge will re-apply it via _set_tab_badge.
+            _clear_tab_badge(base_title)
+
+        # ---- Search-input placeholder animator (dancing "..." while an
+        # autocomplete cache fetch is running). Multiple concurrent fetches
+        # on the same input share the animation via a reference count.
+        _AC_ANIM_FRAMES = [
+            "...        ",
+            " ...       ",
+            "  ...      ",
+            "   ...     ",
+            "    ...    ",
+            "     ...   ",
+            "      ...  ",
+            "       ... ",
+            "      ...  ",
+            "     ...   ",
+            "    ...    ",
+            "   ...     ",
+            "  ...      ",
+            " ...       ",
+        ]
+        self._ac_anim_state: dict = {}     # id(widget) -> state dict
+        self._ac_anim_timer = QTimer(self)
+        self._ac_anim_timer.setInterval(120)
+
+        def _ac_anim_tick():
+            for state in list(self._ac_anim_state.values()):
+                w = state.get("widget")
+                if w is None:
+                    continue
+                try:
+                    frame = _AC_ANIM_FRAMES[state["frame"] % len(_AC_ANIM_FRAMES)]
+                    state["frame"] += 1
+                    w.setPlaceholderText(frame)
+                except RuntimeError:
+                    # Underlying C++ widget was destroyed; drop this entry.
+                    self._ac_anim_state.pop(id(w), None)
+                except Exception:
+                    pass
+            if not self._ac_anim_state:
+                self._ac_anim_timer.stop()
+
+        self._ac_anim_timer.timeout.connect(_ac_anim_tick)
+
+        def _ac_anim_start(widget):
+            if widget is None:
+                return
+            key = id(widget)
+            state = self._ac_anim_state.get(key)
+            if state is None:
+                try:
+                    original = widget.placeholderText()
+                except Exception:
+                    original = ""
+                state = {"widget": widget, "original": original,
+                         "refs": 0, "frame": 0}
+                self._ac_anim_state[key] = state
+            state["refs"] += 1
+            if not self._ac_anim_timer.isActive():
+                self._ac_anim_timer.start()
+
+        def _ac_anim_stop(widget):
+            if widget is None:
+                return
+            key = id(widget)
+            state = self._ac_anim_state.get(key)
+            if state is None:
+                return
+            state["refs"] -= 1
+            if state["refs"] <= 0:
+                try:
+                    widget.setPlaceholderText(state.get("original", ""))
+                except Exception:
+                    pass
+                self._ac_anim_state.pop(key, None)
+            if not self._ac_anim_state:
+                self._ac_anim_timer.stop()
+
+        self._ac_anim_start = _ac_anim_start
+        self._ac_anim_stop  = _ac_anim_stop
 
         def on_tab_changed(index):
             if self._initialising:
