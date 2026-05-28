@@ -2197,6 +2197,31 @@ _GETIT_INFLIGHT_SIGNALS = set()
 _GETIT_INFLIGHT_LOCK = threading.Lock()
 
 
+def _popup_height_for(popup, row_count: int, max_visible: int = 8,
+                      max_pixels: int = 320) -> int:
+    """Compute a completer popup height that fits *row_count* rows (capped at
+    *max_visible* rows / *max_pixels* px) using the view's actual row height,
+    so theme/stylesheet row metrics are respected and the list doesn't end up
+    showing just one row with a scrollbar."""
+    try:
+        row_h = popup.sizeHintForRow(0)
+    except Exception:
+        row_h = 0
+    if row_h <= 0:
+        try:
+            fm = popup.fontMetrics()
+            row_h = fm.height() + 6
+        except Exception:
+            row_h = 22
+    visible = max(1, min(max_visible, row_count))
+    frame = 0
+    try:
+        frame = 2 * popup.frameWidth()
+    except Exception:
+        pass
+    return min(max_pixels, row_h * visible + frame + 4)
+
+
 def getit_run_in_thread(fn, on_result, on_error):
     """Run *fn* in a daemon thread. Results are marshalled to the main thread
     via Qt queued signal connections, which are thread-safe.
@@ -8536,12 +8561,28 @@ class MainWindow(QMainWindow):
                 popup = _getit_completer.popup()
                 if popup is None:
                     return
+                # QCompleter's popup is a Qt::Popup window which on Windows
+                # performs an implicit keyboard+mouse grab, stealing focus
+                # from the line edit no matter what attributes we set.  Re-
+                # parent it as a Qt::Tool window with WindowDoesNotAcceptFocus
+                # so the OS never routes key events to it: the user can keep
+                # typing while the suggestion list stays visible.
+                try:
+                    popup.setParent(self.getit_search_input.window(),
+                                    Qt.Tool
+                                    | Qt.FramelessWindowHint
+                                    | Qt.WindowStaysOnTopHint
+                                    | Qt.WindowDoesNotAcceptFocus)
+                    popup.setFocusPolicy(Qt.NoFocus)
+                    popup.setAttribute(Qt.WA_ShowWithoutActivating, True)
+                except Exception:
+                    pass
                 le = self.getit_search_input
                 rect = le.rect()
                 pos = le.mapToGlobal(rect.bottomLeft())
                 popup.setMinimumWidth(le.width())
                 popup.move(pos)
-                popup.resize(le.width(), min(220, 22 * min(8, self._getit_ac_model.rowCount()) + 4))
+                popup.resize(le.width(), _popup_height_for(popup, self._getit_ac_model.rowCount()))
                 popup.show()
             except RuntimeError:
                 pass
@@ -8549,18 +8590,45 @@ class MainWindow(QMainWindow):
                 pass
 
         def _getit_ac_update_model(text: str):
-            """Filter the cached title list to those starting with *text*."""
+            """Filter the cached title list (off the UI thread) to those
+            starting with *text* and update the completer model.  The actual
+            filter+sort runs on a worker thread so typing remains responsive
+            even when the cached catalog grows to thousands of entries.  A
+            generation token is used to discard stale results that arrive
+            after the user has typed more characters."""
             if not text:
                 self._getit_ac_model.setStringList([])
                 return
+            self._getit_ac_filter_gen = getattr(self, "_getit_ac_filter_gen", 0) + 1
+            gen = self._getit_ac_filter_gen
+            # Snapshot the cache so the worker doesn't touch shared state.
+            titles_snapshot = list(self._getit_ac_titles or [])
             tl = text.lower()
-            matches = sorted(
-                (t for t in self._getit_ac_titles if t.lower().startswith(tl)),
-                key=str.lower,
-            )
-            self._getit_ac_model.setStringList(matches[:80])
-            if matches:
-                QTimer.singleShot(0, lambda q=text: _getit_safe_show_popup(q))
+
+            def _fn():
+                matches = sorted(
+                    (t for t in titles_snapshot if t.lower().startswith(tl)),
+                    key=str.lower,
+                )
+                return (gen, text, matches[:80])
+
+            def _on_ok(result):
+                rgen, rtext, matches = result
+                if rgen != getattr(self, "_getit_ac_filter_gen", -1):
+                    return
+                try:
+                    if self.getit_search_input.text().strip() != rtext:
+                        return
+                except RuntimeError:
+                    return
+                self._getit_ac_model.setStringList(matches)
+                if matches:
+                    QTimer.singleShot(0, lambda q=rtext: _getit_safe_show_popup(q))
+
+            def _on_err(_err):
+                pass
+
+            getit_run_in_thread(_fn, _on_ok, _on_err)
 
         def _getit_ac_populate_cache(titles: list):
             """Called on the main thread once the full-catalog fetch completes."""
@@ -8624,8 +8692,16 @@ class MainWindow(QMainWindow):
         # shared GetIt title cache and animate its own placeholder.
         self._getit_ac_start_fetch = _getit_ac_start_fetch
 
-        def _getit_ac_on_text_changed(text: str):
-            text = text.strip()
+        # Debounce typing so we don't dispatch a worker thread on every
+        # keystroke — pressing two letters in quick succession would
+        # otherwise queue two filter jobs.
+        _getit_ac_timer = QTimer(self)
+        _getit_ac_timer.setSingleShot(True)
+        _getit_ac_timer.setInterval(150)
+        self._getit_ac_timer = _getit_ac_timer
+
+        def _getit_ac_trigger():
+            text = self.getit_search_input.text().strip()
             if not text:
                 self._getit_ac_model.setStringList([])
                 return
@@ -8634,11 +8710,30 @@ class MainWindow(QMainWindow):
                 return
             _getit_ac_update_model(text)
 
+        _getit_ac_timer.timeout.connect(_getit_ac_trigger)
+
+        def _getit_ac_on_text_changed(_text: str):
+            # If the change was caused by selecting an item from the popup,
+            # don't re-open the popup — that would re-steal focus and trap
+            # the user (they couldn't even press Backspace afterwards).
+            if getattr(self, "_getit_ac_suppress", False):
+                self._getit_ac_suppress = False
+                return
+            _getit_ac_timer.start()
+
         self.getit_search_input.textChanged.connect(_getit_ac_on_text_changed)
 
         def _getit_ac_activated(selected: str):
             try:
                 if selected:
+                    # Suppress the textChanged-driven popup re-open caused by
+                    # setText below.  Also hide any currently-visible popup.
+                    self._getit_ac_suppress = True
+                    self._getit_ac_timer.stop()
+                    try:
+                        _getit_completer.popup().hide()
+                    except Exception:
+                        pass
                     self.getit_search_input.setText(selected)
             except Exception:
                 pass
@@ -10509,12 +10604,22 @@ class MainWindow(QMainWindow):
                 popup = _zxdb_completer.popup()
                 if popup is None:
                     return
+                try:
+                    popup.setParent(self.zxdb_search_input.window(),
+                                    Qt.Tool
+                                    | Qt.FramelessWindowHint
+                                    | Qt.WindowStaysOnTopHint
+                                    | Qt.WindowDoesNotAcceptFocus)
+                    popup.setFocusPolicy(Qt.NoFocus)
+                    popup.setAttribute(Qt.WA_ShowWithoutActivating, True)
+                except Exception:
+                    pass
                 le = self.zxdb_search_input
                 rect = le.rect()
                 pos = le.mapToGlobal(rect.bottomLeft())
                 popup.setMinimumWidth(le.width())
                 popup.move(pos)
-                popup.resize(le.width(), min(220, 22 * min(8, self._zxdb_ac_model.rowCount()) + 4))
+                popup.resize(le.width(), _popup_height_for(popup, self._zxdb_ac_model.rowCount()))
                 popup.show()
             except RuntimeError:
                 pass
@@ -10522,17 +10627,38 @@ class MainWindow(QMainWindow):
                 pass
 
         def _zxdb_ac_update_model(text: str):
-            """Filter cached letter titles to those starting with *text*."""
+            """Filter the cached per-letter titles to those starting with
+            *text* off the UI thread, then update the completer model."""
             if not text:
                 self._zxdb_ac_model.setStringList([])
                 return
             letter = text[0].lower()
-            cached = self._zxdb_ac_cache.get(letter, [])
+            cached_snapshot = list(self._zxdb_ac_cache.get(letter, []))
+            self._zxdb_ac_filter_gen = getattr(self, "_zxdb_ac_filter_gen", 0) + 1
+            gen = self._zxdb_ac_filter_gen
             tl = text.lower()
-            matches = [t for t in cached if t.lower().startswith(tl)]
-            self._zxdb_ac_model.setStringList(matches[:80])
-            if matches:
-                QTimer.singleShot(0, lambda q=text: _zxdb_safe_show_popup(q))
+
+            def _fn():
+                matches = [t for t in cached_snapshot if t.lower().startswith(tl)]
+                return (gen, text, matches[:80])
+
+            def _on_ok(result):
+                rgen, rtext, matches = result
+                if rgen != getattr(self, "_zxdb_ac_filter_gen", -1):
+                    return
+                try:
+                    if self.zxdb_search_input.text().strip() != rtext:
+                        return
+                except RuntimeError:
+                    return
+                self._zxdb_ac_model.setStringList(matches)
+                if matches:
+                    QTimer.singleShot(0, lambda q=rtext: _zxdb_safe_show_popup(q))
+
+            def _on_err(_err):
+                pass
+
+            getit_run_in_thread(_fn, _on_ok, _on_err)
 
         def _zxdb_ac_fetch_letter(letter: str):
             """Fetch all titles for *letter* via /games/byletter, cache, then refresh model."""
@@ -10625,6 +10751,9 @@ class MainWindow(QMainWindow):
                 _zxdb_ac_fetch_letter(letter)
 
         def _zxdb_ac_on_text_changed(_text: str):
+            if getattr(self, "_zxdb_ac_suppress", False):
+                self._zxdb_ac_suppress = False
+                return
             _zxdb_ac_timer.start()
 
         _zxdb_ac_timer.timeout.connect(_zxdb_ac_trigger)
@@ -10633,6 +10762,12 @@ class MainWindow(QMainWindow):
         def _zxdb_ac_activated(selected: str):
             try:
                 if selected:
+                    self._zxdb_ac_suppress = True
+                    _zxdb_ac_timer.stop()
+                    try:
+                        _zxdb_completer.popup().hide()
+                    except Exception:
+                        pass
                     self.zxdb_search_input.setText(selected)
             except Exception:
                 pass
@@ -13398,12 +13533,22 @@ class MainWindow(QMainWindow):
                     popup = _zxart_completer.popup()
                     if popup is None:
                         return
+                    try:
+                        popup.setParent(self.zxart_search_input.window(),
+                                        Qt.Tool
+                                        | Qt.FramelessWindowHint
+                                        | Qt.WindowStaysOnTopHint
+                                        | Qt.WindowDoesNotAcceptFocus)
+                        popup.setFocusPolicy(Qt.NoFocus)
+                        popup.setAttribute(Qt.WA_ShowWithoutActivating, True)
+                    except Exception:
+                        pass
                     le = self.zxart_search_input
                     rect = le.rect()
                     pos = le.mapToGlobal(rect.bottomLeft())
                     popup.setMinimumWidth(le.width())
                     popup.move(pos)
-                    popup.resize(le.width(), min(220, 22 * min(8, self._zxart_ac_model.rowCount()) + 4))
+                    popup.resize(le.width(), _popup_height_for(popup, self._zxart_ac_model.rowCount()))
                     popup.show()
                 except RuntimeError:
                     pass
@@ -13478,6 +13623,9 @@ class MainWindow(QMainWindow):
             self._zxart_ac_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
         def _zxart_ac_on_text_changed(_text: str):
+            if getattr(self, "_zxart_ac_suppress", False):
+                self._zxart_ac_suppress = False
+                return
             _zxart_ac_timer.start()
 
         _zxart_ac_timer.timeout.connect(_zxart_ac_trigger)
@@ -13547,6 +13695,12 @@ class MainWindow(QMainWindow):
         def _zxart_ac_activated(selected: str):
             try:
                 if selected:
+                    self._zxart_ac_suppress = True
+                    _zxart_ac_timer.stop()
+                    try:
+                        _zxart_completer.popup().hide()
+                    except Exception:
+                        pass
                     self.zxart_search_input.setText(selected)
             except Exception:
                 pass
@@ -15424,13 +15578,22 @@ class MainWindow(QMainWindow):
                 popup = _allinone_completer.popup()
                 if popup is None:
                     return
+                try:
+                    popup.setParent(self.allinone_search_input.window(),
+                                    Qt.Tool
+                                    | Qt.FramelessWindowHint
+                                    | Qt.WindowStaysOnTopHint
+                                    | Qt.WindowDoesNotAcceptFocus)
+                    popup.setFocusPolicy(Qt.NoFocus)
+                    popup.setAttribute(Qt.WA_ShowWithoutActivating, True)
+                except Exception:
+                    pass
                 le = self.allinone_search_input
                 rect = le.rect()
                 pos = le.mapToGlobal(rect.bottomLeft())
                 popup.setMinimumWidth(le.width())
                 popup.move(pos)
-                popup.resize(le.width(), min(
-                    220, 22 * min(8, self._allinone_ac_model.rowCount()) + 4))
+                popup.resize(le.width(), _popup_height_for(popup, self._allinone_ac_model.rowCount()))
                 popup.show()
             except RuntimeError:
                 pass
@@ -15441,47 +15604,73 @@ class MainWindow(QMainWindow):
             if not text:
                 self._allinone_ac_model.setStringList([])
                 return
+            self._allinone_ac_filter_gen = (
+                getattr(self, "_allinone_ac_filter_gen", 0) + 1
+            )
+            gen = self._allinone_ac_filter_gen
             tl = text.lower()
-            merged: dict = {}  # lower-case title -> original (first seen)
 
-            # GetIt: full title cache, filter by prefix.
-            for t in (getattr(self, "_getit_ac_titles", None) or []):
-                if not t:
-                    continue
-                key = t.lower()
-                if key.startswith(tl) and key not in merged:
-                    merged[key] = t
-
-            # ZXDB: per-letter cache, filter by prefix.
+            # Snapshot all three caches up-front (cheap shallow copies) so
+            # the worker thread doesn't touch shared state while the user
+            # keeps typing.
+            getit_snapshot = list(getattr(self, "_getit_ac_titles", None) or [])
             zxdb_cache = getattr(self, "_zxdb_ac_cache", None) or {}
             letter = tl[0]
-            for t in zxdb_cache.get(letter, []):
-                if not t:
-                    continue
-                key = t.lower()
-                if key.startswith(tl) and key not in merged:
-                    merged[key] = t
-
-            # zxArt: prefix cache (may be the exact prefix or a longer one
-            # that still covers the current text).
+            zxdb_snapshot = list(zxdb_cache.get(letter, []))
             zxart_cache = getattr(self, "_zxart_ac_cache", None) or {}
-            best_pfx = None
+            zxart_best_pfx = None
             for cached_prefix in zxart_cache.keys():
                 if tl.startswith(cached_prefix.lower()):
-                    if best_pfx is None or len(cached_prefix) > len(best_pfx):
-                        best_pfx = cached_prefix
-            if best_pfx is not None:
-                for t in zxart_cache.get(best_pfx, []):
+                    if (zxart_best_pfx is None
+                            or len(cached_prefix) > len(zxart_best_pfx)):
+                        zxart_best_pfx = cached_prefix
+            zxart_snapshot = (
+                list(zxart_cache.get(zxart_best_pfx, []))
+                if zxart_best_pfx is not None else []
+            )
+
+            def _fn():
+                merged: dict = {}  # lower-case title -> first-seen original
+                for t in getit_snapshot:
                     if not t:
                         continue
                     key = t.lower()
                     if key.startswith(tl) and key not in merged:
                         merged[key] = t
+                for t in zxdb_snapshot:
+                    if not t:
+                        continue
+                    key = t.lower()
+                    if key.startswith(tl) and key not in merged:
+                        merged[key] = t
+                for t in zxart_snapshot:
+                    if not t:
+                        continue
+                    key = t.lower()
+                    if key.startswith(tl) and key not in merged:
+                        merged[key] = t
+                matches = sorted(merged.values(), key=str.lower)
+                return (gen, text, matches[:80])
 
-            matches = sorted(merged.values(), key=str.lower)
-            self._allinone_ac_model.setStringList(matches[:80])
-            if matches:
-                QTimer.singleShot(0, lambda q=text: _allinone_safe_show_popup(q))
+            def _on_ok(result):
+                rgen, rtext, matches = result
+                if rgen != getattr(self, "_allinone_ac_filter_gen", -1):
+                    return
+                try:
+                    if self.allinone_search_input.text().strip() != rtext:
+                        return
+                except RuntimeError:
+                    return
+                self._allinone_ac_model.setStringList(matches)
+                if matches:
+                    QTimer.singleShot(
+                        0, lambda q=rtext: _allinone_safe_show_popup(q)
+                    )
+
+            def _on_err(_err):
+                pass
+
+            getit_run_in_thread(_fn, _on_ok, _on_err)
 
         def _allinone_ac_notify(_source: str, _key: str):
             """Called by GetIt / ZXDB / zxArt autocomplete fetchers once their
@@ -15517,7 +15706,14 @@ class MainWindow(QMainWindow):
 
         self._allinone_ac_notify = _allinone_ac_notify
 
-        def _allinone_ac_on_text_changed(text: str):
+        # Debounce typing so we don't fire cache priming + filter on every
+        # keystroke.
+        _allinone_ac_timer = QTimer(self)
+        _allinone_ac_timer.setSingleShot(True)
+        _allinone_ac_timer.setInterval(200)
+        self._allinone_ac_timer = _allinone_ac_timer
+
+        def _allinone_ac_do_work(text: str):
             text = text.strip()
             if not text:
                 self._allinone_ac_model.setStringList([])
@@ -15528,7 +15724,6 @@ class MainWindow(QMainWindow):
                         pass
                     self._allinone_ac_waiting = False
                 return
-
             tl = text.lower()
             need_fetch = False
 
@@ -15593,11 +15788,36 @@ class MainWindow(QMainWindow):
                     pass
             _allinone_ac_update_model(text)
 
+        def _allinone_ac_trigger():
+            try:
+                text = self.allinone_search_input.text()
+            except RuntimeError:
+                return
+            _allinone_ac_do_work(text)
+
+        _allinone_ac_timer.timeout.connect(_allinone_ac_trigger)
+
+        def _allinone_ac_on_text_changed(_text: str):
+            # Clear the model immediately when the box is emptied so a stale
+            # popup doesn't linger while the debounce timer is still pending.
+            if not _text.strip():
+                self._allinone_ac_model.setStringList([])
+            if getattr(self, "_allinone_ac_suppress", False):
+                self._allinone_ac_suppress = False
+                return
+            _allinone_ac_timer.start()
+
         self.allinone_search_input.textChanged.connect(_allinone_ac_on_text_changed)
 
         def _allinone_ac_activated(selected: str):
             try:
                 if selected:
+                    self._allinone_ac_suppress = True
+                    _allinone_ac_timer.stop()
+                    try:
+                        _allinone_completer.popup().hide()
+                    except Exception:
+                        pass
                     self.allinone_search_input.setText(selected)
             except Exception:
                 pass
