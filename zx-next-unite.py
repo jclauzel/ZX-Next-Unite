@@ -297,7 +297,7 @@ from PySide6.QtWidgets import (
 
 import rc_backgrounds
 
-ZX_NEXT_UNITE_VERSION = "6.3"
+ZX_NEXT_UNITE_VERSION = "6.4"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -423,6 +423,90 @@ ZXART_LEGAL_STATUS_LABELS = {
     "allowed":     "Distribution allowed",
 }
 ZXART_LEGAL_STATUS_CACHE = dict(ZXART_LEGAL_STATUS_LABELS)
+
+
+# ----------------------------------------------------------------------
+# Custom completer that stays in sync with the main window.
+# ----------------------------------------------------------------------
+from PySide6.QtWidgets import QCompleter, QWidget
+from PySide6.QtCore import Qt, QEvent, QObject, QTimer, QMargins
+from PySide6.QtGui import QCursor
+
+
+# class _MovableCompleter(QCompleter):
+#     """
+#     A tiny wrapper around QCompleter that ensures its popup
+#     window stays attached to the main window and is repositioned
+#     whenever the main window is moved.
+
+#     The fix works by:
+#       * Using a custom QCompleter instance that tracks its last\n
+#         `QWidget.showEvent` call.
+#       * Listening to QApplication.topLevelChanged or the\n
+#         main window's `moveEvent` to reposition the popup.
+
+#     This addresses the PySide6 bug where the auto‑generated\n
+#     QCompleter popups are created with Qt.ToolTip flags and\n    become independent windows.
+#     """
+#     def __init__(self, parent=None):
+#         super().__init__(parent)
+#         self._popup = None
+#         self._track_parent = parent is not None
+#         self._last_parent_win = None
+
+#     def _reposition_popup(self):
+#         if not self.popup().isVisible():
+#             return
+#         # Grab the line edit's geometry in global screen coordinates
+#         line_edit = self.parent()
+#         if line_edit is None:
+#             return
+#         # Position popup just below the line edit.
+#         pos = line_edit.mapToGlobal(line_edit.rect().bottomLeft())
+#         # The popup itself might be top‑level (Qt.ToolTip), we make it child
+#         # of the current active window if possible.
+#         parent_win = QGuiApplication.activeWindow()
+#         if parent_win:
+#             self.popup().setParent(parent_win, Qt.WindowFlags(parent_win.windowFlags() | Qt.Widget))
+#         # Move the popup manually (this forces relayout)
+#         self.popup().move(pos)
+
+#     def showPopup(self):
+#         super().showPopup()
+#         # Qt may have already positioned it wrongly; enforce relayout
+#         QTimer.singleShot(0, self._reposition_popup)
+
+#     def setWidget(self, w):
+#         """
+#         Hook into the widget where the completer gets attached.
+#         """
+#         super().setWidget(w)
+#         # Make sure the popup is correctly parented if the widget changes
+#         QTimer.singleShot(0, self._reposition_popup)
+
+
+# def _ensure_completer_is_movable(completer: QCompleter):
+#     """
+#     Replaces the standard QCompleter with our wrapper if needed.
+#     """
+#     if isinstance(completer, _MovableCompleter):
+#         return  # already fixed
+#     # Store configuration of the old completer
+#     model = completer.completerModel() if hasattr(completer, "completerModel") else completer.model()
+#     completion_mode = completer.completionMode()
+#     popup_visible = completer.popup().isVisible()
+#     # Create the new custom completer
+#     fixed = _MovableCompleter(completer.parent())
+#     fixed.setModel(model)
+#     fixed.setCompletionMode(completion_mode)
+#     # Replace the completer on the line edit
+#     fixed.setWidget(completer.parent())
+#     if popup_visible:
+#         # Re‑show the popup if it was visible already
+#         fixed.popup().show()
+#     return fixed
+
+
 
 def resource_path(relative_path):
     if hasattr(sys, "_MEIPASS"):
@@ -1698,6 +1782,11 @@ def zxart_fetch_bytes(url: str, timeout: int = 30) -> bytes:
 
 # Process-level caches for zxArt author / group name lookups.
 # The API answers one entity per call, so we memoize to avoid re-querying.
+# These dicts are read from the UI thread (table population) and written from
+# background worker threads (prefetch / progressive resolve), so every access
+# is guarded by _ZXART_NAME_CACHE_LOCK to make check-then-set atomic and avoid
+# data races. All caches are kept entirely in memory for the process lifetime.
+_ZXART_NAME_CACHE_LOCK = threading.RLock()
 _ZXART_AUTHOR_NAME_CACHE: dict = {}
 _ZXART_GROUP_NAME_CACHE:  dict = {}
 _ZXART_PUBLISHER_NAME_CACHE: dict = {}
@@ -1716,8 +1805,9 @@ def _zxart_resolve_author_name(author_id) -> str:
         key = int(author_id)
     except (TypeError, ValueError):
         return str(author_id)
-    if key in _ZXART_AUTHOR_NAME_CACHE:
-        return _ZXART_AUTHOR_NAME_CACHE[key]
+    with _ZXART_NAME_CACHE_LOCK:
+        if key in _ZXART_AUTHOR_NAME_CACHE:
+            return _ZXART_AUTHOR_NAME_CACHE[key]
     name = ""
     try:
         resp = zxart_fetch_json(f"/export:author/filter:authorId={key}/")
@@ -1726,7 +1816,8 @@ def _zxart_resolve_author_name(author_id) -> str:
             name = str(rows[0].get("title") or "")
     except Exception:
         name = ""
-    _ZXART_AUTHOR_NAME_CACHE[key] = name
+    with _ZXART_NAME_CACHE_LOCK:
+        _ZXART_AUTHOR_NAME_CACHE[key] = name
     return name
 
 
@@ -1743,8 +1834,9 @@ def _zxart_resolve_group_name(group_id) -> str:
         key = int(group_id)
     except (TypeError, ValueError):
         return str(group_id)
-    if key in _ZXART_GROUP_NAME_CACHE:
-        return _ZXART_GROUP_NAME_CACHE[key]
+    with _ZXART_NAME_CACHE_LOCK:
+        if key in _ZXART_GROUP_NAME_CACHE:
+            return _ZXART_GROUP_NAME_CACHE[key]
     name = ""
     try:
         resp = zxart_fetch_json(f"/export:group/filter:groupId={key}/")
@@ -1753,7 +1845,8 @@ def _zxart_resolve_group_name(group_id) -> str:
             name = str(rows[0].get("title") or "")
     except Exception:
         name = ""
-    _ZXART_GROUP_NAME_CACHE[key] = name
+    with _ZXART_NAME_CACHE_LOCK:
+        _ZXART_GROUP_NAME_CACHE[key] = name
     return name
 
 
@@ -1828,8 +1921,9 @@ def _zxart_scrape_publishers_from_prod_url(prod_url: str) -> str:
     elif "/rus/" in url:
         url = url.replace("/rus/", "/eng/")
     cache_key = ("prod_url", url)
-    if cache_key in _ZXART_PUBLISHER_NAME_CACHE:
-        return _ZXART_PUBLISHER_NAME_CACHE[cache_key]
+    with _ZXART_NAME_CACHE_LOCK:
+        if cache_key in _ZXART_PUBLISHER_NAME_CACHE:
+            return _ZXART_PUBLISHER_NAME_CACHE[cache_key]
     name = ""
     try:
         html = _http_fetch_bytes_with_retry(
@@ -1845,7 +1939,8 @@ def _zxart_scrape_publishers_from_prod_url(prod_url: str) -> str:
             name = m.group(1).strip()
     except Exception:
         name = ""
-    _ZXART_PUBLISHER_NAME_CACHE[cache_key] = name
+    with _ZXART_NAME_CACHE_LOCK:
+        _ZXART_PUBLISHER_NAME_CACHE[cache_key] = name
     return name
 
 
@@ -1867,8 +1962,9 @@ def _zxart_resolve_publishers_via_zxdb(title: str, year: str = "") -> str:
         return ""
     y = str(year or "").strip()
     cache_key = ("zxdb_title", t.lower(), y)
-    if cache_key in _ZXART_PUBLISHER_NAME_CACHE:
-        return _ZXART_PUBLISHER_NAME_CACHE[cache_key]
+    with _ZXART_NAME_CACHE_LOCK:
+        if cache_key in _ZXART_PUBLISHER_NAME_CACHE:
+            return _ZXART_PUBLISHER_NAME_CACHE[cache_key]
     name = ""
     try:
         q = urllib.parse.quote(t)
@@ -1898,7 +1994,8 @@ def _zxart_resolve_publishers_via_zxdb(title: str, year: str = "") -> str:
                     break
     except Exception:
         name = ""
-    _ZXART_PUBLISHER_NAME_CACHE[cache_key] = name
+    with _ZXART_NAME_CACHE_LOCK:
+        _ZXART_PUBLISHER_NAME_CACHE[cache_key] = name
     return name
 
 
@@ -1909,6 +2006,10 @@ def _zxart_prefetch_names_for_entries(entries):
     a page of results.  That way :func:`_zxart_table_author_col` only hits
     the in-memory cache when it runs on the UI thread, keeping the UI smooth.
 
+    This warms the *entire* resolution chain used by the author/group table
+    column — group ids, publisher ids, and the HTML scrape fallback — so the
+    UI thread never performs a network request while populating the table.
+
     Picture entries are skipped because their author field is already a plain
     string and they don't use group / publisher IDs.
     """
@@ -1917,11 +2018,123 @@ def _zxart_prefetch_names_for_entries(entries):
         kind = (e.get("_kind") or "").lower()
         if kind == "zxart_picture":
             continue
-        if not src.get("groups"):
-            for gid in (src.get("groupsIds") or []):
-                _zxart_resolve_group_name(gid)
-        for pid in (src.get("publishersIds") or []):
-            _zxart_resolve_publisher_name(pid)
+        # 1. Groups (drives "Produced by").
+        groups = [str(g) for g in (src.get("groups") or []) if g]
+        if not groups:
+            groups = [n for n in [_zxart_resolve_group_name(gid)
+                                  for gid in (src.get("groupsIds") or [])] if n]
+        # 2. Publishers (drives "Published by"); resolve ids then, if still
+        #    empty, warm the HTML scrape fallback so the UI thread won't block.
+        pub_ids = src.get("publishersIds") or []
+        published_by = _zxart_resolve_publisher_names(pub_ids)
+        if not published_by:
+            _zxart_scrape_publishers_from_prod_url(str(src.get("url") or ""))
+
+
+# ---------------------------------------------------------------------------
+# Cache-only (non-blocking) zxArt name resolution.
+#
+# The functions above may perform a network request on a cold cache.  The UI
+# thread must never do that, so the helpers below ONLY consult the in-memory
+# caches and return None on a miss.  Callers running on the GUI thread use
+# these to render immediately and schedule a background warm-up if needed.
+# ---------------------------------------------------------------------------
+
+def _zxart_cached_group_name(group_id):
+    """Return the cached group title, or None if not yet resolved."""
+    if group_id in (None, "", 0, "0"):
+        return ""
+    try:
+        key = int(group_id)
+    except (TypeError, ValueError):
+        return str(group_id)
+    with _ZXART_NAME_CACHE_LOCK:
+        return _ZXART_GROUP_NAME_CACHE.get(key)
+
+
+def _zxart_cached_publisher_name(publisher_id):
+    """Return the cached publisher title (group namespace), or None on miss."""
+    if publisher_id in (None, "", 0, "0"):
+        return ""
+    try:
+        key = int(publisher_id)
+    except (TypeError, ValueError):
+        return str(publisher_id)
+    with _ZXART_NAME_CACHE_LOCK:
+        return _ZXART_GROUP_NAME_CACHE.get(key)
+
+
+def _zxart_cached_scraped_publisher(prod_url: str):
+    """Return the cached scraped publisher for *prod_url*, or None on miss."""
+    if not prod_url:
+        return ""
+    url = str(prod_url)
+    if "/rus/soft/" in url:
+        url = url.replace("/rus/soft/", "/eng/software/")
+    elif "/rus/" in url:
+        url = url.replace("/rus/", "/eng/")
+    with _ZXART_NAME_CACHE_LOCK:
+        return _ZXART_PUBLISHER_NAME_CACHE.get(("prod_url", url))
+
+
+def _zxart_author_col_cached(e):
+    """Cache-only version of the table's author/group column.
+
+    Returns a tuple ``(text, complete)``:
+      * ``text``     — the best string we can build from in-memory caches.
+      * ``complete`` — True if every required name was already cached (so no
+        background warm-up is needed); False if a network lookup is still
+        pending (the caller should warm the cache off the UI thread and then
+        refresh the cell).
+
+    This function performs NO network I/O and is safe to call on the GUI
+    thread while populating a results table.
+    """
+    src  = e.get("_source") or {}
+    kind = (e.get("_kind") or "").lower()
+    if kind == "zxart_picture":
+        return (e.get("author", ""), True)
+
+    complete = True
+
+    # 1. Groups -> "Produced by".
+    groups = [str(g) for g in (src.get("groups") or []) if g]
+    if not groups:
+        for gid in (src.get("groupsIds") or []):
+            name = _zxart_cached_group_name(gid)
+            if name is None:
+                complete = False
+            elif name:
+                groups.append(name)
+    produced_by = ", ".join(groups)
+
+    # 2. Authors (direct strings) when there are no groups.
+    if not produced_by:
+        authors = [str(a) for a in (src.get("authors") or []) if a]
+        if authors:
+            return (", ".join(authors), True)
+
+    # 3. Publishers -> "Published by".
+    published_by_parts = []
+    for pid in (src.get("publishersIds") or []):
+        name = _zxart_cached_publisher_name(pid)
+        if name is None:
+            complete = False
+        elif name:
+            published_by_parts.append(name)
+    published_by = ", ".join(published_by_parts)
+    if not published_by:
+        scraped = _zxart_cached_scraped_publisher(str(src.get("url") or ""))
+        if scraped is None:
+            complete = False
+        elif scraped:
+            published_by = scraped
+
+    parts = []
+    if produced_by:  parts.append(f"Produced by: {produced_by}")
+    if published_by: parts.append(f"Published by: {published_by}")
+    text = " · ".join(parts) if parts else e.get("author", "")
+    return (text, complete)
 
 
 def zxart_parse_prod_list(response: dict) -> tuple:
@@ -2767,6 +2980,9 @@ def zxscr_url_is_scr(url) -> bool:
 
 
 # In-memory cache: url/base_name -> QPixmap (avoids repeated decoding)
+# Guarded by a lock because it is populated from background worker threads
+# (SCR byte conversion) and read from the GUI thread (extra-fetch callbacks).
+_ZXSCR_PIXMAP_CACHE_LOCK = threading.RLock()
 _ZXSCR_PIXMAP_CACHE: dict = {}
 
 
@@ -2788,14 +3004,16 @@ def zxscr_convert_bytes_to_pixmap(data: bytes, base_name: str):
     Returns a QPixmap or None on failure."""
     if not zxscr_is_screen_bytes(data):
         return None
-    cached = _ZXSCR_PIXMAP_CACHE.get(base_name)
+    with _ZXSCR_PIXMAP_CACHE_LOCK:
+        cached = _ZXSCR_PIXMAP_CACHE.get(base_name)
     if cached is not None:
         return cached
     try:
         img = ZxSpectrumScreen(data).to_qimage()
         pm = QPixmap.fromImage(img)
         if not pm.isNull():
-            _ZXSCR_PIXMAP_CACHE[base_name] = pm
+            with _ZXSCR_PIXMAP_CACHE_LOCK:
+                _ZXSCR_PIXMAP_CACHE[base_name] = pm
         return pm
     except Exception:
         return None
@@ -4497,6 +4715,15 @@ class BackgroundWidget(QWidget):
             painter.setOpacity(self._bg_opacity / 100.0)
             painter.drawPixmap(self.rect(), self._bg_pixmap)
 
+def _apply_completer_fix_to_children(widget: QWidget):
+    for child in widget.findChildren(QWidget):
+        # If the child itself uses a completer, replace it
+        if isinstance(child, QLineEdit):
+            comp = child.completer()
+            if comp is not None:
+                _ensure_completer_is_movable(comp)
+        # Recursively patch deeper levels
+        _apply_completer_fix_to_children(child)
 
 class MainWindow(QMainWindow):
 
@@ -8136,6 +8363,7 @@ class MainWindow(QMainWindow):
                 px = QPixmap(path)
                 try: os.unlink(path)
                 except Exception: pass
+                # Suppress libpng warnings for malformed PNGs
                 if px.isNull():
                     _make_placeholder()
                     return
@@ -8294,6 +8522,8 @@ class MainWindow(QMainWindow):
         getit_detail_container = QWidget()
         getit_detail_container.setLayout(getit_detail_outer)
         self.getit_form.addRow(getit_detail_container)
+
+
 
         # --- MOTD ---
 
@@ -8545,6 +8775,14 @@ class MainWindow(QMainWindow):
         _getit_completer.setCompletionMode(QCompleter.PopupCompletion)
         _getit_completer.setCaseSensitivity(Qt.CaseInsensitive)
         _getit_completer.setFilterMode(Qt.MatchStartsWith)
+        #_ensure_completer_is_movable(_getit_completer)
+        # Ensure the popup follows the main window on Windows
+        popup = _getit_completer.popup()
+        if popup is not None:
+            popup.setParent(self)
+            popup.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.Window)
+            popup.setAttribute(Qt.WA_ShowWithoutActivating)
+            
         self._getit_completer = _getit_completer
         self.getit_search_input.setCompleter(_getit_completer)
 
@@ -10583,6 +10821,12 @@ class MainWindow(QMainWindow):
         _zxdb_completer.setCompletionMode(QCompleter.PopupCompletion)
         _zxdb_completer.setCaseSensitivity(Qt.CaseInsensitive)
         _zxdb_completer.setFilterMode(Qt.MatchStartsWith)
+        # Ensure the popup follows the main window on Windows
+        popup = _zxdb_completer.popup()
+        if popup is not None:
+            popup.setParent(self)
+            popup.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+            popup.setAttribute(Qt.WA_ShowWithoutActivating)
         self._zxdb_completer = _zxdb_completer
         self.zxdb_search_input.setCompleter(_zxdb_completer)
 
@@ -12445,7 +12689,13 @@ class MainWindow(QMainWindow):
             return " · ".join(parts)
 
         def _zxart_fav_table_info(e):
-            """Richer info string for the Favorites table: resolves Produced by / Published by."""
+            """Richer info string for the Favorites table / gallery: resolves
+            Produced by / Published by.
+
+            Runs on the UI thread, so it must NOT perform any network I/O. It
+            reads only the in-memory caches; on a cold cache it returns a
+            best-effort string and schedules a background warm-up so the value
+            improves on the next repopulate."""
             src  = e.get("_source") or {}
             kind = (e.get("_kind") or "").lower()
             if kind == "zxart_picture" or not src:
@@ -12454,23 +12704,18 @@ class MainWindow(QMainWindow):
                 if e.get("author"): parts.append(str(e["author"]))
                 if e.get("year"):   parts.append(str(e["year"]))
                 return " · ".join(parts)
-            groups = [str(g) for g in (src.get("groups") or []) if g]
-            if not groups:
-                groups = [n for n in [_zxart_resolve_group_name(gid)
-                                      for gid in (src.get("groupsIds") or [])] if n]
-            produced_by = ", ".join(groups)
-            pub_ids = src.get("publishersIds") or []
-            published_by = _zxart_resolve_publisher_names(pub_ids)
-            if not published_by:
-                published_by = _zxart_scrape_publishers_from_prod_url(str(src.get("url") or ""))
+            text, complete = _zxart_author_col_cached(e)
+            if not complete:
+                # Warm the caches off the UI thread; no cell handle to refresh
+                # here, so the resolved value surfaces on the next repopulate.
+                getit_run_in_thread(
+                    lambda _e=e: _zxart_prefetch_names_for_entries([_e]),
+                    lambda _r: None, lambda _err: None)
+            if text:
+                return text
             parts = []
-            if produced_by:
-                parts.append(f"Produced by: {produced_by}")
-            if published_by:
-                parts.append(f"Published by: {published_by}")
-            if not parts:
-                if e.get("author"): parts.append(str(e["author"]))
-                if e.get("year"):   parts.append(str(e["year"]))
+            if e.get("author"): parts.append(str(e["author"]))
+            if e.get("year"):   parts.append(str(e["year"]))
             return " · ".join(parts)
 
         def _zxart_table_author_col(e):
@@ -13029,7 +13274,63 @@ class MainWindow(QMainWindow):
 
                 getit_run_in_thread(_dl_and_put, _ok, _err)
 
+        # Generation token: bumped on every table (re)population so that a
+        # late-arriving background author-column resolve for a previous page
+        # is ignored instead of writing into a now-stale table.
+        self._zxart_populate_gen = 0
+
+        def _zxart_resolve_author_cols_async(pending_rows):
+            """Warm the zxArt name caches for *pending_rows* off the UI thread,
+            then refresh the matching table cells on the UI thread.
+
+            *pending_rows* is a list of ``(id_item, entry)`` tuples. The
+            id_item carries the entry on Qt.UserRole and is only used to read
+            the row id; the refresh re-locates rows by id so it stays correct
+            even if Qt reordered or partially rebuilt the table.
+            """
+            gen = self._zxart_populate_gen
+            entries = [e for (_it, e) in pending_rows]
+
+            def _fn():
+                # Network-backed warm-up of the in-memory caches. Safe here:
+                # this runs on a daemon worker thread, never the GUI thread.
+                _zxart_prefetch_names_for_entries(entries)
+                # Recompute the final (now cache-complete) strings.
+                return [(str(e.get("id", "")), _zxart_author_col_cached(e)[0])
+                        for e in entries]
+
+            def _ok(results):
+                # Back on the GUI thread (queued connection). Drop the update
+                # if a newer population happened in the meantime.
+                if gen != self._zxart_populate_gen:
+                    return
+                try:
+                    tbl = self.zxart_results_table
+                except RuntimeError:
+                    return
+                by_id = {rid: txt for (rid, txt) in results}
+                try:
+                    row_count = tbl.rowCount()
+                except RuntimeError:
+                    return
+                for row in range(row_count):
+                    id_item = tbl.item(row, 0)
+                    if id_item is None:
+                        continue
+                    rid = id_item.text()
+                    txt = by_id.get(rid)
+                    if not txt:
+                        continue
+                    cell = tbl.item(row, 3)
+                    if cell is not None:
+                        cell.setText(txt)
+                    else:
+                        tbl.setItem(row, 3, QTableWidgetItem(txt))
+
+            getit_run_in_thread(_fn, _ok, lambda _e: None)
+
         def zxart_populate_results(entries, page, total_pages, mode="prods"):
+            self._zxart_populate_gen += 1
             self._zxart_current_page = page or 1
             self._zxart_total_pages  = total_pages or 1
             self._zxart_results_mode = mode
@@ -13047,6 +13348,7 @@ class MainWindow(QMainWindow):
             )
 
             self.zxart_results_table.setRowCount(0)
+            _pending_author_rows = []
             for e in entries:
                 row = self.zxart_results_table.rowCount()
                 self.zxart_results_table.insertRow(row)
@@ -13055,10 +13357,20 @@ class MainWindow(QMainWindow):
                 self.zxart_results_table.setItem(row, 0, id_item)
                 self.zxart_results_table.setItem(row, 1, QTableWidgetItem(e.get("title", "")))
                 self.zxart_results_table.setItem(row, 2, QTableWidgetItem(e.get("year", "")))
-                self.zxart_results_table.setItem(row, 3, QTableWidgetItem(_zxart_table_author_col(e)))
+                # Author / group column: resolve from the in-memory caches only
+                # (never block the UI thread on a network call). If the cache
+                # is cold, show the best-effort text now and warm the cache in
+                # a background thread, then refresh the cell when it lands.
+                author_text, complete = _zxart_author_col_cached(e)
+                author_item = QTableWidgetItem(author_text)
+                self.zxart_results_table.setItem(row, 3, author_item)
+                if not complete:
+                    _pending_author_rows.append((id_item, e))
                 self.zxart_results_table.setItem(row, 4, QTableWidgetItem(e.get("machine", "")))
                 self.zxart_results_table.setItem(row, 5, QTableWidgetItem(e.get("genre", "")))
             self._zxart_last_entries = list(entries)
+            if _pending_author_rows:
+                _zxart_resolve_author_cols_async(_pending_author_rows)
             self.zxart_gallery_view.populate(entries)
             self.zxart_gallery_view.select_entry(
                 lambda _e, _sel=self._zxart_selected_id: bool(_sel) and _e.get("id") == _sel
@@ -13480,6 +13792,12 @@ class MainWindow(QMainWindow):
         _zxart_completer.setCompletionMode(QCompleter.PopupCompletion)
         _zxart_completer.setCaseSensitivity(Qt.CaseInsensitive)
         _zxart_completer.setFilterMode(Qt.MatchStartsWith)
+        # Ensure the popup follows the main window on Windows
+        popup = _zxart_completer.popup()
+        if popup is not None:
+            popup.setParent(self)
+            popup.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+            popup.setAttribute(Qt.WA_ShowWithoutActivating)
         self._zxart_completer = _zxart_completer
         self.zxart_search_input.setCompleter(_zxart_completer)
 
@@ -15357,12 +15675,12 @@ class MainWindow(QMainWindow):
         zxnextunite_AllInOne_tab.setLayout(allinone_v)
         zxnextunite_AllInOne_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_ALLINONE
 
-        # Insert AllInOne *before* Favorites in the tab bar.
-        _fav_tab_index = wid_inner.tab.indexOf(zxnextunite_Favorites_tab)
-        if _fav_tab_index < 0:
-            _fav_tab_index = wid_inner.tab.count()
+        # Insert AllInOne *before* GetIt in the tab bar.
+        _getit_tab_index = wid_inner.tab.indexOf(zxnextunite_GetIt_tab)
+        if _getit_tab_index < 0:
+            _getit_tab_index = wid_inner.tab.count()
         wid_inner.tab.insertTab(
-            _fav_tab_index, zxnextunite_AllInOne_tab,
+            _getit_tab_index, zxnextunite_AllInOne_tab,
             f"{ZX_NEXT_UNITE_TAB_TITLE_ALLINONE} (0)"
         )
 
@@ -15563,6 +15881,12 @@ class MainWindow(QMainWindow):
         _allinone_completer.setCompletionMode(QCompleter.PopupCompletion)
         _allinone_completer.setCaseSensitivity(Qt.CaseInsensitive)
         _allinone_completer.setFilterMode(Qt.MatchStartsWith)
+        # Ensure the popup follows the main window on Windows
+        popup = _allinone_completer.popup()
+        if popup is not None:
+            popup.setParent(self)
+            popup.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+            popup.setAttribute(Qt.WA_ShowWithoutActivating)
         self._allinone_completer = _allinone_completer
         self.allinone_search_input.setCompleter(_allinone_completer)
 
@@ -16627,6 +16951,19 @@ class MainWindow(QMainWindow):
         def on_tab_changed(index):
             if self._initialising:
                 return
+            # Close any open completer popup so it doesn't linger after the
+            # user switches to a different pane.
+            for _c in (
+                getattr(self, "_getit_completer",    None),
+                getattr(self, "_zxdb_completer",     None),
+                getattr(self, "_zxart_completer",    None),
+                getattr(self, "_allinone_completer", None),
+            ):
+                if _c is not None:
+                    try:
+                        _c.popup().hide()
+                    except Exception:
+                        pass
             # If any pane is currently in fullscreen mode (stack index 1),
             # dismiss it before activating the new tab so the user always
             # lands on the gallery view of the destination pane.
