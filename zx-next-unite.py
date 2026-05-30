@@ -287,6 +287,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTabBar,
     QTabWidget,
     QTextBrowser,
     QToolButton,
@@ -314,11 +315,11 @@ ZX_NEXT_UNITE_CONFIG_FILE_NAME = os.path.join(os.path.dirname(os.path.abspath(sy
 ZX_NEXT_UNITE_TAB_TITLE_GOOEY = "TOOL: zx-next-unite - SD Card Utility"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "TOOL: NextSync - Network Transfer Manager"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC_SYNCON = "NextSync - Sync ON"
-ZX_NEXT_UNITE_TAB_TITLE_GETIT = "ONLINE: GetIt"
-ZX_NEXT_UNITE_TAB_TITLE_ZXDB  = "ONLINE: ZXDB/ZXinfo.dk"
-ZX_NEXT_UNITE_TAB_TITLE_ZXART = "ONLINE: ZXArt.ee"
-ZX_NEXT_UNITE_TAB_TITLE_FAVORITES = "ONLINE: ♥ Favorites"
-ZX_NEXT_UNITE_TAB_TITLE_ALLINONE  = "ONLINE: Unite! (AllInOne)"
+ZX_NEXT_UNITE_TAB_TITLE_GETIT = "🌍 GetIt"
+ZX_NEXT_UNITE_TAB_TITLE_ZXDB  = "🌍 ZXDB/ZXinfo.dk"
+ZX_NEXT_UNITE_TAB_TITLE_ZXART = "🌍 ZXArt.ee"
+ZX_NEXT_UNITE_TAB_TITLE_FAVORITES = "🌍 ♥ Favorites"
+ZX_NEXT_UNITE_TAB_TITLE_ALLINONE  = "🌍 Unite!"
 
 GETIT_BASE_URL = "https://zxnext.uk"
 GETIT_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
@@ -7828,6 +7829,30 @@ class MainWindow(QMainWindow):
         self._tab_widget = wid_inner.tab
         grid_inner.addWidget(wid_inner.tab)
 
+        # ---- Initialize AllInOne tab color cycling timer early ----
+        _ALLINONE_COLORS = [QColor('red'), QColor('#FFD700'),
+                            QColor('green'), QColor('blue')]  # Red, Yellow, Green, Blue
+        self._allinone_color_frame = 0
+        self._allinone_color_timer = QTimer(self)
+        self._allinone_color_timer.setInterval(500)  # Change color every 500ms
+
+        def _allinone_color_tick():
+            # Cycle the tab text color of the AllInOne tab. Using
+            # setTabTextColor keeps the existing setTabText-based spinner
+            # (rotating earth) and result-count badge fully intact.
+            try:
+                tab_bar = self._tab_widget.tabBar()
+            except Exception:
+                return
+            color = _ALLINONE_COLORS[self._allinone_color_frame % len(_ALLINONE_COLORS)]
+            self._allinone_color_frame += 1
+            for i in range(self._tab_widget.count()):
+                if "Unite!" in self._tab_widget.tabText(i):
+                    tab_bar.setTabTextColor(i, color)
+                    break
+
+        self._allinone_color_timer.timeout.connect(_allinone_color_tick)
+
         # ── Favorites helpers (cross-pane, captured by closures below) ──
         _FAV_SOURCE_LABELS = {"getit": "GetIt", "zxdb": "ZXDB", "zxart": "zxArt"}
 
@@ -8675,6 +8700,17 @@ class MainWindow(QMainWindow):
             q = self.getit_search_input.text().strip()
             if q and len(q) < SEARCH_MIN_CHARS:
                 return
+            # Suppress the autocomplete suggestions popup once a search is
+            # submitted; it stays hidden until the user types again.
+            self._getit_ac_block = True
+            try:
+                self._getit_ac_timer.stop()
+            except Exception:
+                pass
+            try:
+                self._getit_completer.popup().hide()
+            except Exception:
+                pass
             if q:
                 _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
                 def _getit_done():
@@ -8695,13 +8731,15 @@ class MainWindow(QMainWindow):
                 _cross_search_zxdb(q)
                 _cross_search_zxart(q)
 
-        def getit_on_latest():
+        def getit_on_latest(on_complete=None):
             getit_clear_detail()
             self.getit_search_input.clear()
             _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
             def _getit_latest_done():
                 _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
                 _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT, self.getit_results_table.rowCount())
+                if on_complete:
+                    on_complete()
             getit_run_search("", 1, _getit_latest_done)
 
         def getit_on_random():
@@ -8789,6 +8827,8 @@ class MainWindow(QMainWindow):
         def _getit_safe_show_popup(q: str):
             """Show the GetIt completer popup without calling QCompleter.complete()."""
             try:
+                if getattr(self, "_getit_ac_block", False):
+                    return
                 if not self.getit_search_input.hasFocus():
                     return
                 if self.getit_search_input.text().strip() != q:
@@ -8957,6 +8997,9 @@ class MainWindow(QMainWindow):
             if getattr(self, "_getit_ac_suppress", False):
                 self._getit_ac_suppress = False
                 return
+            # The user is typing again: re-enable autocomplete suggestions
+            # that were suppressed after the last search submission.
+            self._getit_ac_block = False
             _getit_ac_timer.start()
 
         self.getit_search_input.textChanged.connect(_getit_ac_on_text_changed)
@@ -10703,8 +10746,10 @@ class MainWindow(QMainWindow):
 
             self._zxdb_random_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
-        def zxdb_run_latest():
+        def zxdb_run_latest(on_complete=None):
             if self._zxdb_search_loading:
+                if on_complete:
+                    on_complete()
                 return
             self._zxdb_search_loading = True
             zxdb_set_status("Fetching latest games…")
@@ -10737,6 +10782,8 @@ class MainWindow(QMainWindow):
                 self.zxdb_search_button.setEnabled(True)
                 self.zxdb_random_button.setEnabled(zxdb_current_mode() == "games")
                 self.zxdb_latest_button.setEnabled(zxdb_current_mode() == "games")
+                if on_complete:
+                    on_complete()
 
             def _on_err(err):
                 self._zxdb_search_loading = False
@@ -10744,6 +10791,8 @@ class MainWindow(QMainWindow):
                 self.zxdb_search_button.setEnabled(True)
                 self.zxdb_random_button.setEnabled(zxdb_current_mode() == "games")
                 self.zxdb_latest_button.setEnabled(zxdb_current_mode() == "games")
+                if on_complete:
+                    on_complete()
 
             self._zxdb_latest_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
@@ -10753,6 +10802,17 @@ class MainWindow(QMainWindow):
             save_configuration_file()
             if q and len(q) < SEARCH_MIN_CHARS:
                 return
+            # Suppress the autocomplete suggestions popup once a search is
+            # submitted; it stays hidden until the user types again.
+            self._zxdb_ac_block = True
+            try:
+                _zxdb_ac_timer.stop()
+            except Exception:
+                pass
+            try:
+                self._zxdb_completer.popup().hide()
+            except Exception:
+                pass
             if q:
                 _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
                 def _zxdb_done():
@@ -10776,7 +10836,7 @@ class MainWindow(QMainWindow):
             self.zxdb_search_input.clear()
             zxdb_run_random()
 
-        def zxdb_on_latest():
+        def zxdb_on_latest(on_complete=None):
             zxdb_clear_detail()
             self.zxdb_search_input.clear()
             # Force the mode to 'games' so the latest list is meaningful.
@@ -10785,7 +10845,7 @@ class MainWindow(QMainWindow):
                     if self.zxdb_mode_combo.currentIndex() != i:
                         self.zxdb_mode_combo.setCurrentIndex(i)
                     break
-            zxdb_run_latest()
+            zxdb_run_latest(on_complete)
 
         def zxdb_on_prev():
             zxdb_run_search(self._zxdb_last_query, max(1, self._zxdb_current_page - 1))
@@ -10838,6 +10898,8 @@ class MainWindow(QMainWindow):
             """Show the ZXDB completer popup without calling QCompleter.complete(),
             which has crashed Qt with a native access violation on Windows."""
             try:
+                if getattr(self, "_zxdb_ac_block", False):
+                    return
                 if not self.zxdb_search_input.hasFocus():
                     return
                 if self.zxdb_search_input.text().strip() != q:
@@ -10998,6 +11060,9 @@ class MainWindow(QMainWindow):
             if getattr(self, "_zxdb_ac_suppress", False):
                 self._zxdb_ac_suppress = False
                 return
+            # The user is typing again: re-enable autocomplete suggestions
+            # that were suppressed after the last search submission.
+            self._zxdb_ac_block = False
             _zxdb_ac_timer.start()
 
         _zxdb_ac_timer.timeout.connect(_zxdb_ac_trigger)
@@ -13655,6 +13720,7 @@ class MainWindow(QMainWindow):
             # produced a native access violation inside QCompleter.
             try:
                 self._zxart_ac_gen += 1
+                self._zxart_ac_block = True
                 t = getattr(self, "_zxart_ac_timer", None)
                 if t is not None:
                     t.stop()
@@ -13694,13 +13760,13 @@ class MainWindow(QMainWindow):
         def zxart_on_next():
             zxart_run_search(self._zxart_last_query, min(self._zxart_total_pages, self._zxart_current_page + 1))
 
-        def zxart_on_latest():
+        def zxart_on_latest(on_complete=None):
             zxart_clear_detail()
             self.zxart_search_input.clear()
             self._zxart_last_query = ""
             # zxart_run_search with empty query already uses order:date,desc for
             # both 'prods' and 'pictures' modes, returning the most recent items.
-            zxart_run_search("", 1)
+            zxart_run_search("", 1, on_complete)
 
         def zxart_on_random():
             if self._zxart_search_loading:
@@ -13841,6 +13907,8 @@ class MainWindow(QMainWindow):
             # event-loop pumping.
             def _safe_show_popup(_q=text):
                 try:
+                    if getattr(self, "_zxart_ac_block", False):
+                        return
                     if not self.zxart_search_input.hasFocus():
                         return
                     if self.zxart_search_input.text().strip() != _q:
@@ -13944,6 +14012,9 @@ class MainWindow(QMainWindow):
             if getattr(self, "_zxart_ac_suppress", False):
                 self._zxart_ac_suppress = False
                 return
+            # The user is typing again: re-enable autocomplete suggestions
+            # that were suppressed after the last search submission.
+            self._zxart_ac_block = False
             _zxart_ac_timer.start()
 
         _zxart_ac_timer.timeout.connect(_zxart_ac_trigger)
@@ -15610,6 +15681,12 @@ class MainWindow(QMainWindow):
         self.allinone_search_button = QPushButton("Search")
         allinone_search_row.addWidget(self.allinone_search_button)
 
+        self.allinone_latest_button = QPushButton("Latest")
+        self.allinone_latest_button.setToolTip(
+            "Fetch the latest releases from GetIt + ZXDB + zxArt and merge them here"
+        )
+        allinone_search_row.addWidget(self.allinone_latest_button)
+
         self.allinone_random_button = QPushButton("Random")
         self.allinone_random_button.setToolTip(
             "Fetch random entries from GetIt + ZXDB + zxArt and merge them here"
@@ -15684,6 +15761,20 @@ class MainWindow(QMainWindow):
             f"{ZX_NEXT_UNITE_TAB_TITLE_ALLINONE} (0)"
         )
 
+        # Start the AllInOne tab text color cycling animation. Give every
+        # other tab an explicit readable text color first, since the
+        # stylesheet no longer sets one (so setTabTextColor can take effect
+        # on the AllInOne tab without being overridden).
+        try:
+            _tab_bar = self._tab_widget.tabBar()
+            _default_tab_color = QColor("#dddddd")
+            for _i in range(self._tab_widget.count()):
+                if "Unite!" not in self._tab_widget.tabText(_i):
+                    _tab_bar.setTabTextColor(_i, _default_tab_color)
+        except Exception:
+            pass
+        self._allinone_color_timer.start()
+
         # --- Aggregation + tab badge ---
         def _allinone_collect():
             merged = []
@@ -15700,6 +15791,12 @@ class MainWindow(QMainWindow):
 
         def _allinone_update_tab_badge(n):
             try:
+                # While the AllInOne search spinner is running, leave the tab
+                # text to the spinner (rotating earth). The final count is
+                # applied once the spinner stops.
+                if getattr(self, "_spinner_tabs", None) and \
+                        ZX_NEXT_UNITE_TAB_TITLE_ALLINONE in self._spinner_tabs:
+                    return
                 for i in range(self._tab_widget.count()):
                     if self._tab_widget.tabText(i).startswith(
                             ZX_NEXT_UNITE_TAB_TITLE_ALLINONE):
@@ -15769,6 +15866,17 @@ class MainWindow(QMainWindow):
             q = self.allinone_search_input.text().strip()
             if q and len(q) < SEARCH_MIN_CHARS:
                 return
+            # Suppress the autocomplete suggestions popup once a search is
+            # submitted; it stays hidden until the user types again.
+            self._allinone_ac_block = True
+            try:
+                _allinone_ac_timer.stop()
+            except Exception:
+                pass
+            try:
+                self._allinone_completer.popup().hide()
+            except Exception:
+                pass
             # Reset paging on a new search so results start at page 1.
             self._allinone_current_page = 1
             # Mirror the query into each source pane's input box so the
@@ -15796,23 +15904,46 @@ class MainWindow(QMainWindow):
                     _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
             except Exception:
                 pass
+            # Show the rotating-earth animation on the AllInOne tab while any
+            # of the source searches are still running. We count how many
+            # sources we kicked off and stop the spinner once they have all
+            # reported back, then refresh the aggregated badge count.
+            sources = [_cross_search_getit]
+            if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                sources.append(_cross_search_zxdb)
+            if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                sources.append(_cross_search_zxart)
+
+            pending = {"count": len(sources)}
+
+            def _allinone_source_done():
+                pending["count"] -= 1
+                if pending["count"] <= 0:
+                    _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE)
+                    try:
+                        _allinone_repopulate()
+                    except Exception:
+                        pass
+
+            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE)
+
             # Run the same searches the per-source panes use. Each will
             # call its populate_results, which in turn refreshes the
             # AllInOne gallery via _allinone_repopulate.
             try:
-                _cross_search_getit(q)
+                _cross_search_getit(q, _allinone_source_done)
             except Exception:
-                pass
+                _allinone_source_done()
             if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
                 try:
-                    _cross_search_zxdb(q)
+                    _cross_search_zxdb(q, _allinone_source_done)
                 except Exception:
-                    pass
+                    _allinone_source_done()
             if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
                 try:
-                    _cross_search_zxart(q)
+                    _cross_search_zxart(q, _allinone_source_done)
                 except Exception:
-                    pass
+                    _allinone_source_done()
 
         def _allinone_search_validate(text: str):
             t = text.strip()
@@ -15874,6 +16005,81 @@ class MainWindow(QMainWindow):
 
         self.allinone_random_button.clicked.connect(allinone_on_random)
 
+        # --- Latest handler: fan out to GetIt + ZXDB + zxArt "Latest" actions.
+        # Each per-source latest handler clears its own search box and fetches
+        # the most recent releases, then refreshes the AllInOne gallery via
+        # _allinone_repopulate. We drive the rotating-earth spinner on the
+        # AllInOne tab until every source has reported back.
+        def allinone_on_latest():
+            # Clear the AllInOne search box so the pane reflects "latest"
+            # mode rather than a stale query.
+            try:
+                self.allinone_search_input.clear()
+            except Exception:
+                pass
+            # Suppress the autocomplete suggestions popup once latest is
+            # requested; it stays hidden until the user types again.
+            self._allinone_ac_block = True
+            try:
+                _allinone_ac_timer.stop()
+            except Exception:
+                pass
+            try:
+                self._allinone_completer.popup().hide()
+            except Exception:
+                pass
+            # Reset paging on a new fetch so results start at page 1.
+            self._allinone_current_page = 1
+            # Clear stale tab badges before kicking off the latest fetches.
+            try:
+                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
+                if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                    _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                    _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+            except Exception:
+                pass
+            # Count how many sources we kick off so the AllInOne spinner stops
+            # only once they have all reported back.
+            count = 1  # GetIt is always present
+            if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                count += 1
+            if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                count += 1
+            pending = {"count": count}
+
+            def _allinone_latest_done():
+                pending["count"] -= 1
+                if pending["count"] <= 0:
+                    _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE)
+                    try:
+                        _allinone_repopulate()
+                    except Exception:
+                        pass
+
+            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE)
+
+            # GetIt latest.
+            try:
+                getit_on_latest(_allinone_latest_done)
+            except Exception:
+                _allinone_latest_done()
+            # ZXDB latest — only meaningful in 'games' mode; zxdb_on_latest
+            # forces that mode itself.
+            if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                try:
+                    zxdb_on_latest(_allinone_latest_done)
+                except Exception:
+                    _allinone_latest_done()
+            # zxArt latest.
+            if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                try:
+                    zxart_on_latest(_allinone_latest_done)
+                except Exception:
+                    _allinone_latest_done()
+
+        self.allinone_latest_button.clicked.connect(allinone_on_latest)
+
         # --- Autocomplete (merge title suggestions from GetIt + ZXDB + zxArt
         #     caches, triggering source-pane fetches on demand). ---
         self._allinone_ac_model = QStringListModel(self)
@@ -15892,6 +16098,8 @@ class MainWindow(QMainWindow):
 
         def _allinone_safe_show_popup(q: str):
             try:
+                if getattr(self, "_allinone_ac_block", False):
+                    return
                 if not self.allinone_search_input.hasFocus():
                     return
                 if self.allinone_search_input.text().strip() != q:
@@ -16129,6 +16337,9 @@ class MainWindow(QMainWindow):
             if getattr(self, "_allinone_ac_suppress", False):
                 self._allinone_ac_suppress = False
                 return
+            # The user is typing again: re-enable autocomplete suggestions
+            # that were suppressed after the last search submission.
+            self._allinone_ac_block = False
             _allinone_ac_timer.start()
 
         self.allinone_search_input.textChanged.connect(_allinone_ac_on_text_changed)
@@ -16517,14 +16728,12 @@ class MainWindow(QMainWindow):
                 f"}}"
                 f"QTabBar::tab {{"
                 f"  background: rgba(43,43,43,200);"
-                f"  color: #ddd;"
                 f"  padding: 4px 10px;"
                 f"  border: 1px solid #555;"
                 f"  border-bottom: none;"
                 f"}}"
                 f"QTabBar::tab:selected {{"
                 f"  background: rgba(60,60,60,220);"
-                f"  color: #fff;"
                 f"}}"
                 f"QTabBar::tab:hover {{"
                 f"  background: rgba(70,70,70,220);"
@@ -16779,44 +16988,62 @@ class MainWindow(QMainWindow):
             cb = getattr(self, "settings_multi_search_checkbox", None)
             return cb is not None and cb.isChecked()
 
-        def _cross_search_getit(query: str):
+        def _cross_search_getit(query: str, on_done=None):
             """Run a full GetIt search in the background, populate the table and badge the tab."""
             if not query:
+                if on_done:
+                    on_done()
                 return
             _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
             def _after_search():
                 _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
                 n = self.getit_results_table.rowCount()
                 _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT, n)
+                if on_done:
+                    on_done()
             getit_run_search(query, 1, _after_search)
 
-        def _cross_search_zxdb(query: str):
+        def _cross_search_zxdb(query: str, on_done=None):
             """Run a full ZXDB search in the background, populate the table and badge the tab."""
             if not ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                if on_done:
+                    on_done()
                 return
             if not query:
+                if on_done:
+                    on_done()
                 return
             _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
             def _after_search():
                 _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
                 n = self.zxdb_results_table.rowCount()
                 _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB, n)
+                if on_done:
+                    on_done()
             zxdb_run_search(query, 1, _after_search)
 
-        def _cross_search_zxart(query: str):
+        def _cross_search_zxart(query: str, on_done=None):
             """Run a full zxART search in the background, populate the table and badge the tab."""
             if not ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                if on_done:
+                    on_done()
                 return
             if not query:
+                if on_done:
+                    on_done()
                 return
             if self._zxart_search_loading:
                 logging.info("zxart cross-search skipped: search already in progress")
+                if on_done:
+                    on_done()
                 return
             _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
             def _after_search():
                 _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
                 n = self.zxart_results_table.rowCount()
                 _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART, n)
+                if on_done:
+                    on_done()
             zxart_run_search(query, 1, _after_search)
 
         # ---- Tab badge helpers (multi-search result counts) ----
@@ -16840,7 +17067,7 @@ class MainWindow(QMainWindow):
                 self._tab_widget.setTabText(idx, base_title)
 
         # ---- Tab spinner (animated progress while cross-search is running) ----
-        _SPINNER_FRAMES = ["...", "0..", ".0.", "..0"]
+        _SPINNER_FRAMES = ["🌍", "🌎", "🌏", "🌐"]
         self._spinner_tabs: dict = {}   # base_title -> frame index
         self._spinner_timer = QTimer(self)
         self._spinner_timer.setInterval(200)
@@ -17094,7 +17321,12 @@ QImageReader.setAllocationLimit(0)
 # constructs a QFont from CSS that has no explicit point/pixel size (the
 # font inherits a pixel-size-only font and Qt resolves it as -1pt).
 # This is a known Qt bug; the label still renders correctly.
-_QT_SUPPRESS_MSGS = ("Point size <= 0",)
+# Suppress known Qt and libpng warnings that are harmless and clutter the console.
+# "Point size <= 0" is a Qt bug when a font inherits a pixel-only size.
+# "libpng warning: hIST: out of place" is a libpng warning that occurs when
+# loading PNG images with an out-of-order hIST chunk.  It does not affect
+# functionality, so we ignore it.
+_QT_SUPPRESS_MSGS = ("Point size <= 0", "libpng warning: hIST: out of place")
 def _qt_message_handler(msg_type, context, message):
     if any(s in message for s in _QT_SUPPRESS_MSGS):
         return
