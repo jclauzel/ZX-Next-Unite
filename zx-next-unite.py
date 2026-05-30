@@ -388,6 +388,7 @@ SETTING_ZXART_VIEW_MODE        = "zxart_view_mode"
 SETTING_ZXART_LANGUAGE         = "zxart_language"          # "eng" | "pol" | "spa"
 SETTING_FAVORITES              = "favorites"               # JSON list of favorite entries
 SETTING_FAVORITES_VIEW_MODE    = "favorites_view_mode"     # "gallery" (default) or "table"
+SETTING_ALLINONE_VIEW_MODE     = "allinone_view_mode"      # "gallery" (default) or "table"
 DEFAULT_ZXART_LANGUAGE         = "eng"
 ZXART_LANGUAGE_CHOICES         = (
     ("English", "eng"),
@@ -4769,6 +4770,7 @@ class MainWindow(QMainWindow):
         self._zxdb_view_mode         = "gallery"
         self._zxart_view_mode        = "gallery"
         self._favorites_view_mode    = "gallery"
+        self._allinone_view_mode     = "gallery"
 
         # ── Favorites (cross-pane, persisted to hdfg.cfg) ──────────────
         # Each favorite is a dict: { "source": "getit"|"zxdb"|"zxart",
@@ -5000,7 +5002,15 @@ class MainWindow(QMainWindow):
                 self.cspect_frequency.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_HERTZ]))
 
                 if configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING]== "":
-                    configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING] = 0
+                    # First run (no previously saved tab): default to the
+                    # AllInOne ("Unite!") tab so the user lands on the
+                    # aggregated view showing the latest releases.
+                    _aio_default_idx = 0
+                    for _ti in range(wid_inner.tab.count()):
+                        if wid_inner.tab.tabText(_ti).startswith(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE):
+                            _aio_default_idx = _ti
+                            break
+                    configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING] = _aio_default_idx
 
                 wid_inner.tab.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING]))
 
@@ -5137,6 +5147,7 @@ class MainWindow(QMainWindow):
                     (SETTING_ZXDB_VIEW_MODE,  "_zxdb_view_mode"),
                     (SETTING_ZXART_VIEW_MODE, "_zxart_view_mode"),
                     (SETTING_FAVORITES_VIEW_MODE, "_favorites_view_mode"),
+                    (SETTING_ALLINONE_VIEW_MODE, "_allinone_view_mode"),
                 ):
                     if _pane_key in configuration_dictionary and configuration_dictionary[_pane_key] != "":
                         val = configuration_dictionary[_pane_key].strip().lower()
@@ -8567,6 +8578,10 @@ class MainWindow(QMainWindow):
         self._getit_motd_loaded = False
         self._getit_motd_loading = False
         self._getit_search_loading = False
+        # Generation token: bumped on every new search/latest/random so an
+        # in-flight request can be superseded (its stale result discarded)
+        # instead of blocking the new request until it finishes.
+        self._getit_search_gen = 0
         self._getit_last_entries = []  # cached page entries for gallery refresh
         self._getit_ac_titles: list = []   # autocomplete title cache (loaded once)
         self._getit_ac_loading = False     # guard against duplicate fetch
@@ -8635,8 +8650,11 @@ class MainWindow(QMainWindow):
         # ---- Background search task ----
 
         def getit_run_search(query: str, page: int, on_complete=None):
-            if self._getit_search_loading:
-                return
+            # Supersede any in-flight GetIt request: bump the generation token
+            # so the previous request's result/error is discarded when it
+            # finally arrives, and start this one immediately.
+            self._getit_search_gen += 1
+            _gen = self._getit_search_gen
             self._getit_last_query = query
             self._getit_search_loading = True
             getit_set_status("Searching…")
@@ -8658,6 +8676,8 @@ class MainWindow(QMainWindow):
                 return (entries, total, total_pages)
 
             def _on_result(data):
+                if _gen != self._getit_search_gen:
+                    return  # superseded by a newer search
                 self._getit_search_loading = False
                 entries, total, total_pages = data[0], data[1], data[2] or 1
                 # The GetIt /f endpoint reports only the item count on the
@@ -8682,6 +8702,8 @@ class MainWindow(QMainWindow):
                     on_complete()
 
             def _on_error(err):
+                if _gen != self._getit_search_gen:
+                    return  # superseded by a newer search
                 self._getit_search_loading = False
                 getit_set_status(f"Error: {err[1]}")
                 self.getit_search_button.setEnabled(True)
@@ -8743,12 +8765,13 @@ class MainWindow(QMainWindow):
             getit_run_search("", 1, _getit_latest_done)
 
         def getit_on_random():
-            if self._getit_search_loading:
-                return
             import random as _random
             getit_clear_detail()
             self.getit_search_input.clear()
             self._getit_last_query = ""
+            # Supersede any in-flight GetIt request.
+            self._getit_search_gen += 1
+            _gen = self._getit_search_gen
             self._getit_search_loading = True
             getit_set_status("Picking random GetIt entries…")
             self.getit_search_button.setEnabled(False)
@@ -8774,6 +8797,8 @@ class MainWindow(QMainWindow):
                 return (entries, total, page, tp2)
 
             def _on_ok(data):
+                if _gen != self._getit_search_gen:
+                    return  # superseded by a newer search
                 entries, total, page, total_pages = data
                 self._getit_search_loading = False
                 getit_populate_results(entries, page, total_pages)
@@ -8785,6 +8810,8 @@ class MainWindow(QMainWindow):
                 self.getit_random_button.setEnabled(True)
 
             def _on_err(err):
+                if _gen != self._getit_search_gen:
+                    return  # superseded by a newer search
                 self._getit_search_loading = False
                 getit_set_status(f"Error: {err[1]}")
                 self.getit_search_button.setEnabled(True)
@@ -9230,10 +9257,13 @@ class MainWindow(QMainWindow):
                     self._zxart_apply_view_mode(mode, persist=False)
                 if hasattr(self, '_favorites_apply_view_mode'):
                     self._favorites_apply_view_mode(mode, persist=False)
+                if hasattr(self, '_allinone_apply_view_mode'):
+                    self._allinone_apply_view_mode(mode, persist=False)
                 configuration_dictionary[SETTING_GETIT_VIEW_MODE]     = mode
                 configuration_dictionary[SETTING_ZXDB_VIEW_MODE]      = mode
                 configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
                 configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
+                configuration_dictionary[SETTING_ALLINONE_VIEW_MODE]  = mode
                 save_configuration_file()
 
         self._getit_apply_view_mode = _getit_apply_view_mode
@@ -10111,6 +10141,8 @@ class MainWindow(QMainWindow):
         self._zxdb_selected_title = ""
         self._zxdb_selected_downloads = []
         self._zxdb_search_loading = False
+        # Generation token: see _getit_search_gen for rationale.
+        self._zxdb_search_gen = 0
         self._zxdb_loaded_once   = False
         self._zxdb_results_mode  = "games"
         self._zxdb_magazine_issues = []   # issues list of the currently-loaded magazine
@@ -10520,8 +10552,6 @@ class MainWindow(QMainWindow):
         }
 
         def zxdb_run_search(query: str, page: int, on_complete=None):
-            if self._zxdb_search_loading:
-                return
             mode = zxdb_current_mode()
 
             if mode == "suggest" and not query:
@@ -10531,6 +10561,9 @@ class MainWindow(QMainWindow):
                 zxdb_set_status("Type an author / publisher name to search.")
                 return
 
+            # Supersede any in-flight ZXDB request.
+            self._zxdb_search_gen += 1
+            _gen = self._zxdb_search_gen
             zxdb_set_busy(True)
             zxdb_set_status("Searching…")
             self._zxdb_last_query = query
@@ -10644,6 +10677,8 @@ class MainWindow(QMainWindow):
                     return ("suggest", entries, len(entries), 1, 1)
 
             def _on_ok(data):
+                if _gen != self._zxdb_search_gen:
+                    return  # superseded by a newer search
                 kind, entries, total, pg, total_pages = data
                 zxdb_populate_results(entries, pg, total_pages, kind)
                 if kind == "magazines":
@@ -10662,6 +10697,8 @@ class MainWindow(QMainWindow):
                     on_complete()
 
             def _on_err(err):
+                if _gen != self._zxdb_search_gen:
+                    return  # superseded by a newer search
                 exc = err[1]
                 if isinstance(exc, urllib.error.HTTPError) and exc.code in (502, 503, 504):
                     zxdb_set_status(f"Server temporarily unavailable (HTTP {exc.code}) — please try again.")
@@ -10674,8 +10711,9 @@ class MainWindow(QMainWindow):
             self._zxdb_search_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
         def zxdb_run_random(on_complete=None):
-            if self._zxdb_search_loading:
-                return
+            # Supersede any in-flight ZXDB request.
+            self._zxdb_search_gen += 1
+            _gen = self._zxdb_search_gen
             self._zxdb_search_loading = True
             zxdb_set_status("Fetching random games…")
             self.zxdb_search_button.setEnabled(False)
@@ -10724,6 +10762,8 @@ class MainWindow(QMainWindow):
                 return entries
 
             def _on_ok(entries):
+                if _gen != self._zxdb_search_gen:
+                    return  # superseded by a newer search
                 self._zxdb_search_loading = False
                 zxdb_populate_results(entries, 1, 1, "games")
                 zxdb_set_status(f"{len(entries)} random game(s)")
@@ -10733,6 +10773,8 @@ class MainWindow(QMainWindow):
                     on_complete()
 
             def _on_err(err):
+                if _gen != self._zxdb_search_gen:
+                    return  # superseded by a newer search
                 self._zxdb_search_loading = False
                 exc = err[1]
                 if isinstance(exc, urllib.error.HTTPError) and exc.code in (502, 503, 504):
@@ -10747,10 +10789,9 @@ class MainWindow(QMainWindow):
             self._zxdb_random_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
         def zxdb_run_latest(on_complete=None):
-            if self._zxdb_search_loading:
-                if on_complete:
-                    on_complete()
-                return
+            # Supersede any in-flight ZXDB request.
+            self._zxdb_search_gen += 1
+            _gen = self._zxdb_search_gen
             self._zxdb_search_loading = True
             zxdb_set_status("Fetching latest games…")
             self.zxdb_search_button.setEnabled(False)
@@ -10775,6 +10816,8 @@ class MainWindow(QMainWindow):
                 return (entries, total, total_pages)
 
             def _on_ok(data):
+                if _gen != self._zxdb_search_gen:
+                    return  # superseded by a newer search
                 entries, total, total_pages = data
                 self._zxdb_search_loading = False
                 zxdb_populate_results(entries, 1, total_pages or 1, "games")
@@ -10786,6 +10829,8 @@ class MainWindow(QMainWindow):
                     on_complete()
 
             def _on_err(err):
+                if _gen != self._zxdb_search_gen:
+                    return  # superseded by a newer search
                 self._zxdb_search_loading = False
                 zxdb_set_status(f"Error: {err[1]}")
                 self.zxdb_search_button.setEnabled(True)
@@ -11618,10 +11663,13 @@ class MainWindow(QMainWindow):
                     self._zxart_apply_view_mode(mode, persist=False)
                 if hasattr(self, '_favorites_apply_view_mode'):
                     self._favorites_apply_view_mode(mode, persist=False)
+                if hasattr(self, '_allinone_apply_view_mode'):
+                    self._allinone_apply_view_mode(mode, persist=False)
                 configuration_dictionary[SETTING_GETIT_VIEW_MODE]     = mode
                 configuration_dictionary[SETTING_ZXDB_VIEW_MODE]      = mode
                 configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
                 configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
+                configuration_dictionary[SETTING_ALLINONE_VIEW_MODE]  = mode
                 save_configuration_file()
 
         self._zxdb_apply_view_mode = _zxdb_apply_view_mode
@@ -13128,6 +13176,8 @@ class MainWindow(QMainWindow):
         self._zxart_selected_title = ""
         self._zxart_selected_downloads = []
         self._zxart_search_loading = False
+        # Generation token: see _getit_search_gen for rationale.
+        self._zxart_search_gen = 0
         self._zxart_loaded_once    = False
         self._zxart_results_mode   = "prods"
         self._zxart_last_entries   = []
@@ -13598,8 +13648,9 @@ class MainWindow(QMainWindow):
                 pass
 
         def zxart_run_search(query: str, page: int, on_complete=None):
-            if self._zxart_search_loading:
-                return
+            # Supersede any in-flight zxART request.
+            self._zxart_search_gen += 1
+            _gen = self._zxart_search_gen
             mode = zxart_current_mode()
             zxart_set_busy(True)
             zxart_set_status("Searching…")
@@ -13685,6 +13736,8 @@ class MainWindow(QMainWindow):
                 _fn = _fn_prods
 
             def _on_ok(data):
+                if _gen != self._zxart_search_gen:
+                    return  # superseded by a newer search
                 kind, entries, total, pg, total_pages = data
                 zxart_populate_results(entries, pg, total_pages, kind)
                 if kind == "pictures":
@@ -13701,6 +13754,8 @@ class MainWindow(QMainWindow):
                     on_complete()
 
             def _on_err(err):
+                if _gen != self._zxart_search_gen:
+                    return  # superseded by a newer search
                 zxart_set_status(f"Error: {err[1]}")
                 zxart_set_busy(False)
                 if on_complete:
@@ -13769,13 +13824,14 @@ class MainWindow(QMainWindow):
             zxart_run_search("", 1, on_complete)
 
         def zxart_on_random():
-            if self._zxart_search_loading:
-                return
             import random as _random
             zxart_clear_detail()
             self.zxart_search_input.clear()
             self._zxart_last_query = ""
             mode = zxart_current_mode()
+            # Supersede any in-flight zxART request.
+            self._zxart_search_gen += 1
+            _gen = self._zxart_search_gen
             zxart_set_busy(True)
             zxart_set_status("Picking random zxART entries…")
 
@@ -13817,6 +13873,8 @@ class MainWindow(QMainWindow):
                 return (kind, entries, total, page, total_pages)
 
             def _on_ok(data):
+                if _gen != self._zxart_search_gen:
+                    return  # superseded by a newer search
                 kind, entries, total, page, total_pages = data
                 zxart_populate_results(entries, page, total_pages, kind)
                 noun = "picture(s)" if kind == "pictures" else "production(s)"
@@ -13826,6 +13884,8 @@ class MainWindow(QMainWindow):
                 zxart_set_busy(False)
 
             def _on_err(err):
+                if _gen != self._zxart_search_gen:
+                    return  # superseded by a newer search
                 zxart_set_status(f"Error: {err[1]}")
                 zxart_set_busy(False)
 
@@ -14721,10 +14781,13 @@ class MainWindow(QMainWindow):
                     self._zxdb_apply_view_mode(mode, persist=False)
                 if hasattr(self, '_favorites_apply_view_mode'):
                     self._favorites_apply_view_mode(mode, persist=False)
+                if hasattr(self, '_allinone_apply_view_mode'):
+                    self._allinone_apply_view_mode(mode, persist=False)
                 configuration_dictionary[SETTING_GETIT_VIEW_MODE]     = mode
                 configuration_dictionary[SETTING_ZXDB_VIEW_MODE]      = mode
                 configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
                 configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
+                configuration_dictionary[SETTING_ALLINONE_VIEW_MODE]  = mode
                 save_configuration_file()
 
         self._zxart_apply_view_mode = _zxart_apply_view_mode
@@ -15706,6 +15769,16 @@ class MainWindow(QMainWindow):
         self.allinone_next_button.setEnabled(False)
         allinone_search_row.addWidget(self.allinone_next_button)
 
+        allinone_search_row.addWidget(QLabel("View:"))
+        self.allinone_view_combo = QComboBox()
+        self.allinone_view_combo.addItem("Table",   "table")
+        self.allinone_view_combo.addItem("Gallery", "gallery")
+        self.allinone_view_combo.setToolTip(
+            "Switch between the classic table view and the picture (gallery) view.\n"
+            "Persisted across sessions in the config file."
+        )
+        allinone_search_row.addWidget(self.allinone_view_combo)
+
         self.allinone_status_label = QLabel("")
         allinone_search_row.addWidget(self.allinone_status_label, 1)
 
@@ -15743,12 +15816,59 @@ class MainWindow(QMainWindow):
                 pass
         self.allinone_gallery_view.cell_dbl_clicked.connect(_allinone_on_cell_dbl_clicked)
 
+        # --- Aggregated table view (mirrors Favorites) ---
+        self.allinone_results_table = QTableWidget(0, 5)
+        self.allinone_results_table.setHorizontalHeaderLabels(
+            ["Source", "Title", "Rating", "Info", "Year"]
+        )
+        self.allinone_results_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.allinone_results_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.allinone_results_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.allinone_results_table.verticalHeader().setVisible(False)
+        try:
+            hh = self.allinone_results_table.horizontalHeader()
+            hh.setStretchLastSection(False)
+            hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            hh.setSectionResizeMode(1, QHeaderView.Stretch)
+            hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+            hh.setSectionResizeMode(3, QHeaderView.Stretch)
+            hh.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        except Exception:
+            pass
+
+        def _allinone_table_entry_for_row(row):
+            try:
+                if row < 0 or row >= self.allinone_results_table.rowCount():
+                    return None
+                it = self.allinone_results_table.item(row, 0)
+                if it is None:
+                    return None
+                entry = it.data(Qt.UserRole)
+                if isinstance(entry, dict):
+                    return entry
+            except Exception:
+                pass
+            return None
+
+        def _allinone_table_on_double_clicked(_idx):
+            row = self.allinone_results_table.currentRow()
+            entry = _allinone_table_entry_for_row(row)
+            if entry is not None:
+                _fav_open_fullscreen(entry)
+
+        self.allinone_results_table.doubleClicked.connect(_allinone_table_on_double_clicked)
+
+        # --- Stack the two views (table = idx 0, gallery = idx 1) ---
+        self.allinone_view_stack = QStackedWidget()
+        self.allinone_view_stack.addWidget(self.allinone_results_table)   # idx 0 = table
+        self.allinone_view_stack.addWidget(self.allinone_gallery_view)    # idx 1 = gallery
+
         # Paging state for the AllInOne aggregated view (client-side paging).
         self._allinone_all_entries = []
         self._allinone_current_page = 1
         self._allinone_total_pages = 1
 
-        allinone_v.addWidget(self.allinone_gallery_view)
+        allinone_v.addWidget(self.allinone_view_stack)
         zxnextunite_AllInOne_tab.setLayout(allinone_v)
         zxnextunite_AllInOne_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_ALLINONE
 
@@ -15806,6 +15926,45 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+        def _allinone_fill_table(page_entries):
+            try:
+                import re as _re
+                tbl = self.allinone_results_table
+                tbl.setRowCount(0)
+                for entry in page_entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    src_lbl = _ALLINONE_SOURCE_LABELS.get(
+                        (entry.get("_fav_source") or entry.get("source") or "").lower(), ""
+                    )
+                    raw_title = _fav_title_getter(entry) or ""
+                    _span_match = _re.search(r'<span[^>]*>([^<]+)</span>', raw_title)
+                    rating = _span_match.group(1).strip() if _span_match else ""
+                    title = _re.sub(r'<[^>]+>', '', raw_title).strip()
+                    _plain_match = _re.search(r'\s*[★☆]+\s*[\d.,]*\s*(?:\([^)]*\))?\s*$', title)
+                    if _plain_match:
+                        if not rating:
+                            rating = _plain_match.group(0).strip()
+                        title = title[:_plain_match.start()].strip()
+                    info  = _fav_info_getter(entry) or ""
+                    year  = str(entry.get("year") or "")
+                    row = tbl.rowCount()
+                    tbl.insertRow(row)
+                    src_item    = QTableWidgetItem(src_lbl)
+                    src_item.setData(Qt.UserRole, entry)
+                    title_item  = QTableWidgetItem(title)
+                    rating_item = QTableWidgetItem(rating)
+                    rating_item.setTextAlignment(Qt.AlignCenter)
+                    info_item   = QTableWidgetItem(info)
+                    year_item   = QTableWidgetItem(year)
+                    tbl.setItem(row, 0, src_item)
+                    tbl.setItem(row, 1, title_item)
+                    tbl.setItem(row, 2, rating_item)
+                    tbl.setItem(row, 3, info_item)
+                    tbl.setItem(row, 4, year_item)
+            except Exception:
+                pass
+
         def _allinone_repopulate():
             try:
                 entries = _allinone_collect()
@@ -15827,6 +15986,7 @@ class MainWindow(QMainWindow):
                 end = start + ALLINONE_PAGE_SIZE
                 page_entries = entries[start:end]
                 self.allinone_gallery_view.populate(page_entries)
+                _allinone_fill_table(page_entries)
                 _allinone_update_tab_badge(total)
                 try:
                     self.allinone_page_label.setText(str(cur))
@@ -16079,6 +16239,9 @@ class MainWindow(QMainWindow):
                     _allinone_latest_done()
 
         self.allinone_latest_button.clicked.connect(allinone_on_latest)
+        # Expose so deferred startup activation can trigger the same "Latest"
+        # multi-search logic that the button press performs.
+        self._allinone_on_latest = allinone_on_latest
 
         # --- Autocomplete (merge title suggestions from GetIt + ZXDB + zxArt
         #     caches, triggering source-pane fetches on demand). ---
@@ -16426,10 +16589,13 @@ class MainWindow(QMainWindow):
                     self._zxdb_apply_view_mode(mode, persist=False)
                 if hasattr(self, '_zxart_apply_view_mode'):
                     self._zxart_apply_view_mode(mode, persist=False)
+                if hasattr(self, '_allinone_apply_view_mode'):
+                    self._allinone_apply_view_mode(mode, persist=False)
                 configuration_dictionary[SETTING_GETIT_VIEW_MODE]     = mode
                 configuration_dictionary[SETTING_ZXDB_VIEW_MODE]      = mode
                 configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
                 configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
+                configuration_dictionary[SETTING_ALLINONE_VIEW_MODE]  = mode
                 save_configuration_file()
 
         self._favorites_apply_view_mode = _favorites_apply_view_mode
@@ -16443,6 +16609,47 @@ class MainWindow(QMainWindow):
             _on_favorites_view_combo_changed
         )
         _favorites_apply_view_mode(self._favorites_view_mode, persist=False)
+
+        # ── AllInOne (Unite!) view-mode apply helper (mirrors GetIt/ZXDB/zxArt) ──
+        def _allinone_apply_view_mode(mode: str, *, persist: bool = True):
+            mode = (mode or "gallery").lower()
+            if mode not in ("table", "gallery"):
+                mode = "gallery"
+            self._allinone_view_mode = mode
+            self.allinone_view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
+            cb = self.allinone_view_combo
+            target_idx = 1 if mode == "gallery" else 0
+            if cb.currentIndex() != target_idx:
+                cb.blockSignals(True)
+                cb.setCurrentIndex(target_idx)
+                cb.blockSignals(False)
+            if persist:
+                if hasattr(self, '_getit_apply_view_mode'):
+                    self._getit_apply_view_mode(mode, persist=False)
+                if hasattr(self, '_zxdb_apply_view_mode'):
+                    self._zxdb_apply_view_mode(mode, persist=False)
+                if hasattr(self, '_zxart_apply_view_mode'):
+                    self._zxart_apply_view_mode(mode, persist=False)
+                if hasattr(self, '_favorites_apply_view_mode'):
+                    self._favorites_apply_view_mode(mode, persist=False)
+                configuration_dictionary[SETTING_GETIT_VIEW_MODE]     = mode
+                configuration_dictionary[SETTING_ZXDB_VIEW_MODE]      = mode
+                configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
+                configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
+                configuration_dictionary[SETTING_ALLINONE_VIEW_MODE]  = mode
+                save_configuration_file()
+
+        self._allinone_apply_view_mode = _allinone_apply_view_mode
+
+        def _on_allinone_view_combo_changed(_idx):
+            _allinone_apply_view_mode(
+                self.allinone_view_combo.currentData() or "gallery"
+            )
+
+        self.allinone_view_combo.currentIndexChanged.connect(
+            _on_allinone_view_combo_changed
+        )
+        _allinone_apply_view_mode(self._allinone_view_mode, persist=False)
 
         # Create Settings Tab
         zxnextunite_Settings_tab = QWidget(wid_inner.tab)
@@ -17032,11 +17239,6 @@ class MainWindow(QMainWindow):
                 if on_done:
                     on_done()
                 return
-            if self._zxart_search_loading:
-                logging.info("zxart cross-search skipped: search already in progress")
-                if on_done:
-                    on_done()
-                return
             _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
             def _after_search():
                 _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
@@ -17239,6 +17441,7 @@ class MainWindow(QMainWindow):
         self._zxdb_apply_view_mode(self._zxdb_view_mode,   persist=False)
         self._zxart_apply_view_mode(self._zxart_view_mode, persist=False)
         self._favorites_apply_view_mode(self._favorites_view_mode, persist=False)
+        self._allinone_apply_view_mode(self._allinone_view_mode, persist=False)
 
         # Connect tab-changed AFTER load so setCurrentIndex during config restore
         # does not trigger on_tab_changed before state is ready.
@@ -17253,6 +17456,15 @@ class MainWindow(QMainWindow):
         # results land in half-constructed Qt widgets, causing access violations
         # on Windows when starting in Gallery mode.
         def _deferred_startup_tab_activation():
+            # Always kick off the AllInOne "Latest" multi-search at startup so
+            # the Unite! pane is populated with the latest releases, regardless
+            # of which tab was restored from the configuration.
+            try:
+                _aio_latest = getattr(self, "_allinone_on_latest", None)
+                if _aio_latest is not None:
+                    _aio_latest()
+            except Exception:
+                pass
             try:
                 current_title = wid_inner.tab.tabText(wid_inner.tab.currentIndex())
             except Exception:
@@ -17307,6 +17519,57 @@ def _mainwindow_close_event(self, event):
     super(MainWindow, self).closeEvent(event)
 
 MainWindow.closeEvent = _mainwindow_close_event
+
+
+def _mainwindow_reposition_ac_popups(self):
+    """Reposition any visible autocomplete popups beneath their search input.
+
+    The QCompleter popups are top-level Qt.Tool windows positioned manually
+    with popup.move(). When the main window is moved, Qt does not relocate
+    them, so they stay stuck at their original screen coordinates. This
+    re-anchors each visible popup to the bottom-left of its line edit.
+    """
+    pairs = (
+        ("_getit_completer",    "getit_search_input"),
+        ("_zxdb_completer",     "zxdb_search_input"),
+        ("_zxart_completer",    "zxart_search_input"),
+        ("_allinone_completer", "allinone_search_input"),
+    )
+    for completer_attr, input_attr in pairs:
+        try:
+            completer = getattr(self, completer_attr, None)
+            line_edit = getattr(self, input_attr, None)
+            if completer is None or line_edit is None:
+                continue
+            popup = completer.popup()
+            if popup is None or not popup.isVisible():
+                continue
+            pos = line_edit.mapToGlobal(line_edit.rect().bottomLeft())
+            popup.move(pos)
+        except RuntimeError:
+            pass
+        except Exception:
+            pass
+
+
+# moveEvent is defined here (outside __init__) so it is a real class method
+def _mainwindow_move_event(self, event):
+    """Keep visible autocomplete popups anchored to their input when the
+    main window is dragged across the screen."""
+    super(MainWindow, self).moveEvent(event)
+    _mainwindow_reposition_ac_popups(self)
+
+MainWindow.moveEvent = _mainwindow_move_event
+
+
+# resizeEvent is defined here (outside __init__) so it is a real class method
+def _mainwindow_resize_event(self, event):
+    """Re-anchor visible autocomplete popups when the window is resized, as
+    that also shifts the search input's screen position."""
+    super(MainWindow, self).resizeEvent(event)
+    _mainwindow_reposition_ac_popups(self)
+
+MainWindow.resizeEvent = _mainwindow_resize_event
 
 import signal
 
