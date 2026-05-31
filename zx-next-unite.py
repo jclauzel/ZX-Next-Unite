@@ -14,7 +14,7 @@
             feel free to support his development efforts & patreon https://www.patreon.com/mikedailly
             - Make sure Spectrum Next roms installed are installed in local directory (they should be provided in the CSpect zip package by default).
                 These two files namely: enNextZX.rom and enNxtMMC.rom -MUST- be placed in the root folder of your #CSpect.
-        - You will need Spectrum Next images files that you can download from https://zxspectrumnext.online/cspect/  such as http://www.zxspectrumnext.online/cspect/cspect-next-2gb.zip
+        - You will need Spectrum Next images files that you can download from https://zxspectrumnext.online/cspect/  such as https://zxnext.uk/hosted/index_files/hdfimages/cspect-next-2gb.zip
         - Download & install hdfmonkey by Matt Westcott https://github.com/gasman/hdfmonkey , on Windows either compile the source manually or download a pre-compiled version at:
             https://uto.speccy.org/downloads/hdfmonkey_windows.zip
         - On Mac/Linux you will need to install mono-complete
@@ -3156,6 +3156,11 @@ class GalleryCell(QFrame):
         # first.  We call it at most once per cell.
         self._no_image_cb = None
         self._no_image_notified = False
+        # Callable(cell, QPixmap, url) set by GalleryView so a resolved real
+        # picture can be cached for instant redraw across an image-first
+        # re-sort.  Called whenever a non-placeholder pixmap is applied.
+        self._pixmap_ready_cb = None
+        self._last_applied_url = ""
 
         self.setFrameShape(QFrame.StyledPanel)
         self.setFrameShadow(QFrame.Plain)
@@ -3666,6 +3671,18 @@ class GalleryCell(QFrame):
         self._position_tag_overlay()
         self._position_source_overlay()
         self._position_heart()
+        # Surface the resolved real picture to the parent view so it can be
+        # cached for an instant redraw across an image-first re-sort.
+        cb = self._pixmap_ready_cb
+        if cb is not None:
+            cur_url = ""
+            if 0 <= self._shot_index < len(self._screenshots):
+                cur_url = self._screenshots[self._shot_index]
+            if not (isinstance(cur_url, str) and cur_url.startswith("placeholder://")):
+                try:
+                    cb(self, pm, cur_url)
+                except Exception:
+                    pass
 
 
 class GalleryView(QWidget):
@@ -3682,6 +3699,7 @@ class GalleryView(QWidget):
                  thumb_fetch_cb, extra_fetch_cb,
                  title_getter, info_getter, context_menu_cb=None,
                  tags_getter=None, image_predicate=None,
+                 no_image_key_getter=None,
                  is_favorite_cb=None, toggle_favorite_cb=None,
                  source_label_getter=None, tooltip_getter=None,
                  cols_getter=None, img_size_getter=None, parent=None,
@@ -3707,6 +3725,21 @@ class GalleryView(QWidget):
         # for which the predicate returns False are moved to the end of
         # the grid so the user sees items with images first.
         self._image_predicate      = image_predicate
+        # Optional callable(entry) -> hashable identity used to remember,
+        # across re-populates within the same page, which entries turned
+        # out to have *no* real picture (only a synthetic placeholder).
+        # As background fetches resolve, imageless entries are learned and
+        # the grid is re-sorted (image-bearing first) on a short debounce.
+        self._no_image_key_getter  = no_image_key_getter
+        self._no_image_keys        = set()
+        self._current_entries      = []
+        # Shared pixmap cache (entry-key -> (QPixmap, url)) so an image-first
+        # re-sort can redraw resolved pictures instantly without re-fetching.
+        self._pixmap_cache         = {}
+        self._resort_timer = QTimer(self)
+        self._resort_timer.setSingleShot(True)
+        self._resort_timer.setInterval(250)
+        self._resort_timer.timeout.connect(self._resort_for_images)
         self._cells = []
         self._selected_cell = None
 
@@ -3759,22 +3792,73 @@ class GalleryView(QWidget):
             return int(col_w * 3 / 2) + 72
         return int(col_w * 3 / 4) + 56  # medium (default)
 
+    def _entry_image_key(self, e):
+        """Return a hashable identity for *e* used to track imageless entries
+        and cache resolved pixmaps.
+
+        When no explicit key getter is supplied we fall back to the Python
+        object identity of the entry dict.  That is stable for the lifetime of
+        a populated page (the same dict instances are reused when the grid is
+        re-sorted) and the per-page caches are reset on every fresh
+        ``populate``, so stale identities can never leak across pages."""
+        if self._no_image_key_getter is not None:
+            try:
+                k = self._no_image_key_getter(e)
+                if k is not None:
+                    return k
+            except Exception:
+                pass
+        try:
+            return id(e)
+        except Exception:
+            return None
+
+    def _has_image(self, e) -> bool:
+        """Best-effort 'does this entry have a real picture' decision.
+
+        Combines the populate-time predicate (when supplied) with what we
+        have *learned* at runtime: an entry whose key is in the no-image set
+        is treated as imageless regardless of the predicate."""
+        key = self._entry_image_key(e)
+        if key is not None and key in self._no_image_keys:
+            return False
+        if self._image_predicate is not None:
+            try:
+                return bool(self._image_predicate(e))
+            except Exception:
+                return True
+        return True
+
+    def _order_image_first(self, entries):
+        """Stable-partition *entries* so items with a real picture come first
+        and known-imageless items (placeholder bitmap/file/text/utility) sink
+        to the bottom."""
+        if not entries:
+            return entries
+        if self._image_predicate is None and not self._no_image_keys:
+            return entries
+        with_img    = [e for e in entries if self._has_image(e)]
+        without_img = [e for e in entries if not self._has_image(e)]
+        return with_img + without_img
+
     def populate(self, entries):
         """Render `entries` (list of dicts) into the grid. Excess capacity is
         cleared. Caller must have already paged the entries appropriately."""
         entries = list(entries or [])
-        # When an image_predicate is provided, push entries with no known
-        # picture to the end of the grid (stable) so the user sees items
-        # with images first.
-        if self._image_predicate is not None and entries:
-            def _has_img(e):
-                try:
-                    return bool(self._image_predicate(e))
-                except Exception:
-                    return True
-            with_img    = [e for e in entries if _has_img(e)]
-            without_img = [e for e in entries if not _has_img(e)]
-            entries = with_img + without_img
+        # A fresh page of entries: forget what we learned about the previous
+        # page so the new content is evaluated from scratch.
+        self._no_image_keys = set()
+        self._pixmap_cache = {}
+        self._resort_timer.stop()
+        entries = self._order_image_first(entries)
+        self._current_entries = list(entries)
+        self._render_entries(entries)
+
+    def _render_entries(self, entries):
+        """(Re)build the grid widgets for *entries* in the given order.  Used
+        by ``populate`` for a fresh page and by ``_resort_for_images`` when the
+        image-first ordering changes at runtime."""
+        entries = list(entries or [])
         rows_needed = (len(entries) + self._cols() - 1) // self._cols() if entries else 0
         # Tear down any existing cells
         for c in self._cells:
@@ -3830,8 +3914,33 @@ class GalleryView(QWidget):
             cell.clicked.connect(self._on_cell_clicked)
             cell.dbl_clicked.connect(self._on_cell_dbl_clicked)
             cell._no_image_cb = self._on_cell_no_image
+            cell._pixmap_ready_cb = self._on_cell_pixmap_ready
+            # Seed from the shared pixmap cache so a cell that already resolved
+            # its picture before a re-sort redraws instantly (no re-download,
+            # no flicker) instead of falling back to the "…" placeholder.
+            key = self._entry_image_key(e)
+            if key is not None:
+                cached = self._pixmap_cache.get(key)
+                if cached is not None:
+                    cell.set_main_pixmap(cached[0], cached[1])
             self._table.setCellWidget(r, c, cell)
             self._cells.append(cell)
+
+    def _on_cell_pixmap_ready(self, cell, pm, url):
+        """Cache a cell's resolved picture (keyed by entry identity) so a later
+        image-first re-sort can redraw it instantly without re-fetching."""
+        try:
+            if pm is None or pm.isNull():
+                return
+            entry = cell.entry()
+        except Exception:
+            return
+        key = self._entry_image_key(entry)
+        if key is None:
+            return
+        if isinstance(url, str) and url.startswith("placeholder://"):
+            return
+        self._pixmap_cache[key] = (pm, url or "")
 
     def select_entry(self, predicate):
         """Mark the first cell whose entry satisfies `predicate(entry)` as
@@ -3897,20 +4006,57 @@ class GalleryView(QWidget):
 
     def _on_cell_no_image(self, cell):
         """Called by a GalleryCell when it has determined it has no usable
-        image.  The desired "image-bearing first" ordering is applied at
-        populate-time via the ``image_predicate`` callback, so we do NOT
-        try to move widgets between table cells here: ``QTableWidget``'s
-        ``removeCellWidget`` / ``setCellWidget(r,c,None)`` both delete the
-        previously installed widget (per Qt's ``setIndexWidget`` semantics),
-        which would tear down every cell in the grid the moment a single
-        thumb-less entry reported no image.  The cell flag remains set so
-        callers can still query it, but the grid layout stays intact."""
-        return
+        image (an explicit empty screenshot list, only placeholder URLs, or
+        every real URL failed to load).
+
+        We remember the entry's identity in ``self._no_image_keys`` and arm a
+        short debounce timer.  When it fires, the whole page is re-sorted
+        (image-bearing first) via a full re-populate — the only safe way to
+        reorder ``QTableWidget`` cell widgets without Qt deleting them.  The
+        debounce coalesces the burst of callbacks that arrive as a page's
+        fetches resolve into a single relayout, and the shared pixmap cache
+        means image-bearing cells redraw instantly with no re-download."""
+        try:
+            entry = cell.entry()
+        except Exception:
+            entry = None
+        if entry is None:
+            return
+        key = self._entry_image_key(entry)
+        if key is None:
+            return
+        if key in self._no_image_keys:
+            return
+        self._no_image_keys.add(key)
+        # Only bother re-sorting if this imageless cell is not already trailing
+        # the grid (i.e. there is at least one later cell that *does* have an
+        # image and should move ahead of it).
+        self._resort_timer.start()
+
+    def _resort_for_images(self):
+        """Re-sort the current page so image-bearing entries lead, then
+        re-populate.  No-op when the order would not change."""
+        if not self._current_entries:
+            return
+        reordered = self._order_image_first(self._current_entries)
+        if [id(e) for e in reordered] == [id(e) for e in self._current_entries]:
+            return
+        # Preserve the current selection across the relayout.
+        sel_entry = None
+        if self._selected_cell is not None:
+            try:
+                sel_entry = self._selected_cell.entry()
+            except Exception:
+                sel_entry = None
+        self._render_entries(reordered)
+        self._current_entries = list(reordered)
+        if sel_entry is not None:
+            self.select_entry(lambda e: e is sel_entry)
 
     def _apply_no_image_relayout(self):
-        # Retained for backwards compatibility; intentionally a no-op now
-        # that runtime reordering is disabled (see ``_on_cell_no_image``).
-        return
+        # Retained for backwards compatibility; routes to the debounced
+        # image-first re-sort.
+        self._resort_timer.start()
 
     def _relayout_cells(self):
         """Re-bind every cell in self._cells to its new (row, col) slot."""
@@ -15784,6 +15930,24 @@ class MainWindow(QMainWindow):
 
         allinone_v.addLayout(allinone_search_row)
 
+        # --- Preview panel (right column, shown only in Table view) ---
+        self.allinone_screenshot_label = QLabel()
+        self.allinone_screenshot_label.setFixedSize(256, 192)
+        self.allinone_screenshot_label.setAlignment(Qt.AlignCenter)
+        self.allinone_screenshot_label.setStyleSheet("background: #111; border: 1px solid #444;")
+        self.allinone_screenshot_label.setText("No preview")
+        self.allinone_screenshot_label.setToolTip("Double-click to open full view")
+
+        allinone_right_col = QVBoxLayout()
+        allinone_right_col.addWidget(self.allinone_screenshot_label)
+        allinone_right_col.addStretch()
+        allinone_right_widget = QWidget()
+        allinone_right_widget.setLayout(allinone_right_col)
+        self._allinone_right_widget = allinone_right_widget
+        self._allinone_preview_label = self.allinone_screenshot_label
+        # Initially hidden; _allinone_apply_view_mode will show it in Table mode.
+        self.allinone_screenshot_label.setVisible(False)
+
         # --- Aggregated gallery view ---
         _ALLINONE_SOURCE_LABELS = {"getit": "GetIt", "zxdb": "ZXDB", "zxart": "ZXArt"}
 
@@ -15858,6 +16022,53 @@ class MainWindow(QMainWindow):
 
         self.allinone_results_table.doubleClicked.connect(_allinone_table_on_double_clicked)
 
+        # --- Row selection → load preview image ---
+        def _allinone_on_row_selected():
+            rows = self.allinone_results_table.selectedItems()
+            if not rows:
+                return
+            row = self.allinone_results_table.currentRow()
+            entry = _allinone_table_entry_for_row(row)
+            if entry is None:
+                return
+            self.allinone_screenshot_label.setText("Loading…")
+            self.allinone_screenshot_label.setPixmap(QPixmap())
+            # Delegate thumbnail fetch to the shared _fav_thumb_fetch which
+            # routes to the correct source-specific fetcher.
+            def _set_pixmap(px, _url=None):
+                try:
+                    if px is None or px.isNull():
+                        self.allinone_screenshot_label.setText("No preview")
+                    else:
+                        self.allinone_screenshot_label.setPixmap(
+                            px.scaled(256, 192, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        )
+                except RuntimeError:
+                    pass
+            def _set_screenshots(_urls):
+                pass  # Not needed for the simple preview label
+            try:
+                _fav_thumb_fetch(entry, _set_pixmap, _set_screenshots)
+            except Exception:
+                self.allinone_screenshot_label.setText("No preview")
+
+        self.allinone_results_table.itemSelectionChanged.connect(_allinone_on_row_selected)
+
+        # Double-click on preview opens full view
+        from PySide6.QtCore import QEvent as _QEvent
+
+        def _allinone_preview_dbl_click(event):
+            if event.type() == _QEvent.MouseButtonDblClick:
+                row = self.allinone_results_table.currentRow()
+                entry = _allinone_table_entry_for_row(row)
+                if entry is not None:
+                    _fav_open_fullscreen(entry)
+            # Let the label handle the event normally
+            return QLabel.event(self.allinone_screenshot_label, event)
+
+        self.allinone_screenshot_label.event = _allinone_preview_dbl_click
+        self.allinone_screenshot_label.setCursor(Qt.PointingHandCursor)
+
         # --- Stack the two views (table = idx 0, gallery = idx 1) ---
         self.allinone_view_stack = QStackedWidget()
         self.allinone_view_stack.addWidget(self.allinone_results_table)   # idx 0 = table
@@ -15868,7 +16079,13 @@ class MainWindow(QMainWindow):
         self._allinone_current_page = 1
         self._allinone_total_pages = 1
 
-        allinone_v.addWidget(self.allinone_view_stack)
+        # Wrap view_stack + right preview widget in a horizontal row
+        allinone_table_row = QHBoxLayout()
+        allinone_table_row.addWidget(self.allinone_view_stack, 1)
+        allinone_table_row.addWidget(allinone_right_widget)
+        allinone_table_container = QWidget()
+        allinone_table_container.setLayout(allinone_table_row)
+        allinone_v.addWidget(allinone_table_container)
         zxnextunite_AllInOne_tab.setLayout(allinone_v)
         zxnextunite_AllInOne_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_ALLINONE
 
@@ -16617,6 +16834,12 @@ class MainWindow(QMainWindow):
                 mode = "gallery"
             self._allinone_view_mode = mode
             self.allinone_view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
+            # Show/hide the preview panel based on view mode (Table = visible)
+            _table = (mode == "table")
+            if hasattr(self, '_allinone_right_widget'):
+                self._allinone_right_widget.setVisible(_table)
+            if hasattr(self, '_allinone_preview_label'):
+                self._allinone_preview_label.setVisible(_table)
             cb = self.allinone_view_combo
             target_idx = 1 if mode == "gallery" else 0
             if cb.currentIndex() != target_idx:
@@ -17420,7 +17643,14 @@ class MainWindow(QMainWindow):
             elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GETIT):
                 _show_content_disclaimer()
                 self._getit_fetch_motd()
-                if self.getit_results_table.rowCount() == 0 and not self._getit_search_loading:
+                # Only fall back to "Latest" when the pane is genuinely empty
+                # and no query is pending.  A query mirrored in from an
+                # AllInOne multi-search (e.g. "lunar") must be preserved — its
+                # background search may have returned few/zero rows, and we
+                # must not clear the box or override it with latest releases.
+                if (self.getit_results_table.rowCount() == 0
+                        and not self._getit_search_loading
+                        and not self.getit_search_input.text().strip()):
                     self._getit_on_latest()
             elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ZXDB):
                 _show_content_disclaimer()
@@ -17472,7 +17702,11 @@ class MainWindow(QMainWindow):
             if current_title == ZX_NEXT_UNITE_TAB_TITLE_GETIT:
                 _show_content_disclaimer()
                 self._getit_fetch_motd()
-                if self.getit_results_table.rowCount() == 0 and not self._getit_search_loading:
+                # Preserve any pending query (e.g. mirrored from an AllInOne
+                # multi-search) instead of clearing it with a "Latest" fetch.
+                if (self.getit_results_table.rowCount() == 0
+                        and not self._getit_search_loading
+                        and not self.getit_search_input.text().strip()):
                     self._getit_on_latest()
             elif current_title == ZX_NEXT_UNITE_TAB_TITLE_ZXDB:
                 _show_content_disclaimer()
