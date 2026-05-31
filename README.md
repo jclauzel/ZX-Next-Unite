@@ -50,7 +50,7 @@ Requirements
     feel free to support his development efforts & patreon https://www.patreon.com/mikedailly
     - Make sure Spectrum Next roms installed are installed in local directory (they should be provided in the CSpect zip package by default). 
         These two files namely: enNextZX.rom and enNxtMMC.rom -MUST- be placed in the root folder of your #CSpect.
-- You will need Spectrum Next images files that you can download from https://zxspectrumnext.online/cspect/  such as http://www.zxspectrumnext.online/cspect/cspect-next-2gb.zip
+- You will need Spectrum Next images files that you can download from [https://zxspectrumnext.online/cspect/](https://zxnext.uk/hosted/)  such as https://zxnext.uk/hosted/index_files/hdfimages/cspect-next-2gb.zip 
 - Download & install hdfmonkey by Matt Westcott https://github.com/gasman/hdfmonkey , on Windows either compile the source manually or download a pre-compiled version at: 
     https://uto.speccy.org/downloads/hdfmonkey_windows.zip
 - On Mac/Linux you will need to install mono-complete
