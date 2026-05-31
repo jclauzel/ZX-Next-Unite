@@ -812,7 +812,7 @@ SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_
 SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_GALLERY_ANIM_MODE,
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
-SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED)
+SETTING_ALLINONE_VIEW_MODE, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
@@ -4918,6 +4918,23 @@ class MainWindow(QMainWindow):
         self._favorites_view_mode    = "gallery"
         self._allinone_view_mode     = "gallery"
 
+        # Shared gate for search autocomplete. Honours the Settings checkbox
+        # (and the persisted SETTING_SEARCH_AUTOCOMPLETE value) so every pane's
+        # autocomplete trigger can consult a single source of truth. Falls back
+        # to the config value when the checkbox widget isn't built yet.
+        def _search_autocomplete_on() -> bool:
+            cb = getattr(self, "settings_search_autocomplete_checkbox", None)
+            if cb is not None:
+                try:
+                    return cb.isChecked()
+                except RuntimeError:
+                    pass
+            val = configuration_dictionary.get(SETTING_SEARCH_AUTOCOMPLETE, "")
+            if val == "":
+                return True
+            return val != "0" and str(val).lower() != "false"
+        self._search_autocomplete_on = _search_autocomplete_on
+
         # ── Favorites (cross-pane, persisted to hdfg.cfg) ──────────────
         # Each favorite is a dict: { "source": "getit"|"zxdb"|"zxart",
         #                            "id": str, "title": str,
@@ -9000,6 +9017,8 @@ class MainWindow(QMainWindow):
         def _getit_safe_show_popup(q: str):
             """Show the GetIt completer popup without calling QCompleter.complete()."""
             try:
+                if not self._search_autocomplete_on():
+                    return
                 if getattr(self, "_getit_ac_block", False):
                     return
                 if not self.getit_search_input.hasFocus():
@@ -9152,6 +9171,9 @@ class MainWindow(QMainWindow):
         self._getit_ac_timer = _getit_ac_timer
 
         def _getit_ac_trigger():
+            if not _search_autocomplete_on():
+                self._getit_ac_model.setStringList([])
+                return
             text = self.getit_search_input.text().strip()
             if not text:
                 self._getit_ac_model.setStringList([])
@@ -11089,6 +11111,8 @@ class MainWindow(QMainWindow):
             """Show the ZXDB completer popup without calling QCompleter.complete(),
             which has crashed Qt with a native access violation on Windows."""
             try:
+                if not self._search_autocomplete_on():
+                    return
                 if getattr(self, "_zxdb_ac_block", False):
                     return
                 if not self.zxdb_search_input.hasFocus():
@@ -11233,6 +11257,9 @@ class MainWindow(QMainWindow):
         self._zxdb_ac_fetch_letter = _zxdb_ac_fetch_letter
 
         def _zxdb_ac_trigger():
+            if not _search_autocomplete_on():
+                self._zxdb_ac_model.setStringList([])
+                return
             mode = zxdb_current_mode()
             if mode not in ("games", "byletter", "author"):
                 self._zxdb_ac_model.setStringList([])
@@ -14085,6 +14112,9 @@ class MainWindow(QMainWindow):
         self._zxart_ac_gen: int = 0
 
         def _zxart_ac_trigger():
+            if not _search_autocomplete_on():
+                self._zxart_ac_model.setStringList([])
+                return
             mode = zxart_current_mode()
             if mode not in ("prods", "byletter"):
                 self._zxart_ac_model.setStringList([])
@@ -14113,6 +14143,8 @@ class MainWindow(QMainWindow):
             # event-loop pumping.
             def _safe_show_popup(_q=text):
                 try:
+                    if not self._search_autocomplete_on():
+                        return
                     if getattr(self, "_zxart_ac_block", False):
                         return
                     if not self.zxart_search_input.hasFocus():
@@ -16478,6 +16510,8 @@ class MainWindow(QMainWindow):
 
         def _allinone_safe_show_popup(q: str):
             try:
+                if not self._search_autocomplete_on():
+                    return
                 if getattr(self, "_allinone_ac_block", False):
                     return
                 if not self.allinone_search_input.hasFocus():
@@ -16701,6 +16735,12 @@ class MainWindow(QMainWindow):
             _allinone_ac_update_model(text)
 
         def _allinone_ac_trigger():
+            if not _search_autocomplete_on():
+                try:
+                    self._allinone_ac_model.setStringList([])
+                except Exception:
+                    pass
+                return
             try:
                 text = self.allinone_search_input.text()
             except RuntimeError:
@@ -17164,6 +17204,7 @@ class MainWindow(QMainWindow):
                 f"}}"
                 f"QTabBar::tab:selected {{"
                 f"  background: rgba(60,60,60,220);"
+                f"  font-weight: bold;"
                 f"}}"
                 f"QTabBar::tab:hover {{"
                 f"  background: rgba(70,70,70,220);"
@@ -17321,7 +17362,7 @@ class MainWindow(QMainWindow):
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
         zxnextunite_Settings_tab.tab_name_private = "Settings"
-        wid_inner.tab.addTab(zxnextunite_Settings_tab, "Settings")
+        wid_inner.tab.addTab(zxnextunite_Settings_tab, "Settings 🔩")
 
           # Create Help Tab
         zxnextunite_Help_tab = QWidget(wid_inner.tab)
