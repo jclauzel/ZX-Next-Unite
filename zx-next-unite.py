@@ -298,7 +298,7 @@ from PySide6.QtWidgets import (
 
 import rc_backgrounds
 
-ZX_NEXT_UNITE_VERSION = "6.4"
+ZX_NEXT_UNITE_VERSION = "6.5"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -1563,7 +1563,15 @@ def zxdb_parse_game_detail(payload) -> dict:
 
     # Screenshots / additionals: collect ALL image-like entries for slideshow.
     image_exts = (".png", ".gif", ".jpg", ".jpeg", ".bmp", ".scr")
+    # Web-renderable raster formats; preferred over raw .scr screen dumps when
+    # the same screen is offered in more than one format.
+    web_image_exts = (".png", ".gif", ".jpg", ".jpeg", ".bmp")
     seen_urls = set()
+    # Maps a screen's base filename (without extension) to its index in
+    # detail["screenshots"], so the same picture offered both as a PNG and as
+    # a raw .scr screen dump (e.g. ZXInfo "additionalDownloads") is counted
+    # only once instead of inflating the slideshow page count.
+    seen_stems = {}
 
     def _abs_url(u):
         if not u:
@@ -1614,7 +1622,29 @@ def zxdb_parse_game_detail(payload) -> dict:
                 continue
             if url in seen_urls:
                 continue
+            # Deduplicate the same screen offered in multiple formats (e.g. a
+            # PNG screenshot plus its raw .scr screen dump). Key on the base
+            # filename without extension; keep the web-renderable raster
+            # version (.png/.gif/.jpg…) over a .scr that the viewer cannot
+            # display.
+            base = os.path.basename(ulow)
+            stem, ext = os.path.splitext(base)
+            prev_idx = seen_stems.get(stem)
+            if prev_idx is not None:
+                prev_url = detail["screenshots"][prev_idx]["url"]
+                prev_is_web = any(prev_url.lower().endswith(e) for e in web_image_exts)
+                cur_is_web = ext in web_image_exts
+                if cur_is_web and not prev_is_web:
+                    # Replace the non-web entry with this web-renderable one.
+                    seen_urls.discard(prev_url)
+                    seen_urls.add(url)
+                    detail["screenshots"][prev_idx] = {
+                        "url":  url,
+                        "type": str(a.get("type") or ""),
+                    }
+                continue
             seen_urls.add(url)
+            seen_stems[stem] = len(detail["screenshots"])
             detail["screenshots"].append({
                 "url":  url,
                 "type": str(a.get("type") or ""),
@@ -3743,6 +3773,13 @@ class GalleryView(QWidget):
         self._cells = []
         self._selected_cell = None
 
+        # Let the transparent window background (BackgroundWidget) show through
+        # any empty area of the grid.  The populated cells keep their own
+        # opaque GalleryCell background, so loaded items are NOT transparent;
+        # only the gaps / trailing empty cells reveal the background image.
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setStyleSheet("GalleryView { background: transparent; }")
+
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
@@ -3757,6 +3794,16 @@ class GalleryView(QWidget):
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self._table.horizontalHeader().setStretchLastSection(True)
         self._table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
+        # Make the table and its viewport transparent so empty cells reveal
+        # the background image instead of an opaque table background.
+        self._table.setAttribute(Qt.WA_TranslucentBackground, True)
+        self._table.viewport().setAttribute(Qt.WA_TranslucentBackground, True)
+        self._table.viewport().setAutoFillBackground(False)
+        self._table.setFrameShape(QFrame.NoFrame)
+        self._table.setStyleSheet(
+            "QTableWidget { background: transparent; border: none; }"
+            "QTableWidget::viewport { background: transparent; }"
+        )
         lay.addWidget(self._table)
 
         self._table.viewport().installEventFilter(self)
@@ -4546,20 +4593,22 @@ class GalleryItemViewer(QWidget):
             if not value:
                 continue
 
-            if is_html:
-                # Strip every HTML tag and decode entities to avoid Qt's
-                # text-engine font warnings (which break metrics and cause
-                # wrapped-text truncation). The value renders as plain text.
-                raw = str(value or "")
-                raw = _re.sub(r"<br\s*/?>", "\n", raw, flags=_re.IGNORECASE)
-                raw = _re.sub(r"</p\s*>", "\n\n", raw, flags=_re.IGNORECASE)
-                raw = _re.sub(r"<[^>]+>", "", raw)
-                raw = _html.unescape(raw)
-                # Collapse excessive blank runs.
-                raw = _re.sub(r"\n{3,}", "\n\n", raw).strip()
-                val_html = _html.escape(raw).replace("\n", "<br>")
-            else:
-                val_html = _html.escape(str(value or "")).replace("\n", "<br>")
+            # Always sanitise the value: strip every HTML tag and decode
+            # entities before re-escaping. All rows are rendered inside a
+            # Qt.RichText label, so escaped entities (e.g. &lt;LI&gt;) would
+            # be decoded by Qt and show as visible tags. The is_html flag
+            # merely signals that the raw value *may* contain HTML markup;
+            # the plain-text path must apply the same treatment because any
+            # value sourced from an API can carry incidental HTML.
+            raw = str(value or "")
+            raw = _re.sub(r"<br\s*/?>", "\n", raw, flags=_re.IGNORECASE)
+            raw = _re.sub(r"</p\s*>",   "\n\n", raw, flags=_re.IGNORECASE)
+            raw = _re.sub(r"<li\s*/?>", "\n• ", raw, flags=_re.IGNORECASE)
+            raw = _re.sub(r"<[^>]+>",   "",    raw)
+            raw = _html.unescape(raw)
+            # Collapse excessive blank runs.
+            raw = _re.sub(r"\n{3,}", "\n\n", raw).strip()
+            val_html = _html.escape(raw).replace("\n", "<br>")
 
             row_lbl = QLabel(
                 '<span style="color:#888; font-weight:bold;">'
@@ -8452,7 +8501,11 @@ class MainWindow(QMainWindow):
 
         getit_search_widget = QWidget()
         getit_search_widget.setLayout(getit_search_row)
-        self.getit_form.addRow(getit_search_widget)
+        # NOTE: the search/button bar is intentionally NOT added to the
+        # scrolled form here.  It is placed in a fixed header above the
+        # scroll area (see _getit_stack assembly) so the vertical scroller
+        # only spans the results/details area, matching the Unite! tab.
+        self._getit_search_widget = getit_search_widget
 
         # --- Results table ---
         self.getit_results_table = QTableWidget(0, 4)
@@ -8927,7 +8980,7 @@ class MainWindow(QMainWindow):
                     on_complete()
             getit_run_search("", 1, _getit_latest_done)
 
-        def getit_on_random():
+        def getit_on_random(on_complete=None):
             import random as _random
             getit_clear_detail()
             self.getit_search_input.clear()
@@ -8940,6 +8993,7 @@ class MainWindow(QMainWindow):
             self.getit_search_button.setEnabled(False)
             self.getit_latest_button.setEnabled(False)
             self.getit_random_button.setEnabled(False)
+            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
 
             def _fn():
                 # Probe the catalogue to find the number of pages, then load
@@ -8971,6 +9025,10 @@ class MainWindow(QMainWindow):
                 self.getit_search_button.setEnabled(True)
                 self.getit_latest_button.setEnabled(True)
                 self.getit_random_button.setEnabled(True)
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT, self.getit_results_table.rowCount())
+                if on_complete:
+                    on_complete()
 
             def _on_err(err):
                 if _gen != self._getit_search_gen:
@@ -8980,6 +9038,10 @@ class MainWindow(QMainWindow):
                 self.getit_search_button.setEnabled(True)
                 self.getit_latest_button.setEnabled(True)
                 self.getit_random_button.setEnabled(True)
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT, self.getit_results_table.rowCount())
+                if on_complete:
+                    on_complete()
 
             self._getit_random_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
@@ -9777,6 +9839,18 @@ class MainWindow(QMainWindow):
         getit_scroll.viewport().setAutoFillBackground(False)
         getit_scroll.viewport().setAttribute(Qt.WA_TranslucentBackground)
 
+        # Compose a fixed search/button header above the scrollable results so
+        # the vertical scroller only covers the content area (like the Unite!
+        # tab), instead of spanning the whole tab including the button bar.
+        getit_normal_widget = QWidget()
+        getit_normal_widget.setAutoFillBackground(False)
+        getit_normal_widget.setAttribute(Qt.WA_TranslucentBackground)
+        getit_normal_layout = QVBoxLayout(getit_normal_widget)
+        getit_normal_layout.setContentsMargins(0, 0, 0, 0)
+        getit_normal_layout.setSpacing(0)
+        getit_normal_layout.addWidget(self._getit_search_widget, 0)
+        getit_normal_layout.addWidget(getit_scroll, 1)
+
         # ---- Fullscreen preview overlay ----
         self._getit_fullscreen_pixmap = None
 
@@ -9809,7 +9883,7 @@ class MainWindow(QMainWindow):
         self._getit_stack = QStackedWidget()
         self._getit_stack.setAutoFillBackground(False)
         self._getit_stack.setAttribute(Qt.WA_TranslucentBackground)
-        self._getit_stack.addWidget(getit_scroll)   # index 0 – normal view
+        self._getit_stack.addWidget(getit_normal_widget)   # index 0 – normal view
         self._getit_stack.addWidget(getit_overlay)  # index 1 – fullscreen preview
         self._getit_stack.setCurrentIndex(0)
 
@@ -9949,7 +10023,10 @@ class MainWindow(QMainWindow):
 
         zxdb_search_widget = QWidget()
         zxdb_search_widget.setLayout(zxdb_search_row)
-        self.zxdb_form.addRow(zxdb_search_widget)
+        # Keep the search/button bar fixed above the scroll area (see the
+        # _zxdb_stack assembly) so the vertical scroller only covers the
+        # results/details area, matching the Unite! tab.
+        self._zxdb_search_widget = zxdb_search_widget
 
         # --- Results table + screenshot/download column ---
         self.zxdb_results_table = QTableWidget(0, 6)
@@ -10887,6 +10964,7 @@ class MainWindow(QMainWindow):
             self.zxdb_search_button.setEnabled(False)
             self.zxdb_random_button.setEnabled(False)
             self._zxdb_last_query = ""
+            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
 
             def _fn():
                 payload = zxdb_fetch_json(f"/games/random/{ZXDB_PAGE_SIZE}")
@@ -10937,6 +11015,8 @@ class MainWindow(QMainWindow):
                 zxdb_set_status(f"{len(entries)} random game(s)")
                 self.zxdb_search_button.setEnabled(True)
                 self.zxdb_random_button.setEnabled(True)
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB, self.zxdb_results_table.rowCount())
                 if on_complete:
                     on_complete()
 
@@ -10951,6 +11031,8 @@ class MainWindow(QMainWindow):
                     zxdb_set_status(f"Error: {exc}")
                 self.zxdb_search_button.setEnabled(True)
                 self.zxdb_random_button.setEnabled(True)
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB, self.zxdb_results_table.rowCount())
                 if on_complete:
                     on_complete()
 
@@ -10966,6 +11048,7 @@ class MainWindow(QMainWindow):
             self.zxdb_random_button.setEnabled(False)
             self.zxdb_latest_button.setEnabled(False)
             self._zxdb_last_query = ""
+            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
 
             params = {
                 "size":   str(ZXDB_PAGE_SIZE),
@@ -10993,6 +11076,8 @@ class MainWindow(QMainWindow):
                 self.zxdb_search_button.setEnabled(True)
                 self.zxdb_random_button.setEnabled(zxdb_current_mode() == "games")
                 self.zxdb_latest_button.setEnabled(zxdb_current_mode() == "games")
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB, self.zxdb_results_table.rowCount())
                 if on_complete:
                     on_complete()
 
@@ -11004,6 +11089,8 @@ class MainWindow(QMainWindow):
                 self.zxdb_search_button.setEnabled(True)
                 self.zxdb_random_button.setEnabled(zxdb_current_mode() == "games")
                 self.zxdb_latest_button.setEnabled(zxdb_current_mode() == "games")
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB, self.zxdb_results_table.rowCount())
                 if on_complete:
                     on_complete()
 
@@ -11044,10 +11131,10 @@ class MainWindow(QMainWindow):
                 _cross_search_getit(q)
                 _cross_search_zxart(q)
 
-        def zxdb_on_random():
+        def zxdb_on_random(on_complete=None):
             zxdb_clear_detail()
             self.zxdb_search_input.clear()
-            zxdb_run_random()
+            zxdb_run_random(on_complete)
 
         def zxdb_on_latest(on_complete=None):
             zxdb_clear_detail()
@@ -12641,6 +12728,17 @@ class MainWindow(QMainWindow):
         zxdb_scroll.viewport().setAutoFillBackground(False)
         zxdb_scroll.viewport().setAttribute(Qt.WA_TranslucentBackground)
 
+        # Fixed search/button header above the scrollable results so the
+        # vertical scroller only covers the content area (like the Unite! tab).
+        zxdb_normal_widget = QWidget()
+        zxdb_normal_widget.setAutoFillBackground(False)
+        zxdb_normal_widget.setAttribute(Qt.WA_TranslucentBackground)
+        zxdb_normal_layout = QVBoxLayout(zxdb_normal_widget)
+        zxdb_normal_layout.setContentsMargins(0, 0, 0, 0)
+        zxdb_normal_layout.setSpacing(0)
+        zxdb_normal_layout.addWidget(self._zxdb_search_widget, 0)
+        zxdb_normal_layout.addWidget(zxdb_scroll, 1)
+
         self._zxdb_fullscreen_pixmap = None
 
         zxdb_overlay = QWidget()
@@ -12702,7 +12800,7 @@ class MainWindow(QMainWindow):
         self._zxdb_stack = QStackedWidget()
         self._zxdb_stack.setAutoFillBackground(False)
         self._zxdb_stack.setAttribute(Qt.WA_TranslucentBackground)
-        self._zxdb_stack.addWidget(zxdb_scroll)
+        self._zxdb_stack.addWidget(zxdb_normal_widget)
         self._zxdb_stack.addWidget(zxdb_overlay)
         self._zxdb_stack.setCurrentIndex(0)
 
@@ -12868,7 +12966,10 @@ class MainWindow(QMainWindow):
 
         zxart_search_widget = QWidget()
         zxart_search_widget.setLayout(zxart_search_row)
-        self.zxart_form.addRow(zxart_search_widget)
+        # Keep the search/button bar fixed above the scroll area (see the
+        # _zxart_stack assembly) so the vertical scroller only covers the
+        # results/details area, matching the Unite! tab.
+        self._zxart_search_widget = zxart_search_widget
 
         # --- Results table + screenshot/download column ---
         self.zxart_results_table = QTableWidget(0, 6)
@@ -13992,11 +14093,17 @@ class MainWindow(QMainWindow):
             zxart_clear_detail()
             self.zxart_search_input.clear()
             self._zxart_last_query = ""
+            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+            def _zxart_latest_done():
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART, self.zxart_results_table.rowCount())
+                if on_complete:
+                    on_complete()
             # zxart_run_search with empty query already uses order:date,desc for
             # both 'prods' and 'pictures' modes, returning the most recent items.
-            zxart_run_search("", 1, on_complete)
+            zxart_run_search("", 1, _zxart_latest_done)
 
-        def zxart_on_random():
+        def zxart_on_random(on_complete=None):
             import random as _random
             zxart_clear_detail()
             self.zxart_search_input.clear()
@@ -14007,6 +14114,7 @@ class MainWindow(QMainWindow):
             _gen = self._zxart_search_gen
             zxart_set_busy(True)
             zxart_set_status("Picking random zxART entries…")
+            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
 
             def _fn():
                 if mode == "pictures":
@@ -14055,12 +14163,20 @@ class MainWindow(QMainWindow):
                     f"{len(entries)} random {noun}  |  page {page}/{total_pages}"
                 )
                 zxart_set_busy(False)
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART, self.zxart_results_table.rowCount())
+                if on_complete:
+                    on_complete()
 
             def _on_err(err):
                 if _gen != self._zxart_search_gen:
                     return  # superseded by a newer search
                 zxart_set_status(f"Error: {err[1]}")
                 zxart_set_busy(False)
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART, self.zxart_results_table.rowCount())
+                if on_complete:
+                    on_complete()
 
             self._zxart_random_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
@@ -15507,6 +15623,17 @@ class MainWindow(QMainWindow):
         zxart_scroll.viewport().setAutoFillBackground(False)
         zxart_scroll.viewport().setAttribute(Qt.WA_TranslucentBackground)
 
+        # Fixed search/button header above the scrollable results so the
+        # vertical scroller only covers the content area (like the Unite! tab).
+        zxart_normal_widget = QWidget()
+        zxart_normal_widget.setAutoFillBackground(False)
+        zxart_normal_widget.setAttribute(Qt.WA_TranslucentBackground)
+        zxart_normal_layout = QVBoxLayout(zxart_normal_widget)
+        zxart_normal_layout.setContentsMargins(0, 0, 0, 0)
+        zxart_normal_layout.setSpacing(0)
+        zxart_normal_layout.addWidget(self._zxart_search_widget, 0)
+        zxart_normal_layout.addWidget(zxart_scroll, 1)
+
         self._zxart_fullscreen_pixmap = None
 
         zxart_overlay = QWidget()
@@ -15568,7 +15695,7 @@ class MainWindow(QMainWindow):
         self._zxart_stack = QStackedWidget()
         self._zxart_stack.setAutoFillBackground(False)
         self._zxart_stack.setAttribute(Qt.WA_TranslucentBackground)
-        self._zxart_stack.addWidget(zxart_scroll)
+        self._zxart_stack.addWidget(zxart_normal_widget)
         self._zxart_stack.addWidget(zxart_overlay)
         self._zxart_stack.setCurrentIndex(0)
 
@@ -16370,20 +16497,16 @@ class MainWindow(QMainWindow):
         self.allinone_search_button.clicked.connect(allinone_on_search)
         self.allinone_search_input.returnPressed.connect(allinone_on_search)
 
-        # --- Random handler: fan out to GetIt + ZXDB + zxArt Random buttons.
-        # Each per-source random handler clears its own search box and
-        # ultimately calls its populate_results path, which refreshes the
-        # AllInOne gallery via _allinone_repopulate.
-        def allinone_on_random():
-            # Clear the AllInOne search box too, so the pane reflects the
-            # "random" mode rather than a stale query.
-            try:
-                self.allinone_search_input.clear()
-            except Exception:
-                pass
-            # Reset paging on a new random fetch so results start at page 1.
+        # --- Shared fan-out driver for Random/Latest on the Unite! tab.
+        # Kicks off every supplied source action (each taking an on_complete
+        # callback), drives the rotating-earth spinner on the AllInOne tab,
+        # and refreshes the aggregated gallery once every source has reported
+        # back. Each per-source completion is counted at most once, and a
+        # watchdog timer guarantees the spinner is always cleared even if a
+        # source's callback is dropped by a supersede race — preventing the
+        # "forever-spinning earth" symptom.
+        def _allinone_fanout(actions):
             self._allinone_current_page = 1
-            # Clear stale tab badges before kicking off the random fetches.
             try:
                 _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
                 if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
@@ -16392,33 +16515,90 @@ class MainWindow(QMainWindow):
                     _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
             except Exception:
                 pass
-            # GetIt random.
+
+            state = {"pending": len(actions), "done": False}
+
+            watchdog = QTimer(self)
+            watchdog.setSingleShot(True)
+            watchdog.setInterval(30000)
+
+            def _finish():
+                if state["done"]:
+                    return
+                state["done"] = True
+                try:
+                    watchdog.stop()
+                except Exception:
+                    pass
+                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE)
+                try:
+                    _allinone_repopulate()
+                except Exception:
+                    pass
+
+            def _make_done():
+                fired = {"v": False}
+
+                def _done():
+                    # Guard against a source invoking its callback twice.
+                    if fired["v"]:
+                        return
+                    fired["v"] = True
+                    state["pending"] -= 1
+                    if state["pending"] <= 0:
+                        _finish()
+                return _done
+
+            watchdog.timeout.connect(_finish)
+
+            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE)
+            watchdog.start()
+
+            if not actions:
+                _finish()
+                return
+
+            for action in actions:
+                done_cb = _make_done()
+                try:
+                    action(done_cb)
+                except Exception:
+                    done_cb()
+
+        # --- Random handler: fan out to GetIt + ZXDB + zxArt Random buttons.
+        # Each per-source random handler clears its own search box, drives its
+        # tab spinner/badge, and ultimately refreshes the AllInOne gallery via
+        # _allinone_repopulate once the shared fan-out driver reports done.
+        def allinone_on_random():
+            # Clear the AllInOne search box too, so the pane reflects the
+            # "random" mode rather than a stale query.
             try:
-                getit_on_random()
+                self.allinone_search_input.clear()
             except Exception:
                 pass
-            # ZXDB random — only meaningful in 'games' mode; the button
-            # there is auto-disabled outside of it, so guard accordingly.
+
+            actions = [lambda cb: getit_on_random(cb)]
+            # ZXDB random — only meaningful in 'games' mode; the button there
+            # is auto-disabled outside of it, so guard accordingly.
             if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
                 try:
-                    if self.zxdb_random_button.isEnabled():
-                        zxdb_on_random()
+                    zxdb_games_mode = self.zxdb_random_button.isEnabled()
                 except Exception:
-                    pass
-            # zxArt random.
+                    zxdb_games_mode = False
+                if zxdb_games_mode:
+                    actions.append(lambda cb: zxdb_on_random(cb))
             if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
-                try:
-                    zxart_on_random()
-                except Exception:
-                    pass
+                actions.append(lambda cb: zxart_on_random(cb))
+
+            _allinone_fanout(actions)
 
         self.allinone_random_button.clicked.connect(allinone_on_random)
 
         # --- Latest handler: fan out to GetIt + ZXDB + zxArt "Latest" actions.
-        # Each per-source latest handler clears its own search box and fetches
-        # the most recent releases, then refreshes the AllInOne gallery via
-        # _allinone_repopulate. We drive the rotating-earth spinner on the
-        # AllInOne tab until every source has reported back.
+        # Each per-source latest handler clears its own search box, drives its
+        # tab spinner/badge, and fetches the most recent releases. The shared
+        # fan-out driver runs the rotating-earth spinner on the AllInOne tab
+        # until every source has reported back, then refreshes the gallery.
         def allinone_on_latest():
             # Clear the AllInOne search box so the pane reflects "latest"
             # mode rather than a stale query.
@@ -16437,55 +16617,15 @@ class MainWindow(QMainWindow):
                 self._allinone_completer.popup().hide()
             except Exception:
                 pass
-            # Reset paging on a new fetch so results start at page 1.
-            self._allinone_current_page = 1
-            # Clear stale tab badges before kicking off the latest fetches.
-            try:
-                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
-                if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
-                    _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
-                if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
-                    _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
-            except Exception:
-                pass
-            # Count how many sources we kick off so the AllInOne spinner stops
-            # only once they have all reported back.
-            count = 1  # GetIt is always present
+
+            actions = [lambda cb: getit_on_latest(cb)]
+            # ZXDB latest — zxdb_on_latest forces 'games' mode itself.
             if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
-                count += 1
+                actions.append(lambda cb: zxdb_on_latest(cb))
             if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
-                count += 1
-            pending = {"count": count}
+                actions.append(lambda cb: zxart_on_latest(cb))
 
-            def _allinone_latest_done():
-                pending["count"] -= 1
-                if pending["count"] <= 0:
-                    _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE)
-                    try:
-                        _allinone_repopulate()
-                    except Exception:
-                        pass
-
-            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE)
-
-            # GetIt latest.
-            try:
-                getit_on_latest(_allinone_latest_done)
-            except Exception:
-                _allinone_latest_done()
-            # ZXDB latest — only meaningful in 'games' mode; zxdb_on_latest
-            # forces that mode itself.
-            if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
-                try:
-                    zxdb_on_latest(_allinone_latest_done)
-                except Exception:
-                    _allinone_latest_done()
-            # zxArt latest.
-            if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
-                try:
-                    zxart_on_latest(_allinone_latest_done)
-                except Exception:
-                    _allinone_latest_done()
+            _allinone_fanout(actions)
 
         self.allinone_latest_button.clicked.connect(allinone_on_latest)
         # Expose so deferred startup activation can trigger the same "Latest"
