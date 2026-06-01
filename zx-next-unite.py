@@ -298,7 +298,7 @@ from PySide6.QtWidgets import (
 
 import rc_backgrounds
 
-ZX_NEXT_UNITE_VERSION = "6.5"
+ZX_NEXT_UNITE_VERSION = "6.6"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -3271,6 +3271,21 @@ class GalleryCell(QFrame):
         self._timer.setInterval(1500)
         self._timer.timeout.connect(self._advance)
 
+        # Retry bookkeeping for the initial thumbnail fetch.  The per-gallery
+        # fetch callbacks run on background threads whose error path is a no-op,
+        # so a transient network/JSON failure leaves the cell stuck on the "…"
+        # placeholder forever (until the user opens the item full-screen, which
+        # kicks off a fresh fetch).  We retry the initial fetch a few times with
+        # back-off whenever the cell has neither loaded a real picture nor
+        # resolved to a typed placeholder.
+        self._loaded_ok          = False   # a non-placeholder pixmap was shown
+        self._placeholder_shown  = False   # a "no real picture" placeholder shown
+        self._fetch_attempts     = 0
+        self._max_fetch_attempts = 4
+        self._retry_timer = QTimer(self)
+        self._retry_timer.setSingleShot(True)
+        self._retry_timer.timeout.connect(self._retry_if_unloaded)
+
         # Defer initial fetch until the cell is actually shown
         QTimer.singleShot(0, self._kickoff_initial_fetch)
 
@@ -3577,6 +3592,7 @@ class GalleryCell(QFrame):
             return
         if not self._is_alive():
             return
+        self._fetch_attempts += 1
         try:
             # Newer callbacks accept an extra `set_tags` callable so that
             # tags can be derived asynchronously (e.g. from a release lookup).
@@ -3593,6 +3609,32 @@ class GalleryCell(QFrame):
                                          self.set_screenshots)
         except Exception:
             pass
+        # Schedule a retry in case this attempt fails silently (the per-gallery
+        # fetch callbacks swallow background errors), leaving the cell stuck on
+        # the "…" placeholder.  The retry is a no-op once a real picture or a
+        # typed placeholder has been shown.
+        self._schedule_retry()
+
+    def _schedule_retry(self):
+        if not self._is_alive():
+            return
+        if self._loaded_ok or self._placeholder_shown:
+            return
+        if self._fetch_attempts >= self._max_fetch_attempts:
+            return
+        # Exponential-ish back-off: 2s, 4s, 8s …
+        delay_ms = 2000 * (2 ** (self._fetch_attempts - 1))
+        try:
+            self._retry_timer.start(delay_ms)
+        except Exception:
+            pass
+
+    def _retry_if_unloaded(self):
+        if not self._is_alive():
+            return
+        if self._loaded_ok or self._placeholder_shown:
+            return
+        self._kickoff_initial_fetch()
 
     def _maybe_start_anim(self):
         if len(self._screenshots) <= 1:
@@ -3701,14 +3743,27 @@ class GalleryCell(QFrame):
         self._position_tag_overlay()
         self._position_source_overlay()
         self._position_heart()
+        # A pixmap was successfully applied: mark the cell loaded so the
+        # initial-fetch retry timer stops re-trying.  A synthetic placeholder
+        # counts as "resolved" too (we have nothing better to show), but it is
+        # tracked separately so a real picture is still preferred.
+        cur_url = ""
+        if 0 <= self._shot_index < len(self._screenshots):
+            cur_url = self._screenshots[self._shot_index]
+        is_placeholder = isinstance(cur_url, str) and cur_url.startswith("placeholder://")
+        if is_placeholder:
+            self._placeholder_shown = True
+        else:
+            self._loaded_ok = True
+        try:
+            self._retry_timer.stop()
+        except Exception:
+            pass
         # Surface the resolved real picture to the parent view so it can be
         # cached for an instant redraw across an image-first re-sort.
         cb = self._pixmap_ready_cb
         if cb is not None:
-            cur_url = ""
-            if 0 <= self._shot_index < len(self._screenshots):
-                cur_url = self._screenshots[self._shot_index]
-            if not (isinstance(cur_url, str) and cur_url.startswith("placeholder://")):
+            if not is_placeholder:
                 try:
                     cb(self, pm, cur_url)
                 except Exception:
