@@ -353,6 +353,16 @@ Known issues
 * When using NextSync the console may show some “Timer” messages, these may be safely ignored.
 
 
+Source code architecture
+-------------------------
+
+File	Lines	Contents
+
+zxnu_config.py	~400	Constants, settings keys, service URLs, legal-status & UI-translation tables, color/gallery constants, INIT_LOG/INIT_HELP, plus the zxArt language state (_zxart_current_language, _zxart_lang, _zxart_set_language) and pure helpers (resource_path, qcolor_to_hex, etc.)
+
+zxnu_workers.py	~180	DotDotFirstProxyModel, WorkerSignals, NextSyncSignals, HdfTaskSignals, HdfTaskWorker, HdfProgressDialog
+
+zxnu_media.py	~610	Format/tag helpers (zxfmt_*, _gallery_extract_tags), the ZxSpectrumScreen SCREEN$ decoder, zxscr_* helpers, placeholder-pixmap rendering, and the shared _ZXSCR_PIXMAP_CACHE/_ZXART_RELEASE_FORMAT_TAGS caches
 
 
 
