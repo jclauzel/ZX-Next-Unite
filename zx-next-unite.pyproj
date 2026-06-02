@@ -27,11 +27,19 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="zx-next-unite.py" />
+    <Compile Include="zxnu_config.py" />
+    <Compile Include="zxnu_workers.py" />
+    <Compile Include="zxnu_media.py" />
+    <Compile Include="zxnu_gallery.py" />
     <Compile Include="_probe_alias.py" />
     <Compile Include="_probe_authors.py" />
     <Compile Include="_probe_authors2.py" />
     <Compile Include="_probe_names.py" />
     <Compile Include="_probe_zxart.py" />
+    <Compile Include="_refactor_analyze.py" />
+    <Compile Include="_refactor_check.py" />
+    <Compile Include="_refactor_check_main.py" />
+    <Compile Include="_refactor_extract.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in
