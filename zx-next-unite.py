@@ -298,7 +298,7 @@ from PySide6.QtWidgets import (
 
 import rc_backgrounds
 
-ZX_NEXT_UNITE_VERSION = "6.6"
+ZX_NEXT_UNITE_VERSION = "6.7"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -312,8 +312,8 @@ ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
 ZX_NEXT_UNITE_UI_WIDTH = 900 * ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER
 ZX_NEXT_UNITE_UI_HEIGTH = 650 * ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER
 ZX_NEXT_UNITE_CONFIG_FILE_NAME = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "hdfg.cfg")
-ZX_NEXT_UNITE_TAB_TITLE_GOOEY = "TOOL: zx-next-unite - SD Card Utility"
-ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "TOOL: NextSync - Network Transfer Manager"
+ZX_NEXT_UNITE_TAB_TITLE_GOOEY = "TOOL: SD Card Utility"
+ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "TOOL: Network Transfer Manager (NextSync)"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC_SYNCON = "NextSync - Sync ON"
 ZX_NEXT_UNITE_TAB_TITLE_GETIT = "🌍 GetIt"
 ZX_NEXT_UNITE_TAB_TITLE_ZXDB  = "🌍 ZXDB/ZXinfo.dk"
@@ -5929,6 +5929,169 @@ class MainWindow(QMainWindow):
                 if self.settings_warn_image_nearly_full_checkbox.isChecked():
                     _warn_if_image_nearly_full(self.right_disk_image_path)
 
+        def download_nextzxos_image():
+            """Quick wizard to download a ready-to-use NextZXOS SD card image from
+            zxnext.uk, save it to disk, extract the contained disk image, select it
+            into self.imageinput and load it automatically."""
+
+            NEXTZXOS_IMAGES = [
+                ("Next distribution 2Gb SD Card Image",
+                 "https://zxnext.uk/hosted/index_files/hdfimages/cspect-next-2gb.zip"),
+                ("Next distribution 4Gb SD Card Image",
+                 "https://zxnext.uk/hosted/index_files/hdfimages/cspect-next-4gb.zip"),
+                ("Next distribution 8Gb SD Card Image",
+                 "https://zxnext.uk/hosted/index_files/hdfimages/cspect-next-8gb.zip"),
+            ]
+
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Download NextZXOS Image")
+            dialog.setMinimumWidth(480)
+
+            dialog_layout = QVBoxLayout(dialog)
+
+            info_label = QLabel(
+                "Select a NextZXOS SD card image to download from zxnext.uk.\n"
+                "The image will be saved to a location of your choice and then\n"
+                "loaded automatically so you can start using it right away."
+            )
+            dialog_layout.addWidget(info_label)
+
+            image_combo = QComboBox(dialog)
+            for label, url in NEXTZXOS_IMAGES:
+                image_combo.addItem(label, url)
+            dialog_layout.addWidget(image_combo)
+
+            download_progress = QProgressBar(dialog)
+            download_progress.setRange(0, 100)
+            download_progress.setValue(0)
+            download_progress.setVisible(False)
+            dialog_layout.addWidget(download_progress)
+
+            button_box = QDialogButtonBox(dialog)
+            download_button = button_box.addButton("Download", QDialogButtonBox.AcceptRole)
+            cancel_button = button_box.addButton("Cancel", QDialogButtonBox.RejectRole)
+            dialog_layout.addWidget(button_box)
+
+            cancel_button.clicked.connect(dialog.reject)
+
+            def do_download():
+                selected_label = image_combo.currentText()
+                selected_url = image_combo.currentData()
+
+                suggested_name = os.path.basename(urllib.parse.urlparse(selected_url).path)
+
+                save_path, _selected_filter = QFileDialog.getSaveFileName(
+                    dialog,
+                    "Save NextZXOS Image",
+                    suggested_name,
+                    "Zip Archives (*.zip);;All Files (*)"
+                )
+
+                if not save_path:
+                    return
+
+                download_button.setEnabled(False)
+                cancel_button.setEnabled(False)
+                image_combo.setEnabled(False)
+                download_progress.setVisible(True)
+                download_progress.setValue(0)
+
+                add_main_log_window(f"Downloading {selected_label} from {selected_url}")
+
+                try:
+                    request = urllib.request.Request(
+                        selected_url,
+                        headers={"User-Agent": "ZX-Next-Unite"}
+                    )
+                    with urllib.request.urlopen(request) as response:
+                        total_size = response.getheader("Content-Length")
+                        total_size = int(total_size) if total_size else 0
+                        downloaded = 0
+                        chunk_size = 65536
+                        with open(save_path, "wb") as out_file:
+                            while True:
+                                chunk = response.read(chunk_size)
+                                if not chunk:
+                                    break
+                                out_file.write(chunk)
+                                downloaded += len(chunk)
+                                if total_size:
+                                    percent = int(downloaded * 100 / total_size)
+                                    download_progress.setValue(min(percent, 100))
+                                QApplication.processEvents()
+                    download_progress.setValue(100)
+                except Exception as download_error:
+                    logging.error(f"Failed downloading NextZXOS image: {download_error}")
+                    add_main_log_window(f"Failed downloading NextZXOS image: {download_error}")
+                    QMessageBox.critical(
+                        dialog,
+                        "Download Failed",
+                        f"Failed to download the NextZXOS image:\n{download_error}"
+                    )
+                    download_button.setEnabled(True)
+                    cancel_button.setEnabled(True)
+                    image_combo.setEnabled(True)
+                    download_progress.setVisible(False)
+                    return
+
+                # Extract the disk image from the downloaded archive so it can be loaded
+                image_to_load = save_path
+                try:
+                    if zipfile.is_zipfile(save_path):
+                        extract_dir = os.path.dirname(save_path)
+                        with zipfile.ZipFile(save_path) as archive:
+                            image_members = [
+                                name for name in archive.namelist()
+                                if name.lower().endswith((".img", ".hdf"))
+                            ]
+                            if image_members:
+                                archive.extract(image_members[0], extract_dir)
+                                image_to_load = os.path.join(extract_dir, image_members[0])
+                                add_main_log_window(f"Extracted disk image: {image_to_load}")
+                except Exception as extract_error:
+                    logging.error(f"Failed extracting NextZXOS image: {extract_error}")
+                    add_main_log_window(f"Failed extracting NextZXOS image: {extract_error}")
+                    QMessageBox.critical(
+                        dialog,
+                        "Extraction Failed",
+                        f"The image was downloaded but could not be extracted:\n{extract_error}"
+                    )
+                    download_button.setEnabled(True)
+                    cancel_button.setEnabled(True)
+                    image_combo.setEnabled(True)
+                    download_progress.setVisible(False)
+                    return
+
+                dialog.accept()
+
+                global right_disk_image_explorer_path
+                global right_disk_image_explorer_content
+                global right_disk_image_path
+                global right_disk_image_selected_files
+
+                # Select the downloaded image into the image input
+                self.imageinput.setCurrentText('"' + str(image_to_load) + '"')
+                configuration_dictionary[SETTING_HDDFILE] = self.imageinput.currentText()
+
+                right_disk_image_explorer_path = []
+                right_disk_image_explorer_content = []
+                right_disk_image_path = ""
+                right_disk_image_selected_files = []
+                self.TableWidgetImage.clear()
+                self.TableWidgetImage.setRowCount(0)
+
+                set_table_image_properties()
+
+                # Now try to load it
+                if load_image():
+                    save_configuration_file()
+                    if self.settings_warn_image_nearly_full_checkbox.isChecked():
+                        _warn_if_image_nearly_full(self.right_disk_image_path)
+
+            download_button.clicked.connect(do_download)
+
+            dialog.exec()
+
         def _get_image_free_space_pct(image_path):
             """Parse the FAT layout of image_path and return (free_pct, free_mb, total_mb).
             Returns None if the image cannot be read or is not a recognised FAT volume."""
@@ -7750,8 +7913,16 @@ class MainWindow(QMainWindow):
         self.selectimage.toolTip = "Select a disk image to be loaded."
         self.selectimage.clicked.connect(select_image)
 
+        self.downloadimage = QPushButton("Download NextZXOS Image", self)
+        self.downloadimage.setToolTip(
+            "Download a ready-to-use NextZXOS SD card image from zxnext.uk,\n"
+            "save it to disk, and load it automatically."
+        )
+        self.downloadimage.clicked.connect(download_nextzxos_image)
+
         self.horizontal1.addWidget(self.imageinput)
         self.horizontal1.addWidget(self.selectimage)
+        self.horizontal1.addWidget(self.downloadimage)
 
         self.zx_next_unite_form.addRow(self.horizontal1)
 
