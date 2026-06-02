@@ -4979,6 +4979,85 @@ def _apply_completer_fix_to_children(widget: QWidget):
 
 class MainWindow(QMainWindow):
 
+    def _show_sd_notification(self, message: str):
+        """Show a small, auto-dismissing toast confirming that a
+        'Send to SD card' task has completed.
+
+        The toast appears in the bottom-right corner of the main window and
+        disappears automatically after 10 seconds, or immediately when the
+        user clicks the OK button. Used by the GetIt / ZXDB / zxArt / Unite!
+        gallery viewers which otherwise only update a status label the user
+        may not notice.
+        """
+        try:
+            toast = QWidget(self, Qt.Tool | Qt.FramelessWindowHint)
+            toast.setAttribute(Qt.WA_DeleteOnClose, True)
+            toast.setObjectName("sd_toast")
+            toast.setStyleSheet(
+                "#sd_toast { background: #1e2a1e; border: 1px solid #4caf50;"
+                " border-radius: 8px; }"
+            )
+            lay = QVBoxLayout(toast)
+            lay.setContentsMargins(14, 12, 14, 12)
+            lay.setSpacing(8)
+
+            title_lbl = QLabel("\u2705  Send to SD card complete")
+            title_lbl.setStyleSheet(
+                "color: #c8f7c5; font-weight: bold; background: transparent;"
+            )
+            lay.addWidget(title_lbl)
+
+            msg_lbl = QLabel(message or "The file was sent to the SD card image.")
+            msg_lbl.setWordWrap(True)
+            msg_lbl.setMaximumWidth(360)
+            msg_lbl.setStyleSheet("color: #e8e8e8; background: transparent;")
+            lay.addWidget(msg_lbl)
+
+            btn_row = QHBoxLayout()
+            btn_row.addStretch(1)
+            ok_btn = QPushButton("OK")
+            ok_btn.setStyleSheet(
+                "QPushButton { color: #eee; background: #2e7d32; border: 1px solid"
+                " #4caf50; border-radius: 4px; padding: 4px 18px; }"
+                "QPushButton:hover { background: #388e3c; }"
+            )
+            btn_row.addWidget(ok_btn)
+            lay.addLayout(btn_row)
+
+            toast.adjustSize()
+
+            # Position in the bottom-right corner of the main window.
+            try:
+                geo = self.frameGeometry()
+                x = geo.right() - toast.width() - 24
+                y = geo.bottom() - toast.height() - 24
+                toast.move(max(geo.left() + 8, x), max(geo.top() + 8, y))
+            except Exception:
+                pass
+
+            timer = QTimer(toast)
+            timer.setSingleShot(True)
+            timer.setInterval(10000)  # auto-dismiss after 10 seconds
+
+            def _dismiss():
+                try:
+                    timer.stop()
+                except Exception:
+                    pass
+                try:
+                    toast.close()
+                except Exception:
+                    pass
+
+            timer.timeout.connect(_dismiss)
+            ok_btn.clicked.connect(_dismiss)
+
+            toast.show()
+            toast.raise_()
+            timer.start()
+        except Exception:
+            pass
+
     def __init__(self, *args, **kwargs):
         global right_disk_image_explorer_content
         super(MainWindow, self).__init__(*args, **kwargs)
@@ -9925,6 +10004,7 @@ class MainWindow(QMainWindow):
 
             def _on_done(dest):
                 getit_set_status(f"Sent to image: {dest}")
+                self._show_sd_notification(f"Sent to SD card image:\n{dest}")
                 # Refresh the disk image table so the new folder appears
                 res = execute_hdf_monkey("ls", image_path,
                                          extra_argv=[generate_disk_file_path()])
@@ -12345,6 +12425,9 @@ class MainWindow(QMainWindow):
                 if pending["ok"] + pending["ko"] >= pending["n"]:
                     if pending["ok"] > 0:
                         zxdb_set_status(f"Sent {pending['ok']}/{pending['n']} file(s) → image:{img_dir}")
+                        self._show_sd_notification(
+                            f"Sent {pending['ok']}/{pending['n']} file(s) to SD card image:\n{img_dir}"
+                        )
                         res = execute_hdf_monkey("ls", image_path, extra_argv=[generate_disk_file_path()])
                         if res.returncode == 0:
                             update_disk_manager_widget_table(res.stdout)
@@ -13841,6 +13924,9 @@ class MainWindow(QMainWindow):
                 if pending["ok"] + pending["ko"] >= pending["n"]:
                     if pending["ok"] > 0:
                         zxart_set_status(f"Sent {pending['ok']}/{pending['n']} file(s) → image:{img_dir}")
+                        self._show_sd_notification(
+                            f"Sent {pending['ok']}/{pending['n']} file(s) to SD card image:\n{img_dir}"
+                        )
                         res = execute_hdf_monkey("ls", image_path, extra_argv=[generate_disk_file_path()])
                         if res.returncode == 0:
                             update_disk_manager_widget_table(res.stdout)
