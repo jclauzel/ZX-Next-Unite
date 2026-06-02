@@ -2,8 +2,17 @@
 <qresource>
     <file>zx-next-unite.png</file>
     <file>zx-uinite-spaceship.png</file>
+	<file>zx-uinite-spaceship2.png</file>
+	<file>zx-uinite-spaceship3.png</file>
+	<file>zx-uinite-spaceship4.png</file>
+	<file>zx-uinite-spaceship5.png</file>
     <file>zx-unite-castle1.png</file>
+	<file>zx-unite-castle2.png</file>
+	<file>zx-unite-castle3.png</file>
     <file>zx-unite-jungle1.png</file>
+	<file>zx-unite-jungle2.png</file>
+	<file>zx-unite-jungle3.png</file>
+	<file>zx-unite-console.png</file>
     <file>zx-unite-pirates1.png</file>
 </qresource>
 </RCC>
