@@ -3,12 +3,16 @@
 """
     zx-next-unite by Julien Clauzel based on:
 
-        HDFM-GOOEY by em00k
+        HDFM-GOOEY, Getit by em00k
     &
         NextSync by Jari Komppa
+    & 
+        ZXDB by https://api.zxinfo.dk/
+    &
+        ZXArt by https://zxart.ee/
 
     * Requirements:
-        - Python 3.7+
+        - Python 3.13+
         - pyside6
         - CSpect emulator by Mike Dailly installed in local directory please download from http://www.cspect.org
             feel free to support his development efforts & patreon https://www.patreon.com/mikedailly
