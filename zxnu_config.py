@@ -5,12 +5,14 @@ Contains no GUI/window logic — only configuration constants, lookup
 tables, small pure helpers and the zxArt language state."""
 
 import os
+import platform
+import shutil
 import sys
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "6.7"
+ZX_NEXT_UNITE_VERSION = "6.8"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -65,6 +67,7 @@ SETTING_JOYSTICK = "joy"
 SETTING_CSPECT = "cspect"
 SETTING_CUSTOM = "custom"
 SETTING_ESC = "esc"
+SETTING_MAME_COMMAND_LINE_PARAMETERS = "mame_command_line_parameters"
 SETTING_NEXTSYNC_EXPLORERPATH = "nextsync_explorerpath"
 SETTING_NEXTSYNC_SYNCONCE = "nextsync_synconce"
 SETTING_NEXTSYNC_ALWAYSSYNC = "nextsync_alwayssync"
@@ -362,7 +365,7 @@ SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_
 SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_GALLERY_ANIM_MODE,
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
-SETTING_ALLINONE_VIEW_MODE, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED)
+SETTING_ALLINONE_VIEW_MODE, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
@@ -377,6 +380,48 @@ CSPECT_BASE_ARGUMENTS = "-basickeys -zxnext -nextrom"
 FONT_GREEN = QColor(0, 255, 0)
 FONT_BLUE = QColor(0, 0, 255)
 FONT_RED = QColor(255, 0, 0)
+
+MAME_EXECUTABLE_NAME = "mame"
+MAME_DEFAULT_COMMAND_LINE = "{MAME_EXECUTABLE_NAME} specnext_ks2 -ui_active -nounevenstretch -aspect 2:1 -video bgfx  -bgfx_screen_chains unfiltered -window -skip_gameinfo -confirm_quit -hard1 "
+
+def find_mame_executable():
+    """Return the full path to the MAME executable if it can be found on the
+    system PATH, otherwise None.
+
+    On Windows the executable is typically ``mame.exe``; on Linux/macOS it is
+    ``MAME_EXECUTABLE_NAME`` (``mame``). ``shutil.which`` already appends the
+    platform's executable extensions, but we check the explicit ``.exe`` name
+    on Windows as a fallback for robustness.
+    """
+    candidate = shutil.which(MAME_EXECUTABLE_NAME)
+    if candidate is None and platform.system() == "Windows":
+        candidate = shutil.which(MAME_EXECUTABLE_NAME + ".exe")
+    return candidate
+
+
+CSPECT_EXECUTABLE_NAME = "CSpect"
+
+def find_cspect_executable():
+    """Return the path to the CSpect executable if it can be found, otherwise
+    None.
+
+    CSpect is a .NET assembly (``CSpect.exe``) that is conventionally placed in
+    the same directory as zx-next-unite (see the in-app help). We therefore
+    check the application directory first and then fall back to the system PATH
+    so users who put CSpect on their PATH are also covered. On Linux/macOS
+    CSpect is launched through mono, but the assembly file is still named
+    ``CSpect.exe``.
+    """
+    exe_name = CSPECT_EXECUTABLE_NAME + ".exe"
+    local_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    local_candidate = os.path.join(local_dir, exe_name)
+    if os.path.isfile(local_candidate):
+        return local_candidate
+    candidate = shutil.which(CSPECT_EXECUTABLE_NAME)
+    if candidate is None:
+        candidate = shutil.which(exe_name)
+    return candidate
+
 
 def qcolor_to_hex(color: QColor) -> str:
     """Return a lowercase #rrggbb hex string for the given QColor."""
