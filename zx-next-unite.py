@@ -1963,47 +1963,56 @@ def _apply_completer_fix_to_children(widget: QWidget):
 
 class MainWindow(QMainWindow):
 
-    def _show_sd_notification(self, message: str):
-        """Show a small, auto-dismissing toast confirming that a
-        'Send to SD card' task has completed.
+    def _show_toast(self, title: str, message: str = "", *, variant: str = "green",
+                    duration_ms: int = 10000):
+        """Show a small, auto-dismissing toast in the bottom-right corner.
 
-        The toast appears in the bottom-right corner of the main window and
-        disappears automatically after 10 seconds, or immediately when the
-        user clicks the OK button. Used by the GetIt / ZXDB / zxArt / Unite!
-        gallery viewers which otherwise only update a status label the user
-        may not notice.
+        ``variant`` selects the colour scheme:
+          - "green"  : success / informational (default)
+          - "yellow" : warning / advisory
+
+        The toast disappears automatically after ``duration_ms`` milliseconds,
+        or immediately when the user clicks the OK button.
         """
+        # Colour schemes per variant: (bg, border, title_fg, btn_bg, btn_border,
+        # btn_hover).
+        if variant == "yellow":
+            scheme = ("#2e2a14", "#f0c000", "#f7eec5", "#7d6a2e", "#f0c000", "#8f7c38")
+        else:
+            scheme = ("#1e2a1e", "#4caf50", "#c8f7c5", "#2e7d32", "#4caf50", "#388e3c")
+        bg, border, title_fg, btn_bg, btn_border, btn_hover = scheme
         try:
             toast = QWidget(self, Qt.Tool | Qt.FramelessWindowHint)
             toast.setAttribute(Qt.WA_DeleteOnClose, True)
-            toast.setObjectName("sd_toast")
+            toast.setObjectName("zxnu_toast")
             toast.setStyleSheet(
-                "#sd_toast { background: #1e2a1e; border: 1px solid #4caf50;"
+                f"#zxnu_toast {{ background: {bg}; border: 1px solid {border};"
                 " border-radius: 8px; }"
             )
             lay = QVBoxLayout(toast)
             lay.setContentsMargins(14, 12, 14, 12)
             lay.setSpacing(8)
 
-            title_lbl = QLabel("\u2705  Send to SD card complete")
+            title_lbl = QLabel(title)
             title_lbl.setStyleSheet(
-                "color: #c8f7c5; font-weight: bold; background: transparent;"
+                f"color: {title_fg}; font-weight: bold; background: transparent;"
             )
             lay.addWidget(title_lbl)
 
-            msg_lbl = QLabel(message or "The file was sent to the SD card image.")
-            msg_lbl.setWordWrap(True)
-            msg_lbl.setMaximumWidth(360)
-            msg_lbl.setStyleSheet("color: #e8e8e8; background: transparent;")
-            lay.addWidget(msg_lbl)
+            if message:
+                msg_lbl = QLabel(message)
+                msg_lbl.setWordWrap(True)
+                msg_lbl.setMaximumWidth(360)
+                msg_lbl.setStyleSheet("color: #e8e8e8; background: transparent;")
+                lay.addWidget(msg_lbl)
 
             btn_row = QHBoxLayout()
             btn_row.addStretch(1)
             ok_btn = QPushButton("OK")
             ok_btn.setStyleSheet(
-                "QPushButton { color: #eee; background: #2e7d32; border: 1px solid"
-                " #4caf50; border-radius: 4px; padding: 4px 18px; }"
-                "QPushButton:hover { background: #388e3c; }"
+                f"QPushButton {{ color: #eee; background: {btn_bg}; border: 1px solid"
+                f" {btn_border}; border-radius: 4px; padding: 4px 18px; }}"
+                f"QPushButton:hover {{ background: {btn_hover}; }}"
             )
             btn_row.addWidget(ok_btn)
             lay.addLayout(btn_row)
@@ -2021,7 +2030,7 @@ class MainWindow(QMainWindow):
 
             timer = QTimer(toast)
             timer.setSingleShot(True)
-            timer.setInterval(10000)  # auto-dismiss after 10 seconds
+            timer.setInterval(max(500, duration_ms))
 
             def _dismiss():
                 try:
@@ -2042,6 +2051,51 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _show_emulator_detection_toast(self):
+        """Show a startup toast reporting which emulators (CSpect / MAME) were
+        detected on the system. A green toast lists the emulators found; if none
+        are found a yellow advisory toast is shown instead. Auto-dismisses after
+        5 seconds.
+        """
+        found = []
+        if getattr(self, "_cspect_executable_path", None):
+            found.append("CSpect")
+        if getattr(self, "_mame_executable_path", None):
+            found.append("Mame")
+
+        if found:
+            self._show_toast(
+                "\u2705  Emulator(s) detected",
+                "Found: " + " and ".join(found) + ".",
+                variant="green",
+                duration_ms=5000,
+            )
+        else:
+            self._show_toast(
+                "\u26a0  No emulators detected",
+                "Neither CSpect nor Mame were found. Add the emulator(s) to your "
+                "PATH environment variable so they can be launched from here.",
+                variant="yellow",
+                duration_ms=5000,
+            )
+
+    def _show_sd_notification(self, message: str):
+        """Show a small, auto-dismissing toast confirming that a
+        'Send to SD card' task has completed.
+
+        The toast appears in the bottom-right corner of the main window and
+        disappears automatically after 10 seconds, or immediately when the
+        user clicks the OK button. Used by the GetIt / ZXDB / zxArt / Unite!
+        gallery viewers which otherwise only update a status label the user
+        may not notice.
+        """
+        self._show_toast(
+            "\u2705  Send to SD card complete",
+            message or "The file was sent to the SD card image.",
+            variant="green",
+            duration_ms=10000,
+        )
+
     def __init__(self, *args, **kwargs):
         global right_disk_image_explorer_content
         super(MainWindow, self).__init__(*args, **kwargs)
@@ -2060,6 +2114,18 @@ class MainWindow(QMainWindow):
         # Initialise defaults for settings that may not exist in older cfg files
         configuration_dictionary[SETTING_CONTENT_DISCLAIMER_AGREED] = ""
         configuration_dictionary[SETTING_ZXART_LANGUAGE] = DEFAULT_ZXART_LANGUAGE
+        # MAME command line is customisable through the cfg file; seed it with the
+        # default so first-run cfg files persist a value the user can edit later.
+        configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = MAME_DEFAULT_COMMAND_LINE
+
+        # Detect whether the MAME emulator is available on the system PATH
+        # (mame.exe on Windows, mame elsewhere). When present, a "Launch Mame"
+        # button is shown next to "Launch CSpect".
+        self._mame_executable_path = find_mame_executable()
+
+        # Detect whether the CSpect emulator is available (application directory
+        # or PATH). When absent, all CSpect controls are hidden.
+        self._cspect_executable_path = find_cspect_executable()
 
         # Live QColor instances for the image explorer — updated by Settings pickers
         self.img_color_up_directory = hex_to_qcolor(DEFAULT_COLOR_UP_DIRECTORY)
@@ -2219,6 +2285,7 @@ class MainWindow(QMainWindow):
             self.new_folder_input.setDisabled(True)
             self.button_create_directory.setDisabled(True)
             self.button_start_cspect.setDisabled(True)
+            self.button_start_mame.setDisabled(True)
             self.cspect_screensize.setDisabled(True)
             self.cspect_sound.setDisabled(True)
             self.cspect_vsync.setDisabled(True)
@@ -2243,6 +2310,7 @@ class MainWindow(QMainWindow):
             self.new_folder_input.setDisabled(False)
             self.button_create_directory.setDisabled(False)
             self.button_start_cspect.setDisabled(False)
+            self.button_start_mame.setDisabled(False)
             self.cspect_screensize.setDisabled(False)
             self.cspect_sound.setDisabled(False)
             self.cspect_vsync.setDisabled(False)
@@ -2730,6 +2798,119 @@ class MainWindow(QMainWindow):
                         add_main_log_window("On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.")
 
                 set_all_buttons_enabled()
+
+
+        def launch_mame():
+            if not right_disk_image_explorer_content:  # check that we have an image content first
+                return
+
+            mame_path = getattr(self, "_mame_executable_path", None)
+            if not mame_path:
+                logging.error("MAME executable not found on PATH. Cannot launch MAME.")
+                add_main_log_window("ERROR: MAME executable not found on PATH. Cannot launch MAME.")
+                return
+
+            # Pull the (possibly user-customised) command line from the cfg file,
+            # falling back to the built-in default. The literal placeholder
+            # {MAME_EXECUTABLE_NAME} is resolved to the detected executable.
+            mame_parameters = configuration_dictionary.get(
+                SETTING_MAME_COMMAND_LINE_PARAMETERS, MAME_DEFAULT_COMMAND_LINE
+            )
+            if not mame_parameters:
+                mame_parameters = MAME_DEFAULT_COMMAND_LINE
+            mame_parameters = mame_parameters.replace("{MAME_EXECUTABLE_NAME}", "").strip()
+
+            # Build: mame + MAME_COMMAND_LINE_PARAMETERS + self.imageinput
+            # The image path is wrapped in double quotes in the combo box; strip
+            # them so it is a valid command-line argument. MAME runs from its own
+            # install directory (see below), so resolve the image to an absolute
+            # path to keep relative paths working.
+            mame_image = self.imageinput.currentText().strip().strip('"')
+            if mame_image:
+                mame_image = os.path.abspath(mame_image)
+            mame_argv = [mame_path] + shlex.split(mame_parameters)
+            if mame_image:
+                mame_argv.append(mame_image)
+
+            logging.info(f"MAME start with arguments: {mame_argv}")
+            add_main_log_window(f"MAME start with arguments: {' '.join(mame_argv)}")
+
+            # Launch MAME with its stdout/stderr captured so we can surface any
+            # startup error (bad ROM path, missing media, invalid option, etc.)
+            # in the log window. The process itself runs in its own session/group
+            # so it is detached from the app, and a daemon reader thread drains
+            # the pipe without blocking the UI.
+            #
+            # MAME loads its support files (bgfx shaders, hash/, roms/) relative
+            # to its own install directory, so run it from there; otherwise it
+            # exits immediately when those files cannot be found.
+            mame_cwd = os.path.dirname(mame_path) or None
+            try:
+                if platform.system() == "Windows":
+                    creationflags = 0x00000200  # CREATE_NEW_PROCESS_GROUP
+                    mame_proc = subprocess.Popen(
+                        mame_argv,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        close_fds=True,
+                        text=True,
+                        bufsize=1,
+                        cwd=mame_cwd,
+                        creationflags=creationflags,
+                    )
+                else:
+                    mame_proc = subprocess.Popen(
+                        mame_argv,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        close_fds=True,
+                        text=True,
+                        bufsize=1,
+                        cwd=mame_cwd,
+                        start_new_session=True,
+                    )
+            except Exception as ex:
+                logging.error(f"ERROR: Failed to launch MAME: {ex}")
+                add_main_log_window(f"ERROR: Failed to launch MAME: {ex}")
+                return
+
+            # Marshal captured output back to the UI thread via queued signals
+            # (Qt widgets must only be touched from the main thread).
+            mame_signals = MameProcessSignals()
+            mame_signals.output.connect(
+                lambda line: add_main_log_window(f"MAME: {line}"),
+                Qt.QueuedConnection,
+            )
+
+            def _on_mame_finished(return_code):
+                add_main_log_window(f"MAME exited with code {return_code}.")
+                logging.info(f"MAME exited with code {return_code}.")
+
+            mame_signals.finished.connect(_on_mame_finished, Qt.QueuedConnection)
+            # Keep a reference so the signals object is not garbage-collected
+            # while the reader thread is still running.
+            self._mame_signals = mame_signals
+
+            def _read_mame_output(proc, signals):
+                try:
+                    if proc.stdout is not None:
+                        for raw_line in proc.stdout:
+                            line = raw_line.rstrip("\r\n")
+                            if line:
+                                signals.output.emit(line)
+                    proc.wait()
+                except Exception as exc:
+                    signals.output.emit(f"ERROR reading MAME output: {exc}")
+                finally:
+                    signals.finished.emit(proc.returncode if proc.returncode is not None else -1)
+
+            threading.Thread(
+                target=_read_mame_output,
+                args=(mame_proc, mame_signals),
+                daemon=True,
+            ).start()
 
 
         def delete_files_button_show_confirmation_buttons():
@@ -5250,6 +5431,14 @@ class MainWindow(QMainWindow):
 
         # Add action buttons at the bottom
 
+        # "Launch Mame" button — placed before "Launch CSpect". Only shown when
+        # the MAME executable was found on the system PATH at startup.
+        self.button_start_mame = QPushButton("Launch Mame", self)
+        self.button_start_mame.setText("Launch Mame")
+        self.button_start_mame.clicked.connect(launch_mame)
+        self.button_start_mame.setVisible(self._mame_executable_path is not None)
+        self.horizontal6.addWidget(self.button_start_mame)
+
         self.button_start_cspect = QPushButton("LaunchCSpect", self)
         self.button_start_cspect.setText("Launch CSpect")
         self.button_start_cspect.clicked.connect(launch_cspect)
@@ -5314,6 +5503,20 @@ class MainWindow(QMainWindow):
         self.button_open_config_file.setText("Open config file")
         self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
         self.horizontal6.addWidget(self.button_open_config_file)
+
+        # Hide all CSpect controls when the CSpect emulator was not found at
+        # startup (application directory or PATH). The MAME button and the
+        # general "Open config file" button are unaffected.
+        if self._cspect_executable_path is None:
+            for _cspect_widget in (
+                self.button_start_cspect,
+                self.cspect_screensize,
+                self.cspect_sound,
+                self.cspect_vsync,
+                self.cspect_joystick,
+                self.cspect_frequency,
+            ):
+                _cspect_widget.setVisible(False)
 
         self.zx_next_unite_form.addRow(self.horizontal6)
 
@@ -15195,6 +15398,10 @@ class MainWindow(QMainWindow):
         # Use a small delay (not 0) so the first paint/show events have a
         # chance to be processed before any thumbnail fetch threads spin up.
         QTimer.singleShot(150, _deferred_startup_tab_activation)
+        # Report which emulators were detected at startup via a 5-second toast
+        # (green when found, yellow advisory when none are available). Deferred
+        # so it appears after the window is shown.
+        QTimer.singleShot(400, self._show_emulator_detection_toast)
         # Expose the nested save function so closeEvent (a class method) can call it.
         self._save_configuration_file = save_configuration_file
 

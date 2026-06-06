@@ -56,6 +56,14 @@ class HdfTaskSignals(QObject):
     cancelled = Signal()      # emitted when the worker stopped early due to cancel
 
 
+class MameProcessSignals(QObject):
+    """Signals used to marshal output from a detached MAME process back to the
+    main (UI) thread. A background reader thread emits ``output`` for every
+    captured line and ``finished`` with the process exit code when MAME ends."""
+    output   = Signal(str)   # one captured stdout/stderr line
+    finished = Signal(int)   # process return code
+
+
 class HdfTaskWorker(QRunnable):
     """Generic QRunnable that runs a callable on the thread pool.
     The callable receives (signals, cancel_event, *args, **kwargs).
