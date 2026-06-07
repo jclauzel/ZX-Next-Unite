@@ -2913,6 +2913,33 @@ class MainWindow(QMainWindow):
             ).start()
 
 
+        # Expose the emulator launch helpers so other UI surfaces (e.g. the
+        # GalleryItemViewer action bars on GetIt / ZXDB / ZxArt) can trigger
+        # the same launch logic as the main window buttons.
+        self._launch_cspect_fn = launch_cspect
+        self._launch_mame_fn   = launch_mame
+
+        def _wire_viewer_emulators(viewer, allow=True):
+            """Add "Launch CSpect" / "Launch Mame" buttons to a
+            GalleryItemViewer action bar (under "Send to SD card").
+
+            A button is only wired/shown when the matching emulator was
+            detected at startup *and* ``allow`` is True.  ``allow`` lets the
+            ZXDB/ZxArt panes honour their ENABLE_DOWNLOAD_BUTTONS settings;
+            GetIt passes the default (always allowed)."""
+            cspect_ok = bool(allow) and getattr(self, "_cspect_executable_path", None) is not None
+            mame_ok   = bool(allow) and getattr(self, "_mame_executable_path", None) is not None
+            viewer.set_emulator_actions(
+                cspect_cb=(self._launch_cspect_fn if cspect_ok else None),
+                mame_cb=(self._launch_mame_fn if mame_ok else None),
+                cspect_enabled=cspect_ok,
+                mame_enabled=mame_ok,
+                cspect_tooltip="Launch CSpect with the loaded SD card image",
+                mame_tooltip="Launch MAME with the loaded image",
+            )
+        self._wire_viewer_emulators = _wire_viewer_emulators
+
+
         def delete_files_button_show_confirmation_buttons():
             if self.settings_no_prompt_on_deletion_checkbox.isChecked():
                 button_confirm_directory_deletion()
@@ -6914,6 +6941,7 @@ class MainWindow(QMainWindow):
                 sd_enabled=_sd_ok,  sd_tooltip=_sd_dest,
                 ns_enabled=True,    ns_tooltip=_ns_dest,
             )
+            self._wire_viewer_emulators(viewer)
 
             # ── push into pane stack ────────────────────────────────────
             viewer.install_into_stack(
@@ -9330,6 +9358,8 @@ class MainWindow(QMainWindow):
                 sd_enabled=_sd_ok, sd_tooltip=_sd_dest,
                 ns_enabled=True,   ns_tooltip=_ns_dest,
             )
+            self._wire_viewer_emulators(
+                viewer, allow=ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS)
             viewer.set_open_web_url(zxdb_entry_website_url(eid), "zxinfo.dk")
             # If downloads are disabled globally, hide all action buttons immediately.
             if not ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS:
@@ -12416,6 +12446,8 @@ class MainWindow(QMainWindow):
                 sd_enabled=_sd_ok, sd_tooltip=_sd_dest,
                 ns_enabled=True,   ns_tooltip=_ns_dest,
             )
+            self._wire_viewer_emulators(
+                viewer, allow=ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS)
             viewer.set_open_web_url(zxart_entry_website_url(entry), "zxart.ee")
             # If downloads are disabled globally, hide all action buttons immediately.
             if not ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS:
