@@ -2073,8 +2073,8 @@ class MainWindow(QMainWindow):
         else:
             self._show_toast(
                 "\u26a0  No emulators detected",
-                "Neither CSpect nor Mame were found. Add the emulator(s) to your "
-                "PATH environment variable so they can be launched from here.",
+                "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\n"
+                "CSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
                 variant="yellow",
                 duration_ms=5000,
             )
