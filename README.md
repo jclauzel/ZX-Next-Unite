@@ -12,10 +12,10 @@ Videos:
 * Py Hdfm Gooey - NextSync - Night Knight: https://www.youtube.com/watch?v=eN1eMIqMCm4&t=12s
 
 ZX-Next-Unite provides a cross platform (Windows, Linux, MacOS) Graphical Interface that unites two great tools in a single utility: Hdfm-Gooey & Next Sync. 
-* The former is mostly targeted at CSpect emulator users, and it provides a simple to use frontend interface to transfer content to an image and start the Spectrum Next emulator. 
+* The former is mostly targeted at CSpect, Mame emulators users, and it provides a simple to use frontend interface to transfer content to an image and start the Spectrum Next emulator. 
 * The latter allows hardware owners such as Kickstarter & Clones that has a Wifi/ESP module to synchronize content directly from a machine over the network to their Next machines.
 
-The first tab of ZX-Next-Unite is aimed at CSpect emulator users and developers. In that section you can mount an HDF image used by CSpect and upload download content using a built simple file explorer. Once the content is uploaded to the image you can then start CSpect directly from it and therefore exposes a simple to use frontend interface to the emulator. Key settings such as screen size can be directly adjusted, it avoids the need to know command line options to start using your emulated Spectrum Next.
+The first tab of ZX-Next-Unite is aimed at CSpect, Mame emulator users and developers. In that section you can mount an HDF image used by CSpect or Mame and upload download content using a built simple file explorer. Once the content is uploaded to the image you can then start CSpect or Mame directly from it and therefore exposes a simple to use frontend interface to the emulator. Key settings such as screen size can be directly adjusted, it avoids the need to know command line options to start using your emulated Spectrum Next.
 
 The second tab is designed for real hardware owners such as KS1, KS2 or other clones that also has an ESP (WIFI module). Jari designed a while back a custom protocol called NextSync that allows to synchronize an entire folder from a machine (PC/MAC/Linux) that resides on a remote machine back to the Spectrum Next over the network (it is one way only). This utility implements the "server" side the program that will 'listen' and waits for incoming connections from your Next. On your Next machine you will run the custom dot ".sync" or ".syncfast" command that connects to the server here ZX-Next-Unite. To set this up you will need first to download Jari zip package. The latest release v1.2 of the dot .sync command can be found here https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 . 
 
@@ -46,10 +46,14 @@ Requirements
 - ZX-Next-Unite.py either download the latest release here or clone this repo, locate where this file is located that is main tool (there are no executable as it is a Python program).
 - Python 3.13+ or higher (the latest version is recommended)
 - PySide6
-- CSpect emulator by Mike Dailly installed in local directory please download from http://www.cspect.org
+  
+Optional but recommended
+------------------------
+- CSpect emulator by Mike Dailly installed in local directory please download from https://mdf200.itch.io/cspect , http://www.cspect.org
     feel free to support his development efforts & patreon https://www.patreon.com/mikedailly
     - Make sure Spectrum Next roms installed are installed in local directory (they should be provided in the CSpect zip package by default). 
         These two files namely: enNextZX.rom and enNxtMMC.rom -MUST- be placed in the root folder of your #CSpect.
+      
 - Mame emulator can be installed following this documentation: [https://wiki.specnext.dev/MAME:Installing](https://wiki.specnext.dev/MAME:Installing)
 - You will need Spectrum Next images files that you can download from [https://zxspectrumnext.online/cspect/](https://zxnext.uk/hosted/)  such as https://zxnext.uk/hosted/index_files/hdfimages/cspect-next-2gb.zip 
 - Download & install hdfmonkey by Matt Westcott https://github.com/gasman/hdfmonkey , on Windows either compile the source manually or download a pre-compiled version at: 
