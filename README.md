@@ -7,7 +7,7 @@ This project is licensed under the terms of the MIT license.
 ZX-Next-Unite is a Qt Application using pyside6 in Python on top of Qt6, which retains the GPLv2 Licensing (see the LICENSE file).
 
 Videos:
-* "Setup & How to": https://youtu.be/FJG-Z0DCIjQ
+* "Setup & How to": https://youtu.be/-gUxV4fM1yo (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )
 * Py Hdfm Gooey NextSync Head Over Heels: https://www.youtube.com/watch?v=D3_WqTPvjOE
 * Py Hdfm Gooey - NextSync - Night Knight: https://www.youtube.com/watch?v=eN1eMIqMCm4&t=12s
 
@@ -44,12 +44,13 @@ For a full install overview feel free to follow this "Setup & How to" video: htt
 Requirements
 ------------
 - ZX-Next-Unite.py either download the latest release here or clone this repo, locate where this file is located that is main tool (there are no executable as it is a Python program).
-- Python 3.7+ or higher (the latest version is recommended)
+- Python 3.13+ or higher (the latest version is recommended)
 - PySide6
 - CSpect emulator by Mike Dailly installed in local directory please download from http://www.cspect.org
     feel free to support his development efforts & patreon https://www.patreon.com/mikedailly
     - Make sure Spectrum Next roms installed are installed in local directory (they should be provided in the CSpect zip package by default). 
         These two files namely: enNextZX.rom and enNxtMMC.rom -MUST- be placed in the root folder of your #CSpect.
+- Mame emulator can be installed following this documentation: [https://wiki.specnext.dev/MAME:Installing](https://wiki.specnext.dev/MAME:Installing)
 - You will need Spectrum Next images files that you can download from [https://zxspectrumnext.online/cspect/](https://zxnext.uk/hosted/)  such as https://zxnext.uk/hosted/index_files/hdfimages/cspect-next-2gb.zip 
 - Download & install hdfmonkey by Matt Westcott https://github.com/gasman/hdfmonkey , on Windows either compile the source manually or download a pre-compiled version at: 
     https://uto.speccy.org/downloads/hdfmonkey_windows.zip
@@ -102,6 +103,7 @@ Install CSpect (see bellow).
 
 CSpect 
 ----------
+For ZX-Next-Unite to detected it you should add a PATH environement variable to it.
 
 CSpect emulator by Mike Dailly installed in local directory please download from http://www.cspect.org
 feel free to support his development efforts & patreon https://www.patreon.com/mikedailly
@@ -111,6 +113,12 @@ https://mdf200.itch.io/cspect
 https://dailly.blogspot.com/
 
 OpenAL sound library for CSpect: https://openal.org/
+
+MAME 
+----------
+For ZX-Next-Unite to detected it you should add a PATH environement variable to it.
+
+Documentation on how to install and configure can be found here: [https://wiki.specnext.dev/MAME:Installing](https://wiki.specnext.dev/MAME:Installing)
 
 HDF Monkey 
 ----------
