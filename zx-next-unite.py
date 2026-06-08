@@ -1928,11 +1928,30 @@ def getit_run_in_thread(fn, on_result, on_error):
     signals.finished.connect(_release, Qt.QueuedConnection)
 
     def _run():
+        # Phase 1 — run the user function. Capture its outcome locally so that
+        # only genuine exceptions raised by *fn* are reported via the error
+        # signal. Emitting is deliberately kept out of this try/except so a
+        # failed emit can never be misclassified as an fn() error.
         try:
-            result = fn()
-            signals.result.emit(result)
+            payload = fn()
+            emit_error = False
         except Exception as exc:
-            signals.error.emit((type(exc), exc, ""))
+            payload = (type(exc), exc, "")
+            emit_error = True
+
+        # Phase 2 — marshal the outcome back to the main thread. These emits can
+        # race with application shutdown: the QApplication (and therefore the
+        # WorkerSignals child parented to it) may already be destroyed at the
+        # C++ level, in which case Qt raises "RuntimeError: Signal source has
+        # been deleted". There is no live receiver left to notify, so swallow
+        # it instead of letting the daemon thread crash.
+        try:
+            if emit_error:
+                signals.error.emit(payload)
+            else:
+                signals.result.emit(payload)
+        except RuntimeError:
+            pass
         finally:
             # Emitted last so _release is enqueued *after* result/error and
             # therefore runs only once the receiver slot has been dispatched.
@@ -2071,13 +2090,15 @@ class MainWindow(QMainWindow):
                 duration_ms=5000,
             )
         else:
-            self._show_toast(
-                "\u26a0  No emulators detected",
-                "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\n"
-                "CSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
-                variant="yellow",
-                duration_ms=5000,
-            )
+            _suppress = self.settings_disable_no_emulator_toast_checkbox.isChecked()
+            if not _suppress:
+                self._show_toast(
+                    "\u26a0  No emulators detected",
+                    "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\n"
+                    "CSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
+                    variant="yellow",
+                    duration_ms=10000,
+                )
 
     def _show_sd_notification(self, message: str):
         """Show a small, auto-dismissing toast confirming that a
@@ -2117,6 +2138,9 @@ class MainWindow(QMainWindow):
         # MAME command line is customisable through the cfg file; seed it with the
         # default so first-run cfg files persist a value the user can edit later.
         configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = MAME_DEFAULT_COMMAND_LINE
+        # MAME ROM/system choice (e.g. "tbblue"); seeded with the first entry so a
+        # first-run cfg persists a value the user can change in the Settings tab.
+        configuration_dictionary[SETTING_MAME_ROM_CHOICE] = MAME_ROM_CHOICE[0]
 
         # Detect whether the MAME emulator is available on the system PATH
         # (mame.exe on Windows, mame elsewhere). When present, a "Launch Mame"
@@ -2210,11 +2234,20 @@ class MainWindow(QMainWindow):
                     logging.error(f"An error occurred in Worker.run: {sys.exc_info()}")
                     traceback.print_exc()
                     exctype, value = sys.exc_info()[:2]
-                    self.signals.error.emit((exctype, value, traceback.format_exc()))
+                    try:
+                        self.signals.error.emit((exctype, value, traceback.format_exc()))
+                    except RuntimeError:
+                        pass  # receiver destroyed during shutdown
                 else:
-                    self.signals.result.emit(result)  # Return the result of the processing
+                    try:
+                        self.signals.result.emit(result)  # Return the result of the processing
+                    except RuntimeError:
+                        pass  # receiver destroyed during shutdown
                 finally:
-                    self.signals.finished.emit()  # Done
+                    try:
+                        self.signals.finished.emit()  # Done
+                    except RuntimeError:
+                        pass  # receiver destroyed during shutdown
 
         self._Worker = Worker
         def get_tuple_value(tuple_type, text_value):
@@ -2480,6 +2513,41 @@ class MainWindow(QMainWindow):
                 self.settings_crash_log_enabled_checkbox.blockSignals(True)
                 self.settings_crash_log_enabled_checkbox.setChecked(_crash_checked)
                 self.settings_crash_log_enabled_checkbox.blockSignals(False)
+
+                # Disable no-emulator toast defaults to False.
+                if SETTING_DISABLE_NO_EMULATOR_TOAST in configuration_dictionary and configuration_dictionary[SETTING_DISABLE_NO_EMULATOR_TOAST] != "":
+                    _no_toast = configuration_dictionary[SETTING_DISABLE_NO_EMULATOR_TOAST].lower() in ("true", "1", "yes", "on")
+                else:
+                    _no_toast = False
+                self.settings_disable_no_emulator_toast_checkbox.setChecked(_no_toast)
+
+                # MAME ROM/system choice (combo) and command-line parameters
+                # (editable text). Both only exist as widgets when MAME was
+                # detected at startup, so guard with hasattr.
+                if hasattr(self, "settings_mame_rom_combo"):
+                    _rom = configuration_dictionary.get(SETTING_MAME_ROM_CHOICE, "").strip()
+                    if not _rom:
+                        _rom = MAME_ROM_CHOICE[0]
+                    self.settings_mame_rom_combo.blockSignals(True)
+                    _idx = self.settings_mame_rom_combo.findText(_rom)
+                    if _idx < 0:
+                        # Persisted ROM not in the predefined list: add it so the
+                        # user's saved choice is preserved and selectable.
+                        self.settings_mame_rom_combo.addItem(_rom)
+                        _idx = self.settings_mame_rom_combo.findText(_rom)
+                    self.settings_mame_rom_combo.setCurrentIndex(max(0, _idx))
+                    self.settings_mame_rom_combo.blockSignals(False)
+                    configuration_dictionary[SETTING_MAME_ROM_CHOICE] = _rom
+
+                if hasattr(self, "settings_mame_params_edit"):
+                    _params = configuration_dictionary.get(
+                        SETTING_MAME_COMMAND_LINE_PARAMETERS, "")
+                    if not _params:
+                        _params = MAME_DEFAULT_COMMAND_LINE
+                    self.settings_mame_params_edit.blockSignals(True)
+                    self.settings_mame_params_edit.setText(_params)
+                    self.settings_mame_params_edit.blockSignals(False)
+                    configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = _params
                 # Ensure runtime state matches the persisted setting (the
                 # early-bootstrap read already honoured this, but reapply here
                 # so any cfg edits made between launches take immediate effect).
@@ -2820,17 +2888,26 @@ class MainWindow(QMainWindow):
                 mame_parameters = MAME_DEFAULT_COMMAND_LINE
             mame_parameters = mame_parameters.replace("{MAME_EXECUTABLE_NAME}", "").strip()
 
-            # Build: mame + MAME_COMMAND_LINE_PARAMETERS + self.imageinput
+            # The ROM/system (e.g. "tbblue") is picked by the user in the Settings
+            # tab and stored separately; it is inserted right after the executable.
+            mame_rom = configuration_dictionary.get(
+                SETTING_MAME_ROM_CHOICE, MAME_ROM_CHOICE[0]
+            ).strip()
+            if not mame_rom:
+                mame_rom = MAME_ROM_CHOICE[0]
+
+            # Build: mame + <rom> + MAME_COMMAND_LINE_PARAMETERS + "-hard1" + image
             # The image path is wrapped in double quotes in the combo box; strip
             # them so it is a valid command-line argument. MAME runs from its own
             # install directory (see below), so resolve the image to an absolute
-            # path to keep relative paths working.
+            # path to keep relative paths working. The "-hard1 <image>" pair is
+            # appended last so the image is always the final argument.
             mame_image = self.imageinput.currentText().strip().strip('"')
             if mame_image:
                 mame_image = os.path.abspath(mame_image)
-            mame_argv = [mame_path] + shlex.split(mame_parameters)
+            mame_argv = [mame_path, mame_rom] + shlex.split(mame_parameters)
             if mame_image:
-                mame_argv.append(mame_image)
+                mame_argv += [MAME_HARD_DISK_PARAMETER, mame_image]
 
             logging.info(f"MAME start with arguments: {mame_argv}")
             add_main_log_window(f"MAME start with arguments: {' '.join(mame_argv)}")
@@ -2934,8 +3011,8 @@ class MainWindow(QMainWindow):
                 mame_cb=(self._launch_mame_fn if mame_ok else None),
                 cspect_enabled=cspect_ok,
                 mame_enabled=mame_ok,
-                cspect_tooltip="Launch CSpect with the loaded SD card image",
-                mame_tooltip="Launch MAME with the loaded image",
+                cspect_tooltip="🕹  Launch CSpect with the loaded SD card image",
+                mame_tooltip="🕹  Launch MAME with the loaded image",
             )
         self._wire_viewer_emulators = _wire_viewer_emulators
 
@@ -5460,14 +5537,14 @@ class MainWindow(QMainWindow):
 
         # "Launch Mame" button — placed before "Launch CSpect". Only shown when
         # the MAME executable was found on the system PATH at startup.
-        self.button_start_mame = QPushButton("Launch Mame", self)
-        self.button_start_mame.setText("Launch Mame")
+        self.button_start_mame = QPushButton("🕹  Launch Mame", self)
+        self.button_start_mame.setText("🕹  Launch Mame")
         self.button_start_mame.clicked.connect(launch_mame)
         self.button_start_mame.setVisible(self._mame_executable_path is not None)
         self.horizontal6.addWidget(self.button_start_mame)
 
-        self.button_start_cspect = QPushButton("LaunchCSpect", self)
-        self.button_start_cspect.setText("Launch CSpect")
+        self.button_start_cspect = QPushButton("🕹  LaunchCSpect", self)
+        self.button_start_cspect.setText("🕹  Launch CSpect")
         self.button_start_cspect.clicked.connect(launch_cspect)
         self.horizontal6.addWidget(self.button_start_cspect)
 
@@ -12559,6 +12636,30 @@ class MainWindow(QMainWindow):
                                 _ph_label = zxfmt_label_for_name("x." + _fmts[0].lower())
                     viewer.set_placeholder(_ph_label, fetched_title)
                 _gallery_viewer_refresh_meta(viewer, fetched_title, rows)
+                # Mirror the ZXDB viewer: once metadata resolves, (re)assert the
+                # action-button visibility so "Download" / "Send to SD card" /
+                # "Send via NextSync" are shown when downloads are enabled for
+                # this pane. Without this the buttons stay hidden if the entry
+                # was selected (single-clicked) before opening, because no
+                # downloads were cached yet at setup time.
+                if ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS:
+                    if releases is not None:
+                        # Build the candidate download URLs the same way as the
+                        # button handlers (_ensure_detail_then) and filter them,
+                        # so visibility matches what a download would actually
+                        # produce.
+                        _dls = []
+                        for _rel in releases:
+                            if not isinstance(_rel, dict):
+                                continue
+                            _file_url = _rel.get("file") or ""
+                            if _file_url:
+                                _dls.append({"url": _file_url})
+                        _has_dl = bool(_filter_download_urls(_dls))
+                    else:
+                        # Pictures always expose at least the image itself.
+                        _has_dl = bool(screenshots)
+                    viewer.set_download_available(_has_dl)
                 if releases:
                     try:
                         src2 = entry.get("_source") or {}
@@ -15029,6 +15130,63 @@ class MainWindow(QMainWindow):
         self.settings_crash_log_enabled_checkbox.stateChanged.connect(
             settings_crash_log_enabled_statechanged)
         grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 18, 0, 1, 2)
+
+        def settings_disable_no_emulator_toast_statechanged():
+            configuration_dictionary[SETTING_DISABLE_NO_EMULATOR_TOAST] = "true" if self.settings_disable_no_emulator_toast_checkbox.isChecked() else "false"
+            save_configuration_file()
+
+        self.settings_disable_no_emulator_toast_checkbox = QCheckBox("Disable 'No emulators detected' message at startup")
+        self.settings_disable_no_emulator_toast_checkbox.setChecked(False)
+        self.settings_disable_no_emulator_toast_checkbox.setToolTip(
+            "When enabled, the yellow advisory toast shown at startup when\n"
+            "neither CSpect nor Mame are found on PATH is suppressed.\n"
+            "Check this if you do not use any emulator and do not want the reminder."
+        )
+        self.settings_disable_no_emulator_toast_checkbox.stateChanged.connect(settings_disable_no_emulator_toast_statechanged)
+        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 19, 0, 1, 2)
+
+        # ── MAME options (only shown when the MAME emulator was detected) ──
+        if getattr(self, "_mame_executable_path", None):
+            def settings_mame_rom_changed():
+                configuration_dictionary[SETTING_MAME_ROM_CHOICE] = self.settings_mame_rom_combo.currentText().strip()
+                save_configuration_file()
+
+            mame_rom_lbl = QLabel("MAME ROM / system:")
+            mame_rom_lbl.setToolTip(
+                "The MAME system (ROM set) to launch, e.g. 'tbblue' or 'specnext_ks2'.\n"
+                "This is inserted right after the MAME executable and is no longer part\n"
+                "of the command-line parameters below."
+            )
+            grid_tab_Settings.addWidget(mame_rom_lbl, 20, 0)
+
+            self.settings_mame_rom_combo = QComboBox()
+            for _rom_name in MAME_ROM_CHOICE:
+                self.settings_mame_rom_combo.addItem(_rom_name)
+            self.settings_mame_rom_combo.setToolTip(mame_rom_lbl.toolTip())
+            self.settings_mame_rom_combo.currentIndexChanged.connect(
+                lambda _i: settings_mame_rom_changed())
+            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 20, 1)
+
+            def settings_mame_params_changed():
+                configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = self.settings_mame_params_edit.text()
+                save_configuration_file()
+
+            mame_params_lbl = QLabel("MAME launch parameters:")
+            mame_params_lbl.setToolTip(
+                "Command-line parameters passed to MAME. The '{MAME_EXECUTABLE_NAME}'\n"
+                "placeholder resolves to the detected executable. The ROM/system above\n"
+                "and the '-hard1 <image>' arguments are added automatically at launch,\n"
+                "so the loaded image is always the last argument."
+            )
+            grid_tab_Settings.addWidget(mame_params_lbl, 21, 0)
+
+            self.settings_mame_params_edit = QLineEdit()
+            self.settings_mame_params_edit.setText(
+                configuration_dictionary.get(
+                    SETTING_MAME_COMMAND_LINE_PARAMETERS, MAME_DEFAULT_COMMAND_LINE))
+            self.settings_mame_params_edit.setToolTip(mame_params_lbl.toolTip())
+            self.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
+            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 21, 1)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
