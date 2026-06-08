@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "6.9"
+ZX_NEXT_UNITE_VERSION = "7.0"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -68,6 +68,8 @@ SETTING_CSPECT = "cspect"
 SETTING_CUSTOM = "custom"
 SETTING_ESC = "esc"
 SETTING_MAME_COMMAND_LINE_PARAMETERS = "mame_command_line_parameters"
+SETTING_MAME_ROM_CHOICE              = "mame_rom_choice"            # MAME system/ROM, e.g. "tbblue" (default)
+SETTING_DISABLE_NO_EMULATOR_TOAST  = "disable_no_emulator_toast"   # bool (default False)
 SETTING_NEXTSYNC_EXPLORERPATH = "nextsync_explorerpath"
 SETTING_NEXTSYNC_SYNCONCE = "nextsync_synconce"
 SETTING_NEXTSYNC_ALWAYSSYNC = "nextsync_alwayssync"
@@ -380,7 +382,8 @@ SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_
 SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_GALLERY_ANIM_MODE,
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
-SETTING_ALLINONE_VIEW_MODE, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS)
+SETTING_ALLINONE_VIEW_MODE, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
+SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
@@ -396,8 +399,15 @@ FONT_GREEN = QColor(0, 255, 0)
 FONT_BLUE = QColor(0, 0, 255)
 FONT_RED = QColor(255, 0, 0)
 
+MAME_ROM_CHOICE = (("tbblue"), ("specnext_ks1"), ("specnext_ks2"), ("specnext_ks3"))
 MAME_EXECUTABLE_NAME = "mame"
-MAME_DEFAULT_COMMAND_LINE = "{MAME_EXECUTABLE_NAME} specnext_ks2 -ui_active -nounevenstretch -aspect 2:1 -video bgfx  -bgfx_screen_chains unfiltered -window -skip_gameinfo -confirm_quit -hard1 "
+# The ROM/system (e.g. "tbblue") and the "-hard1 <image>" arguments are NOT part
+# of this default: the ROM is chosen by the user (SETTING_MAME_ROM_CHOICE) and
+# "-hard1 <image>" is appended dynamically at launch so the image is always the
+# last argument passed to MAME.
+MAME_DEFAULT_COMMAND_LINE = "{MAME_EXECUTABLE_NAME} -ui_active -nounevenstretch -aspect 2:1 -video bgfx  -bgfx_screen_chains unfiltered -window -skip_gameinfo -confirm_quit"
+# Appended right before the image path at launch time.
+MAME_HARD_DISK_PARAMETER = "-hard1"
 
 def find_mame_executable():
     """Return the full path to the MAME executable if it can be found on the
