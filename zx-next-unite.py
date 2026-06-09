@@ -15528,6 +15528,8 @@ class MainWindow(QMainWindow):
             elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ZXART):
                 _show_content_disclaimer()
                 self._zxart_on_tab_activated()
+            elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE):
+                _show_content_disclaimer()
 
 
         #  Start main logic
@@ -15584,6 +15586,8 @@ class MainWindow(QMainWindow):
             elif current_title == ZX_NEXT_UNITE_TAB_TITLE_ZXART:
                 _show_content_disclaimer()
                 self._zxart_on_tab_activated()
+            elif current_title == ZX_NEXT_UNITE_TAB_TITLE_ALLINONE:
+                _show_content_disclaimer()
 
         # Use a small delay (not 0) so the first paint/show events have a
         # chance to be processed before any thumbnail fetch threads spin up.
