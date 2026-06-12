@@ -2620,6 +2620,34 @@ class MainWindow(QMainWindow):
                         if val in ("table", "gallery"):
                             setattr(self, _attr, val)
 
+                # Space-Invaders background animation preference (default on).
+                # Applied before the pygame-mode restore below so the widget is
+                # built with the right setting.
+                _allinone_anim_pref = configuration_dictionary.get(
+                    SETTING_ALLINONE_PYGAME_ANIM, "").strip().lower()
+                _allinone_anim_on = _allinone_anim_pref not in ("false", "0", "no")
+                self._allinone_pygame_anim = _allinone_anim_on
+                _anim_cb = getattr(self, "settings_pygame_anim_checkbox", None)
+                if _anim_cb is not None:
+                    _anim_cb.blockSignals(True)
+                    _anim_cb.setChecked(_allinone_anim_on)
+                    _anim_cb.blockSignals(False)
+
+                # Restore the Unite! pygame visualization mode if it was on last
+                # session. Routed through the toggle button so the lazy import /
+                # graceful-fallback path is reused; guarded so a transient
+                # "pygame unavailable" doesn't overwrite the saved preference.
+                _allinone_pg_pref = configuration_dictionary.get(
+                    SETTING_ALLINONE_PYGAME_MODE, "").strip().lower()
+                if _allinone_pg_pref in ("true", "1", "yes") and \
+                        hasattr(self, "allinone_pygame_button") and \
+                        not self.allinone_pygame_button.isChecked():
+                    self._allinone_pygame_restoring = True
+                    try:
+                        self.allinone_pygame_button.setChecked(True)
+                    finally:
+                        self._allinone_pygame_restoring = False
+
                 # zxART API language (eng/pol/spa)
                 _zxart_lang_cfg = configuration_dictionary.get(SETTING_ZXART_LANGUAGE, "").strip().lower()
                 if _zxart_lang_cfg in ("eng", "pol", "spa"):
@@ -6957,11 +6985,11 @@ class MainWindow(QMainWindow):
 
         self.getit_gallery_view.cell_clicked.connect(getit_on_gallery_cell)
 
-        def _getit_open_gallery_viewer(entry):
+        def _getit_open_gallery_viewer(entry, make_viewer=None, install=True):
             eid   = entry.get("id") or ""
             title = entry.get("title") or eid
             if not eid:
-                return
+                return None
             info_rows = [
                 ("Title:",    title),
                 ("Author:",   entry.get("author", "")),
@@ -6980,13 +7008,13 @@ class MainWindow(QMainWindow):
                 _ph_cat = (entry.get("category") or "").upper()
                 if _ph_cat:
                     _ph_label = _ph_cat[:6]
-            viewer = GalleryItemViewer(
+            _mk = make_viewer or (lambda **kw: GalleryItemViewer(parent=self, **kw))
+            viewer = _mk(
                 title=title,
                 info_rows=info_rows,
                 screenshots=[scr_url],
                 extra_fetch_cb=_getit_extra_fetch_url,
                 tags=_gallery_extract_tags(entry),
-                parent=self,
             )
             viewer.set_placeholder(_ph_label, title)
             _fav_entry_getit = {**entry, "_fav_source": "getit"}
@@ -7021,10 +7049,12 @@ class MainWindow(QMainWindow):
             self._wire_viewer_emulators(viewer)
 
             # ── push into pane stack ────────────────────────────────────
-            viewer.install_into_stack(
-                self._getit_stack,
-                close_fn=lambda: self._getit_stack.setCurrentIndex(0),
-            )
+            if install:
+                viewer.install_into_stack(
+                    self._getit_stack,
+                    close_fn=lambda: self._getit_stack.setCurrentIndex(0),
+                )
+            return viewer
 
         self.getit_gallery_view.cell_dbl_clicked.connect(_getit_open_gallery_viewer)
 
@@ -9322,11 +9352,11 @@ class MainWindow(QMainWindow):
 
         self.zxdb_gallery_view.cell_clicked.connect(zxdb_on_gallery_cell)
 
-        def _zxdb_open_gallery_viewer(entry):
+        def _zxdb_open_gallery_viewer(entry, make_viewer=None, install=True):
             eid   = entry.get("id") or ""
             title = entry.get("title") or eid
             if not eid:
-                return
+                return None
             kind = (entry.get("_kind") or "game").lower()
 
             info_rows_base = [
@@ -9336,13 +9366,13 @@ class MainWindow(QMainWindow):
                 ("Machine:", entry.get("machine", "")),
                 ("Genre:",   entry.get("genre", "")),
             ]
-            viewer = GalleryItemViewer(
+            _mk = make_viewer or (lambda **kw: GalleryItemViewer(parent=self, **kw))
+            viewer = _mk(
                 title=title,
                 info_rows=info_rows_base,
                 screenshots=[],
                 extra_fetch_cb=_zxdb_extra_fetch,
                 tags=_gallery_extract_tags(entry),
-                parent=self,
             )
             _fav_entry_zxdb = {**entry, "_fav_source": "zxdb"}
             viewer.set_favorite_hooks(_fav_entry_zxdb, self._fav_is, self._fav_toggle)
@@ -9489,10 +9519,12 @@ class MainWindow(QMainWindow):
             self._zxdb_gallery_viewer_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
             # ── push into pane stack ────────────────────────────────────
-            viewer.install_into_stack(
-                self._zxdb_stack,
-                close_fn=lambda: self._zxdb_stack.setCurrentIndex(0),
-            )
+            if install:
+                viewer.install_into_stack(
+                    self._zxdb_stack,
+                    close_fn=lambda: self._zxdb_stack.setCurrentIndex(0),
+                )
+            return viewer
 
         self.zxdb_gallery_view.cell_dbl_clicked.connect(_zxdb_open_gallery_viewer)
 
@@ -12398,11 +12430,11 @@ class MainWindow(QMainWindow):
 
         self.zxart_gallery_view.cell_clicked.connect(zxart_on_gallery_cell)
 
-        def _zxart_open_gallery_viewer(entry):
+        def _zxart_open_gallery_viewer(entry, make_viewer=None, install=True):
             eid   = entry.get("id") or ""
             title = entry.get("title") or eid
             if not eid:
-                return
+                return None
             kind = entry.get("_kind", "zxart_prod")
 
             info_rows_base = [
@@ -12411,13 +12443,13 @@ class MainWindow(QMainWindow):
                 ("Year:",   str(entry.get("year", "") or "")),
                 ("Type:",   entry.get("prodType", "") or entry.get("pic_type", "")),
             ]
-            viewer = GalleryItemViewer(
+            _mk = make_viewer or (lambda **kw: GalleryItemViewer(parent=self, **kw))
+            viewer = _mk(
                 title=title,
                 info_rows=info_rows_base,
                 screenshots=[],
                 extra_fetch_cb=_zxart_extra_fetch,
                 tags=_gallery_extract_tags(entry),
-                parent=self,
             )
             _fav_entry_zxart = {**entry, "_fav_source": "zxart"}
             viewer.set_favorite_hooks(_fav_entry_zxart, self._fav_is, self._fav_toggle)
@@ -12673,10 +12705,12 @@ class MainWindow(QMainWindow):
             self._zxart_gallery_viewer_thread = getit_run_in_thread(_fn, _on_ok, _on_err)
 
             # ── push into pane stack ────────────────────────────────────
-            viewer.install_into_stack(
-                self._zxart_stack,
-                close_fn=lambda: self._zxart_stack.setCurrentIndex(0),
-            )
+            if install:
+                viewer.install_into_stack(
+                    self._zxart_stack,
+                    close_fn=lambda: self._zxart_stack.setCurrentIndex(0),
+                )
+            return viewer
 
         self.zxart_gallery_view.cell_dbl_clicked.connect(_zxart_open_gallery_viewer)
 
@@ -13716,6 +13750,15 @@ class MainWindow(QMainWindow):
         )
         allinone_search_row.addWidget(self.allinone_view_combo)
 
+        self.allinone_pygame_button = QPushButton("🎮 Pygame")
+        self.allinone_pygame_button.setCheckable(True)
+        self.allinone_pygame_button.setToolTip(
+            "Switch the Unite! Table & Gallery views to a pygame-rendered\n"
+            "visualization. Click again to return to the classic views.\n"
+            "Requires the optional 'pygame-ce' package."
+        )
+        allinone_search_row.addWidget(self.allinone_pygame_button)
+
         self.allinone_status_label = QLabel("")
         allinone_search_row.addWidget(self.allinone_status_label, 1)
 
@@ -13995,6 +14038,11 @@ class MainWindow(QMainWindow):
                 page_entries = entries[start:end]
                 self.allinone_gallery_view.populate(page_entries)
                 _allinone_fill_table(page_entries)
+                if getattr(self, "_allinone_pygame_widget", None) is not None:
+                    try:
+                        self._allinone_pygame_feed()
+                    except Exception:
+                        pass
                 _allinone_update_tab_badge(total)
                 try:
                     self.allinone_page_label.setText(str(cur))
@@ -14652,6 +14700,14 @@ class MainWindow(QMainWindow):
                 self._allinone_right_widget.setVisible(_table)
             if hasattr(self, '_allinone_preview_label'):
                 self._allinone_preview_label.setVisible(_table)
+            # In pygame mode the same Table/Gallery selection drives the pygame
+            # scene instead of the classic Qt stack pages.
+            if getattr(self, "_allinone_pygame_on", False) and \
+                    getattr(self, "_allinone_pygame_widget", None) is not None:
+                self._allinone_pygame_set_scene()
+                self.allinone_view_stack.setCurrentWidget(self._allinone_pygame_widget)
+                if hasattr(self, '_allinone_right_widget'):
+                    self._allinone_right_widget.setVisible(False)
             cb = self.allinone_view_combo
             target_idx = 1 if mode == "gallery" else 0
             if cb.currentIndex() != target_idx:
@@ -14675,6 +14731,159 @@ class MainWindow(QMainWindow):
                 save_configuration_file()
 
         self._allinone_apply_view_mode = _allinone_apply_view_mode
+
+        # ── Pygame visualization mode (optional, lazily built) ──────────────
+        self._allinone_pygame_on = False
+        self._allinone_pygame_widget = None
+        self._allinone_pygame_table = None
+        self._allinone_pygame_gallery = None
+        # Space-Invaders background animation preference (on by default,
+        # overridden from the config file by load_configuration_file()).
+        self._allinone_pygame_anim = True
+
+        def _allinone_pygame_open_viewer(entry):
+            host = self._allinone_pygame_widget
+            if not isinstance(entry, dict) or host is None:
+                return
+            src = self._fav_source_of(entry)
+            opener = {
+                "getit": _getit_open_gallery_viewer,
+                "zxdb":  _zxdb_open_gallery_viewer,
+                "zxart": _zxart_open_gallery_viewer,
+            }.get(src)
+            if opener is None:
+                return
+            prev = host.scene()
+            try:
+                from zxnu_pygame import PygameItemViewer
+                viewer = opener(
+                    entry,
+                    make_viewer=lambda **kw: PygameItemViewer(host, **kw),
+                    install=False,
+                )
+            except Exception:
+                viewer = None
+            if viewer is not None:
+                viewer.install_into_stack(None, close_fn=lambda: host.set_scene(prev))
+        self._allinone_pygame_open_viewer = _allinone_pygame_open_viewer
+
+        def _allinone_pygame_build():
+            if self._allinone_pygame_widget is not None:
+                return self._allinone_pygame_widget
+            import zxnu_pygame as _zpg
+            host = _zpg.PygameSurfaceWidget()
+            self._allinone_pygame_table = _zpg.TableScene(
+                source_label_getter=_allinone_source_label,
+                title_getter=_fav_title_getter,
+                info_getter=_fav_info_getter,
+                open_cb=_allinone_pygame_open_viewer,
+            )
+            self._allinone_pygame_gallery = _zpg.GalleryScene(
+                title_getter=_fav_title_getter,
+                source_label_getter=_allinone_source_label,
+                thumb_fetch_cb=_fav_thumb_fetch,
+                is_favorite_cb=lambda e: self._fav_is(e),
+                toggle_favorite_cb=lambda e: self._fav_toggle(e),
+                open_cb=_allinone_pygame_open_viewer,
+                cols_getter=lambda: self._gallery_cols,
+            )
+            self._allinone_pygame_widget = host
+            try:
+                host.enable_background(getattr(self, "_allinone_pygame_anim", True))
+            except Exception:
+                pass
+            self.allinone_view_stack.addWidget(host)   # idx 2
+            return host
+
+        def _allinone_pygame_feed():
+            if self._allinone_pygame_widget is None:
+                return
+            entries = getattr(self, "_allinone_all_entries", []) or []
+            cur = getattr(self, "_allinone_current_page", 1) or 1
+            start = (cur - 1) * ALLINONE_PAGE_SIZE
+            page = entries[start:start + ALLINONE_PAGE_SIZE]
+            try:
+                self._allinone_pygame_table.set_entries(page)
+                self._allinone_pygame_gallery.set_entries(page)
+            except Exception:
+                pass
+        self._allinone_pygame_feed = _allinone_pygame_feed
+
+        def _allinone_pygame_set_scene():
+            host = self._allinone_pygame_widget
+            if host is None:
+                return
+            mode = getattr(self, "_allinone_view_mode", "gallery")
+            scene = (self._allinone_pygame_gallery if mode == "gallery"
+                     else self._allinone_pygame_table)
+            host.set_scene(scene)
+        self._allinone_pygame_set_scene = _allinone_pygame_set_scene
+
+        def _allinone_pygame_disable(reason=""):
+            btn = self.allinone_pygame_button
+            btn.blockSignals(True)
+            btn.setChecked(False)
+            btn.setText("🎮 Pygame")
+            btn.blockSignals(False)
+            btn.setEnabled(False)
+            if reason:
+                btn.setToolTip(reason)
+
+        def _allinone_on_pygame_toggled(checked):
+            if checked:
+                try:
+                    from zxnu_pygame import pygame_available
+                    ok, why = pygame_available()
+                except Exception as exc:
+                    ok, why = False, str(exc)
+                if not ok:
+                    _allinone_pygame_disable(
+                        f"{why}\nInstall with: pip install pygame-ce")
+                    try:
+                        self.allinone_status_label.setText(
+                            "Pygame mode unavailable — run: pip install pygame-ce"
+                        )
+                    except Exception:
+                        pass
+                    return
+                try:
+                    _allinone_pygame_build()
+                except Exception as exc:
+                    _allinone_pygame_disable(f"Pygame init failed: {exc}")
+                    return
+                self._allinone_pygame_on = True
+                self.allinone_pygame_button.setText("🖼 Classic")
+                _allinone_pygame_feed()
+                _allinone_pygame_set_scene()
+                self.allinone_view_stack.setCurrentWidget(self._allinone_pygame_widget)
+                try:
+                    self._allinone_pygame_widget.enable_background(
+                        getattr(self, "_allinone_pygame_anim", True))
+                except Exception:
+                    pass
+                if hasattr(self, "_allinone_right_widget"):
+                    self._allinone_right_widget.setVisible(False)
+                _allinone_pygame_persist(True)
+            else:
+                self._allinone_pygame_on = False
+                self.allinone_pygame_button.setText("🎮 Pygame")
+                _allinone_apply_view_mode(
+                    getattr(self, "_allinone_view_mode", "gallery"), persist=False)
+                _allinone_pygame_persist(False)
+
+        def _allinone_pygame_persist(enabled):
+            # Skip writing while restoring the saved choice at startup so a
+            # transient "pygame unavailable" never clobbers the user's pref.
+            if getattr(self, "_allinone_pygame_restoring", False):
+                return
+            try:
+                configuration_dictionary[SETTING_ALLINONE_PYGAME_MODE] = (
+                    "true" if enabled else "false")
+                save_configuration_file()
+            except Exception:
+                pass
+
+        self.allinone_pygame_button.toggled.connect(_allinone_on_pygame_toggled)
 
         def _on_allinone_view_combo_changed(_idx):
             _allinone_apply_view_mode(
@@ -15187,6 +15396,35 @@ class MainWindow(QMainWindow):
             self.settings_mame_params_edit.setToolTip(mame_params_lbl.toolTip())
             self.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
             grid_tab_Settings.addWidget(self.settings_mame_params_edit, 21, 1)
+
+        # ── Unite! pygame background animation toggle ──────────────────────
+        def _settings_pygame_anim_changed():
+            on = self.settings_pygame_anim_checkbox.isChecked()
+            self._allinone_pygame_anim = on
+            try:
+                configuration_dictionary[SETTING_ALLINONE_PYGAME_ANIM] = (
+                    "true" if on else "false")
+                save_configuration_file()
+            except Exception:
+                pass
+            w = getattr(self, "_allinone_pygame_widget", None)
+            if w is not None:
+                try:
+                    w.enable_background(on)
+                except Exception:
+                    pass
+
+        self.settings_pygame_anim_checkbox = QCheckBox(
+            "Unite! — Space Invaders background animation (pygame mode)")
+        self.settings_pygame_anim_checkbox.setChecked(True)
+        self.settings_pygame_anim_checkbox.setToolTip(
+            "When the Unite! tab is in pygame visualization mode, play an animated\n"
+            "Space Invaders scene (twinkling stars, aliens and a ship) behind the\n"
+            "Table / Gallery views. On by default. Saved to the configuration file."
+        )
+        self.settings_pygame_anim_checkbox.stateChanged.connect(
+            lambda _s: _settings_pygame_anim_changed())
+        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 22, 0, 1, 2)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
