@@ -1,0 +1,13 @@
+aiodns
+PySide6>=6.5.1
+psutil>=5.9.5
+maxminddb>=2.2.0
+pandas>=2.0.3
+numpy>=1.25.0
+requests>=2.31.0
+folium>=0.14.0
+opencv-python>=4.8.0
+procmon-parser>=0.3.3
+flask>=3.0.0
+scapy>=2.5.0  # Optional: only needed for the PCAP File Collector plugin
+pygame-ce>=2.5.0  # Optional: only needed for the pygame visualization mode in the Unite! tab
