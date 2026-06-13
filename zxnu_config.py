@@ -108,6 +108,9 @@ SETTING_FAVORITES_VIEW_MODE    = "favorites_view_mode"     # "gallery" (default)
 SETTING_ALLINONE_VIEW_MODE     = "allinone_view_mode"      # "gallery" (default) or "table"
 SETTING_ALLINONE_PYGAME_MODE   = "allinone_pygame_mode"    # "true" => pygame visualization, else classic
 SETTING_ALLINONE_PYGAME_ANIM   = "allinone_pygame_anim"    # "false" => disable the Space-Invaders background (default on)
+SETTING_ALIEN_FLOYD_BG         = "alien_floyd_bg"          # "true" => pygame-ce "Alien Floyd's" animated background on all tabs (default off)
+SETTING_ALIEN_FLOYD_TAB        = "alien_floyd_tab"         # "true" => show the dedicated "Alien Floyd's" tab (default off)
+SETTING_ALIEN_FLOYD_HISCORE    = "alien_floyd_hiscore"     # int: best "Alien Floyd's" arcade score so far
 DEFAULT_ZXART_LANGUAGE         = "eng"
 ZXART_LANGUAGE_CHOICES         = (
     ("English", "eng"),
@@ -385,7 +388,7 @@ SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
-SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE)
+SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30

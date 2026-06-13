@@ -1124,6 +1124,7 @@ class GalleryItemViewer(QWidget):
         self._shot_cache     = {}
         self._extra_fetch_cb = extra_fetch_cb
         self._close_fn       = None   # set by install_into_stack()
+        self._alien_overlay  = None   # optional Alien Floyd's animation overlay
         self._tags           = [str(t) for t in (tags or []) if t]
         self._is_favorite_cb     = None
         self._toggle_favorite_cb = None
@@ -1294,8 +1295,50 @@ class GalleryItemViewer(QWidget):
             stack.addWidget(self)
         stack.setCurrentWidget(self)
         self.setFocus()
+        self._ensure_alien_overlay()
         if len(self._screenshots) > 1:
             self._timer.start()
+
+    def _ensure_alien_overlay(self):
+        """When the optional Alien Floyd's background mode is on, float a
+        transparent animation overlay (alien Floyds flying above the image plus
+        the bottom defending ship) over the screenshot area."""
+        try:
+            import zxnu_pygame as _zpg
+            on = _zpg.alien_floyd_enabled()
+        except Exception:
+            return
+        if on and self._alien_overlay is None:
+            try:
+                ov = _zpg.AlienFloydWidget(self._img_lbl, transparent=True)
+            except Exception:
+                return
+            self._alien_overlay = ov
+            self._position_alien_overlay()
+            ov.show()
+            ov.start()
+            self._position_tag_overlay()   # keep tag chips above the overlay
+        elif not on and self._alien_overlay is not None:
+            self._destroy_alien_overlay()
+
+    def _destroy_alien_overlay(self):
+        ov = self._alien_overlay
+        self._alien_overlay = None
+        if ov is not None:
+            try:
+                ov.teardown()
+                ov.hide()
+                ov.setParent(None)
+                ov.deleteLater()
+            except Exception:
+                pass
+
+    def _position_alien_overlay(self):
+        ov = getattr(self, "_alien_overlay", None)
+        if ov is None:
+            return
+        ov.setGeometry(self._img_lbl.rect())
+        ov.lower()   # above the label's pixmap, below the tag-chip overlay
 
     def set_screenshots(self, urls: list):
         """Replace screenshot list and restart slideshow."""
@@ -1414,6 +1457,7 @@ class GalleryItemViewer(QWidget):
     def eventFilter(self, obj, ev):
         if obj is self._img_lbl:
             if ev.type() == QEvent.Resize:
+                self._position_alien_overlay()
                 self._position_tag_overlay()
             elif ev.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick):
                 if ev.button() == Qt.LeftButton:
@@ -1729,6 +1773,8 @@ class GalleryItemViewer(QWidget):
 
     def hideEvent(self, ev):
         self._timer.stop()
+        if self._alien_overlay is not None:
+            self._alien_overlay.stop()
         super().hideEvent(ev)
 
 
@@ -1760,6 +1806,8 @@ class BackgroundWidget(QWidget):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._alien_mode  = False   # Alien Floyd's pygame background active
+        self._alien_child = None    # AlienFloydWidget child (lazily created)
         self._bg_pixmap   = None
         self._bg_opacity  = self.DEFAULT_OPACITY  # percent 0-100
         self._bg_paths    = []                     # all discovered image paths
@@ -1808,6 +1856,70 @@ class BackgroundWidget(QWidget):
     def bg_paths(self) -> list:
         """Return the list of discovered background image paths (may be empty)."""
         return list(self._bg_paths)
+
+    # ------------------------------------------------------------------
+    # Alien Floyd's animated background (optional, pygame-ce)
+    # ------------------------------------------------------------------
+
+    def set_alien_mode(self, enabled: bool):
+        """Enable/disable the optional pygame-ce "Alien Floyd's" animated
+        background.  When enabled it replaces the cycling background images on
+        every tab (a full-bleed opaque animation child behind the tab widget);
+        when disabled the image cycling resumes."""
+        enabled = bool(enabled)
+        if enabled == self._alien_mode:
+            return
+        if enabled:
+            try:
+                from zxnu_pygame import AlienFloydWidget, pygame_available
+                ok, _why = pygame_available()
+                if not ok:
+                    return
+            except Exception:
+                return
+            self._alien_mode = True
+            self._cycle_timer.stop()
+            if self._alien_child is None:
+                self._alien_child = AlienFloydWidget(self)
+            self._alien_child.setGeometry(self.rect())
+            self._alien_child.lower()          # sit behind the tab widget
+            self._alien_child.show()
+            self._alien_child.start()
+            self.update()
+        else:
+            self._alien_mode = False
+            if self._alien_child is not None:
+                try:
+                    self._alien_child.teardown()
+                    self._alien_child.hide()
+                    self._alien_child.setParent(None)
+                    self._alien_child.deleteLater()
+                except Exception:
+                    pass
+                self._alien_child = None
+            # Resume image cycling unless a fixed image is locked.
+            if not self._bg_fixed and self._bg_paths:
+                self._cycle_timer.start()
+            self.update()
+
+    def alien_mode(self) -> bool:
+        return self._alien_mode
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._alien_child is not None:
+            self._alien_child.setGeometry(self.rect())
+            self._alien_child.lower()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._alien_mode and self._alien_child is not None:
+            self._alien_child.start()
+
+    def hideEvent(self, event):
+        if self._alien_child is not None:
+            self._alien_child.stop()
+        super().hideEvent(event)
 
     # ------------------------------------------------------------------
     # Internal helpers
