@@ -134,6 +134,29 @@ def _scale_keep_aspect(surf, max_w, max_h):
 
 # ── text helpers ────────────────────────────────────────────────────────────
 _FONT_CACHE = {}
+_FONT_PX = {}              # id(font) -> point size (for fallback-font sizing)
+_FALLBACK_CACHE = {}       # px -> tuple(Font, ...) of available fallback fonts
+_NOTDEF_CACHE = {}         # id(font) -> bytes of the font's ".notdef" (tofu) glyph
+_GLYPH_FONT_CACHE = {}     # (id(base_font), ch) -> Font that can draw ch (or None)
+
+# Preferred UI font for the pygame scenes.  Consolas is used explicitly; Segoe
+# UI is kept as a graceful fallback, then pygame's bundled default.
+_UI_FONT_NAMES = ("Consolas", "Segoe UI")
+
+# Fonts that supply glyphs the monospace UI font lacks: assorted symbols/arrows
+# (◀ ▶ ✕ ⬇ ♡) and emoji (🕹 🌐 💾 …).  Tried per-glyph, in order, until one
+# actually provides the glyph.  "Segoe UI Symbol" is preferred first because it
+# renders these as *monochrome* glyphs that honour the requested text colour
+# (so arrows/close icons stay visible on dark buttons); colour-emoji fonts are
+# kept as a secondary fallback for platforms without it.
+_FALLBACK_FONT_NAMES = (
+    "Segoe UI Symbol",     # Windows monochrome symbols/arrows/emoji (colour-aware)
+    "Segoe UI Emoji",      # Windows colour emoji
+    "Apple Color Emoji",   # macOS colour emoji
+    "Noto Color Emoji",    # Linux colour emoji
+    "Noto Emoji",          # Linux monochrome emoji
+    "Symbola",
+)
 
 
 def _font(px, bold=False):
@@ -142,23 +165,162 @@ def _font(px, bold=False):
     f = _FONT_CACHE.get(key)
     if f is None:
         pg = _ensure_pg()
-        try:
-            f = pg.font.SysFont("Segoe UI", px, bold=bold)
-        except Exception:
-            f = pg.font.Font(None, px)
+        f = None
+        for name in _UI_FONT_NAMES:
+            try:
+                path = pg.font.match_font(name, bold=bold)
+            except Exception:
+                path = None
+            if not path:
+                continue
+            try:
+                f = pg.font.Font(path, px)
+                break
+            except Exception:
+                f = None
+        if f is None:
+            try:
+                f = pg.font.SysFont("Consolas, Segoe UI", px, bold=bold)
+            except Exception:
+                f = pg.font.Font(None, px)
         _FONT_CACHE[key] = f
+        _FONT_PX[id(f)] = px
     return f
+
+
+def _fallback_fonts(px):
+    """Return cached tuple of available fallback fonts sized at *px*."""
+    px = max(8, int(px))
+    fonts = _FALLBACK_CACHE.get(px)
+    if fonts is None:
+        pg = _ensure_pg()
+        out = []
+        for name in _FALLBACK_FONT_NAMES:
+            try:
+                path = pg.font.match_font(name)
+            except Exception:
+                path = None
+            if not path:
+                continue
+            try:
+                out.append(pg.font.Font(path, px))
+            except Exception:
+                pass
+        fonts = tuple(out)
+        _FALLBACK_CACHE[px] = fonts
+    return fonts
+
+
+def _notdef_bytes(font):
+    """Cached RGBA bytes of *font*'s ".notdef" box (rendered via a noncharacter
+    that no font maps), used to detect tofu/missing glyphs reliably."""
+    nid = id(font)
+    b = _NOTDEF_CACHE.get(nid)
+    if b is None:
+        try:
+            img = font.render("\ufdd0", True, (255, 255, 255))
+            b = _pg.image.tobytes(img, "RGBA")
+        except Exception:
+            b = b""
+        _NOTDEF_CACHE[nid] = b
+    return b
+
+
+def _font_has_glyph(font, ch):
+    """True if *font* draws a real glyph for *ch* (not its .notdef/tofu box).
+
+    pygame's ``Font.metrics`` returns the .notdef box metrics for missing
+    glyphs (not ``None``), so it cannot be trusted.  Instead we compare the
+    rendered bitmap against the font's known tofu box.
+    """
+    try:
+        b = _pg.image.tobytes(font.render(ch, True, (255, 255, 255)), "RGBA")
+    except Exception:
+        return False
+    if b == _notdef_bytes(font):
+        return False
+    if not any(b[3::4]):            # fully transparent → nothing was drawn
+        return False
+    return True
+
+
+def _glyph_font(base_font, ch):
+    """Return the font to draw *ch* with: the base font when it has the glyph,
+    otherwise the first fallback font that provides it, or None."""
+    key = (id(base_font), ch)
+    if key in _GLYPH_FONT_CACHE:
+        return _GLYPH_FONT_CACHE[key]
+    font = None
+    if _font_has_glyph(base_font, ch):
+        font = base_font
+    else:
+        px = _FONT_PX.get(id(base_font))
+        if px is None:
+            px = max(8, int(round(base_font.get_height() / 1.3)))
+        for fb in _fallback_fonts(px):
+            if _font_has_glyph(fb, ch):
+                font = fb
+                break
+    _GLYPH_FONT_CACHE[key] = font
+    return font
 
 
 def _draw_text(surface, text, x, y, font, color):
     if not text:
         return 0
-    try:
-        img = font.render(str(text), True, color)
-    except Exception:
-        return 0
-    surface.blit(img, (int(x), int(y)))
-    return img.get_height()
+    s = str(text)
+    # Fast path: plain ASCII/Latin strings are fully covered by the monospace
+    # UI font, so render them in a single blit.  Strings with higher-plane
+    # characters (arrows, dingbats, emoji, …) get per-glyph fallback handling.
+    if all(ord(c) < 0x2000 for c in s):
+        try:
+            img = font.render(s, True, color)
+        except Exception:
+            return 0
+        surface.blit(img, (int(x), int(y)))
+        return img.get_height()
+    return _draw_text_mixed(surface, s, x, y, font, color)
+
+
+def _draw_text_mixed(surface, s, x, y, base_font, color):
+    """Render *s* one run at a time, substituting a fallback font for glyphs the
+    monospace UI font lacks (emoji, arrows, dingbats, …)."""
+    # Resolve a drawing font per character, then coalesce consecutive characters
+    # sharing the same font into runs.
+    runs = []
+    cur_font = None
+    cur_chars = []
+    for ch in s:
+        f = base_font if ch.isspace() else (_glyph_font(base_font, ch) or base_font)
+        if cur_chars and f is not cur_font:
+            runs.append((cur_font, "".join(cur_chars)))
+            cur_chars = []
+        cur_chars.append(ch)
+        cur_font = f
+    if cur_chars:
+        runs.append((cur_font, "".join(cur_chars)))
+
+    cur_x = int(x)
+    base_h = base_font.get_height()
+    max_h = 0
+    for f, seg in runs:
+        img = None
+        try:
+            img = f.render(seg, True, color)
+        except Exception:
+            if f is not base_font:
+                try:               # keep layout even if a fallback render fails
+                    img = base_font.render(seg, True, color)
+                except Exception:
+                    img = None
+        if img is None:
+            continue
+        h = img.get_height()
+        oy = (base_h - h) // 2 if f is not base_font else 0
+        surface.blit(img, (cur_x, int(y) + oy))
+        cur_x += img.get_width()
+        max_h = max(max_h, h)
+    return max_h or base_h
 
 
 def _elide(text, font, max_w):
