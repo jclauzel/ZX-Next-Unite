@@ -2141,6 +2141,10 @@ class MainWindow(QMainWindow):
         # MAME ROM/system choice (e.g. "tbblue"); seeded with the first entry so a
         # first-run cfg persists a value the user can change in the Settings tab.
         configuration_dictionary[SETTING_MAME_ROM_CHOICE] = MAME_ROM_CHOICE[0]
+        # Optional pygame-ce "Alien Floyd's" features (both default off).
+        configuration_dictionary[SETTING_ALIEN_FLOYD_BG] = ""
+        configuration_dictionary[SETTING_ALIEN_FLOYD_TAB] = ""
+        configuration_dictionary[SETTING_ALIEN_FLOYD_HISCORE] = "0"
 
         # Detect whether the MAME emulator is available on the system PATH
         # (mame.exe on Windows, mame elsewhere). When present, a "Launch Mame"
@@ -2647,6 +2651,61 @@ class MainWindow(QMainWindow):
                         self.allinone_pygame_button.setChecked(True)
                     finally:
                         self._allinone_pygame_restoring = False
+
+                # Alien Floyd's (pygame-ce) optional background + dedicated tab
+                # (both default off). Disable the controls when pygame-ce is not
+                # installed, but leave the saved preferences untouched.
+                try:
+                    # Seed the persisted arcade high score and wire the saver.
+                    try:
+                        import zxnu_pygame as _zpg_hs
+                        _hs_raw = configuration_dictionary.get(
+                            SETTING_ALIEN_FLOYD_HISCORE, "").strip()
+                        _zpg_hs.init_alien_hiscore(int(_hs_raw) if _hs_raw else 0)
+
+                        def _save_alien_hiscore(v):
+                            configuration_dictionary[SETTING_ALIEN_FLOYD_HISCORE] = str(int(v))
+                            try:
+                                save_configuration_file()
+                            except Exception:
+                                pass
+                        _zpg_hs.set_alien_hiscore_save_cb(_save_alien_hiscore)
+                    except Exception:
+                        pass
+                    _af_bg_on = configuration_dictionary.get(
+                        SETTING_ALIEN_FLOYD_BG, "").strip().lower() in ("true", "1", "yes")
+                    _af_tab_on = configuration_dictionary.get(
+                        SETTING_ALIEN_FLOYD_TAB, "").strip().lower() in ("true", "1", "yes")
+                    _af_ok = False
+                    try:
+                        from zxnu_pygame import pygame_available as _pg_avail
+                        _af_ok = bool(_pg_avail()[0])
+                    except Exception:
+                        _af_ok = False
+                    _af_bg_cb = getattr(self, "settings_alien_floyd_bg_checkbox", None)
+                    _af_tab_cb = getattr(self, "settings_alien_floyd_tab_checkbox", None)
+                    if not _af_ok:
+                        for _cb in (_af_bg_cb, _af_tab_cb):
+                            if _cb is not None:
+                                _cb.setEnabled(False)
+                                _cb.setToolTip(
+                                    "Requires the optional 'pygame-ce' package.\n"
+                                    "Install with: pip install pygame-ce")
+                    else:
+                        if _af_bg_cb is not None:
+                            _af_bg_cb.blockSignals(True)
+                            _af_bg_cb.setChecked(_af_bg_on)
+                            _af_bg_cb.blockSignals(False)
+                        if _af_tab_cb is not None:
+                            _af_tab_cb.blockSignals(True)
+                            _af_tab_cb.setChecked(_af_tab_on)
+                            _af_tab_cb.blockSignals(False)
+                        if _af_bg_on and hasattr(self, "_apply_alien_floyd_bg"):
+                            self._apply_alien_floyd_bg(True)
+                        if _af_tab_on and hasattr(self, "_alien_floyd_tab_set_visible"):
+                            self._alien_floyd_tab_set_visible(True)
+                except Exception:
+                    pass
 
                 # zxART API language (eng/pol/spa)
                 _zxart_lang_cfg = configuration_dictionary.get(SETTING_ZXART_LANGUAGE, "").strip().lower()
@@ -15425,6 +15484,112 @@ class MainWindow(QMainWindow):
         self.settings_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_pygame_anim_changed())
         grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 22, 0, 1, 2)
+
+        # ── Alien Floyd's: optional pygame-ce animated background everywhere ──
+        # A Pink Floyd homage. When on, a pygame-ce "Alien Floyd's" animation
+        # (pigs, moons, prisms, guitars, dogs … that morph into one another and
+        # bob down soft Bézier curves, a defending ship, glowing stars that turn
+        # into $/£/€ signs) replaces the cycling background images on every tab,
+        # and floats above the image of every gallery item viewer.
+        def _apply_alien_floyd_bg(on):
+            try:
+                import zxnu_pygame as _zpg
+                _zpg.set_alien_floyd_enabled(on)
+            except Exception:
+                pass
+            bg = getattr(self, "_bg_widget", None)
+            if bg is not None:
+                try:
+                    bg.set_alien_mode(on)
+                except Exception:
+                    pass
+        self._apply_alien_floyd_bg = _apply_alien_floyd_bg
+
+        def _settings_alien_bg_changed():
+            on = self.settings_alien_floyd_bg_checkbox.isChecked()
+            configuration_dictionary[SETTING_ALIEN_FLOYD_BG] = "true" if on else "false"
+            if not self._initialising:
+                save_configuration_file()
+            _apply_alien_floyd_bg(on)
+
+        self.settings_alien_floyd_bg_checkbox = QCheckBox(
+            "Alien Floyd's — animated background on all tabs (pygame-ce)")
+        self.settings_alien_floyd_bg_checkbox.setChecked(False)
+        self.settings_alien_floyd_bg_checkbox.setToolTip(
+            "Pink Floyd homage. Replaces the cycling background images on every\n"
+            "tab with an animated 'Alien Floyd's' scene (morphing pigs, moons,\n"
+            "prisms, guitars, dogs …, a defending ship and glowing stars that\n"
+            "flicker into $/£/€ signs), and floats it above every gallery item\n"
+            "viewer image. Optional. Off by default. Saved to the configuration\n"
+            "file. Requires the optional 'pygame-ce' package.")
+        self.settings_alien_floyd_bg_checkbox.stateChanged.connect(
+            lambda _s: _settings_alien_bg_changed())
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 23, 0, 1, 2)
+
+        # ── Alien Floyd's: optional dedicated full-window tab ────────────────
+        self._alien_floyd_tab_widget = None
+
+        def _alien_floyd_tab_set_visible(on):
+            tabw = wid_inner.tab
+            if on:
+                if self._alien_floyd_tab_widget is not None and \
+                        tabw.indexOf(self._alien_floyd_tab_widget) != -1:
+                    return
+                try:
+                    from zxnu_pygame import AlienFloydWidget, pygame_available
+                    ok, _why = pygame_available()
+                    if not ok:
+                        return
+                except Exception:
+                    return
+                page = QWidget()
+                page_layout = QVBoxLayout(page)
+                page_layout.setContentsMargins(0, 0, 0, 0)
+                anim = AlienFloydWidget(page)
+                page_layout.addWidget(anim)
+                page.tab_name_private = "AlienFloyds"
+                page._alien_anim = anim
+                self._alien_floyd_tab_widget = page
+                # Insert just before the Settings tab.
+                idx = tabw.count()
+                for _i in range(tabw.count()):
+                    if tabw.tabText(_i).startswith("Settings"):
+                        idx = _i
+                        break
+                tabw.insertTab(idx, page, "🌈 Alien Floyd's")
+            else:
+                page = self._alien_floyd_tab_widget
+                if page is not None:
+                    _i = tabw.indexOf(page)
+                    if _i != -1:
+                        tabw.removeTab(_i)
+                    try:
+                        anim = getattr(page, "_alien_anim", None)
+                        if anim is not None:
+                            anim.teardown()
+                        page.deleteLater()
+                    except Exception:
+                        pass
+                    self._alien_floyd_tab_widget = None
+        self._alien_floyd_tab_set_visible = _alien_floyd_tab_set_visible
+
+        def _settings_alien_tab_changed():
+            on = self.settings_alien_floyd_tab_checkbox.isChecked()
+            configuration_dictionary[SETTING_ALIEN_FLOYD_TAB] = "true" if on else "false"
+            if not self._initialising:
+                save_configuration_file()
+            _alien_floyd_tab_set_visible(on)
+
+        self.settings_alien_floyd_tab_checkbox = QCheckBox(
+            "Alien Floyd's — show the full-window 'Alien Floyd's' tab (pygame-ce)")
+        self.settings_alien_floyd_tab_checkbox.setChecked(False)
+        self.settings_alien_floyd_tab_checkbox.setToolTip(
+            "Add a dedicated 'Alien Floyd's' tab (before Settings) that shows the\n"
+            "full-window pygame-ce animation. Off by default. Saved to the\n"
+            "configuration file. Requires the optional 'pygame-ce' package.")
+        self.settings_alien_floyd_tab_checkbox.stateChanged.connect(
+            lambda _s: _settings_alien_tab_changed())
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 24, 0, 1, 2)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)

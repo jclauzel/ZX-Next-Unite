@@ -30,6 +30,7 @@ import importlib.util
 import math as _math
 import random as _random
 import re as _re
+import time as _time
 
 from PySide6.QtCore import Qt, QPoint, QTimer
 from PySide6.QtGui import QImage, QPainter
@@ -487,16 +488,235 @@ def _make_glow(color, r, level):
     return g
 
 
-class SpaceInvadersBackground:
-    """An autoplaying Space-Invaders scene: a drifting/twinkling starfield, a
-    descending alien formation, an AI cannon that tracks-and-fires, bullets,
-    bombs, the occasional mystery UFO, and explosion bursts.  Rendered opaque;
-    the foreground scene then veils it for readability."""
+# ── Pink Floyd "Alien Floyd" sprites ────────────────────────────────────────
+# Each alien randomly becomes one of these 8-bit, multi-colour homages to the
+# band: pigs, (dark) moons, the prism / triangle spectre, holograms, guitars,
+# bass guitars, microphones, dogs, beds, clouds and drums.  Patterns are fixed
+# 12×10 grids; every non-'.' character maps to an RGB colour in the sprite's
+# own palette.
+_FLOYD_W = 12
+_FLOYD_H = 10
+
+_FLOYD_PATTERNS = {
+    "pig": ([
+        "............",
+        ".....kk.....",
+        "...kkPPkk...",
+        "..kPPPPPPk..",
+        ".kPPPPPPPPk.",
+        ".kPPkPPPPok.",
+        ".kPPPPPPPok.",
+        "..kPPPPPPk..",
+        "...k.kk.k...",
+        "............",
+    ], {"P": (255, 150, 190), "o": (220, 90, 140), "k": (60, 30, 50)}),
+    "moon": ([
+        "....kkkk....",
+        "..kkMMMMkk..",
+        ".kMMMMMMMMk.",
+        ".kMMMMMMMMk.",
+        "kMMMMMMMMMMk",
+        "kMMMMMMMMMMk",
+        ".kMMMMMMMMk.",
+        ".kMMMMMMMMk.",
+        "..kkMMMMkk..",
+        "....kkkk....",
+    ], {"M": (245, 240, 180), "k": (120, 115, 70)}),
+    "dark_moon": ([
+        "....hhhh....",
+        "..hhDDDDhh..",
+        ".hDDDDDDDDh.",
+        ".hDDDDDDDDh.",
+        "hDDDDDDDDDDh",
+        "hDDDDDDDDDDh",
+        ".hDDDDDDDDh.",
+        ".hDDDDDDDDh.",
+        "..hhDDDDhh..",
+        "....hhhh....",
+    ], {"D": (55, 55, 75), "h": (120, 120, 150)}),
+    "prism": ([
+        ".....W......",
+        "....WWW.....",
+        "....WWW.....",
+        "...WWWWW....",
+        "...WWWWWrrrr",
+        "..WWWWWWgggg",
+        "..WWWWWWbbbb",
+        ".WWWWWWW....",
+        ".WWWWWWW....",
+        "WWWWWWWWW...",
+    ], {"W": (235, 235, 245), "r": (230, 60, 60), "g": (60, 210, 90), "b": (70, 120, 235)}),
+    "hologram": ([
+        ".....cc.....",
+        "....cCCc....",
+        "...cCCCCc...",
+        "..cCCCCCCc..",
+        ".cCCCCCCCCc.",
+        ".cCCCCCCCCc.",
+        "..cCCCCCCc..",
+        "...cCCCCc...",
+        "....cCCc....",
+        ".....cc.....",
+    ], {"c": (120, 255, 245), "C": (40, 160, 180)}),
+    "guitar": ([
+        ".........nn.",
+        "........nn..",
+        ".......nn...",
+        "..ggg.nn....",
+        ".gggggn.....",
+        "ggggggg.....",
+        "gggGgggg....",
+        ".ggggggg....",
+        "..gggggg....",
+        "...ggg......",
+    ], {"g": (190, 110, 50), "G": (40, 25, 15), "n": (140, 90, 40)}),
+    "bass": ([
+        ".........nn.",
+        "........nn..",
+        ".......nn...",
+        "..BBB.nn....",
+        ".BBBBBn.....",
+        "BBBBBBB.....",
+        "BBBGBBBB....",
+        ".BBBBBBB....",
+        "..BBBBBB....",
+        "...BBB......",
+    ], {"B": (70, 120, 210), "G": (20, 25, 45), "n": (120, 120, 140)}),
+    "microphone": ([
+        "....ssss....",
+        "...sSSSSs...",
+        "..sSSSSSSs..",
+        "..sSSSSSSs..",
+        "..sSSSSSSs..",
+        "...sSSSSs...",
+        "....shhs....",
+        ".....hh.....",
+        ".....hh.....",
+        "....hhhh....",
+    ], {"s": (190, 195, 205), "S": (110, 115, 130), "h": (70, 70, 80)}),
+    "dog": ([
+        "........dd..",
+        ".......dddd.",
+        "d......ddddk",
+        "ddd...ddddd.",
+        "ddddddddddd.",
+        "ddddddddddd.",
+        ".dd.ddd.dd..",
+        ".dd.ddd.dd..",
+        ".d...d...d..",
+        "............",
+    ], {"d": (150, 95, 55), "k": (30, 20, 15)}),
+    "bed": ([
+        "............",
+        "..PP........",
+        ".bMMMMMMMMb.",
+        ".bMMMMMMMMb.",
+        ".bMMMMMMMMb.",
+        ".f........f.",
+        ".f........f.",
+        "............",
+        "............",
+        "............",
+    ], {"P": (230, 230, 240), "M": (90, 140, 200), "b": (120, 80, 50), "f": (120, 80, 50)}),
+    "cloud": ([
+        "............",
+        "....CCCC....",
+        "..CCCCCCCC..",
+        ".CCCCCCCCCC.",
+        "CCCCCCCCCCCC",
+        "CCCCCCCCCCCC",
+        ".CCCCCCCCCC.",
+        "............",
+        "............",
+        "............",
+    ], {"C": (235, 240, 250)}),
+    "drum": ([
+        "............",
+        ".rRrRrRrRr..",
+        "RRRRRRRRRR..",
+        "RwwwwwwwwR..",
+        "RwwwwwwwwR..",
+        "RwwwwwwwwR..",
+        "RRRRRRRRRR..",
+        ".r.r.r.r.r..",
+        "............",
+        "............",
+    ], {"R": (200, 50, 60), "r": (230, 200, 90), "w": (240, 235, 225)}),
+}
+
+_FLOYD_NAMES = tuple(_FLOYD_PATTERNS.keys())
+_FLOYD_SPRITE_CACHE = {}    # (name, px) -> Surface
+
+# Currency glyphs a star can briefly flicker into, and their glow colour.
+_CURRENCY = ("$", "£", "€")
+_C_CURRENCY = (255, 220, 120)
+
+
+def _make_palette_sprite(rows, palette, px):
+    """Render a multi-colour bitmap *rows* at *px* pixels per cell."""
+    pg = _pg
+    h = len(rows)
+    w = len(rows[0]) if h else 0
+    surf = pg.Surface((max(1, w * px), max(1, h * px)), pg.SRCALPHA)
+    for r, line in enumerate(rows):
+        for c, ch in enumerate(line):
+            col = palette.get(ch)
+            if col is not None:
+                surf.fill((col[0], col[1], col[2], 255),
+                          pg.Rect(c * px, r * px, px, px))
+    return surf
+
+
+def _make_floyd_sprite(name, px):
+    """A cached Floyd sprite surface for *name* at *px* pixels per cell."""
+    key = (name, px)
+    spr = _FLOYD_SPRITE_CACHE.get(key)
+    if spr is None:
+        rows, palette = _FLOYD_PATTERNS[name]
+        spr = _make_palette_sprite(rows, palette, px)
+        if len(_FLOYD_SPRITE_CACHE) > 240:
+            _FLOYD_SPRITE_CACHE.clear()
+        _FLOYD_SPRITE_CACHE[key] = spr
+    return spr
+
+
+def _smoothstep(t):
+    if t <= 0.0:
+        return 0.0
+    if t >= 1.0:
+        return 1.0
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _bezier_wave(x):
+    """A soft, periodic ping-pong curve in [-1, 1] eased like a Bézier so the
+    Floyds drift up and down along gentle curves rather than straight lines."""
+    p = x - _math.floor(x)
+    if p < 0.5:
+        v = _smoothstep(p * 2.0)
+    else:
+        v = 1.0 - _smoothstep((p - 0.5) * 2.0)
+    return v * 2.0 - 1.0
+
+
+class AlienFloydBackground:
+    """An autoplaying "Alien Floyd" scene — a Pink Floyd homage built on the
+    classic Space-Invaders skeleton: a drifting/twinkling starfield whose stars
+    sometimes flicker into glowing $/£/€ glyphs; a descending formation of alien
+    "Floyds" (pigs, moons, prisms, holograms, guitars, dogs, beds, clouds, …)
+    that bob down along soft Bézier curves and randomly turn into one another;
+    an AI cannon that tracks and fires often; bullets, bombs, the occasional
+    mystery UFO and explosion bursts.
+
+    Rendered opaque by default; pass ``transparent=True`` to :meth:`render` to
+    draw only the sprites/stars over a fully transparent surface (used as an
+    overlay above gallery item images)."""
 
     ROWS = 5
-    COLS = 11
+    COLS = 9
 
     def __init__(self, size, dpr=1.0):
+        _ensure_pg()
         self.dpr = max(1.0, float(dpr or 1.0))
         self.w, self.h = size
         self._t = 0
@@ -505,7 +725,11 @@ class SpaceInvadersBackground:
         self._bullets = []
         self._bombs = []
         self._explosions = []
+        self._divers = []
+        self._dive_cd = _random.randint(20, 60)
+        self._score = 0
         self._ship_x = self.w * 0.5
+        self._ship_v = 0.0
         self._fire_cd = 0
         self._ufo = None
         self._ufo_cd = _random.randint(120, 360)
@@ -518,16 +742,15 @@ class SpaceInvadersBackground:
     def _init_sprites(self):
         px = max(2, self.s(2))
         self._px = px
-        self._inv = []
-        for rc in _ALIEN_ROW_COLORS:
-            self._inv.append((_make_sprite(_INV_A, rc, px),
-                              _make_sprite(_INV_B, rc, px)))
-        self._alien_w = self.COLS * px
-        self._alien_h = 8 * px
+        self._floyd = {name: _make_floyd_sprite(name, px)
+                       for name in _FLOYD_NAMES}
+        self._alien_w = _FLOYD_W * px
+        self._alien_h = _FLOYD_H * px
         self._cannon = _make_sprite(_CANNON, _C_SHIP, px)
         self._ufo_spr = _make_sprite(_UFO, _C_UFO, px)
-        self._step_x = self._alien_w + self.s(8)
-        self._step_y = self._alien_h + self.s(8)
+        self._step_x = self._alien_w + self.s(10)
+        self._step_y = self._alien_h + self.s(6)
+        self._bob_amp = self.s(11)
 
     def _init_stars(self):
         self._stars = []
@@ -543,18 +766,28 @@ class SpaceInvadersBackground:
                 "col": _random.choice(_STAR_COLORS),
                 "ph": _random.uniform(0, 6.28),
                 "dph": _random.uniform(0.03, 0.10),
+                "glyph": None,
+                "gttl": 0,
             })
 
     def _new_wave(self, first=False):
         total_w = self.COLS * self._step_x
         self._start_x = max(self.s(10), (self.w - total_w) / 2)
-        self._top_y = self.s(28)
+        self._top_y = self.s(24)
         self._aliens = [[True] * self.COLS for _ in range(self.ROWS)]
+        # Each alien is one of the Floyd kinds, remembered per cell so it can
+        # randomly "turn into" another over time.  Per-cell phases stagger the
+        # soft Bézier bob so the swarm undulates rather than moving as a block.
+        nkinds = len(_FLOYD_NAMES)
+        self._kind = [[_random.randrange(nkinds) for _ in range(self.COLS)]
+                      for _ in range(self.ROWS)]
+        self._bob_ph = [[_random.uniform(0.0, 1.0) for _ in range(self.COLS)]
+                        for _ in range(self.ROWS)]
         self._fx = 0.0
         self._fy = 0.0
         self._dir = 1
-        base = 0.45 if first else 0.65
-        self._speed = (base + 0.12 * getattr(self, "_wave", 0)) * self.dpr
+        base = 0.4 if first else 0.55
+        self._speed = (base + 0.1 * getattr(self, "_wave", 0)) * self.dpr
         self._wave = getattr(self, "_wave", 0) + 1
 
     def resize(self, size, dpr=None):
@@ -565,12 +798,18 @@ class SpaceInvadersBackground:
         self._init_stars()
         self._new_wave(first=True)
         self._wave = 1
+        self._divers = []
         self._ship_x = min(self._ship_x, self.w - self.s(10))
 
     # -- geometry ----------------------------------------------------------
     def _alien_pos(self, r, c):
-        return (self._start_x + c * self._step_x + self._fx,
-                self._top_y + r * self._step_y + self._fy)
+        bx = self._start_x + c * self._step_x + self._fx
+        by = self._top_y + r * self._step_y + self._fy
+        # Soft Bézier bob: a gentle, eased up/down drift unique to each cell.
+        bob = self._bob_amp * _bezier_wave(self._t * 0.012
+                                           + self._bob_ph[r][c]
+                                           + (r + c) * 0.13)
+        return (bx, by + bob)
 
     def _alive_bounds(self):
         minx, maxx, maxy = None, None, None
@@ -592,11 +831,13 @@ class SpaceInvadersBackground:
         self._t += 1
         self._update_stars()
         self._update_formation()
+        self._update_divers()
         self._update_ship()
         self._update_bullets()
         self._update_bombs()
         self._update_ufo()
         self._update_explosions()
+        note_alien_score(self._score)
 
     def _update_stars(self):
         for st in self._stars:
@@ -605,6 +846,14 @@ class SpaceInvadersBackground:
             if st["y"] > self.h + st["r"]:
                 st["y"] = -st["r"]
                 st["x"] = _random.uniform(0, self.w)
+            # A star occasionally flickers into a glowing $/£/€ sign.
+            if st["glyph"] is not None:
+                st["gttl"] -= 1
+                if st["gttl"] <= 0:
+                    st["glyph"] = None
+            elif _random.random() < 0.0006:
+                st["glyph"] = _random.choice(_CURRENCY)
+                st["gttl"] = _random.randint(80, 180)
 
     def _update_formation(self):
         if not self._any_alive():
@@ -615,11 +864,11 @@ class SpaceInvadersBackground:
         self._fx += self._dir * self._speed
         if maxx is not None and (maxx >= self.w - margin or minx <= margin):
             self._dir *= -1
-            self._fy += self.s(10)
-        # If the swarm marches past the bottom, regroup at the top.
-        if maxy is not None and maxy >= self.h - self.s(40):
+            self._fy += self.s(8)
+        # If the swarm drifts past the bottom, regroup at the top.
+        if maxy is not None and maxy >= self.h - self.s(46):
             self._fy = 0.0
-            self._top_y = self.s(28)
+            self._top_y = self.s(24)
             self._aliens = [[True] * self.COLS for _ in range(self.ROWS)]
         # Occasionally an alien drops a bomb.
         if self._t % 40 == 0:
@@ -629,6 +878,15 @@ class SpaceInvadersBackground:
                 r, c = _random.choice(alive)
                 x, y = self._alien_pos(r, c)
                 self._bombs.append([x + self._alien_w / 2, y + self._alien_h])
+        # Pink Floyd homage: aliens randomly "turn into" other Floyds.
+        if self._t % 16 == 0:
+            alive = [(r, c) for r in range(self.ROWS) for c in range(self.COLS)
+                     if self._aliens[r][c]]
+            if alive:
+                nkinds = len(_FLOYD_NAMES)
+                for _ in range(max(1, len(alive) // 10)):
+                    r, c = _random.choice(alive)
+                    self._kind[r][c] = _random.randrange(nkinds)
 
     def _lowest_alien_x(self):
         """Target the column of the lowest-then-leftmost alive alien."""
@@ -647,15 +905,46 @@ class SpaceInvadersBackground:
         target = self._lowest_alien_x()
         if target is None:
             target = self.w * 0.5
-        # ease toward the target column
-        self._ship_x += (target - self._ship_x) * 0.06
-        self._ship_x = max(self.s(8), min(self.w - self.s(8), self._ship_x))
+        # Also consider intercepting the mystery UFO when one is on screen.
+        aim = target
+        if self._ufo is not None:
+            ux = self._ufo[0] + self._ufo_spr.get_width() / 2
+            if abs(ux - self._ship_x) < abs(target - self._ship_x):
+                aim = ux
+        # A diving Floyd takes priority — the ship rushes under the nearest one
+        # to shoot it down before it escapes off the bottom.
+        if self._divers:
+            aim = min((self._diver_pos(d)[0] + self._alien_w / 2
+                       for d in self._divers),
+                      key=lambda dx: abs(dx - self._ship_x))
+        # Velocity + acceleration: a spring pulls the ship toward the aim while
+        # a capped max speed and light damping give it weighty, accelerating
+        # left/right sweeps that overshoot and settle rather than gliding
+        # linearly — the ship darts back and forth across the bottom.
+        accel = (aim - self._ship_x) * 0.05 * self.dpr
+        max_a = max(1.0, self.s(3))
+        accel = max(-max_a, min(max_a, accel))
+        self._ship_v += accel
+        self._ship_v *= 0.90                          # damping
+        max_v = max(2.0, self.s(16))                  # fast top speed
+        self._ship_v = max(-max_v, min(max_v, self._ship_v))
+        self._ship_x += self._ship_v
+        # Bounce off the edges so it keeps sweeping side to side.
+        lo, hi = self.s(8), self.w - self.s(8)
+        if self._ship_x < lo:
+            self._ship_x = lo
+            self._ship_v = abs(self._ship_v) * 0.5
+        elif self._ship_x > hi:
+            self._ship_x = hi
+            self._ship_v = -abs(self._ship_v) * 0.5
+        # The defending ship fires often: short cooldown and a generous aim
+        # tolerance so the sky stays busy with bullets.
         if self._fire_cd > 0:
             self._fire_cd -= 1
-        elif abs(self._ship_x - target) < self.s(14):
-            cw = self._cannon.get_width()
-            self._bullets.append([self._ship_x, self.h - self.s(34) - cw * 0])
-            self._fire_cd = _random.randint(10, 20)
+        elif abs(self._ship_x - aim) < self.s(46) or self._ufo is not None \
+                or self._divers:
+            self._bullets.append([self._ship_x, self.h - self.s(34)])
+            self._fire_cd = _random.randint(4, 10)
 
     def _update_bullets(self):
         spd = self.s(7)
@@ -675,16 +964,32 @@ class SpaceInvadersBackground:
                         self._spawn_explosion(x + self._alien_w / 2,
                                               y + self._alien_h / 2,
                                               _ALIEN_ROW_COLORS[r])
+                        self._score += 10
                         hit = True
                         break
                 if hit:
                     break
+            # diving Floyds are destroyable too
+            if not hit:
+                for d in list(self._divers):
+                    dx, dy = self._diver_pos(d)
+                    if dx <= b[0] <= dx + self._alien_w and dy <= b[1] <= dy + self._alien_h:
+                        self._spawn_explosion(dx + self._alien_w / 2,
+                                              dy + self._alien_h / 2, _C_UFO)
+                        try:
+                            self._divers.remove(d)
+                        except ValueError:
+                            pass
+                        self._score += 50
+                        hit = True
+                        break
             if not hit:
                 if self._ufo and self._ufo[0] <= b[0] <= self._ufo[0] + self._ufo_spr.get_width() \
                         and self._ufo[1] <= b[1] <= self._ufo[1] + self._ufo_spr.get_height():
                     self._spawn_explosion(self._ufo[0] + self._ufo_spr.get_width() / 2,
                                           self._ufo[1] + self._ufo_spr.get_height() / 2, _C_UFO)
                     self._ufo = None
+                    self._score += 100
                 else:
                     alive_bullets.append(b)
         self._bullets = alive_bullets
@@ -733,29 +1038,127 @@ class SpaceInvadersBackground:
                 kept.append(ex)
         self._explosions = kept
 
+    # -- diving Floyds -----------------------------------------------------
+    def _update_divers(self):
+        """Now and then a Floyd peels out of the formation and swoops down a
+        random cubic-Bézier path with a zig-zag wiggle, exiting the bottom."""
+        self._dive_cd -= 1
+        if self._dive_cd <= 0 and len(self._divers) < 5:
+            self._dive_cd = _random.randint(18, 55)
+            self._launch_diver()
+        kept = []
+        for d in self._divers:
+            d["t"] += d["dt"]
+            if d["t"] < 1.0:
+                kept.append(d)
+                # diving Floyds strafe the ship with bombs as they swoop
+                if _random.random() < 0.03:
+                    dx, dy = self._diver_pos(d)
+                    self._bombs.append([dx + self._alien_w / 2,
+                                        dy + self._alien_h])
+            elif d["mode"] == "return":
+                # completed its loop — slot back into the formation
+                self._aliens[d["r"]][d["c"]] = True
+        self._divers = kept
+
+    def _launch_diver(self):
+        alive = [(r, c) for r in range(self.ROWS) for c in range(self.COLS)
+                 if self._aliens[r][c]]
+        if not alive:
+            return
+        r, c = _random.choice(alive)
+        self._aliens[r][c] = False        # it has left the formation
+        x, y = self._alien_pos(r, c)
+        W, H = self.w, self.h
+        side = _random.choice((-1, 1))
+        # Half the divers loop back up into their formation slot; the rest
+        # swoop all the way out through the bottom of the screen.
+        mode = "return" if _random.random() < 0.5 else "exit"
+        d = {
+            "kind": self._kind[r][c], "r": r, "c": c, "mode": mode,
+            "p0": (x, y),
+            "t": 0.0,
+            "dt": _random.uniform(0.006, 0.012),
+            "wig_a": _random.uniform(self.s(6), self.s(22)),   # zig-zag amplitude
+            "wig_f": _random.uniform(2.0, 5.0),
+            "wig_p": _random.uniform(0.0, 6.283),
+        }
+        if mode == "exit":
+            end_x = _random.uniform(W * 0.08, W * 0.92)
+            d["p1"] = (x + side * _random.uniform(W * 0.15, W * 0.45), y + H * 0.30)
+            d["p2"] = (end_x - side * _random.uniform(W * 0.15, W * 0.45), y + H * 0.65)
+            d["p3"] = (end_x, H + self._alien_h)
+        else:
+            # Loop down and curve back up; the end point tracks the live home
+            # slot (computed each frame in _diver_pos) so it rejoins cleanly.
+            d["p1"] = (x + side * _random.uniform(W * 0.20, W * 0.42), y + H * 0.45)
+            d["p2"] = (x - side * _random.uniform(W * 0.10, W * 0.30), y + H * 0.55)
+        self._divers.append(d)
+
+    def _diver_pos(self, d):
+        t = d["t"]
+        u = 1.0 - t
+        p0, p1, p2 = d["p0"], d["p1"], d["p2"]
+        p3 = d.get("p3")
+        if p3 is None:                       # returning diver: live home slot
+            p3 = self._alien_pos(d["r"], d["c"])
+        a, b, cc, e = u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t
+        x = a * p0[0] + b * p1[0] + cc * p2[0] + e * p3[0]
+        y = a * p0[1] + b * p1[1] + cc * p2[1] + e * p3[1]
+        # Add a zig-zag that is strongest mid-flight (eased in and out).
+        x += d["wig_a"] * _math.sin(t * d["wig_f"] * 6.283 + d["wig_p"]) \
+            * (4.0 * t * (1.0 - t))
+        return x, y
+
     # -- rendering ---------------------------------------------------------
-    def render(self, surface):
-        surface.fill(_C_SKY)
+    def render(self, surface, transparent=False):
+        if transparent:
+            surface.fill((0, 0, 0, 0))
+        else:
+            surface.fill(_C_SKY)
         pg = _pg
-        # stars (additive glow + bright core)
+        # stars (additive glow + bright core); some flicker into $/£/€ glyphs
         for st in self._stars:
             level = 0.5 + 0.5 * _math.sin(st["ph"])
+            x, y, r = st["x"], st["y"], st["r"]
+            if st["glyph"] is not None:
+                glow = _make_glow(_C_CURRENCY, max(2, r * 2), 1.0)
+                surface.blit(glow, (int(x - r * 2), int(y - r * 2)),
+                             special_flags=pg.BLEND_RGB_ADD)
+                lf = 0.6 + 0.4 * level
+                col = (int(_C_CURRENCY[0] * lf), int(_C_CURRENCY[1] * lf),
+                       int(_C_CURRENCY[2] * lf))
+                f = _font(max(10, int(r * 5)), bold=True)
+                _draw_text(surface, st["glyph"], int(x - r * 2), int(y - r * 2), f, col)
+                continue
             lvl = 0.5 if level < 0.4 else (0.75 if level < 0.75 else 1.0)
-            g = _make_glow(st["col"], st["r"], lvl)
-            gx, gy = int(st["x"] - st["r"]), int(st["y"] - st["r"])
-            surface.blit(g, (gx, gy), special_flags=pg.BLEND_RGB_ADD)
+            g = _make_glow(st["col"], r, lvl)
+            surface.blit(g, (int(x - r), int(y - r)), special_flags=pg.BLEND_RGB_ADD)
             if level > 0.7:
-                surface.fill(st["col"], pg.Rect(int(st["x"]), int(st["y"]),
+                surface.fill(st["col"], pg.Rect(int(x), int(y),
                                                 max(1, self.s(1)), max(1, self.s(1))))
-        # aliens
-        frame = (self._t // 14) % 2
+        # alien Floyds
         for r in range(self.ROWS):
-            spr = self._inv[r][frame]
             for c in range(self.COLS):
                 if not self._aliens[r][c]:
                     continue
+                spr = self._floyd[_FLOYD_NAMES[self._kind[r][c]]]
                 x, y = self._alien_pos(r, c)
                 surface.blit(spr, (int(x), int(y)))
+        # diving Floyds (swooping down their Bézier paths)
+        cue_blink = (self._t // 8) % 2 == 0
+        for d in self._divers:
+            spr = self._floyd[_FLOYD_NAMES[d["kind"]]]
+            x, y = self._diver_pos(d)
+            surface.blit(spr, (int(x), int(y)))
+            # small blinking "▲ rejoining" cue while a diver loops back up
+            if d["mode"] == "return" and d["t"] > 0.5 and cue_blink:
+                cf = _font(self.s(9), bold=True)
+                cue = "▲ rejoining"
+                cw = cf.size(cue)[0]
+                _draw_text(surface, cue,
+                           int(x + self._alien_w / 2 - cw / 2),
+                           int(y - self.s(12)), cf, (150, 255, 190))
         # bombs
         for bm in self._bombs:
             pg.draw.line(surface, _C_BOMB, (int(bm[0]), int(bm[1])),
@@ -780,6 +1183,214 @@ class SpaceInvadersBackground:
             for p in ex["parts"]:
                 surface.fill(col, pg.Rect(int(p[0]), int(p[1]),
                                           max(1, self.s(2)), max(1, self.s(2))))
+        # score / wave HUD (skipped on the transparent gallery overlay)
+        if not transparent:
+            self._render_hud(surface)
+
+    def _render_hud(self, surface):
+        f = _font(self.s(14), bold=True)
+        _draw_text(surface, "SCORE %06d" % self._score,
+                   self.s(10), self.s(8), f, (170, 255, 170))
+        hi = max(self._score, get_alien_hiscore())
+        hlabel = "HI %06d" % hi
+        hw = f.size(hlabel)[0]
+        _draw_text(surface, hlabel, (self.w - hw) // 2, self.s(8),
+                   f, (255, 220, 120))
+        wlabel = "WAVE %d" % getattr(self, "_wave", 1)
+        ww = f.size(wlabel)[0]
+        _draw_text(surface, wlabel, self.w - ww - self.s(10), self.s(8),
+                   f, (190, 220, 255))
+
+
+# Backwards-compatible alias: the Unite! pygame visualization still imports the
+# old name; both now refer to the Pink Floyd "Alien Floyd" homage scene.
+SpaceInvadersBackground = AlienFloydBackground
+
+
+# ── module-level "Alien Floyd background" enable flag ───────────────────────
+# Set by the main window when the optional pygame-ce "Alien Floyd's" background
+# mode is turned on in Settings.  Consulted by widgets that self-activate the
+# overlay (e.g. the in-pane GalleryItemViewer) so call sites don't have to be
+# threaded through with the preference.
+_ALIEN_FLOYD_ENABLED = False
+
+
+def set_alien_floyd_enabled(flag):
+    """Enable/disable the global Alien Floyd's background preference."""
+    global _ALIEN_FLOYD_ENABLED
+    _ALIEN_FLOYD_ENABLED = bool(flag)
+
+
+def alien_floyd_enabled():
+    """True when the Alien Floyd's background mode is currently enabled."""
+    return _ALIEN_FLOYD_ENABLED
+
+
+# ── persistent arcade high score ────────────────────────────────────────────
+# Shared across every AlienFloydBackground instance (global background, the
+# dedicated tab, item-viewer overlays, the Unite! pygame view).  The in-memory
+# value updates instantly for the HUD; persistence to hdfg.cfg is delegated to
+# a save callback wired by the main window and throttled to avoid disk churn.
+_ALIEN_HISCORE = 0
+_ALIEN_HISCORE_SAVE_CB = None
+_ALIEN_HISCORE_LAST_SAVE = 0.0
+_ALIEN_HISCORE_DIRTY = False
+
+
+def init_alien_hiscore(value):
+    """Seed the high score from persisted configuration at startup."""
+    global _ALIEN_HISCORE
+    try:
+        _ALIEN_HISCORE = max(0, int(value))
+    except (TypeError, ValueError):
+        _ALIEN_HISCORE = 0
+
+
+def get_alien_hiscore():
+    return _ALIEN_HISCORE
+
+
+def set_alien_hiscore_save_cb(cb):
+    """Register ``cb(int)`` used to persist the high score to configuration."""
+    global _ALIEN_HISCORE_SAVE_CB
+    _ALIEN_HISCORE_SAVE_CB = cb
+
+
+def note_alien_score(score):
+    """Record a live score; bumps the high score and persists it (throttled to
+    at most once every few seconds) when a new best is reached."""
+    global _ALIEN_HISCORE, _ALIEN_HISCORE_LAST_SAVE, _ALIEN_HISCORE_DIRTY
+    if score <= _ALIEN_HISCORE:
+        return
+    _ALIEN_HISCORE = score
+    _ALIEN_HISCORE_DIRTY = True
+    cb = _ALIEN_HISCORE_SAVE_CB
+    if cb is not None:
+        now = _time.monotonic()
+        if now - _ALIEN_HISCORE_LAST_SAVE > 5.0:
+            _ALIEN_HISCORE_LAST_SAVE = now
+            _ALIEN_HISCORE_DIRTY = False
+            try:
+                cb(_ALIEN_HISCORE)
+            except Exception:
+                pass
+
+
+def flush_alien_hiscore():
+    """Force-persist a pending high score (e.g. when a widget is torn down)."""
+    global _ALIEN_HISCORE_DIRTY
+    cb = _ALIEN_HISCORE_SAVE_CB
+    if cb is not None and _ALIEN_HISCORE_DIRTY:
+        _ALIEN_HISCORE_DIRTY = False
+        try:
+            cb(_ALIEN_HISCORE)
+        except Exception:
+            pass
+
+
+class AlienFloydWidget(QWidget):
+    """A self-contained QWidget that renders the :class:`AlienFloydBackground`
+    animation via pygame, blitting each frame with QPainter (no SDL window).
+
+    Used both as the full-window "Alien Floyd's" tab (opaque) and as a
+    transparent overlay above gallery item images (``transparent=True``), where
+    only the stars / Floyds / defending ship are drawn over a see-through
+    surface so the screenshot underneath stays visible."""
+
+    def __init__(self, parent=None, transparent=False, fps=30):
+        super().__init__(parent)
+        _ensure_pg()
+        self._transparent = bool(transparent)
+        self._surface = None
+        self._bg = None
+        self._alive = True
+        self._dpr = max(1.0, float(self.devicePixelRatioF() or 1.0))
+        if self._transparent:
+            self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            self.setAttribute(Qt.WA_NoSystemBackground, True)
+            self.setAttribute(Qt.WA_TranslucentBackground, True)
+        else:
+            self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self._timer = QTimer(self)
+        self._timer.setInterval(int(1000 / max(1, fps)))
+        self._timer.timeout.connect(self._tick)
+        self._ensure_surface()
+
+    def _dev_size(self):
+        w = max(1, int(round(self.width() * self._dpr)))
+        h = max(1, int(round(self.height() * self._dpr)))
+        return w, h
+
+    def _ensure_surface(self):
+        pg = _pg
+        w, h = self._dev_size()
+        if self._surface is None or self._surface.get_size() != (w, h):
+            self._surface = pg.Surface((w, h), pg.SRCALPHA)
+            if self._bg is None:
+                self._bg = AlienFloydBackground((w, h), self._dpr)
+            else:
+                try:
+                    self._bg.resize((w, h), self._dpr)
+                except Exception:
+                    pass
+
+    def start(self):
+        if self._alive and not self._timer.isActive():
+            self._timer.start()
+
+    def stop(self):
+        self._timer.stop()
+
+    def teardown(self):
+        self._alive = False
+        try:
+            self._timer.stop()
+        except Exception:
+            pass
+        flush_alien_hiscore()
+        self._surface = None
+        self._bg = None
+
+    def _tick(self):
+        if not self._alive or self._bg is None:
+            return
+        try:
+            self._bg.update()
+        except Exception:
+            pass
+        self.update()
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        self.start()
+
+    def hideEvent(self, ev):
+        self.stop()
+        super().hideEvent(ev)
+
+    def resizeEvent(self, ev):
+        self._dpr = max(1.0, float(self.devicePixelRatioF() or 1.0))
+        self._ensure_surface()
+        super().resizeEvent(ev)
+        self.update()
+
+    def paintEvent(self, _ev):
+        painter = QPainter(self)
+        if not self._alive or self._surface is None or self._bg is None:
+            if not self._transparent:
+                painter.fillRect(self.rect(), Qt.black)
+            painter.end()
+            return
+        self._ensure_surface()
+        try:
+            self._bg.render(self._surface, transparent=self._transparent)
+        except Exception:
+            if not self._transparent:
+                self._surface.fill(C_BG)
+        img = _surface_to_qimage(self._surface)
+        img.setDevicePixelRatio(self._dpr)
+        painter.drawImage(QPoint(0, 0), img)
+        painter.end()
 
 
 # ── scene base ──────────────────────────────────────────────────────────────
