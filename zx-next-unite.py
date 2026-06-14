@@ -15545,7 +15545,9 @@ class MainWindow(QMainWindow):
                 page = QWidget()
                 page_layout = QVBoxLayout(page)
                 page_layout.setContentsMargins(0, 0, 0, 0)
-                anim = AlienFloydWidget(page)
+                # The dedicated tab is the playable game (cursor keys + space);
+                # the global background and gallery overlays stay autoplaying.
+                anim = AlienFloydWidget(page, game=True)
                 page_layout.addWidget(anim)
                 page.tab_name_private = "AlienFloyds"
                 page._alien_anim = anim
