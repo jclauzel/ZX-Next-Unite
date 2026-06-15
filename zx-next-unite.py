@@ -2145,6 +2145,7 @@ class MainWindow(QMainWindow):
         configuration_dictionary[SETTING_ALIEN_FLOYD_BG] = ""
         configuration_dictionary[SETTING_ALIEN_FLOYD_TAB] = ""
         configuration_dictionary[SETTING_ALIEN_FLOYD_HISCORE] = "0"
+        configuration_dictionary[SETTING_ALIEN_FLOYD_HISCORES] = ""
 
         # Detect whether the MAME emulator is available on the system PATH
         # (mame.exe on Windows, mame elsewhere). When present, a "Launch Mame"
@@ -2656,20 +2657,23 @@ class MainWindow(QMainWindow):
                 # (both default off). Disable the controls when pygame-ce is not
                 # installed, but leave the saved preferences untouched.
                 try:
-                    # Seed the persisted arcade high score and wire the saver.
+                    # Seed the persisted arcade high-score table and wire the
+                    # saver.  The table (top 5, NAME:SCORE pairs) is the single
+                    # source of truth; the player adds an entry by spelling
+                    # their name (shooting letters) when a run makes the list.
                     try:
                         import zxnu_pygame as _zpg_hs
-                        _hs_raw = configuration_dictionary.get(
-                            SETTING_ALIEN_FLOYD_HISCORE, "").strip()
-                        _zpg_hs.init_alien_hiscore(int(_hs_raw) if _hs_raw else 0)
 
-                        def _save_alien_hiscore(v):
-                            configuration_dictionary[SETTING_ALIEN_FLOYD_HISCORE] = str(int(v))
+                        def _save_alien_table(serialized):
+                            configuration_dictionary[SETTING_ALIEN_FLOYD_HISCORES] = str(serialized)
                             try:
                                 save_configuration_file()
                             except Exception:
                                 pass
-                        _zpg_hs.set_alien_hiscore_save_cb(_save_alien_hiscore)
+                        _zpg_hs.set_alien_table_save_cb(_save_alien_table)
+                        _zpg_hs.init_alien_table(
+                            configuration_dictionary.get(
+                                SETTING_ALIEN_FLOYD_HISCORES, ""))
                     except Exception:
                         pass
                     _af_bg_on = configuration_dictionary.get(
@@ -15495,6 +15499,10 @@ class MainWindow(QMainWindow):
             try:
                 import zxnu_pygame as _zpg
                 _zpg.set_alien_floyd_enabled(on)
+                if on:
+                    # Warm pygame + the font caches off the UI thread so the
+                    # first paint doesn't freeze while pygame enumerates fonts.
+                    _zpg.prewarm_async()
             except Exception:
                 pass
             bg = getattr(self, "_bg_widget", None)
@@ -15536,10 +15544,15 @@ class MainWindow(QMainWindow):
                         tabw.indexOf(self._alien_floyd_tab_widget) != -1:
                     return
                 try:
-                    from zxnu_pygame import AlienFloydWidget, pygame_available
+                    from zxnu_pygame import (AlienFloydWidget, pygame_available,
+                                             prewarm_async)
                     ok, _why = pygame_available()
                     if not ok:
                         return
+                    # Warm pygame + the font caches off the UI thread so opening
+                    # the tab the first time doesn't freeze while pygame's first
+                    # match_font() enumerates every installed system font.
+                    prewarm_async()
                 except Exception:
                     return
                 page = QWidget()
