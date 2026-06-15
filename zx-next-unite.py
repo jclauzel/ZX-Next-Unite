@@ -16116,10 +16116,12 @@ QImageReader.setAllocationLimit(0)
 # This is a known Qt bug; the label still renders correctly.
 # Suppress known Qt and libpng warnings that are harmless and clutter the console.
 # "Point size <= 0" is a Qt bug when a font inherits a pixel-only size.
-# "libpng warning: hIST: out of place" is a libpng warning that occurs when
-# loading PNG images with an out-of-order hIST chunk.  It does not affect
-# functionality, so we ignore it.
-_QT_SUPPRESS_MSGS = ("Point size <= 0", "libpng warning: hIST: out of place")
+# "libpng warning:" covers the family of harmless libpng decode warnings (e.g.
+# "hIST: out of place", "bKGD: invalid", "iCCP: known incorrect sRGB profile")
+# emitted by Qt's PNG handler when decoding images downloaded from GetIt / ZXDB
+# / ZXArt that carry malformed ancillary chunks.  libpng recovers and the image
+# still renders correctly, so the whole family is silently ignored.
+_QT_SUPPRESS_MSGS = ("Point size <= 0", "libpng warning:")
 def _qt_message_handler(msg_type, context, message):
     if any(s in message for s in _QT_SUPPRESS_MSGS):
         return
