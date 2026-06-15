@@ -4,7 +4,7 @@ ZX-Next-Unite by Julien Clauzel based on:
 * NextSync by Jari Komppa
 
 This project is licensed under the terms of the MIT license.
-ZX-Next-Unite is a Qt Application using pyside6 in Python on top of Qt6, which retains the GPLv2 Licensing (see the LICENSE file).
+ZX-Next-Unite is a Qt Application using pyside6 and pygame-ce in Python on top of Qt6, which retains the GPLv2 Licensing (see the LICENSE file).
 
 Videos:
 * "Setup & How to": https://youtu.be/-gUxV4fM1yo (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )
@@ -37,7 +37,7 @@ For more information, please check the "Help" tab in the tool or below.
 Installation
 ------------
 There is no need for an executable as the main ZX-Next-Unite.py file mostly needs a recent Python interpreter to run. 
-Clone the repository, install a recent Python interpreter, install PySide6 Python library and you're good to go. 
+Clone the repository, install a recent Python interpreter, install PySide6, pygame-ce Python library and you're good to go. 
 
 For a full install overview feel free to follow this "Setup & How to" video: https://youtu.be/FJG-Z0DCIjQ
 
@@ -45,7 +45,7 @@ Requirements
 ------------
 - ZX-Next-Unite.py either download the latest release here or clone this repo, locate where this file is located that is main tool (there are no executable as it is a Python program).
 - Python 3.13+ or higher (the latest version is recommended)
-- PySide6
+- PySide6, pygame-ce
   
 Optional but recommended
 ------------------------
@@ -65,11 +65,11 @@ Optional but recommended
 
 * Install Python from: https://www.python.org/downloads/ (the latest version is recommended)
 
-* Install pyside6 this is required for the UI to render the different controls being used. To install pyside6 open an elevated command shell and run:
+* Install pyside6, pygame-ce this is required for the UI to render the different controls being used. To install pyside6 and pygame-ce open an elevated command shell and run:
 
-    python -m pip install pyside6
+    python -m pip install pyside6 pygame-ce
 
-    Note: On a regular basis you may want to update the pyside6 library running:  pip install --upgrade PySide6
+    Note: On a regular basis you may want to update the pyside6 library running:  pip install --upgrade PySide6 pygame-ce
 
 * Copy Cspect (with the Spectrum Next roms) and hdfmonkey in the same directory (see above). 
 
@@ -91,7 +91,7 @@ python3 -m venv ./ZX-Next-Unite
 
 source ZX-Next-Unite/bin/activate
 
-pip install PySide6
+pip install PySide6 pygame-ce
 
 cd ZX-Next-Unite
 
@@ -220,7 +220,7 @@ The file format is compatible with emOOK original tool but contains more options
 Known issues
 ----------------
 * hdfmonkey external tool is required, when ZX-Next-Unite starts it will check for its presence in your system path. If not present on Windows it will try to automatically download it from the internet on Windows (MAC/Linux requires a manual installation). If for whatever reason hdfmonkey can't be downloaded (no internet access or python executable outbound internet calls are blocked by your machine firewall) you will need to download, extract & install manually CSpect in the same folder yourself. First time you start the tool if HdfmMonkey is not present, the log Windows will throw an error message reporting it is missing (as expected). Either download, extract & install manual hdfmonkey or use the Download and install button that will try to automate this for you. If ZX-Next-Unite fails to download HdfmMonkey and your internet connectivity works fine on Windows it is likely because the Windows firewall (or in your own antivirus firewall settings) prevents outbound call from you Python executable. To solve this on Windows you may for example download & extract it (a pre-compiled/ready to use version is available here: https://uto.speccy.org/downloads/hdfmonkey_windows.zip) from a seperate machine and then copy/transfer HdfmMonkey [dot] exe to the machine that will run ZX-Next-Unite (the safer option) or provide temporary access to the python [dot] exe file to the internet using the Windows Defender firewall control panel built in (with the security considerations that this implies).
-* Pyside6 and recent version of Python are required to be installed first you may refer to the requirements section above.
+* Pyside6, pygame-ce and recent version of Python are required to be installed first you may refer to the requirements section above.
 * On other operating systems than Windows: you need to install, configure/compile manually hdfmonkey as well as mono (to be able to run Microsoft .NET on these platforms as Cspect is based on it).
 * Some files on the Spectrum Next image that contain special characters such as single quotes may not be downloaded / retrieved correctly. 
 * ESP/Wifi module errors may occur if connectivity is instable, if speed is too high you try reducing the flow by hitting the "Slow transfer" checkbox.
@@ -255,7 +255,7 @@ For more information, please check the “Help” tab in the tool or below.
 Installation
 ------------
 There is no need for an executable as the main ZX-Next-Unite.py file mostly needs a recent Python interpreter to run. 
-Clone the repository, install a recent Python interpreter, install PySide6 Python library and you’re good to go. 
+Clone the repository, install a recent Python interpreter, install PySide6 and pygame-ce Python libraries and you’re good to go. 
 
 For a full install overview feel free to follow this "Setup & How to" video: https://youtu.be/FJG-Z0DCIjQ
   
@@ -263,7 +263,7 @@ Requirements
 ------------
 - ZX-Next-Unite.py either download the latest release here or clone this repo, locate where this file is located that is main tool (there are no executable as it is a Python program).
 - Python 3.7+ or higher (the latest version is recommended)
-- PySide6
+- PySide6, pygame-ce
 - CSpect emulator by Mike Dailly installed in local directory please download from http://www.cspect.org
     feel free to support his development efforts & patreon https://www.patreon.com/mikedailly
     - Make sure Spectrum Next roms installed are installed in local directory (they should be provided in the CSpect zip package by default). 
@@ -278,11 +278,11 @@ Requirements
 
 * Install Python from: https://www.python.org/downloads/ (the latest version is recommended)
   
-* Install pyside6 this is required for the UI to render the different controls being used. To install pyside6 open an elevated command shell and run:
+* Install pyside6 this is required for the UI to render the different controls being used. To install pyside6 and pygame-ce open an elevated command shell and run:
 
-    python -m pip install pyside6
+    python -m pip install pyside6 pygame-ce
 
-    Note: On a regular basis you may want to update the pyside6 library running:  pip install --upgrade PySide6
+    Note: On a regular basis you may want to update the pyside6 and pygame-ce libraries running:  pip install --upgrade PySide6 pygame-ce
 
 * Copy Cspect (with the Spectrum Next roms) and hdfmonkey in the same directory (see above). 
 
@@ -356,7 +356,7 @@ The file format is compatible with emOOK original tool but contains more options
 Known issues
 ----------------
 * hdfmonkey external tool is required, when ZX-Next-Unite starts it will check for its presence in your system path. If not present on Windows it will try to automatically download it from the internet on Windows (MAC/Linux requires a manual installation). If for whatever reason hdfmonkey can't be downloaded (no internet access or python executable outbound internet calls are blocked by your machine firewall) you will need to download, extract & install manually CSpect in the same folder yourself. First time you start the tool if HdfmMonkey is not present, the log Windows will throw an error message reporting it is missing (as expected). Either download, extract & install manual hdfmonkey or use the Download and install button that will try to automate this for you. If ZX-Next-Unite fails to download HdfmMonkey and your internet connectivity works fine on Windows it is likely because the Windows firewall (or in your own antivirus firewall settings) prevents outbound call from you Python executable. To solve this on Windows you may for example download & extract it (a pre-compiled/ready to use version is available here: https://uto.speccy.org/downloads/hdfmonkey_windows.zip) from a seperate machine and then copy/transfer HdfmMonkey [dot] exe to the machine that will run ZX-Next-Unite (the safer option) or provide temporary access to the python [dot] exe file to the internet using the Windows Defender firewall control panel built in (with the security considerations that this implies).
-* Pyside6 and recent version of Python are required to be installed first you may refer to the requirements section above.
+* Pyside6 and pygame-ce recent version of Python are required to be installed first you may refer to the requirements section above.
 * On other operating systems than Windows: you need to install, configure/compile manually hdfmonkey as well as mono (to be able to run Microsoft .NET on these platforms as Cspect is based on it).
 * Some files on the Spectrum Next image that contain special characters such as single quotes may not be downloaded / retrieved correctly. 
 * ESP/Wifi module errors may occur if connectivity is instable, if speed is too high you try reducing the flow by hitting the “Slow transfer” checkbox.
