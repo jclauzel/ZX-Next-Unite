@@ -15,8 +15,8 @@ from PySide6.QtGui import QColor
 ZX_NEXT_UNITE_VERSION = "7.4"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
-ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = True
-ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS = True
+ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
+ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS = False
 ZX_NEXT_UNITE_SHOW_ZXDB_PANE = True
 ZX_NEXT_UNITE_SHOW_ZXART_PANE = True
 
