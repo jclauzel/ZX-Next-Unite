@@ -759,7 +759,15 @@ _C_CURRENCY = (255, 220, 120)
 # Words used by the playable "Alien Floyd's" game (Pink Floyd themed).  A random
 # one is picked at the start of each game; the player shoots Floyds to make them
 # drop the next needed letter, then shoots the falling letter to collect it.
-_FLOYD_GAME_WORDS = ("echos", "pink", "floyd", "wish", "moon", "axe")
+_FLOYD_GAME_WORDS = (
+    "echos", "pink", "floyd", "wish", "moon", "axe",
+    "COW", "PRISM", "EUGENE", "FLIGHT", "SKY", "comfortably", "control",
+    "CRAZY", "HIGH", "AWAY", "GIG", "MUM", "TURNING", "TEACHER", "LEARNING",
+    "WALL", "MACHINE", "GUITAR", "DRUMS", "RUN", "LIFE", "ECLIPSE", "BASS",
+    "DAMAGE", "SORROW", "KEYBOARDS", "GREAT", "SIGNS", "MOTHER", "BRICK",
+    "SHINE", "DIAMOND", "THEM", "WINGS", "BRAIN", "FLY", "DAYS", "MONEY",
+    "TIME", "PIGS", "BREATH", "SPEAK",
+)
 _C_LETTER = (255, 245, 180)        # falling collectable letter
 _C_LETTER_GLOW = (255, 225, 120)
 _C_WORD_DONE = (120, 255, 140)     # collected letter (bold) in the top word
@@ -1126,6 +1134,13 @@ class AlienFloydBackground:
     ROWS = 5
     COLS = 9
 
+    # Attract-mode high-score interlude: while the scene autoplays in the
+    # background, it periodically dims and shows the leaderboard so passers-by
+    # can read the high scores, then returns to the animation.  Measured in
+    # frames; the background widgets run at ~30fps.
+    _HISCORE_PERIOD = 30 * 60      # show the table once a minute …
+    _HISCORE_SHOW = 30 * 10        # … for ten seconds each time
+
     def __init__(self, size, dpr=1.0, game=False):
         _ensure_pg()
         self.dpr = max(1.0, float(dpr or 1.0))
@@ -1156,6 +1171,12 @@ class AlienFloydBackground:
         # the player presses Space; the auto-playing scenes are always "started".
         self._started = not self._game
         self._k_left = self._k_right = self._k_fire = False
+        # Holding Up makes the whole swarm dive: a boost velocity that builds up
+        # non-linearly while held (gentle at first, then ramps) and eases back
+        # when released, so the Floyds *accelerate* down rather than snapping to
+        # a fixed faster speed.
+        self._k_down = False
+        self._dive_boost = 0.0
         self._word = ""
         self._got = []                # per-position: which letters are collected
         self._letters = []            # falling collectable letters
@@ -1300,10 +1321,26 @@ class AlienFloydBackground:
                     self._cell_dy[r][c] = 0.0
                     self._respawn[r][c] = None
 
+    def _update_dive_boost(self):
+        """While Up is held, build an extra downward speed for the whole swarm.
+        The boost grows compoundingly (a constant kick plus a term proportional
+        to the current boost), so the Floyds start descending gently and then
+        accelerate the longer the key is held — an accelerating dive, not a jump
+        to a fixed faster speed.  Releasing eases the boost back to zero."""
+        max_boost = 8.0 * self.dpr
+        if self._k_down:
+            self._dive_boost += (0.18 + self._dive_boost * 0.07) * self.dpr
+            self._dive_boost = min(self._dive_boost, max_boost)
+        else:
+            self._dive_boost *= 0.82          # coast back to the normal drift
+            if self._dive_boost < 0.05 * self.dpr:
+                self._dive_boost = 0.0
+
     def _descend_and_wrap(self):
         """Drift the alive Floyds gently downward; any that reach the bottom
         disappear and are scheduled to re-enter at the top (no mass reset)."""
-        descend = (1.5 + 0.12 * min(getattr(self, "_wave", 1), 8)) * self.dpr
+        descend = ((1.5 + 0.12 * min(getattr(self, "_wave", 1), 8)) * self.dpr
+                   + getattr(self, "_dive_boost", 0.0))
         # In the playable game the swarm presses all the way down onto the C5
         # (so reaching it is dangerous); the auto-playing scene keeps a clear
         # band above the cannon for a tidier look.
@@ -1395,6 +1432,7 @@ class AlienFloydBackground:
         self._update_formation()
         self._update_divers()
         if self._game:
+            self._update_dive_boost()
             self._update_ship_player()
             self._update_letters()
             self._update_drops()
@@ -1536,6 +1574,27 @@ class AlienFloydBackground:
             self._k_right = bool(down)
         elif name == "fire":
             self._k_fire = bool(down)
+        elif name == "down":
+            self._k_down = bool(down)
+
+    def set_name_letter(self, ch):
+        """During the game-over name-entry round, type a letter on the keyboard
+        to set the live (selected) letter directly to *ch* — e.g. pressing 'J'
+        turns the current letter into 'J'.  Returns True when consumed so the
+        key isn't also treated as a movement key."""
+        if not self._name_entry:
+            return False
+        if not ch or len(ch) != 1 or not ch.isalpha():
+            return False
+        self._name_letter = ord(ch.upper()) - ord("A")
+        # Give the same burst of feedback as shooting the letter target.
+        for box in self._name_targets():
+            if box["id"] == "letter":
+                cx, cy = box["rect"].center
+                self._spawn_explosion(cx, cy, _C_LETTER_GLOW)
+                self._spawn_fire_sparks(cx, cy)
+                break
+        return True
 
     def _start_game(self, accelerate=False):
         """Begin a fresh game: pick a new random word, clear collected letters.
@@ -2483,6 +2542,36 @@ class AlienFloydBackground:
             self._render_game_hud(surface)
         elif not transparent:
             self._render_hud(surface)
+            # Periodically interrupt the autoplaying scene to show the
+            # leaderboard for a few seconds (see _HISCORE_* constants).
+            phase = self._t % self._HISCORE_PERIOD
+            if phase >= self._HISCORE_PERIOD - self._HISCORE_SHOW:
+                self._render_attract_hiscores(surface, phase)
+
+    def _render_attract_hiscores(self, surface, phase):
+        """Dim the background scene and draw the high-score table during the
+        attract-mode interlude.  Fades the dimming veil in/out at the edges of
+        the window so the leaderboard appears and leaves smoothly."""
+        show = self._HISCORE_SHOW
+        into = phase - (self._HISCORE_PERIOD - show)   # 0 .. show-1
+        edge = 12                                       # ~0.4s ease in/out
+        if into < edge:
+            env = into / edge
+        elif into > show - edge:
+            env = max(0.0, (show - 1 - into) / edge)
+        else:
+            env = 1.0
+        _blit_veil(surface, (6, 6, 12), int(165 * env))
+        if env < 0.5:
+            return                                      # table only once dimmed
+
+        def retro(text, x, y, font, col, sh=2):
+            _draw_text(surface, text, int(x) + self.s(sh), int(y) + self.s(sh),
+                       font, (0, 0, 0))
+            _draw_text(surface, text, int(x), int(y), font, col)
+
+        top_y = (self.h - self.s(150)) // 2
+        self._render_hiscore_table(surface, retro, top_y)
 
     def _render_letters(self, surface):
         pg = _pg
@@ -2761,7 +2850,7 @@ class AlienFloydBackground:
 
         # controls hint
         hf = _font(self.s(13), bold=True)
-        hint = "← →  MOVE       SPACE  FIRE"
+        hint = "← →  MOVE     SPACE  FIRE     ↑  DIVE"
         hw = hf.size(hint)[0]
         retro(hint, (W - hw) // 2, int(H * 0.60), hf, (200, 200, 215), 1)
 
@@ -3167,14 +3256,24 @@ class AlienFloydWidget(QWidget):
         if not down and ev.isAutoRepeat():
             return True
         k = ev.key()
+        # During the game-over name-entry round, a letter key types the live
+        # letter directly (press 'J' -> the selected letter becomes 'J').  Take
+        # this before the A/D movement mapping so typing isn't read as moving.
+        if down and Qt.Key_A <= k <= Qt.Key_Z:
+            if self._bg.set_name_letter(chr(k)):
+                return True
         if k in (Qt.Key_Left, Qt.Key_A):
             self._bg.set_key("left", down)
             return True
         if k in (Qt.Key_Right, Qt.Key_D):
             self._bg.set_key("right", down)
             return True
-        if k in (Qt.Key_Space, Qt.Key_Up):
+        if k == Qt.Key_Space:
             self._bg.set_key("fire", down)
+            return True
+        if k in (Qt.Key_Up, Qt.Key_W):
+            # Up no longer fires — it makes the alien swarm accelerate downward.
+            self._bg.set_key("down", down)
             return True
         return False
 
