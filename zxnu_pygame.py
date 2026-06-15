@@ -30,10 +30,11 @@ import importlib.util
 import math as _math
 import random as _random
 import re as _re
+import threading as _threading
 import time as _time
 
 from PySide6.QtCore import Qt, QPoint, QTimer
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QWidget
 
 
@@ -63,6 +64,51 @@ def _ensure_pg():
             pass
         _pg = pygame
     return _pg
+
+
+# ── one-time warm-up (off the UI thread) ────────────────────────────────────
+_PREWARM_STARTED = False
+
+
+def prewarm_async():
+    """Warm pygame and the font caches on a background daemon thread.
+
+    The first time an :class:`AlienFloydWidget` paints, it builds the HUD fonts;
+    pygame's very first ``match_font`` call runs ``initsysfonts()``, which
+    enumerates *every* installed system font and can block the calling thread
+    for seconds.  Doing it here, ahead of time and off the UI thread, means the
+    first time the user opens the "Alien Floyd's" tab the caches are already
+    populated and the paint is instant.
+
+    Safe to call repeatedly: only the first call spawns the thread, and it is a
+    no-op when pygame isn't installed."""
+    global _PREWARM_STARTED
+    if _PREWARM_STARTED:
+        return
+    ok, _why = pygame_available()
+    if not ok:
+        return
+    _PREWARM_STARTED = True
+
+    def _warm():
+        try:
+            _ensure_pg()
+            # Touch the system-font matcher (the expensive one-time step) and
+            # pre-build the fonts the render path requests.  Cover both raw and
+            # HiDPI-doubled sizes so the actual Font objects are cached too; the
+            # dominant initsysfonts() cost is paid regardless of size.
+            sizes = (9, 10, 11, 13, 14, 16, 18, 20, 24, 26, 30)
+            for px in sizes:
+                _font(px, bold=True)
+                _font(px, bold=False)
+                _fallback_fonts(px)
+            for px in sizes:
+                _font(px * 2, bold=True)
+        except Exception:
+            pass
+
+    _threading.Thread(target=_warm, name="alien-floyd-prewarm",
+                      daemon=True).start()
 
 
 # ── palette (mirrors GalleryItemViewer's dark theme) ────────────────────────
@@ -137,6 +183,11 @@ def _scale_keep_aspect(surf, max_w, max_h):
 _FONT_CACHE = {}
 _FONT_PX = {}              # id(font) -> point size (for fallback-font sizing)
 _FALLBACK_CACHE = {}       # px -> tuple(Font, ...) of available fallback fonts
+# Guards the font-cache *build* paths only (the cache-hit fast path stays
+# lockless).  Lets prewarm() populate the caches on a background thread without
+# racing the UI thread's first render through pygame's one-time, non-reentrant
+# initsysfonts() (which enumerates every installed system font).
+_FONT_BUILD_LOCK = _threading.Lock()
 _NOTDEF_CACHE = {}         # id(font) -> bytes of the font's ".notdef" (tofu) glyph
 _GLYPH_FONT_CACHE = {}     # (id(base_font), ch) -> Font that can draw ch (or None)
 
@@ -164,7 +215,12 @@ def _font(px, bold=False):
     px = max(8, int(px))
     key = (px, bold)
     f = _FONT_CACHE.get(key)
-    if f is None:
+    if f is not None:
+        return f
+    with _FONT_BUILD_LOCK:
+        f = _FONT_CACHE.get(key)   # re-check: prewarm/another caller may have won
+        if f is not None:
+            return f
         pg = _ensure_pg()
         f = None
         for name in _UI_FONT_NAMES:
@@ -193,7 +249,12 @@ def _fallback_fonts(px):
     """Return cached tuple of available fallback fonts sized at *px*."""
     px = max(8, int(px))
     fonts = _FALLBACK_CACHE.get(px)
-    if fonts is None:
+    if fonts is not None:
+        return fonts
+    with _FONT_BUILD_LOCK:
+        fonts = _FALLBACK_CACHE.get(px)   # re-check under lock
+        if fonts is not None:
+            return fonts
         pg = _ensure_pg()
         out = []
         for name in _FALLBACK_FONT_NAMES:
@@ -459,6 +520,38 @@ _SPECTRUM = [
     (255, 45, 45), (255, 140, 30), (255, 225, 45), (70, 220, 90),
     (60, 165, 255), (80, 80, 235), (170, 60, 220),
 ]
+
+# Animated alien-fire palette: bright, saturated hues cycled per frame so the
+# falling bombs stay vivid against the black sky (a flat red barely showed up).
+_C_BOMB_CYCLE = [
+    (255, 60, 60), (255, 150, 40), (255, 240, 70), (90, 255, 110),
+    (60, 200, 255), (150, 110, 255), (255, 80, 200),
+]
+
+# Animated palette for the C5's own bullets (a livelier take on the old flat
+# yellow), plus warm/cool spark colours for the muzzle "shooting stars".
+_C_BULLET_CYCLE = [
+    (255, 245, 130), (150, 255, 170), (130, 220, 255), (255, 170, 225),
+    (205, 165, 255), (255, 215, 120),
+]
+_C_SPARK_COLORS = [
+    (255, 255, 200), (255, 220, 120), (160, 255, 205), (150, 220, 255),
+    (255, 175, 225), (205, 175, 255),
+]
+
+
+def _cycle_color(palette, phase):
+    """Smoothly interpolate around *palette* by float *phase* (in entries)."""
+    n = len(palette)
+    f = phase % n
+    i = int(f)
+    j = (i + 1) % n
+    u = f - i
+    a, b = palette[i], palette[j]
+    return (int(a[0] + (b[0] - a[0]) * u),
+            int(a[1] + (b[1] - a[1]) * u),
+            int(a[2] + (b[2] - a[2]) * u))
+
 
 _GLOW_CACHE = {}
 
@@ -1041,6 +1134,7 @@ class AlienFloydBackground:
         self._init_sprites()
         self._init_stars()
         self._bullets = []
+        self._sparks = []          # colourful muzzle "shooting stars"
         self._bombs = []
         self._explosions = []
         self._divers = []
@@ -1058,6 +1152,9 @@ class AlienFloydBackground:
         self._pig_cd = _random.randint(120, 360)
         # Playable-game state (only the dedicated "Alien Floyd's" tab sets this).
         self._game = bool(game)
+        # The playable game opens on a title/attract screen and only begins once
+        # the player presses Space; the auto-playing scenes are always "started".
+        self._started = not self._game
         self._k_left = self._k_right = self._k_fire = False
         self._word = ""
         self._got = []                # per-position: which letters are collected
@@ -1078,6 +1175,15 @@ class AlienFloydBackground:
         self._final_score = 0
         self._final_wave = 1
         self._go_clives = []          # Clives flying Bézier arcs on the screen
+        # New-high-score name entry: shoot the live letter to cycle A→B→…, the
+        # <NEXT> target to lock it in, and <END> to finish.  Only offered when a
+        # run earns a place on the high-score table (see alien_score_qualifies).
+        self._name_entry = False
+        self._name = ""               # committed letters so far
+        self._name_letter = 0         # current live letter (0 == 'A')
+        self._name_max = 8
+        self._final_name = ""         # name entered for this game-over screen
+        self._name_flash = 0          # brief feedback flash (e.g. name full)
         self._new_wave(first=True)
         if self._game:
             self._start_game()
@@ -1128,14 +1234,17 @@ class AlienFloydBackground:
             })
 
     def _new_wave(self, first=False):
-        # Spread the columns across (almost) the whole window width so the swarm
-        # starts as a wide, scattered cloud rather than a centred rectangle.
-        margin = self.s(20)
+        # Lay the columns out within a clear left/right margin so the swarm has
+        # breathing room at the edges instead of spilling across the whole width.
+        margin = self.s(44)
         col_w = max(self._alien_w + self.s(6), (self.w - 2 * margin) / self.COLS)
         self._step_x = col_w
         self._start_x = margin + 0.5 * col_w - self._alien_w / 2
         self._top_y = self.s(20)
-        self._aliens = [[True] * self.COLS for _ in range(self.ROWS)]
+        # Aliens are no longer all present from the start: every cell begins
+        # off-screen and is scheduled to appear at the top in small batches
+        # (see _schedule_spawn_batches), so a wave builds up gradually.
+        self._aliens = [[False] * self.COLS for _ in range(self.ROWS)]
         # Each alien is one of the Floyd kinds, remembered per cell so it can
         # randomly "turn into" another over time.  Per-cell phases stagger the
         # soft Bézier bob so the swarm undulates rather than moving as a block.
@@ -1145,16 +1254,22 @@ class AlienFloydBackground:
         # Per-cell size multiplier (some Floyds are bigger than others).
         self._scale = [[_random.choice(_FLOYD_SIZES) for _ in range(self.COLS)]
                        for _ in range(self.ROWS)]
-        # Per-cell scatter offset so the swarm starts as a loose cloud spread
-        # across the full width and upper part of the screen rather than a tidy
-        # rectangle.  It still marches as a block (the offsets are fixed), so the
-        # formation logic is intact.
-        self._scatter = [[(_random.uniform(-self._step_x * 0.34, self._step_x * 0.34),
-                           _random.uniform(-self.s(10), self.s(54)))
+        # Tighter scatter: a small horizontal jitter (keeps the side margins
+        # clear) plus a modest vertical spread so cells reach the bottom — and
+        # wrap back to the top — at staggered times rather than all together.
+        self._scatter = [[(_random.uniform(-self._step_x * 0.14, self._step_x * 0.14),
+                           _random.uniform(-self.s(8), self.s(34)))
                           for _ in range(self.COLS)]
                          for _ in range(self.ROWS)]
         self._bob_ph = [[_random.uniform(0.0, 1.0) for _ in range(self.COLS)]
                         for _ in range(self.ROWS)]
+        # Per-cell vertical offset (replaces the old shared _fy): each Floyd
+        # drifts down and wraps to the top independently.
+        self._cell_dy = [[0.0 for _ in range(self.COLS)] for _ in range(self.ROWS)]
+        # Per-cell respawn schedule: the frame at which a dead cell should
+        # (re)appear at the top, or None to stay gone (e.g. after being shot).
+        self._respawn = [[None for _ in range(self.COLS)] for _ in range(self.ROWS)]
+        self._schedule_spawn_batches(first=first)
         self._fx = 0.0
         self._fy = 0.0
         self._dir = 1
@@ -1162,6 +1277,48 @@ class AlienFloydBackground:
         self._speed = ((base + 0.1 * getattr(self, "_wave", 0))
                        + getattr(self, "_game_speed_bonus", 0.0)) * self.dpr
         self._wave = getattr(self, "_wave", 0) + 1
+
+    def _schedule_spawn_batches(self, first=False):
+        """Schedule every cell of the new wave to appear at the top in small,
+        staggered batches so the swarm builds up a few Floyds at a time."""
+        cells = [(r, c) for r in range(self.ROWS) for c in range(self.COLS)]
+        _random.shuffle(cells)
+        batch = 4                       # how many appear together
+        interval = 12                   # frames between successive batches
+        start = self._t + (12 if first else 6)
+        for i, (r, c) in enumerate(cells):
+            self._respawn[r][c] = start + (i // batch) * interval
+
+    def _process_spawns(self):
+        """Bring any cells whose scheduled time has arrived onto the screen at
+        the top (initial batch spawn-in and bottom-wrap respawns alike)."""
+        for r in range(self.ROWS):
+            for c in range(self.COLS):
+                t0 = self._respawn[r][c]
+                if t0 is not None and not self._aliens[r][c] and self._t >= t0:
+                    self._aliens[r][c] = True
+                    self._cell_dy[r][c] = 0.0
+                    self._respawn[r][c] = None
+
+    def _descend_and_wrap(self):
+        """Drift the alive Floyds gently downward; any that reach the bottom
+        disappear and are scheduled to re-enter at the top (no mass reset)."""
+        descend = (1.5 + 0.12 * min(getattr(self, "_wave", 1), 8)) * self.dpr
+        # In the playable game the swarm presses all the way down onto the C5
+        # (so reaching it is dangerous); the auto-playing scene keeps a clear
+        # band above the cannon for a tidier look.
+        bottom = self.h - self.s(8) if self._game else self.h - self.s(40)
+        for r in range(self.ROWS):
+            for c in range(self.COLS):
+                if not self._aliens[r][c]:
+                    continue
+                self._cell_dy[r][c] += descend
+                _x, y = self._alien_pos(r, c)
+                _w, h = self._alien_wh(r, c)
+                if y + h >= bottom:
+                    self._aliens[r][c] = False
+                    self._cell_dy[r][c] = 0.0
+                    self._respawn[r][c] = self._t + _random.randint(12, 40)
 
     def resize(self, size, dpr=None):
         self.w, self.h = size
@@ -1189,7 +1346,7 @@ class AlienFloydBackground:
     def _alien_pos(self, r, c):
         sdx, sdy = self._scatter[r][c]
         bx = self._start_x + c * self._step_x + self._fx + sdx
-        by = self._top_y + r * self._step_y + self._fy + sdy
+        by = self._top_y + r * self._step_y + self._cell_dy[r][c] + sdy
         # Soft Bézier bob: a gentle, eased up/down drift unique to each cell.
         bob = self._bob_amp * _bezier_wave(self._t * 0.012
                                            + self._bob_ph[r][c]
@@ -1214,13 +1371,25 @@ class AlienFloydBackground:
         return minx, maxx, maxy
 
     def _any_alive(self):
-        return any(any(row) for row in self._aliens)
+        """True while any Floyd is on screen *or* still scheduled to (re)appear,
+        so a wave isn't declared cleared while batches are still spawning in."""
+        for r in range(self.ROWS):
+            for c in range(self.COLS):
+                if self._aliens[r][c] or self._respawn[r][c] is not None:
+                    return True
+        return False
 
     # -- simulation --------------------------------------------------------
     def update(self):
         self._t += 1
+        if self._game and not self._started:
+            self._update_title()
+            return
         if self._game and self._gameover:
-            self._update_gameover()
+            if self._name_entry:
+                self._update_name_entry()
+            else:
+                self._update_gameover()
             return
         self._update_stars()
         self._update_formation()
@@ -1230,6 +1399,8 @@ class AlienFloydBackground:
             self._update_letters()
             self._update_drops()
             self._update_asteroids()
+            # A Floyd (in formation or diving) touching the C5 destroys it.
+            self._check_ship_collisions()
             if self._win_flash > 0:
                 self._win_flash -= 1
             if self._life_flash > 0:
@@ -1240,10 +1411,10 @@ class AlienFloydBackground:
             self._update_ship()
         self._update_ship_visual()
         self._update_bullets()
+        self._update_sparks()
         self._update_bombs()
         self._update_pig()
         self._update_explosions()
-        note_alien_score(self._score)
 
     def _update_stars(self):
         for st in self._stars:
@@ -1262,22 +1433,21 @@ class AlienFloydBackground:
                 st["gttl"] = _random.randint(80, 180)
 
     def _update_formation(self):
-        if not self._any_alive():
+        # Spawn-in scheduled cells (initial batches + bottom-wrap respawns).
+        self._process_spawns()
+        # The wave is only cleared once nothing is alive, nothing is pending to
+        # (re)appear, and no Floyds are still diving.
+        if not self._any_alive() and not self._divers:
             self._new_wave()
             return
-        minx, maxx, maxy = self._alive_bounds()
-        margin = self.s(10)
+        minx, maxx, _maxy = self._alive_bounds()
+        margin = self.s(28)            # keep a clear margin off the side edges
         self._fx += self._dir * self._speed
         if maxx is not None and (maxx >= self.w - margin or minx <= margin):
             self._dir *= -1
-            # Gentle creep rather than a big synchronised drop — the swarm mostly
-            # stays up top while individual Floyds peel off and dive (below).
-            self._fy += self.s(2)
-        # If the swarm drifts past the bottom, regroup at the top.
-        if maxy is not None and maxy >= self.h - self.s(46):
-            self._fy = 0.0
-            self._top_y = self.s(24)
-            self._aliens = [[True] * self.COLS for _ in range(self.ROWS)]
+        # Each Floyd drifts down on its own and wraps individually at the bottom
+        # (disappears, then re-enters at the top) — no synchronised mass reset.
+        self._descend_and_wrap()
         # Occasionally an alien drops a bomb.
         if self._t % 40 == 0:
             alive = [(r, c) for r in range(self.ROWS) for c in range(self.COLS)
@@ -1378,14 +1548,32 @@ class AlienFloydBackground:
         self._letters = []
 
     def _update_ship_player(self):
-        """Player-controlled ship: cursor keys move, space fires."""
-        speed = self.s(6)
-        if self._k_left:
-            self._ship_x -= speed
-        if self._k_right:
-            self._ship_x += speed
+        """Player-controlled ship with momentum: cursor keys *accelerate* the C5
+        rather than moving it a fixed step, so the longer a key is held the
+        faster it goes (up to a cap), and releasing lets it coast and brake to a
+        stop instead of stopping dead.  This gives weighty, non-linear steering."""
+        thrust = 1.3 * self.dpr            # acceleration per frame while held
+        max_v = 11.0 * self.dpr            # top speed
+        left = self._k_left and not self._k_right
+        right = self._k_right and not self._k_left
+        if left:
+            self._ship_v -= thrust
+        elif right:
+            self._ship_v += thrust
+        # Friction: gentle while thrusting so speed builds up the longer you
+        # hold; firmer when nothing is pressed so the C5 brakes smoothly.
+        self._ship_v *= 0.90 if (left or right) else 0.80
+        if abs(self._ship_v) < 0.15:
+            self._ship_v = 0.0
+        self._ship_v = max(-max_v, min(max_v, self._ship_v))
+        self._ship_x += self._ship_v
         lo, hi = self.s(8), self.w - self.s(8)
-        self._ship_x = max(lo, min(hi, self._ship_x))
+        if self._ship_x < lo:
+            self._ship_x = lo
+            self._ship_v = abs(self._ship_v) * 0.3      # soft bounce off the wall
+        elif self._ship_x > hi:
+            self._ship_x = hi
+            self._ship_v = -abs(self._ship_v) * 0.3
         if self._fire_cd > 0:
             self._fire_cd -= 1
         if self._k_fire and self._fire_cd <= 0:
@@ -1394,9 +1582,60 @@ class AlienFloydBackground:
 
     def _fire_bullet(self):
         """Fire from Clive's hands (top of the ship) and kick off the arm-raise
-        firing animation."""
-        self._bullets.append([self._ship_x, self._ship_top + self.s(2)])
+        firing animation, with a little burst of colourful star sparks."""
+        muzzle_y = self._ship_top + self.s(2)
+        self._bullets.append([self._ship_x, muzzle_y])
+        self._spawn_fire_sparks(self._ship_x, muzzle_y)
         self._ship_fire_anim = 10
+
+    def _spawn_fire_sparks(self, x, y):
+        """Emit a small spray of twinkling, colourful star sparks at the muzzle,
+        fanning mostly upward (in the direction of fire) with a touch of drift."""
+        for _ in range(_random.randint(3, 5)):
+            ang = -_math.pi / 2 + _random.uniform(-1.0, 1.0)   # mostly upward
+            spd = _random.uniform(1.2, 3.6) * self.dpr
+            self._sparks.append({
+                "x": x, "y": y,
+                "vx": _math.cos(ang) * spd,
+                "vy": _math.sin(ang) * spd,
+                "age": 0,
+                "life": _random.randint(10, 20),
+                "col": _random.choice(_C_SPARK_COLORS),
+                "rot": _random.uniform(0, 6.28),
+                "drot": _random.uniform(-0.45, 0.45),
+                "r": _random.uniform(1.8, 3.4) * self.dpr,
+            })
+
+    def _update_sparks(self):
+        kept = []
+        for sp in self._sparks:
+            sp["x"] += sp["vx"]
+            sp["y"] += sp["vy"]
+            sp["vy"] += 0.06 * self.dpr        # gentle gravity so they arc
+            sp["vx"] *= 0.96
+            sp["rot"] += sp["drot"]
+            sp["age"] += 1
+            if sp["age"] < sp["life"]:
+                kept.append(sp)
+        self._sparks = kept
+
+    def _render_sparks(self, surface):
+        pg = _pg
+        for sp in self._sparks:
+            fade = max(0.0, 1.0 - sp["age"] / max(1, sp["life"]))
+            col = (int(sp["col"][0] * fade), int(sp["col"][1] * fade),
+                   int(sp["col"][2] * fade))
+            x, y = sp["x"], sp["y"]
+            r = sp["r"] * (0.6 + 0.6 * fade)
+            a = sp["rot"]
+            # 4-pointed sparkle: alternating long/short points around the centre.
+            pts = []
+            for k in range(8):
+                ang = a + k * (_math.pi / 4)
+                rad = r if k % 2 == 0 else r * 0.4
+                pts.append((int(x + rad * _math.cos(ang)),
+                            int(y + rad * _math.sin(ang))))
+            pg.draw.polygon(surface, col, pts)
 
     def _update_ship_visual(self):
         """Update the C5's facing (flip on direction) and rolling-wheel angle."""
@@ -1538,17 +1777,14 @@ class AlienFloydBackground:
     def _update_bombs(self):
         spd = self.s(3)
         kept = []
-        # Ship hit-box (game mode): bombs that reach the C5 cost the player a
-        # life.  Inset a little from the full sprite so only solid bodywork
-        # (not the transparent corners) counts.
-        ship_top = self._ship_top + self.s(3)
-        ship_l = self._ship_x - self._ship_w / 2 + self.s(3)
-        ship_r = self._ship_x + self._ship_w / 2 - self.s(3)
+        # Ship hit-box (game mode): a bomb whose tip enters the C5's body costs
+        # a life.  The bomb is a vertical streak from bm[1] (tip) to bm[1]+s(7).
+        sl, st_, sr, sb = self._ship_rect()
         for bm in self._bombs:
             bm[1] += spd
             if self._game and self._ship_invuln <= 0 \
-                    and ship_l <= bm[0] <= ship_r \
-                    and bm[1] + self.s(6) >= ship_top:
+                    and sl <= bm[0] <= sr \
+                    and bm[1] + self.s(7) >= st_ and bm[1] <= sb:
                 self._ship_hit()
                 continue
             if bm[1] >= self.h - self.s(20):
@@ -1557,13 +1793,85 @@ class AlienFloydBackground:
             kept.append(bm)
         self._bombs = kept
 
+    def _ship_rect(self):
+        """The C5's collision rectangle (inset from the sprite so only solid
+        bodywork, not the transparent corners, counts)."""
+        inset = self.s(3)
+        return (self._ship_x - self._ship_w / 2 + inset,
+                self._ship_top + inset,
+                self._ship_x + self._ship_w / 2 - inset,
+                self._ship_top + self._ship_h - inset)
+
+    def _check_ship_collisions(self):
+        """Lose a life if a Floyd — in formation or diving — overlaps the C5.
+        The colliding Floyd is destroyed along with the ship."""
+        if self._ship_invuln > 0:
+            return
+        sl, st_, sr, sb = self._ship_rect()
+
+        def hits(x, y, w, h):
+            ix, iy = w * 0.16, h * 0.16     # ignore the sprite's clear margins
+            return (x + ix < sr and x + w - ix > sl
+                    and y + iy < sb and y + h - iy > st_)
+
+        for r in range(self.ROWS):
+            for c in range(self.COLS):
+                if not self._aliens[r][c]:
+                    continue
+                x, y = self._alien_pos(r, c)
+                w, h = self._alien_wh(r, c)
+                if hits(x, y, w, h):
+                    self._aliens[r][c] = False
+                    self._respawn[r][c] = self._t + _random.randint(12, 40)
+                    self._spawn_explosion(x + w / 2, y + h / 2,
+                                          _ALIEN_ROW_COLORS[r])
+                    self._ship_hit()
+                    return
+        for d in list(self._divers):
+            dx, dy = self._diver_pos(d)
+            dw, dh = self._diver_wh(d)
+            if hits(dx, dy, dw, dh):
+                try:
+                    self._divers.remove(d)
+                except ValueError:
+                    pass
+                self._spawn_explosion(dx + dw / 2, dy + dh / 2, _C_UFO)
+                self._ship_hit()
+                return
+
     def _ship_hit(self):
-        """A bomb destroyed the ship: lose a life (game over at zero)."""
-        self._spawn_explosion(self._ship_x, self.h - self.s(26), _C_SHIP)
+        """The C5 is destroyed (alien bomb or a Floyd collision): it explodes in
+        a colourful burst and the player loses a life (game over at zero)."""
+        self._explode_ship()
         self._lives -= 1
         self._ship_invuln = 90        # ~3s of blinking grace before it returns
         if self._lives <= 0:
             self._enter_gameover()
+
+    def _explode_ship(self):
+        """A dramatic multi-burst explosion centred on the C5."""
+        cx = self._ship_x
+        cy = self._ship_top + self._ship_h / 2
+        for col in (_C_SHIP, (255, 240, 150), (255, 255, 255), (255, 140, 60),
+                    (255, 90, 70)):
+            ox = _random.uniform(-self._ship_w * 0.35, self._ship_w * 0.35)
+            oy = _random.uniform(-self._ship_h * 0.35, self._ship_h * 0.35)
+            self._spawn_explosion(cx + ox, cy + oy, col)
+        # a radial spray of twinkling sparks for extra drama
+        for _ in range(_random.randint(12, 18)):
+            ang = _random.uniform(0, 2 * _math.pi)
+            spd = _random.uniform(1.8, 5.0) * self.dpr
+            self._sparks.append({
+                "x": cx, "y": cy,
+                "vx": _math.cos(ang) * spd,
+                "vy": _math.sin(ang) * spd,
+                "age": 0,
+                "life": _random.randint(14, 26),
+                "col": _random.choice(_C_SPARK_COLORS),
+                "rot": _random.uniform(0, 6.28),
+                "drot": _random.uniform(-0.5, 0.5),
+                "r": _random.uniform(2.0, 4.0) * self.dpr,
+            })
 
     def _enter_gameover(self):
         """All lives lost — freeze the game and show the score screen."""
@@ -1574,10 +1882,21 @@ class AlienFloydBackground:
         self._final_wave = getattr(self, "_wave", 1)
         self._bombs = []
         self._bullets = []
+        self._sparks = []
         self._letters = []
         self._drops = []
         self._asteroids = []
-        # A squadron of Clives flying their C5s across the score screen.
+        # Earning a place on the high-score table grants a name-entry round
+        # (spell your name by shooting); otherwise go straight to the table.
+        self._name_entry = alien_score_qualifies(self._final_score)
+        if self._name_entry:
+            self._begin_name_entry()
+        else:
+            self._final_name = ""
+            self._spawn_go_squadron()
+
+    def _spawn_go_squadron(self):
+        """A squadron of Clives flying their C5s across the score screen."""
         self._go_clives = []
         for _ in range(5):
             cl = self._spawn_flying_clive()
@@ -1585,6 +1904,110 @@ class AlienFloydBackground:
             cl["pos"] = self._bezier_point(cl, cl["t"])
             cl["prev"] = cl["pos"]
             self._go_clives.append(cl)
+
+    # -- new-high-score name entry -----------------------------------------
+    def _begin_name_entry(self):
+        """Set up the interactive name-entry round: the C5 stays controllable
+        and fires up at three floating targets (the live letter, <NEXT>, <END>)."""
+        self._name = ""
+        self._name_letter = 0
+        self._final_name = ""
+        self._name_flash = 0
+        self._go_clives = []
+        self._ship_x = self.w * 0.5
+        self._ship_prev_x = self._ship_x
+        self._ship_v = 0.0
+        self._ship_invuln = 0
+        # Raise the C5 up near the targets (just below the instructions) so
+        # spelling your name doesn't mean shooting all the way up the screen.
+        self._ship_top = int(self.h * 0.66)
+        self._bullets = []
+        self._sparks = []
+        self._explosions = []
+        self._prev_fire = self._k_fire     # require a fresh press before firing
+
+    def _name_targets(self):
+        """Current rects of the three shootable targets, laid out centred."""
+        pg = _pg
+        f = _font(self.s(18), bold=True)
+        cur = chr(ord("A") + self._name_letter)
+        specs = [("letter", cur), ("next", "NEXT"), ("end", "END")]
+        pad = self.s(14)
+        # Size the letter box to the widest glyph so it doesn't jump as it cycles.
+        widths = [(f.size("W")[0] if tid == "letter" else f.size(label)[0]) + pad * 2
+                  for tid, label in specs]
+        gap = self.s(22)
+        total = sum(widths) + gap * (len(specs) - 1)
+        x = (self.w - total) // 2
+        bh = self.s(36)
+        y = int(self.h * 0.46)
+        boxes = []
+        for (tid, label), bw in zip(specs, widths):
+            boxes.append({"id": tid, "label": label,
+                          "rect": pg.Rect(int(x), y, int(bw), bh)})
+            x += bw + gap
+        return boxes
+
+    def _update_name_entry(self):
+        self._gameover_t += 1
+        self._update_stars()
+        self._update_ship_player()         # move + fire (fills self._bullets)
+        self._update_ship_visual()
+        self._update_name_bullets()
+        self._update_sparks()
+        self._update_explosions()
+        if self._name_flash > 0:
+            self._name_flash -= 1
+
+    def _update_name_bullets(self):
+        """Move the C5's bullets up; a bullet that reaches a target triggers it."""
+        spd = self.s(7)
+        boxes = self._name_targets()
+        kept = []
+        for b in self._bullets:
+            b[1] -= spd
+            if b[1] < -self.s(4):
+                continue
+            hit = False
+            for box in boxes:
+                if box["rect"].collidepoint(b[0], b[1]):
+                    self._hit_name_target(box["id"], box["rect"])
+                    hit = True
+                    break
+            if not hit:
+                kept.append(b)
+        self._bullets = kept
+
+    def _hit_name_target(self, tid, rect):
+        cx, cy = rect.center
+        if tid == "letter":
+            self._name_letter = (self._name_letter + 1) % 26
+            self._spawn_explosion(cx, cy, _C_LETTER_GLOW)
+            self._spawn_fire_sparks(cx, cy)
+        elif tid == "next":
+            if len(self._name) < self._name_max:
+                self._name += chr(ord("A") + self._name_letter)
+                self._name_letter = 0
+                self._spawn_explosion(cx, cy, _C_WORD_DONE)
+            else:
+                self._name_flash = 30          # name is full — flash a reminder
+        elif tid == "end":
+            self._spawn_explosion(cx, cy, (255, 120, 150))
+            self._finish_name_entry()
+
+    def _finish_name_entry(self):
+        """Record the entered name + score onto the high-score table and hand
+        over to the passive game-over screen (which shows the table)."""
+        name = self._name.strip()
+        if not name:
+            name = chr(ord("A") + self._name_letter)   # at least the live letter
+        self._final_name = _sanitize_hiname(name) or "---"
+        record_alien_score(self._final_name, self._final_score)
+        self._name_entry = False
+        self._gameover_t = 0
+        self._bullets = []
+        self._sparks = []
+        self._spawn_go_squadron()
 
     @staticmethod
     def _bezier_point(cl, t):
@@ -1644,10 +2067,28 @@ class AlienFloydBackground:
         if self._gameover_t > 70 and self._k_fire and not self._prev_fire:
             self._restart_after_gameover()
         self._prev_fire = self._k_fire
-        note_alien_score(self._score)
 
     def _restart_after_gameover(self):
+        self._begin_play()
+
+    # -- title / attract screen --------------------------------------------
+    def _update_title(self):
+        """Animate the attract backdrop and wait for a fresh Space press."""
+        self._update_stars()
+        self._update_formation()
+        self._update_divers()
+        if self._k_fire and not self._prev_fire:
+            self._begin_play()
+        self._prev_fire = self._k_fire
+
+    def _begin_play(self):
+        """Start a fresh playthrough (from the title screen or after game over)."""
+        self._started = True
         self._gameover = False
+        self._name_entry = False
+        self._name = ""
+        self._name_letter = 0
+        self._final_name = ""
         self._lives = 3
         self._score = 0
         self._words_done = 0
@@ -1655,9 +2096,16 @@ class AlienFloydBackground:
         self._ship_x = self.w * 0.5
         self._ship_prev_x = self._ship_x
         self._ship_invuln = 60
+        self._ship_v = 0.0
+        # Restore the normal bottom-of-screen flying height (name entry raises it).
+        self._ship_top = self.h - self._ship_h - self.s(8)
         self._bombs = []
+        self._bullets = []
+        self._sparks = []
+        self._letters = []
         self._drops = []
         self._asteroids = []
+        self._win_flash = 0
         self._life_flash = 0
         self._wave = 0
         self._pig = None
@@ -1776,14 +2224,20 @@ class AlienFloydBackground:
         shape = _random.randrange(len(_AST_PATTERNS))
         base = _make_asteroid_base(shape, px)
         w = base.get_width()
+        # Some rocks "roll" down (spin coupled to how far they travel, like a
+        # tumbling boulder) while the rest free-spin in place.  Rollers get a
+        # stronger sideways drift so the rolling reads clearly.
+        rolling = _random.random() < 0.55
         self._asteroids.append({
             "x": _random.uniform(w * 0.5, max(w, self.w - w * 0.5)),
             "y": -w,
             "vy": _random.uniform(1.2, 3.4) * self.dpr,
-            "vx": _random.uniform(-0.7, 0.7) * self.dpr,
+            "vx": (_random.uniform(-1.7, 1.7) if rolling
+                   else _random.uniform(-0.7, 0.7)) * self.dpr,
             "shape": shape, "px": px,
             "ang": _random.uniform(0.0, 360.0),
-            "dang": _random.uniform(-5.0, 5.0),     # rolling speed (deg/frame)
+            "dang": _random.uniform(-5.0, 5.0),     # free-spin speed (deg/frame)
+            "roll": rolling,
             "r": w * 0.42,
         })
 
@@ -1796,7 +2250,16 @@ class AlienFloydBackground:
         for a in self._asteroids:
             a["y"] += a["vy"]
             a["x"] += a["vx"]
-            a["ang"] += a["dang"]
+            if a.get("roll"):
+                # Roll without slipping: the spin angle tracks the distance the
+                # rock travels (arc = r·θ), so it looks like a boulder rolling
+                # down rather than spinning on the spot.  Direction follows its
+                # sideways drift (a forward tumble when falling straight down).
+                travel = a["vy"] + abs(a["vx"])
+                sign = -1.0 if a["vx"] < 0 else 1.0
+                a["ang"] += sign * _math.degrees(travel / max(1.0, a["r"]))
+            else:
+                a["ang"] += a["dang"]
             if a["y"] - a["r"] > self.h:
                 continue
             kept.append(a)
@@ -1933,9 +2396,16 @@ class AlienFloydBackground:
             if level > 0.7:
                 surface.fill(st["col"], pg.Rect(int(x), int(y),
                                                 max(1, self.s(1)), max(1, self.s(1))))
+        # Title/attract screen takes over until the player presses Space.
+        if self._game and not self._started:
+            self._render_title(surface)
+            return
         # Game-over score screen takes over the foreground (starfield kept).
         if self._game and self._gameover:
-            self._render_gameover(surface)
+            if self._name_entry:
+                self._render_name_entry(surface)
+            else:
+                self._render_gameover(surface)
             return
         # alien Floyds (each rendered at its own size)
         for r in range(self.ROWS):
@@ -1962,10 +2432,15 @@ class AlienFloydBackground:
                 _draw_text(surface, cue,
                            int(x + dw / 2 - cw / 2),
                            int(y - self.s(12)), cf, (150, 255, 190))
-        # bombs
+        # bombs — alien fire: an animated rainbow streak with a white-hot core,
+        # so the projectiles stay clearly visible against the black sky.
+        bw = max(2, self.s(2))
         for bm in self._bombs:
-            pg.draw.line(surface, _C_BOMB, (int(bm[0]), int(bm[1])),
-                         (int(bm[0]), int(bm[1] + self.s(6))), max(1, self.s(1)))
+            x, y = int(bm[0]), int(bm[1])
+            col = _cycle_color(_C_BOMB_CYCLE, self._t * 0.30 + bm[1] * 0.06)
+            pg.draw.line(surface, col, (x, y), (x, y + self.s(7)), bw)
+            pg.draw.line(surface, (255, 255, 255), (x, y),
+                         (x, y + self.s(3)), max(1, self.s(1)))
         # ship: Sir Clive on his C5 (blinks while briefly invulnerable).
         ship_blink = self._game and self._ship_invuln > 0 and (self._t // 4) % 2 == 0
         if not ship_blink:
@@ -1974,10 +2449,16 @@ class AlienFloydBackground:
                                    self._ship_roll, fire)
             surface.blit(clive, (int(self._ship_x - self._ship_w / 2),
                                  int(self._ship_top)))
-        # bullets
+        # bullets — the C5's fire: an animated colour streak with a white-hot
+        # core, plus the colourful muzzle star sparks drawn on top.
+        bcw = max(2, self.s(2))
         for b in self._bullets:
-            pg.draw.line(surface, _C_BULLET, (int(b[0]), int(b[1])),
-                         (int(b[0]), int(b[1] + self.s(7))), max(1, self.s(1)))
+            x, y = int(b[0]), int(b[1])
+            col = _cycle_color(_C_BULLET_CYCLE, self._t * 0.40 + b[1] * 0.05)
+            pg.draw.line(surface, col, (x, y), (x, y + self.s(8)), bcw)
+            pg.draw.line(surface, (255, 255, 255), (x, y),
+                         (x, y + self.s(3)), max(1, self.s(1)))
+        self._render_sparks(surface)
         # floating inflatable pig "mother ship"
         if self._pig is not None:
             px, py, pw, ph = self._pig_rect()
@@ -2099,14 +2580,18 @@ class AlienFloydBackground:
         def lerp(p, q, f):
             return (p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f)
 
+        # Light widths scale with the prism so the beam/fan stay in proportion
+        # as the prism grows.
+        beam_w = max(1, int(round(size * 0.02)))
+        fan_w = max(2, int(round(size * 0.05)))
+
         # --- dim DSOTM beam + spectrum fan behind the spinning prism ---------
         topf = (cx, cy - size * 0.66)
         blf = (cx - size * 0.62, cy + size * 0.5)
         brf = (cx + size * 0.62, cy + size * 0.5)
         entry = lerp(topf, blf, 0.52)
         pg.draw.line(surface, (120, 120, 130),
-                     (cx - size * 2.4, entry[1] - size * 0.16), entry,
-                     max(1, self.s(1)))
+                     (cx - size * 2.4, entry[1] - size * 0.16), entry, beam_w)
         n = len(_SPECTRUM)
         for i, col in enumerate(_SPECTRUM):
             sp = lerp(topf, brf, 0.5 + (i / (n - 1)) * 0.26)
@@ -2114,7 +2599,7 @@ class AlienFloydBackground:
             c = (int(col[0] * sh), int(col[1] * sh), int(col[2] * sh))
             pg.draw.line(surface, c, sp,
                          (sp[0] + size * 2.7 * _math.cos(0.26),
-                          sp[1] + size * 2.7 * _math.sin(0.26)), max(2, self.s(3)))
+                          sp[1] + size * 2.7 * _math.sin(0.26)), fan_w)
 
         # --- spinning pseudo-3D triangular prism ----------------------------
         ang = t * 0.05
@@ -2143,7 +2628,8 @@ class AlienFloydBackground:
                 a += x1 * y2 - x2 * y1
             return a * 0.5
 
-        edge = max(1, self.s(2))
+        edge = max(1, int(round(size * 0.035)))
+        side_edge = max(1, int(round(size * 0.018)))
         front_visible = sum(p[2] for p in front) > sum(p[2] for p in back)
         for kind, idx, verts in faces:
             pts = [(int(p[0]), int(p[1])) for p in verts]
@@ -2156,7 +2642,7 @@ class AlienFloydBackground:
                 col = (int(base[0] * sh * 0.7 + 12), int(base[1] * sh * 0.7 + 12),
                        int(base[2] * sh * 0.7 + 14))
                 pg.draw.polygon(surface, col, pts)
-                pg.draw.polygon(surface, (235, 235, 245), pts, 1)
+                pg.draw.polygon(surface, (235, 235, 245), pts, side_edge)
             else:
                 pg.draw.polygon(surface, (24, 24, 38) if idx == "front" else (13, 13, 20),
                                 pts)
@@ -2173,31 +2659,203 @@ class AlienFloydBackground:
             fyc = sum(p[1] for p in front) / 3.0 + size * 0.06
             surface.blit(scaled, (int(fxc - fw / 2), int(fyc - fh / 2)))
 
-    def _render_score_panel(self, surface, retro):
+    def _render_run_summary(self, surface, retro, y):
+        """A compact one-line summary of the just-finished run."""
+        W = self.w
+        sf = _font(self.s(15), bold=True)
+        parts = [("SCORE %06d" % self._final_score, _C_GAME_SCORE),
+                 ("WAVE %d" % self._final_wave, (150, 200, 255)),
+                 ("WORDS %d" % self._words_done, (255, 150, 200))]
+        gap = self.s(18)
+        widths = [sf.size(txt)[0] for txt, _ in parts]
+        total = sum(widths) + gap * (len(parts) - 1)
+        x = (W - total) // 2
+        for (txt, col), w in zip(parts, widths):
+            retro(txt, x, y, sf, col, 1)
+            x += w + gap
+
+    def _render_hiscore_table(self, surface, retro, top_y):
+        """The top-N leaderboard, highlighting this run's freshly-entered row."""
         pg = _pg
-        W, H = self.w, self.h
-        hi = max(self._final_score, get_alien_hiscore())
-        rows = [("SCORE", "%06d" % self._final_score, _C_GAME_SCORE),
-                ("HIGH", "%06d" % hi, (120, 255, 140)),
-                ("WAVE", "%d" % self._final_wave, (150, 200, 255)),
-                ("WORDS", "%d" % self._words_done, (255, 150, 200))]
-        lf = _font(self.s(13), bold=True)
-        vf = _font(self.s(16), bold=True)
-        row_h = self.s(21)
-        pw = self.s(190)
-        ph = row_h * len(rows) + self.s(14)
+        W = self.w
+        table = get_alien_table()
+        # Which row is the player's new entry (first exact match)?
+        me_idx = -1
+        if self._final_name:
+            for i, e in enumerate(table):
+                if e["name"] == self._final_name and e["score"] == self._final_score:
+                    me_idx = i
+                    break
+        hf = _font(self.s(15), bold=True)
+        rf = _font(self.s(15), bold=True)
+        title = "HIGH SCORES"
+        tw = hf.size(title)[0]
+        retro(title, (W - tw) // 2, top_y, hf, (120, 255, 140), 1)
+        row_h = self.s(20)
+        pw = self.s(240)
+        ph = row_h * ALIEN_TABLE_MAX + self.s(12)
         px = (W - pw) // 2
-        py = int(H * 0.55)
+        py = top_y + self.s(26)
         panel = pg.Surface((pw, ph), pg.SRCALPHA)
         panel.fill((10, 10, 18, 215))
         surface.blit(panel, (px, py))
         pg.draw.rect(surface, (120, 120, 150), pg.Rect(px, py, pw, ph),
                      max(1, self.s(1)))
-        for i, (label, val, col) in enumerate(rows):
-            ry = py + self.s(8) + i * row_h
-            retro(label, px + self.s(12), ry, lf, (200, 200, 215), 1)
-            vw = vf.size(val)[0]
-            retro(val, px + pw - self.s(12) - vw, ry - self.s(2), vf, col, 1)
+        for i in range(ALIEN_TABLE_MAX):
+            ry = py + self.s(6) + i * row_h
+            if i < len(table):
+                name = table[i]["name"] or "---"
+                score = table[i]["score"]
+            else:
+                name, score = "---", 0
+            # Highlight (and blink) the player's new entry.
+            if i == me_idx and (self._gameover_t // 12) % 2 == 0:
+                col = (255, 220, 120)
+            elif i == me_idx:
+                col = (255, 170, 80)
+            else:
+                col = (210, 210, 225)
+            retro("%d" % (i + 1), px + self.s(12), ry, rf, (150, 200, 255), 1)
+            retro(name, px + self.s(40), ry, rf, col, 1)
+            sval = "%06d" % score
+            sw = rf.size(sval)[0]
+            retro(sval, px + pw - self.s(12) - sw, ry, rf, col, 1)
+
+    def _render_title(self, surface):
+        """Attract screen: drifting Floyds behind a big flashing 'PRESS SPACE TO
+        START GAME' prompt; the game waits here until the player presses Space."""
+        W, H = self.w, self.h
+        # drifting Floyds as a backdrop (formation + any divers)
+        for r in range(self.ROWS):
+            for c in range(self.COLS):
+                if not self._aliens[r][c]:
+                    continue
+                px = self._px_for_scale(self._scale[r][c])
+                spr = _make_floyd_sprite(_FLOYD_NAMES[self._kind[r][c]], px)
+                x, y = self._alien_pos(r, c)
+                surface.blit(spr, (int(x), int(y)))
+        for d in self._divers:
+            px = self._px_for_scale(d.get("scale", 1.0))
+            spr = _make_floyd_sprite(_FLOYD_NAMES[d["kind"]], px)
+            x, y = self._diver_pos(d)
+            surface.blit(spr, (int(x), int(y)))
+        _blit_veil(surface, (6, 6, 12), 140)
+
+        def retro(text, x, y, font, col, sh=2):
+            _draw_text(surface, text, int(x) + self.s(sh), int(y) + self.s(sh),
+                       font, (0, 0, 0))
+            _draw_text(surface, text, int(x), int(y), font, col)
+
+        # game title
+        tf = _font(self.s(40), bold=True)
+        title = "ALIEN FLOYD'S"
+        tw = tf.size(title)[0]
+        retro(title, (W - tw) // 2, int(H * 0.28), tf, (255, 120, 150))
+
+        # big flashing "press space" prompt, centred
+        if (self._t // 16) % 2 == 0:
+            pf = _font(self.s(28), bold=True)
+            msg = "PRESS SPACE TO START GAME"
+            mw = pf.size(msg)[0]
+            retro(msg, (W - mw) // 2, int(H * 0.50), pf, (255, 220, 120))
+
+        # controls hint
+        hf = _font(self.s(13), bold=True)
+        hint = "← →  MOVE       SPACE  FIRE"
+        hw = hf.size(hint)[0]
+        retro(hint, (W - hw) // 2, int(H * 0.60), hf, (200, 200, 215), 1)
+
+    def _render_name_entry(self, surface):
+        """Interactive 'NEW HIGH SCORE' name-entry round: spell your name by
+        shooting the live letter (cycles A→B→…), <NEXT> (lock it in) and
+        <END> (finish).  The C5 stays under the player's control below."""
+        pg = _pg
+        t = self._gameover_t
+        W, H = self.w, self.h
+        _blit_veil(surface, (6, 6, 12), 150)
+
+        def retro(text, x, y, font, col, sh=2):
+            _draw_text(surface, text, int(x) + self.s(sh), int(y) + self.s(sh),
+                       font, (0, 0, 0))
+            _draw_text(surface, text, int(x), int(y), font, col)
+
+        # title (flashes) + final score
+        tf = _font(self.s(28), bold=True)
+        title = "NEW HIGH SCORE!"
+        tw = tf.size(title)[0]
+        flash = (t // 16) % 2 == 0
+        retro(title, (W - tw) // 2, self.s(18), tf,
+              (255, 220, 120) if flash else (255, 150, 80))
+        sf = _font(self.s(16), bold=True)
+        smsg = "SCORE  %06d" % self._final_score
+        sw = sf.size(smsg)[0]
+        retro(smsg, (W - sw) // 2, self.s(52), sf, _C_GAME_SCORE, 1)
+
+        # the name being spelled: committed letters + the blinking live letter
+        nf = _font(self.s(26), bold=True)
+        cur = chr(ord("A") + self._name_letter)
+        chars = [(c, _C_WORD_DONE) for c in self._name]
+        chars.append((cur if (t // 14) % 2 == 0 else "_", _C_LETTER))
+        sp = self.s(6)
+        widths = [nf.size(c)[0] for c, _ in chars]
+        total = sum(widths) + sp * (len(chars) - 1)
+        nx = (W - total) // 2
+        ny = int(H * 0.30)
+        for (c, col), cw in zip(chars, widths):
+            retro(c, nx, ny, nf, col, 1)
+            nx += cw + sp
+
+        # the three shootable targets
+        bf = _font(self.s(18), bold=True)
+        tcols = {"letter": _C_LETTER, "next": _C_WORD_DONE, "end": (255, 120, 150)}
+        for box in self._name_targets():
+            r = box["rect"]
+            col = tcols[box["id"]]
+            panel = pg.Surface((r.w, r.h), pg.SRCALPHA)
+            panel.fill((12, 12, 22, 210))
+            surface.blit(panel, (r.x, r.y))
+            pg.draw.rect(surface, col, r, max(2, self.s(2)))
+            lw = bf.size(box["label"])[0]
+            retro(box["label"], r.centerx - lw / 2, r.centery - self.s(11),
+                  bf, col, 1)
+
+        # instructions (and a 'name full' reminder when applicable)
+        inf = _font(self.s(12), bold=True)
+        msg = "FIRE  [A] CYCLE   [NEXT] ADD   [END] FINISH"
+        mw = inf.size(msg)[0]
+        retro(msg, (W - mw) // 2, int(H * 0.58), inf, (210, 210, 225), 1)
+        if self._name_flash > 0 and (self._name_flash // 5) % 2 == 0:
+            fmsg = "NAME FULL — SHOOT [END]"
+            fw = inf.size(fmsg)[0]
+            retro(fmsg, (W - fw) // 2, int(H * 0.62), inf, (255, 150, 150), 1)
+
+        # the player's C5, its bullets and the muzzle sparks / explosions
+        self._render_player_and_shots(surface)
+
+    def _render_player_and_shots(self, surface):
+        """Draw the C5 plus its bullets, sparks and explosions (shared by the
+        name-entry round, which keeps the ship playable)."""
+        pg = _pg
+        bcw = max(2, self.s(2))
+        for b in self._bullets:
+            x, y = int(b[0]), int(b[1])
+            col = _cycle_color(_C_BULLET_CYCLE, self._t * 0.40 + b[1] * 0.05)
+            pg.draw.line(surface, col, (x, y), (x, y + self.s(8)), bcw)
+            pg.draw.line(surface, (255, 255, 255), (x, y),
+                         (x, y + self.s(3)), max(1, self.s(1)))
+        self._render_sparks(surface)
+        for ex in self._explosions:
+            fade = max(0.0, 1.0 - ex["age"] / 18.0)
+            col = (int(ex["col"][0] * fade), int(ex["col"][1] * fade),
+                   int(ex["col"][2] * fade))
+            for p in ex["parts"]:
+                surface.fill(col, pg.Rect(int(p[0]), int(p[1]),
+                                          max(1, self.s(2)), max(1, self.s(2))))
+        fire = self._ship_fire_anim / 10.0
+        clive = _make_clive_c5(self._ship_px, self._ship_facing,
+                               self._ship_roll, fire)
+        surface.blit(clive, (int(self._ship_x - self._ship_w / 2),
+                             int(self._ship_top)))
 
     def _render_gameover(self, surface):
         pg = _pg
@@ -2231,25 +2889,13 @@ class AlienFloydBackground:
         tw = tf.size(title)[0]
         retro(title, (W - tw) // 2, self.s(16), tf, (255, 90, 120))
 
-        # prism centrepiece
-        self._render_prism(surface, W * 0.5, H * 0.36, self.s(56), t)
+        # prism centrepiece (compact, up top to leave room for the table; the
+        # embedded Sir Clive portrait and the DSOTM light below scale with it)
+        self._render_prism(surface, W * 0.5, H * 0.26, self.s(96), t)
 
-        # score panel
-        self._render_score_panel(surface, retro)
-
-        # bobbing row of little Floyds
-        icons = ["pig", "dark_moon", "prism", "guitar", "dog"]
-        ipx = max(2, self.s(2))
-        iw = _FLOYD_W * ipx
-        gap = self.s(12)
-        tot = len(icons) * iw + (len(icons) - 1) * gap
-        ix = (W - tot) // 2
-        iy = int(H * 0.80)
-        for k, name in enumerate(icons):
-            spr = _make_floyd_sprite(name, ipx)
-            bob = int(self.s(4) * _math.sin(t * 0.12 + k * 0.7))
-            surface.blit(spr, (int(ix), iy + bob))
-            ix += iw + gap
+        # this run's summary, then the high-score table (leaderboard)
+        self._render_run_summary(surface, retro, int(H * 0.44))
+        self._render_hiscore_table(surface, retro, int(H * 0.50))
 
         # blinking prompt
         if t > 50 and (t // 18) % 2 == 0:
@@ -2297,64 +2943,102 @@ def alien_floyd_enabled():
     return _ALIEN_FLOYD_ENABLED
 
 
-# ── persistent arcade high score ────────────────────────────────────────────
-# Shared across every AlienFloydBackground instance (global background, the
-# dedicated tab, item-viewer overlays, the Unite! pygame view).  The in-memory
-# value updates instantly for the HUD; persistence to hdfg.cfg is delegated to
-# a save callback wired by the main window and throttled to avoid disk churn.
-_ALIEN_HISCORE = 0
-_ALIEN_HISCORE_SAVE_CB = None
-_ALIEN_HISCORE_LAST_SAVE = 0.0
-_ALIEN_HISCORE_DIRTY = False
+# ── persistent arcade high-score table (leaderboard) ────────────────────────
+# A top-N table of {name, score} entries, shared across every
+# AlienFloydBackground instance (global background, the dedicated tab,
+# item-viewer overlays, the Unite! pygame view).  It is the single source of
+# truth for the high score: only a real *played* game-over with a qualifying
+# score writes to it (via the shoot-your-name round), so the auto-playing
+# background can never inflate it.  Persistence to hdfg.cfg is delegated to a
+# save callback wired by the main window; the table is small, so it is saved
+# immediately whenever it changes (no throttling needed).
+ALIEN_TABLE_MAX = 5
+_ALIEN_TABLE = []                 # list of {"name": str, "score": int}, desc
+_ALIEN_TABLE_SAVE_CB = None
 
 
-def init_alien_hiscore(value):
-    """Seed the high score from persisted configuration at startup."""
-    global _ALIEN_HISCORE
+def _sanitize_hiname(value):
+    """Coerce to the A–Z (max 8) alphabet the name-entry round can produce."""
     try:
-        _ALIEN_HISCORE = max(0, int(value))
-    except (TypeError, ValueError):
-        _ALIEN_HISCORE = 0
+        s = str(value).upper()
+    except Exception:
+        return ""
+    s = "".join(ch for ch in s if "A" <= ch <= "Z")
+    return s[:8]
+
+
+def _serialize_table(table):
+    """``NAME:SCORE`` pairs joined by ``;`` (INI/cfg-friendly: no newlines)."""
+    return ";".join("%s:%d" % (e["name"] or "---", int(e["score"])) for e in table)
+
+
+def _parse_table(serialized):
+    out = []
+    for part in str(serialized).split(";"):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        nm, _, sc = part.rpartition(":")
+        try:
+            score = int(sc)
+        except ValueError:
+            continue
+        out.append({"name": _sanitize_hiname(nm) or "---", "score": max(0, score)})
+    out.sort(key=lambda e: e["score"], reverse=True)
+    return out[:ALIEN_TABLE_MAX]
+
+
+def init_alien_table(serialized):
+    """Seed the high-score table from persisted configuration at startup."""
+    global _ALIEN_TABLE
+    _ALIEN_TABLE = _parse_table(serialized)
+
+
+def get_alien_table():
+    """A copy of the current top-N table (descending by score)."""
+    return list(_ALIEN_TABLE)
 
 
 def get_alien_hiscore():
-    return _ALIEN_HISCORE
+    """Top score on the table (0 when empty) — used by the live HUD."""
+    return _ALIEN_TABLE[0]["score"] if _ALIEN_TABLE else 0
 
 
-def set_alien_hiscore_save_cb(cb):
-    """Register ``cb(int)`` used to persist the high score to configuration."""
-    global _ALIEN_HISCORE_SAVE_CB
-    _ALIEN_HISCORE_SAVE_CB = cb
+def set_alien_table_save_cb(cb):
+    """Register ``cb(str)`` used to persist the serialized table."""
+    global _ALIEN_TABLE_SAVE_CB
+    _ALIEN_TABLE_SAVE_CB = cb
 
 
-def note_alien_score(score):
-    """Record a live score; bumps the high score and persists it (throttled to
-    at most once every few seconds) when a new best is reached."""
-    global _ALIEN_HISCORE, _ALIEN_HISCORE_LAST_SAVE, _ALIEN_HISCORE_DIRTY
-    if score <= _ALIEN_HISCORE:
-        return
-    _ALIEN_HISCORE = score
-    _ALIEN_HISCORE_DIRTY = True
-    cb = _ALIEN_HISCORE_SAVE_CB
+def alien_score_qualifies(score):
+    """True when *score* would earn a place on the table (so the player should
+    get a name-entry round)."""
+    try:
+        score = int(score)
+    except (TypeError, ValueError):
+        return False
+    if score <= 0:
+        return False
+    if len(_ALIEN_TABLE) < ALIEN_TABLE_MAX:
+        return True
+    return score > _ALIEN_TABLE[-1]["score"]
+
+
+def record_alien_score(name, score):
+    """Insert ``(name, score)`` into the table, keep the top N, and persist.
+    On a tie the existing holders keep the higher rank (stable sort)."""
+    global _ALIEN_TABLE
+    try:
+        score = max(0, int(score))
+    except (TypeError, ValueError):
+        score = 0
+    _ALIEN_TABLE.append({"name": _sanitize_hiname(name) or "---", "score": score})
+    _ALIEN_TABLE.sort(key=lambda e: e["score"], reverse=True)
+    del _ALIEN_TABLE[ALIEN_TABLE_MAX:]
+    cb = _ALIEN_TABLE_SAVE_CB
     if cb is not None:
-        now = _time.monotonic()
-        if now - _ALIEN_HISCORE_LAST_SAVE > 5.0:
-            _ALIEN_HISCORE_LAST_SAVE = now
-            _ALIEN_HISCORE_DIRTY = False
-            try:
-                cb(_ALIEN_HISCORE)
-            except Exception:
-                pass
-
-
-def flush_alien_hiscore():
-    """Force-persist a pending high score (e.g. when a widget is torn down)."""
-    global _ALIEN_HISCORE_DIRTY
-    cb = _ALIEN_HISCORE_SAVE_CB
-    if cb is not None and _ALIEN_HISCORE_DIRTY:
-        _ALIEN_HISCORE_DIRTY = False
         try:
-            cb(_ALIEN_HISCORE)
+            cb(_serialize_table(_ALIEN_TABLE))
         except Exception:
             pass
 
@@ -2370,7 +3054,14 @@ class AlienFloydWidget(QWidget):
 
     def __init__(self, parent=None, transparent=False, fps=30, game=False):
         super().__init__(parent)
-        _ensure_pg()
+        # NOTE: pygame is imported lazily off the UI thread (prewarm_async),
+        # NOT here.  ``import pygame`` loads the SDL libraries and can block for
+        # a second or more (longer on a cold disk cache); doing it in the
+        # constructor froze the UI the first time the tab was opened.  The
+        # widget paints a lightweight "Loading…" placeholder with QPainter until
+        # the import finishes, then builds its pygame surface on the UI thread
+        # (that part is cheap, ~a millisecond) and starts animating.
+        prewarm_async()
         self._transparent = bool(transparent)
         self._game = bool(game)
         self._surface = None
@@ -2390,6 +3081,8 @@ class AlienFloydWidget(QWidget):
         self._timer = QTimer(self)
         self._timer.setInterval(int(1000 / max(1, fps)))
         self._timer.timeout.connect(self._tick)
+        # Builds the surface as soon as pygame is ready (it may already be, if
+        # warm-up finished before construction); otherwise a no-op for now.
         self._ensure_surface()
 
     def _dev_size(self):
@@ -2399,6 +3092,10 @@ class AlienFloydWidget(QWidget):
 
     def _ensure_surface(self):
         pg = _pg
+        if pg is None:
+            # pygame still importing on the warm-up thread; paint the
+            # placeholder for now and retry on the next tick.
+            return False
         w, h = self._dev_size()
         if self._surface is None or self._surface.get_size() != (w, h):
             self._surface = pg.Surface((w, h), pg.SRCALPHA)
@@ -2410,6 +3107,7 @@ class AlienFloydWidget(QWidget):
                     self._bg.resize((w, h), self._dpr)
                 except Exception:
                     pass
+        return True
 
     def start(self):
         if self._alive and not self._timer.isActive():
@@ -2424,12 +3122,17 @@ class AlienFloydWidget(QWidget):
             self._timer.stop()
         except Exception:
             pass
-        flush_alien_hiscore()
         self._surface = None
         self._bg = None
 
     def _tick(self):
-        if not self._alive or self._bg is None:
+        if not self._alive:
+            return
+        if self._bg is None:
+            # Still waiting on the off-thread pygame import; try to build the
+            # surface now and repaint (placeholder or, once ready, first frame).
+            self._ensure_surface()
+            self.update()
             return
         try:
             self._bg.update()
@@ -2498,6 +3201,15 @@ class AlienFloydWidget(QWidget):
         if not self._alive or self._surface is None or self._bg is None:
             if not self._transparent:
                 painter.fillRect(self.rect(), Qt.black)
+                # Friendly placeholder while pygame finishes importing off the
+                # UI thread (opaque tab only; transparent overlays show nothing).
+                if _pg is None:
+                    painter.setPen(QColor(150, 150, 150))
+                    f = painter.font()
+                    f.setPointSize(max(11, f.pointSize() + 3))
+                    painter.setFont(f)
+                    painter.drawText(self.rect(), Qt.AlignCenter,
+                                     "Loading Alien Floyd's…")
             painter.end()
             return
         self._ensure_surface()
