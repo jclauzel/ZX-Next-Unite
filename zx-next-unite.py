@@ -5081,6 +5081,13 @@ class MainWindow(QMainWindow):
 
             selected_nextsync_explorer_sync_root_directory = ""
 
+            # When the caller passes an explicit folder (e.g. the Gallery / ZXDB /
+            # GetIt "Send via NextSync" button) the transfer is meant to run
+            # exactly once. The "Sync once" checkbox defaults to unchecked on a
+            # fresh install, so without this override the server loop would keep
+            # listening forever. Force a one-shot sync for those invocations.
+            force_sync_once = False
+
             # Only touch the pane progress bar when running from the pane (no cancel_flag = pane invocation)
             if cancel_flag is None:
                 self.nextsync_progressbar.setValue(0)
@@ -5095,6 +5102,8 @@ class MainWindow(QMainWindow):
             if serve_folder and os.path.isdir(serve_folder):
                 # Caller specified an exact folder (e.g. downloads/comix) — use it directly.
                 selected_nextsync_explorer_sync_root_directory = serve_folder.rstrip("/\\") + "/"
+                # This path is only taken from the "Send via NextSync" buttons; sync once.
+                force_sync_once = True
             elif self.left_file_nextsync_explorer_selection_full_filename_path:
                 splitted_filepath = self.left_file_nextsync_explorer_selection_full_filename_path.split('/')
                 if not os.path.isdir(self.left_file_nextsync_explorer_selection_full_filename_path):
@@ -5260,7 +5269,7 @@ class MainWindow(QMainWindow):
 
                 add_nextsync_log_window (f"{timestamp()} | Disconnected")
                 add_nextsync_log_window ("")
-                if self.nextsync_synconce_checkbox.isChecked() or (cancel_flag is not None and cancel_flag.is_set()):
+                if force_sync_once or self.nextsync_synconce_checkbox.isChecked() or (cancel_flag is not None and cancel_flag.is_set()):
                     working = False
 
             nextsync_hide_start_cancel_buttons()
