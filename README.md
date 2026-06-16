@@ -8,7 +8,7 @@ ZX-Next-Unite is a Qt Application using pyside6 and pygame-ce in Python on top o
 
 Videos:
 * "Setup & How to": [https://youtu.be/-gUxV4fM1yo](https://youtu.be/-gUxV4fM1yo) (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )
-* Show Time: [https://youtu.be/0qsIU01zsoM](https://youtu.be/0qsIU01zsoM)
+* Demo / Show Time!: [https://youtu.be/0qsIU01zsoM](https://youtu.be/0qsIU01zsoM)
 * Emulators Integration: [https://youtube.com/shorts/hPmV5shvBfo](https://youtube.com/shorts/hPmV5shvBfo)
 * Py Hdfm Gooey NextSync Head Over Heels: https://www.youtube.com/watch?v=D3_WqTPvjOE
 * Py Hdfm Gooey - NextSync - Night Knight: https://www.youtube.com/watch?v=eN1eMIqMCm4&t=12s
