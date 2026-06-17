@@ -1,0 +1,4 @@
+syncignore.txt
+syncpoint.dat
+*.bak
+*.py

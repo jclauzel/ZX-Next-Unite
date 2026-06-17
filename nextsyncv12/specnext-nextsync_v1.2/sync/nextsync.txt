@@ -1,0 +1,455 @@
+NextSync 1.1
+by Jari Komppa 2020
+http://iki.fi/sol
+
+
+
+What is this?
+-------------
+NextSync provides a way to transfer files to the ZX Spectrum Next using
+the Next's WIFI module. While it is primarily designed to be a 
+development tool (syncing builds easily to the next), but it can be 
+useful for non-developer users of the Next.
+
+NextSync consists of two parts: server running on a desktop machine
+and a "dot" command running on the next itself.
+
+The server is implemented in Python 3, and as such should work on any
+platform that runs Python (windows, mac, linux, bsd, probably your
+fridge).
+
+
+
+Usage concept
+-------------
+Server runs from a directory that is mirrored to the root of the next
+filesystem. I.e, if you want to copy "hello.txt" to "/test/" directory,
+first create the "test" directory both on the sd card and under
+the folder you're running the server from, put "hello.txt" to the
+server's "test" directory, and run .sync on the next. The file
+should get copied over.
+
+        For example: Assuming you're running the server from:
+
+            c:\spectrum_stuff\nextsync\
+
+        the file:
+
+            c:\spectrum_stuff\nextsync\dot\zakplay
+
+        will be synced to 
+
+            /dot/zakplay
+
+You don't need (and should not!) have all of the sd card's files in
+your sync folder.
+
+The sever creates syncpoint.dat to know which files are new. If you
+want to sync everything, just delete the file.
+
+If you have files in your sync folder you don't want to be synced
+(such as temporary files from compilation), you can add them to the
+syncignore.txt file.
+
+The server does not need to be closed between syncs. The server
+checks for files to send when .sync is run on the next.
+
+
+
+Step By Step Setup
+------------------
+
+DESKTOP SIDE SETUP
+
+1.  Copy the specnext.py to the directory on your machine which you
+    desire to represent the "root" of the Next's filesystem (i.e, the
+    sd card). You may also want to copy the syncignore.txt.
+    syncignore.txt contains filenames and file masks you don't want
+    to sync. The default ignores .bak files as well as the server
+    itself.    
+
+2.  Install python 3 if you don't have it (python.org)
+
+3.  Run the server specnext.py. It should show something like the
+    following:
+
+        NextSync server, protocol version NextSync3
+        by Jari Komppa 2020
+
+        Running on host: 
+            DESKTOP-NEW2020
+        IP addresses:
+            192.168.56.1
+            192.168.1.225
+        Primary IP:
+            192.168.1.225
+
+        Note: Using C:\specnext\nextsync as sync root
+        Note: Sync point file syncpoint.dat not found, syncing all files regardless of timestamp.
+        Warning: Ready to sync 48 files, 471.53 kilobytes.
+
+        2020-05-18 22:02:55 | NextSync listening to port 2048
+
+4. Take heed of the warnings printed. If the root directory is wrong or 
+   you're seeing a massive amount of data to be synced, you may have
+   run the server in a wrong directory.
+   
+5. Your operating system may ask if you want to let the server
+   use the network. Local area network access is sufficient.   
+
+ZX SPECTRUM NEXT SIDE SETUP
+
+5.  Copy dot/sync from this distribution to your spectrum next sd card
+    (into the dot directory).
+   
+6. Make sure the WIFI module is working on the next. If you've never
+   used it, run the /demos/esp/wifi.bas from the spectrum next sd card.
+   After setting up, you can try /demos/NXtel to see if you can 
+   connect somewhere. (Note that not all ZX Spectrum Next models come
+   with a WIFI module. One can be installed, though; it's a solderless
+   operation).
+
+7. Open next command line and type .sync and hit enter. It should complain
+   that the configuration file is missing.
+
+8. Type .sync followed by either your server's host name or ip address.
+   Either should work. If more than one ip address is listed, it's possible
+   you are on several networks, or have installed VirtualBox or some other
+   thingy that creates virtual network interfaces. Use the one that's
+   in your local area network. If you use the wrong one, it doesn't matter,
+   it just won't work. You can always try the other one later.
+   
+9. Now you can type .sync without parameters and it should do the sync.
+
+Now you can add/modify files to the server directory (or, more likely, a 
+subdirectory) and run .sync again. Note that you don't need to close the server.
+    
+The server only sends new files. To force sync of everything, delete
+the syncpoint.dat file that the server creates.
+    
+To close the server, either just close its window, or hit control-break.
+Control-c doesn't seem to work, at least in windows.
+
+If you're having problems, try syncslow.
+If you're NOT having problems, try syncfast.   
+    
+    
+Troubleshooting
+---------------
+
+    - When in doubt, cold boot the next, close server and restart it.
+
+"Can't talk to esp. Resetting esp, try again."
+    - Try again. Maybe it works the next time.
+    - Does your next have a  wifi module installed?
+    - Is the wifi module configured?
+    - Does NxTel work?
+      
+"Can't talk to esp fast"
+    - Shouldn't happen. Do a cold boot and try again.
+    - Try syncslow instead of sync. 
+      syncslow is a fallback version which uses the standard uart speed.
+
+"Unable to connect"
+    - Is the server running?
+    - Is the server ip/name correct?
+    - Is the server on the same network?
+    - Is the server at "NextSync listening to port 2048"?
+      If your transfer hung for some reason, restart server.
+    - Is the Next's wifi configured to be on the same network?
+    - The server name is stored in c:/sys/config/nextsync.cfg
+
+"Server version mismatch"
+    - Use the same version of server and .sync
+    - Try syncslow.
+    - If you do and still get this, something is seriously wrong.
+      This is the first actual communication between the next and
+      the server, so if any issues occur, it's most likely here.
+
+"Unable to open file"
+    - Can happen if you're trying to sync sync itself, or if the files are open
+      otherwise, write protected, broken or something else went wrong.
+    - While nextsync tries to create directories, this doesn't always work
+      out. If the destination directory doesn't exist, it may lead to this error.
+
+Python error:
+    Traceback (most recent call last):
+       File "... nextsync.py", line 198, in <module>
+         main()
+       File "... nextsync.py", line 100, in main
+         hostinfo = socket.gethostbyname_ex(socket.gethostname())
+    UnicodeDecodeError: 'utf-8' codec can't decode byte ... in position ...
+
+    - You're running Windows and your host name has non-ascii characters.
+      This is a known python issue from 2016. Either rename your computer,
+      (since hostnames shouldn't actually include non-ascii characters like
+      umlauts) or you can try setting the PYTHONLEGACYWINDOWSFSENCODING 
+      environment variable to 1.
+      
+Transfer hangs:
+    - I've seen this happen rarely. Restart the next and the server,
+      and try syncing again. If you see a lot of these, try either the
+      safe packet size option for the server (-s flag), or try syncslow.
+
+A lot of retries/restarts:
+    - Try syncslow. Alternatively (or in addition), you can try running
+      the server with the -s option, which shrinks the packet size
+      down to 256 bytes (from 1024 bytes). This is slower, but will
+      always fit in the next's buffers.
+
+It's so slow:
+    - This is 8-bit technology we're talking about. You may wan to try
+      syncfast and/or running server with -u, but don't expect miracles.    
+
+Nothing here helps:
+    - The esp-01 module in the next is a low-end part, and to make things
+      worse, there are various versions of it in different machines.
+      You may just be unlucky and have one that doesn't work with nextsync.
+    - It may be possible to update the firmware of your esp-01 module,
+      but you are (naturally) doing that at your own risk. On the other
+      hand, if it's already broken, you may have fairly little to lose.
+    - As an alternative, there are wifi-enabled SD cards in the market, 
+      you may wish to look into these.
+
+
+Server options
+--------------
+
+The server creates syncpoint.dat file which it uses to detect new files to sync.
+The file contains list of files synced, so even if you manage to create
+files that are older, they will be synced. All known files that are newer
+than the syncpoint file are also synced.
+
+To force sync all of the files (once), delete the syncpoint.dat file.
+
+If you want to always sync all of the files for whatever reason
+(maybe you're running a specnext copyparty or something?) you can
+tell the server to ignore the syncpoint by saying:
+
+nextsync.py -a
+
+By default the server keeps running, but if you want to run only one
+sync cycle and quit, you can do:
+
+nextsync.py -o
+
+To make the server ignore some files and never sync them, add the filenames
+(or file masks) to the syncignore.txt file. For example:
+
+    syncignore.txt
+    
+tells the server not to sync the 'syncignore.txt' file.
+    
+    *.py
+    
+tells the serer not to sync any files with the .py extension.
+
+The server names the filenames it sends as /foo/bar, meaning if you run
+sync from a different drive (should you have several), the sync will
+happen to that drive. You can run the server with an optional parameter
+to add drive letter too:
+
+nextsync.py -c
+
+turns the filenames to c:/foo/bar. The same goes for -d and -e.
+
+The ram disk m: cannot be used as a sync target, and the same goes for
+mounted .dsk or .p3m images. This is a limitation of the esxdos interface
+sync is based on.
+
+If you're seeing a lot of retries and/or restarts, you may want to
+try the "safe" payload size option:
+
+nextsync.py -s
+
+This shrinks the payload size to 256 bytes, which will fit into the
+next's buffers.
+
+To go the other way and squeeze just a little bit more transfer rate,
+you can tell the server to send slightly oversized "unsafe" packets:
+
+nextsync.py -u
+
+
+Benchmarks
+----------
+
+The following values are from single runs each, so they're not all
+that scientific. Network hickups, sd card hickups, errors (retries,
+restarts), etc. may affect transfer speed. Also your wifi module
+may be different from mine, and your network setup definitely is.
+
+Single large file
+214.70 kilobytes transferred in  4.45 seconds, 48.22 kBps - syncfast, -u
+214.70 kilobytes transferred in  4.92 seconds, 43.66 kBps - syncfast
+214.70 kilobytes transferred in  8.35 seconds, 25.73 kBps - syncfast, -s
+214.70 kilobytes transferred in  5.38 seconds, 39.94 kBps - sync, -u
+214.70 kilobytes transferred in  5.69 seconds, 37.74 kBps - sync
+214.70 kilobytes transferred in  9.35 seconds, 22.96 kBps - sync, -s
+214.70 kilobytes transferred in 23.37 seconds,  9.19 kBps - syncslow, -u
+214.70 kilobytes transferred in 24.21 seconds,  8.87 kBps - syncslow
+214.70 kilobytes transferred in 31.03 seconds,  6.92 kBps - syncslow, -s
+
+48k/sec ought to be enough for a speccy ;)
+
+When transferring multiple files, things get a bit slower due to all
+of the handshaking;
+
+48 files of various sizes
+462.72 kilobytes transferred in 17.33 seconds, 26.71 kBps - syncfast, -u
+462.72 kilobytes transferred in 17.85 seconds, 25.93 kBps - syncfast
+462.72 kilobytes transferred in 25.28 seconds, 18.31 kBps - syncfast, -s
+462.72 kilobytes transferred in 18.94 seconds, 24.43 kBps - sync, -u
+462.72 kilobytes transferred in 19.86 seconds, 23.30 kBps - sync
+462.72 kilobytes transferred in 27.55 seconds, 16.80 kBps - sync, -s
+462.72 kilobytes transferred in 60.20 seconds,  7.69 kBps - syncslow, -u
+462.72 kilobytes transferred in 62.08 seconds,  7.45 kBps - syncslow
+462.72 kilobytes transferred in 75.41 seconds,  6.14 kBps - syncslow, -s
+
+
+Protocol
+--------
+
+The NextSync3 protocol works as follows:
+
+All server sent packages are encapsulated with
+[2 bytes big endian whole packet size][payload][checksums, 2 bytes][packet number, 1 byte]
+
+Where checksum1 and checksum2 are calculated by:
+checksum1 = 0
+checksum2 = 0
+for every x in payload:
+  checksum1 = checksum1 xor x
+  checksum2 = checksum2 + checksum1
+
+Handshake:
+next: "Sync3"
+server:"NextSync3"
+- To check that we're talking the same language
+
+Next file:
+next: "Next"
+server: [file length 4 bytes big endian][filename length 1 byte][filename]
+- Request the next file to be synced
+- If no files left, payload of five zeroes
+
+Next chunk:
+next: "Get"
+server: [up to 1455 bytes; up to 1024 by default, up to 256 in safe mode]
+- If file has ended, payload is empty
+
+Retry:
+next:"Retry"
+server: resend previous payload
+- Note that this can also happen after 'Next' packet.
+- Retrying happens forever
+
+Restart:
+next:"Restart"
+server: "Back"
+- Used when nextsync notices packet number problem
+- Server rewinds file to the beginning
+
+next: "Sync", "Sync1", "Sync2"
+server: "Nextsync 0.8 or later needed"
+- For older protocol versions, the error string is sent
+
+next: "Bye"
+server: "Later"
+- Disconnect.
+
+Otherwise:
+next:???
+server:"Error"
+- For other requests, server returns "Error"
+
+
+Sending files FROM the Next (Sync4 / ZX Next Unite)
+---------------------------------------------------
+
+The ZX Next Unite app adds a backwards-compatible extension that lets the
+Next push files TO the PC:
+
+    .sync -send <file>
+    .sync -send <directory>
+
+A directory is sent recursively and its tree is recreated under the folder
+currently selected in the app's NextSync pane. Relative paths are recommended
+(e.g. ".sync -send mygame" or ".sync -send levels/intro.scr"); a drive letter
+or leading slash is stripped by the app, and ".."/"." segments are dropped so
+nothing can escape the destination folder.
+
+This requires an up-to-date app: send mode negotiates a new protocol version,
+"Sync4". Plain ".sync" (receiving, PC -> Next) still uses "Sync3" exactly as
+before, so existing setups are unaffected. An older app that only knows Sync3
+will refuse the upload ("App too old for upload").
+
+Notes / limitations:
+- The configured server (from .sync <server>) is reused; configure it once with
+  a normal .sync first.
+- Directory recursion keeps one esxDOS directory handle open per nesting level,
+  so extremely deep trees may run out of handles.
+- To make room for the send code within the 8KB .dot size limit, this build uses
+  plain scrolling text output (via the ROM) instead of the original graphical,
+  positioned on-screen display. Both sync (receive) and send now print simple
+  status lines rather than an in-place progress counter.
+
+Sync4 upload protocol
+---------------------
+
+Handshake / mode select (Next is the TCP client and drives everything):
+
+next: "Sync4"
+server: "NextSync4"
+- Negotiate the bidirectional protocol.
+
+next: "Send"
+server: "Send"
+- Switch the server into receive-from-Next mode. After this, every Next->server
+  message is a length-prefixed block (sent with AT+CIPSEND, not CIPSENDEX, so
+  NUL bytes in file data survive).
+
+Upload blocks (Next -> server) use the same framing as server packets:
+[2 bytes big endian total][payload][checksum0][checksum1][packetno]
+where total = len(payload) + 5 (includes the 2 length bytes) and the checksums
+are computed exactly as in the download direction. packetno is a single counter
+for the whole send session (it is NOT reset per file). payload[0] is the opcode:
+
+  'N' new file: 'N' + [4 bytes file length, big endian, 0 = unknown]
+                    + [1 byte name length] + name (relative path)
+  'D' data:     'D' + up to 1024 file bytes
+  'E' end of the current file
+  'B' bye / end of session
+
+The server replies to each block with a normal framed packet:
+  "Ok"     - accepted, advance to the next block
+  "Resend" - checksum/frame bad, the Next resends the same block (same packetno)
+  "Err..." - fatal, the Next aborts
+If the Next's ack is lost it resends a block whose packetno equals the server's
+last-accepted one; the server re-acks "Ok" without writing the data again.
+
+
+ESP-01 Challenges
+-----------------
+
+The wifi module in Next is a bit of a temperamental beast. There are
+a bunch of variables that make its use unreliable.
+
+First, there's different versions of it, some of which actually use
+slightly different AT command set. The commands that NextSync uses
+should be common to all versions, though. Timings and other behavior
+may still differ.
+
+Sometimes things are mistransmitted. NextSync deals with this by
+using checksums, so bad data transfers are unlikely. On the server
+side, a couple common mistransmissions are accepted.
+
+Sometimes the esp may just have a brain fart and send kilobytes
+of noise to the z80. This is pretty hard to deal with, so sometimes
+transfers just break, or hang. Often NextSync survives these but
+may take a while.
+
+Next cores 3.01.10 and above have a Tx buffer size of 64 bytes, not
+1 byte. So bytes are accepted faster but still sent at the same rate.
+To preserve previous timings, on 3.01.10+ NextSync waits for all the
+bytes to be sent before continuing.

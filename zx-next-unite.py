@@ -2338,8 +2338,6 @@ class MainWindow(QMainWindow):
             self.image_treeview.setDisabled(True)
             self.button_new_folder.setDisabled(True)
             self.button_delete_files.setDisabled(True)
-            self.button_cancel.setDisabled(True)
-            self.button_confirm_deletion.setDisabled(True)
             self.new_folder_input.setDisabled(True)
             self.button_create_directory.setDisabled(True)
             self.button_start_cspect.setDisabled(True)
@@ -2363,8 +2361,6 @@ class MainWindow(QMainWindow):
             self.image_treeview.setDisabled(False)
             self.button_new_folder.setDisabled(False)
             self.button_delete_files.setDisabled(False)
-            self.button_cancel.setDisabled(False)
-            self.button_confirm_deletion.setDisabled(False)
             self.new_folder_input.setDisabled(False)
             self.button_create_directory.setDisabled(False)
             self.button_start_cspect.setDisabled(False)
@@ -3140,19 +3136,6 @@ class MainWindow(QMainWindow):
                 return
             image_confirm_deletion_dialog()
 
-
-        def button_confirm_directory_deletion():
-            image_delete_files()
-            self.button_confirm_deletion.setVisible(False)
-            self.button_cancel.setVisible(False)
-            self.button_new_folder.setVisible(True)
-            self.button_delete_files.setVisible(True)
-
-        def button_cancel_deletion():
-            self.button_confirm_deletion.setVisible(False)
-            self.button_cancel.setVisible(False)
-            self.button_new_folder.setVisible(True)
-            self.button_delete_files.setVisible(True)
 
         def is_hdfmonkey_present():
 
@@ -5166,6 +5149,68 @@ class MainWindow(QMainWindow):
             if ZX_NEXT_UNITE_VERBOSE_LOG_MODE:
                 add_nextsync_log_window (str(timestamp()) + " | Packet sent: " + str(len(packet)) + " bytes, payload: " + str(len(payload)) + " bytes, checksums: " + str(checksum0) + ", " + str(checksum1) + ", packetno: " + str(packetno & 0xff) )
 
+        # ---- Sync4 upload (Next -> PC) helpers ------------------------------
+        # The Next frames each uploaded block exactly like sendpacket():
+        #   [2 bytes big-endian total][payload][checksum0][checksum1][packetno]
+        # where total = len(payload) + 5. recv_block() reverses that and
+        # verifies the checksums.
+
+        def recv_exact(conn, n):
+            """Read exactly n bytes from conn, or None on disconnect."""
+            buf = b''
+            while len(buf) < n:
+                chunk = conn.recv(n - len(buf))
+                if not chunk:
+                    return None
+                buf += chunk
+            return buf
+
+        def recv_block(conn):
+            """Read one framed upload block.
+
+            Returns (payload_bytes, packetno) on success, the string 'BADCS'
+            when the frame's checksum is wrong (caller should ask for a resend),
+            or None on disconnect / malformed length.
+            """
+            hdr = recv_exact(conn, 2)
+            if hdr is None:
+                return None
+            total = (hdr[0] << 8) | hdr[1]
+            if total < 5 or total > 4096:
+                return None
+            rest = recv_exact(conn, total - 2)
+            if rest is None:
+                return None
+            payload = rest[:-3]
+            cs0, cs1, pktno = rest[-3], rest[-2], rest[-1]
+            c0 = 0
+            c1 = 0
+            for x in payload:
+                c0 = (c0 ^ x) & 0xff
+                c1 = (c1 + c0) & 0xff
+            if c0 != cs0 or c1 != cs1:
+                return 'BADCS'
+            return (payload, pktno)
+
+        def sanitize_incoming_path(root, name):
+            """Map a filename reported by the Next to a safe path under root.
+
+            Strips any drive letter and leading slashes, drops '.'/'..'
+            segments, and guarantees the result stays inside root.
+            """
+            name = name.replace('\\', '/')
+            if len(name) >= 2 and name[1] == ':':
+                name = name[2:]
+            name = name.lstrip('/')
+            parts = [p for p in name.split('/') if p not in ('', '.', '..')]
+            rel = os.path.join(*parts) if parts else 'received.bin'
+            dest = os.path.normpath(os.path.join(root, rel))
+            root_abs = os.path.abspath(root)
+            if not (os.path.abspath(dest) == root_abs or
+                    os.path.abspath(dest).startswith(root_abs + os.sep)):
+                dest = os.path.join(root, os.path.basename(rel) or 'received.bin')
+            return dest
+
         def nextsync_warnings():
             add_nextsync_log_window ("")
 
@@ -5281,7 +5326,11 @@ class MainWindow(QMainWindow):
                     working = False
                     break
                 add_nextsync_log_window (f"{timestamp()} | NextSync listening to port {PORT}")
-                add_nextsync_log_window (f"{timestamp()} | Now start run .sync (or .syncfast) command on your Next!" )
+                add_nextsync_log_window (f"{timestamp()} | Now run one of these commands on your Next:" )
+                add_nextsync_log_window (f"{timestamp()} |   PC  -> Next : .sync   (or .syncfast)")
+                add_nextsync_log_window (f"{timestamp()} |   Next -> PC  : .sync -send <file or directory>")
+                if selected_nextsync_explorer_sync_root_directory:
+                    add_nextsync_log_window (f"{timestamp()} |   (-send saves received files under: {selected_nextsync_explorer_sync_root_directory})")
                 totalbytes = 0
                 payloadbytes = 0
                 starttime = 0
@@ -5337,6 +5386,101 @@ class MainWindow(QMainWindow):
                                 sendpacket(conn, packet, 0)
                                 packets += 1
                                 totalbytes += len(packet)
+                            elif data == b"Sync4":
+                                # Bidirectional protocol negotiation (Sync4). Only
+                                # then will the Next be allowed to push files to us.
+                                add_nextsync_log_window (f'{timestamp()} | Using protocol version: {VERSION4}')
+                                packet = str.encode(VERSION4)
+                                sendpacket(conn, packet, 0)
+                                packets += 1
+                                totalbytes += len(packet)
+                            elif data == b"Send":
+                                # Sync4 upload mode: the Next pushes files to us.
+                                # We frame inbound blocks ourselves here (the main
+                                # recv(1024) loop can't frame length-prefixed data).
+                                add_nextsync_log_window (f'{timestamp()} | Receiving files from the Next...')
+                                sendpacket(conn, b"Send", 0)  # ack -> Next starts sending
+                                packets += 1
+                                upload_root = selected_nextsync_explorer_sync_root_directory or "./"
+                                add_nextsync_log_window (f'{timestamp()} | Saving incoming files under: {upload_root}')
+                                expected_pkt = 0
+                                cur_file = None
+                                cur_name = None
+                                cur_path = None
+                                cur_bytes = 0
+                                files_received = 0
+                                while True:
+                                    blk = recv_block(conn)
+                                    if blk is None:
+                                        add_nextsync_log_window (f'{timestamp()} | Upload connection closed')
+                                        break
+                                    if blk == 'BADCS':
+                                        if ZX_NEXT_UNITE_VERBOSE_LOG_MODE:
+                                            add_nextsync_log_window (f'{timestamp()} | Bad checksum, requesting resend')
+                                        sendpacket(conn, b"Resend", expected_pkt)
+                                        retries += 1
+                                        continue
+                                    payload, pktno = blk
+                                    # Duplicate of last block (our ack was lost): re-ack only.
+                                    if pktno == ((expected_pkt - 1) & 0xff):
+                                        sendpacket(conn, b"Ok", pktno)
+                                        continue
+                                    if pktno != expected_pkt:
+                                        add_nextsync_log_window (f'{timestamp()} | Packet sequence error (got {pktno}, expected {expected_pkt})')
+                                        sendpacket(conn, b"Err seq", pktno)
+                                        break
+                                    op = payload[0:1]
+                                    if op == b'N':
+                                        # 'N' + [4B filelen][1B namelen][name]
+                                        namelen = payload[5] if len(payload) > 5 else 0
+                                        cur_name = payload[6:6 + namelen].decode(errors='replace')
+                                        cur_path = sanitize_incoming_path(upload_root, cur_name)
+                                        try:
+                                            parent = os.path.dirname(cur_path)
+                                            if parent:
+                                                os.makedirs(parent, exist_ok=True)
+                                        except OSError:
+                                            pass
+                                        if cur_file is not None:
+                                            cur_file.close()
+                                        try:
+                                            cur_file = open(cur_path, 'wb')
+                                        except OSError as ex:
+                                            add_nextsync_log_window (f'{timestamp()} | Cannot create {cur_path}: {ex}')
+                                            cur_file = None
+                                            sendpacket(conn, b"Err open", pktno)
+                                            break
+                                        cur_bytes = 0
+                                        add_nextsync_log_window (f'{timestamp()} | Receiving: {cur_name} -> {cur_path}')
+                                        if status_callback is not None:
+                                            status_callback.emit(f"Receiving file\n{cur_name}")
+                                        sendpacket(conn, b"Ok", pktno)
+                                    elif op == b'D':
+                                        if cur_file is not None:
+                                            cur_file.write(payload[1:])
+                                            cur_bytes += len(payload) - 1
+                                        payloadbytes += len(payload) - 1
+                                        totalbytes += len(payload)
+                                        sendpacket(conn, b"Ok", pktno)
+                                    elif op == b'E':
+                                        if cur_file is not None:
+                                            cur_file.close()
+                                            cur_file = None
+                                            files_received += 1
+                                            add_nextsync_log_window (f'{timestamp()} | Received {cur_name} ({cur_bytes} bytes)')
+                                        sendpacket(conn, b"Ok", pktno)
+                                    elif op == b'B':
+                                        sendpacket(conn, b"Later", pktno)
+                                        add_nextsync_log_window (f'{timestamp()} | Upload finished, {files_received} file(s) received')
+                                        break
+                                    else:
+                                        sendpacket(conn, b"Err op", pktno)
+                                        break
+                                    expected_pkt = (expected_pkt + 1) & 0xff
+                                if cur_file is not None:
+                                    cur_file.close()
+                                    cur_file = None
+                                talking = False
                             elif data == b"Next" or data == b"Neex": # Really common mistransmit. Probably uart-esp..
                                 if data == b"Neex":
                                     gee += 1
@@ -5736,24 +5880,8 @@ class MainWindow(QMainWindow):
         self.button_delete_files.setMinimumWidth(IMAGE_BUTTONS_SIZE)
         self.button_delete_files.clicked.connect(delete_files_button_show_confirmation_buttons)
 
-        self.button_cancel = QPushButton("Cancel", self)
-        self.button_cancel.setText("Cancel")
-        self.button_cancel.setMinimumWidth(IMAGE_BUTTONS_SIZE)
-        self.button_cancel.setVisible(False)
-        self.button_cancel.clicked.connect(button_cancel_deletion)
-
-        self.button_confirm_deletion = QPushButton("Yes, confirm deletion", self)
-        self.button_confirm_deletion.setText("Yes, confirm deletion")
-        self.button_confirm_deletion.setMinimumWidth(IMAGE_BUTTONS_SIZE)
-        self.button_confirm_deletion.setVisible(False)
-
-        self.button_confirm_deletion.clicked.connect(button_confirm_directory_deletion)
-
         self.imageexplorerbuttons.addWidget(self.button_new_folder)
         self.imageexplorerbuttons.addWidget(self.button_delete_files)
-
-        self.imageexplorerbuttons.addWidget(self.button_confirm_deletion)
-        self.imageexplorerbuttons.addWidget(self.button_cancel)
 
         self.imageexplorerbuttons.addWidget(self.download_and_install_hdfmonkey_button)
 

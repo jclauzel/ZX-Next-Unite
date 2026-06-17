@@ -241,6 +241,10 @@ DEFAULT_COLOR_FILE_SIZE   = "#00ff00"
 
 PORT = 2048    # Port to listen on (non-privileged ports are > 1023)
 VERSION3 = "NextSync3"
+# Sync4 adds the bidirectional ("-send") upload direction (Next -> PC). Old Sync3
+# dots keep working unchanged (PC -> Next only); only Sync4 dots can push files
+# to the app. VERSION below doubles as the banner text and the Sync4 reply.
+VERSION4 = "NextSync4"
 VERSION = "NextSync4"
 IGNOREFILE = "syncignore.txt"
 SYNCPOINT = "syncpoint.dat"
