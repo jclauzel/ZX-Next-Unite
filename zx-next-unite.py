@@ -256,7 +256,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtCore import Q_ARG
 from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QImage, QFontInfo, QPainter, QPixmap, QFont
-from PySide6.QtGui import QImageReader
+from PySide6.QtGui import QImageReader, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -289,6 +289,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QSpinBox,
     QStackedWidget,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QTabBar,
@@ -1980,6 +1981,17 @@ def _apply_completer_fix_to_children(widget: QWidget):
         # Recursively patch deeper levels
         _apply_completer_fix_to_children(child)
 
+# ---------------------------------------------------------------------------
+# Item-data roles for the SD-card image explorer tree (QTreeView +
+# QStandardItemModel). The disk image is a virtual filesystem reachable only
+# through hdfmonkey, so every tree item carries its full in-image path plus the
+# bookkeeping needed for lazy expansion.
+# ---------------------------------------------------------------------------
+IMG_PATH_ROLE   = int(Qt.ItemDataRole.UserRole) + 1   # full path inside the image, e.g. "/games/manic.tap"
+IMG_ISDIR_ROLE  = int(Qt.ItemDataRole.UserRole) + 2   # bool: is this item a directory
+IMG_LOADED_ROLE = int(Qt.ItemDataRole.UserRole) + 3   # bool: have this folder's children been loaded
+
+
 class MainWindow(QMainWindow):
 
     def _show_toast(self, title: str, message: str = "", *, variant: str = "green",
@@ -2131,6 +2143,14 @@ class MainWindow(QMainWindow):
         right_disk_image_path = ""
         self.right_disk_image_path = ""
         right_disk_image_selected_files = []
+        # Current selection inside the SD-card image explorer tree. These drive
+        # all image-side operations (download/upload/delete/new-folder) now that
+        # the explorer is a hierarchical tree rather than a directory-by-directory
+        # table. image_selected_path is the full in-image path of the selected
+        # item ("" when nothing is selected); image_selected_is_dir says whether
+        # that item is a directory.
+        self.image_selected_path = ""
+        self.image_selected_is_dir = False
         configuration_dictionary = {}
         # Initialise defaults for settings that may not exist in older cfg files
         configuration_dictionary[SETTING_CONTENT_DISCLAIMER_AGREED] = ""
@@ -2315,7 +2335,7 @@ class MainWindow(QMainWindow):
             self.treeview.setDisabled(True)
             self.button_to_disk.setDisabled(True)
             self.button_to_image.setDisabled(True)
-            self.TableWidgetImage.setDisabled(True)
+            self.image_treeview.setDisabled(True)
             self.button_new_folder.setDisabled(True)
             self.button_delete_files.setDisabled(True)
             self.button_cancel.setDisabled(True)
@@ -2340,7 +2360,7 @@ class MainWindow(QMainWindow):
             self.treeview.setDisabled(False)
             self.button_to_disk.setDisabled(False)
             self.button_to_image.setDisabled(False)
-            self.TableWidgetImage.setDisabled(False)
+            self.image_treeview.setDisabled(False)
             self.button_new_folder.setDisabled(False)
             self.button_delete_files.setDisabled(False)
             self.button_cancel.setDisabled(False)
@@ -3109,13 +3129,16 @@ class MainWindow(QMainWindow):
 
 
         def delete_files_button_show_confirmation_buttons():
-            if self.settings_no_prompt_on_deletion_checkbox.isChecked():
-                button_confirm_directory_deletion()
+            if not self.image_selected_path:
+                logging.info("Please select an image file or folder first to delete!")
+                add_main_log_window("Please select an image file or folder first to delete!")
                 return
-            self.button_confirm_deletion.setVisible(True)
-            self.button_cancel.setVisible(True)
-            self.button_new_folder.setVisible(False)
-            self.button_delete_files.setVisible(False)
+            # When "Do not prompt for confirmation on deletion" is enabled, delete
+            # straight away; otherwise ask for confirmation via a popup dialog.
+            if self.settings_no_prompt_on_deletion_checkbox.isChecked():
+                image_delete_files()
+                return
+            image_confirm_deletion_dialog()
 
 
         def button_confirm_directory_deletion():
@@ -3168,32 +3191,24 @@ class MainWindow(QMainWindow):
         def load_image():
 
             global right_disk_image_explorer_content
+            global right_disk_image_explorer_path
 
-            # Populate right impage path content
+            # Populate right image path content
             self.right_disk_image_path = self.imageinput.currentText()
 
+            right_disk_image_explorer_path = []
             right_disk_image_explorer_content = []
-            self.TableWidgetImage.clear()
-            self.TableWidgetImage.setRowCount(0)
-            set_table_image_properties()
+            image_clear_model()
 
             if self.right_disk_image_path and self.right_disk_image_path != '""':
-                hdfmonkeyexecresult = execute_hdf_monkey("ls", self.right_disk_image_path)
-
-                if hdfmonkeyexecresult.returncode == 0:
-                    command_execution = hdfmonkeyexecresult.stdout
-                    update_disk_manager_widget_table(command_execution)
+                if image_load_root():
                     self.diskimageexplorerlabelpath.setText(generate_disk_file_path().replace('//', '/'))
                     set_all_buttons_enabled()
                     _add_to_image_history(self.right_disk_image_path)
                     return True
                 else:
-                    if hdfmonkeyexecresult is not None:
-                        logging.error(f"Failed loading image :{self.right_disk_image_path} - hdfmonkey result code: {hdfmonkeyexecresult.returncode}")
-                        add_main_log_window(f"Failed loading image :{self.right_disk_image_path} - hdfmonkey result code: {hdfmonkeyexecresult.returncode}")
-                    else:
-                        logging.error(f"Failed loading image :{self.right_disk_image_path}.")
-                        add_main_log_window(f"Failed loading image :{self.right_disk_image_path}.")
+                    logging.error(f"Failed loading image :{self.right_disk_image_path}.")
+                    add_main_log_window(f"Failed loading image :{self.right_disk_image_path}.")
 
             set_all_buttons_disabled()
             enable_image_selection()
@@ -3214,15 +3229,29 @@ class MainWindow(QMainWindow):
             self.nextsync_treeview.show()
 
         def apply_image_filter():
+            # Filter the image explorer tree in real-time. A row is shown when its
+            # own Name/Type/Size text matches OR any of its (already-loaded)
+            # descendants match, so matches stay reachable inside folders.
             text = self.image_filtertext.text().strip().lower()
-            for row in range(self.TableWidgetImage.rowCount()):
-                match = False
-                for col in range(self.TableWidgetImage.columnCount()):
-                    item = self.TableWidgetImage.item(row, col)
-                    if item and text in item.text().lower():
-                        match = True
-                        break
-                self.TableWidgetImage.setRowHidden(row, not match if text else False)
+
+            def _filter(parent_item):
+                any_visible = False
+                for r in range(parent_item.rowCount()):
+                    name_item = parent_item.child(r, 0)
+                    if name_item is None:
+                        continue
+                    child_match = _filter(name_item)
+                    row_text = " ".join(
+                        (parent_item.child(r, c).text() if parent_item.child(r, c) else "")
+                        for c in range(self.image_model.columnCount())
+                    ).lower()
+                    self_match = (text in row_text) if text else True
+                    visible = self_match or child_match
+                    self.image_treeview.setRowHidden(r, name_item.index().parent(), not visible)
+                    any_visible = any_visible or visible
+                return any_visible
+
+            _filter(self.image_model.invisibleRootItem())
 
         def add_main_log_window(string_to_log:str):
             newItem = QListWidgetItem()
@@ -3248,10 +3277,11 @@ class MainWindow(QMainWindow):
                 self.listWidgetHelp.insertItem(self.listWidgetHelp.count(), newItem)
 
         def set_table_image_properties():
-            self.TableWidgetImage.setHorizontalHeaderLabels(["Name", "Type", "Size"])
-            self.TableWidgetImage.setSortingEnabled(True)
-            self.TableWidgetImage.horizontalHeader().setSortIndicatorShown(True)
-            self.TableWidgetImage.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+            # Header + column sizing for the image explorer tree. Kept under the
+            # original name so the construction code and the various reset paths
+            # can call it unchanged.
+            self.image_model.setHorizontalHeaderLabels(["Name", "Type", "Size"])
+            self.image_treeview.setColumnWidth(0, 250)
 
         def set_treeview_properties():
             self.treeview.setSortingEnabled(True)
@@ -3296,27 +3326,35 @@ class MainWindow(QMainWindow):
 
             save_configuration_file()
 
+        def image_invalid_folder_name(name):
+            """Return an error message if *name* is not a usable folder name, else ""."""
+            if name.strip() == "":
+                return "Please enter a folder name."
+            for not_allowed_chars in DIRECTORY_CREATION_NOT_ALLOWED_CHARACTERS:
+                if not_allowed_chars in name:
+                    nachars = "".join(DIRECTORY_CREATION_NOT_ALLOWED_CHARACTERS)
+                    return f"These characters are not allowed: {nachars}"
+            return ""
+
+        def image_create_folder_named(name):
+            """Create folder *name* inside the current target directory and
+            refresh the tree. Assumes *name* has already been validated."""
+            directory_to_create = (generate_disk_file_path() + "/" + name).replace("//", "/")
+            hdfmonkeyexecresult = execute_hdf_monkey("mkdir", self.right_disk_image_path, extra_argv=[directory_to_create])
+            if hdfmonkeyexecresult.returncode != 0:
+                logging.error(f"Failed creating directory - hdfmonkey result code: {hdfmonkeyexecresult.returncode}")
+                add_main_log_window(f"Failed creating directory - hdfmonkey result code: {hdfmonkeyexecresult.returncode}")
+            update_disk_manager_widget_table()
+
         def image_newfolder_create():
 
-            directory_to_create = self.new_folder_input.text()
+            directory_to_create = self.new_folder_input.text().strip()
 
-            if directory_to_create.strip() == "":
-                    logging.warning(f"Please enter a directory name!")
-                    add_main_log_window(f"Please enter a directory name!")
-                    return
-
-            for not_allowed_chars in DIRECTORY_CREATION_NOT_ALLOWED_CHARACTERS:
-                if not_allowed_chars in directory_to_create:
-                    nachars = ""
-                    for n in DIRECTORY_CREATION_NOT_ALLOWED_CHARACTERS:
-                        nachars += n
-
-                    logging.warning(f"Do not use any of the forbiden characters :{nachars} when creating directories!")
-                    add_main_log_window(f"Do not use any of the forbiden characters :{nachars} when creating directories!")
-                    return
-
-            directory_to_create = generate_disk_file_path() + "/" + directory_to_create
-            directory_to_create = directory_to_create.replace("//", "/")
+            error = image_invalid_folder_name(directory_to_create)
+            if error:
+                logging.warning(error)
+                add_main_log_window(error)
+                return
 
             self.button_new_folder.setVisible(True)
             self.button_delete_files.setVisible(True)
@@ -3324,20 +3362,59 @@ class MainWindow(QMainWindow):
             self.button_create_directory.setVisible(False)
             self.button_create_directory_cancel.setVisible(False)
 
-            hdfmonkeyexecresult = execute_hdf_monkey("mkdir", self.right_disk_image_path, extra_argv=[directory_to_create])
+            image_create_folder_named(directory_to_create)
 
-            if hdfmonkeyexecresult.returncode != 0:
-                logging.error(f"Failed creating directory - hdfmonkey result code: {hdfmonkeyexecresult.returncode}")
-                add_main_log_window(f"Failed creating directory - hdfmonkey result code: {hdfmonkeyexecresult.returncode}")
+        def image_newfolder_dialog():
+            # Popup dialog used by the tree's right-click "New Folder" action.
+            global right_disk_image_explorer_content
 
-            hdfmonkeyexecresult = execute_hdf_monkey("ls", self.right_disk_image_path, extra_argv=[generate_disk_file_path()])
+            if not right_disk_image_explorer_content:
+                logging.info("Please load an image file first !")
+                add_main_log_window("Please load an image file first !")
+                return
 
-            if hdfmonkeyexecresult.returncode != 0:
-                logging.error(f"Failed browsing directory after creating it - hdfmonkey result code: {hdfmonkeyexecresult.returncode}")
-                add_main_log_window(f"Failed browsing directory after creating it - hdfmonkey result code: {hdfmonkeyexecresult.returncode}")
+            nachars = "".join(DIRECTORY_CREATION_NOT_ALLOWED_CHARACTERS)
 
-            command_execution = hdfmonkeyexecresult.stdout
-            update_disk_manager_widget_table(command_execution)
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Create New Folder")
+            dialog.setMinimumWidth(380)
+            layout = QVBoxLayout(dialog)
+
+            dest = generate_disk_file_path().replace("//", "/")
+            info_label = QLabel(f"Create a new folder in:  {dest}", dialog)
+            layout.addWidget(info_label)
+
+            name_input = QLineEdit(dialog)
+            name_input.setPlaceholderText("New folder name…")
+            name_input.setToolTip(f"Enter a folder name ({nachars} are not allowed).")
+            layout.addWidget(name_input)
+
+            error_label = QLabel("", dialog)
+            error_label.setStyleSheet("color: #d33;")
+            error_label.setVisible(False)
+            layout.addWidget(error_label)
+
+            button_box = QDialogButtonBox(dialog)
+            create_button = button_box.addButton("Create", QDialogButtonBox.AcceptRole)
+            button_box.addButton("Cancel", QDialogButtonBox.RejectRole)
+            layout.addWidget(button_box)
+
+            def _on_create():
+                name = name_input.text().strip()
+                error = image_invalid_folder_name(name)
+                if error:
+                    error_label.setText(error)
+                    error_label.setVisible(True)
+                    return
+                image_create_folder_named(name)
+                dialog.accept()
+
+            create_button.clicked.connect(_on_create)
+            button_box.rejected.connect(dialog.reject)
+            name_input.returnPressed.connect(_on_create)
+
+            name_input.setFocus()
+            dialog.exec()
 
         def select_image():
 
@@ -3357,10 +3434,7 @@ class MainWindow(QMainWindow):
             right_disk_image_explorer_content = []
             right_disk_image_path = ""
             right_disk_image_selected_files = []
-            self.TableWidgetImage.clear()
-            self.TableWidgetImage.setRowCount(0)
-
-            set_table_image_properties()
+            image_clear_model()
 
             # Now try to load it
             if load_image():
@@ -3516,10 +3590,7 @@ class MainWindow(QMainWindow):
                 right_disk_image_explorer_content = []
                 right_disk_image_path = ""
                 right_disk_image_selected_files = []
-                self.TableWidgetImage.clear()
-                self.TableWidgetImage.setRowCount(0)
-
-                set_table_image_properties()
+                image_clear_model()
 
                 # Now try to load it
                 if load_image():
@@ -3979,20 +4050,21 @@ class MainWindow(QMainWindow):
 
             return False
 
-        def _run_delete_task(signals, cancel_event, image_path, disk_path_fn, files_to_delete):
+        def _run_delete_task(signals, cancel_event, image_path, paths_to_delete):
             """Background worker body for image_delete_files.
+            *paths_to_delete* is a list of full in-image paths.
             Phase 1: scan/count all items recursively (indeterminate progress).
             Phase 2: delete each item with real percentage progress."""
-            actual = [f for f in files_to_delete if f != UP_DIRECTORY]
+            actual = [p for p in paths_to_delete if p and p != UP_DIRECTORY]
 
             # ---- Phase 1: enumerate everything ----
             signals.progress.emit(-1)   # indeterminate
             all_files = []   # flat list of image paths to rm
             all_dirs  = []   # directories to rm after their content
-            for f in actual:
+            for full in actual:
                 if cancel_event.is_set():
                     break
-                full = (disk_path_fn() + "/" + f).replace("//", "/")
+                full = full.replace("//", "/")
                 signals.status.emit(f"Scanning\u2026\n{full}")
                 if is_directory(image_path, full):
                     _scan_image_tree_for_delete(image_path, full, cancel_event,
@@ -4019,8 +4091,59 @@ class MainWindow(QMainWindow):
                     signals.error.emit(f"Failed deleting: {item_path}\n{e}")
                 signals.progress.emit(int((idx + 1) / total * 100))
 
+        def image_confirm_deletion_dialog():
+            # Popup wizard asking the user to confirm deletion of the selected
+            # image file or folder. Used when the "Do not prompt for confirmation
+            # on deletion" setting is False.
+            if not self.image_selected_path:
+                return
+
+            sel_path = self.image_selected_path
+            name     = sel_path.rstrip("/").rsplit("/", 1)[-1]
+            is_dir   = self.image_selected_is_dir
+            kind     = "folder" if is_dir else "file"
+
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Confirm Deletion")
+            dialog.setMinimumWidth(420)
+            layout = QVBoxLayout(dialog)
+
+            if is_dir:
+                question = f"Delete the {kind} “{name}” and all of its contents?"
+            else:
+                question = f"Delete the {kind} “{name}”?"
+            msg = QLabel(question, dialog)
+            msg.setWordWrap(True)
+            layout.addWidget(msg)
+
+            path_label = QLabel(sel_path.replace("//", "/"), dialog)
+            path_label.setWordWrap(True)
+            path_label.setStyleSheet("color: gray;")
+            layout.addWidget(path_label)
+
+            warn = QLabel("This action cannot be undone.", dialog)
+            warn.setStyleSheet("color: #d33;")
+            layout.addWidget(warn)
+
+            button_box = QDialogButtonBox(dialog)
+            delete_button = button_box.addButton("Delete", QDialogButtonBox.AcceptRole)
+            cancel_button = button_box.addButton("Cancel", QDialogButtonBox.RejectRole)
+            layout.addWidget(button_box)
+
+            delete_button.clicked.connect(dialog.accept)
+            cancel_button.clicked.connect(dialog.reject)
+            cancel_button.setDefault(True)   # safer default — Enter cancels
+
+            if dialog.exec() == QDialog.Accepted:
+                image_delete_files()
+
         def image_delete_files():
             if not right_disk_image_explorer_content:
+                logging.info("Please select an image file or folder first to delete!")
+                add_main_log_window("Please select an image file or folder first to delete!")
+                return
+
+            if not self.image_selected_path:
                 logging.info("Please select an image file or folder first to delete!")
                 add_main_log_window("Please select an image file or folder first to delete!")
                 return
@@ -4032,14 +4155,14 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Image not writable", img_err)
                 return
 
-            files_snapshot = list(right_disk_image_selected_files)
-            image_path     = self.right_disk_image_path
-            disk_path_fn   = generate_disk_file_path
+            sel_path    = self.image_selected_path
+            parent_path = sel_path.rstrip("/").rsplit("/", 1)[0] or "/"
+            image_path  = self.right_disk_image_path
 
             set_all_buttons_disabled()
 
             dlg    = HdfProgressDialog("Deleting files\u2026", self)
-            worker = HdfTaskWorker(_run_delete_task, image_path, disk_path_fn, files_snapshot)
+            worker = HdfTaskWorker(_run_delete_task, image_path, [sel_path])
 
             dlg.cancel_requested.connect(worker.cancel)
             worker.signals.progress.connect(dlg.set_progress)
@@ -4049,12 +4172,7 @@ class MainWindow(QMainWindow):
 
             def _on_delete_finished():
                 dlg.close()
-                result = execute_hdf_monkey("ls", image_path, extra_argv=[generate_disk_file_path()])
-                if result.returncode == 0:
-                    update_disk_manager_widget_table(result.stdout)
-                else:
-                    logging.error(f"Failed browsing directory after deleting files - hdfmonkey result code: {result.returncode}")
-                    add_main_log_window(f"Failed browsing directory after deleting files - hdfmonkey result code: {result.returncode}")
+                image_reload_dir(parent_path)
                 set_all_buttons_enabled()
 
             worker.signals.finished.connect(_on_delete_finished)
@@ -4436,22 +4554,31 @@ class MainWindow(QMainWindow):
 
             nextsync_show_sync_buttons_based_on_fileexplorer_content_selection()
 
-        def image_explorer_selection_changed():
+        def image_explorer_selection_changed(*_):
 
             global right_disk_image_explorer_content
+            global right_disk_image_selected_files
 
-            if right_disk_image_explorer_content:  # check that we have an image content first
-                right_disk_image_selected_files.clear()
-                for idx in self.TableWidgetImage.selectionModel().selectedIndexes():
-                    row_number = idx.row()
-                    column_number = idx.column()
-                    name_item = self.TableWidgetImage.item(row_number, 0)
-                    if name_item:
-                        right_disk_image_selected_files.append(name_item.text())
+            self.image_selected_path = ""
+            self.image_selected_is_dir = False
+            right_disk_image_selected_files = []
 
-        def _run_get_task(signals, cancel_event, image_path, disk_path_fn, files_to_get,
+            indexes = self.image_treeview.selectionModel().selectedIndexes()
+            if indexes:
+                name_item = self.image_model.itemFromIndex(indexes[0].siblingAtColumn(0))
+                if name_item is not None:
+                    self.image_selected_path = name_item.data(IMG_PATH_ROLE) or ""
+                    self.image_selected_is_dir = bool(name_item.data(IMG_ISDIR_ROLE))
+                    if self.image_selected_path:
+                        right_disk_image_selected_files = [name_item.text()]
+
+            image_update_path_label()
+
+        def _run_get_task(signals, cancel_event, image_path, items,
                           dest_dir, dir_nav, is_windows):
             """Background worker body for transfert_content_from_image_to_disk.
+            *items* is a list of (full_image_path, base_name) for the selected
+            tree entries.
             Phase 1: scan/count all items recursively (indeterminate progress).
             Phase 2: copy each file with real percentage progress."""
 
@@ -4460,16 +4587,16 @@ class MainWindow(QMainWindow):
             all_files = []   # list of (img_src_path, local_disk_path)
             all_dirs  = []   # list of (img_src_path, local_disk_path)  – dirs to create
 
-            for f in files_to_get:
+            for source, base_name in items:
                 if cancel_event.is_set():
                     break
-                source = (disk_path_fn() + "/" + f).replace("//", "/")
+                source = source.replace("//", "/")
                 signals.status.emit(f"Scanning\u2026\n{source}")
                 if not is_directory(image_path, source):
-                    local = dest_dir + dir_nav + f
+                    local = dest_dir + dir_nav + base_name
                     all_files.append((source, local))
                 else:
-                    local_dir = os.path.join(dest_dir, f) if is_windows else dest_dir + "/" + f
+                    local_dir = os.path.join(dest_dir, base_name) if is_windows else dest_dir + "/" + base_name
                     all_dirs.append((source, local_dir))
                     _scan_image_tree_for_get(image_path, source, local_dir, cancel_event,
                                              signals, all_files, all_dirs)
@@ -4529,17 +4656,16 @@ class MainWindow(QMainWindow):
             else:
                 directory_navigation = "/"
 
-            if not right_disk_image_selected_files:
+            if not self.image_selected_path:
                 set_all_buttons_enabled()
                 return
 
-            files_snapshot = list(right_disk_image_selected_files)
-            image_path     = self.right_disk_image_path
-            disk_path_fn   = generate_disk_file_path
+            base_name  = self.image_selected_path.rstrip("/").rsplit("/", 1)[-1]
+            items      = [(self.image_selected_path, base_name)]
+            image_path = self.right_disk_image_path
 
             dlg    = HdfProgressDialog("Downloading from image\u2026", self)
-            worker = HdfTaskWorker(_run_get_task, image_path, disk_path_fn,
-                                   files_snapshot,
+            worker = HdfTaskWorker(_run_get_task, image_path, items,
                                    selected_explorer_item_directory_destination,
                                    directory_navigation, is_windows)
 
@@ -4757,184 +4883,220 @@ class MainWindow(QMainWindow):
 
 
         def generate_disk_file_path():
-            result_path = "/"
-            row = 1
-            for i in right_disk_image_explorer_path:
-                result_path += right_disk_image_explorer_path[row - 1]
-                if len(right_disk_image_explorer_path) != row:
-                    result_path += "/"
-                row += 1
-            return result_path
+            # The image explorer is now a hierarchical tree, so there is no single
+            # "current directory" any more. This returns the directory that
+            # disk->image uploads, new folders and gallery "send to SD image"
+            # actions target, derived from the current tree selection (see
+            # image_dest_dir). Kept under the original name so all existing call
+            # sites continue to work unchanged.
+            return image_dest_dir()
 
-        def disk_image_explorer_item_double_clicked():
+        def image_dest_dir():
+            """Image directory targeted by uploads / new folders, based on the
+            current tree selection:
+              - a selected folder -> that folder
+              - a selected file   -> the folder containing it
+              - nothing selected  -> the image root
+            """
+            if self.image_selected_path:
+                if self.image_selected_is_dir:
+                    return self.image_selected_path or "/"
+                parent = self.image_selected_path.rstrip("/").rsplit("/", 1)[0]
+                return parent if parent else "/"
+            return "/"
 
-            global right_disk_image_explorer_content
-
-            if right_disk_image_explorer_content:  # check that we have an image content first
-                set_all_buttons_disabled()
-
-                # Reset all buttons such as Create directory or Delete files if the user suddenly tries to navigate instead
-                if self.button_confirm_deletion.isVisible() or self.button_create_directory.isVisible():
-                    button_cancel_deletion()
-                    image_newfolder_cancel()
-
-
-                row_number = 0
-                column_number = 0
-                for idx in self.TableWidgetImage.selectionModel().selectedIndexes():
-                    row_number = idx.row()
-                    column_number = idx.column()
-
-                # If user picked to go one directory level up
-                name_item = self.TableWidgetImage.item(row_number, 0)
-                type_item = self.TableWidgetImage.item(row_number, 1)
-                row_name = name_item.text() if name_item else ""
-                row_type = type_item.text() if type_item else ""
-
-                if row_number == 0 and row_name == UP_DIRECTORY and row_type == "":
-                    self.image_filtertext.clear()
-                    self.TableWidgetImage.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
-                    right_disk_image_explorer_path.pop()
-                    hdfmonkeyexecresult = execute_hdf_monkey("ls", self.right_disk_image_path, extra_argv=[generate_disk_file_path()])
-
-                    if hdfmonkeyexecresult.returncode == 0:
-                        command_execution = hdfmonkeyexecresult.stdout
-                        self.diskimageexplorerlabelpath.setText(generate_disk_file_path().replace('//', '/'))
-                        update_disk_manager_widget_table(command_execution)
-                        set_all_buttons_enabled()
-                        return
-
-                if row_type == 'DIR':
-                    self.image_filtertext.clear()
-                    self.TableWidgetImage.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
-                    right_disk_image_explorer_path.append(row_name)
-                    hdfmonkeyexecresult = execute_hdf_monkey("ls", self.right_disk_image_path, extra_argv=[generate_disk_file_path()])
-
-                    if hdfmonkeyexecresult.returncode == 0:
-                        command_execution = hdfmonkeyexecresult.stdout
-                        update_disk_manager_widget_table(command_execution)
-                        self.diskimageexplorerlabelpath.setText(generate_disk_file_path().replace('//', '/'))
-
-                set_all_buttons_enabled()
-
+        def image_update_path_label():
+            if right_disk_image_explorer_content:
+                self.diskimageexplorerlabelpath.setText(image_dest_dir().replace('//', '/'))
             else:
-                logging.warning("Please load an image file first !")
-                add_main_log_window("Please load an image file first !")
+                self.diskimageexplorerlabelpath.setText("Please load an image.")
 
-        def update_disk_manager_widget_table(command_execution_content):
-
-            global right_disk_image_explorer_content
-
-            results_lines = command_execution_content.splitlines()
-
-            self.TableWidgetImage.clear()
+        def image_clear_model():
+            # Wipe the tree and re-apply the column headers (clear() drops them).
+            self.image_model.clear()
             set_table_image_properties()
 
-            self.TableWidgetImage.setRowCount(0)
-            self.TableWidgetImage.setRowCount(len(results_lines)+1)
-            self.TableWidgetImage.verticalHeader().setVisible(False)
-
-            row = 0
-
-            right_disk_image_explorer_content.clear()
-
-            # If we are not at the root add "[Up Directory..]" in order that the user can go back up
-            if right_disk_image_explorer_path:
-
-                newItemUpDirectory = QTableWidgetItem(UP_DIRECTORY)
-                newItemUpDirectory.setForeground(self.img_color_up_directory)
-                newItemEmpty1 = QTableWidgetItem("")
-                newItemEmpty2 = QTableWidgetItem("")
-                newItemUpDirectory.setFlags(newItemUpDirectory.flags() & ~Qt.ItemIsEditable) # make non editable
-                newItemEmpty1.setFlags(newItemEmpty1.flags() & ~Qt.ItemIsEditable) # make non editable
-                newItemEmpty1.setFlags(~Qt.ItemIsEnabled) # make non editable
-                newItemEmpty2.setFlags(newItemEmpty2.flags() & ~Qt.ItemIsEditable) # make non editable
-                newItemEmpty2.setFlags(~Qt.ItemIsEnabled)
-                self.TableWidgetImage.setItem(row, 0, newItemUpDirectory)
-                self.TableWidgetImage.setItem(row, 1, newItemEmpty1)
-                self.TableWidgetImage.setItem(row, 2, newItemEmpty2)
-
-
-                right_disk_image_explorer_content.append((UP_DIRECTORY, ""))
-                row += 1
-
-
-            self.image_explorer_item_list.clear()
-
-            for dirvalues in results_lines:
-                decoded_line = dirvalues.decode(errors="replace") if isinstance(dirvalues, bytes) else dirvalues
-                directory_result_table = decoded_line.split('\t', 1)
-                if len(directory_result_table) < 2:
+        def image_parse_ls(ls_stdout):
+            """Parse 'hdfmonkey ls' output into a list of (name, is_dir, size)."""
+            entries = []
+            for line in ls_stdout.splitlines():
+                decoded = line.decode(errors="replace") if isinstance(line, bytes) else line
+                parts = decoded.split('\t', 1)
+                if len(parts) < 2:
                     continue
-                file_type = directory_result_table[0]
-                file_name = directory_result_table[1]
-
-                newItemName = QTableWidgetItem(str(file_name))
-
+                file_type, file_name = parts[0], parts[1]
                 if is_filetype_a_directory(file_type):
-                    file_type = "DIR"
-                    newItemFSName = QTableWidgetItem(str(file_type))
-                    newItemEmptyDir = QTableWidgetItem("")
-
-                    newItemFSName.setFlags(newItemFSName.flags() & ~Qt.ItemIsEditable) # make non editable
-                    newItemName.setForeground(self.img_color_dir_name)
-                    newItemName.setFlags(newItemName.flags() & ~Qt.ItemIsEditable) # make non editable
-                    newItemFSName.setForeground(self.img_color_dir_type)
-                    newItemEmptyDir.setFlags(newItemEmptyDir.flags() & ~Qt.ItemIsEditable) # make non editable
-
-                    newItemFSName.setFlags(~Qt.ItemIsEnabled)
-                    newItemEmptyDir.setFlags(~Qt.ItemIsEnabled)
-
-                    self.TableWidgetImage.setItem(row, 0, newItemName)
-                    self.TableWidgetImage.setItem(row, 1, newItemFSName)
-                    self.TableWidgetImage.setItem(row, 2, newItemEmptyDir)
-
-                    right_disk_image_explorer_content.append((file_name, "DIR"))
-
-
+                    entries.append((file_name, True, ""))
                 else:
                     try:
                         # file_type is e.g. "[1234 bytes]" – extract the number
                         file_size = file_type.strip("[]").split()[0]
                     except Exception:
-                        logging.info(f"update_disk_manager_widget_table file split failed for: {file_type}")
+                        logging.info(f"image_parse_ls file split failed for: {file_type}")
                         file_size = "0"
+                    entries.append((file_name, False, file_size))
+            return entries
 
-                    newItemFS = QTableWidgetItem(file_size)
+        def image_make_row(name, is_dir, size_value, full_path):
+            """Build the [name, type, size] QStandardItem row for one entry."""
+            name_item = QStandardItem(self._img_folder_icon if is_dir else self._img_file_icon, str(name))
+            name_item.setEditable(False)
+            name_item.setData(full_path, IMG_PATH_ROLE)
+            name_item.setData(is_dir, IMG_ISDIR_ROLE)
+            name_item.setData(False, IMG_LOADED_ROLE)
 
-                    file_ext = str.split(file_name, '.')[1] if '.' in file_name else ""
-                    newItemExt = QTableWidgetItem(file_ext)
+            if is_dir:
+                type_item = QStandardItem("DIR")
+                size_item = QStandardItem("")
+                name_item.setForeground(self.img_color_dir_name)
+                type_item.setForeground(self.img_color_dir_type)
+            else:
+                file_ext = str.split(name, '.')[1] if '.' in name else ""
+                type_item = QStandardItem(file_ext)
+                size_item = QStandardItem()
+                # Store the size as an int so the Size column sorts numerically.
+                size_item.setData(int(size_value) if str(size_value).isdigit() else str(size_value),
+                                  Qt.ItemDataRole.DisplayRole)
+                name_item.setForeground(self.img_color_file_name)
+                type_item.setForeground(self.img_color_file_ext)
+                size_item.setForeground(self.img_color_file_size)
 
-                    newItemFS.setForeground(self.img_color_file_size)
-                    newItemName.setForeground(self.img_color_file_name)
-                    newItemExt.setForeground(self.img_color_file_ext)
+            type_item.setEditable(False)
+            size_item.setEditable(False)
+            return [name_item, type_item, size_item]
 
-                    newItemFS.setFlags(~Qt.ItemIsEnabled)
-                    newItemExt.setFlags(~Qt.ItemIsEnabled)
+        def image_populate_item(parent_name_item, dir_path):
+            """(Re)load the children of *dir_path* under *parent_name_item*
+            (None = the invisible root). Folders get a placeholder child so the
+            expand arrow appears; the placeholder is replaced on first expand.
+            Returns the parsed entries list, or None on hdfmonkey failure."""
+            parent = parent_name_item if parent_name_item is not None else self.image_model.invisibleRootItem()
+            parent.removeRows(0, parent.rowCount())
 
+            result = execute_hdf_monkey("ls", self.right_disk_image_path, extra_argv=[dir_path])
+            if result.returncode != 0:
+                logging.error(f"Failed listing image directory: {dir_path} - hdfmonkey result code: {result.returncode}")
+                add_main_log_window(f"Failed listing image directory: {dir_path} - hdfmonkey result code: {result.returncode}")
+                return None
 
-                    newItemFS.setFlags(newItemFS.flags() & ~Qt.ItemIsEditable) # make non editable
-                    newItemExt.setFlags(newItemExt.flags() & ~Qt.ItemIsEditable) # make non editable
-                    newItemName.setFlags(newItemName.flags() & ~Qt.ItemIsEditable) # make non editable
+            entries = image_parse_ls(result.stdout)
+            for name, is_dir, size in entries:
+                full_path = (dir_path + "/" + name).replace("//", "/")
+                row = image_make_row(name, is_dir, size, full_path)
+                parent.appendRow(row)
+                if is_dir:
+                    # Placeholder so the expand arrow shows before the folder is
+                    # actually listed; removed/replaced by image_on_expanded.
+                    row[0].appendRow([QStandardItem("")])
 
-                    self.TableWidgetImage.setItem(row, 0, newItemName)
-                    self.TableWidgetImage.setItem(row, 1, newItemExt)
-                    self.TableWidgetImage.setItem(row, 2, newItemFS)
+            if parent_name_item is not None:
+                parent_name_item.setData(True, IMG_LOADED_ROLE)
+            return entries
 
+        def image_on_expanded(index):
+            # Lazy-load a folder's contents the first time it is expanded.
+            if not index.isValid():
+                return
+            name_item = self.image_model.itemFromIndex(index.siblingAtColumn(0))
+            if name_item is None:
+                return
+            if name_item.data(IMG_ISDIR_ROLE) and not name_item.data(IMG_LOADED_ROLE):
+                image_populate_item(name_item, name_item.data(IMG_PATH_ROLE))
+                apply_image_filter()
 
+        def image_load_root():
+            """Build the tree from the image root. Returns True on success."""
+            global right_disk_image_explorer_content
 
-                    if '.' in file_name:
-                        right_disk_image_explorer_content.append((file_name, file_ext))
-                    else:
-                        right_disk_image_explorer_content.append((file_name, ""))
+            image_clear_model()
+            self.image_selected_path = ""
+            self.image_selected_is_dir = False
 
+            entries = image_populate_item(None, "/")
+            if entries is None:
+                right_disk_image_explorer_content = []
+                _update_image_usage_gauge("")
+                return False
 
-                self.image_explorer_item_list.addItem(file_name)
+            # right_disk_image_explorer_content is used throughout as the
+            # "an image is loaded" guard, so keep it non-empty while one is.
+            right_disk_image_explorer_content = [(n, "DIR" if d else "") for (n, d, s) in entries] or ["loaded"]
 
-                row += 1
+            # Keep the legacy flat item list in sync (used by name lookups).
+            self.image_explorer_item_list.clear()
+            for n, d, s in entries:
+                self.image_explorer_item_list.addItem(n)
 
             apply_image_filter()
             _update_image_usage_gauge(self.right_disk_image_path)
+            return True
+
+        def image_find_item(path):
+            """Return the column-0 QStandardItem for *path* among already-loaded
+            tree nodes, or None (None also means "the root")."""
+            if not path or path.rstrip("/") == "":
+                return None
+            target = path.rstrip("/")
+            root = self.image_model.invisibleRootItem()
+            stack = [root.child(r, 0) for r in range(root.rowCount())]
+            while stack:
+                item = stack.pop()
+                if item is None:
+                    continue
+                if (item.data(IMG_PATH_ROLE) or "").rstrip("/") == target:
+                    return item
+                for r in range(item.rowCount()):
+                    stack.append(item.child(r, 0))
+            return None
+
+        def image_reload_dir(path):
+            """Reload the children of the image directory at *path*, preserving
+            the rest of the tree's expansion state. Falls back to a full root
+            reload when the directory isn't currently materialised in the tree."""
+            item = image_find_item(path)
+            if item is None:
+                image_load_root()
+                return
+            was_expanded = self.image_treeview.isExpanded(item.index())
+            image_populate_item(item, item.data(IMG_PATH_ROLE))
+            if was_expanded:
+                self.image_treeview.expand(item.index())
+            apply_image_filter()
+            _update_image_usage_gauge(self.right_disk_image_path)
+
+        def update_disk_manager_widget_table(command_execution_content=None):
+            # Refresh entry point kept under its original name. Callers invoke
+            # this right after operating on the current target directory, so it
+            # simply reloads that directory's node in the tree. The raw ls output
+            # argument is no longer needed (the tree re-lists itself).
+            image_reload_dir(image_dest_dir())
+
+        def image_tree_context_menu(pos):
+            # Right-click menu on the image explorer tree, mirroring the
+            # "New Folder" and "Delete Files or Folder" buttons below it.
+            if not right_disk_image_explorer_content:
+                return
+
+            index = self.image_treeview.indexAt(pos)
+            menu = QMenu(self.image_treeview)
+
+            if index.isValid():
+                # Select the right-clicked row so the selection-driven New
+                # Folder / Delete handlers act on it.
+                self.image_treeview.setCurrentIndex(index)
+                name_item = self.image_model.itemFromIndex(index.siblingAtColumn(0))
+                is_dir = bool(name_item.data(IMG_ISDIR_ROLE)) if name_item is not None else False
+
+                new_folder_label = "New Folder Here…" if is_dir else "New Folder…"
+                menu.addAction(new_folder_label, image_newfolder_dialog)
+                menu.addSeparator()
+                menu.addAction("Delete", delete_files_button_show_confirmation_buttons)
+            else:
+                # Empty area: clear the selection so a new folder lands at the root.
+                self.image_treeview.clearSelection()
+                menu.addAction("New Folder…", image_newfolder_dialog)
+
+            menu.exec(self.image_treeview.viewport().mapToGlobal(pos))
 
 
         def update_syncpoint(path_to_content, knownfiles):
@@ -5474,19 +5636,34 @@ class MainWindow(QMainWindow):
         self.button_to_image.setMaximumWidth(DISK_ARROWS_BUTTONS_SIZE)
         self.button_to_image.clicked.connect(transfert_content_from_disk_to_image)
 
-        self.TableWidgetImage = QTableWidget(0, 3, self) # https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/QTableWidget.html https://doc.qt.io/qtforpython-6/PySide6/QtWidgets/QListWidget.html
+        # The SD-card image explorer is a hierarchical tree (like the local
+        # explorer on the left). The disk image is a virtual filesystem reached
+        # only through hdfmonkey, so it is backed by a QStandardItemModel whose
+        # folders are lazily populated (via "hdfmonkey ls") the first time they
+        # are expanded.
+        self._img_folder_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon)
+        self._img_file_icon   = self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon)
+
+        self.image_model = QStandardItemModel(self)
+        self.image_treeview = QTreeView(self)
+        self.image_treeview.setModel(self.image_model)
+        self.image_treeview.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.image_treeview.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.image_treeview.setUniformRowHeights(True)
+        self.image_treeview.setSortingEnabled(True)
+        self.image_treeview.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.image_treeview.customContextMenuRequested.connect(image_tree_context_menu)
+        self.image_treeview.expanded.connect(image_on_expanded)
+        self.image_treeview.selectionModel().selectionChanged.connect(image_explorer_selection_changed)
         set_table_image_properties()
 
-        self.TableWidgetImage.doubleClicked.connect(disk_image_explorer_item_double_clicked)
-        self.TableWidgetImage.itemSelectionChanged.connect(image_explorer_selection_changed)
-
-        def _table_image_key_press(event):
-            if event.key() == Qt.Key.Key_Delete and right_disk_image_selected_files:
+        def _image_tree_key_press(event):
+            if event.key() == Qt.Key.Key_Delete and self.image_selected_path:
                 delete_files_button_show_confirmation_buttons()
             else:
-                QTableWidget.keyPressEvent(self.TableWidgetImage, event)
+                QTreeView.keyPressEvent(self.image_treeview, event)
 
-        self.TableWidgetImage.keyPressEvent = _table_image_key_press
+        self.image_treeview.keyPressEvent = _image_tree_key_press
 
         # Usage gauge — sits directly below the image explorer table
         self.image_usage_gauge = QProgressBar()
@@ -5501,7 +5678,7 @@ class MainWindow(QMainWindow):
         image_explorer_vbox = QVBoxLayout(self.image_explorer_container)
         image_explorer_vbox.setContentsMargins(0, 0, 0, 0)
         image_explorer_vbox.setSpacing(2)
-        image_explorer_vbox.addWidget(self.TableWidgetImage)
+        image_explorer_vbox.addWidget(self.image_treeview)
         image_explorer_vbox.addWidget(self.image_usage_gauge)
 
         self.horizontal3.addWidget(self.treeview)

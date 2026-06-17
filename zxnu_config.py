@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "7.5"
+ZX_NEXT_UNITE_VERSION = "7.6"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -269,6 +269,10 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("Please refer to the LICENSE file on github: https://github.com/jclauzel/zx-next-unite/blob/master/LICENSE.txt."),
              (""),
              ("Pyside6 is not bundled and needs to be installed separately (see installation instructions)."),
+             (""),
+             ("zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org."),
+             (""),
+             ("pygame-ce is distributed under the GNU LGPL v2.1 license and, like Pyside6, is not bundled and needs to be installed separately (see installation instructions)."),
              (""),
              ("Setup & How to:"),
              ("---------------"),
