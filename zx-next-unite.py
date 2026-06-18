@@ -218,7 +218,9 @@ import pathlib
 import platform
 import re
 import shlex
+import shutil
 import socket
+import stat
 import string
 import struct
 import subprocess
@@ -4167,6 +4169,29 @@ class MainWindow(QMainWindow):
             nextsync_warnings()
             save_configuration_file()
 
+        def nextsync_refresh_explorer():
+            """Force the NextSync left explorer to re-stat the displayed folder.
+
+            Files just written by the upload (.sync -send) thread otherwise keep
+            showing their initial 0 KB size: QFileSystemModel caches the size from
+            when the file was first created (empty) and doesn't reliably re-stat
+            it. Toggling the model's root path makes it rescan. Runs on the UI
+            thread (wired to sig.finished), so touching the widgets is safe.
+            """
+            try:
+                root_proxy = self.nextsync_treeview.rootIndex()
+                root_src = self.nextsync_model.mapToSource(root_proxy)
+                view_path = self.nextsync_filesystem_model.filePath(root_src)
+                # Bounce via "" so a repeated sync to the same folder still
+                # rescans (setRootPath is a no-op when the path is unchanged).
+                self.nextsync_filesystem_model.setRootPath("")
+                self.nextsync_filesystem_model.setRootPath(view_path or "/")
+                if view_path:
+                    self.nextsync_treeview.setRootIndex(
+                        self.nextsync_model.mapFromSource(
+                            self.nextsync_filesystem_model.index(view_path)))
+            except Exception as e:
+                logging.error(f"NextSync explorer refresh failed: {e}", exc_info=True)
 
         def nextsync_start_server(serve_folder=None):
             # Guard: don't start a second sync while one is already running
@@ -4176,7 +4201,7 @@ class MainWindow(QMainWindow):
                 return
             try:
                 # --- progress dialog ---
-                dlg = HdfProgressDialog("NextSync — sending to ZX Spectrum Next", parent=self)
+                dlg = HdfProgressDialog("NextSync — sending to ZX Spectrum Next", parent=self, cancel_label="Stop")
                 dlg.set_status("Waiting for ZX Next to connect…\nRun .sync (or .syncfast) on your Next")
                 dlg.set_progress(-1)   # indeterminate spinner until first file
 
@@ -4186,6 +4211,9 @@ class MainWindow(QMainWindow):
                 sig.progress.connect(dlg.set_progress)
                 sig.status.connect(dlg.set_status)
                 sig.finished.connect(lambda: QTimer.singleShot(800, dlg.accept))
+                # Refresh the left explorer so files received via .sync -send show
+                # their real size instead of a stale 0 KB.
+                sig.finished.connect(nextsync_refresh_explorer)
                 sig.cancelled.connect(dlg.mark_cancelled)
                 dlg.cancel_requested.connect(lambda: cancel_flag.set())
 
@@ -4309,23 +4337,191 @@ class MainWindow(QMainWindow):
             menu.addAction(action_copy_path)
             menu.exec(self.treeview.viewport().mapToGlobal(pos))
 
+        def nextsync_current_view_dir():
+            """Path of the folder currently shown at the top of the NextSync tree."""
+            root_proxy = self.nextsync_treeview.rootIndex()
+            root_src = self.nextsync_model.mapToSource(root_proxy)
+            return self.nextsync_filesystem_model.filePath(root_src)
+
         def nextsync_on_treeview_context_menu(pos):
             index = self.nextsync_treeview.indexAt(pos)
-            if not index.isValid():
-                return
-            source_index = self.nextsync_model.mapToSource(index)
-            name = self.nextsync_filesystem_model.fileName(source_index)
-            if name == "..":
+            source_index = self.nextsync_model.mapToSource(index) if index.isValid() else None
+            name = self.nextsync_filesystem_model.fileName(source_index) if source_index is not None else ""
+            # Empty space or the ".." up-entry: only offer Paste, into the current folder.
+            if source_index is None or name == "..":
+                clipboard_path = getattr(self, "_nextsync_clipboard_path", "")
+                paste_dir = nextsync_current_view_dir()
+                menu = QMenu(self.nextsync_treeview)
+                action_paste = QAction("Paste", self.nextsync_treeview)
+                action_paste.setEnabled(bool(clipboard_path) and bool(paste_dir))
+                action_paste.triggered.connect(lambda: QTimer.singleShot(0, lambda: nextsync_paste_explorer_item(paste_dir)))
+                menu.addAction(action_paste)
+                menu.exec(self.nextsync_treeview.viewport().mapToGlobal(pos))
                 return
             file_path = self.nextsync_filesystem_model.filePath(source_index)
+            is_dir = self.nextsync_filesystem_model.isDir(source_index)
+            # Paste target: into the folder itself, or into a file's parent folder.
+            paste_dir = file_path if is_dir else os.path.dirname(file_path)
+            clipboard_path = getattr(self, "_nextsync_clipboard_path", "")
             menu = QMenu(self.nextsync_treeview)
             action_copy_text = QAction("Copy text to clipboard", self.nextsync_treeview)
             action_copy_path = QAction("Copy path to clipboard", self.nextsync_treeview)
+            action_copy = QAction("Copy", self.nextsync_treeview)
+            action_paste = QAction("Paste", self.nextsync_treeview)
+            action_rename = QAction("Rename", self.nextsync_treeview)
+            action_delete = QAction("Delete", self.nextsync_treeview)
+            action_paste.setEnabled(bool(clipboard_path))
             action_copy_text.triggered.connect(lambda: QGuiApplication.clipboard().setText(name))
             action_copy_path.triggered.connect(lambda: QGuiApplication.clipboard().setText(file_path))
+            action_copy.triggered.connect(lambda: nextsync_copy_explorer_item(file_path))
+            # Defer the dialog-showing actions until after the context menu's modal
+            # event loop has closed: showing a QMessageBox/QInputDialog from inside
+            # menu.exec() fights the menu's input grab and can hang the UI.
+            action_paste.triggered.connect(lambda: QTimer.singleShot(0, lambda: nextsync_paste_explorer_item(paste_dir)))
+            action_rename.triggered.connect(lambda: QTimer.singleShot(0, lambda: nextsync_rename_explorer_item(file_path, name, is_dir)))
+            action_delete.triggered.connect(lambda: QTimer.singleShot(0, lambda: nextsync_delete_explorer_item(file_path, name, is_dir)))
             menu.addAction(action_copy_text)
             menu.addAction(action_copy_path)
+            menu.addSeparator()
+            menu.addAction(action_copy)
+            menu.addAction(action_paste)
+            menu.addAction(action_rename)
+            menu.addAction(action_delete)
             menu.exec(self.nextsync_treeview.viewport().mapToGlobal(pos))
+
+        def nextsync_rename_explorer_item(file_path, name, is_dir):
+            """Rename a file/folder in the NextSync explorer (local filesystem).
+
+            Prompts for a new name, refuses path separators and overwriting an
+            existing entry, then renames in place and refreshes the tree.
+            """
+            kind = "folder" if is_dir else "file"
+            new_name, ok = QInputDialog.getText(
+                self, "Rename", f"New name for the {kind}:", text=name)
+            if not ok:
+                return
+            new_name = new_name.strip()
+            if not new_name or new_name == name:
+                return
+            if "/" in new_name or "\\" in new_name:
+                QMessageBox.warning(self, "Rename failed", "The name cannot contain '/' or '\\'.")
+                return
+            new_path = os.path.join(os.path.dirname(file_path), new_name)
+            if os.path.exists(new_path):
+                QMessageBox.warning(self, "Rename failed", f'"{new_name}" already exists in this folder.')
+                return
+            try:
+                os.rename(file_path, new_path)
+                add_nextsync_log_window(f"{timestamp()} | Renamed: {file_path} -> {new_path}")
+            except OSError as e:
+                logging.error(f"Failed to rename {file_path} -> {new_path}: {e}", exc_info=True)
+                add_nextsync_log_window(f"{timestamp()} | Failed to rename {file_path}: {e}")
+                QMessageBox.critical(self, "Rename failed", f"Could not rename:\n{file_path}\n\n{e}")
+            finally:
+                nextsync_refresh_explorer()
+
+        def nextsync_copy_explorer_item(file_path):
+            """Remember a file/folder path for a later Paste in the NextSync explorer."""
+            self._nextsync_clipboard_path = file_path
+            add_nextsync_log_window(f"{timestamp()} | Copied: {file_path}")
+
+        def _nextsync_unique_path(path, is_dir):
+            """Return path, or a non-colliding '-(copy)' variant if it already exists."""
+            if not os.path.exists(path):
+                return path
+            parent = os.path.dirname(path)
+            name = os.path.basename(path)
+            stem, ext = (name, "") if is_dir else os.path.splitext(name)
+            i = 1
+            while True:
+                suffix = "-(copy)" if i == 1 else f"-(copy) ({i})"
+                candidate = os.path.join(parent, f"{stem}{suffix}{ext}")
+                if not os.path.exists(candidate):
+                    return candidate
+                i += 1
+
+        def nextsync_paste_explorer_item(dest_dir):
+            """Paste the previously copied file/folder into dest_dir (local filesystem).
+
+            Never overwrites: a name clash is resolved with a ' - Copy' suffix, so
+            pasting into the same folder duplicates the item. Refreshes the tree
+            afterwards so the new entry appears with its real size.
+            """
+            src = getattr(self, "_nextsync_clipboard_path", "")
+            if not src:
+                return
+            if not os.path.exists(src):
+                add_nextsync_log_window(f"{timestamp()} | Paste failed: source no longer exists: {src}")
+                QMessageBox.warning(self, "Paste failed", f"The copied item no longer exists:\n{src}")
+                return
+            src_is_dir = os.path.isdir(src)
+            if src_is_dir:
+                src_abs = os.path.abspath(src)
+                dest_abs = os.path.abspath(dest_dir)
+                # Guard against pasting a folder into itself or one of its subfolders.
+                if dest_abs == src_abs or dest_abs.startswith(src_abs + os.sep):
+                    QMessageBox.warning(self, "Paste failed", "Cannot paste a folder into itself.")
+                    return
+            base = os.path.basename(src.rstrip("/\\"))
+            target = _nextsync_unique_path(os.path.join(dest_dir, base), src_is_dir)
+            try:
+                if src_is_dir:
+                    shutil.copytree(src, target)
+                else:
+                    shutil.copy2(src, target)
+                add_nextsync_log_window(f"{timestamp()} | Pasted: {src} -> {target}")
+            except OSError as e:
+                logging.error(f"Failed to paste {src} -> {dest_dir}: {e}", exc_info=True)
+                add_nextsync_log_window(f"{timestamp()} | Failed to paste into {dest_dir}: {e}")
+                QMessageBox.critical(self, "Paste failed", f"Could not paste into:\n{dest_dir}\n\n{e}")
+            finally:
+                # Always refresh so the new (or partially-created) entry shows up.
+                nextsync_refresh_explorer()
+
+        def nextsync_delete_explorer_item(file_path, name, is_dir):
+            """Delete a file or folder from the NextSync explorer (local filesystem).
+
+            Honours the "Do not prompt for confirmation on deletion" setting: when
+            enabled, delete straight away; otherwise ask the user to confirm first
+            (a folder warns it removes the folder and all its contents). Refreshes
+            the explorer afterwards so the deleted entry disappears.
+            """
+            if self.settings_no_prompt_on_deletion_checkbox.isChecked():
+                confirmed = True
+            else:
+                if is_dir:
+                    msg = (f'Delete the folder "{name}" and all of its contents?\n\n'
+                           f'{file_path}\n\nThis cannot be undone.')
+                else:
+                    msg = f'Delete the file "{name}"?\n\n{file_path}\n\nThis cannot be undone.'
+                reply = QMessageBox.question(
+                    self, "Confirm deletion", msg,
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                confirmed = reply == QMessageBox.Yes
+            if not confirmed:
+                return
+
+            def _force_remove(func, path, exc_info):
+                # shutil.rmtree onerror: on Windows a read-only attribute makes
+                # os.remove/os.rmdir raise; clear it and retry so the delete can
+                # proceed instead of bubbling up an error.
+                try:
+                    os.chmod(path, stat.S_IWRITE)
+                    func(path)
+                except OSError:
+                    pass
+
+            try:
+                if is_dir:
+                    shutil.rmtree(file_path, onerror=_force_remove)
+                else:
+                    os.remove(file_path)
+                add_nextsync_log_window(f"{timestamp()} | Deleted: {file_path}")
+            except OSError as e:
+                logging.error(f"Failed to delete {file_path}: {e}", exc_info=True)
+                add_nextsync_log_window(f"{timestamp()} | Failed to delete {file_path}: {e}")
+                QMessageBox.critical(self, "Delete failed", f"Could not delete:\n{file_path}\n\n{e}")
+            nextsync_refresh_explorer()
 
         def on_file_explorer_path_edited():
             new_path = self.file_explorer_path.text().strip()
@@ -5409,6 +5605,10 @@ class MainWindow(QMainWindow):
                                 cur_path = None
                                 cur_bytes = 0
                                 files_received = 0
+                                # Paths of files fully received this session — added to the
+                                # syncpoint afterwards so the next PC->Next sync won't push
+                                # them straight back to the Next.
+                                received_paths = []
                                 while True:
                                     blk = recv_block(conn)
                                     if blk is None:
@@ -5467,11 +5667,47 @@ class MainWindow(QMainWindow):
                                             cur_file.close()
                                             cur_file = None
                                             files_received += 1
+                                            if cur_path and cur_path not in received_paths:
+                                                received_paths.append(cur_path)
                                             add_nextsync_log_window (f'{timestamp()} | Received {cur_name} ({cur_bytes} bytes)')
                                         sendpacket(conn, b"Ok", pktno)
                                     elif op == b'B':
-                                        sendpacket(conn, b"Later", pktno)
+                                        # Ack the bye with "Ok" (not "Later"): the Next's
+                                        # generic send_block() only treats a reply as success
+                                        # when it starts with 'O'. Replying "Later" here makes
+                                        # the Next consider the bye failed and retry it ~12×;
+                                        # since we close the connection right after, each retry
+                                        # hits its full timeout — the long stall before the dot
+                                        # prints "All done". "Ok" lets it finish on the first try.
+                                        sendpacket(conn, b"Ok", pktno)
                                         add_nextsync_log_window (f'{timestamp()} | Upload finished, {files_received} file(s) received')
+                                        # If that single ack is lost/corrupted in transit (more
+                                        # likely after a long directory send), the Next retransmits
+                                        # the bye and would otherwise burn its full UART timeout
+                                        # against a closed socket — the intermittent stall before
+                                        # "All done". Linger briefly: re-ack any retransmitted bye
+                                        # and stop as soon as the Next hangs up (clean case) or the
+                                        # short grace period elapses.
+                                        try:
+                                            conn.settimeout(2.0)
+                                            while True:
+                                                extra = recv_block(conn)
+                                                if extra is None:
+                                                    break  # Next closed its side — done
+                                                if extra == 'BADCS':
+                                                    continue
+                                                xpayload, xpktno = extra
+                                                if xpayload[0:1] == b'B':
+                                                    sendpacket(conn, b"Ok", xpktno)
+                                                else:
+                                                    break
+                                        except (socket.timeout, OSError):
+                                            pass
+                                        finally:
+                                            try:
+                                                conn.settimeout(None)
+                                            except OSError:
+                                                pass
                                         break
                                     else:
                                         sendpacket(conn, b"Err op", pktno)
@@ -5480,6 +5716,19 @@ class MainWindow(QMainWindow):
                                 if cur_file is not None:
                                     cur_file.close()
                                     cur_file = None
+                                # Record received files in the syncpoint so the next
+                                # PC->Next sync treats them as already known and skips
+                                # them (matching the glob path form getFileList uses).
+                                if received_paths:
+                                    sp_known = []
+                                    if os.path.isfile(upload_root + SYNCPOINT):
+                                        with open(upload_root + SYNCPOINT) as spf:
+                                            sp_known = spf.read().splitlines()
+                                    for rp in received_paths:
+                                        if rp not in sp_known:
+                                            sp_known.append(rp)
+                                    update_syncpoint(upload_root, sp_known)
+                                    add_nextsync_log_window (f'{timestamp()} | Sync point updated with {len(received_paths)} received file(s)')
                                 talking = False
                             elif data == b"Next" or data == b"Neex": # Really common mistransmit. Probably uart-esp..
                                 if data == b"Neex":
@@ -6332,6 +6581,25 @@ class MainWindow(QMainWindow):
         self.nextsync_treeview.doubleClicked.connect(nextsync_on_treeview_double_clicked)
         self.nextsync_treeview.setContextMenuPolicy(Qt.CustomContextMenu)
         self.nextsync_treeview.customContextMenuRequested.connect(nextsync_on_treeview_context_menu)
+
+        def _nextsync_tree_key_press(event):
+            # Delete key / F2 mirror the context-menu "Delete" / "Rename" actions.
+            if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_F2):
+                ix = self.nextsync_treeview.currentIndex()
+                if ix.isValid():
+                    source_ix = self.nextsync_model.mapToSource(ix)
+                    name = self.nextsync_filesystem_model.fileName(source_ix)
+                    if name != "..":
+                        file_path = self.nextsync_filesystem_model.filePath(source_ix)
+                        is_dir = self.nextsync_filesystem_model.isDir(source_ix)
+                        if event.key() == Qt.Key.Key_Delete:
+                            nextsync_delete_explorer_item(file_path, name, is_dir)
+                        else:
+                            nextsync_rename_explorer_item(file_path, name, is_dir)
+                        return
+            QTreeView.keyPressEvent(self.nextsync_treeview, event)
+
+        self.nextsync_treeview.keyPressEvent = _nextsync_tree_key_press
 
         set_treeview_properties()
 
