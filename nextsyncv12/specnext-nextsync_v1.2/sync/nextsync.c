@@ -8,8 +8,21 @@
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
 
-//#define SYNCSLOW
-//#define SYNCFAST
+// UART speed is chosen at runtime from the .sync command line, so one binary
+// covers every case (no more separate SYNCSLOW/SYNCFAST builds):
+//   -slow    : stay at 115200  (most compatible, slowest)
+//   -default : 1152000         (conservative fast)
+//   -fast    : 2000000         (fastest)
+// With no switch the previous compiled-in behaviour (fast) is kept.
+#define MODE_DEFAULT 0
+#define MODE_FAST    1
+#define MODE_SLOW    2
+
+// Left uninitialised on purpose: this dot's custom crt0 has no initialised-data
+// segment (an initialiser here balloons the binary past the 8KB limit), so both
+// are assigned at runtime in main() before first use.
+static unsigned char g_syncmode;
+static unsigned char g_fast_uart_mode;
 
 // xxxsmbbb
 // where b = border color, m is mic, s is speaker
@@ -118,8 +131,13 @@ void memset(char *a, char b, unsigned short l)
 
 // Print a line via the ROM (conprint), followed by a newline. Strings use '\r'
 // for embedded line breaks (ROM print treats CR as newline).
+//
+// Force SCR_CT (sysvar at 23692) to 255 every line: the ROM otherwise stops at
+// the bottom of the screen with a "scroll?" prompt, which hangs the command
+// line during a multi-file sync. 255 makes it auto-scroll without prompting.
 void print(char * t)
 {
+    *((unsigned char *)23692) = 255;
     conprint(t);
     conprint("\r");
 }
@@ -154,12 +172,8 @@ void flush_uart_hard()
 
 unsigned char receive_slow()
 {
-#ifdef SYNCSLOW
-    unsigned short timeout = 200;
-#else
-    unsigned short timeout = 20;
-#endif    
-    while (timeout && !(UART_TX & 1)) 
+    unsigned short timeout = (g_syncmode == MODE_SLOW) ? 200 : 20;
+    while (timeout && !(UART_TX & 1))
     { 
         // wait for data.
         timeout--; 
@@ -313,27 +327,22 @@ void cipxfer(char *cmd, unsigned char cmdlen, unsigned char *output, unsigned sh
     *len = received - 2; // reduce size bytes    
 }
 
-#ifndef SYNCSLOW
 char gofast(char *inbuf)
 {
-#ifdef SYNCFAST    
-    #define FAST_UART_MODE 14    
-    atcmd("AT+UART_CUR=2000000,8,1,0,0\r\n", "", 0, inbuf);
-#else
-    #define FAST_UART_MODE 12
-    atcmd("AT+UART_CUR=1152000,8,1,0,0\r\n", "", 0, inbuf);
-#endif    
+    if (g_syncmode == MODE_FAST)
+        atcmd("AT+UART_CUR=2000000,8,1,0,0\r\n", "", 0, inbuf);
+    else
+        atcmd("AT+UART_CUR=1152000,8,1,0,0\r\n", "", 0, inbuf);
 
-    setupuart(FAST_UART_MODE);
+    setupuart(g_fast_uart_mode);
     flush_uart_hard();
     if (atcmd("\r\n", "ERROR", 5, inbuf))
     {
-        print("Can't talk to esp fast");
+        print("No fast esp");
         return 1;
-    }     
+    }
     return 0;
 }
-#endif
 
 unsigned char createfilewithpath(char * fn)
 {
@@ -531,18 +540,32 @@ char send_file(char *fullpath, char *relname, unsigned char *inbuf, unsigned cha
     return 0;
 }
 
-// Recursively send a directory tree. fullpath is a mutable path buffer (plen =
-// its length); entrybuf holds one readdir entry. One esxDOS dir handle stays
-// open per nesting level. Returns 1 on fatal failure.
+// Send a directory tree. Minimal-stack design that avoids two things that each
+// crashed/looped the dot on real hardware:
+//   * file I/O while a readdir handle is open (corrupts the esxDOS dir cursor);
+//   * a big collection buffer on the stack (the 8KB stack bank already holds
+//     inbuf+scratch, and FATFS opendir/readdir needs a lot of headroom on top -
+//     a 1KB buffer tipped it over and corrupted the return address -> re-run).
+// So: for each entry we re-open the directory, skip to that entry, CLOSE it,
+// then send the file (or recurse). Only one esxDOS handle is ever open, never
+// during file I/O, and no per-level buffer is used. O(n^2) readdir but tiny.
 char send_dir(char *fullpath, unsigned short plen, unsigned char *inbuf, unsigned char *scratch, unsigned char *entrybuf)
 {
-    unsigned char dh = opendir((unsigned char *)fullpath);
     unsigned char *name;
-    unsigned short i, nl, newlen;
+    unsigned short i, nl, newlen, cur = 0, j;
+    unsigned char dh, got;
 
-    if (dh == 0) return 0;
-    while (readdir(dh, entrybuf))
+    for (;;)
     {
+        if (cur >= 4000) return 0;                  // safety cap
+        dh = opendir((unsigned char *)fullpath);
+        if (dh == 0) return 0;
+        got = 0;
+        for (j = 0; j <= cur; j++) got = readdir(dh, entrybuf); // land on entry #cur
+        fclose(dh);                                             // closed before any file I/O
+        if (!got) return 0;                                     // past the last entry -> done
+        cur++;
+
         name = entrybuf + 1;
         if (name[0] == '.' && (name[1] == 0 || (name[1] == '.' && name[2] == 0))) continue;
         nl = 0; while (name[nl]) nl++;
@@ -555,16 +578,54 @@ char send_dir(char *fullpath, unsigned short plen, unsigned char *inbuf, unsigne
 
         if (entrybuf[0] & 0x10)
         {
-            if (send_dir(fullpath, newlen, inbuf, scratch, entrybuf)) { fclose(dh); return 1; }
+            if (send_dir(fullpath, newlen, inbuf, scratch, entrybuf)) return 1;
         }
         else
         {
-            if (send_file(fullpath, fullpath, inbuf, scratch)) { fclose(dh); return 1; }
+            if (send_file(fullpath, fullpath, inbuf, scratch)) return 1;
         }
         fullpath[plen] = 0;
     }
-    fclose(dh);
+}
+
+// Set g_syncmode if the n-char token at p is a -slow/-default/-fast switch and
+// return 1, else return 0. Matched by first char + length (much cheaper than
+// memcmp on z80): "-fast" (-f, len 5), "-default" (-d, len 8), "-slow" (-s, len
+// 5, with 3rd char 'l' so it isn't confused with "-send").
+unsigned char setspeed(char *p, unsigned char n)
+{
+    if (*p != '-') return 0;
+    if (p[1] == 'f' && n == 5)                  { g_syncmode = MODE_FAST;    return 1; }
+    if (p[1] == 'd' && n == 8)                  { g_syncmode = MODE_DEFAULT; return 1; }
+    if (p[1] == 's' && n == 5 && p[2] == 'l')   { g_syncmode = MODE_SLOW;    return 1; }
     return 0;
+}
+
+// Pull -slow/-default/-fast switches out of the command line and copy the
+// remaining tokens into dst. Sets g_syncmode. Works anywhere in the line.
+//
+// CRITICAL: this only READS cmdline and writes to dst (a private buffer). It
+// must NEVER write into cmdline itself - that buffer belongs to the NextZXOS
+// command processor, and poking it makes the OS re-dispatch the command after
+// the dot returns, so the dot runs again and again forever. main() then points
+// cmdline at dst so the rest of the parser sees the cleaned line.
+void parse_speed_switches(char *dst)
+{
+    unsigned char si = 0, di = 0, ts, n;
+    dst[0] = 0;
+    if (!cmdline) return;
+    for (;;)
+    {
+        while (cmdline[si] == ' ') si++;
+        if (!cmdline[si] || cmdline[si] == 0xd) break;
+        ts = si;
+        while (cmdline[si] && cmdline[si] != ' ' && cmdline[si] != 0xd) si++;
+        n = si - ts;
+        if (setspeed(cmdline + ts, n)) continue;   // recognised switch -> drop it
+        if (di) dst[di++] = ' ';                   // keep this token
+        while (ts < si) dst[di++] = cmdline[ts++];
+    }
+    dst[di] = 0;
 }
 
 void main()
@@ -574,8 +635,9 @@ void main()
     const char *conffile         = "c:/sys/config/nextsync.cfg";
     char fn[256];
     char inbuf[2048];
-    char scratch[2048];
+    char scratch[1280]; // outgoing block: 1024 file bytes + opcode + framing (~1030 max)
     char sendpath[256];
+    char cleancmd[256]; // command line with speed switches removed (never touch the OS buffer)
     char sendmode = 0;
     unsigned char fnlen;
     unsigned char *dp;
@@ -583,8 +645,17 @@ void main()
     unsigned char nextreg6;
     unsigned char nextreg7;
     char fastuart = 0;
-    char filehandle;
+    char filehandle = 0; // init to silence "used before init" (the read is guarded, but be safe)
     char retrycount;
+
+    // Strip speed switches into a private buffer (never write the OS cmdline),
+    // then point cmdline at it so the normal parser sees the cleaned line.
+    g_syncmode = MODE_FAST; // default when no -slow/-default/-fast is given
+    parse_speed_switches(cleancmd);
+    cmdline = cleancmd;
+    g_fast_uart_mode = (g_syncmode == MODE_FAST) ? 14 : 12;
+
+    print("NextSync 4.0 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -638,13 +709,12 @@ void main()
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v1.2 by Jari Komppa\r"
-                "Wifi file transfer PC<->Next\r\r"
-                ".SYNC [server] : save config\r"
-                ".SYNC          : sync from PC\r"
-                ".SYNC -send <file|dir> : push\r"
-                "  a file/dir to the app\r\r"
-                "See nextsync.txt for details.\r\r");
+                "SYNC v4.0 Clauzel/Komppa\r"
+                ".SYNC [server] : save cfg\r"
+                ".SYNC : sync from PC\r"
+                ".SYNC -send <file|dir>\r"
+                ".SYNC -slow|-default|-fast\r"
+                "See nextsync.txt\r\r");
             goto terminate;
         }
 
@@ -679,8 +749,7 @@ void main()
         filehandle = fopen((char*)conffile, 1);
         if (filehandle == 0)
         {
-            conprint("No server configured.\r");
-            conprint("Run .sync <server> first.\r");
+            conprint("No server set - .sync <ip>\r");
             goto terminate;
         }
         len = fread(filehandle, fn, 255);
@@ -693,9 +762,6 @@ void main()
     nextreg7 = readnextreg(0x07);
     writenextreg(0x07, 3); // 28MHz
 
-    print("NextSync 1.2 by Jari Komppa");
-    print("http://iki.fi/sol");
-
     // read Next core version - e.g. 3.01.10 will be 0x310a
     corever = readnextreg(0x01) * 256 + readnextreg(0x0e);
 
@@ -704,40 +770,36 @@ void main()
     // set the baud rate (default)
     setupuart(0);
 
-    if (atcmd("\r\n", "ERROR", 5, inbuf)) 
+    if (atcmd("\r\n", "ERROR", 5, inbuf))
     {
-#ifndef SYNCSLOW
-        // Maybe we're already going fast?
-        fastuart = 1;
-        setupuart(FAST_UART_MODE);
-        flush_uart_hard();
-        if (atcmd("\r\n", "ERROR", 5, inbuf)) 
+        if (g_syncmode != MODE_SLOW)
         {
-#endif
-            print("Can't talk to esp.\rResetting esp, try again.");
+            // Maybe we're already going fast?
+            fastuart = 1;
+            setupuart(g_fast_uart_mode);
+            flush_uart_hard();
+        }
+        // In slow mode there is no fast rate to fall back to, so bail straight
+        // away; otherwise bail only if the esp is unresponsive at the fast rate.
+        if (g_syncmode == MODE_SLOW || atcmd("\r\n", "ERROR", 5, inbuf))
+        {
+            print("No esp - reset, try again");
             // reset esp
             writenextreg(0x02, 128);
             // wait for 5+ frames
             for (len = 0; len < 10000; len++);
             writenextreg(0x02, 0);
             goto bailout;
-#ifndef SYNCSLOW
         }
-#endif        
         // if we get this far, esp was already at the fast rate
         // (which can happen if you reset the next while
         // transfer is going on)
     }
 
-#ifndef SYNCSLOW
-    if (!fastuart && gofast(inbuf))
+    if (g_syncmode != MODE_SLOW && !fastuart && gofast(inbuf))
         goto bailout;
-#endif
 
     atcmd("ATE0\r\n", "OK", 2, inbuf); // command echo off; if on, we might match server name as OK/ERROR/BUSY =)
-
-    print("Connecting to:");
-    print(fn);
 
 retryconnect:
 
@@ -755,7 +817,6 @@ retryconnect:
         goto bailout;
     }
         
-    print("Handshake..");
     retrycount = 0;
 
     if (sendmode)
@@ -769,23 +830,17 @@ retryhandshake4:
             retrycount++;
             if (retrycount < 5)
             {
-                if (len == 0)
-                {
-                    print("Retry connect..");
-                    goto retryconnect;
-                }
+                if (len == 0) goto retryconnect;
                 flush_uart_hard();
-                print("Retry handshake..");
                 goto retryhandshake4;
             }
-            print("App too old for upload");
+            print("App too old");
             goto closeconn;
         }
 
         // Switch the server into receive-from-Next mode.
         cipxfer("Send", 4, inbuf, &len, &dp);
 
-        print("Sending..");
         g_packetno = 0;
 
         {
@@ -799,7 +854,10 @@ retryhandshake4:
             }
             else
             {
-                // Not openable as a file - treat it as a directory.
+                // Not openable as a file - treat it as a directory. Two passes:
+                // (1) collect every file path with enumeration only (no file I/O,
+                // so the readdir cursor can't be corrupted), then (2) send them
+                // with no directory handle open.
                 unsigned short plen = 0;
                 while (sendpath[plen]) plen++;
                 // drop a trailing slash so paths don't get doubled
@@ -826,26 +884,16 @@ retryhandshake:
         retrycount++;
         if (retrycount < 5)
         {
-            if (len == 0)
-            {
-                print("Retry connect..");
-                goto retryconnect;
-            }
+            if (len == 0) goto retryconnect;
             flush_uart_hard();
-            print("Retry handshake..");
             goto retryhandshake;
         }
-        print("Server version mismatch");
-        dp[len] = 0;
-        print(dp);
-        printnum(len);
+        print("Ver mismatch");
         goto closeconn;
     }
 
-    print("Connected");
-    
     do
-    {        
+    {
 
         cipxfer("Next", 4, inbuf, &len, &dp);
 retrynext:
@@ -875,7 +923,7 @@ retrynext:
     while (*fn != 0);
     
 closeconn:
-    print("Shutting down..");
+    print("Closing..");
     cipxfer("Bye", 3, inbuf, &len, &dp);
     atcmd("AT+CIPCLOSE\r\n", "", 0, inbuf);
 bailout:

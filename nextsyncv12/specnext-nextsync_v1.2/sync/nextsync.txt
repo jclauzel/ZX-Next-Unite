@@ -429,6 +429,30 @@ If the Next's ack is lost it resends a block whose packetno equals the server's
 last-accepted one; the server re-acks "Ok" without writing the data again.
 
 
+UART speed switches (-slow / -default / -fast)
+----------------------------------------------
+
+The UART speed used to talk to the esp wifi module is selectable at runtime, so
+a single .dot binary covers every case (no more separate syncslow/syncfast
+builds). Add one of these switches to the .sync command line:
+
+    -slow      stay at 115200 baud      (most compatible, slowest)
+    -default   1152000 baud             (conservative fast)
+    -fast      2000000 baud             (fastest)
+
+With no switch the dot keeps its built-in default (fast / 2000000). The switch
+may appear before or after the rest of the command, and works with every form:
+
+    .sync -fast                 sync from PC at 2000000
+    .sync -slow                 sync from PC at 115200
+    .sync <ip> -default         save the server ip (speed irrelevant here)
+    .sync -fast -send mygame    push a file/dir to the app at 2000000
+    .sync -send mygame -slow    same, at 115200
+
+Use -slow if a transfer is unreliable (lots of retries/restarts, hangs, or
+"No fast esp"); use -fast to squeeze out maximum speed on a good link.
+
+
 ESP-01 Challenges
 -----------------
 

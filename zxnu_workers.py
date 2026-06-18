@@ -98,7 +98,7 @@ class HdfProgressDialog(QDialog):
 
     cancel_requested = Signal()
 
-    def __init__(self, title, parent=None):
+    def __init__(self, title, parent=None, cancel_label="Cancel"):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
@@ -139,7 +139,7 @@ class HdfProgressDialog(QDialog):
         # Cancel button
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn = QPushButton(cancel_label)
         self._cancel_btn.setFixedWidth(90)
         self._cancel_btn.clicked.connect(self._on_cancel_clicked)
         btn_row.addWidget(self._cancel_btn)
