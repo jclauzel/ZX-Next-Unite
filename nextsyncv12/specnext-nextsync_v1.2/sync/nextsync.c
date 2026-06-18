@@ -655,7 +655,7 @@ void main()
     cmdline = cleancmd;
     g_fast_uart_mode = (g_syncmode == MODE_FAST) ? 14 : 12;
 
-    print("NextSync 2.0 Clauzel/Komppa");
+    print("NextSync 4.0 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -709,7 +709,7 @@ void main()
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v2.0 Clauzel/Komppa\r"
+                "SYNC v4.0 Clauzel/Komppa\r"
                 ".SYNC [server] : save cfg\r"
                 ".SYNC : sync from PC\r"
                 ".SYNC -send <file|dir>\r"
