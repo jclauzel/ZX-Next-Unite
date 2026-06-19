@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ZX-Next-Unite is a cross-platform (Windows/Linux/macOS) PySide6 (Qt6) GUI application written in Python. It combines two tools for ZX Spectrum Next users:
 
 1. **SD Card Utility** — mounts HDF disk images and provides a file explorer for uploading/downloading content to them, then launching the CSpect or MAME emulator.
-2. **NextSync** — implements the server side of Jari Komppa's NextSync protocol (TCP port 2048), allowing files to be pushed from the PC over Wi-Fi to a physical Spectrum Next machine. The app also implements a backwards-compatible **Sync4** extension that adds the reverse direction (`.sync -send <file|dir>` on the Next pushes files/directories *back* to the app); legacy **Sync3** dots keep working unchanged (PC → Next only). The `.dot` client source lives under `nextsyncv12/specnext-nextsync_v1.2/sync/`.
+2. **NextSync** — implements the server side of Jari Komppa's NextSync protocol (TCP port 2048), allowing files to be pushed from the PC over Wi-Fi to a physical Spectrum Next machine. The app also implements a backwards-compatible **Sync4** extension that adds the reverse direction (`.sync -send <file|dir>` on the Next pushes files/directories *back* to the app); legacy **Sync3** dots keep working unchanged (PC → Next only). The `.dot` client source lives under `nextsync/sync/`.
 
 Additional tabs provide online browsing of ZX Spectrum software via three third-party APIs: **GetIt** (`zxnext.uk`), **ZXDB** (`api.zxinfo.dk/v3`), and **zxArt** (`zxart.ee/api`).
 
