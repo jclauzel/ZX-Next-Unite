@@ -56,6 +56,12 @@ class HdfTaskSignals(QObject):
     cancelled = Signal()      # emitted when the worker stopped early due to cancel
 
 
+class HdfMonkeyMissingSignals(QObject):
+    """Emitted (possibly from a worker thread) when hdfmonkey appears to be
+    missing/unrunnable, so the UI thread can offer to download/install it."""
+    missing = Signal()
+
+
 class MameProcessSignals(QObject):
     """Signals used to marshal output from a detached MAME process back to the
     main (UI) thread. A background reader thread emits ``output`` for every
