@@ -4448,6 +4448,66 @@ class MainWindow(QMainWindow):
             menu.addAction(action_copy_path)
             menu.exec(self.treeview.viewport().mapToGlobal(pos))
 
+        def local_explorer_refresh():
+            """Force the SD-card tab's left local explorer to re-stat the folder
+            currently shown, so files just dropped in appear immediately rather
+            than waiting on the filesystem watcher."""
+            try:
+                root_src = self.proxy_model.mapToSource(self.treeview.rootIndex())
+                view_path = self.model.filePath(root_src)
+                self.model.setRootPath("")
+                self.model.setRootPath(view_path or "/")
+                if view_path:
+                    self.treeview.setRootIndex(
+                        self.proxy_model.mapFromSource(self.model.index(view_path)))
+            except Exception as e:
+                logging.error(f"Local explorer refresh failed: {e}", exc_info=True)
+
+        def local_explorer_import_external_paths(paths, dest_dir):
+            """Copy files/folders dropped from the OS file manager into dest_dir
+            (local filesystem) on a background thread with a progress dialog.
+            Reuses the shared copy worker; never overwrites (name clashes get a
+            '-(copy)' suffix) and refreshes the left explorer when done."""
+            if not dest_dir or not os.path.isdir(dest_dir):
+                add_main_log_window("Import failed: no valid destination folder.")
+                return
+
+            items = []
+            for src in paths:
+                if not src or not os.path.exists(src):
+                    continue
+                src_is_dir = os.path.isdir(src)
+                if src_is_dir:
+                    src_abs = os.path.abspath(src)
+                    dest_abs = os.path.abspath(dest_dir)
+                    # Guard against importing a folder into itself or a subfolder.
+                    if dest_abs == src_abs or dest_abs.startswith(src_abs + os.sep):
+                        add_main_log_window(f"Skipped {src}: cannot import a folder into itself.")
+                        continue
+                base = os.path.basename(src.rstrip("/\\"))
+                target = _nextsync_unique_path(os.path.join(dest_dir, base), src_is_dir)
+                items.append((src, target, src_is_dir))
+
+            if not items:
+                return
+
+            dlg    = HdfProgressDialog("Importing into folder…", self)
+            worker = HdfTaskWorker(_run_nextsync_import_task, items)
+
+            dlg.cancel_requested.connect(worker.cancel)
+            worker.signals.progress.connect(dlg.set_progress)
+            worker.signals.status.connect(dlg.set_status)
+            worker.signals.error.connect(add_main_log_window)
+            worker.signals.cancelled.connect(dlg.mark_cancelled)
+
+            def _on_local_import_finished():
+                dlg.close()
+                local_explorer_refresh()
+
+            worker.signals.finished.connect(_on_local_import_finished)
+            self.threadpool.start(worker)
+            dlg.exec()
+
         def nextsync_current_view_dir():
             """Path of the folder currently shown at the top of the NextSync tree."""
             root_proxy = self.nextsync_treeview.rootIndex()
@@ -6354,6 +6414,55 @@ class MainWindow(QMainWindow):
         self.treeview.clicked.connect(on_treeview_clicked)
         self.treeview.setContextMenuPolicy(Qt.CustomContextMenu)
         self.treeview.customContextMenuRequested.connect(on_treeview_context_menu)
+
+        # --- Drag & drop from the OS file manager into the local explorer -----
+        # Dropping files/folders from Windows Explorer onto the left explorer
+        # imports (copies) them into the folder the drop lands on (its parent if
+        # the item is a file), or the current root when dropped on empty space.
+        def _local_drop_target_dir(pos):
+            index = self.treeview.indexAt(pos)
+            if index.isValid():
+                source_ix = self.proxy_model.mapToSource(index)
+                if self.model.fileName(source_ix) != "..":
+                    path = self.model.filePath(source_ix)
+                    if self.model.isDir(source_ix):
+                        return path
+                    return os.path.dirname(path)
+            # Fall back to the directory currently shown at the tree root.
+            root_src = self.proxy_model.mapToSource(self.treeview.rootIndex())
+            return self.model.filePath(root_src)
+
+        def _local_drag_enter(event):
+            if event.mimeData().hasUrls():
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+
+        def _local_drag_move(event):
+            if event.mimeData().hasUrls():
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+
+        def _local_drop(event):
+            if not event.mimeData().hasUrls():
+                event.ignore()
+                return
+            paths = [u.toLocalFile() for u in event.mimeData().urls()
+                     if u.isLocalFile() and u.toLocalFile()]
+            if not paths:
+                event.ignore()
+                return
+            event.acceptProposedAction()
+            dest_dir = _local_drop_target_dir(event.position().toPoint())
+            local_explorer_import_external_paths(paths, dest_dir)
+
+        self.treeview.setAcceptDrops(True)
+        self.treeview.setDragDropMode(QAbstractItemView.DropOnly)
+        self.treeview.setDropIndicatorShown(True)
+        self.treeview.dragEnterEvent = _local_drag_enter
+        self.treeview.dragMoveEvent = _local_drag_move
+        self.treeview.dropEvent = _local_drop
 
         self.centralbuttonscontainer = QWidget()
         self.centralbuttons = QVBoxLayout()
