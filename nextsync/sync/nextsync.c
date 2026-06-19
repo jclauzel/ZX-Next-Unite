@@ -3,6 +3,10 @@
  * https://github.com/jarikomppa/specnext
  * released under the unlicense, see http://unlicense.org 
  * (practically public domain) 
+ * Updated by Julien Clauzel
+ * Recompiled for NextSync 4.0, with upload support and a new framing protocol.
+ * Used SDCC 4.5.0 on Windows https://sourceforge.net/projects/sdcc/files/sdcc-win64/4.5.0/
+ * Use build.ps1 to build the .dot file (syncdev.dot), then copy it to the Next and run it from BASIC with
  */
 
 #define TIMEOUT 20000
@@ -39,7 +43,7 @@ extern void conprint(char *txt) __z88dk_fastcall;
 
 extern void writenextreg(unsigned char reg, unsigned char val);
 extern unsigned char readnextreg(unsigned char reg);
-extern unsigned char allocpage();
+extern unsigned char allocpage(void);
 extern void freepage(unsigned char page);
 
 __sfr __banked __at 0x133b UART_TX;
@@ -147,7 +151,7 @@ extern unsigned char uitoa(unsigned short v, char *b);
 void printnum(unsigned short v);
 
 // Just flush as much as is in the queue right now.
-void flush_uart()
+void flush_uart(void)
 {
     while (UART_TX & 1)
     {
@@ -156,7 +160,7 @@ void flush_uart()
 } 
 
 // Do the maximum effort to empty the uart.
-void flush_uart_hard()
+void flush_uart_hard(void)
 {
     unsigned short timeout = TIMEOUT_FLUSHUART;
     while (timeout)
@@ -170,7 +174,7 @@ void flush_uart_hard()
     }
 }
 
-unsigned char receive_slow()
+unsigned char receive_slow(void)
 {
     unsigned short timeout = (g_syncmode == MODE_SLOW) ? 200 : 20;
     while (timeout && !(UART_TX & 1))
@@ -628,7 +632,7 @@ void parse_speed_switches(char *dst)
     dst[di] = 0;
 }
 
-void main()
+void main(void)
 {                                 //1234567890123456789012
     const char *cipstart_prefix  = "AT+CIPSTART=\"TCP\",\"";
     const char *cipstart_postfix = "\",2048\r\n";
@@ -647,6 +651,12 @@ void main()
     char fastuart = 0;
     char filehandle = 0; // init to silence "used before init" (the read is guarded, but be safe)
     char retrycount;
+    unsigned char saved_scr_ct;
+
+    // Save SCR_CT (23692) before print() starts forcing it to 255, so it can be
+    // restored at terminate. Leaving it at 255 would suppress the ROM "scroll?"
+    // prompt for the rest of the BASIC session after the dot command exits.
+    saved_scr_ct = *((unsigned char *)23692);
 
     // Strip speed switches into a private buffer (never write the OS cmdline),
     // then point cmdline at it so the normal parser sees the cleaned line.
@@ -655,7 +665,7 @@ void main()
     cmdline = cleancmd;
     g_fast_uart_mode = (g_syncmode == MODE_FAST) ? 14 : 12;
 
-    print("NextSync 4.0 Clauzel/Komppa");
+    print("NextSync 4.1 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -709,7 +719,7 @@ void main()
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v4.0 Clauzel/Komppa\r"
+                "SYNC v4.1 Clauzel/Komppa\r"
                 ".SYNC [server] : save cfg\r"
                 ".SYNC : sync from PC\r"
                 ".SYNC -send <file|dir>\r"
@@ -932,5 +942,6 @@ bailout:
     writenextreg(0x07, nextreg7); // restore cpu speed
     writenextreg(0x06, nextreg6); // restore turbo key & 50/60 switch
 terminate:
+    *((unsigned char *)23692) = saved_scr_ct; // restore ROM scroll counter
     return;
 }
