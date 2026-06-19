@@ -44,7 +44,7 @@ foreach ($t in @($sdcc, $sdasz80, $ihx2bin)) {
 $env:PATH = "$SdccBin;" + $env:PATH
 Write-Host "SDCC: $sdcc"
 
-$CFLAGS = @("-mz80","--sdcccall","0","--no-std-crt0","--opt-code-speed","--peep-asm","--peep-return")
+$CFLAGS = @("-mz80","--sdcccall","0","--no-std-crt0","--nostdlib","--opt-code-speed","--peep-asm","--peep-return")
 $LFLAGS = @("-mz80","--sdcccall","0","--no-std-crt0","--opt-code-speed","--nostdlib","--code-loc","0x2100","-Wl","-b_HEADER=0x2000")
 $ASM = @("crt0","std","esxdos","uart")
 $C   = @("gfx","nextsync")

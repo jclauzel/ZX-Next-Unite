@@ -26,6 +26,10 @@ ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
 ZX_NEXT_UNITE_UI_WIDTH = 900 * ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER
 ZX_NEXT_UNITE_UI_HEIGTH = 650 * ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER
 ZX_NEXT_UNITE_CONFIG_FILE_NAME = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "hdfg.cfg")
+# Debounce window (ms) for the NextSync "prepare" file scan: rapid explorer
+# selection changes are coalesced so the recursive scan runs once after settling.
+NEXTSYNC_PREPARE_DEBOUNCE_MS = 300
+
 ZX_NEXT_UNITE_TAB_TITLE_GOOEY = "TOOL: SD Card Utility"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "TOOL: Network Transfer Manager (NextSync)"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC_SYNCON = "NextSync - Sync ON"
