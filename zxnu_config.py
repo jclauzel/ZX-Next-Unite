@@ -7,12 +7,13 @@ tables, small pure helpers and the zxArt language state."""
 import os
 import platform
 import shutil
+import subprocess
 import sys
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "7.7.1"
+ZX_NEXT_UNITE_VERSION = "7.7.2"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -148,6 +149,27 @@ def resource_path(relative_path):
     if hasattr(sys, "_MEIPASS"):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
+
+def subprocess_no_window_kwargs(extra_flags=0):
+    """Return subprocess kwargs that prevent a console window from flashing.
+
+    On Windows, command-line tools such as hdfmonkey would otherwise briefly
+    pop up a console window every time they run (e.g. when deleting or sending
+    a file). Passing CREATE_NO_WINDOW plus a STARTUPINFO with a hidden window
+    keeps them invisible. On other platforms this is a no-op. ``extra_flags``
+    lets callers OR in additional Windows creation flags (e.g.
+    CREATE_NEW_PROCESS_GROUP).
+    """
+    if platform.system() != "Windows":
+        return {}
+    CREATE_NO_WINDOW = 0x08000000
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = subprocess.SW_HIDE
+    return {
+        "creationflags": CREATE_NO_WINDOW | extra_flags,
+        "startupinfo": startupinfo,
+    }
 def zxart_legal_status_label(code) -> str:
     """Return a human-readable label for a zxArt ``legalStatus`` code.
 

@@ -3120,7 +3120,9 @@ class MainWindow(QMainWindow):
             mame_cwd = os.path.dirname(mame_path) or None
             try:
                 if platform.system() == "Windows":
-                    creationflags = 0x00000200  # CREATE_NEW_PROCESS_GROUP
+                    # CREATE_NEW_PROCESS_GROUP (0x200) detaches MAME from the app;
+                    # subprocess_no_window_kwargs() adds CREATE_NO_WINDOW + a hidden
+                    # STARTUPINFO so no console window flashes when launching it.
                     mame_proc = subprocess.Popen(
                         mame_argv,
                         stdin=subprocess.DEVNULL,
@@ -3130,7 +3132,7 @@ class MainWindow(QMainWindow):
                         text=True,
                         bufsize=1,
                         cwd=mame_cwd,
-                        creationflags=creationflags,
+                        **subprocess_no_window_kwargs(extra_flags=0x00000200),
                     )
                 else:
                     mame_proc = subprocess.Popen(
@@ -3869,7 +3871,8 @@ class MainWindow(QMainWindow):
                 elif additional_args:
                     argv += shlex.split(additional_args, posix=True)
                 exec_process = subprocess.run(argv, shell=False, check=True,
-                                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                              **subprocess_no_window_kwargs())
 
             except (FileNotFoundError,subprocess.CalledProcessError) as ex:
                     # If hdfmonkey can't actually be located, offer to install it
