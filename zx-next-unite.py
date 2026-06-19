@@ -2172,6 +2172,10 @@ class MainWindow(QMainWindow):
         configuration_dictionary[SETTING_ALIEN_FLOYD_TAB] = ""
         configuration_dictionary[SETTING_ALIEN_FLOYD_HISCORE] = "0"
         configuration_dictionary[SETTING_ALIEN_FLOYD_HISCORES] = ""
+        # How to treat a file/dir received via ".sync -send" that already exists
+        # locally: "prompt" (ask, default), "overwrite" (always), "ignore" (never
+        # touch). Seeded so a first-run cfg persists a value.
+        configuration_dictionary[SETTING_NEXTSYNC_SEND_CONFLICT] = DEFAULT_NEXTSYNC_SEND_CONFLICT
 
         # Detect whether the MAME emulator is available on the system PATH
         # (mame.exe on Windows, mame elsewhere). When present, a "Launch Mame"
@@ -2583,6 +2587,17 @@ class MainWindow(QMainWindow):
                 if SETTING_NO_PROMPT_ON_DELETION in configuration_dictionary and configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION] != "":
                     checked = configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION] != "0" and configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION].lower() != "false"
                     self.settings_no_prompt_on_deletion_checkbox.setChecked(checked)
+
+                # NextSync receive-conflict policy (combo): restore the saved value,
+                # falling back to the default for empty/unknown entries.
+                _send_conflict = configuration_dictionary.get(SETTING_NEXTSYNC_SEND_CONFLICT, "").strip().lower()
+                if _send_conflict not in ("prompt", "overwrite", "ignore"):
+                    _send_conflict = DEFAULT_NEXTSYNC_SEND_CONFLICT
+                configuration_dictionary[SETTING_NEXTSYNC_SEND_CONFLICT] = _send_conflict
+                _sc_idx = self.settings_nextsync_send_conflict_combo.findData(_send_conflict)
+                self.settings_nextsync_send_conflict_combo.blockSignals(True)
+                self.settings_nextsync_send_conflict_combo.setCurrentIndex(max(0, _sc_idx))
+                self.settings_nextsync_send_conflict_combo.blockSignals(False)
 
                 if SETTING_AVAIL_CHECK in configuration_dictionary and configuration_dictionary[SETTING_AVAIL_CHECK] != "":
                     checked = configuration_dictionary[SETTING_AVAIL_CHECK] != "0" and configuration_dictionary[SETTING_AVAIL_CHECK].lower() != "false"
@@ -5871,6 +5886,50 @@ class MainWindow(QMainWindow):
             self.nextsync_prepare_server.setVisible(True)
             save_configuration_file()
 
+        def _on_nextsync_conflict_prompt(name, path, holder, ev):
+            """UI-thread slot: ask the user how to handle a received file/dir that
+            already exists locally. Records one of overwrite/overwrite_all/
+            ignore/ignore_all in *holder* and unblocks the worker via *ev*."""
+            try:
+                box = QMessageBox(self)
+                box.setIcon(QMessageBox.Question)
+                box.setWindowTitle("File or directory exists")
+                box.setText("File or directory already exists locally.")
+                box.setInformativeText(
+                    f"{path}\n\n"
+                    "Tip: set a default for this in Settings → "
+                    "\"NextSync — when a sent file or directory exists locally\".")
+                b_ow_one = box.addButton("Overwrite local file (one time)", QMessageBox.AcceptRole)
+                b_ow_all = box.addButton("Overwrite local file (always in this sync)", QMessageBox.AcceptRole)
+                b_ig_one = box.addButton("Ignore (one time)", QMessageBox.RejectRole)
+                b_ig_all = box.addButton("Ignore (always in this sync)", QMessageBox.RejectRole)
+                box.exec()
+                clicked = box.clickedButton()
+                if clicked is b_ow_one:
+                    holder["result"] = "overwrite"
+                elif clicked is b_ow_all:
+                    holder["result"] = "overwrite_all"
+                elif clicked is b_ig_all:
+                    holder["result"] = "ignore_all"
+                else:
+                    holder["result"] = "ignore"   # Ignore (one time) or dialog closed
+            finally:
+                ev.set()
+
+        # Created on the UI thread so its queued signal delivers the prompt there.
+        self._nextsync_conflict_signals = NextSyncConflictSignals()
+        self._nextsync_conflict_signals.prompt.connect(_on_nextsync_conflict_prompt)
+
+        def _nextsync_ask_conflict(name, path):
+            """Called from the receive worker thread: block until the user picks
+            how to handle an existing local file/dir. Returns one of
+            'overwrite', 'overwrite_all', 'ignore', 'ignore_all'."""
+            holder = {}
+            ev = threading.Event()
+            self._nextsync_conflict_signals.prompt.emit(name, path, holder, ev)
+            ev.wait()
+            return holder.get("result", "ignore")
+
         def nextsync_do_server_job(progress_callback, status_callback=None, cancel_flag=None, serve_folder=None):
             """Run the NextSync server loop.
 
@@ -5998,11 +6057,23 @@ class MainWindow(QMainWindow):
                                 packets += 1
                                 upload_root = selected_nextsync_explorer_sync_root_directory or "./"
                                 add_nextsync_log_window (f'{timestamp()} | Saving incoming files under: {upload_root}')
+                                # How to treat incoming files/dirs that already exist
+                                # locally. Read from the (persisted) setting; an
+                                # "always in this sync" prompt choice overrides it
+                                # for the rest of this transfer.
+                                conflict_policy = configuration_dictionary.get(
+                                    SETTING_NEXTSYNC_SEND_CONFLICT, DEFAULT_NEXTSYNC_SEND_CONFLICT)
+                                if conflict_policy not in ("prompt", "overwrite", "ignore"):
+                                    conflict_policy = DEFAULT_NEXTSYNC_SEND_CONFLICT
+                                add_nextsync_log_window (
+                                    f"{timestamp()} | Existing-file policy: {conflict_policy} "
+                                    "(change in Settings -> 'NextSync - when a sent file or directory exists locally').")
                                 expected_pkt = 0
                                 cur_file = None
                                 cur_name = None
                                 cur_path = None
                                 cur_bytes = 0
+                                cur_skip = False
                                 files_received = 0
                                 # Paths of files fully received this session — added to the
                                 # syncpoint afterwards so the next PC->Next sync won't push
@@ -6034,26 +6105,55 @@ class MainWindow(QMainWindow):
                                         namelen = payload[5] if len(payload) > 5 else 0
                                         cur_name = payload[6:6 + namelen].decode(errors='replace')
                                         cur_path = sanitize_incoming_path(upload_root, cur_name)
-                                        try:
-                                            parent = os.path.dirname(cur_path)
-                                            if parent:
-                                                os.makedirs(parent, exist_ok=True)
-                                        except OSError:
-                                            pass
+                                        # Close any still-open previous file first.
                                         if cur_file is not None:
                                             cur_file.close()
-                                        try:
-                                            cur_file = open(cur_path, 'wb')
-                                        except OSError as ex:
-                                            add_nextsync_log_window (f'{timestamp()} | Cannot create {cur_path}: {ex}')
                                             cur_file = None
-                                            sendpacket(conn, b"Err open", pktno)
-                                            break
                                         cur_bytes = 0
-                                        add_nextsync_log_window (f'{timestamp()} | Receiving: {cur_name} -> {cur_path}')
-                                        if status_callback is not None:
-                                            status_callback.emit(f"Receiving file\n{cur_name}")
-                                        sendpacket(conn, b"Ok", pktno)
+                                        cur_skip = False
+                                        # Conflict handling when the target already exists.
+                                        if os.path.exists(cur_path):
+                                            decision = conflict_policy
+                                            if decision == 'prompt':
+                                                choice = _nextsync_ask_conflict(cur_name, cur_path)
+                                                if choice == 'overwrite_all':
+                                                    conflict_policy = 'overwrite'   # apply to rest of this sync
+                                                    decision = 'overwrite'
+                                                elif choice == 'ignore_all':
+                                                    conflict_policy = 'ignore'      # apply to rest of this sync
+                                                    decision = 'ignore'
+                                                elif choice == 'overwrite':
+                                                    decision = 'overwrite'
+                                                else:
+                                                    decision = 'ignore'
+                                            if decision == 'ignore':
+                                                cur_skip = True
+                                        if cur_skip:
+                                            # Don't create/truncate the local file: the incoming
+                                            # data blocks are still acked but discarded (cur_file
+                                            # is None), and this file is not counted/recorded.
+                                            add_nextsync_log_window (f'{timestamp()} | Skipped (already exists): {cur_path}')
+                                            if status_callback is not None:
+                                                status_callback.emit(f"Skipping (exists)\n{cur_name}")
+                                            sendpacket(conn, b"Ok", pktno)
+                                        else:
+                                            try:
+                                                parent = os.path.dirname(cur_path)
+                                                if parent:
+                                                    os.makedirs(parent, exist_ok=True)
+                                            except OSError:
+                                                pass
+                                            try:
+                                                cur_file = open(cur_path, 'wb')
+                                            except OSError as ex:
+                                                add_nextsync_log_window (f'{timestamp()} | Cannot create {cur_path}: {ex}')
+                                                cur_file = None
+                                                sendpacket(conn, b"Err open", pktno)
+                                                break
+                                            add_nextsync_log_window (f'{timestamp()} | Receiving: {cur_name} -> {cur_path}')
+                                            if status_callback is not None:
+                                                status_callback.emit(f"Receiving file\n{cur_name}")
+                                            sendpacket(conn, b"Ok", pktno)
                                     elif op == b'D':
                                         if cur_file is not None:
                                             cur_file.write(payload[1:])
@@ -16738,6 +16838,32 @@ class MainWindow(QMainWindow):
         self.settings_alien_floyd_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_tab_changed())
         grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 24, 0, 1, 2)
+
+        # ── NextSync: what to do when a received file/dir already exists locally ──
+        def _settings_nextsync_send_conflict_changed():
+            val = self.settings_nextsync_send_conflict_combo.currentData() or DEFAULT_NEXTSYNC_SEND_CONFLICT
+            configuration_dictionary[SETTING_NEXTSYNC_SEND_CONFLICT] = val
+            save_configuration_file()
+
+        nextsync_send_conflict_lbl = QLabel("NextSync — when a sent file or directory exists locally:")
+        nextsync_send_conflict_lbl.setToolTip(
+            "Controls what happens when the Next pushes a file/folder via\n"
+            "'.sync -send <file|dir>' and it already exists on the PC under the\n"
+            "sync root.\n"
+            "  • Prompt (default): ask each time, with one-time / always options.\n"
+            "  • Overwrite: always replace the local file.\n"
+            "  • Ignore: never touch existing local files."
+        )
+        grid_tab_Settings.addWidget(nextsync_send_conflict_lbl, 25, 0)
+
+        self.settings_nextsync_send_conflict_combo = QComboBox()
+        self.settings_nextsync_send_conflict_combo.addItem("Prompt (default)", "prompt")
+        self.settings_nextsync_send_conflict_combo.addItem("Overwrite",        "overwrite")
+        self.settings_nextsync_send_conflict_combo.addItem("Ignore",           "ignore")
+        self.settings_nextsync_send_conflict_combo.setToolTip(nextsync_send_conflict_lbl.toolTip())
+        self.settings_nextsync_send_conflict_combo.currentIndexChanged.connect(
+            lambda _i: _settings_nextsync_send_conflict_changed())
+        grid_tab_Settings.addWidget(self.settings_nextsync_send_conflict_combo, 25, 1)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)

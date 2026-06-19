@@ -62,6 +62,14 @@ class HdfMonkeyMissingSignals(QObject):
     missing = Signal()
 
 
+class NextSyncConflictSignals(QObject):
+    """Marshals a 'received file/dir already exists locally' prompt from the
+    NextSync receive worker thread to the UI thread. The worker emits ``prompt``
+    with a result holder + a threading.Event and blocks on the event until the
+    UI slot records the user's choice and sets it."""
+    prompt = Signal(str, str, object, object)   # (name, local_path, result_holder, done_event)
+
+
 class MameProcessSignals(QObject):
     """Signals used to marshal output from a detached MAME process back to the
     main (UI) thread. A background reader thread emits ``output`` for every
