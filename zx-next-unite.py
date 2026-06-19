@@ -2423,6 +2423,69 @@ class MainWindow(QMainWindow):
             self.button_new_folder.setVisible(False)
             self.button_delete_files.setVisible(False)
 
+        def _hdfmonkey_binary_found():
+            """True if the hdfmonkey executable can be located (PATH, current
+            directory, or the application directory). Used to tell a genuine
+            hdfmonkey error apart from "it isn't installed", without running it."""
+            if shutil.which(HDFMONKEY_EXECUTABLE):
+                return True
+            names = [HDFMONKEY_EXECUTABLE]
+            if platform.system() == "Windows":
+                names.append(HDFMONKEY_EXECUTABLE + ".exe")
+            search_dirs = [os.getcwd()]
+            try:
+                search_dirs.append(os.path.dirname(os.path.abspath(sys.argv[0])))
+            except Exception:
+                pass
+            try:
+                search_dirs.append(os.path.dirname(os.path.abspath(__file__)))
+            except Exception:
+                pass
+            for d in search_dirs:
+                for n in names:
+                    if d and os.path.isfile(os.path.join(d, n)):
+                        return True
+            return False
+
+        def prompt_install_hdfmonkey():
+            """Offer to install hdfmonkey when it appears to be missing. On Windows
+            this runs the same download/install flow as the SD-card tab button; on
+            Linux/macOS it points the user at the upstream project. Runs on the UI
+            thread (invoked via the missing-signal so it is safe from workers)."""
+            if platform.system() == "Windows":
+                reply = QMessageBox.question(
+                    self, "hdfmonkey not found",
+                    "hdfmonkey doesn't seem to be installed.\n\n"
+                    "Would you like to download and install it?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+                if reply == QMessageBox.Yes:
+                    if download_and_install_hdflonkey():
+                        # Installed OK — allow a fresh prompt if it ever breaks again.
+                        self._hdfmonkey_prompt_shown = False
+            else:
+                box = QMessageBox(self)
+                box.setIcon(QMessageBox.Warning)
+                box.setWindowTitle("hdfmonkey not found")
+                box.setTextFormat(Qt.RichText)
+                box.setText(
+                    "hdfmonkey doesn't seem to be installed.<br><br>"
+                    "Please install it manually from:<br>"
+                    '<a href="https://github.com/gasman/hdfmonkey">https://github.com/gasman/hdfmonkey</a>')
+                # Make the link open in the system browser when clicked.
+                lbl = box.findChild(QLabel, "qt_msgbox_label")
+                if lbl is not None:
+                    lbl.setOpenExternalLinks(True)
+                    lbl.setTextInteractionFlags(Qt.TextBrowserInteraction)
+                box.setStandardButtons(QMessageBox.Ok)
+                box.exec()
+
+        # Marshals the "hdfmonkey is missing" prompt onto the UI thread: the
+        # signal may be emitted from a worker thread (uploads/deletes), so the
+        # dialog must not be created inline there.
+        self._hdfmonkey_prompt_shown = False
+        self._hdfmonkey_missing_signals = HdfMonkeyMissingSignals()
+        self._hdfmonkey_missing_signals.missing.connect(prompt_install_hdfmonkey)
+
 
         # def tab_changed():
         #     # Do nothing for now has this event happens before rendering the tab
@@ -3150,7 +3213,10 @@ class MainWindow(QMainWindow):
 
         def is_hdfmonkey_present():
 
-            hdfmonkeyexecresult = execute_hdf_monkey("", "")
+            # Pure probe (used at startup and after install): never pop the
+            # "install hdfmonkey?" dialog from here — startup already surfaces the
+            # download button, and the dialog is reserved for real user actions.
+            hdfmonkeyexecresult = execute_hdf_monkey("", "", prompt_if_missing=False)
 
             try:
                 if hdfmonkeyexecresult.returncode == 0:
@@ -3775,7 +3841,7 @@ class MainWindow(QMainWindow):
                 return f"Cannot check image file: {e}"
             return None
 
-        def execute_hdf_monkey(command_to_execute, image_path, additional_args="", silent=False, extra_argv=None):
+        def execute_hdf_monkey(command_to_execute, image_path, additional_args="", silent=False, extra_argv=None, prompt_if_missing=True):
             # Sentinel with a non-zero returncode in case we never reach subprocess.run
             exec_process = subprocess.CompletedProcess(args=[], returncode=-1)
             execution_cmd = f'{HDFMONKEY_EXECUTABLE} {command_to_execute} {image_path} {additional_args}'
@@ -3791,6 +3857,13 @@ class MainWindow(QMainWindow):
                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
             except (FileNotFoundError,subprocess.CalledProcessError) as ex:
+                    # If hdfmonkey can't actually be located, offer to install it
+                    # (once). The dialog is marshalled to the UI thread, so this is
+                    # safe even when called from a background worker. A real
+                    # hdfmonkey error (binary present) skips this and logs below.
+                    if (not silent) and prompt_if_missing and (not self._hdfmonkey_prompt_shown) and (not _hdfmonkey_binary_found()):
+                        self._hdfmonkey_prompt_shown = True
+                        self._hdfmonkey_missing_signals.missing.emit()
                     if not isinstance(ex, FileNotFoundError):
                         stderr_text = (ex.stderr or b"").decode(errors="replace").strip()
                         exec_process = subprocess.CompletedProcess(args=ex.cmd, returncode=ex.returncode,
