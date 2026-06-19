@@ -2153,6 +2153,10 @@ class MainWindow(QMainWindow):
         # that item is a directory.
         self.image_selected_path = ""
         self.image_selected_is_dir = False
+        # All currently selected image entries as (full_path, is_dir) tuples.
+        # image_selected_path stays as the "primary"/current item (used by
+        # uploads and New Folder); this list drives multi-file deletion.
+        self.image_selected_paths = []
         configuration_dictionary = {}
         # Initialise defaults for settings that may not exist in older cfg files
         configuration_dictionary[SETTING_CONTENT_DISCLAIMER_AGREED] = ""
@@ -2190,6 +2194,9 @@ class MainWindow(QMainWindow):
         self.left_file_explorer_selection_full_filename_path = ""
         self.left_file_nextsync_explorer_selection_file_name = ""
         self.left_file_nextsync_explorer_selection_full_filename_path = ""
+        # Monotonic token used to discard stale background "prepare" scans whose
+        # sync root changed before the scan finished.
+        self._nextsync_scan_generation = 0
 
         # Gallery (picture view) defaults — may be overridden when the cfg file loads.
         self._gallery_anim_mode      = DEFAULT_GALLERY_ANIM_MODE
@@ -2324,7 +2331,9 @@ class MainWindow(QMainWindow):
 
         def nextsync_show_start_cancel_buttons():
             self.nextsync_start_server.setVisible(True)
-            self.nextsync_cancel_server.setVisible(True)
+            # Cancel button is no longer shown in the pane: cancelling a sync in
+            # progress is handled by the modal progress dialog's Stop button.
+            self.nextsync_cancel_server.setVisible(False)
 
 
         def set_all_buttons_disabled():
@@ -4083,25 +4092,35 @@ class MainWindow(QMainWindow):
             if not self.image_selected_path:
                 return
 
-            sel_path = self.image_selected_path
-            name     = sel_path.rstrip("/").rsplit("/", 1)[-1]
-            is_dir   = self.image_selected_is_dir
-            kind     = "folder" if is_dir else "file"
+            selected = self.image_selected_paths or [(self.image_selected_path, self.image_selected_is_dir)]
 
             dialog = QDialog(self)
             dialog.setWindowTitle("Confirm Deletion")
             dialog.setMinimumWidth(420)
             layout = QVBoxLayout(dialog)
 
-            if is_dir:
-                question = f"Delete the {kind} “{name}” and all of its contents?"
+            if len(selected) > 1:
+                n_dirs = sum(1 for (_p, d) in selected if d)
+                question = f"Delete the {len(selected)} selected items"
+                if n_dirs:
+                    question += " (folders are deleted with all of their contents)"
+                question += "?"
+                path_text = "\n".join(p.replace("//", "/") for (p, _d) in selected)
             else:
-                question = f"Delete the {kind} “{name}”?"
+                sel_path, is_dir = selected[0]
+                name = sel_path.rstrip("/").rsplit("/", 1)[-1]
+                kind = "folder" if is_dir else "file"
+                if is_dir:
+                    question = f"Delete the {kind} “{name}” and all of its contents?"
+                else:
+                    question = f"Delete the {kind} “{name}”?"
+                path_text = sel_path.replace("//", "/")
+
             msg = QLabel(question, dialog)
             msg.setWordWrap(True)
             layout.addWidget(msg)
 
-            path_label = QLabel(sel_path.replace("//", "/"), dialog)
+            path_label = QLabel(path_text, dialog)
             path_label.setWordWrap(True)
             path_label.setStyleSheet("color: gray;")
             layout.addWidget(path_label)
@@ -4140,14 +4159,21 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Image not writable", img_err)
                 return
 
-            sel_path    = self.image_selected_path
-            parent_path = sel_path.rstrip("/").rsplit("/", 1)[0] or "/"
+            # Delete every selected entry. Fall back to the primary selection if
+            # the multi-selection list is somehow empty.
+            paths_to_delete = [p for (p, _d) in self.image_selected_paths] or [self.image_selected_path]
+            # Unique parent directories to refresh once the deletion finishes.
+            parent_paths = []
+            for p in paths_to_delete:
+                parent = p.rstrip("/").rsplit("/", 1)[0] or "/"
+                if parent not in parent_paths:
+                    parent_paths.append(parent)
             image_path  = self.right_disk_image_path
 
             set_all_buttons_disabled()
 
             dlg    = HdfProgressDialog("Deleting files\u2026", self)
-            worker = HdfTaskWorker(_run_delete_task, image_path, [sel_path])
+            worker = HdfTaskWorker(_run_delete_task, image_path, paths_to_delete)
 
             dlg.cancel_requested.connect(worker.cancel)
             worker.signals.progress.connect(dlg.set_progress)
@@ -4157,7 +4183,8 @@ class MainWindow(QMainWindow):
 
             def _on_delete_finished():
                 dlg.close()
-                image_reload_dir(parent_path)
+                for parent_path in parent_paths:
+                    image_reload_dir(parent_path)
                 set_all_buttons_enabled()
 
             worker.signals.finished.connect(_on_delete_finished)
@@ -4165,9 +4192,20 @@ class MainWindow(QMainWindow):
             dlg.exec()
 
 
-        def nextsync_perform_checks_and_prepare_server_start():
+        def _nextsync_run_prepare():
             nextsync_warnings()
             save_configuration_file()
+
+        # Debounce timer: coalesces rapid prepare requests (e.g. clicking around
+        # the explorer) so the recursive scan in nextsync_warnings() runs once,
+        # shortly after the user settles, rather than once per selection change.
+        self._nextsync_prepare_timer = QTimer(self)
+        self._nextsync_prepare_timer.setSingleShot(True)
+        self._nextsync_prepare_timer.setInterval(NEXTSYNC_PREPARE_DEBOUNCE_MS)
+        self._nextsync_prepare_timer.timeout.connect(_nextsync_run_prepare)
+
+        def nextsync_perform_checks_and_prepare_server_start():
+            self._nextsync_prepare_timer.start()
 
         def nextsync_refresh_explorer():
             """Force the NextSync left explorer to re-stat the displayed folder.
@@ -4478,6 +4516,111 @@ class MainWindow(QMainWindow):
                 # Always refresh so the new (or partially-created) entry shows up.
                 nextsync_refresh_explorer()
 
+        def _run_nextsync_import_task(signals, cancel_event, items):
+            """Background worker body for drag-and-drop imports into the NextSync
+            explorer. *items* is a list of (src_path, target_path, is_dir) where
+            target_path has already been made unique on the UI thread.
+            Phase 1 enumerates files/dirs (indeterminate progress), Phase 2 creates
+            directories then copies each file with real percentage progress."""
+            signals.progress.emit(-1)   # indeterminate while scanning
+            all_files = []   # (src_file, dst_file)
+            all_dirs  = []   # dst directories to create, parents before children
+            for src, target, is_dir in items:
+                if cancel_event.is_set():
+                    break
+                signals.status.emit(f"Scanning…\n{src}")
+                if not is_dir:
+                    all_files.append((src, target))
+                    continue
+                all_dirs.append(target)
+                for dirpath, _dirnames, filenames in os.walk(src):
+                    if cancel_event.is_set():
+                        break
+                    rel = os.path.relpath(dirpath, src)
+                    dst_dir = target if rel == "." else os.path.join(target, rel)
+                    if rel != ".":
+                        all_dirs.append(dst_dir)
+                    for fname in filenames:
+                        all_files.append((os.path.join(dirpath, fname),
+                                          os.path.join(dst_dir, fname)))
+
+            if cancel_event.is_set():
+                return
+
+            # ---- Phase 2a: create directories (parents already precede children) ----
+            for d in all_dirs:
+                if cancel_event.is_set():
+                    break
+                try:
+                    os.makedirs(d, exist_ok=True)
+                except OSError as e:
+                    logging.error(f"Failed creating folder {d}: {e}")
+                    signals.error.emit(f"{timestamp()} | Failed creating folder {d}: {e}")
+
+            if cancel_event.is_set():
+                return
+
+            # ---- Phase 2b: copy files ----
+            total = max(len(all_files), 1)
+            for idx, (src_file, dst_file) in enumerate(all_files):
+                if cancel_event.is_set():
+                    break
+                signals.status.emit(f"Copying ({idx + 1}/{total})\n{src_file}")
+                signals.progress.emit(int(idx / total * 100))
+                try:
+                    shutil.copy2(src_file, dst_file)
+                except OSError as e:
+                    logging.error(f"Failed copying {src_file} -> {dst_file}: {e}")
+                    signals.error.emit(f"{timestamp()} | Failed copying {src_file}: {e}")
+                signals.progress.emit(int((idx + 1) / total * 100))
+
+        def nextsync_import_external_paths(paths, dest_dir):
+            """Copy files/folders dropped from the OS file manager into dest_dir
+            (local filesystem) on a background thread with a progress dialog.
+            Mirrors the paste logic: never overwrites (name clashes get a
+            '-(copy)' suffix) and refreshes the explorer when done."""
+            if not dest_dir or not os.path.isdir(dest_dir):
+                add_nextsync_log_window(f"{timestamp()} | Import failed: no valid destination folder.")
+                return
+
+            # Resolve sources to unique targets up front (quick, UI thread) so the
+            # worker just copies. Self-import and existence are checked here too.
+            items = []
+            for src in paths:
+                if not src or not os.path.exists(src):
+                    continue
+                src_is_dir = os.path.isdir(src)
+                if src_is_dir:
+                    src_abs = os.path.abspath(src)
+                    dest_abs = os.path.abspath(dest_dir)
+                    # Guard against importing a folder into itself or a subfolder.
+                    if dest_abs == src_abs or dest_abs.startswith(src_abs + os.sep):
+                        add_nextsync_log_window(f"{timestamp()} | Skipped {src}: cannot import a folder into itself.")
+                        continue
+                base = os.path.basename(src.rstrip("/\\"))
+                target = _nextsync_unique_path(os.path.join(dest_dir, base), src_is_dir)
+                items.append((src, target, src_is_dir))
+
+            if not items:
+                return
+
+            dlg    = HdfProgressDialog("Importing into folder…", self)
+            worker = HdfTaskWorker(_run_nextsync_import_task, items)
+
+            dlg.cancel_requested.connect(worker.cancel)
+            worker.signals.progress.connect(dlg.set_progress)
+            worker.signals.status.connect(dlg.set_status)
+            worker.signals.error.connect(add_nextsync_log_window)
+            worker.signals.cancelled.connect(dlg.mark_cancelled)
+
+            def _on_import_finished():
+                dlg.close()
+                nextsync_refresh_explorer()
+
+            worker.signals.finished.connect(_on_import_finished)
+            self.threadpool.start(worker)
+            dlg.exec()
+
         def nextsync_delete_explorer_item(file_path, name, is_dir):
             """Delete a file or folder from the NextSync explorer (local filesystem).
 
@@ -4690,6 +4833,10 @@ class MainWindow(QMainWindow):
                     save_configuration_file()
 
                     nextsync_show_sync_buttons_based_on_fileexplorer_content_selection()
+                    # Re-run the Prepare scan for the newly selected root so the
+                    # "Ready to sync N files" log stays accurate and Start stays
+                    # available without an extra Prepare click.
+                    nextsync_perform_checks_and_prepare_server_start()
                     break
 
         def nextsync_on_treeview_double_clicked(ix):
@@ -4732,6 +4879,9 @@ class MainWindow(QMainWindow):
             save_configuration_file()
 
             nextsync_show_sync_buttons_based_on_fileexplorer_content_selection()
+            # Navigated into a new folder: re-run the Prepare scan so the file
+            # count log reflects the new root and Start stays available.
+            nextsync_perform_checks_and_prepare_server_start()
 
         def image_explorer_selection_changed(*_):
 
@@ -4740,16 +4890,36 @@ class MainWindow(QMainWindow):
 
             self.image_selected_path = ""
             self.image_selected_is_dir = False
+            self.image_selected_paths = []
             right_disk_image_selected_files = []
 
-            indexes = self.image_treeview.selectionModel().selectedIndexes()
-            if indexes:
-                name_item = self.image_model.itemFromIndex(indexes[0].siblingAtColumn(0))
-                if name_item is not None:
-                    self.image_selected_path = name_item.data(IMG_PATH_ROLE) or ""
-                    self.image_selected_is_dir = bool(name_item.data(IMG_ISDIR_ROLE))
-                    if self.image_selected_path:
-                        right_disk_image_selected_files = [name_item.text()]
+            # Collect every selected row so that multi-selection delete can act on
+            # all of them. selectedRows(0) yields one column-0 index per selected
+            # row. The "primary" item used by single-target actions (uploads, New
+            # Folder) is the current index when valid, otherwise the first row.
+            sel_model = self.image_treeview.selectionModel()
+            for col0 in sel_model.selectedRows(0):
+                name_item = self.image_model.itemFromIndex(col0)
+                if name_item is None:
+                    continue
+                path = name_item.data(IMG_PATH_ROLE) or ""
+                if not path:
+                    continue
+                is_dir = bool(name_item.data(IMG_ISDIR_ROLE))
+                self.image_selected_paths.append((path, is_dir))
+                right_disk_image_selected_files.append(name_item.text())
+
+            current = self.image_treeview.currentIndex()
+            primary_item = None
+            if current.isValid():
+                primary_item = self.image_model.itemFromIndex(current.siblingAtColumn(0))
+            if primary_item is None or not (primary_item.data(IMG_PATH_ROLE) or ""):
+                # Fall back to the first selected row.
+                if self.image_selected_paths:
+                    self.image_selected_path, self.image_selected_is_dir = self.image_selected_paths[0]
+            else:
+                self.image_selected_path = primary_item.data(IMG_PATH_ROLE) or ""
+                self.image_selected_is_dir = bool(primary_item.data(IMG_ISDIR_ROLE))
 
             image_update_path_label()
 
@@ -4998,6 +5168,69 @@ class MainWindow(QMainWindow):
                     logging.error(f"Failed uploading: {local_path} -> {img_dst} | stdout: {stdout_text}")
                     signals.error.emit(f"Failed uploading: {os.path.basename(local_path)}")
                 signals.progress.emit(int((idx + 1) / total * 100))
+
+        def _run_put_external_task(signals, cancel_event, image_path, items):
+            """Background worker body for drag-and-drop uploads. *items* is a list
+            of (local_path, image_dest_path). Each entry is uploaded by reusing the
+            single-path put logic (file or directory)."""
+            for upload_path, dest_file_path in items:
+                if cancel_event.is_set():
+                    break
+                _run_put_task(signals, cancel_event, image_path, upload_path, dest_file_path)
+
+        def image_upload_external_paths(paths, target_dir):
+            """Copy local files/folders (e.g. dropped from Windows Explorer) into
+            the loaded disk image under *target_dir*."""
+            global right_disk_image_explorer_content
+
+            if not right_disk_image_explorer_content:
+                logging.warning("Please load an image file first !")
+                add_main_log_window("Please load an image first!")
+                return
+
+            img_err = _check_image_writable(self.right_disk_image_path)
+            if img_err:
+                logging.error(img_err)
+                add_main_log_window(f"ERROR: {img_err}")
+                QMessageBox.critical(self, "Image not writable", img_err)
+                return
+
+            if self.settings_warn_image_nearly_full_checkbox.isChecked():
+                _warn_if_image_nearly_full(self.right_disk_image_path)
+
+            dest_dir = (target_dir or "/").rstrip("/")
+            items = []
+            for p in paths:
+                base = os.path.basename(p.rstrip("/\\"))
+                if not base:
+                    continue
+                dest = (dest_dir + "/" + base).replace("//", "/")
+                items.append((p, dest))
+            if not items:
+                return
+
+            set_all_buttons_disabled()
+
+            image_path = self.right_disk_image_path
+            reload_dir = dest_dir or "/"
+
+            dlg    = HdfProgressDialog("Uploading to image…", self)
+            worker = HdfTaskWorker(_run_put_external_task, image_path, items)
+
+            dlg.cancel_requested.connect(worker.cancel)
+            worker.signals.progress.connect(dlg.set_progress)
+            worker.signals.status.connect(dlg.set_status)
+            worker.signals.error.connect(add_main_log_window)
+            worker.signals.cancelled.connect(dlg.mark_cancelled)
+
+            def _on_external_put_finished():
+                dlg.close()
+                image_reload_dir(reload_dir)
+                set_all_buttons_enabled()
+
+            worker.signals.finished.connect(_on_external_put_finished)
+            self.threadpool.start(worker)
+            dlg.exec()
 
         def transfert_content_from_disk_to_image():
 
@@ -5261,15 +5494,20 @@ class MainWindow(QMainWindow):
 
             if index.isValid():
                 # Select the right-clicked row so the selection-driven New
-                # Folder / Delete handlers act on it.
-                self.image_treeview.setCurrentIndex(index)
+                # Folder / Delete handlers act on it — but only when it isn't
+                # already part of an existing multi-selection, so right-clicking
+                # one of several selected rows keeps them all selected for delete.
+                if not self.image_treeview.selectionModel().isSelected(index):
+                    self.image_treeview.setCurrentIndex(index)
                 name_item = self.image_model.itemFromIndex(index.siblingAtColumn(0))
                 is_dir = bool(name_item.data(IMG_ISDIR_ROLE)) if name_item is not None else False
 
+                selected_count = len(self.image_selected_paths)
                 new_folder_label = "New Folder Here…" if is_dir else "New Folder…"
                 menu.addAction(new_folder_label, image_newfolder_dialog)
                 menu.addSeparator()
-                menu.addAction("Delete", delete_files_button_show_confirmation_buttons)
+                delete_label = f"Delete {selected_count} items" if selected_count > 1 else "Delete"
+                menu.addAction(delete_label, delete_files_button_show_confirmation_buttons)
             else:
                 # Empty area: clear the selection so a new folder lands at the root.
                 self.image_treeview.clearSelection()
@@ -5427,24 +5665,52 @@ class MainWindow(QMainWindow):
                 add_nextsync_log_window ("Warning! Ignore file " + IGNOREFILE + " not found in directory. All files will be synced, possibly including this file.")
             if not os.path.isfile(selected_nextsync_explorer_sync_root_directory + SYNCPOINT):
                 add_nextsync_log_window ("Sync point file " + SYNCPOINT + " not found, syncing all files regardless of timestamp.")
-            initial = getFileList(selected_nextsync_explorer_sync_root_directory)
-            total = 0
-            for x in initial:
-                total += x[1]
-            severity = ""
-            if len(initial) < 10 and total < 100000:
-                severity ="Note"
-            elif len(initial) < 100 and total < 1000000:
-                severity = "Warning"
-            else:
-                severity = "WARNING"
-            #add_nextsync_log_window (severity + ": Ready to sync " + str(len(initial)) +" files, " + str(total/1024) +" kilobytes.")
-            add_nextsync_log_window (f"{severity}: Ready to sync {len(initial)} files, {total/1024:.2f} kilobytes.")
-            add_nextsync_log_window ("")
 
-
+            # Show the Start button straight away; the (potentially expensive)
+            # recursive file scan runs on a worker thread and logs the
+            # "Ready to sync N files" line when it finishes, so the UI never
+            # blocks even on very large folders.
             nextsync_show_start_cancel_buttons()
             self.nextsync_prepare_server.setVisible(False)
+
+            if not (selected_nextsync_explorer_sync_root_directory and os.path.isdir(selected_nextsync_explorer_sync_root_directory)):
+                add_nextsync_log_window ("Select a folder in the explorer to choose a sync root.")
+                add_nextsync_log_window ("")
+                return
+
+            # Bump the generation token so a scan whose sync root was changed
+            # before it finished is discarded instead of logging a stale count.
+            self._nextsync_scan_generation += 1
+            scan_gen = self._nextsync_scan_generation
+            root_dir = selected_nextsync_explorer_sync_root_directory
+            scan_result = {}
+
+            def _scan_fn(signals, cancel_event, _root=root_dir, _holder=scan_result):
+                files = getFileList(_root)
+                _holder["count"] = len(files)
+                _holder["total"] = sum(x[1] for x in files)
+
+            scan_worker = HdfTaskWorker(_scan_fn)
+
+            def _on_scan_done(_gen=scan_gen, _holder=scan_result):
+                # Discard results from a superseded scan (sync root changed since).
+                if _gen != self._nextsync_scan_generation:
+                    return
+                if "count" not in _holder:
+                    return   # scan raised — nothing reliable to report
+                count = _holder["count"]
+                total = _holder["total"]
+                if count < 10 and total < 100000:
+                    severity = "Note"
+                elif count < 100 and total < 1000000:
+                    severity = "Warning"
+                else:
+                    severity = "WARNING"
+                add_nextsync_log_window (f"{severity}: Ready to sync {count} files, {total/1024:.2f} kilobytes.")
+                add_nextsync_log_window ("")
+
+            scan_worker.signals.finished.connect(_on_scan_done)
+            self.threadpool.start(scan_worker)
 
         def nextsync_show_ip_info():
             add_nextsync_log_window ("------------------------------------------", False)
@@ -6040,7 +6306,7 @@ class MainWindow(QMainWindow):
         self.image_model = QStandardItemModel(self)
         self.image_treeview = QTreeView(self)
         self.image_treeview.setModel(self.image_model)
-        self.image_treeview.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.image_treeview.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.image_treeview.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.image_treeview.setUniformRowHeights(True)
         self.image_treeview.setSortingEnabled(True)
@@ -6057,6 +6323,56 @@ class MainWindow(QMainWindow):
                 QTreeView.keyPressEvent(self.image_treeview, event)
 
         self.image_treeview.keyPressEvent = _image_tree_key_press
+
+        # --- Drag & drop from the OS file manager into the disk image ----------
+        # Dropping files/folders from Windows Explorer (etc.) onto the image
+        # explorer uploads them into the image. The target folder is the item the
+        # drop lands on (its parent if the item is a file), or the image root when
+        # dropped on empty space.
+        def _image_drop_target_dir(pos):
+            index = self.image_treeview.indexAt(pos)
+            if not index.isValid():
+                return "/"
+            name_item = self.image_model.itemFromIndex(index.siblingAtColumn(0))
+            if name_item is None:
+                return "/"
+            path = name_item.data(IMG_PATH_ROLE) or "/"
+            if bool(name_item.data(IMG_ISDIR_ROLE)):
+                return path or "/"
+            parent = path.rstrip("/").rsplit("/", 1)[0]
+            return parent or "/"
+
+        def _image_drag_enter(event):
+            if right_disk_image_explorer_content and event.mimeData().hasUrls():
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+
+        def _image_drag_move(event):
+            if right_disk_image_explorer_content and event.mimeData().hasUrls():
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+
+        def _image_drop(event):
+            if not (right_disk_image_explorer_content and event.mimeData().hasUrls()):
+                event.ignore()
+                return
+            paths = [u.toLocalFile() for u in event.mimeData().urls()
+                     if u.isLocalFile() and u.toLocalFile()]
+            if not paths:
+                event.ignore()
+                return
+            event.acceptProposedAction()
+            target_dir = _image_drop_target_dir(event.position().toPoint())
+            image_upload_external_paths(paths, target_dir)
+
+        self.image_treeview.setAcceptDrops(True)
+        self.image_treeview.setDragDropMode(QAbstractItemView.DropOnly)
+        self.image_treeview.setDropIndicatorShown(True)
+        self.image_treeview.dragEnterEvent = _image_drag_enter
+        self.image_treeview.dragMoveEvent = _image_drag_move
+        self.image_treeview.dropEvent = _image_drop
 
         # Usage gauge — sits directly below the image explorer table
         self.image_usage_gauge = QProgressBar()
@@ -6601,6 +6917,56 @@ class MainWindow(QMainWindow):
 
         self.nextsync_treeview.keyPressEvent = _nextsync_tree_key_press
 
+        # --- Drag & drop from the OS file manager into the NextSync explorer ---
+        # Dropping files/folders from Windows Explorer onto the local file
+        # explorer imports (copies) them into the folder the drop lands on (its
+        # parent if the item is a file), or the current root when dropped on
+        # empty space.
+        def _nextsync_drop_target_dir(pos):
+            index = self.nextsync_treeview.indexAt(pos)
+            if index.isValid():
+                source_ix = self.nextsync_model.mapToSource(index)
+                if self.nextsync_filesystem_model.fileName(source_ix) != "..":
+                    path = self.nextsync_filesystem_model.filePath(source_ix)
+                    if self.nextsync_filesystem_model.isDir(source_ix):
+                        return path
+                    return os.path.dirname(path)
+            # Fall back to the directory currently shown at the tree root.
+            root_src = self.nextsync_model.mapToSource(self.nextsync_treeview.rootIndex())
+            return self.nextsync_filesystem_model.filePath(root_src)
+
+        def _nextsync_drag_enter(event):
+            if event.mimeData().hasUrls():
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+
+        def _nextsync_drag_move(event):
+            if event.mimeData().hasUrls():
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+
+        def _nextsync_drop(event):
+            if not event.mimeData().hasUrls():
+                event.ignore()
+                return
+            paths = [u.toLocalFile() for u in event.mimeData().urls()
+                     if u.isLocalFile() and u.toLocalFile()]
+            if not paths:
+                event.ignore()
+                return
+            event.acceptProposedAction()
+            dest_dir = _nextsync_drop_target_dir(event.position().toPoint())
+            nextsync_import_external_paths(paths, dest_dir)
+
+        self.nextsync_treeview.setAcceptDrops(True)
+        self.nextsync_treeview.setDragDropMode(QAbstractItemView.DropOnly)
+        self.nextsync_treeview.setDropIndicatorShown(True)
+        self.nextsync_treeview.dragEnterEvent = _nextsync_drag_enter
+        self.nextsync_treeview.dragMoveEvent = _nextsync_drag_move
+        self.nextsync_treeview.dropEvent = _nextsync_drop
+
         set_treeview_properties()
 
         self.nextsync_container_fileexplorer_and_buttons_buttons.addWidget(self.nextsync_treeview)
@@ -6683,13 +7049,16 @@ class MainWindow(QMainWindow):
         self.nextsync_start_server.setText("Yes, start NextSync Server")
         self.nextsync_start_server.clicked.connect(nextsync_start_server)
 
+        # Cancel button is kept as a hidden widget (so the existing show/hide and
+        # handler wiring stays valid) but is no longer added to the pane layout.
+        # Cancelling an in-progress sync is done via the progress dialog's Stop.
         self.nextsync_cancel_server = QPushButton("Cancel NextSync Server", self)
         self.nextsync_cancel_server.setText("Cancel sync")
         self.nextsync_cancel_server.clicked.connect(nextsync_cancel_server_job)
+        self.nextsync_cancel_server.setVisible(False)
 
 
         self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_start_server)
-        self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_cancel_server)
 
 
 
@@ -16530,6 +16899,13 @@ class MainWindow(QMainWindow):
                 self._zxart_on_tab_activated()
             elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE):
                 _show_content_disclaimer()
+            elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC):
+                # Auto-run the "Prepare" step on entering the tab so the
+                # "Yes, start NextSync Server" button is ready without an extra
+                # click. Guard on the prepare button still being visible so we
+                # don't re-scan/re-log on every revisit or after a sync is set up.
+                if self.nextsync_prepare_server.isVisible():
+                    nextsync_perform_checks_and_prepare_server_start()
 
 
         #  Start main logic
@@ -16588,6 +16964,11 @@ class MainWindow(QMainWindow):
                 self._zxart_on_tab_activated()
             elif current_title == ZX_NEXT_UNITE_TAB_TITLE_ALLINONE:
                 _show_content_disclaimer()
+            elif current_title == ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC:
+                # App restored directly onto the NextSync tab: auto-prepare so the
+                # Start button is ready (currentChanged was not connected yet).
+                if self.nextsync_prepare_server.isVisible():
+                    nextsync_perform_checks_and_prepare_server_start()
 
         # Use a small delay (not 0) so the first paint/show events have a
         # chance to be processed before any thumbnail fetch threads spin up.
