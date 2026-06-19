@@ -7327,8 +7327,8 @@ class MainWindow(QMainWindow):
 
 
 
-        self.nextsync_start_server = QPushButton("Yes, start NextSync Server", self)
-        self.nextsync_start_server.setText("Yes, start NextSync Server")
+        self.nextsync_start_server = QPushButton("Start NextSync Server", self)
+        self.nextsync_start_server.setText("Start NextSync Server")
         self.nextsync_start_server.clicked.connect(nextsync_start_server)
 
         # Cancel button is kept as a hidden widget (so the existing show/hide and
@@ -16215,7 +16215,7 @@ class MainWindow(QMainWindow):
             configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION] = "true" if self.settings_no_prompt_on_deletion_checkbox.isChecked() else "false"
             save_configuration_file()
 
-        self.settings_no_prompt_on_deletion_checkbox = QCheckBox("SD Card - Do not prompt for confirmation on deletion.")
+        self.settings_no_prompt_on_deletion_checkbox = QCheckBox("Do not prompt for confirmation on deletion.")
         self.settings_no_prompt_on_deletion_checkbox.setChecked(False)
         self.settings_no_prompt_on_deletion_checkbox.setToolTip(
             "When enabled, deleting a file or folder in the SD card image explorer\n"
@@ -16240,7 +16240,7 @@ class MainWindow(QMainWindow):
         self.settings_avail_check_checkbox.stateChanged.connect(settings_avail_check_statechanged)
         _avail_check_visible = ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS or ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS
         self.settings_avail_check_checkbox.setVisible(_avail_check_visible)
-        grid_tab_Settings.addWidget(self.settings_avail_check_checkbox, 2, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_avail_check_checkbox, 3, 0, 1, 2)
 
         def settings_multi_search_statechanged():
             configuration_dictionary[SETTING_MULTI_SEARCH] = "true" if self.settings_multi_search_checkbox.isChecked() else "false"
@@ -16254,7 +16254,7 @@ class MainWindow(QMainWindow):
             "with the number of results found, e.g. ZXDB (5)."
         )
         self.settings_multi_search_checkbox.stateChanged.connect(settings_multi_search_statechanged)
-        grid_tab_Settings.addWidget(self.settings_multi_search_checkbox, 3, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_multi_search_checkbox, 4, 0, 1, 2)
 
         def settings_search_autocomplete_statechanged():
             enabled = self.settings_search_autocomplete_checkbox.isChecked()
@@ -16270,7 +16270,7 @@ class MainWindow(QMainWindow):
             "Uncheck to disable autocomplete suggestions on all search inputs."
         )
         self.settings_search_autocomplete_checkbox.stateChanged.connect(settings_search_autocomplete_statechanged)
-        grid_tab_Settings.addWidget(self.settings_search_autocomplete_checkbox, 4, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_search_autocomplete_checkbox, 5, 0, 1, 2)
 
         # ---- Gallery (picture view) settings ----
         def _settings_gallery_anim_changed():
@@ -16286,7 +16286,7 @@ class MainWindow(QMainWindow):
             "  • On hover (default): cycles only while the mouse is over the tile.\n"
             "  • Timed: cycles continuously while the gallery is visible."
         )
-        grid_tab_Settings.addWidget(gallery_anim_lbl, 5, 0)
+        grid_tab_Settings.addWidget(gallery_anim_lbl, 6, 0)
 
         self.settings_gallery_anim_combo = QComboBox()
         self.settings_gallery_anim_combo.addItem("On hover (default)", "hover")
@@ -16295,7 +16295,7 @@ class MainWindow(QMainWindow):
         self.settings_gallery_anim_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_anim_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_anim_combo, 5, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_anim_combo, 6, 1)
 
         def _settings_gallery_rows_changed(val: int):
             val = max(GALLERY_MIN_ROWS, min(GALLERY_MAX_ROWS, int(val)))
@@ -16308,14 +16308,14 @@ class MainWindow(QMainWindow):
             "Number of thumbnail rows shown per gallery page.\n"
             f"Range {GALLERY_MIN_ROWS}–{GALLERY_MAX_ROWS}. Default {DEFAULT_GALLERY_ROWS_PER_PAGE}."
         )
-        grid_tab_Settings.addWidget(gallery_rows_lbl, 6, 0)
+        grid_tab_Settings.addWidget(gallery_rows_lbl, 7, 0)
 
         self.settings_gallery_rows_spin = QSpinBox()
         self.settings_gallery_rows_spin.setRange(GALLERY_MIN_ROWS, GALLERY_MAX_ROWS)
         self.settings_gallery_rows_spin.setValue(DEFAULT_GALLERY_ROWS_PER_PAGE)
         self.settings_gallery_rows_spin.setToolTip(gallery_rows_lbl.toolTip())
         self.settings_gallery_rows_spin.valueChanged.connect(_settings_gallery_rows_changed)
-        grid_tab_Settings.addWidget(self.settings_gallery_rows_spin, 6, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_rows_spin, 7, 1)
 
         def _make_color_button(setting_key, color_attr, label_text, tooltip_text, grid_row):
             """Create a label + color-swatch button at the given grid row."""
@@ -16359,7 +16359,7 @@ class MainWindow(QMainWindow):
             "Number of thumbnail columns shown in the gallery grid.\n"
             "Default is 4. Choose 2 for larger tiles or 8 for more items per row."
         )
-        grid_tab_Settings.addWidget(gallery_cols_lbl, 7, 0)
+        grid_tab_Settings.addWidget(gallery_cols_lbl, 8, 0)
 
         self.settings_gallery_cols_combo = QComboBox()
         self.settings_gallery_cols_combo.addItem("2", 2)
@@ -16370,7 +16370,7 @@ class MainWindow(QMainWindow):
         self.settings_gallery_cols_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_cols_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_cols_combo, 7, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_cols_combo, 8, 1)
 
         def _settings_gallery_img_size_changed():
             val = self.settings_gallery_img_size_combo.currentData() or DEFAULT_GALLERY_IMG_SIZE
@@ -16385,7 +16385,7 @@ class MainWindow(QMainWindow):
             "  • Medium (default): standard size\n"
             "  • Large: double the medium height"
         )
-        grid_tab_Settings.addWidget(gallery_img_size_lbl, 8, 0)
+        grid_tab_Settings.addWidget(gallery_img_size_lbl, 9, 0)
 
         self.settings_gallery_img_size_combo = QComboBox()
         self.settings_gallery_img_size_combo.addItem("Small",          "small")
@@ -16396,42 +16396,42 @@ class MainWindow(QMainWindow):
         self.settings_gallery_img_size_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_img_size_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_img_size_combo, 8, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_img_size_combo, 9, 1)
 
         settings_section_lbl = QLabel("SD Card Image Explorer — Item Colors:")
         settings_section_lbl.setToolTip("Customize the foreground color for each item type displayed in the SD card image explorer.")
-        grid_tab_Settings.addWidget(settings_section_lbl, 9, 0, 1, 2)
+        grid_tab_Settings.addWidget(settings_section_lbl, 10, 0, 1, 2)
 
         self.settings_btn_color_up_directory = _make_color_button(
             SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory",
             "  Up Directory item",
             "Color used for the '[Up Directory..]' navigation row in the image explorer.",
-            10)
+            11)
         self.settings_btn_color_dir_name = _make_color_button(
             SETTING_COLOR_DIR_NAME, "img_color_dir_name",
             "  Directory name",
             "Color used for directory name entries in the image explorer.",
-            11)
+            12)
         self.settings_btn_color_dir_type = _make_color_button(
             SETTING_COLOR_DIR_TYPE, "img_color_dir_type",
             "  Directory type label",
             "Color used for the 'DIR' type label column of directory entries.",
-            12)
+            13)
         self.settings_btn_color_file_name = _make_color_button(
             SETTING_COLOR_FILE_NAME, "img_color_file_name",
             "  File name",
             "Color used for file name entries in the image explorer.",
-            13)
+            14)
         self.settings_btn_color_file_ext = _make_color_button(
             SETTING_COLOR_FILE_EXT, "img_color_file_ext",
             "  File extension",
             "Color used for the file extension column in the image explorer.",
-            14)
+            15)
         self.settings_btn_color_file_size = _make_color_button(
             SETTING_COLOR_FILE_SIZE, "img_color_file_size",
             "  File size",
             "Color used for the file size column in the image explorer.",
-            15)
+            16)
 
         # ---- Background image opacity ----
         bg_opacity_lbl = QLabel("Background image opacity (%):")
@@ -16439,7 +16439,7 @@ class MainWindow(QMainWindow):
             "Controls how visible the background image is behind the UI.\n"
             "0 = fully hidden, 100 = fully visible. Default is 5%."
         )
-        grid_tab_Settings.addWidget(bg_opacity_lbl, 16, 0)
+        grid_tab_Settings.addWidget(bg_opacity_lbl, 17, 0)
 
         bg_opacity_row = QWidget()
         bg_opacity_row_layout = QHBoxLayout(bg_opacity_row)
@@ -16522,7 +16522,7 @@ class MainWindow(QMainWindow):
 
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_slider, 1)
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_spinbox, 0)
-        grid_tab_Settings.addWidget(bg_opacity_row, 16, 1)
+        grid_tab_Settings.addWidget(bg_opacity_row, 17, 1)
 
         # ---- Background image selector ----
         bg_image_lbl = QLabel("Background image:")
@@ -16530,7 +16530,7 @@ class MainWindow(QMainWindow):
             "Choose a specific background image or 'Random' to cycle through\n"
             "all images in the script folder every 5 seconds."
         )
-        grid_tab_Settings.addWidget(bg_image_lbl, 17, 0)
+        grid_tab_Settings.addWidget(bg_image_lbl, 18, 0)
 
         bg_image_row = QWidget()
         bg_image_row_layout = QHBoxLayout(bg_image_row)
@@ -16573,7 +16573,7 @@ class MainWindow(QMainWindow):
         self.settings_bg_image_preview.setToolTip("Preview of the selected background image.")
         bg_image_row_layout.addWidget(self.settings_bg_image_preview, 0)
 
-        grid_tab_Settings.addWidget(bg_image_row, 17, 1)
+        grid_tab_Settings.addWidget(bg_image_row, 18, 1)
 
         def _update_bg_image_preview(path: str):
             """Refresh the thumbnail label for the given absolute image path."""
@@ -16634,7 +16634,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_crash_log_enabled_checkbox.stateChanged.connect(
             settings_crash_log_enabled_statechanged)
-        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 18, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 19, 0, 1, 2)
 
         def settings_disable_no_emulator_toast_statechanged():
             configuration_dictionary[SETTING_DISABLE_NO_EMULATOR_TOAST] = "true" if self.settings_disable_no_emulator_toast_checkbox.isChecked() else "false"
@@ -16648,7 +16648,7 @@ class MainWindow(QMainWindow):
             "Check this if you do not use any emulator and do not want the reminder."
         )
         self.settings_disable_no_emulator_toast_checkbox.stateChanged.connect(settings_disable_no_emulator_toast_statechanged)
-        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 19, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 20, 0, 1, 2)
 
         # ── MAME options (only shown when the MAME emulator was detected) ──
         if getattr(self, "_mame_executable_path", None):
@@ -16662,7 +16662,7 @@ class MainWindow(QMainWindow):
                 "This is inserted right after the MAME executable and is no longer part\n"
                 "of the command-line parameters below."
             )
-            grid_tab_Settings.addWidget(mame_rom_lbl, 20, 0)
+            grid_tab_Settings.addWidget(mame_rom_lbl, 21, 0)
 
             self.settings_mame_rom_combo = QComboBox()
             for _rom_name in MAME_ROM_CHOICE:
@@ -16670,7 +16670,7 @@ class MainWindow(QMainWindow):
             self.settings_mame_rom_combo.setToolTip(mame_rom_lbl.toolTip())
             self.settings_mame_rom_combo.currentIndexChanged.connect(
                 lambda _i: settings_mame_rom_changed())
-            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 20, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 21, 1)
 
             def settings_mame_params_changed():
                 configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = self.settings_mame_params_edit.text()
@@ -16683,7 +16683,7 @@ class MainWindow(QMainWindow):
                 "and the '-hard1 <image>' arguments are added automatically at launch,\n"
                 "so the loaded image is always the last argument."
             )
-            grid_tab_Settings.addWidget(mame_params_lbl, 21, 0)
+            grid_tab_Settings.addWidget(mame_params_lbl, 22, 0)
 
             self.settings_mame_params_edit = QLineEdit()
             self.settings_mame_params_edit.setText(
@@ -16691,7 +16691,7 @@ class MainWindow(QMainWindow):
                     SETTING_MAME_COMMAND_LINE_PARAMETERS, MAME_DEFAULT_COMMAND_LINE))
             self.settings_mame_params_edit.setToolTip(mame_params_lbl.toolTip())
             self.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
-            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 21, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 22, 1)
 
         # ── Unite! pygame background animation toggle ──────────────────────
         def _settings_pygame_anim_changed():
@@ -16720,7 +16720,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_pygame_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 22, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 23, 0, 1, 2)
 
         # ── Alien Floyd's: optional pygame-ce animated background everywhere ──
         # A Pink Floyd homage. When on, a pygame-ce "Alien Floyd's" animation
@@ -16765,7 +16765,7 @@ class MainWindow(QMainWindow):
             "file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_bg_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_bg_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 23, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 24, 0, 1, 2)
 
         # ── Alien Floyd's: optional dedicated full-window tab ────────────────
         self._alien_floyd_tab_widget = None
@@ -16837,7 +16837,7 @@ class MainWindow(QMainWindow):
             "configuration file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 24, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 25, 0, 1, 2)
 
         # ── NextSync: what to do when a received file/dir already exists locally ──
         def _settings_nextsync_send_conflict_changed():
@@ -16854,7 +16854,7 @@ class MainWindow(QMainWindow):
             "  • Overwrite: always replace the local file.\n"
             "  • Ignore: never touch existing local files."
         )
-        grid_tab_Settings.addWidget(nextsync_send_conflict_lbl, 25, 0)
+        grid_tab_Settings.addWidget(nextsync_send_conflict_lbl, 2, 0)
 
         self.settings_nextsync_send_conflict_combo = QComboBox()
         self.settings_nextsync_send_conflict_combo.addItem("Prompt (default)", "prompt")
@@ -16863,7 +16863,7 @@ class MainWindow(QMainWindow):
         self.settings_nextsync_send_conflict_combo.setToolTip(nextsync_send_conflict_lbl.toolTip())
         self.settings_nextsync_send_conflict_combo.currentIndexChanged.connect(
             lambda _i: _settings_nextsync_send_conflict_changed())
-        grid_tab_Settings.addWidget(self.settings_nextsync_send_conflict_combo, 25, 1)
+        grid_tab_Settings.addWidget(self.settings_nextsync_send_conflict_combo, 2, 1)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
@@ -17209,7 +17209,7 @@ class MainWindow(QMainWindow):
                 _show_content_disclaimer()
             elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC):
                 # Auto-run the "Prepare" step on entering the tab so the
-                # "Yes, start NextSync Server" button is ready without an extra
+                # "Start NextSync Server" button is ready without an extra
                 # click. Guard on the prepare button still being visible so we
                 # don't re-scan/re-log on every revisit or after a sync is set up.
                 if self.nextsync_prepare_server.isVisible():
