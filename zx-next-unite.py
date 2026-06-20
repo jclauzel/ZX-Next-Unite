@@ -1992,6 +1992,7 @@ def _apply_completer_fix_to_children(widget: QWidget):
 IMG_PATH_ROLE   = int(Qt.ItemDataRole.UserRole) + 1   # full path inside the image, e.g. "/games/manic.tap"
 IMG_ISDIR_ROLE  = int(Qt.ItemDataRole.UserRole) + 2   # bool: is this item a directory
 IMG_LOADED_ROLE = int(Qt.ItemDataRole.UserRole) + 3   # bool: have this folder's children been loaded
+IMG_LOADING_ROLE = int(Qt.ItemDataRole.UserRole) + 4  # bool: a background "ls" for this folder is in flight
 
 
 class MainWindow(QMainWindow):
@@ -2201,6 +2202,28 @@ class MainWindow(QMainWindow):
         # Monotonic token used to discard stale background "prepare" scans whose
         # sync root changed before the scan finished.
         self._nextsync_scan_generation = 0
+        # Hard references to in-flight "prepare" scan workers, for the same
+        # reason as _image_ls_workers below: a fire-and-forget worker can be
+        # garbage-collected (with its signals QObject) before its queued
+        # `finished` slot is dispatched, dropping the slot. Discarded in
+        # _on_scan_done.
+        self._nextsync_scan_workers = set()
+        # Monotonic token bumped every time the image explorer tree is wiped and
+        # reloaded (e.g. switching disk images). Background "hdfmonkey ls" workers
+        # capture it at start and abort in their finish handler if it changed, so a
+        # late-completing listing never repopulates a tree that has moved on (and
+        # never touches QStandardItems that were deleted by image_model.clear()).
+        self._image_load_generation = 0
+        # Hard references to in-flight "hdfmonkey ls" workers. Without this a
+        # fire-and-forget worker (no dlg.exec() keeping it on the stack) can be
+        # garbage-collected as soon as run() returns — taking its signals QObject
+        # with it — before the queued `finished` slot is dispatched, so the slot
+        # is silently dropped and the tree never repopulates / buttons never
+        # re-enable. Each worker is discarded from here inside its finish handler.
+        self._image_ls_workers = set()
+        # QTimer driving the transfer-arrow idle pulse (see
+        # _start_transfer_idle_animation); created lazily, None when stopped.
+        self._transfer_anim_timer = None
 
         # Gallery (picture view) defaults — may be overridden when the cfg file loads.
         self._gallery_anim_mode      = DEFAULT_GALLERY_ANIM_MODE
@@ -2412,8 +2435,9 @@ class MainWindow(QMainWindow):
                 add_main_log_window("Successfully installed hdfmonkey.")
 
                 if is_hdfmonkey_present():
+                    # load_image restores the controls itself once the (async)
+                    # listing completes.
                     load_image()
-                    set_all_buttons_enabled()
 
                 return True
             except Exception as e:
@@ -3265,7 +3289,66 @@ class MainWindow(QMainWindow):
             self.imageinput.setCurrentText(path)
             save_configuration_file()
 
-        def load_image():
+        def _start_transfer_idle_animation():
+            """Start a soft, continuously-looping green 'breathing' background pulse
+            on the two transfer-arrow buttons (Send '->:' / Get ':<-'). It runs the
+            whole time the SD-card tab is active so the controls gently draw the eye
+            even when nothing else is going on.
+
+            The pulse is driven by a plain QTimer that rewrites each button's
+            background colour — this is always visible, unlike a QGraphicsEffect,
+            and fits the tiny (~30px) buttons without changing their text. Safe to
+            call repeatedly; it restarts cleanly."""
+            _stop_transfer_idle_animation()
+
+            # Triangle wave over (2*steps) ticks → a smooth fade up and down. The
+            # two buttons are offset by half a cycle so they breathe out of phase.
+            steps = 22
+            phase = {"n": 0}
+
+            def _alpha_for(pos):
+                pos %= (2 * steps)
+                tri = pos / steps if pos <= steps else (2 * steps - pos) / steps
+                return int(150 * tri)
+
+            def _tick():
+                phase["n"] = (phase["n"] + 1) % (2 * steps)
+                for btn, off in ((self.button_to_image, 0), (self.button_to_disk, steps)):
+                    a = _alpha_for(phase["n"] + off)
+                    try:
+                        btn.setStyleSheet(
+                            "QPushButton { "
+                            f"background-color: rgba(46,204,113,{a}); "
+                            f"border: 1px solid rgba(46,204,113,{min(a + 60, 255)}); "
+                            "border-radius: 4px; }")
+                    except RuntimeError:
+                        pass
+
+            timer = QTimer(self)
+            timer.setInterval(55)
+            timer.timeout.connect(_tick)
+            timer.start()
+            self._transfer_anim_timer = timer
+
+        def _stop_transfer_idle_animation():
+            """Stop the breathing pulse and restore the buttons' normal appearance."""
+            timer = getattr(self, "_transfer_anim_timer", None)
+            if timer is not None:
+                timer.stop()
+                self._transfer_anim_timer = None
+            for btn in (self.button_to_image, self.button_to_disk):
+                try:
+                    btn.setStyleSheet("")
+                except RuntimeError:
+                    pass
+
+        def load_image(on_done=None):
+            """Select and load the disk image named in the image-path combo.
+
+            The actual directory listing runs on a worker thread (see
+            image_load_root), so this returns immediately rather than blocking the
+            UI thread while hdfmonkey reads the image. *on_done* (optional) is
+            invoked on the UI thread with True/False once loading completes."""
 
             global right_disk_image_explorer_content
             global right_disk_image_explorer_path
@@ -3275,23 +3358,43 @@ class MainWindow(QMainWindow):
 
             right_disk_image_explorer_path = []
             right_disk_image_explorer_content = []
+            # image_clear_model() bumps the load generation, invalidating any
+            # in-flight listing from a previous image so it can't repopulate the
+            # tree we are about to rebuild.
             image_clear_model()
 
             if self.right_disk_image_path and self.right_disk_image_path != '""':
-                if image_load_root():
-                    self.diskimageexplorerlabelpath.setText(generate_disk_file_path().replace('//', '/'))
-                    set_all_buttons_enabled()
-                    _add_to_image_history(self.right_disk_image_path)
-                    return True
-                else:
-                    logging.error(f"Failed loading image :{self.right_disk_image_path}.")
-                    add_main_log_window(f"Failed loading image :{self.right_disk_image_path}.")
+                # Lock the controls while the image is being read; the load
+                # callback restores them to the right state for success/failure.
+                set_all_buttons_disabled()
+                self.diskimageexplorerlabelpath.setText("Loading image…")
+
+                def _after(success):
+                    if success:
+                        self.diskimageexplorerlabelpath.setText(generate_disk_file_path().replace('//', '/'))
+                        set_all_buttons_enabled()
+                        _add_to_image_history(self.right_disk_image_path)
+                        # Kick the idle pulse so it's running right after a load,
+                        # not only when the tab is (re)entered.
+                        _start_transfer_idle_animation()
+                    else:
+                        logging.error(f"Failed loading image :{self.right_disk_image_path}.")
+                        add_main_log_window(f"Failed loading image :{self.right_disk_image_path}.")
+                        set_all_buttons_disabled()
+                        enable_image_selection()
+                        _update_image_usage_gauge("")
+                    if on_done is not None:
+                        on_done(success)
+
+                image_load_root(_after)
+                return
 
             set_all_buttons_disabled()
             enable_image_selection()
             _update_image_usage_gauge("")
 
-            return False
+            if on_done is not None:
+                on_done(False)
 
         def apply_file_extension_filter():
             text = self.filtertext.text().strip()
@@ -3514,10 +3617,12 @@ class MainWindow(QMainWindow):
             image_clear_model()
 
             # Now try to load it
-            if load_image():
-                save_configuration_file()
-                if self.settings_warn_image_nearly_full_checkbox.isChecked():
-                    _warn_if_image_nearly_full(self.right_disk_image_path)
+            def _on_loaded(success):
+                if success:
+                    save_configuration_file()
+                    if self.settings_warn_image_nearly_full_checkbox.isChecked():
+                        _warn_if_image_nearly_full(self.right_disk_image_path)
+            load_image(_on_loaded)
 
         def download_nextzxos_image():
             """Quick wizard to download a ready-to-use NextZXOS SD card image from
@@ -3670,10 +3775,12 @@ class MainWindow(QMainWindow):
                 image_clear_model()
 
                 # Now try to load it
-                if load_image():
-                    save_configuration_file()
-                    if self.settings_warn_image_nearly_full_checkbox.isChecked():
-                        _warn_if_image_nearly_full(self.right_disk_image_path)
+                def _on_loaded(success):
+                    if success:
+                        save_configuration_file()
+                        if self.settings_warn_image_nearly_full_checkbox.isChecked():
+                            _warn_if_image_nearly_full(self.right_disk_image_path)
+                load_image(_on_loaded)
 
             download_button.clicked.connect(do_download)
 
@@ -3994,104 +4101,6 @@ class MainWindow(QMainWindow):
                 else:
                     out_files.append(full)
 
-        # recursively delete all files in sub directories
-        def delete_sub_directory_content(image_path, destination):
-
-            # list and delete all files in that directory
-            hdfmonkeyexecresult = execute_hdf_monkey("ls", image_path, extra_argv=[destination])
-            if hdfmonkeyexecresult.returncode == 0:
-                command_execution = hdfmonkeyexecresult.stdout
-
-                results_lines = command_execution.splitlines()
-
-                if command_execution:
-
-                    for files in results_lines:
-                        decoded_files = files.decode(errors="replace") if isinstance(files, bytes) else files
-                        directory_result_table = decoded_files.split('\t', 1)
-                        if len(directory_result_table) < 2:
-                            continue
-                        file_type = directory_result_table[0]
-                        file_name = directory_result_table[1]
-
-                        if not is_filetype_a_directory(file_type):
-                            hdfmonkeyexecresult = execute_hdf_monkey("rm", self.right_disk_image_path,
-                                                                     extra_argv=[destination + "/" + file_name])
-                            if hdfmonkeyexecresult.returncode != 0:
-                                logging.error(f"Failed deleting file: {self.right_disk_image_path}{destination}/{file_name} - hdfmonkey result code: {hdfmonkeyexecresult.returncode}")
-                                add_main_log_window(f"Failed deleting file: {self.right_disk_image_path}{destination}/{file_name} - hdfmonkey result code: {hdfmonkeyexecresult.returncode}")
-
-                        else:
-                            delete_sub_directory_content(image_path, destination + "/" + file_name)
-                            # delete the directory in then end
-                            hdfmonkeyexecresult = execute_hdf_monkey("rm", self.right_disk_image_path,
-                                                                         extra_argv=[destination + "/" + file_name])
-                            if hdfmonkeyexecresult.returncode != 0:
-                                logging.error(f"Failed deleting file: {self.right_disk_image_path}{destination}/{file_name} - hdfmonkey result code: {hdfmonkeyexecresult.returncode}")
-                                add_main_log_window(f"Failed deleting file: {self.right_disk_image_path}{destination}/{file_name} - hdfmonkey result code: {hdfmonkeyexecresult.returncode}")
-
-        # recursively get all files in sub directories from image and copy to disj
-        def get_directory_content(image_path, image_source, disk_source, folder_name):
-
-            image_source += "/" + folder_name
-
-            image_source = image_source.replace("//", "/") # on root drive remove double slashes
-
-            if platform.system() == "Windows":
-                disk_source += "\\" + folder_name
-            else:
-                disk_source += "/" + folder_name
-            image_source = image_source.replace('"', '')
-
-            if is_directory(image_path, image_source):
-
-                # list and get all files in that directory
-                hdfmonkeyexecresult = execute_hdf_monkey("ls", image_path, extra_argv=[image_source])
-                if hdfmonkeyexecresult.returncode == 0:
-                    command_execution = hdfmonkeyexecresult.stdout
-
-                    results_lines = command_execution.splitlines()
-
-                    if command_execution:
-
-                        for files in results_lines:
-
-                            decoded_files = files.decode(errors="replace") if isinstance(files, bytes) else files
-                            directory_result_table = decoded_files.split('\t', 1)
-                            if len(directory_result_table) < 2:
-                                continue
-                            file_type = directory_result_table[0]
-                            file_name = directory_result_table[1]
-
-                            if platform.system() == "Windows":
-                                disk_destination = disk_source.replace('\\', '/') + "/" + file_name
-                            else:
-                                disk_destination = disk_source + "/" + file_name
-
-                            if not is_filetype_a_directory(file_type):
-
-                                hdfmonkeyexecresult = execute_hdf_monkey("get", self.right_disk_image_path,
-                                                                         extra_argv=[image_source + "/" + file_name,
-                                                                                     disk_destination.replace('\\', '/')])
-                                if hdfmonkeyexecresult.returncode != 0:
-                                    logging.error(f"Failed getting file: {self.right_disk_image_path}{image_source}/{file_name} - hdfmonkey result code: {hdfmonkeyexecresult.returncode}")
-                                    add_main_log_window(f"Failed getting file: {self.right_disk_image_path}{image_source}/{file_name} - hdfmonkey result code: {hdfmonkeyexecresult.returncode}")
-
-                            else:
-
-                                disk_destination = disk_destination.replace('"', '')
-                                # create the directory
-
-                                try:
-                                    os.makedirs(disk_destination)
-                                except FileExistsError:
-                                    pass
-                                except Exception as e:
-                                    logging.error(f"Failed creating directory: {disk_destination} - Exception: {e}")
-                                    add_main_log_window(f"Failed creating directory: {disk_destination} - Exception: {e}")
-
-                                get_directory_content (image_path, image_source, disk_source,  file_name)
-
         #First returned value is the root parent directory full path second variable is the last path or filename
         def get_parent_root_directory_splited(file_name:str):
 
@@ -4282,6 +4291,148 @@ class MainWindow(QMainWindow):
             self.threadpool.start(worker)
             dlg.exec()
 
+        def _image_entry_exists(image_path, path):
+            """True if *path* (file or directory) already exists inside the image.
+
+            The comparison is case-insensitive because the image is a FAT volume,
+            where 'GAME.TAP' and 'game.tap' are the same entry — so a case-only
+            rename must also be reported as already existing."""
+            parent, name = get_parent_root_directory_splited(path.rstrip("/"))
+            result = execute_hdf_monkey("ls", image_path, extra_argv=[parent or "/"])
+            if result.returncode != 0:
+                return False
+            name_cf = name.casefold()
+            for line in result.stdout.splitlines():
+                decoded = line.decode(errors="replace") if isinstance(line, bytes) else line
+                parts = decoded.split('\t', 1)
+                if len(parts) == 2 and parts[1].casefold() == name_cf:
+                    return True
+            return False
+
+        def _run_rename_task(signals, cancel_event, image_path, src_path, new_path,
+                             base_name, is_windows):
+            """Rename a file/folder inside the image. hdfmonkey has no 'mv', so we
+            copy the entry out to a temp dir (get), write it back under the new
+            name (put), verify the copy, then remove the original (rm). Folders are
+            handled recursively by reusing the get/put/delete task bodies. The
+            original is only removed once the new entry is confirmed present, so a
+            failed copy never loses data."""
+
+            class _StepProxy:
+                """Wraps the real worker signals so every status line the reused
+                get/put/delete bodies emit is relabelled with a fixed phase header
+                (e.g. 'Uploading (Step 2/3)…'). The per-file detail line and the
+                progress/error signals pass straight through."""
+                def __init__(self, header):
+                    self._header = header
+                @property
+                def progress(self):
+                    return signals.progress
+                @property
+                def error(self):
+                    return signals.error
+                @property
+                def status(self):
+                    return self            # so '.status.emit(msg)' lands on emit()
+                def emit(self, msg):
+                    detail = msg.split("\n", 1)[1] if "\n" in msg else ""
+                    signals.status.emit(f"{self._header}\n{detail}")
+
+            tmp_root = tempfile.mkdtemp(prefix="zxnu_rename_")
+            try:
+                dir_nav = "\\" if is_windows else "/"
+
+                # ---- Phase 1: copy the source OUT of the image to tmp_root/base_name
+                _run_get_task(_StepProxy("Downloading (Step 1/3)…"), cancel_event,
+                              image_path, [(src_path, base_name)], tmp_root,
+                              dir_nav, is_windows)
+                if cancel_event.is_set():
+                    return
+                local_copy = os.path.join(tmp_root, base_name)
+                if not os.path.exists(local_copy):
+                    signals.error.emit(f"Rename failed: could not copy {src_path} out of the image.")
+                    return
+
+                # ---- Phase 2: write it back under the new name
+                _run_put_task(_StepProxy("Uploading (Step 2/3)…"), cancel_event,
+                              image_path, local_copy, new_path)
+                if cancel_event.is_set():
+                    return
+                if not _image_entry_exists(image_path, new_path):
+                    signals.error.emit(f"Rename failed: {new_path} was not written — the original is kept.")
+                    return
+
+                # ---- Phase 3: remove the original
+                _run_delete_task(_StepProxy("Deleting (Step 3/3)…"), cancel_event,
+                                 image_path, [src_path])
+            finally:
+                shutil.rmtree(tmp_root, ignore_errors=True)
+
+        def image_rename_dialog():
+            """Prompt for and perform a rename of the selected image entry. Acts on
+            the primary selection (single entry) and runs on a worker thread."""
+            if not right_disk_image_explorer_content or not self.image_selected_path:
+                logging.info("Please select an image file or folder first to rename!")
+                add_main_log_window("Please select an image file or folder first to rename!")
+                return
+
+            src_path = self.image_selected_path.rstrip("/")
+            if not src_path or src_path == "/":
+                return
+            is_dir = self.image_selected_is_dir
+
+            img_err = _check_image_writable(self.right_disk_image_path, check_free_space=False)
+            if img_err:
+                logging.error(img_err)
+                add_main_log_window(f"ERROR: {img_err}")
+                QMessageBox.critical(self, "Image not writable", img_err)
+                return
+
+            old_name = src_path.rsplit("/", 1)[-1]
+            kind = "folder" if is_dir else "file"
+            new_name, ok = QInputDialog.getText(
+                self, "Rename", f"New name for the {kind}:", text=old_name)
+            if not ok:
+                return
+            new_name = new_name.strip()
+            if not new_name or new_name == old_name:
+                return
+            if "/" in new_name or "\\" in new_name:
+                QMessageBox.warning(self, "Rename failed", "The name cannot contain '/' or '\\'.")
+                return
+
+            parent     = src_path.rsplit("/", 1)[0]   # "" for a root-level entry
+            new_path   = (parent + "/" + new_name).replace("//", "/")
+            image_path = self.right_disk_image_path
+
+            if _image_entry_exists(image_path, new_path):
+                QMessageBox.warning(self, "Rename failed",
+                                    f'"{new_name}" already exists in this folder.')
+                return
+
+            parent_dir = parent or "/"
+            is_windows = platform.system() == "Windows"
+
+            set_all_buttons_disabled()
+            dlg    = HdfProgressDialog("Renaming…", self)
+            worker = HdfTaskWorker(_run_rename_task, image_path, src_path, new_path,
+                                   old_name, is_windows)
+
+            dlg.cancel_requested.connect(worker.cancel)
+            worker.signals.progress.connect(dlg.set_progress)
+            worker.signals.status.connect(dlg.set_status)
+            worker.signals.error.connect(add_main_log_window)
+            worker.signals.cancelled.connect(dlg.mark_cancelled)
+
+            def _on_rename_finished():
+                dlg.close()
+                image_reload_dir(parent_dir)
+                set_all_buttons_enabled()
+
+            worker.signals.finished.connect(_on_rename_finished)
+            self.threadpool.start(worker)
+            dlg.exec()
+
 
         def _nextsync_run_prepare():
             nextsync_warnings()
@@ -4450,20 +4601,40 @@ class MainWindow(QMainWindow):
 
         def on_treeview_context_menu(pos):
             index = self.treeview.indexAt(pos)
-            if not index.isValid():
-                return
-            source_index = self.proxy_model.mapToSource(index)
-            name = self.model.fileName(source_index)
-            if name == "..":
+            menu = QMenu(self.treeview)
+            source_index = self.proxy_model.mapToSource(index) if index.isValid() else None
+            name = self.model.fileName(source_index) if source_index is not None else ""
+            # Empty space or the ".." up-entry: only offer "Create new directory",
+            # targeting the folder currently shown at the top of the tree.
+            if source_index is None or name == "..":
+                target_dir = local_current_view_dir()
+                menu.addAction("Create new directory…",
+                               lambda: QTimer.singleShot(0, lambda: _local_make_directory(
+                                   target_dir, local_explorer_refresh, add_main_log_window)))
+                menu.exec(self.treeview.viewport().mapToGlobal(pos))
                 return
             file_path = self.model.filePath(source_index)
-            menu = QMenu(self.treeview)
+            is_dir = self.model.isDir(source_index)
+            # A new folder lands inside a folder, or in a file's parent folder.
+            new_dir_target = file_path if is_dir else os.path.dirname(file_path)
             action_copy_text = QAction("Copy text to clipboard", self.treeview)
             action_copy_path = QAction("Copy path to clipboard", self.treeview)
+            action_newdir = QAction("Create new directory…", self.treeview)
+            action_rename = QAction("Rename", self.treeview)
             action_copy_text.triggered.connect(lambda: QGuiApplication.clipboard().setText(name))
             action_copy_path.triggered.connect(lambda: QGuiApplication.clipboard().setText(file_path))
+            # Defer the dialogs until the menu's modal loop has closed (showing a
+            # QInputDialog from inside menu.exec() fights the menu's input grab).
+            action_newdir.triggered.connect(
+                lambda: QTimer.singleShot(0, lambda: _local_make_directory(
+                    new_dir_target, local_explorer_refresh, add_main_log_window)))
+            action_rename.triggered.connect(
+                lambda: QTimer.singleShot(0, lambda: local_explorer_rename_item(file_path, name, is_dir)))
             menu.addAction(action_copy_text)
             menu.addAction(action_copy_path)
+            menu.addSeparator()
+            menu.addAction(action_newdir)
+            menu.addAction(action_rename)
             menu.exec(self.treeview.viewport().mapToGlobal(pos))
 
         def local_explorer_refresh():
@@ -4480,6 +4651,72 @@ class MainWindow(QMainWindow):
                         self.proxy_model.mapFromSource(self.model.index(view_path)))
             except Exception as e:
                 logging.error(f"Local explorer refresh failed: {e}", exc_info=True)
+
+        def local_current_view_dir():
+            """Path of the folder currently shown at the top of the SD-card tab's
+            left local explorer."""
+            root_src = self.proxy_model.mapToSource(self.treeview.rootIndex())
+            return self.model.filePath(root_src)
+
+        def _local_make_directory(parent_dir, refresh_fn, log_fn):
+            """Prompt for and create a new sub-directory inside *parent_dir* (local
+            filesystem), then call *refresh_fn* to re-list the tree. Shared by the
+            SD-card and NextSync local file explorers' 'Create new directory'
+            actions; *log_fn* writes to the relevant log pane."""
+            if not parent_dir or not os.path.isdir(parent_dir):
+                QMessageBox.warning(self, "New folder failed", "No valid destination folder.")
+                return
+            new_name, ok = QInputDialog.getText(self, "New folder", "Name for the new folder:")
+            if not ok:
+                return
+            new_name = new_name.strip()
+            if not new_name:
+                return
+            if "/" in new_name or "\\" in new_name:
+                QMessageBox.warning(self, "New folder failed", "The name cannot contain '/' or '\\'.")
+                return
+            new_path = os.path.join(parent_dir, new_name)
+            if os.path.exists(new_path):
+                QMessageBox.warning(self, "New folder failed", f'"{new_name}" already exists in this folder.')
+                return
+            try:
+                os.mkdir(new_path)
+                log_fn(f"Created folder: {new_path}")
+            except OSError as e:
+                logging.error(f"Failed to create folder {new_path}: {e}", exc_info=True)
+                log_fn(f"Failed to create folder {new_path}: {e}")
+                QMessageBox.critical(self, "New folder failed", f"Could not create folder:\n{new_path}\n\n{e}")
+            finally:
+                refresh_fn()
+
+        def local_explorer_rename_item(file_path, name, is_dir):
+            """Rename a file/folder in the SD-card tab's left local explorer
+            (local filesystem). Prompts for a new name, refuses path separators
+            and overwriting an existing entry, renames in place and refreshes."""
+            kind = "folder" if is_dir else "file"
+            new_name, ok = QInputDialog.getText(
+                self, "Rename", f"New name for the {kind}:", text=name)
+            if not ok:
+                return
+            new_name = new_name.strip()
+            if not new_name or new_name == name:
+                return
+            if "/" in new_name or "\\" in new_name:
+                QMessageBox.warning(self, "Rename failed", "The name cannot contain '/' or '\\'.")
+                return
+            new_path = os.path.join(os.path.dirname(file_path), new_name)
+            if os.path.exists(new_path):
+                QMessageBox.warning(self, "Rename failed", f'"{new_name}" already exists in this folder.')
+                return
+            try:
+                os.rename(file_path, new_path)
+                add_main_log_window(f"Renamed: {file_path} -> {new_path}")
+            except OSError as e:
+                logging.error(f"Failed to rename {file_path} -> {new_path}: {e}", exc_info=True)
+                add_main_log_window(f"Failed to rename {file_path}: {e}")
+                QMessageBox.critical(self, "Rename failed", f"Could not rename:\n{file_path}\n\n{e}")
+            finally:
+                local_explorer_refresh()
 
         def local_explorer_import_external_paths(paths, dest_dir):
             """Copy files/folders dropped from the OS file manager into dest_dir
@@ -4541,20 +4778,26 @@ class MainWindow(QMainWindow):
                 clipboard_path = getattr(self, "_nextsync_clipboard_path", "")
                 paste_dir = nextsync_current_view_dir()
                 menu = QMenu(self.nextsync_treeview)
+                action_newdir = QAction("Create new directory…", self.nextsync_treeview)
+                action_newdir.triggered.connect(lambda: QTimer.singleShot(0, lambda: _local_make_directory(
+                    paste_dir, nextsync_refresh_explorer, add_nextsync_log_window)))
                 action_paste = QAction("Paste", self.nextsync_treeview)
                 action_paste.setEnabled(bool(clipboard_path) and bool(paste_dir))
                 action_paste.triggered.connect(lambda: QTimer.singleShot(0, lambda: nextsync_paste_explorer_item(paste_dir)))
+                menu.addAction(action_newdir)
                 menu.addAction(action_paste)
                 menu.exec(self.nextsync_treeview.viewport().mapToGlobal(pos))
                 return
             file_path = self.nextsync_filesystem_model.filePath(source_index)
             is_dir = self.nextsync_filesystem_model.isDir(source_index)
-            # Paste target: into the folder itself, or into a file's parent folder.
+            # Paste / new-folder target: into the folder itself, or into a file's
+            # parent folder.
             paste_dir = file_path if is_dir else os.path.dirname(file_path)
             clipboard_path = getattr(self, "_nextsync_clipboard_path", "")
             menu = QMenu(self.nextsync_treeview)
             action_copy_text = QAction("Copy text to clipboard", self.nextsync_treeview)
             action_copy_path = QAction("Copy path to clipboard", self.nextsync_treeview)
+            action_newdir = QAction("Create new directory…", self.nextsync_treeview)
             action_copy = QAction("Copy", self.nextsync_treeview)
             action_paste = QAction("Paste", self.nextsync_treeview)
             action_rename = QAction("Rename", self.nextsync_treeview)
@@ -4566,12 +4809,15 @@ class MainWindow(QMainWindow):
             # Defer the dialog-showing actions until after the context menu's modal
             # event loop has closed: showing a QMessageBox/QInputDialog from inside
             # menu.exec() fights the menu's input grab and can hang the UI.
+            action_newdir.triggered.connect(lambda: QTimer.singleShot(0, lambda: _local_make_directory(
+                paste_dir, nextsync_refresh_explorer, add_nextsync_log_window)))
             action_paste.triggered.connect(lambda: QTimer.singleShot(0, lambda: nextsync_paste_explorer_item(paste_dir)))
             action_rename.triggered.connect(lambda: QTimer.singleShot(0, lambda: nextsync_rename_explorer_item(file_path, name, is_dir)))
             action_delete.triggered.connect(lambda: QTimer.singleShot(0, lambda: nextsync_delete_explorer_item(file_path, name, is_dir)))
             menu.addAction(action_copy_text)
             menu.addAction(action_copy_path)
             menu.addSeparator()
+            menu.addAction(action_newdir)
             menu.addAction(action_copy)
             menu.addAction(action_paste)
             menu.addAction(action_rename)
@@ -5432,12 +5678,9 @@ class MainWindow(QMainWindow):
                 set_treeview_properties()
                 self.treeview.show()
                 self.file_explorer_path.setText(display_path)
-                result = execute_hdf_monkey("ls", image_path, extra_argv=[disk_path_fn()])
-                if result.returncode == 0:
-                    update_disk_manager_widget_table(result.stdout)
-                else:
-                    logging.error(f"Failed browsing directory after uploading file - hdfmonkey result code: {result.returncode}")
-                    add_main_log_window(f"Failed browsing directory after uploading file - hdfmonkey result code: {result.returncode}")
+                # Refresh the image tree asynchronously (the listing runs on a
+                # worker thread, so finishing an upload never blocks the UI).
+                update_disk_manager_widget_table()
                 set_all_buttons_enabled()
 
             worker.signals.finished.connect(_on_put_finished)
@@ -5476,6 +5719,10 @@ class MainWindow(QMainWindow):
 
         def image_clear_model():
             # Wipe the tree and re-apply the column headers (clear() drops them).
+            # Bumping the load generation invalidates any in-flight background
+            # "hdfmonkey ls" worker: clear() frees every QStandardItem, so a worker
+            # that captured one must not repopulate it (see image_populate_item).
+            self._image_load_generation += 1
             self.image_model.clear()
             set_table_image_properties()
 
@@ -5528,71 +5775,130 @@ class MainWindow(QMainWindow):
             size_item.setEditable(False)
             return [name_item, type_item, size_item]
 
-        def image_populate_item(parent_name_item, dir_path):
+        def image_populate_item(parent_name_item, dir_path, on_done=None):
             """(Re)load the children of *dir_path* under *parent_name_item*
-            (None = the invisible root). Folders get a placeholder child so the
-            expand arrow appears; the placeholder is replaced on first expand.
-            Returns the parsed entries list, or None on hdfmonkey failure."""
+            (None = the invisible root) without blocking the UI thread.
+
+            The slow part — the "hdfmonkey ls" subprocess — runs on the thread
+            pool; the parsed entries are then turned into tree rows back on the UI
+            thread (QStandardItem objects must only be created/attached there).
+            Folders get a placeholder child so the expand arrow appears; the
+            placeholder is replaced on first expand.
+
+            *on_done* (optional) is invoked on the UI thread once population
+            finishes, with the parsed entries list, or None on hdfmonkey failure.
+            """
             parent = parent_name_item if parent_name_item is not None else self.image_model.invisibleRootItem()
-            parent.removeRows(0, parent.rowCount())
+            image_path = self.right_disk_image_path
+            # Capture the load generation so a listing that completes after the
+            # tree was wiped/reloaded is discarded instead of mutating a stale
+            # (or freed) model.
+            gen    = self._image_load_generation
+            holder = {}
 
-            result = execute_hdf_monkey("ls", self.right_disk_image_path, extra_argv=[dir_path])
-            if result.returncode != 0:
-                logging.error(f"Failed listing image directory: {dir_path} - hdfmonkey result code: {result.returncode}")
-                add_main_log_window(f"Failed listing image directory: {dir_path} - hdfmonkey result code: {result.returncode}")
-                return None
+            def _ls_fn(signals, cancel_event, _img=image_path, _dir=dir_path, _h=holder):
+                result = execute_hdf_monkey("ls", _img, extra_argv=[_dir])
+                if result.returncode != 0:
+                    _h["rc"] = result.returncode
+                else:
+                    _h["entries"] = image_parse_ls(result.stdout)
 
-            entries = image_parse_ls(result.stdout)
-            for name, is_dir, size in entries:
-                full_path = (dir_path + "/" + name).replace("//", "/")
-                row = image_make_row(name, is_dir, size, full_path)
-                parent.appendRow(row)
-                if is_dir:
-                    # Placeholder so the expand arrow shows before the folder is
-                    # actually listed; removed/replaced by image_on_expanded.
-                    row[0].appendRow([QStandardItem("")])
+            def _finish():
+                # Release our keep-alive reference now that the slot is running.
+                self._image_ls_workers.discard(worker)
+                # A newer load wiped/replaced the tree while we were listing —
+                # the captured QStandardItems may already be deleted, so do not
+                # touch the model. The newer load owns the final UI state.
+                if gen != self._image_load_generation:
+                    return
+                entries = holder.get("entries")
+                if entries is None:
+                    rc = holder.get("rc", "?")
+                    logging.error(f"Failed listing image directory: {dir_path} - hdfmonkey result code: {rc}")
+                    add_main_log_window(f"Failed listing image directory: {dir_path} - hdfmonkey result code: {rc}")
+                    if on_done is not None:
+                        on_done(None)
+                    return
 
-            if parent_name_item is not None:
-                parent_name_item.setData(True, IMG_LOADED_ROLE)
-            return entries
+                parent.removeRows(0, parent.rowCount())
+                for name, is_dir, size in entries:
+                    full_path = (dir_path + "/" + name).replace("//", "/")
+                    row = image_make_row(name, is_dir, size, full_path)
+                    parent.appendRow(row)
+                    if is_dir:
+                        # Placeholder so the expand arrow shows before the folder
+                        # is actually listed; removed/replaced by image_on_expanded.
+                        row[0].appendRow([QStandardItem("")])
+
+                if parent_name_item is not None:
+                    parent_name_item.setData(True, IMG_LOADED_ROLE)
+                if on_done is not None:
+                    on_done(entries)
+
+            worker = HdfTaskWorker(_ls_fn)
+            # Keep the worker (and its signals) alive until _finish runs, so the
+            # queued cross-thread `finished` slot can't be dropped by GC.
+            self._image_ls_workers.add(worker)
+            worker.signals.finished.connect(_finish)
+            self.threadpool.start(worker)
 
         def image_on_expanded(index):
-            # Lazy-load a folder's contents the first time it is expanded.
+            # Lazy-load a folder's contents the first time it is expanded. The
+            # listing runs on a worker thread; the folder shows its placeholder
+            # row until the real children arrive, so expanding never blocks the UI.
             if not index.isValid():
                 return
             name_item = self.image_model.itemFromIndex(index.siblingAtColumn(0))
             if name_item is None:
                 return
-            if name_item.data(IMG_ISDIR_ROLE) and not name_item.data(IMG_LOADED_ROLE):
-                image_populate_item(name_item, name_item.data(IMG_PATH_ROLE))
-                apply_image_filter()
+            if (name_item.data(IMG_ISDIR_ROLE)
+                    and not name_item.data(IMG_LOADED_ROLE)
+                    and not name_item.data(IMG_LOADING_ROLE)):
+                # Guard against a second worker being launched if the user
+                # collapses and re-expands before the first listing returns.
+                name_item.setData(True, IMG_LOADING_ROLE)
 
-        def image_load_root():
-            """Build the tree from the image root. Returns True on success."""
+                def _after(_entries, _item=name_item):
+                    _item.setData(False, IMG_LOADING_ROLE)
+                    apply_image_filter()
+
+                image_populate_item(name_item, name_item.data(IMG_PATH_ROLE), _after)
+
+        def image_load_root(on_done=None):
+            """Build the tree from the image root without blocking the UI thread.
+
+            *on_done* (optional) is invoked on the UI thread with True on success
+            or False on hdfmonkey failure once the root listing completes."""
             global right_disk_image_explorer_content
 
             image_clear_model()
             self.image_selected_path = ""
             self.image_selected_is_dir = False
 
-            entries = image_populate_item(None, "/")
-            if entries is None:
-                right_disk_image_explorer_content = []
-                _update_image_usage_gauge("")
-                return False
+            def _after(entries):
+                global right_disk_image_explorer_content
+                if entries is None:
+                    right_disk_image_explorer_content = []
+                    _update_image_usage_gauge("")
+                    if on_done is not None:
+                        on_done(False)
+                    return
 
-            # right_disk_image_explorer_content is used throughout as the
-            # "an image is loaded" guard, so keep it non-empty while one is.
-            right_disk_image_explorer_content = [(n, "DIR" if d else "") for (n, d, s) in entries] or ["loaded"]
+                # right_disk_image_explorer_content is used throughout as the
+                # "an image is loaded" guard, so keep it non-empty while one is.
+                right_disk_image_explorer_content = [(n, "DIR" if d else "") for (n, d, s) in entries] or ["loaded"]
 
-            # Keep the legacy flat item list in sync (used by name lookups).
-            self.image_explorer_item_list.clear()
-            for n, d, s in entries:
-                self.image_explorer_item_list.addItem(n)
+                # Keep the legacy flat item list in sync (used by name lookups).
+                self.image_explorer_item_list.clear()
+                for n, d, s in entries:
+                    self.image_explorer_item_list.addItem(n)
 
-            apply_image_filter()
-            _update_image_usage_gauge(self.right_disk_image_path)
-            return True
+                apply_image_filter()
+                _update_image_usage_gauge(self.right_disk_image_path)
+                if on_done is not None:
+                    on_done(True)
+
+            image_populate_item(None, "/", _after)
 
         def image_find_item(path):
             """Return the column-0 QStandardItem for *path* among already-loaded
@@ -5615,17 +5921,21 @@ class MainWindow(QMainWindow):
         def image_reload_dir(path):
             """Reload the children of the image directory at *path*, preserving
             the rest of the tree's expansion state. Falls back to a full root
-            reload when the directory isn't currently materialised in the tree."""
+            reload when the directory isn't currently materialised in the tree.
+            The listing runs on a worker thread, so this returns immediately."""
             item = image_find_item(path)
             if item is None:
                 image_load_root()
                 return
             was_expanded = self.image_treeview.isExpanded(item.index())
-            image_populate_item(item, item.data(IMG_PATH_ROLE))
-            if was_expanded:
-                self.image_treeview.expand(item.index())
-            apply_image_filter()
-            _update_image_usage_gauge(self.right_disk_image_path)
+
+            def _after(_entries, _item=item, _expanded=was_expanded):
+                if _expanded:
+                    self.image_treeview.expand(_item.index())
+                apply_image_filter()
+                _update_image_usage_gauge(self.right_disk_image_path)
+
+            image_populate_item(item, item.data(IMG_PATH_ROLE), _after)
 
         def update_disk_manager_widget_table(command_execution_content=None):
             # Refresh entry point kept under its original name. Callers invoke
@@ -5657,6 +5967,10 @@ class MainWindow(QMainWindow):
                 new_folder_label = "New Folder Here…" if is_dir else "New Folder…"
                 menu.addAction(new_folder_label, image_newfolder_dialog)
                 menu.addSeparator()
+                # Rename acts on a single entry; only offer it for a lone selection.
+                if selected_count <= 1:
+                    menu.addAction("Rename…",
+                                   lambda: QTimer.singleShot(0, image_rename_dialog))
                 delete_label = f"Delete {selected_count} items" if selected_count > 1 else "Delete"
                 menu.addAction(delete_label, delete_files_button_show_confirmation_buttons)
             else:
@@ -5844,6 +6158,8 @@ class MainWindow(QMainWindow):
             scan_worker = HdfTaskWorker(_scan_fn)
 
             def _on_scan_done(_gen=scan_gen, _holder=scan_result):
+                # Release our keep-alive reference now that the slot is running.
+                self._nextsync_scan_workers.discard(scan_worker)
                 # Discard results from a superseded scan (sync root changed since).
                 if _gen != self._nextsync_scan_generation:
                     return
@@ -5860,6 +6176,9 @@ class MainWindow(QMainWindow):
                 add_nextsync_log_window (f"{severity}: Ready to sync {count} files, {total/1024:.2f} kilobytes.")
                 add_nextsync_log_window ("")
 
+            # Keep the worker (and its signals) alive until _on_scan_done runs,
+            # so the queued cross-thread `finished` slot can't be dropped by GC.
+            self._nextsync_scan_workers.add(scan_worker)
             scan_worker.signals.finished.connect(_on_scan_done)
             self.threadpool.start(scan_worker)
 
@@ -6518,6 +6837,21 @@ class MainWindow(QMainWindow):
         self.treeview.setContextMenuPolicy(Qt.CustomContextMenu)
         self.treeview.customContextMenuRequested.connect(on_treeview_context_menu)
 
+        def _local_tree_key_press(event):
+            # F2 mirrors the context-menu "Rename" action on the selected entry.
+            if event.key() == Qt.Key.Key_F2:
+                ix = self.treeview.currentIndex()
+                if ix.isValid():
+                    source_ix = self.proxy_model.mapToSource(ix)
+                    nm = self.model.fileName(source_ix)
+                    if nm != "..":
+                        local_explorer_rename_item(
+                            self.model.filePath(source_ix), nm, self.model.isDir(source_ix))
+                        return
+            QTreeView.keyPressEvent(self.treeview, event)
+
+        self.treeview.keyPressEvent = _local_tree_key_press
+
         # --- Drag & drop from the OS file manager into the local explorer -----
         # Dropping files/folders from Windows Explorer onto the left explorer
         # imports (copies) them into the folder the drop lands on (its parent if
@@ -6571,12 +6905,12 @@ class MainWindow(QMainWindow):
         self.centralbuttons = QVBoxLayout()
 
         self.button_to_disk = QPushButton("ToDisk", self)
-        self.button_to_disk.setText("<<<")
+        self.button_to_disk.setText(":<-")
         self.button_to_disk.setMaximumWidth(DISK_ARROWS_BUTTONS_SIZE)
         self.button_to_disk.clicked.connect(transfert_content_from_image_to_disk)
 
         self.button_to_image = QPushButton("ToImage", self)
-        self.button_to_image.setText(">>>")
+        self.button_to_image.setText("->:")
         self.button_to_image.setMaximumWidth(DISK_ARROWS_BUTTONS_SIZE)
         self.button_to_image.clicked.connect(transfert_content_from_disk_to_image)
 
@@ -6604,6 +6938,8 @@ class MainWindow(QMainWindow):
         def _image_tree_key_press(event):
             if event.key() == Qt.Key.Key_Delete and self.image_selected_path:
                 delete_files_button_show_confirmation_buttons()
+            elif event.key() == Qt.Key.Key_F2 and self.image_selected_path:
+                image_rename_dialog()
             else:
                 QTreeView.keyPressEvent(self.image_treeview, event)
 
@@ -8626,11 +8962,9 @@ class MainWindow(QMainWindow):
             def _on_done(dest):
                 getit_set_status(f"Sent to image: {dest}")
                 self._show_sd_notification(f"Sent to SD card image:\n{dest}")
-                # Refresh the disk image table so the new folder appears
-                res = execute_hdf_monkey("ls", image_path,
-                                         extra_argv=[generate_disk_file_path()])
-                if res.returncode == 0:
-                    update_disk_manager_widget_table(res.stdout)
+                # Refresh the disk image table so the new folder appears (the
+                # listing runs on a worker thread, so it never blocks the UI).
+                update_disk_manager_widget_table()
 
             def _on_err(err):
                 getit_set_status(f"Send to image failed: {err[1]}")
@@ -11053,9 +11387,8 @@ class MainWindow(QMainWindow):
                         self._show_sd_notification(
                             f"Sent {pending['ok']}/{pending['n']} file(s) to SD card image:\n{img_dir}"
                         )
-                        res = execute_hdf_monkey("ls", image_path, extra_argv=[generate_disk_file_path()])
-                        if res.returncode == 0:
-                            update_disk_manager_widget_table(res.stdout)
+                        # Async refresh (listing runs on a worker thread).
+                        update_disk_manager_widget_table()
                     else:
                         zxdb_set_status(f"All {pending['n']} download(s) failed — check the URLs")
 
@@ -12552,9 +12885,8 @@ class MainWindow(QMainWindow):
                         self._show_sd_notification(
                             f"Sent {pending['ok']}/{pending['n']} file(s) to SD card image:\n{img_dir}"
                         )
-                        res = execute_hdf_monkey("ls", image_path, extra_argv=[generate_disk_file_path()])
-                        if res.returncode == 0:
-                            update_disk_manager_widget_table(res.stdout)
+                        # Async refresh (listing runs on a worker thread).
+                        update_disk_manager_widget_table()
                     else:
                         zxart_set_status(f"All {pending['n']} download(s) failed — check the URLs")
 
@@ -17185,11 +17517,16 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             tab_title = wid_inner.tab.tabText(index)
+            # Only run the idle "breathing" glow on the transfer buttons while the
+            # SD-card tab is the active one; stop it on every other tab.
+            _stop_transfer_idle_animation()
             if tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GOOEY):
+                _start_transfer_idle_animation()
                 if right_disk_image_explorer_content:
-                    hdfmonkeyexecresult = execute_hdf_monkey("ls", self.right_disk_image_path)
-                    if hdfmonkeyexecresult.returncode == 0:
-                        update_disk_manager_widget_table(hdfmonkeyexecresult.stdout)
+                    # Refresh the explorer when returning to the SD Card tab. The
+                    # listing runs on a worker thread (no UI-thread hdfmonkey call
+                    # on tab switch).
+                    update_disk_manager_widget_table()
             elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GETIT):
                 _show_content_disclaimer()
                 self._getit_fetch_motd()
@@ -17258,7 +17595,11 @@ class MainWindow(QMainWindow):
                 current_title = wid_inner.tab.tabText(wid_inner.tab.currentIndex())
             except Exception:
                 return
-            if current_title == ZX_NEXT_UNITE_TAB_TITLE_GETIT:
+            if current_title == ZX_NEXT_UNITE_TAB_TITLE_GOOEY:
+                # App restored onto the SD-card tab: kick off the idle glow now,
+                # since currentChanged wasn't connected during config restore.
+                _start_transfer_idle_animation()
+            elif current_title == ZX_NEXT_UNITE_TAB_TITLE_GETIT:
                 _show_content_disclaimer()
                 self._getit_fetch_motd()
                 # Preserve any pending query (e.g. mirrored from an AllInOne
@@ -17291,22 +17632,28 @@ class MainWindow(QMainWindow):
         # Expose the nested save function so closeEvent (a class method) can call it.
         self._save_configuration_file = save_configuration_file
 
+        def _warn_after_startup_load(success):
+            if success and self.settings_warn_image_nearly_full_checkbox.isChecked():
+                _warn_if_image_nearly_full(self.right_disk_image_path)
+
+        _startup_load_started = False
         if is_hdfmonkey_present():
-            if load_image():
-                if self.settings_warn_image_nearly_full_checkbox.isChecked():
-                    _warn_if_image_nearly_full(self.right_disk_image_path)
+            load_image(_warn_after_startup_load)
+            _startup_load_started = True
         else:
             if platform.system() == "Windows":
                 show_hdf_monkey_download_and_install_buttons()
                 if is_hdfmonkey_present():
-                    if load_image():
-                        if self.settings_warn_image_nearly_full_checkbox.isChecked():
-                            _warn_if_image_nearly_full(self.right_disk_image_path)
+                    load_image(_warn_after_startup_load)
+                    _startup_load_started = True
 
-        if not right_disk_image_explorer_content:
+        # The image listing above now runs asynchronously and manages the path
+        # label itself ("Loading image…" while in flight, then the real path or an
+        # error). Only override the label when no load was kicked off (or there is
+        # no image to load), so we don't clobber the in-flight "Loading image…".
+        _startup_image_path = self.imageinput.currentText()
+        if not (_startup_load_started and _startup_image_path and _startup_image_path != '""'):
             self.diskimageexplorerlabelpath.setText("Please load an image.")
-        else:
-            self.diskimageexplorerlabelpath.setText(generate_disk_file_path().replace('//', '/'))
 
         nextsync_show_ip_info()
         nextsync_show_sync_buttons_based_on_fileexplorer_content_selection()
