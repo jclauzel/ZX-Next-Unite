@@ -281,7 +281,7 @@ NEXTSYNC_UI_HEIGTH_MULTIPLIER = 1
 NEXTSYNC_UI_HEIGTH = 300 * ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER
 IGNOREFILE_DEFAULT_CONTENT = (("syncignore.txt"), ("syncpoint.dat"), ("zx-next-unite.png"),("*.bak"), ("*.py"), ("*.pyproj"), ("*.pyproj"), ("hdfmonkey.exe"), ("hdfg.cfg"))
 
-INIT_LOG = (("NextSync - by Jari Komppa"), ("MAME - ZX Spectrum Next support by Holub https://wiki.specnext.dev/MAME:Installing"), ("HDF Monkey - by Matt Westcott"), ("CSpect - by Mike Dailly http://cspect.org"), ("Inspired by HDFM-GOOEY - by em00k"), ("zx-next-unite - by Julien Clauzel 2024"))
+INIT_LOG = (("NextSync - by Jari Komppa and Julien Clauzel"), ("MAME - ZX Spectrum Next support by Holub https://wiki.specnext.dev/MAME:Installing"), ("HDF Monkey - by Matt Westcott"), ("CSpect - by Mike Dailly http://cspect.org"), ("Inspired by HDFM-GOOEY - by em00k"), ("zx-next-unite - by Julien Clauzel 2024"))
 INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              (""),
              ("Introduction:"),
@@ -292,6 +292,9 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("Last but not the least some source code was lost from HDFM Gooey and the tool was stuck back in that time,"),
              ("with the agreement of emOOk I started a rewrite in Python and later with Jari"),
              ("The point of using Python that would also provide MacOS and Linux portability."),
+             ("Later down the line I then extended the NextSync functionality from Sync3 to Sync4."),
+             ("The new .snyc4 command for the Next can send Sync4 that therefore alow to send files and directories using -send command line option."),
+             ("There is as well a new nextsync4.py command line located in nextsync\sync\server that support the new Sync4 protocol."),
              ("Here we are now you have it!"),
              (""),
              (""),
