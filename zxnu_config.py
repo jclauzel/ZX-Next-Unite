@@ -113,6 +113,8 @@ SETTING_FAVORITES              = "favorites"               # JSON list of favori
 SETTING_FAVORITES_VIEW_MODE    = "favorites_view_mode"     # "gallery" (default) or "table"
 SETTING_ALLINONE_VIEW_MODE     = "allinone_view_mode"      # "gallery" (default) or "table"
 SETTING_ALLINONE_PYGAME_MODE   = "allinone_pygame_mode"    # "true" => pygame visualization, else classic
+SETTING_NEXTSYNC_PYGAME_MODE   = "nextsync_pygame_mode"    # "true" => retro 8-bit pygame log window on the NextSync tab, else classic list
+SETTING_NEXTSYNC_PYGAME_ANIM   = "nextsync_pygame_anim"    # "false" => freeze the starfield in the NextSync retro log (default on)
 SETTING_ALLINONE_PYGAME_ANIM   = "allinone_pygame_anim"    # "false" => disable the Space-Invaders background (default on)
 SETTING_ALIEN_FLOYD_BG         = "alien_floyd_bg"          # "true" => pygame-ce "Alien Floyd's" animated background on all tabs (default off)
 SETTING_ALIEN_FLOYD_TAB        = "alien_floyd_tab"         # "true" => show the dedicated "Alien Floyd's" tab (default off)
@@ -429,7 +431,7 @@ SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, S
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
-SETTING_NEXTSYNC_SEND_CONFLICT)
+SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30

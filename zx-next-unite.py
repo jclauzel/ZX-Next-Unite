@@ -242,6 +242,7 @@ from PySide6.QtCore import (
     QDir,
     QEvent,
     QMetaObject,
+    QMimeData,
     QModelIndex,
     QObject,
     QRect,
@@ -251,17 +252,19 @@ from PySide6.QtCore import (
     QStringListModel,
     QThreadPool,
     QTimer,
+    QUrl,
     Qt,
     Signal,
     Slot,
     qInstallMessageHandler,
 )
 from PySide6.QtCore import Q_ARG
-from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QImage, QFontInfo, QPainter, QPixmap, QFont
-from PySide6.QtGui import QImageReader, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QAction, QColor, QDrag, QGuiApplication, QIcon, QImage, QFontInfo, QPainter, QPixmap, QFont
+from PySide6.QtGui import QImageReader, QKeySequence, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QColorDialog,
     QComboBox,
@@ -273,6 +276,8 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGridLayout,
+    QGroupBox,
+    QRadioButton,
     QLayout,
     QHBoxLayout,
     QHeaderView,
@@ -1994,6 +1999,13 @@ IMG_ISDIR_ROLE  = int(Qt.ItemDataRole.UserRole) + 2   # bool: is this item a dir
 IMG_LOADED_ROLE = int(Qt.ItemDataRole.UserRole) + 3   # bool: have this folder's children been loaded
 IMG_LOADING_ROLE = int(Qt.ItemDataRole.UserRole) + 4  # bool: a background "ls" for this folder is in flight
 
+# Custom MIME type carrying image-explorer entries during a drag from the
+# SD-card image tree to the local file explorer. The payload is UTF-8 text,
+# one entry per line, each line "D\t<path>" (directory) or "F\t<path>" (file).
+# It lets a drag out of the virtual disk image trigger a "get to disk" the same
+# way the ':<-' button does (local files already carry real text/uri-list URLs).
+IMAGE_DRAG_MIME = "application/x-zxnu-image-paths"
+
 
 class MainWindow(QMainWindow):
 
@@ -2197,6 +2209,15 @@ class MainWindow(QMainWindow):
 
         self.left_file_explorer_selection_file_name = ""
         self.left_file_explorer_selection_full_filename_path = ""
+
+        # Shared cross-explorer Copy/Paste clipboard (Ctrl+C / Ctrl+V). Holds
+        # {"source": "local"|"image", "items": [(path, is_dir), …]} or None.
+        # The serials track recency so a fresh OS-clipboard copy (e.g. Ctrl+C in
+        # Windows Explorer) is preferred over a stale internal copy and vice versa.
+        self._explorer_clipboard = None
+        self._clip_serial_counter = 0
+        self._explorer_clip_serial = 0
+        self._os_clip_serial = 0
         self.left_file_nextsync_explorer_selection_file_name = ""
         self.left_file_nextsync_explorer_selection_full_filename_path = ""
         # Monotonic token used to discard stale background "prepare" scans whose
@@ -2586,17 +2607,19 @@ class MainWindow(QMainWindow):
                     self.left_file_nextsync_explorer_selection_full_filename_path = configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH]
                     self.nextsync_file_explorer_path.setText(self.left_file_nextsync_explorer_selection_full_filename_path)
 
-                if configuration_dictionary[SETTING_NEXTSYNC_SYNCONCE] != "":
-                    if configuration_dictionary[SETTING_NEXTSYNC_SYNCONCE] == "1" or configuration_dictionary[SETTING_NEXTSYNC_SYNCONCE].lower() == "true":
-                        self.nextsync_synconce_checkbox.setChecked(True)
-                    else:
-                        self.nextsync_synconce_checkbox.setChecked(False)
-
-                if configuration_dictionary[SETTING_NEXTSYNC_ALWAYSSYNC] != "":
-                    if configuration_dictionary[SETTING_NEXTSYNC_ALWAYSSYNC] == "1" or configuration_dictionary[SETTING_NEXTSYNC_ALWAYSSYNC].lower() == "true":
-                        self.nextsync_alwayssync_checkbox.setChecked(True)
-                    else:
-                        self.nextsync_alwayssync_checkbox.setChecked(False)
+                # Select the "Sync mode" radio from the two legacy booleans.
+                # "Sync once" wins if a legacy config somehow had both set; with
+                # neither set we fall back to the incremental (default) mode.
+                _sync_once_pref = configuration_dictionary[SETTING_NEXTSYNC_SYNCONCE] in ("1",) or \
+                    configuration_dictionary[SETTING_NEXTSYNC_SYNCONCE].lower() == "true"
+                _always_pref = configuration_dictionary[SETTING_NEXTSYNC_ALWAYSSYNC] in ("1",) or \
+                    configuration_dictionary[SETTING_NEXTSYNC_ALWAYSSYNC].lower() == "true"
+                if _sync_once_pref:
+                    self.nextsync_synconce_checkbox.setChecked(True)
+                elif _always_pref:
+                    self.nextsync_alwayssync_checkbox.setChecked(True)
+                else:
+                    self.nextsync_syncincremental_radio.setChecked(True)
 
                 if configuration_dictionary[SETTING_NEXTSYNC_SLOWTRANSFER] != "":
                     if configuration_dictionary[SETTING_NEXTSYNC_SLOWTRANSFER] == "1" or configuration_dictionary[SETTING_NEXTSYNC_SLOWTRANSFER].lower() == "true":
@@ -2781,6 +2804,32 @@ class MainWindow(QMainWindow):
                         self.allinone_pygame_button.setChecked(True)
                     finally:
                         self._allinone_pygame_restoring = False
+
+                # NextSync retro-log starfield animation preference (default on);
+                # applied before the mode restore below so the widget is built
+                # with the right setting.
+                _nextsync_anim_pref = configuration_dictionary.get(
+                    SETTING_NEXTSYNC_PYGAME_ANIM, "").strip().lower()
+                _nextsync_anim_on = _nextsync_anim_pref not in ("false", "0", "no")
+                self._nextsync_pygame_anim = _nextsync_anim_on
+                _ns_anim_cb = getattr(self, "settings_nextsync_pygame_anim_checkbox", None)
+                if _ns_anim_cb is not None:
+                    _ns_anim_cb.blockSignals(True)
+                    _ns_anim_cb.setChecked(_nextsync_anim_on)
+                    _ns_anim_cb.blockSignals(False)
+
+                # Restore the NextSync retro 8-bit log mode the same way (routed
+                # through the toggle so the lazy-import / fallback path is reused).
+                _nextsync_pg_pref = configuration_dictionary.get(
+                    SETTING_NEXTSYNC_PYGAME_MODE, "").strip().lower()
+                if _nextsync_pg_pref in ("true", "1", "yes") and \
+                        hasattr(self, "nextsync_pygame_button") and \
+                        not self.nextsync_pygame_button.isChecked():
+                    self._nextsync_pygame_restoring = True
+                    try:
+                        self.nextsync_pygame_button.setChecked(True)
+                    finally:
+                        self._nextsync_pygame_restoring = False
 
                 # Alien Floyd's (pygame-ce) optional background + dedicated tab
                 # (both default off). Disable the controls when pygame-ce is not
@@ -3446,6 +3495,15 @@ class MainWindow(QMainWindow):
                 self.nextsync_log.insertItem(0, newItem)
             else:
                 self.nextsync_log.insertItem(self.nextsync_log.count(), newItem)
+
+            # Mirror into the optional retro 8-bit pygame log (terminal-style,
+            # newest at the bottom) whenever it has been built.
+            retro = getattr(self, "_nextsync_retro_log", None)
+            if retro is not None:
+                try:
+                    retro.append(string_to_log)
+                except Exception:
+                    pass
 
         def add_help_content(string_to_log:str, from_top:bool = True):
 
@@ -4497,6 +4555,29 @@ class MainWindow(QMainWindow):
                 sig.cancelled.connect(dlg.mark_cancelled)
                 dlg.cancel_requested.connect(lambda: cancel_flag.set())
 
+                # "Send via NextSync" (an explicit serve_folder, e.g. from a
+                # GalleryItemViewer) transfers a specific item exactly once.
+                # Transiently switch the Sync mode to "Sync once" for the duration
+                # of the send — without persisting it — then restore the user's
+                # chosen mode (e.g. Always sync) when the transfer finishes.
+                if serve_folder and not self.nextsync_synconce_checkbox.isChecked():
+                    _prev_always = self.nextsync_alwayssync_checkbox.isChecked()
+                    _prev_incr = self.nextsync_syncincremental_radio.isChecked()
+                    self._nextsync_sync_mode_transient = True
+                    self.nextsync_synconce_checkbox.setChecked(True)
+                    self._nextsync_sync_mode_transient = False
+
+                    def _restore_sync_mode(_pa=_prev_always, _pi=_prev_incr):
+                        self._nextsync_sync_mode_transient = True
+                        try:
+                            if _pa:
+                                self.nextsync_alwayssync_checkbox.setChecked(True)
+                            elif _pi:
+                                self.nextsync_syncincremental_radio.setChecked(True)
+                        finally:
+                            self._nextsync_sync_mode_transient = False
+                    sig.finished.connect(_restore_sync_mode)
+
                 def _run(_sf=serve_folder):
                     try:
                         nextsync_do_server_job(
@@ -4611,6 +4692,10 @@ class MainWindow(QMainWindow):
                 menu.addAction("Create new directory…",
                                lambda: QTimer.singleShot(0, lambda: _local_make_directory(
                                    target_dir, local_explorer_refresh, add_main_log_window)))
+                action_paste = menu.addAction("Paste")
+                action_paste.setEnabled(_explorer_clipboard_has_items())
+                action_paste.triggered.connect(lambda: QTimer.singleShot(0, lambda: _explorer_paste_into_local(
+                    target_dir, local_explorer_refresh, add_main_log_window)))
                 menu.exec(self.treeview.viewport().mapToGlobal(pos))
                 return
             file_path = self.model.filePath(source_index)
@@ -4619,10 +4704,16 @@ class MainWindow(QMainWindow):
             new_dir_target = file_path if is_dir else os.path.dirname(file_path)
             action_copy_text = QAction("Copy text to clipboard", self.treeview)
             action_copy_path = QAction("Copy path to clipboard", self.treeview)
+            action_copy = QAction("Copy", self.treeview)
+            action_paste = QAction("Paste", self.treeview)
             action_newdir = QAction("Create new directory…", self.treeview)
             action_rename = QAction("Rename", self.treeview)
             action_copy_text.triggered.connect(lambda: QGuiApplication.clipboard().setText(name))
             action_copy_path.triggered.connect(lambda: QGuiApplication.clipboard().setText(file_path))
+            action_copy.triggered.connect(_local_explorer_copy_selection)
+            action_paste.setEnabled(_explorer_clipboard_has_items())
+            action_paste.triggered.connect(lambda: QTimer.singleShot(0, lambda: _explorer_paste_into_local(
+                new_dir_target, local_explorer_refresh, add_main_log_window)))
             # Defer the dialogs until the menu's modal loop has closed (showing a
             # QInputDialog from inside menu.exec() fights the menu's input grab).
             action_newdir.triggered.connect(
@@ -4633,6 +4724,8 @@ class MainWindow(QMainWindow):
             menu.addAction(action_copy_text)
             menu.addAction(action_copy_path)
             menu.addSeparator()
+            menu.addAction(action_copy)
+            menu.addAction(action_paste)
             menu.addAction(action_newdir)
             menu.addAction(action_rename)
             menu.exec(self.treeview.viewport().mapToGlobal(pos))
@@ -4718,11 +4811,13 @@ class MainWindow(QMainWindow):
             finally:
                 local_explorer_refresh()
 
-        def local_explorer_import_external_paths(paths, dest_dir):
+        def local_explorer_import_external_paths(paths, dest_dir, refresh_fn=None):
             """Copy files/folders dropped from the OS file manager into dest_dir
             (local filesystem) on a background thread with a progress dialog.
             Reuses the shared copy worker; never overwrites (name clashes get a
-            '-(copy)' suffix) and refreshes the left explorer when done."""
+            '-(copy)' suffix) and refreshes the explorer when done. *refresh_fn*
+            selects which explorer to re-stat (defaults to the SD-card local one);
+            the NextSync paste passes its own refresher."""
             if not dest_dir or not os.path.isdir(dest_dir):
                 add_main_log_window("Import failed: no valid destination folder.")
                 return
@@ -4757,7 +4852,7 @@ class MainWindow(QMainWindow):
 
             def _on_local_import_finished():
                 dlg.close()
-                local_explorer_refresh()
+                (refresh_fn or local_explorer_refresh)()
 
             worker.signals.finished.connect(_on_local_import_finished)
             self.threadpool.start(worker)
@@ -4775,14 +4870,14 @@ class MainWindow(QMainWindow):
             name = self.nextsync_filesystem_model.fileName(source_index) if source_index is not None else ""
             # Empty space or the ".." up-entry: only offer Paste, into the current folder.
             if source_index is None or name == "..":
-                clipboard_path = getattr(self, "_nextsync_clipboard_path", "")
+                clipboard_has = _explorer_clipboard_has_items()
                 paste_dir = nextsync_current_view_dir()
                 menu = QMenu(self.nextsync_treeview)
                 action_newdir = QAction("Create new directory…", self.nextsync_treeview)
                 action_newdir.triggered.connect(lambda: QTimer.singleShot(0, lambda: _local_make_directory(
                     paste_dir, nextsync_refresh_explorer, add_nextsync_log_window)))
                 action_paste = QAction("Paste", self.nextsync_treeview)
-                action_paste.setEnabled(bool(clipboard_path) and bool(paste_dir))
+                action_paste.setEnabled(clipboard_has and bool(paste_dir))
                 action_paste.triggered.connect(lambda: QTimer.singleShot(0, lambda: nextsync_paste_explorer_item(paste_dir)))
                 menu.addAction(action_newdir)
                 menu.addAction(action_paste)
@@ -4793,7 +4888,6 @@ class MainWindow(QMainWindow):
             # Paste / new-folder target: into the folder itself, or into a file's
             # parent folder.
             paste_dir = file_path if is_dir else os.path.dirname(file_path)
-            clipboard_path = getattr(self, "_nextsync_clipboard_path", "")
             menu = QMenu(self.nextsync_treeview)
             action_copy_text = QAction("Copy text to clipboard", self.nextsync_treeview)
             action_copy_path = QAction("Copy path to clipboard", self.nextsync_treeview)
@@ -4802,7 +4896,7 @@ class MainWindow(QMainWindow):
             action_paste = QAction("Paste", self.nextsync_treeview)
             action_rename = QAction("Rename", self.nextsync_treeview)
             action_delete = QAction("Delete", self.nextsync_treeview)
-            action_paste.setEnabled(bool(clipboard_path))
+            action_paste.setEnabled(_explorer_clipboard_has_items())
             action_copy_text.triggered.connect(lambda: QGuiApplication.clipboard().setText(name))
             action_copy_path.triggered.connect(lambda: QGuiApplication.clipboard().setText(file_path))
             action_copy.triggered.connect(lambda: nextsync_copy_explorer_item(file_path))
@@ -4856,9 +4950,11 @@ class MainWindow(QMainWindow):
                 nextsync_refresh_explorer()
 
         def nextsync_copy_explorer_item(file_path):
-            """Remember a file/folder path for a later Paste in the NextSync explorer."""
-            self._nextsync_clipboard_path = file_path
-            add_nextsync_log_window(f"{timestamp()} | Copied: {file_path}")
+            """Remember a file/folder for a later Paste. Routed through the shared
+            cross-explorer clipboard so Copy/Paste works between the NextSync
+            explorer, the SD-card local explorer and the SD-card image."""
+            _explorer_clipboard_set("local", [(file_path, os.path.isdir(file_path))],
+                                    add_nextsync_log_window)
 
         def _nextsync_unique_path(path, is_dir):
             """Return path, or a non-colliding '-(copy)' variant if it already exists."""
@@ -4876,42 +4972,11 @@ class MainWindow(QMainWindow):
                 i += 1
 
         def nextsync_paste_explorer_item(dest_dir):
-            """Paste the previously copied file/folder into dest_dir (local filesystem).
-
-            Never overwrites: a name clash is resolved with a ' - Copy' suffix, so
-            pasting into the same folder duplicates the item. Refreshes the tree
-            afterwards so the new entry appears with its real size.
-            """
-            src = getattr(self, "_nextsync_clipboard_path", "")
-            if not src:
-                return
-            if not os.path.exists(src):
-                add_nextsync_log_window(f"{timestamp()} | Paste failed: source no longer exists: {src}")
-                QMessageBox.warning(self, "Paste failed", f"The copied item no longer exists:\n{src}")
-                return
-            src_is_dir = os.path.isdir(src)
-            if src_is_dir:
-                src_abs = os.path.abspath(src)
-                dest_abs = os.path.abspath(dest_dir)
-                # Guard against pasting a folder into itself or one of its subfolders.
-                if dest_abs == src_abs or dest_abs.startswith(src_abs + os.sep):
-                    QMessageBox.warning(self, "Paste failed", "Cannot paste a folder into itself.")
-                    return
-            base = os.path.basename(src.rstrip("/\\"))
-            target = _nextsync_unique_path(os.path.join(dest_dir, base), src_is_dir)
-            try:
-                if src_is_dir:
-                    shutil.copytree(src, target)
-                else:
-                    shutil.copy2(src, target)
-                add_nextsync_log_window(f"{timestamp()} | Pasted: {src} -> {target}")
-            except OSError as e:
-                logging.error(f"Failed to paste {src} -> {dest_dir}: {e}", exc_info=True)
-                add_nextsync_log_window(f"{timestamp()} | Failed to paste into {dest_dir}: {e}")
-                QMessageBox.critical(self, "Paste failed", f"Could not paste into:\n{dest_dir}\n\n{e}")
-            finally:
-                # Always refresh so the new (or partially-created) entry shows up.
-                nextsync_refresh_explorer()
+            """Paste the shared clipboard into dest_dir (NextSync local explorer).
+            Handles both local->local copies and image->local downloads, and
+            refreshes the NextSync tree when done."""
+            _explorer_paste_into_local(dest_dir, nextsync_refresh_explorer,
+                                       add_nextsync_log_window)
 
         def _run_nextsync_import_task(signals, cancel_event, items):
             """Background worker body for drag-and-drop imports into the NextSync
@@ -5178,20 +5243,14 @@ class MainWindow(QMainWindow):
             nextsync_show_sync_buttons_based_on_fileexplorer_content_selection()
 
 
-        def nextsync_synconce_checkbox_statechanged():
-            if self.nextsync_synconce_checkbox.isChecked():
-                configuration_dictionary[SETTING_NEXTSYNC_SYNCONCE] = "true"
-            else:
-                configuration_dictionary[SETTING_NEXTSYNC_SYNCONCE] = "false"
-
-            save_configuration_file()
-
-        def nextsync_alwayssync_checkbox_statechanged():
-            if self.nextsync_alwayssync_checkbox.isChecked():
-                configuration_dictionary[SETTING_NEXTSYNC_ALWAYSSYNC] = "true"
-            else:
-                configuration_dictionary[SETTING_NEXTSYNC_ALWAYSSYNC] = "false"
-
+        def nextsync_sync_mode_changed():
+            # Persist the current "Sync mode" radio selection into the two legacy
+            # boolean settings. The radios are exclusive, so at most one of these
+            # is "true"; "Sync changed files" (incremental) leaves both "false".
+            configuration_dictionary[SETTING_NEXTSYNC_SYNCONCE] = (
+                "true" if self.nextsync_synconce_checkbox.isChecked() else "false")
+            configuration_dictionary[SETTING_NEXTSYNC_ALWAYSSYNC] = (
+                "true" if self.nextsync_alwayssync_checkbox.isChecked() else "false")
             save_configuration_file()
 
         def nextsync_slowtransfer_checkbox_statechanged():
@@ -5428,6 +5487,314 @@ class MainWindow(QMainWindow):
             worker.signals.finished.connect(_on_get_finished)
             self.threadpool.start(worker)
             dlg.exec()
+
+        def image_get_paths_to_local(image_items, dest_dir, refresh_fn=None):
+            """Download image entries dragged out of the SD-card image tree into a
+            local folder. *image_items* is a list of (image_path, is_dir); *dest_dir*
+            is the local directory the drop landed on. This is the drag-and-drop
+            equivalent of transfert_content_from_image_to_disk (the ':<-' button),
+            but driven by the drag source/target rather than the current selections,
+            and able to handle several dragged entries at once. *refresh_fn* selects
+            which local explorer to re-stat afterwards (defaults to the SD-card one;
+            an image->NextSync paste passes the NextSync refresher)."""
+            global right_disk_image_explorer_content
+
+            if not right_disk_image_explorer_content:
+                logging.warning("Please load an image file first !")
+                add_main_log_window("Please load an image file first !")
+                return
+
+            if not dest_dir or not os.path.isdir(dest_dir):
+                add_main_log_window("Download failed: no valid destination folder.")
+                return
+
+            items = []
+            for path, _is_dir in image_items:
+                if not path:
+                    continue
+                base_name = path.rstrip("/").rsplit("/", 1)[-1]
+                items.append((path, base_name))
+            if not items:
+                return
+
+            is_windows = platform.system() == "Windows"
+            # _run_get_task joins dest + dir_nav + base, so strip any trailing
+            # separator from the dropped folder to avoid a doubled separator.
+            dest = dest_dir.rstrip("/\\")
+            if is_windows:
+                dest = dest.replace("/", "\\")
+                directory_navigation = "\\"
+            else:
+                directory_navigation = "/"
+
+            set_all_buttons_disabled()
+
+            image_path = self.right_disk_image_path
+            dlg    = HdfProgressDialog("Downloading from image…", self)
+            worker = HdfTaskWorker(_run_get_task, image_path, items, dest,
+                                   directory_navigation, is_windows)
+
+            dlg.cancel_requested.connect(worker.cancel)
+            worker.signals.progress.connect(dlg.set_progress)
+            worker.signals.status.connect(dlg.set_status)
+            worker.signals.error.connect(add_main_log_window)
+            worker.signals.cancelled.connect(dlg.mark_cancelled)
+
+            def _on_get_finished():
+                dlg.close()
+                (refresh_fn or local_explorer_refresh)()
+                set_all_buttons_enabled()
+
+            worker.signals.finished.connect(_on_get_finished)
+            self.threadpool.start(worker)
+            dlg.exec()
+
+        # ── Shared cross-explorer clipboard (Ctrl+C / Ctrl+V) ─────────────────
+        # One buffer drives Copy/Paste across all three explorers: the SD-card
+        # local tree, the NextSync local tree and the SD-card image tree. It
+        # remembers the source kind ('local' real files vs 'image' in-image
+        # paths) plus the selected (path, is_dir) entries; Paste then routes to
+        # the right transfer helper based on source + destination:
+        #   local -> local : local_explorer_import_external_paths
+        #   local -> image : image_upload_external_paths
+        #   image -> local : image_get_paths_to_local
+        #   image -> image : image_copy_items_within (get to temp, then put)
+        # Paste also accepts files copied in the OS file manager (Windows Explorer
+        # etc.): if the system clipboard holds file URLs and was updated more
+        # recently than our internal copy, those files are pasted instead.
+        def _next_clip_serial():
+            self._clip_serial_counter = getattr(self, "_clip_serial_counter", 0) + 1
+            return self._clip_serial_counter
+
+        def _on_os_clipboard_changed():
+            # Any external clipboard change (e.g. Ctrl+C in Windows Explorer) makes
+            # the system clipboard the most-recent copy source.
+            self._os_clip_serial = _next_clip_serial()
+        try:
+            QGuiApplication.clipboard().dataChanged.connect(_on_os_clipboard_changed)
+        except Exception:
+            pass
+
+        def _os_clipboard_files():
+            """Local file paths currently on the system clipboard (or [])."""
+            try:
+                md = QGuiApplication.clipboard().mimeData()
+            except Exception:
+                return []
+            if md is None or not md.hasUrls():
+                return []
+            return [u.toLocalFile() for u in md.urls()
+                    if u.isLocalFile() and u.toLocalFile()]
+
+        def _explorer_clipboard_set(source, items, log_fn=None):
+            items = [(p, bool(d)) for (p, d) in items if p]
+            if not items:
+                return
+            self._explorer_clipboard = {"source": source, "items": items}
+            self._explorer_clip_serial = _next_clip_serial()
+            if log_fn:
+                names = ", ".join(os.path.basename(p.rstrip("/\\")) or p
+                                  for p, _ in items[:3])
+                more = "" if len(items) <= 3 else f" (+{len(items) - 3} more)"
+                log_fn(f"Copied to clipboard: {names}{more}")
+
+        def _explorer_effective_clip():
+            """Resolve which copy source a Paste should use. Returns
+            ('os', [paths]) for system-clipboard files, ('clip', clipdict) for the
+            internal buffer, or (None, None). The most recently updated wins; ties
+            (e.g. files already on the clipboard at startup) favour the OS."""
+            os_paths = _os_clipboard_files()
+            clip = getattr(self, "_explorer_clipboard", None)
+            clip_has = bool(clip and clip.get("items"))
+            os_serial = getattr(self, "_os_clip_serial", 0)
+            clip_serial = getattr(self, "_explorer_clip_serial", 0)
+            if os_paths and (not clip_has or os_serial >= clip_serial):
+                return ("os", os_paths)
+            if clip_has:
+                return ("clip", clip)
+            if os_paths:
+                return ("os", os_paths)
+            return (None, None)
+
+        def _explorer_clipboard_has_items():
+            kind, _data = _explorer_effective_clip()
+            return kind is not None
+
+        def _image_name_in_dir(image_path, parent, name):
+            """True if *name* already exists in the image directory *parent*."""
+            res = execute_hdf_monkey("ls", image_path, extra_argv=[parent or "/"], silent=True)
+            if res.returncode != 0:
+                return False
+            for n, _isdir, _sz in image_parse_ls(res.stdout):
+                if n == name:
+                    return True
+            return False
+
+        def _image_unique_name(image_path, parent, base):
+            """Return *base*, or a non-colliding '-(copy)' variant in *parent*."""
+            if not _image_name_in_dir(image_path, parent, base):
+                return base
+            stem, ext = os.path.splitext(base)
+            i = 1
+            while True:
+                suffix = "-(copy)" if i == 1 else f"-(copy) ({i})"
+                candidate = f"{stem}{suffix}{ext}"
+                if not _image_name_in_dir(image_path, parent, candidate):
+                    return candidate
+                i += 1
+
+        def _run_image_copy_task(signals, cancel_event, image_path, items, target_dir):
+            """Worker: copy image entries to another place in the same image.
+            hdfmonkey has no in-image copy, so each source is downloaded to a
+            temp dir then re-uploaded under *target_dir* with a unique name."""
+            tmp = tempfile.mkdtemp(prefix="zxnu_imgcopy_")
+            try:
+                is_windows = platform.system() == "Windows"
+                dir_nav = "\\" if is_windows else "/"
+                dest_tmp = tmp.rstrip("/\\")
+                parent = target_dir.rstrip("/") or "/"
+                for src, _isdir in items:
+                    if cancel_event.is_set():
+                        break
+                    base = src.rstrip("/").rsplit("/", 1)[-1]
+                    # Download this source into the temp dir …
+                    _run_get_task(signals, cancel_event, image_path, [(src, base)],
+                                  dest_tmp, dir_nav, is_windows)
+                    if cancel_event.is_set():
+                        break
+                    # … then upload it back under a unique name in target_dir.
+                    local_path = os.path.join(dest_tmp, base)
+                    unique = _image_unique_name(image_path, parent, base)
+                    dest_image = (parent.rstrip("/") + "/" + unique).replace("//", "/")
+                    _run_put_task(signals, cancel_event, image_path, local_path, dest_image)
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+
+        def image_copy_items_within(image_items, target_dir):
+            """Paste image clipboard entries into another image folder (image->image)."""
+            global right_disk_image_explorer_content
+            if not right_disk_image_explorer_content:
+                add_main_log_window("Please load an image file first !")
+                return
+            img_err = _check_image_writable(self.right_disk_image_path)
+            if img_err:
+                logging.error(img_err)
+                add_main_log_window(f"ERROR: {img_err}")
+                QMessageBox.critical(self, "Image not writable", img_err)
+                return
+            items = [(p, d) for (p, d) in image_items if p]
+            if not items:
+                return
+            target = (target_dir or "/").rstrip("/") or "/"
+            set_all_buttons_disabled()
+            image_path = self.right_disk_image_path
+            dlg    = HdfProgressDialog("Copying within image…", self)
+            worker = HdfTaskWorker(_run_image_copy_task, image_path, items, target)
+
+            dlg.cancel_requested.connect(worker.cancel)
+            worker.signals.progress.connect(dlg.set_progress)
+            worker.signals.status.connect(dlg.set_status)
+            worker.signals.error.connect(add_main_log_window)
+            worker.signals.cancelled.connect(dlg.mark_cancelled)
+
+            def _on_done():
+                dlg.close()
+                image_reload_dir(target or "/")
+                set_all_buttons_enabled()
+
+            worker.signals.finished.connect(_on_done)
+            self.threadpool.start(worker)
+            dlg.exec()
+
+        def _explorer_paste_into_local(dest_dir, refresh_fn, log_fn):
+            """Paste into a real-filesystem directory (either local explorer):
+            OS-clipboard files, a local->local copy, or an image->local download."""
+            kind, data = _explorer_effective_clip()
+            if kind is None:
+                return
+            if not dest_dir or not os.path.isdir(dest_dir):
+                log_fn("Paste failed: no valid destination folder.")
+                return
+            if kind == "os":
+                local_explorer_import_external_paths(data, dest_dir, refresh_fn=refresh_fn)
+            elif data["source"] == "local":
+                paths = [p for (p, _d) in data["items"]]
+                local_explorer_import_external_paths(paths, dest_dir, refresh_fn=refresh_fn)
+            else:
+                image_get_paths_to_local(list(data["items"]), dest_dir, refresh_fn=refresh_fn)
+
+        def _explorer_paste_into_image(target_dir):
+            """Paste into the SD-card image at *target_dir*: OS-clipboard files,
+            a local->image upload, or an image->image copy."""
+            kind, data = _explorer_effective_clip()
+            if kind is None:
+                return
+            if kind == "os":
+                image_upload_external_paths(data, target_dir)
+            elif data["source"] == "local":
+                paths = [p for (p, _d) in data["items"]]
+                image_upload_external_paths(paths, target_dir)
+            else:
+                image_copy_items_within(list(data["items"]), target_dir)
+
+        def _local_explorer_copy_selection():
+            """Copy the SD-card local tree's selection to the shared clipboard."""
+            items = []
+            for ix in self.treeview.selectionModel().selectedRows(0):
+                src = self.proxy_model.mapToSource(ix)
+                if self.model.fileName(src) == "..":
+                    continue
+                items.append((self.model.filePath(src), self.model.isDir(src)))
+            if not items:
+                cur = self.treeview.currentIndex()
+                if cur.isValid():
+                    src = self.proxy_model.mapToSource(cur)
+                    if self.model.fileName(src) != "..":
+                        items.append((self.model.filePath(src), self.model.isDir(src)))
+            _explorer_clipboard_set("local", items, add_main_log_window)
+
+        def _local_explorer_paste_target_dir():
+            cur = self.treeview.currentIndex()
+            if cur.isValid():
+                src = self.proxy_model.mapToSource(cur)
+                if self.model.fileName(src) != "..":
+                    path = self.model.filePath(src)
+                    return path if self.model.isDir(src) else os.path.dirname(path)
+            return local_current_view_dir()
+
+        def _nextsync_explorer_copy_selection():
+            """Copy the NextSync local tree's selection to the shared clipboard."""
+            items = []
+            for ix in self.nextsync_treeview.selectionModel().selectedRows(0):
+                src = self.nextsync_model.mapToSource(ix)
+                if self.nextsync_filesystem_model.fileName(src) == "..":
+                    continue
+                items.append((self.nextsync_filesystem_model.filePath(src),
+                              self.nextsync_filesystem_model.isDir(src)))
+            if not items:
+                cur = self.nextsync_treeview.currentIndex()
+                if cur.isValid():
+                    src = self.nextsync_model.mapToSource(cur)
+                    if self.nextsync_filesystem_model.fileName(src) != "..":
+                        items.append((self.nextsync_filesystem_model.filePath(src),
+                                      self.nextsync_filesystem_model.isDir(src)))
+            _explorer_clipboard_set("local", items, add_nextsync_log_window)
+
+        def _nextsync_explorer_paste_target_dir():
+            cur = self.nextsync_treeview.currentIndex()
+            if cur.isValid():
+                src = self.nextsync_model.mapToSource(cur)
+                if self.nextsync_filesystem_model.fileName(src) != "..":
+                    path = self.nextsync_filesystem_model.filePath(src)
+                    return path if self.nextsync_filesystem_model.isDir(src) else os.path.dirname(path)
+            return nextsync_current_view_dir()
+
+        def _image_explorer_copy_selection():
+            """Copy the SD-card image tree's selection to the shared clipboard."""
+            items = list(self.image_selected_paths)
+            if not items and self.image_selected_path:
+                items = [(self.image_selected_path, self.image_selected_is_dir)]
+            _explorer_clipboard_set("image", items, add_main_log_window)
 
 
         def _check_access_denied_is_full_disk(image_path):
@@ -5967,6 +6334,13 @@ class MainWindow(QMainWindow):
                 new_folder_label = "New Folder Here…" if is_dir else "New Folder…"
                 menu.addAction(new_folder_label, image_newfolder_dialog)
                 menu.addSeparator()
+                copy_label = f"Copy {selected_count} items" if selected_count > 1 else "Copy"
+                menu.addAction(copy_label, _image_explorer_copy_selection)
+                action_paste = menu.addAction("Paste")
+                action_paste.setEnabled(_explorer_clipboard_has_items())
+                action_paste.triggered.connect(
+                    lambda: QTimer.singleShot(0, lambda: _explorer_paste_into_image(image_dest_dir())))
+                menu.addSeparator()
                 # Rename acts on a single entry; only offer it for a lone selection.
                 if selected_count <= 1:
                     menu.addAction("Rename…",
@@ -5977,6 +6351,10 @@ class MainWindow(QMainWindow):
                 # Empty area: clear the selection so a new folder lands at the root.
                 self.image_treeview.clearSelection()
                 menu.addAction("New Folder…", image_newfolder_dialog)
+                action_paste = menu.addAction("Paste")
+                action_paste.setEnabled(_explorer_clipboard_has_items())
+                action_paste.triggered.connect(
+                    lambda: QTimer.singleShot(0, lambda: _explorer_paste_into_image(image_dest_dir())))
 
             menu.exec(self.image_treeview.viewport().mapToGlobal(pos))
 
@@ -6821,6 +7199,10 @@ class MainWindow(QMainWindow):
 
         self.treeview = QTreeView()
         self.treeview.setSortingEnabled(True)
+        # Allow selecting several entries at once so a multi-item drag onto the
+        # image explorer uploads them all. Single-target actions (click handler,
+        # rename, '->:') still use the current/primary selection.
+        self.treeview.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
         self.proxy_model = DotDotFirstProxyModel(recursiveFilteringEnabled = True, filterRole = QFileSystemModel.FileNameRole)
         self.proxy_model.setSourceModel(self.model)
@@ -6838,6 +7220,14 @@ class MainWindow(QMainWindow):
         self.treeview.customContextMenuRequested.connect(on_treeview_context_menu)
 
         def _local_tree_key_press(event):
+            # Ctrl+C / Ctrl+V copy & paste via the shared cross-explorer clipboard.
+            if event.matches(QKeySequence.StandardKey.Copy):
+                _local_explorer_copy_selection()
+                return
+            if event.matches(QKeySequence.StandardKey.Paste):
+                _explorer_paste_into_local(_local_explorer_paste_target_dir(),
+                                           local_explorer_refresh, add_main_log_window)
+                return
             # F2 mirrors the context-menu "Rename" action on the selected entry.
             if event.key() == Qt.Key.Key_F2:
                 ix = self.treeview.currentIndex()
@@ -6852,10 +7242,16 @@ class MainWindow(QMainWindow):
 
         self.treeview.keyPressEvent = _local_tree_key_press
 
-        # --- Drag & drop from the OS file manager into the local explorer -----
-        # Dropping files/folders from Windows Explorer onto the left explorer
-        # imports (copies) them into the folder the drop lands on (its parent if
-        # the item is a file), or the current root when dropped on empty space.
+        # --- Drag & drop into / out of the local explorer ---------------------
+        # Drops onto the left explorer come from two sources:
+        #   * the OS file manager (Windows Explorer, etc.) -> import (copy) the
+        #     files/folders into the folder the drop lands on;
+        #   * the SD-card image explorer on the right (custom IMAGE_DRAG_MIME) ->
+        #     download those image entries into that folder (same as ':<-').
+        # In both cases the target folder is the item the drop lands on (its
+        # parent if the item is a file), or the current root for empty space.
+        # Dragging out of this explorer carries the selected local paths as
+        # text/uri-list URLs, which the image explorer accepts as an upload.
         def _local_drop_target_dir(pos):
             index = self.treeview.indexAt(pos)
             if index.isValid():
@@ -6869,37 +7265,85 @@ class MainWindow(QMainWindow):
             root_src = self.proxy_model.mapToSource(self.treeview.rootIndex())
             return self.model.filePath(root_src)
 
+        def _local_drag_acceptable(event):
+            # Reject drags originating from this same explorer (nothing to do),
+            # accept image-explorer drags and OS file-manager URL drags.
+            if event.source() is self.treeview:
+                return False
+            md = event.mimeData()
+            return md.hasFormat(IMAGE_DRAG_MIME) or md.hasUrls()
+
         def _local_drag_enter(event):
-            if event.mimeData().hasUrls():
+            if _local_drag_acceptable(event):
                 event.acceptProposedAction()
             else:
                 event.ignore()
 
         def _local_drag_move(event):
-            if event.mimeData().hasUrls():
+            if _local_drag_acceptable(event):
                 event.acceptProposedAction()
             else:
                 event.ignore()
 
         def _local_drop(event):
-            if not event.mimeData().hasUrls():
+            if not _local_drag_acceptable(event):
                 event.ignore()
                 return
-            paths = [u.toLocalFile() for u in event.mimeData().urls()
+            md = event.mimeData()
+            dest_dir = _local_drop_target_dir(event.position().toPoint())
+
+            # Drag out of the image explorer: download the entries into dest_dir.
+            if md.hasFormat(IMAGE_DRAG_MIME):
+                raw = bytes(md.data(IMAGE_DRAG_MIME)).decode("utf-8", errors="replace")
+                image_items = []
+                for line in raw.splitlines():
+                    if not line:
+                        continue
+                    tag, _, p = line.partition("\t")
+                    if p:
+                        image_items.append((p, tag == "D"))
+                if not image_items:
+                    event.ignore()
+                    return
+                event.acceptProposedAction()
+                image_get_paths_to_local(image_items, dest_dir)
+                return
+
+            # OS file-manager drop: import the local files/folders.
+            paths = [u.toLocalFile() for u in md.urls()
                      if u.isLocalFile() and u.toLocalFile()]
             if not paths:
                 event.ignore()
                 return
             event.acceptProposedAction()
-            dest_dir = _local_drop_target_dir(event.position().toPoint())
             local_explorer_import_external_paths(paths, dest_dir)
 
+        def _local_start_drag(supported_actions):
+            # Carry the selected local file/folder paths as text/uri-list URLs so
+            # they can be dropped onto the image explorer (equivalent to '->:').
+            paths = []
+            for ix in self.treeview.selectionModel().selectedRows(0):
+                source_ix = self.proxy_model.mapToSource(ix)
+                if self.model.fileName(source_ix) == "..":
+                    continue
+                paths.append(self.model.filePath(source_ix))
+            if not paths:
+                return
+            mime = QMimeData()
+            mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
+            drag = QDrag(self.treeview)
+            drag.setMimeData(mime)
+            drag.exec(Qt.CopyAction)
+
         self.treeview.setAcceptDrops(True)
-        self.treeview.setDragDropMode(QAbstractItemView.DropOnly)
+        self.treeview.setDragEnabled(True)
+        self.treeview.setDragDropMode(QAbstractItemView.DragDrop)
+        self.treeview.setDefaultDropAction(Qt.CopyAction)
         self.treeview.setDropIndicatorShown(True)
         self.treeview.dragEnterEvent = _local_drag_enter
         self.treeview.dragMoveEvent = _local_drag_move
         self.treeview.dropEvent = _local_drop
+        self.treeview.startDrag = _local_start_drag
 
         self.centralbuttonscontainer = QWidget()
         self.centralbuttons = QVBoxLayout()
@@ -6936,7 +7380,12 @@ class MainWindow(QMainWindow):
         set_table_image_properties()
 
         def _image_tree_key_press(event):
-            if event.key() == Qt.Key.Key_Delete and self.image_selected_path:
+            # Ctrl+C / Ctrl+V copy & paste via the shared cross-explorer clipboard.
+            if event.matches(QKeySequence.StandardKey.Copy):
+                _image_explorer_copy_selection()
+            elif event.matches(QKeySequence.StandardKey.Paste):
+                _explorer_paste_into_image(image_dest_dir())
+            elif event.key() == Qt.Key.Key_Delete and self.image_selected_path:
                 delete_files_button_show_confirmation_buttons()
             elif event.key() == Qt.Key.Key_F2 and self.image_selected_path:
                 image_rename_dialog()
@@ -6945,11 +7394,15 @@ class MainWindow(QMainWindow):
 
         self.image_treeview.keyPressEvent = _image_tree_key_press
 
-        # --- Drag & drop from the OS file manager into the disk image ----------
-        # Dropping files/folders from Windows Explorer (etc.) onto the image
-        # explorer uploads them into the image. The target folder is the item the
-        # drop lands on (its parent if the item is a file), or the image root when
-        # dropped on empty space.
+        # --- Drag & drop into / out of the disk image --------------------------
+        # Dropping files/folders onto the image explorer uploads them into the
+        # image (same as '->:'); the source can be the OS file manager or the
+        # local explorer on the left (both carry text/uri-list URLs). The target
+        # folder is the item the drop lands on (its parent if the item is a file),
+        # or the image root when dropped on empty space.
+        # Dragging out of the image explorer carries the selected entries as a
+        # custom IMAGE_DRAG_MIME payload, which the local explorer accepts as a
+        # download (same as ':<-').
         def _image_drop_target_dir(pos):
             index = self.image_treeview.indexAt(pos)
             if not index.isValid():
@@ -6963,20 +7416,27 @@ class MainWindow(QMainWindow):
             parent = path.rstrip("/").rsplit("/", 1)[0]
             return parent or "/"
 
+        def _image_drag_acceptable(event):
+            # Ignore drags from the image explorer itself (would be image->image);
+            # accept local-explorer / OS URL drags when an image is loaded.
+            if event.source() is self.image_treeview:
+                return False
+            return bool(right_disk_image_explorer_content) and event.mimeData().hasUrls()
+
         def _image_drag_enter(event):
-            if right_disk_image_explorer_content and event.mimeData().hasUrls():
+            if _image_drag_acceptable(event):
                 event.acceptProposedAction()
             else:
                 event.ignore()
 
         def _image_drag_move(event):
-            if right_disk_image_explorer_content and event.mimeData().hasUrls():
+            if _image_drag_acceptable(event):
                 event.acceptProposedAction()
             else:
                 event.ignore()
 
         def _image_drop(event):
-            if not (right_disk_image_explorer_content and event.mimeData().hasUrls()):
+            if not _image_drag_acceptable(event):
                 event.ignore()
                 return
             paths = [u.toLocalFile() for u in event.mimeData().urls()
@@ -6988,12 +7448,39 @@ class MainWindow(QMainWindow):
             target_dir = _image_drop_target_dir(event.position().toPoint())
             image_upload_external_paths(paths, target_dir)
 
+        def _image_start_drag(supported_actions):
+            # Gather the selected image entries into a custom-MIME payload so the
+            # local explorer can download them on drop (equivalent to ':<-').
+            if not right_disk_image_explorer_content:
+                return
+            items = []
+            for col0 in self.image_treeview.selectionModel().selectedRows(0):
+                name_item = self.image_model.itemFromIndex(col0)
+                if name_item is None:
+                    continue
+                path = name_item.data(IMG_PATH_ROLE) or ""
+                if not path:
+                    continue
+                is_dir = bool(name_item.data(IMG_ISDIR_ROLE))
+                items.append((path, is_dir))
+            if not items:
+                return
+            payload = "\n".join(f"{'D' if d else 'F'}\t{p}" for p, d in items)
+            mime = QMimeData()
+            mime.setData(IMAGE_DRAG_MIME, payload.encode("utf-8"))
+            drag = QDrag(self.image_treeview)
+            drag.setMimeData(mime)
+            drag.exec(Qt.CopyAction)
+
         self.image_treeview.setAcceptDrops(True)
-        self.image_treeview.setDragDropMode(QAbstractItemView.DropOnly)
+        self.image_treeview.setDragEnabled(True)
+        self.image_treeview.setDragDropMode(QAbstractItemView.DragDrop)
+        self.image_treeview.setDefaultDropAction(Qt.CopyAction)
         self.image_treeview.setDropIndicatorShown(True)
         self.image_treeview.dragEnterEvent = _image_drag_enter
         self.image_treeview.dragMoveEvent = _image_drag_move
         self.image_treeview.dropEvent = _image_drop
+        self.image_treeview.startDrag = _image_start_drag
 
         # Usage gauge — sits directly below the image explorer table
         self.image_usage_gauge = QProgressBar()
@@ -7520,6 +8007,14 @@ class MainWindow(QMainWindow):
         self.nextsync_treeview.customContextMenuRequested.connect(nextsync_on_treeview_context_menu)
 
         def _nextsync_tree_key_press(event):
+            # Ctrl+C / Ctrl+V copy & paste via the shared cross-explorer clipboard.
+            if event.matches(QKeySequence.StandardKey.Copy):
+                _nextsync_explorer_copy_selection()
+                return
+            if event.matches(QKeySequence.StandardKey.Paste):
+                _explorer_paste_into_local(_nextsync_explorer_paste_target_dir(),
+                                           nextsync_refresh_explorer, add_nextsync_log_window)
+                return
             # Delete key / F2 mirror the context-menu "Delete" / "Rename" actions.
             if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_F2):
                 ix = self.nextsync_treeview.currentIndex()
@@ -7635,20 +8130,150 @@ class MainWindow(QMainWindow):
         self.nextsync_log.setMinimumHeight(NEXTSYNC_UI_HEIGTH)
         #self.nextsync_log.setMaximumHeight(NEXTSYNC_UI_HEIGTH)
 
-        self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_log)
+        # Classic / Pygame toggle for the log window (mirrors the Unite! tab).
+        # Pygame is optional: the button stays disabled with an install hint when
+        # pygame-ce is missing. When on, the log becomes a retro 8-bit display —
+        # the animated $/£/€ starfield with green Consolas text (see
+        # zxnu_pygame.RetroLogWidget).
+        self._nextsync_retro_log = None
+        self._nextsync_pygame_on = False
+        if not hasattr(self, "_nextsync_pygame_anim"):
+            self._nextsync_pygame_anim = True
+
+        self.nextsync_pygame_button = QPushButton("🎮 Pygame")
+        self.nextsync_pygame_button.setCheckable(True)
+        self.nextsync_pygame_button.setToolTip(
+            "Switch the NextSync log window to a retro 8-bit pygame display:\n"
+            "an animated starfield with green Consolas text.\n"
+            "Requires the optional 'pygame-ce' package.")
+        self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_pygame_button)
+
+        # Stack: page 0 = the classic list log, page 1 = the retro pygame log
+        # (built lazily the first time the user switches it on).
+        self.nextsync_log_stack = QStackedWidget(self)
+        self.nextsync_log_stack.setMinimumHeight(NEXTSYNC_UI_HEIGTH)
+        self.nextsync_log_stack.addWidget(self.nextsync_log)
+        self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_log_stack)
+
+        def _nextsync_build_retro_log():
+            if self._nextsync_retro_log is not None:
+                return self._nextsync_retro_log
+            from zxnu_pygame import RetroLogWidget
+            widget = RetroLogWidget()
+            widget.setMinimumHeight(NEXTSYNC_UI_HEIGTH)
+            try:
+                widget.enable_background(getattr(self, "_nextsync_pygame_anim", True))
+            except Exception:
+                pass
+            # Seed it with the existing classic-log contents. The list shows
+            # newest-first, so iterate bottom-up for chronological order.
+            for i in range(self.nextsync_log.count() - 1, -1, -1):
+                widget.append(self.nextsync_log.item(i).text())
+            self._nextsync_retro_log = widget
+            self.nextsync_log_stack.addWidget(widget)
+            return widget
+
+        def _nextsync_pygame_disable(reason=""):
+            btn = self.nextsync_pygame_button
+            btn.blockSignals(True)
+            btn.setChecked(False)
+            btn.setText("🎮 Pygame")
+            btn.blockSignals(False)
+            btn.setEnabled(False)
+            if reason:
+                btn.setToolTip(reason)
+
+        def _nextsync_pygame_persist(enabled):
+            # Skip writing while restoring the saved choice at startup so a
+            # transient "pygame unavailable" never clobbers the user's pref.
+            if getattr(self, "_nextsync_pygame_restoring", False):
+                return
+            try:
+                configuration_dictionary[SETTING_NEXTSYNC_PYGAME_MODE] = (
+                    "true" if enabled else "false")
+                save_configuration_file()
+            except Exception:
+                pass
+
+        def _nextsync_on_pygame_toggled(checked):
+            if checked:
+                try:
+                    from zxnu_pygame import pygame_available
+                    ok, why = pygame_available()
+                except Exception as exc:
+                    ok, why = False, str(exc)
+                if not ok:
+                    _nextsync_pygame_disable(
+                        f"{why}\nInstall with: pip install pygame-ce")
+                    add_nextsync_log_window(
+                        "Pygame mode unavailable — run: pip install pygame-ce")
+                    return
+                try:
+                    widget = _nextsync_build_retro_log()
+                except Exception as exc:
+                    _nextsync_pygame_disable(f"Pygame init failed: {exc}")
+                    return
+                self._nextsync_pygame_on = True
+                self.nextsync_pygame_button.setText("🖼 Classic")
+                self.nextsync_log_stack.setCurrentWidget(widget)
+                widget.start()
+                _nextsync_pygame_persist(True)
+            else:
+                self._nextsync_pygame_on = False
+                self.nextsync_pygame_button.setText("🎮 Pygame")
+                if self._nextsync_retro_log is not None:
+                    self._nextsync_retro_log.stop()
+                self.nextsync_log_stack.setCurrentWidget(self.nextsync_log)
+                _nextsync_pygame_persist(False)
+
+        self.nextsync_pygame_button.toggled.connect(_nextsync_on_pygame_toggled)
 
 
-        self.nextsync_synconce_checkbox = QCheckBox("Sync once")
-        self.nextsync_synconce_checkbox.setText("Sync once")
-        #self.nextsync_synconce_checkbox.setChecked(True)
-        self.nextsync_synconce_checkbox.stateChanged.connect(nextsync_synconce_checkbox_statechanged)
-        self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_synconce_checkbox)
+        # Sync mode — three mutually-exclusive radio buttons in a titled group.
+        # The two original boolean settings are kept for backward compatibility:
+        #   Incremental  -> SYNCONCE=false, ALWAYSSYNC=false  (continuous, skip known)
+        #   Sync once    -> SYNCONCE=true,  ALWAYSSYNC=false  (one-shot)
+        #   Always sync  -> SYNCONCE=false, ALWAYSSYNC=true   (continuous, send all)
+        # The radios keep the historical attribute names so the server loop's
+        # `.isChecked()` reads (sync-once / always-sync) work unchanged.
+        self.nextsync_sync_mode_group = QGroupBox("Sync mode")
+        _sync_mode_layout = QVBoxLayout(self.nextsync_sync_mode_group)
+        _sync_mode_layout.setContentsMargins(8, 4, 8, 4)
+        _sync_mode_layout.setSpacing(2)
 
-        self.nextsync_alwayssync_checkbox = QCheckBox("Always Sync")
-        self.nextsync_alwayssync_checkbox.setText("Always Sync")
-        #self.nextsync_alwayssync_checkbox.setChecked(True)
-        self.nextsync_alwayssync_checkbox.stateChanged.connect(nextsync_alwayssync_checkbox_statechanged)
-        self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_alwayssync_checkbox)
+        self.nextsync_syncincremental_radio = QRadioButton("Sync changed files (continuous)")
+        self.nextsync_syncincremental_radio.setToolTip(
+            "Keep listening and send only files that are new or changed since the\n"
+            "last sync (skips files recorded in the sync point). The default mode.")
+        self.nextsync_synconce_checkbox = QRadioButton("Sync once")
+        self.nextsync_synconce_checkbox.setToolTip(
+            "Perform a single sync and then stop the server.")
+        self.nextsync_alwayssync_checkbox = QRadioButton("Always sync (send everything)")
+        self.nextsync_alwayssync_checkbox.setToolTip(
+            "Keep listening and send every file each time, ignoring the sync point.")
+
+        self.nextsync_syncincremental_radio.setChecked(True)   # default mode
+
+        _sync_mode_layout.addWidget(self.nextsync_syncincremental_radio)
+        _sync_mode_layout.addWidget(self.nextsync_synconce_checkbox)
+        _sync_mode_layout.addWidget(self.nextsync_alwayssync_checkbox)
+
+        # An exclusive button group enforces "one or the other" automatically.
+        self._nextsync_sync_mode_btngroup = QButtonGroup(self)
+        self._nextsync_sync_mode_btngroup.setExclusive(True)
+        self._nextsync_sync_mode_btngroup.addButton(self.nextsync_syncincremental_radio)
+        self._nextsync_sync_mode_btngroup.addButton(self.nextsync_synconce_checkbox)
+        self._nextsync_sync_mode_btngroup.addButton(self.nextsync_alwayssync_checkbox)
+
+        def _on_sync_mode_toggled(_btn, checked):
+            # Only the newly-selected radio drives a persist (avoids a double
+            # save for the paired off/on toggles), and transient overrides from
+            # the gallery "Send via NextSync" path are not written to config.
+            if checked and not getattr(self, "_nextsync_sync_mode_transient", False):
+                nextsync_sync_mode_changed()
+        self._nextsync_sync_mode_btngroup.buttonToggled.connect(_on_sync_mode_toggled)
+
+        self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_sync_mode_group)
 
 
         self.nextsync_slowtransfer_checkbox = QCheckBox("Slow transfer")
@@ -17057,6 +17682,37 @@ class MainWindow(QMainWindow):
             lambda _s: _settings_pygame_anim_changed())
         grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 23, 0, 1, 2)
 
+        # ── NextSync retro-log starfield animation toggle ──────────────────
+        def _settings_nextsync_anim_changed():
+            on = self.settings_nextsync_pygame_anim_checkbox.isChecked()
+            self._nextsync_pygame_anim = on
+            try:
+                configuration_dictionary[SETTING_NEXTSYNC_PYGAME_ANIM] = (
+                    "true" if on else "false")
+                save_configuration_file()
+            except Exception:
+                pass
+            w = getattr(self, "_nextsync_retro_log", None)
+            if w is not None:
+                try:
+                    w.enable_background(on)
+                except Exception:
+                    pass
+
+        self.settings_nextsync_pygame_anim_checkbox = QCheckBox(
+            "NextSync — starfield log animation (pygame mode)")
+        self.settings_nextsync_pygame_anim_checkbox.setChecked(
+            getattr(self, "_nextsync_pygame_anim", True))
+        self.settings_nextsync_pygame_anim_checkbox.setToolTip(
+            "When the NextSync log window is in pygame mode, animate the retro\n"
+            "starfield backdrop (twinkling stars that flicker into $/£/€ signs)\n"
+            "behind the green Consolas log text. On by default. When off, a plain\n"
+            "dark background is used. Saved to the configuration file."
+        )
+        self.settings_nextsync_pygame_anim_checkbox.stateChanged.connect(
+            lambda _s: _settings_nextsync_anim_changed())
+        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 26, 0, 1, 2)
+
         # ── Alien Floyd's: optional pygame-ce animated background everywhere ──
         # A Pink Floyd homage. When on, a pygame-ce "Alien Floyd's" animation
         # (pigs, moons, prisms, guitars, dogs … that morph into one another and
@@ -17203,7 +17859,25 @@ class MainWindow(QMainWindow):
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
         zxnextunite_Settings_tab.tab_name_private = "Settings"
-        wid_inner.tab.addTab(zxnextunite_Settings_tab, "Settings 🔩")
+
+        # The Settings tab has grown a lot of options; on short screens they can
+        # exceed the available height. Wrap the content in a vertical scroll area
+        # so it scrolls when needed. Kept transparent (no frame, translucent
+        # viewport) so the animated/background image shows through like the other
+        # tabs. setWidgetResizable keeps the content at the viewport width, so
+        # only a vertical scrollbar appears when required.
+        settings_scroll = QScrollArea(wid_inner.tab)
+        settings_scroll.setWidgetResizable(True)
+        settings_scroll.setFrameShape(QFrame.NoFrame)
+        settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        settings_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        settings_scroll.setAttribute(Qt.WA_TranslucentBackground, True)
+        settings_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        settings_scroll.setWidget(zxnextunite_Settings_tab)
+        settings_scroll.viewport().setAutoFillBackground(False)
+        settings_scroll.viewport().setAttribute(Qt.WA_TranslucentBackground, True)
+        settings_scroll.tab_name_private = "Settings"
+        wid_inner.tab.addTab(settings_scroll, "Settings 🔩")
 
           # Create Help Tab
         zxnextunite_Help_tab = QWidget(wid_inner.tab)
@@ -17560,6 +18234,45 @@ class MainWindow(QMainWindow):
 
         load_configuration_file()
         self._initialising = False
+
+        def _apply_first_run_pygame_defaults():
+            """On the first run (every pygame option still unset) default them all
+            to ON when pygame is installed. A setting that was never saved stays
+            "" (see the CONFIG_FILE_SETTINGS pre-seed), so only untouched options
+            are flipped on; once the user saves a choice — including OFF — it is
+            respected on later runs. Runs unconditionally (even with no config
+            file, where load_configuration_file's restore block is skipped)."""
+            try:
+                from zxnu_pygame import pygame_available
+                if not bool(pygame_available()[0]):
+                    return
+            except Exception:
+                return
+
+            def _unset(key):
+                return str(configuration_dictionary.get(key, "")).strip() == ""
+
+            # Each control's own toggled/stateChanged handler sets the config
+            # value, persists it and applies the visual effect, so flipping the
+            # control on (post-_initialising) is all that's needed.
+            if _unset(SETTING_ALLINONE_PYGAME_MODE):
+                btn = getattr(self, "allinone_pygame_button", None)
+                if btn is not None and btn.isEnabled() and not btn.isChecked():
+                    btn.setChecked(True)
+            if _unset(SETTING_NEXTSYNC_PYGAME_MODE):
+                btn = getattr(self, "nextsync_pygame_button", None)
+                if btn is not None and btn.isEnabled() and not btn.isChecked():
+                    btn.setChecked(True)
+            if _unset(SETTING_ALIEN_FLOYD_BG):
+                cb = getattr(self, "settings_alien_floyd_bg_checkbox", None)
+                if cb is not None and not cb.isChecked():
+                    cb.setChecked(True)
+            if _unset(SETTING_ALIEN_FLOYD_TAB):
+                cb = getattr(self, "settings_alien_floyd_tab_checkbox", None)
+                if cb is not None and not cb.isChecked():
+                    cb.setChecked(True)
+
+        _apply_first_run_pygame_defaults()
 
         # Re-apply view modes now that config has been loaded (the per-pane setup
         # runs before load_configuration_file, so the combos/stacks need updating).

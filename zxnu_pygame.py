@@ -1118,6 +1118,86 @@ def _make_asteroid_sprite(shape, px, ang):
     return s
 
 
+class _StarField:
+    """The drifting, twinkling starfield where stars occasionally flicker into a
+    glowing ``$/£/€`` glyph.
+
+    Extracted from :class:`AlienFloydBackground` so the very same space backdrop
+    can be reused on its own — notably by :class:`RetroLogWidget`, the NextSync
+    tab's retro 8-bit log window."""
+
+    def __init__(self, size, dpr=1.0):
+        _ensure_pg()
+        self.dpr = max(1.0, float(dpr or 1.0))
+        self.w, self.h = size
+        self._init()
+
+    def s(self, px):
+        return int(round(px * self.dpr))
+
+    def resize(self, size, dpr=None):
+        self.w, self.h = size
+        if dpr:
+            self.dpr = max(1.0, float(dpr))
+        self._init()
+
+    def _init(self):
+        self._stars = []
+        area = max(1, self.w * self.h)
+        n = max(60, min(200, area // self.s(8000)))
+        radii = [self.s(2), self.s(3), self.s(4)]
+        for _ in range(n):
+            self._stars.append({
+                "x": _random.uniform(0, self.w),
+                "y": _random.uniform(0, self.h),
+                "spd": _random.uniform(0.15, 1.1) * self.dpr,
+                "r": _random.choice(radii),
+                "col": _random.choice(_STAR_COLORS),
+                "ph": _random.uniform(0, 6.28),
+                "dph": _random.uniform(0.03, 0.10),
+                "glyph": None,
+                "gttl": 0,
+            })
+
+    def update(self):
+        for st in self._stars:
+            st["y"] += st["spd"]
+            st["ph"] += st["dph"]
+            if st["y"] > self.h + st["r"]:
+                st["y"] = -st["r"]
+                st["x"] = _random.uniform(0, self.w)
+            # A star occasionally flickers into a glowing $/£/€ sign.
+            if st["glyph"] is not None:
+                st["gttl"] -= 1
+                if st["gttl"] <= 0:
+                    st["glyph"] = None
+            elif _random.random() < 0.0006:
+                st["glyph"] = _random.choice(_CURRENCY)
+                st["gttl"] = _random.randint(80, 180)
+
+    def render(self, surface):
+        pg = _pg
+        for st in self._stars:
+            level = 0.5 + 0.5 * _math.sin(st["ph"])
+            x, y, r = st["x"], st["y"], st["r"]
+            if st["glyph"] is not None:
+                glow = _make_glow(_C_CURRENCY, max(2, r * 2), 1.0)
+                surface.blit(glow, (int(x - r * 2), int(y - r * 2)),
+                             special_flags=pg.BLEND_RGB_ADD)
+                lf = 0.6 + 0.4 * level
+                col = (int(_C_CURRENCY[0] * lf), int(_C_CURRENCY[1] * lf),
+                       int(_C_CURRENCY[2] * lf))
+                f = _font(max(10, int(r * 5)), bold=True)
+                _draw_text(surface, st["glyph"], int(x - r * 2), int(y - r * 2), f, col)
+                continue
+            lvl = 0.5 if level < 0.4 else (0.75 if level < 0.75 else 1.0)
+            g = _make_glow(st["col"], r, lvl)
+            surface.blit(g, (int(x - r), int(y - r)), special_flags=pg.BLEND_RGB_ADD)
+            if level > 0.7:
+                surface.fill(st["col"], pg.Rect(int(x), int(y),
+                                                max(1, self.s(1)), max(1, self.s(1))))
+
+
 class AlienFloydBackground:
     """An autoplaying "Alien Floyd" scene — a Pink Floyd homage built on the
     classic Space-Invaders skeleton: a drifting/twinkling starfield whose stars
@@ -1237,22 +1317,10 @@ class AlienFloydBackground:
         self._bob_amp = self.s(11)
 
     def _init_stars(self):
-        self._stars = []
-        area = max(1, self.w * self.h)
-        n = max(60, min(200, area // self.s(8000)))
-        radii = [self.s(2), self.s(3), self.s(4)]
-        for _ in range(n):
-            self._stars.append({
-                "x": _random.uniform(0, self.w),
-                "y": _random.uniform(0, self.h),
-                "spd": _random.uniform(0.15, 1.1) * self.dpr,
-                "r": _random.choice(radii),
-                "col": _random.choice(_STAR_COLORS),
-                "ph": _random.uniform(0, 6.28),
-                "dph": _random.uniform(0.03, 0.10),
-                "glyph": None,
-                "gttl": 0,
-            })
+        # The drifting/twinkling starfield (with its $/£/€ flicker) lives in a
+        # standalone helper so the NextSync retro log window can reuse the exact
+        # same backdrop (see _StarField / RetroLogWidget).
+        self._starfield = _StarField((self.w, self.h), self.dpr)
 
     def _new_wave(self, first=False):
         # Lay the columns out within a clear left/right margin so the swarm has
@@ -1455,20 +1523,7 @@ class AlienFloydBackground:
         self._update_explosions()
 
     def _update_stars(self):
-        for st in self._stars:
-            st["y"] += st["spd"]
-            st["ph"] += st["dph"]
-            if st["y"] > self.h + st["r"]:
-                st["y"] = -st["r"]
-                st["x"] = _random.uniform(0, self.w)
-            # A star occasionally flickers into a glowing $/£/€ sign.
-            if st["glyph"] is not None:
-                st["gttl"] -= 1
-                if st["gttl"] <= 0:
-                    st["glyph"] = None
-            elif _random.random() < 0.0006:
-                st["glyph"] = _random.choice(_CURRENCY)
-                st["gttl"] = _random.randint(80, 180)
+        self._starfield.update()
 
     def _update_formation(self):
         # Spawn-in scheduled cells (initial batches + bottom-wrap respawns).
@@ -2436,25 +2491,7 @@ class AlienFloydBackground:
             surface.fill(_C_SKY)
         pg = _pg
         # stars (additive glow + bright core); some flicker into $/£/€ glyphs
-        for st in self._stars:
-            level = 0.5 + 0.5 * _math.sin(st["ph"])
-            x, y, r = st["x"], st["y"], st["r"]
-            if st["glyph"] is not None:
-                glow = _make_glow(_C_CURRENCY, max(2, r * 2), 1.0)
-                surface.blit(glow, (int(x - r * 2), int(y - r * 2)),
-                             special_flags=pg.BLEND_RGB_ADD)
-                lf = 0.6 + 0.4 * level
-                col = (int(_C_CURRENCY[0] * lf), int(_C_CURRENCY[1] * lf),
-                       int(_C_CURRENCY[2] * lf))
-                f = _font(max(10, int(r * 5)), bold=True)
-                _draw_text(surface, st["glyph"], int(x - r * 2), int(y - r * 2), f, col)
-                continue
-            lvl = 0.5 if level < 0.4 else (0.75 if level < 0.75 else 1.0)
-            g = _make_glow(st["col"], r, lvl)
-            surface.blit(g, (int(x - r), int(y - r)), special_flags=pg.BLEND_RGB_ADD)
-            if level > 0.7:
-                surface.fill(st["col"], pg.Rect(int(x), int(y),
-                                                max(1, self.s(1)), max(1, self.s(1))))
+        self._starfield.render(surface)
         # Title/attract screen takes over until the player presses Space.
         if self._game and not self._started:
             self._render_title(surface)
@@ -3321,6 +3358,193 @@ class AlienFloydWidget(QWidget):
         img.setDevicePixelRatio(self._dpr)
         painter.drawImage(QPoint(0, 0), img)
         painter.end()
+
+
+class RetroLogWidget(QWidget):
+    """A retro 8-bit log pane: the animated ``$/£/€`` starfield (the same
+    backdrop as the Alien Floyd scene) with the log text scrolling upward in
+    green Consolas letters.
+
+    A drop-in companion to a plain log list, used by the NextSync tab's optional
+    "Pygame" mode.  Feed it via :meth:`append` (one or more newline-separated
+    lines) and reset it with :meth:`clear`.  pygame is imported lazily off the
+    UI thread, so the widget paints a black placeholder until it is ready."""
+
+    _C_LOG = (120, 255, 140)        # phosphor green for the log text
+
+    def __init__(self, parent=None, fps=30, max_lines=600):
+        super().__init__(parent)
+        # pygame is imported lazily off the UI thread (see AlienFloydWidget).
+        prewarm_async()
+        self._surface = None
+        self._stars = None
+        self._alive = True
+        self._lines = []
+        self._max_lines = int(max_lines)
+        self._dpr = max(1.0, float(self.devicePixelRatioF() or 1.0))
+        self._scroll = 0.0          # device-px the text is pushed down (eases to 0)
+        self._line_h = 0            # cached line height in device px
+        self._t = 0
+        self._bg_anim = True        # animate the starfield (Settings toggle)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self._timer = QTimer(self)
+        self._timer.setInterval(int(1000 / max(1, fps)))
+        self._timer.timeout.connect(self._tick)
+        self._ensure_surface()
+
+    def s(self, px):
+        return int(round(px * self._dpr))
+
+    # -- public feed API ---------------------------------------------------
+    def append(self, text):
+        """Append one or more newline-separated lines at the bottom (newest)."""
+        new = str(text).split("\n")
+        self._lines.extend(new)
+        if len(self._lines) > self._max_lines:
+            self._lines = self._lines[-self._max_lines:]
+        # Kick off a smooth upward scroll for the freshly added line(s); cap the
+        # offset so a burst doesn't fling the text far off-screen.
+        if self._line_h:
+            self._scroll = min(self._scroll + self._line_h * len(new),
+                               self._line_h * 4)
+        self.update()
+
+    def clear(self):
+        self._lines = []
+        self._scroll = 0.0
+        self.update()
+
+    def enable_background(self, flag):
+        """Enable/disable the animated starfield backdrop. When off, a plain
+        dark background is drawn behind the (still scrolling) green text."""
+        self._bg_anim = bool(flag)
+        self.update()
+
+    # -- lifecycle ---------------------------------------------------------
+    def start(self):
+        if self._alive and not self._timer.isActive():
+            self._timer.start()
+
+    def stop(self):
+        self._timer.stop()
+
+    def teardown(self):
+        self._alive = False
+        try:
+            self._timer.stop()
+        except Exception:
+            pass
+        self._surface = None
+        self._stars = None
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        self.start()
+
+    def hideEvent(self, ev):
+        self.stop()
+        super().hideEvent(ev)
+
+    def _dev_size(self):
+        w = max(1, int(round(self.width() * self._dpr)))
+        h = max(1, int(round(self.height() * self._dpr)))
+        return w, h
+
+    def _ensure_surface(self):
+        pg = _pg
+        if pg is None:
+            return False
+        w, h = self._dev_size()
+        if self._surface is None or self._surface.get_size() != (w, h):
+            self._surface = pg.Surface((w, h), pg.SRCALPHA)
+            if self._stars is None:
+                self._stars = _StarField((w, h), self._dpr)
+            else:
+                self._stars.resize((w, h), self._dpr)
+        return True
+
+    def resizeEvent(self, ev):
+        self._dpr = max(1.0, float(self.devicePixelRatioF() or 1.0))
+        self._ensure_surface()
+        super().resizeEvent(ev)
+        self.update()
+
+    def _tick(self):
+        if not self._alive:
+            return
+        if self._stars is None:
+            # Still waiting on the off-thread pygame import; retry + repaint.
+            self._ensure_surface()
+            self.update()
+            return
+        self._t += 1
+        if self._bg_anim:
+            self._stars.update()
+        # Ease the scroll offset back to zero so new lines slide smoothly in.
+        if self._scroll > 0.5:
+            self._scroll *= 0.78
+        else:
+            self._scroll = 0.0
+        self.update()
+
+    def paintEvent(self, _ev):
+        painter = QPainter(self)
+        if not self._alive or self._surface is None or self._stars is None:
+            painter.fillRect(self.rect(), Qt.black)
+            if _pg is None:
+                painter.setPen(QColor(120, 200, 130))
+                f = painter.font()
+                f.setPointSize(max(11, f.pointSize() + 2))
+                painter.setFont(f)
+                painter.drawText(self.rect(), Qt.AlignCenter, "Loading…")
+            painter.end()
+            return
+        self._ensure_surface()
+        try:
+            self._render_frame(self._surface)
+        except Exception:
+            self._surface.fill(_C_SKY)
+        img = _surface_to_qimage(self._surface)
+        img.setDevicePixelRatio(self._dpr)
+        painter.drawImage(QPoint(0, 0), img)
+        painter.end()
+
+    def _render_frame(self, surface):
+        surface.fill(_C_SKY)
+        if self._bg_anim:
+            self._stars.render(surface)
+        # A translucent veil keeps the green text readable over the starfield.
+        _blit_veil(surface, _VEIL_RGB, 150)
+        w, h = surface.get_size()
+        pad = self.s(8)
+        font = _font(self.s(13), bold=False)   # Consolas (see _UI_FONT_NAMES)
+        lh = font.get_height() + self.s(2)
+        self._line_h = lh
+        max_w = max(1, w - 2 * pad)
+        # Wrap from the newest line upward until the visible area is filled.
+        visible_rows = int(h / lh) + 3
+        wrapped = []
+        for raw in reversed(self._lines):
+            for piece in reversed(_wrap_lines(raw, font, max_w) or [""]):
+                wrapped.append(piece)
+            if len(wrapped) >= visible_rows:
+                break
+        wrapped.reverse()           # back to chronological order (oldest..newest)
+        if not wrapped:
+            return
+        # Bottom-anchored: the newest line sits just above the bottom padding,
+        # shifted down by the eased scroll offset so new lines slide up into it.
+        cursor_on = (self._t // 12) % 2 == 0
+        last = len(wrapped) - 1
+        y = h - pad - lh + int(self._scroll)
+        for i in range(last, -1, -1):
+            if y < -lh:
+                break
+            line = wrapped[i]
+            if i == last and cursor_on:    # blinking block cursor on the newest line
+                line = line + "█"
+            _draw_text(surface, line, pad, int(y), font, self._C_LOG)
+            y -= lh
 
 
 # ── scene base ──────────────────────────────────────────────────────────────
