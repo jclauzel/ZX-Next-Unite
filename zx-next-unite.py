@@ -2185,7 +2185,7 @@ class MainWindow(QMainWindow):
         configuration_dictionary[SETTING_ALIEN_FLOYD_TAB] = ""
         configuration_dictionary[SETTING_ALIEN_FLOYD_HISCORE] = "0"
         configuration_dictionary[SETTING_ALIEN_FLOYD_HISCORES] = ""
-        # How to treat a file/dir received via ".sync -send" that already exists
+        # How to treat a file/dir received via ".sync4 -send" that already exists
         # locally: "prompt" (ask, default), "overwrite" (always), "ignore" (never
         # touch). Seeded so a first-run cfg persists a value.
         configuration_dictionary[SETTING_NEXTSYNC_SEND_CONFLICT] = DEFAULT_NEXTSYNC_SEND_CONFLICT
@@ -4510,7 +4510,7 @@ class MainWindow(QMainWindow):
         def nextsync_refresh_explorer():
             """Force the NextSync left explorer to re-stat the displayed folder.
 
-            Files just written by the upload (.sync -send) thread otherwise keep
+            Files just written by the upload (.sync4 -send) thread otherwise keep
             showing their initial 0 KB size: QFileSystemModel caches the size from
             when the file was first created (empty) and doesn't reliably re-stat
             it. Toggling the model's root path makes it rescan. Runs on the UI
@@ -4540,7 +4540,7 @@ class MainWindow(QMainWindow):
             try:
                 # --- progress dialog ---
                 dlg = HdfProgressDialog("NextSync — sending to ZX Spectrum Next", parent=self, cancel_label="Stop")
-                dlg.set_status("Waiting for ZX Next to connect…\nRun .sync (or .syncfast) on your Next")
+                dlg.set_status("Waiting for ZX Next to connect…\nRun .sync4 (or .sync4 -fast) on your Next")
                 dlg.set_progress(-1)   # indeterminate spinner until first file
 
                 sig = NextSyncSignals()
@@ -4549,7 +4549,7 @@ class MainWindow(QMainWindow):
                 sig.progress.connect(dlg.set_progress)
                 sig.status.connect(dlg.set_status)
                 sig.finished.connect(lambda: QTimer.singleShot(800, dlg.accept))
-                # Refresh the left explorer so files received via .sync -send show
+                # Refresh the left explorer so files received via .sync4 -send show
                 # their real size instead of a stale 0 KB.
                 sig.finished.connect(nextsync_refresh_explorer)
                 sig.cancelled.connect(dlg.mark_cancelled)
@@ -6517,7 +6517,8 @@ class MainWindow(QMainWindow):
             self.nextsync_prepare_server.setVisible(False)
 
             if not (selected_nextsync_explorer_sync_root_directory and os.path.isdir(selected_nextsync_explorer_sync_root_directory)):
-                add_nextsync_log_window ("Select a folder in the explorer to choose a sync root.")
+                add_nextsync_log_window ("")
+                add_nextsync_log_window ("Select a folder in the left local file explorer to choose a sync root folder and then press the 'Start NextSync Server button.")
                 add_nextsync_log_window ("")
                 return
 
@@ -6681,8 +6682,8 @@ class MainWindow(QMainWindow):
                     break
                 add_nextsync_log_window (f"{timestamp()} | NextSync listening to port {PORT}")
                 add_nextsync_log_window (f"{timestamp()} | Now run one of these commands on your Next:" )
-                add_nextsync_log_window (f"{timestamp()} |   PC  -> Next : .sync   (or .syncfast)")
-                add_nextsync_log_window (f"{timestamp()} |   Next -> PC  : .sync -send <file or directory>")
+                add_nextsync_log_window (f"{timestamp()} |   PC  -> Next : .sync4   (or .sync4 -fast)")
+                add_nextsync_log_window (f"{timestamp()} |   Next -> PC  : .sync4 -send <file or directory>")
                 if selected_nextsync_explorer_sync_root_directory:
                     add_nextsync_log_window (f"{timestamp()} |   (-send saves received files under: {selected_nextsync_explorer_sync_root_directory})")
                 totalbytes = 0
@@ -17839,7 +17840,7 @@ class MainWindow(QMainWindow):
         nextsync_send_conflict_lbl = QLabel("NextSync — when a sent file or directory exists locally:")
         nextsync_send_conflict_lbl.setToolTip(
             "Controls what happens when the Next pushes a file/folder via\n"
-            "'.sync -send <file|dir>' and it already exists on the PC under the\n"
+            "'.sync4 -send <file|dir>' and it already exists on the PC under the\n"
             "sync root.\n"
             "  • Prompt (default): ask each time, with one-time / always options.\n"
             "  • Overwrite: always replace the local file.\n"
