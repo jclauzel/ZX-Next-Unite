@@ -5,7 +5,7 @@
 
         HDFM-GOOEY, Getit by em00k
     &
-        NextSync by Jari Komppa
+        NextSync by Jari Komppa and Julien Clauzel
     & 
         ZXDB by https://api.zxinfo.dk/
     &

@@ -1,7 +1,7 @@
 ZX-Next-Unite by Julien Clauzel based on:
 * HDFM-GOOEY by em00k
 &
-* NextSync by Jari Komppa
+* NextSync by Jari Komppa and Julien Clauzel
 
 This project is licensed under the terms of the MIT license.
 ZX-Next-Unite is a Qt Application using pyside6 and pygame-ce in Python on top of Qt6, which retains the GPLv2 Licensing (see the LICENSE file).
@@ -10,6 +10,7 @@ Videos:
 * "Setup & How to": [https://youtu.be/-gUxV4fM1yo](https://youtu.be/-gUxV4fM1yo) (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )
 * Demo / Show Time!: [https://youtu.be/0qsIU01zsoM](https://youtu.be/0qsIU01zsoM)
 * Emulators Integration: [https://youtube.com/shorts/hPmV5shvBfo](https://youtube.com/shorts/hPmV5shvBfo)
+Older Videos of the original Py Hdfm Gooey:
 * Py Hdfm Gooey NextSync Head Over Heels: https://www.youtube.com/watch?v=D3_WqTPvjOE
 * Py Hdfm Gooey - NextSync - Night Knight: https://www.youtube.com/watch?v=eN1eMIqMCm4&t=12s
 
@@ -19,10 +20,14 @@ ZX-Next-Unite provides a cross platform (Windows, Linux, MacOS) Graphical Interf
 
 The first tab of ZX-Next-Unite is aimed at CSpect, Mame emulator users and developers. In that section you can mount an HDF image used by CSpect or Mame and upload download content using a built simple file explorer. Once the content is uploaded to the image you can then start CSpect or Mame directly from it and therefore exposes a simple to use frontend interface to the emulator. Key settings such as screen size can be directly adjusted, it avoids the need to know command line options to start using your emulated Spectrum Next.
 
-The second tab is designed for real hardware owners such as KS1, KS2 or other clones that also has an ESP (WIFI module). Jari designed a while back a custom protocol called NextSync that allows to synchronize an entire folder from a machine (PC/MAC/Linux) that resides on a remote machine back to the Spectrum Next over the network (it is one way only). This utility implements the "server" side the program that will 'listen' and waits for incoming connections from your Next. On your Next machine you will run the custom dot ".sync" or ".syncfast" command that connects to the server here ZX-Next-Unite. To set this up you will need first to download Jari zip package. The latest release v1.2 of the dot .sync command can be found here https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 . 
+The second tab is designed for real hardware owners such as KS1, KS2 or other clones that also has an ESP (WIFI module). Jari designed a while back a custom protocol called NextSync that allows to synchronize an entire folder from a machine (PC/MAC/Linux) that resides on a remote machine back to the Spectrum Next over the network (it is one way only). 
+This utility implements the "server" side the program that will 'listen' and waits for incoming connections from your Next. On your Next machine you will run the new custom dot ".sync4" (available in the Release binaries) command that connects to the server here ZX-Next-Unite. 
 
-Download Jari latest release and inside the zip dot folder you will find a file called "SYNC" and "SYNCFAST" (that allows faster transfer rates). Extract and copy that file in the /dot folder located on the root of your Spectrum Next SD card and boot it up as usual. Make sure WIFI is fully setup normally, that you can access the internet and your machine that will be running Py Hdfm gooey are on the same IP network and that no firewall blocks incoming communication on your "receiving" machine. By default, the custom protocol works on TCP port 2048.
-Start, python ZX-Next-Unite.py and navigate to NextSync tab. On the built in Explorer select the root folder you'd like to sync and hit the "Prepare NextSync server" button. At this point the server is ready to go but not running yet, this allows you to review the above log. The first time I recommend that you select the "Sync once" option so the server will stop after the first .sync run (once .sync is working use .syncfast instead if possible). 
+The latest release v4 of the dot .sync (now .sync4) command now supports a new protocol that allows to transfer files in a more efficient way and especially supports bidirectional transfers. The new protocol is backward compatible with the previous one, so you can still use the old .sync command if you want to.
+
+Download the latest release from the Release on https://github.com/jclauzel/ZX-Next-Unite/  folder you will find a file called ".SYNC4" (that allows faster transfer rates built in using -fast additional parameter). 
+Copy that file in the /dot folder located on the root of your Spectrum Next SD card and boot it up as usual. Make sure WIFI is fully setup normally, that you can access the internet and your machine that will be running ZX Next Unite are on the same IP network and that no firewall blocks incoming communication on your "receiving" machine. By default, the custom protocol works on TCP port 2048.
+Start, python ZX-Next-Unite.py and navigate to NextSync tab. On the built in Explorer select the root folder you'd like to sync and hit the "Start NextSync server" button. At this point the server is ready to go but not running yet, this allows you to review the above log. The first time I recommend that you select the "Sync once" option so the server will stop after the first .sync run (once .sync is working use .syncfast instead if possible). 
 Since this is the first time you will run the .sync command on your Spectrum Next, the command will ask you to input what IP address it needs to connect to. In the log Window you should the machine Primary IP address (on non Windows system you may need to run ipconfig/ifconfig to see all available IPs). Your machine DHCP address usually starting by 10.0.x.y or 192.168.x.y, select the 4x digit IP address digit you are going to use for the upcoming step below.
 
 On your Spectrum Next, select "Command Line" option and then simply type .sync and press enter. At this point as mentioned above it will request what IP address to connect to, so input the ip address selected above and press enter. 
@@ -139,7 +144,7 @@ On Mac/Linux you will need to install hdfmonkey manually based on the instructio
 NextSync 
 --------
 
-Py Hdfm Gooey implements the <Server> side code and protocol of NextSync by Jari Komppa.
+ZX Next Unite implements the <Server> side code and protocol of NextSync by Jari Komppa.
 It does not require any dot .sync modification and it uses the same very close python logic as nextsync.py.
 
 Initial realease on specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8 
@@ -226,7 +231,7 @@ Known issues
 * On other operating systems than Windows: you need to install, configure/compile manually hdfmonkey as well as mono (to be able to run Microsoft .NET on these platforms as Cspect is based on it).
 * Some files on the Spectrum Next image that contain special characters such as single quotes may not be downloaded / retrieved correctly. 
 * ESP/Wifi module errors may occur if connectivity is instable, if speed is too high you try reducing the flow by hitting the "Slow transfer" checkbox.
-* Jari provided a great "setup & how" to guide in the nextsync.txt file located in the https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2  nextsync12.zip file. If you hit any setup issue with NextSync you may want to start by using his command line version of it (nextsync.py). Once nextsync12 is able to run and sync it should be the case as well of Next Sync in Py Hdfm Gooey since it based on the same code base as Jari python.
+* Jari provided a great "setup & how" to guide in the nextsync.txt file located in the https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2  nextsync12.zip file. If you hit any setup issue with NextSync you may want to start by using his command line version of it (nextsync.py). Once nextsync12 is able to run and sync it should be the case as well of Next Sync in ZX Next Unite since it based on the same code base as Jari python.
 
 * When using NextSync the console may show some "Timer" messages, these may be safely ignored.
 
@@ -239,7 +244,7 @@ The first tab of ZX-Next-Unite is aimed at CSpect emulator users and developers.
 
 The second tab is designed for real hardware owners such as KS1, KS2 or other clones that also has an ESP (WIFI module). Jari designed a while back a custom protocol called NextSync that allows to synchronize an entire folder from a machine (PC/MAC/Linux) that resides on a remote machine back to the Spectrum Next over the network (it is one way only). This utility implements the “server” side the program that will ‘listen’ and waits for incoming connections from your Next. On your Next machine you will run the custom dot “.sync” or ".syncfast" command that connects to the server here ZX-Next-Unite. To set this up you will need first to download Jari zip package. The latest release v1.2 of the dot .sync command can be found here https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 . 
 
-Download Jari latest release and inside the zip dot folder you will find a file called “SYNC” and "SYNCFAST" (that allows faster transfer rates). Extract and copy that file in the /dot folder located on the root of your Spectrum Next SD card and boot it up as usual. Make sure WIFI is fully setup normally, that you can access the internet and your machine that will be running Py Hdfm gooey are on the same IP network and that no firewall blocks incoming communication on your “receiving” machine. By default, the custom protocol works on TCP port 2048.
+Download Jari latest release and inside the zip dot folder you will find a file called “SYNC” and "SYNCFAST" (that allows faster transfer rates). Extract and copy that file in the /dot folder located on the root of your Spectrum Next SD card and boot it up as usual. Make sure WIFI is fully setup normally, that you can access the internet and your machine that will be running ZX Next Unite are on the same IP network and that no firewall blocks incoming communication on your “receiving” machine. By default, the custom protocol works on TCP port 2048.
 Start, python ZX-Next-Unite.py and navigate to NextSync tab. On the built in Explorer select the root folder you’d like to sync and hit the “Prepare NextSync server” button. At this point the server is ready to go but not running yet, this allows you to review the above log. The first time I recommend that you select the “Sync once” option so the server will stop after the first .sync run (once .sync is working use .syncfast instead if possible). 
 Since this is the first time you will run the .sync command on your Spectrum Next, the command will ask you to input what IP address it needs to connect to. In the log Window you should the machine Primary IP address (on non Windows system you may need to run ipconfig/ifconfig to see all available IPs). Your machine DHCP address usually starting by 10.0.x.y or 192.168.x.y, select the 4x digit IP address digit you are going to use for the upcoming step below.
 
@@ -318,7 +323,7 @@ On Mac/Linux you will need to install hdfmonkey manually based on the instructio
 NextSync 
 --------
 
-Py Hdfm Gooey implements the <Server> side code and protocol of NextSync by Jari Komppa.
+ZX Next Unite implements the <Server> side code and protocol of NextSync by Jari Komppa.
 It does not require any dot .sync modification and it uses the same very close python logic as nextsync.py.
              
 Initial realease on specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8 
@@ -362,7 +367,7 @@ Known issues
 * On other operating systems than Windows: you need to install, configure/compile manually hdfmonkey as well as mono (to be able to run Microsoft .NET on these platforms as Cspect is based on it).
 * Some files on the Spectrum Next image that contain special characters such as single quotes may not be downloaded / retrieved correctly. 
 * ESP/Wifi module errors may occur if connectivity is instable, if speed is too high you try reducing the flow by hitting the “Slow transfer” checkbox.
-* Jari provided a great “setup & how” to guide in the nextsync.txt file located in the https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2  nextsync12.zip file. If you hit any setup issue with NextSync you may want to start by using his command line version of it (nextsync.py). Once nextsync12 is able to run and sync it should be the case as well of Next Sync in Py Hdfm Gooey since it based on the same code base as Jari python.
+* Jari provided a great “setup & how” to guide in the nextsync.txt file located in the https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2  nextsync12.zip file. If you hit any setup issue with NextSync you may want to start by using his command line version of it (nextsync.py). Once nextsync12 is able to run and sync it should be the case as well of Next Sync in ZX Next Unite since it based on the same code base as Jari python.
 
 * When using NextSync the console may show some “Timer” messages, these may be safely ignored.
 
