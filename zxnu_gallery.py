@@ -9,8 +9,8 @@ import webbrowser
 
 from zxnu_config import *
 from zxnu_media import *
-from PySide6.QtCore import QDir, QEvent, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QFontInfo, QPainter, QPixmap
+from PySide6.QtCore import QBuffer, QByteArray, QDir, QEvent, QIODevice, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QFontInfo, QMovie, QPainter, QPixmap
 from PySide6.QtWidgets import QAbstractItemView, QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTableWidget, QToolButton, QVBoxLayout, QWidget
 
 
@@ -1123,6 +1123,9 @@ class GalleryItemViewer(QWidget):
         self._shot_index     = 0
         self._shot_cache     = {}
         self._extra_fetch_cb = extra_fetch_cb
+        self._gif_fetch_cb   = None   # (url, on_bytes) raw-bytes fetcher for GIFs
+        self._movie          = None   # active QMovie for an animated GIF
+        self._movie_native   = None   # QSize of the GIF's native frame
         self._close_fn       = None   # set by install_into_stack()
         self._alien_overlay  = None   # optional Alien Floyd's animation overlay
         self._tags           = [str(t) for t in (tags or []) if t]
@@ -1356,6 +1359,7 @@ class GalleryItemViewer(QWidget):
     def set_screenshots(self, urls: list):
         """Replace screenshot list and restart slideshow."""
         self._timer.stop()
+        self._stop_movie()
         self._screenshots = list(urls or [])
         self._shot_index  = 0
         self._shot_cache  = {}
@@ -1378,6 +1382,10 @@ class GalleryItemViewer(QWidget):
             return
         for url in list(self._screenshots):
             if url in self._shot_cache:
+                continue
+            # Animated GIFs are played on demand (QMovie) in _show_index; don't
+            # pre-cache a single static frame for them here.
+            if self._gif_fetch_cb and self._url_is_gif(url):
                 continue
             def _on_px(pm, _u=url):
                 if pm is None or pm.isNull():
@@ -1675,6 +1683,7 @@ class GalleryItemViewer(QWidget):
 
     def _do_close(self):
         self._timer.stop()
+        self._stop_movie()
         if self._close_fn:
             self._close_fn()
 
@@ -1724,6 +1733,37 @@ class GalleryItemViewer(QWidget):
         url = self._screenshots[idx]
         self._shot_index = idx
         self._update_nav()
+        # Animated GIF path: fetch the raw bytes and play them with a QMovie so
+        # the picture animates instead of showing a single frame. Only taken for
+        # .gif URLs when a byte-fetcher is wired, so other formats (PNG, SCR, …)
+        # keep their existing QPixmap path untouched.
+        if self._gif_fetch_cb and self._url_is_gif(url):
+            self._stop_movie()
+            self._img_lbl.setPixmap(QPixmap())
+            self._img_lbl.setText("Loading…")
+            def _on_bytes(data, _u=url):
+                # Ignore a late result if the user navigated to another frame.
+                if (self._shot_index >= len(self._screenshots)
+                        or self._screenshots[self._shot_index] != _u):
+                    return
+                movie = self._make_movie(data)
+                if movie is not None:
+                    self._play_movie(movie)
+                    return
+                # Not actually an animated GIF — fall back to a static pixmap.
+                if data:
+                    pm = QPixmap()
+                    pm.loadFromData(QByteArray(data))
+                    if not pm.isNull():
+                        self._shot_cache[_u] = pm
+                        self._display_pixmap(pm)
+                        return
+                self._drop_bad_url(_u)
+            try:
+                self._gif_fetch_cb(url, _on_bytes)
+            except Exception:
+                self._drop_bad_url(url)
+            return
         cached = self._shot_cache.get(url)
         if cached is not None:
             self._display_pixmap(cached)
@@ -1774,9 +1814,80 @@ class GalleryItemViewer(QWidget):
             self._timer.stop()
         self._show_index(new_idx)
 
+    def set_gif_fetch_cb(self, cb):
+        """Register a callback ``cb(url, on_bytes)`` that fetches raw image bytes
+        off the UI thread and calls ``on_bytes(bytes_or_None)`` back on it. When
+        set, ``.gif`` screenshots are played as animations via ``QMovie``."""
+        self._gif_fetch_cb = cb
+
+    @staticmethod
+    def _url_is_gif(url) -> bool:
+        s = (url or "").lower().split("?", 1)[0].split("#", 1)[0]
+        return s.endswith(".gif")
+
+    def _make_movie(self, data):
+        """Build a looping QMovie from raw GIF *data*, or None if it is not an
+        animated GIF. The backing buffer is kept alive on the movie object."""
+        if not data or bytes(data[:4]) != b"GIF8":
+            return None
+        try:
+            ba = QByteArray(data)
+            buf = QBuffer(self)
+            buf.setData(ba)
+            buf.open(QIODevice.ReadOnly)
+            movie = QMovie(buf, b"gif", self)
+            if not movie.isValid():
+                return None
+            movie.setCacheMode(QMovie.CacheAll)
+            # Keep the buffer (and bytes) alive for the life of the movie.
+            movie._zxnu_keepalive = (ba, buf)
+            return movie
+        except Exception:
+            return None
+
+    def _stop_movie(self):
+        m = self._movie
+        self._movie = None
+        self._movie_native = None
+        if m is not None:
+            try:
+                m.stop()
+            except Exception:
+                pass
+
+    def _scale_movie_to_label(self):
+        if self._movie is None or self._movie_native is None:
+            return
+        lbl = self._img_lbl.size()
+        if (self._movie_native.width() > 0 and self._movie_native.height() > 0
+                and lbl.width() > 0 and lbl.height() > 0):
+            try:
+                self._movie.setScaledSize(
+                    self._movie_native.scaled(lbl, Qt.KeepAspectRatio))
+            except Exception:
+                pass
+
+    def _play_movie(self, movie):
+        self._stop_movie()
+        self._movie = movie
+        try:
+            movie.jumpToFrame(0)
+            self._movie_native = movie.currentImage().size()
+        except Exception:
+            self._movie_native = None
+        self._scale_movie_to_label()
+        self._img_lbl.setText("")
+        self._img_lbl.setMovie(movie)
+        try:
+            movie.start()
+        except Exception:
+            pass
+        self._position_tag_overlay()
+
     def _display_pixmap(self, pm: QPixmap):
         if pm is None or pm.isNull():
             return
+        self._stop_movie()
         sz = self._img_lbl.size()
         self._img_lbl.setPixmap(
             pm.scaled(sz, Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -1786,7 +1897,9 @@ class GalleryItemViewer(QWidget):
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
-        if self._screenshots and self._shot_index < len(self._screenshots):
+        if self._movie is not None:
+            self._scale_movie_to_label()
+        elif self._screenshots and self._shot_index < len(self._screenshots):
             cached = self._shot_cache.get(self._screenshots[self._shot_index])
             if cached:
                 self._display_pixmap(cached)

@@ -1974,6 +1974,16 @@ def getit_run_in_thread(fn, on_result, on_error):
     return t
 
 
+def _gif_fetch_bytes(url, on_bytes):
+    """Fetch raw image bytes for *url* off the UI thread and deliver them to
+    ``on_bytes(bytes_or_None)`` on the main thread. Used by GalleryItemViewer to
+    play animated GIFs (the static-image path stays QPixmap-based)."""
+    def _fn(_u=url):
+        return _http_fetch_bytes_with_retry(_u, timeout=20)
+    getit_run_in_thread(_fn, lambda data: on_bytes(data),
+                        lambda _e: on_bytes(None))
+
+
 
 
 
@@ -8847,7 +8857,7 @@ class MainWindow(QMainWindow):
         self.getit_send_ns_button.setEnabled(False)
 
         getit_right_col = QVBoxLayout()
-        _getit_link_label = QLabel('<a href="http://zxnext.uk">http://zxnext.uk</a>')
+        _getit_link_label = QLabel('<a href="https://zxnext.uk/">https://zxnext.uk/</a>')
         _getit_link_label.setOpenExternalLinks(True)
         _getit_link_label.setTextFormat(Qt.RichText)
         _getit_link_label.setAlignment(Qt.AlignCenter)
@@ -9182,7 +9192,11 @@ class MainWindow(QMainWindow):
             def _search_fn():
                 offset = (page - 1) * GETIT_PAGE_SIZE
                 if query:
-                    path = f"/f?s={urllib.parse.quote(query)}"
+                    # GetIt's /f search matches the (lowercased) title against
+                    # the query as sent, so a mixed-case query like "CSpect"
+                    # would miss. Send it lowercased to make it case-insensitive
+                    # (the displayed query keeps its original case).
+                    path = f"/f?s={urllib.parse.quote(query.lower())}"
                 else:
                     # Empty-search path (/f?s=) is the only endpoint that
                     # supports offset-based pagination; bare /f ignores ?o=.
@@ -9694,6 +9708,8 @@ class MainWindow(QMainWindow):
                 extra_fetch_cb=_getit_extra_fetch_url,
                 tags=_gallery_extract_tags(entry),
             )
+            if hasattr(viewer, "set_gif_fetch_cb"):
+                viewer.set_gif_fetch_cb(_gif_fetch_bytes)
             viewer.set_placeholder(_ph_label, title)
             _fav_entry_getit = {**entry, "_fav_source": "getit"}
             viewer.set_favorite_hooks(_fav_entry_getit, self._fav_is, self._fav_toggle)
@@ -9767,8 +9783,11 @@ class MainWindow(QMainWindow):
             self._getit_view_mode = mode
             self.getit_view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
             _table = (mode == "table")
+            # Keep the right column visible in both modes so the zxnext.uk site
+            # link stays shown (mirrors ZXDB/zxArt); only the preview screenshot
+            # and its buttons are hidden in Gallery mode.
             if hasattr(self, '_getit_right_widget'):
-                self._getit_right_widget.setVisible(_table)
+                self._getit_right_widget.setVisible(True)
             if hasattr(self, '_getit_preview_label'):
                 self._getit_preview_label.setVisible(_table)
             if hasattr(self, '_getit_preview_download_btn'):
@@ -12053,6 +12072,8 @@ class MainWindow(QMainWindow):
                 extra_fetch_cb=_zxdb_extra_fetch,
                 tags=_gallery_extract_tags(entry),
             )
+            if hasattr(viewer, "set_gif_fetch_cb"):
+                viewer.set_gif_fetch_cb(_gif_fetch_bytes)
             _fav_entry_zxdb = {**entry, "_fav_source": "zxdb"}
             viewer.set_favorite_hooks(_fav_entry_zxdb, self._fav_is, self._fav_toggle)
 
@@ -15131,6 +15152,8 @@ class MainWindow(QMainWindow):
                 extra_fetch_cb=_zxart_extra_fetch,
                 tags=_gallery_extract_tags(entry),
             )
+            if hasattr(viewer, "set_gif_fetch_cb"):
+                viewer.set_gif_fetch_cb(_gif_fetch_bytes)
             _fav_entry_zxart = {**entry, "_fav_source": "zxart"}
             viewer.set_favorite_hooks(_fav_entry_zxart, self._fav_is, self._fav_toggle)
 
@@ -16644,6 +16667,7 @@ class MainWindow(QMainWindow):
         self._itchio_collections  = []
         self._itchio_owned        = set()   # game-id strings the user owns
         self._itchio_library      = None    # cached collections+purchases for search
+        self._itchio_connected    = False   # True once a key has connected
         self._itchio_tab_widget   = None
 
         def _itchio_api_key():
@@ -16712,6 +16736,44 @@ class MainWindow(QMainWindow):
                 "view. Persisted across sessions in the config file.")
             _itchio_crow.addWidget(self.itchio_view_combo)
             _itchio_v.addLayout(_itchio_crow)
+
+            # --- Search row (filters the library: collections + purchases) ---
+            _itchio_srow = QHBoxLayout()
+            _itchio_srow.addWidget(QLabel("Search:"))
+            self.itchio_search_input = QLineEdit()
+            self.itchio_search_input.setPlaceholderText(
+                "Search your itch.io library (collections + purchases)…")
+            self.itchio_search_input.setClearButtonEnabled(True)
+            _itchio_srow.addWidget(self.itchio_search_input, 1)
+            self.itchio_search_button = QPushButton("Search")
+            _itchio_srow.addWidget(self.itchio_search_button)
+            _itchio_v.addLayout(_itchio_srow)
+
+            # Autocomplete over the library titles (populated once the library
+            # is built after Connect).
+            self._itchio_ac_model = QStringListModel(self)
+            _itchio_completer = QCompleter(self._itchio_ac_model, self)
+            _itchio_completer.setCompletionMode(QCompleter.PopupCompletion)
+            _itchio_completer.setCaseSensitivity(Qt.CaseInsensitive)
+            _itchio_completer.setFilterMode(Qt.MatchContains)
+            _itchio_popup = _itchio_completer.popup()
+            if _itchio_popup is not None:
+                _itchio_popup.setParent(self)
+                _itchio_popup.setWindowFlags(
+                    Qt.Popup | Qt.FramelessWindowHint | Qt.Window)
+                _itchio_popup.setAttribute(Qt.WA_ShowWithoutActivating)
+            self._itchio_completer = _itchio_completer
+            self.itchio_search_input.setCompleter(_itchio_completer)
+
+            def _itchio_update_completer():
+                lib = self._itchio_library or []
+                titles = sorted({(g.get("title") or "").strip()
+                                 for g in lib if g.get("title")})
+                try:
+                    self._itchio_ac_model.setStringList(titles)
+                except Exception:
+                    pass
+            self._itchio_update_completer = _itchio_update_completer
 
             self.itchio_status_label = QLabel("")
             self.itchio_status_label.setStyleSheet("color: #aaa;")
@@ -16948,13 +17010,13 @@ class MainWindow(QMainWindow):
                     screenshots=[cover] if cover else [],
                     extra_fetch_cb=_itchio_extra_fetch,
                 )
+                if hasattr(viewer, "set_gif_fetch_cb"):
+                    viewer.set_gif_fetch_cb(_gif_fetch_bytes)
                 viewer.set_placeholder("itch.io", title)
                 viewer.set_open_web_url(entry.get("url", ""), "itch.io")
                 viewer._itchio_busy = False   # True while an install runs
 
-                # Repurpose the Download button as the itch-dl "Install" action;
-                # neutral label until the off-thread status check resolves.
-                viewer.btn_download.setText("⬇  Install")
+                viewer._itchio_busy = False   # True while an install runs
 
                 def _itchio_open_install_folder(_=False, _e=entry):
                     """Open the item's install folder (or the itch.io downloads
@@ -16979,23 +17041,47 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
 
+                # The item viewer is either the Qt GalleryItemViewer (Classic
+                # mode, exposes btn_* QPushButtons) or the pygame PygameItemViewer
+                # (Unite! pygame mode, exposes an internal _buttons dict). These
+                # helpers drive whichever one we got so opening works in both.
+                def _itchio_label_button(_v, key, text):
+                    btn = getattr(_v, "btn_" + key, None)
+                    if btn is not None:
+                        try: btn.setText(text)
+                        except RuntimeError: pass
+                        return
+                    btns = getattr(_v, "_buttons", None)
+                    if isinstance(btns, dict) and key in btns:
+                        try:
+                            btns[key].label = text
+                            _v.redraw()
+                        except Exception:
+                            pass
+
+                def _itchio_enable_download(_v, on):
+                    btn = getattr(_v, "btn_download", None)
+                    if btn is not None:
+                        try: btn.setEnabled(bool(on))
+                        except RuntimeError: pass
+
                 def _itchio_refresh_install_buttons(_v, installed_flag):
-                    """Set the Install button label and reveal the 'Open install
-                    folder' button (the repurposed Send-to-SD button) only when
-                    the item is downloaded locally."""
-                    try:
-                        _v.btn_download.setText(
-                            "✓  Re-install" if installed_flag else "⬇  Install")
-                        if installed_flag:
-                            _v.btn_send_sd.setText("📂  Open install folder")
-                            _v.btn_send_sd.setToolTip(
+                    """Set the Install / Open-folder button labels for the current
+                    download state (works in Classic and pygame modes)."""
+                    _itchio_label_button(
+                        _v, "download",
+                        "✓  Re-install" if installed_flag else "⬇  Install")
+                    _itchio_label_button(
+                        _v, "send_sd",
+                        "📂  Open install folder" if installed_flag
+                        else "📂  Open download folder")
+                    sd_btn = getattr(_v, "btn_send_sd", None)
+                    if sd_btn is not None:
+                        try:
+                            sd_btn.setToolTip(
                                 zxnu_itchio.installed_path(entry, dest) or dest)
-                            _v.btn_send_sd.setEnabled(True)
-                            _v.btn_send_sd.setVisible(True)
-                        else:
-                            _v.btn_send_sd.setVisible(False)
-                    except RuntimeError:
-                        pass
+                        except RuntimeError:
+                            pass
 
                 def _chk_fn(_e=entry, _d=dest):
                     return zxnu_itchio.installed_status(_e, _d)
@@ -17007,7 +17093,7 @@ class MainWindow(QMainWindow):
                     try:
                         _v.refresh_meta(
                             title, base_rows + [("Status:", _status_text(installed_flag))])
-                    except RuntimeError:
+                    except Exception:
                         pass
                 def _chk_err(_e):
                     pass
@@ -17017,12 +17103,16 @@ class MainWindow(QMainWindow):
                     key = _itchio_api_key()
                     if not key:
                         _itchio_set_status("Enter your itch.io API key and Connect first.")
-                        _viewer.refresh_meta(title, base_rows + [
-                            ("Status:", "No API key — enter one on the itch.io tab.")])
+                        try:
+                            _viewer.refresh_meta(title, base_rows + [
+                                ("Status:", "No API key — enter one on the itch.io tab.")])
+                        except Exception:
+                            pass
                         return
-                    _viewer._itchio_busy = True
-                    _viewer.btn_download.setEnabled(False)
-                    _viewer.btn_download.setText("⬇  Installing…")
+                    try: _viewer._itchio_busy = True
+                    except RuntimeError: pass
+                    _itchio_enable_download(_viewer, False)
+                    _itchio_label_button(_viewer, "download", "⬇  Installing…")
                     _itchio_set_status(f"Installing “{title}” via itch-dl…")
                     def _fn(_g=_e, _k=key):
                         return zxnu_itchio.install_game(
@@ -17032,38 +17122,39 @@ class MainWindow(QMainWindow):
                         # The status label lives on the persistent tab, so it is
                         # always safe to update.
                         _itchio_set_status(msg)
-                        # The viewer may have been closed (its C++ widget torn
-                        # down) while the install ran on the worker thread; touch
-                        # it defensively so a late callback can't crash the app.
+                        # The viewer may have been closed while the install ran on
+                        # the worker thread; every viewer touch below is guarded.
+                        try: _v._itchio_busy = False
+                        except RuntimeError: pass
+                        _itchio_enable_download(_v, True)
+                        _itchio_refresh_install_buttons(
+                            _v, zxnu_itchio.installed_status(_e, dest) if ok else False)
                         try:
-                            _v._itchio_busy = False
-                            _v.btn_download.setEnabled(True)
-                            # Re-scan so the 'Open install folder' button appears
-                            # once the download has completed.
-                            _itchio_refresh_install_buttons(
-                                _v, zxnu_itchio.installed_status(_e, dest) if ok else False)
                             _v.refresh_meta(title, base_rows + [("Status:", msg)])
-                        except RuntimeError:
+                        except Exception:
                             pass
                     def _err(e, _v=_viewer):
                         _itchio_set_status(f"Install failed: {e}")
-                        try:
-                            _v._itchio_busy = False
-                            _v.btn_download.setEnabled(True)
-                            _v.btn_download.setText("⬇  Install")
-                        except RuntimeError:
-                            pass
+                        try: _v._itchio_busy = False
+                        except RuntimeError: pass
+                        _itchio_enable_download(_v, True)
+                        _itchio_label_button(_v, "download", "⬇  Install")
                     getit_run_in_thread(_fn, _ok, _err)
 
-                viewer.set_actions(download_cb=_install)
-                # itch.io items use Install, Open-install-folder and Open-on-
-                # website; the NextSync send button is not relevant. The
-                # Send-to-SD button is repurposed as 'Open install folder' and
-                # stays hidden until the item is found downloaded locally.
-                viewer.btn_send_ns.setVisible(False)
-                viewer.btn_download.setVisible(True)
-                viewer.btn_send_sd.clicked.connect(_itchio_open_install_folder)
-                viewer.btn_send_sd.setVisible(False)
+                # Wire actions through the abstract API so they work in both the
+                # Classic (Qt) and pygame item viewers: Install on the download
+                # button, Open-folder on the send-SD button. The NextSync send
+                # button is left unused (hidden).
+                viewer.set_actions(download_cb=_install,
+                                   send_sd_cb=_itchio_open_install_folder,
+                                   sd_enabled=True)
+                _ns_btn = getattr(viewer, "btn_send_ns", None)
+                if _ns_btn is not None:
+                    try: _ns_btn.setVisible(False)
+                    except RuntimeError: pass
+                # Neutral initial labels; the async status check upgrades them.
+                _itchio_label_button(viewer, "download", "⬇  Install")
+                _itchio_label_button(viewer, "send_sd", "📂  Open download folder")
 
                 if install:
                     viewer.install_into_stack(
@@ -17085,6 +17176,7 @@ class MainWindow(QMainWindow):
                     return zxnu_itchio.collection_games(_k, _c)
                 def _ok(games):
                     _itchio_populate(games)
+                    _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ITCHIO, len(games))
                     _itchio_set_status(f"{len(games)} item(s) in this collection.")
                     _aio = getattr(self, "_allinone_repopulate", None)
                     if _aio is not None:
@@ -17107,6 +17199,7 @@ class MainWindow(QMainWindow):
                     return zxnu_itchio.owned_games(_k)
                 def _ok(games):
                     _itchio_populate(games)
+                    _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ITCHIO, len(games))
                     _itchio_set_status(f"{len(games)} purchased / owned game(s).")
                     _aio = getattr(self, "_allinone_repopulate", None)
                     if _aio is not None:
@@ -17160,6 +17253,7 @@ class MainWindow(QMainWindow):
                     return (name, cols, owned)
                 def _ok(res):
                     _itchio_set_connecting(False)
+                    self._itchio_set_connected(True)
                     name, cols, owned = res
                     self._itchio_collections = cols
                     self._itchio_owned = owned
@@ -17192,12 +17286,58 @@ class MainWindow(QMainWindow):
                 getit_run_in_thread(_fn, _ok, _err)
             self._itchio_load_collections = _itchio_load_collections
 
-            def _itchio_on_connect():
+            def _itchio_set_connected(state):
+                """Reflect the connected state on the Connect/Disconnect button."""
+                self._itchio_connected = bool(state)
+                try:
+                    self.itchio_connect_button.setText(
+                        "Disconnect" if state else "Connect")
+                    self.itchio_connect_button.setToolTip(
+                        "Disconnect from itch.io and clear the listed items."
+                        if state else
+                        "Connect to itch.io using the API key above.")
+                except RuntimeError:
+                    pass
+            self._itchio_set_connected = _itchio_set_connected
+
+            def _itchio_do_connect():
                 key = self.itchio_key_input.text().strip()
                 configuration_dictionary[SETTING_ITCHIO_API_KEY] = key
                 if not self._initialising:
                     save_configuration_file()
                 _itchio_load_collections()
+
+            def _itchio_disconnect():
+                """Drop the connected session and clear all listed items. The
+                saved API key is kept so a single click reconnects."""
+                self._itchio_collections = []
+                self._itchio_owned = set()
+                self._itchio_library = None
+                self._itchio_last_entries = []
+                try:
+                    self.itchio_collection_combo.blockSignals(True)
+                    self.itchio_collection_combo.clear()
+                    self.itchio_collection_combo.blockSignals(False)
+                except RuntimeError:
+                    pass
+                _itchio_populate([])   # clear both gallery and table views
+                try: self._itchio_ac_model.setStringList([])
+                except Exception: pass
+                _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ITCHIO)
+                _itchio_set_connected(False)
+                _itchio_set_status("Disconnected. Click Connect to reconnect.")
+                # Drop itch.io items from the Unite! aggregate too.
+                _aio = getattr(self, "_allinone_repopulate", None)
+                if _aio is not None:
+                    try: _aio()
+                    except Exception: pass
+            self._itchio_disconnect = _itchio_disconnect
+
+            def _itchio_toggle_connect():
+                if self._itchio_connected:
+                    _itchio_disconnect()
+                else:
+                    _itchio_do_connect()
 
             def _itchio_on_collection_changed(_idx):
                 _itchio_load_selection(self.itchio_collection_combo.currentData())
@@ -17209,12 +17349,89 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
-            self.itchio_connect_button.clicked.connect(_itchio_on_connect)
-            self.itchio_key_input.returnPressed.connect(_itchio_on_connect)
-            self.itchio_refresh_button.clicked.connect(_itchio_on_connect)
+            def _itchio_on_search():
+                """Search the itch.io library (collections + purchases) from the
+                itch.io tab. When multi-search is enabled it also fans out to the
+                other source panes, mirroring their search boxes."""
+                q = self.itchio_search_input.text().strip()
+                if q and len(q) < SEARCH_MIN_CHARS:
+                    return
+                try:
+                    self._itchio_completer.popup().hide()
+                except Exception:
+                    pass
+                if not q:
+                    # Empty query → restore the current collection / purchases.
+                    _itchio_load_selection(self.itchio_collection_combo.currentData())
+                    _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ITCHIO)
+                    return
+                key = _itchio_api_key()
+                if not self._itchio_connected or not key:
+                    _itchio_set_status("Connect to itch.io first (enter your API key).")
+                    return
+                ql = q.lower()
+                cols = list(self._itchio_collections or [])
+                cached = self._itchio_library
+                _itchio_set_status(f"Searching your library for “{q}”…")
+                _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ITCHIO)
+                def _fn(_k=key, _cols=cols, _lib=cached):
+                    lib = _lib
+                    if lib is None:
+                        lib = zxnu_itchio.library_games(_k, _cols)
+                    return lib
+                def _ok(lib):
+                    self._itchio_library = lib
+                    self._itchio_update_completer()
+                    matches = [g for g in lib
+                               if ql in (g.get("title") or "").lower()
+                               or ql in (g.get("author") or "").lower()]
+                    _itchio_populate(matches)
+                    _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ITCHIO)
+                    _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ITCHIO, len(matches))
+                    _itchio_set_status(f"{len(matches)} result(s) for “{q}”.")
+                    _aio = getattr(self, "_allinone_repopulate", None)
+                    if _aio is not None:
+                        try: _aio()
+                        except Exception: pass
+                def _err(e):
+                    _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ITCHIO)
+                    _itchio_set_status(f"itch.io: {e}")
+                getit_run_in_thread(_fn, _ok, _err)
+                # Multi-search fan-out to the other panes (like getit_on_search).
+                if _multi_search_enabled():
+                    try: self.getit_search_input.setText(q)
+                    except Exception: pass
+                    if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                        try: self.zxdb_search_input.setText(q)
+                        except Exception: pass
+                    if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                        try: self.zxart_search_input.setText(q)
+                        except Exception: pass
+                    try:
+                        _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
+                        if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                            _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
+                        if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                            _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+                    except Exception:
+                        pass
+                    try: _cross_search_getit(q)
+                    except Exception: pass
+                    if ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
+                        try: _cross_search_zxdb(q)
+                        except Exception: pass
+                    if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
+                        try: _cross_search_zxart(q)
+                        except Exception: pass
+
+            self.itchio_connect_button.clicked.connect(_itchio_toggle_connect)
+            self.itchio_key_input.returnPressed.connect(_itchio_do_connect)
+            self.itchio_refresh_button.clicked.connect(_itchio_do_connect)
             self.itchio_collection_combo.currentIndexChanged.connect(
                 _itchio_on_collection_changed)
             self.itchio_getkey_button.clicked.connect(_itchio_on_getkey)
+            self.itchio_search_button.clicked.connect(_itchio_on_search)
+            self.itchio_search_input.returnPressed.connect(_itchio_on_search)
 
             def _itchio_prebuild_library():
                 """Fetch the combined library (collections + purchases) off the
@@ -17230,6 +17447,7 @@ class MainWindow(QMainWindow):
                 def _ok(lib):
                     self._itchio_library = lib
                     self._itchio_library_building = False
+                    self._itchio_update_completer()
                 def _err(_e):
                     self._itchio_library_building = False
                 getit_run_in_thread(_fn, _ok, _err)
@@ -17241,12 +17459,14 @@ class MainWindow(QMainWindow):
             # once (off the UI thread) and cached until the next Connect.
             def _itchio_cross_search(query, on_done=None):
                 key = _itchio_api_key()
-                if not key or not query:
+                # Only contribute to multi-search while actively connected.
+                if not self._itchio_connected or not key or not query:
                     if on_done: on_done()
                     return
                 q = query.strip().lower()
                 cols = list(self._itchio_collections or [])
                 cached = self._itchio_library
+                _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ITCHIO)
                 def _fn(_k=key, _cols=cols, _lib=cached):
                     lib = _lib
                     if lib is None:
@@ -17254,16 +17474,24 @@ class MainWindow(QMainWindow):
                     return lib
                 def _ok(lib):
                     self._itchio_library = lib   # cache for subsequent searches
+                    self._itchio_update_completer()
                     matches = [g for g in lib
                                if q in (g.get("title") or "").lower()
                                or q in (g.get("author") or "").lower()]
-                    self._itchio_last_entries = matches
+                    # Show the searched items on the itch.io tab itself (not just
+                    # in the Unite! aggregate), so opening the tab after a Unite!
+                    # search shows the matches.
+                    _itchio_populate(matches)
+                    _itchio_set_status(f"{len(matches)} result(s) for “{query}”.")
+                    _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ITCHIO)
+                    _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ITCHIO, len(matches))
                     _aio = getattr(self, "_allinone_repopulate", None)
                     if _aio is not None:
                         try: _aio()
                         except Exception: pass
                     if on_done: on_done()
                 def _err(_e):
+                    _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ITCHIO)
                     if on_done: on_done()
                 getit_run_in_thread(_fn, _ok, _err)
             self._itchio_cross_search = _itchio_cross_search
@@ -17458,6 +17686,11 @@ class MainWindow(QMainWindow):
                     self.zxart_search_input.setText(q)
                 except Exception:
                     pass
+            if getattr(self, "_itchio_connected", False):
+                try:
+                    self.itchio_search_input.setText(q)
+                except Exception:
+                    pass
             # Clear stale badges before searching.
             try:
                 _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
@@ -17465,6 +17698,8 @@ class MainWindow(QMainWindow):
                     _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
                 if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
                     _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
+                if getattr(self, "_itchio_connected", False):
+                    _clear_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ITCHIO)
             except Exception:
                 pass
             # Show the rotating-earth animation on the AllInOne tab while any
@@ -17477,10 +17712,9 @@ class MainWindow(QMainWindow):
             if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
                 sources.append(_cross_search_zxart)
             # itch.io joins the fan-out only when the optional tab is built and
-            # the user has configured an API key (i.e. is "logged in").
+            # the user is currently connected.
             _itch_search = getattr(self, "_itchio_cross_search", None)
-            _itch_on = bool(_itch_search) and bool(
-                (configuration_dictionary.get(SETTING_ITCHIO_API_KEY, "") or "").strip())
+            _itch_on = bool(_itch_search) and getattr(self, "_itchio_connected", False)
             if _itch_on:
                 sources.append(_itch_search)
 
