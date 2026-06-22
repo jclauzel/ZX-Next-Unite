@@ -9,7 +9,7 @@ import webbrowser
 
 from zxnu_config import *
 from zxnu_media import *
-from PySide6.QtCore import QBuffer, QByteArray, QDir, QEvent, QIODevice, QTimer, Qt, Signal
+from PySide6.QtCore import QBuffer, QByteArray, QDir, QEvent, QIODevice, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFontInfo, QMovie, QPainter, QPixmap
 from PySide6.QtWidgets import QAbstractItemView, QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTableWidget, QToolButton, QVBoxLayout, QWidget
 
@@ -74,6 +74,14 @@ class GalleryCell(QFrame):
         # re-sort.  Called whenever a non-placeholder pixmap is applied.
         self._pixmap_ready_cb = None
         self._last_applied_url = ""
+        # Animated-GIF playback (mirrors GalleryItemViewer).  When a gif-bytes
+        # fetcher is wired via set_gif_fetch_cb() and the current screenshot URL
+        # ends in ``.gif``, the thumbnail is played as a looping QMovie instead
+        # of a single static frame.
+        self._gif_fetch_cb = None     # (url, on_bytes) raw-bytes fetcher
+        self._movie        = None     # active QMovie for an animated GIF
+        self._movie_native = None     # QSize of the GIF's native frame
+        self._movie_url    = ""       # URL currently being played as a movie
 
         self.setFrameShape(QFrame.StyledPanel)
         self.setFrameShadow(QFrame.Plain)
@@ -188,6 +196,11 @@ class GalleryCell(QFrame):
         w = max(40, int(w))
         changed = abs(w - self._thumb_w) >= 4
         self._thumb_w = w
+        # A playing GIF is sized to the same 4:3 box; rescale the movie to the
+        # new width without tearing it down.
+        if self._movie is not None:
+            self._scale_movie_to_label()
+            return changed
         # Always rescale the current pixmap. Even when the requested width is
         # unchanged, the pixmap may have been left at the wrong size after
         # returning from a fullscreen / in-pane viewer where the underlying
@@ -356,6 +369,18 @@ class GalleryCell(QFrame):
         except RuntimeError:
             return False
 
+    def set_gif_fetch_cb(self, cb):
+        """Register a callback ``cb(url, on_bytes)`` that fetches raw image bytes
+        off the UI thread and calls ``on_bytes(bytes_or_None)`` back on it. When
+        set, ``.gif`` thumbnails are played as animations via ``QMovie`` instead
+        of being shown as a single static frame."""
+        self._gif_fetch_cb = cb
+
+    @staticmethod
+    def _url_is_gif(url) -> bool:
+        s = (url or "").lower().split("?", 1)[0].split("#", 1)[0]
+        return s.endswith(".gif")
+
     def set_screenshots(self, urls):
         """Replace the list of cycle-able image URLs. The first entry is also
         the main thumbnail (used immediately if already cached)."""
@@ -363,7 +388,12 @@ class GalleryCell(QFrame):
             return
         urls = [u for u in (urls or []) if u]
         self._screenshots = urls
-        if urls and urls[0] in self._shot_cache:
+        # An animated GIF first frame is played as a looping QMovie rather than
+        # shown as a static thumbnail (the prefetch below skips gif URLs when a
+        # byte-fetcher is wired, so we don't download the same gif twice).
+        if urls and self._gif_fetch_cb and self._url_is_gif(urls[0]):
+            self._show_index(0)
+        elif urls and urls[0] in self._shot_cache:
             self._apply_pixmap(self._shot_cache[urls[0]])
         self._maybe_start_anim()
         # Proactively validate every URL so broken ones (HTTP 404, network
@@ -384,6 +414,10 @@ class GalleryCell(QFrame):
             return
         for url in list(self._screenshots):
             if url in self._shot_cache:
+                continue
+            # Animated GIFs are played on demand (QMovie) in _show_index; don't
+            # also download them here as a static frame.
+            if self._gif_fetch_cb and self._url_is_gif(url):
                 continue
             def _on_px(pm, _u=url):
                 if not self._is_alive():
@@ -411,7 +445,12 @@ class GalleryCell(QFrame):
         if self._shot_index < len(self._screenshots):
             cur_url = self._screenshots[self._shot_index]
             if not url or cur_url == url:
-                self._apply_pixmap(pm)
+                # Don't let a static poster frame stop (or pre-empt) a gif that
+                # is, or should be, animating — play it via QMovie instead.
+                if self._gif_fetch_cb and self._url_is_gif(cur_url):
+                    self._show_index(self._shot_index)
+                else:
+                    self._apply_pixmap(pm)
 
     # ---- events --------------------------------------------------------
 
@@ -460,6 +499,26 @@ class GalleryCell(QFrame):
         self._position_source_overlay()
         self._position_heart()
         super().resizeEvent(ev)
+
+    def hideEvent(self, ev):
+        # Pause animation while the cell is off-screen (e.g. the pane switched
+        # to the item viewer or another tab) so hidden gifs don't burn CPU.
+        self._timer.stop()
+        if self._movie is not None:
+            try:
+                self._movie.setPaused(True)
+            except Exception:
+                pass
+        super().hideEvent(ev)
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        if self._movie is not None:
+            try:
+                self._movie.setPaused(False)
+            except Exception:
+                pass
+        self._maybe_start_anim()
 
     # ---- internals -----------------------------------------------------
 
@@ -540,6 +599,13 @@ class GalleryCell(QFrame):
         if not self._screenshots:
             return
         url = self._screenshots[idx]
+        # Animated GIF path: fetch raw bytes and play them with a QMovie so the
+        # thumbnail animates instead of showing a single frame.  Only taken for
+        # .gif URLs when a byte-fetcher is wired, so PNG/SCR/etc. keep their
+        # existing static-pixmap path untouched.
+        if self._gif_fetch_cb and self._url_is_gif(url):
+            self._play_gif(url)
+            return
         cached = self._shot_cache.get(url)
         if cached is not None:
             self._apply_pixmap(cached)
@@ -605,11 +671,123 @@ class GalleryCell(QFrame):
             return None
         return self._shot_cache.get(self._screenshots[self._shot_index])
 
+    # ---- animated GIF playback -----------------------------------------
+
+    def _play_gif(self, url):
+        """Fetch *url*'s raw bytes and play it as a looping QMovie thumbnail.
+        Falls back to a single static frame when the data is not a GIF."""
+        if not self._gif_fetch_cb or not self._is_alive():
+            return
+        # Already playing this exact gif — leave it running.
+        if self._movie is not None and self._movie_url == url:
+            return
+        def _on_bytes(data, _u=url):
+            if not self._is_alive():
+                return
+            # Ignore a late result if the cell cycled to another frame.
+            if (self._shot_index >= len(self._screenshots)
+                    or self._screenshots[self._shot_index] != _u):
+                return
+            movie = self._make_movie(data)
+            if movie is not None:
+                self._play_movie(movie, _u)
+                return
+            # Not an animated GIF after all — show a single static frame.
+            if data:
+                pm = QPixmap()
+                pm.loadFromData(QByteArray(data))
+                if not pm.isNull():
+                    self._shot_cache[_u] = pm
+                    self._apply_pixmap(pm)
+                    return
+            self._drop_bad_url(_u)
+        try:
+            self._gif_fetch_cb(url, _on_bytes)
+        except Exception:
+            self._drop_bad_url(url)
+
+    def _make_movie(self, data):
+        """Build a looping QMovie from raw GIF *data*, or None if it is not an
+        animated GIF. The backing buffer is kept alive on the movie object."""
+        if not data or bytes(data[:4]) != b"GIF8":
+            return None
+        try:
+            ba = QByteArray(data)
+            buf = QBuffer(self)
+            buf.setData(ba)
+            buf.open(QIODevice.ReadOnly)
+            movie = QMovie(buf, b"gif", self)
+            if not movie.isValid():
+                return None
+            movie.setCacheMode(QMovie.CacheAll)
+            # Keep the buffer (and bytes) alive for the life of the movie.
+            movie._zxnu_keepalive = (ba, buf)
+            return movie
+        except Exception:
+            return None
+
+    def _stop_movie(self):
+        m = self._movie
+        self._movie = None
+        self._movie_native = None
+        self._movie_url = ""
+        if m is not None:
+            try:
+                m.stop()
+            except Exception:
+                pass
+
+    def _scale_movie_to_label(self):
+        if self._movie is None or self._movie_native is None:
+            return
+        nw = self._movie_native.width()
+        nh = self._movie_native.height()
+        if nw <= 0 or nh <= 0:
+            return
+        # Mirror the static-pixmap sizing: a 4:3 box driven by the width last
+        # requested by the parent view (see _apply_pixmap for why we ignore the
+        # live QLabel geometry here).
+        target_w = max(40, int(self._thumb_w))
+        box = QSize(target_w, int(target_w * 3 / 4))
+        try:
+            self._movie.setScaledSize(QSize(nw, nh).scaled(box, Qt.KeepAspectRatio))
+        except Exception:
+            pass
+
+    def _play_movie(self, movie, url=""):
+        self._stop_movie()
+        self._movie = movie
+        self._movie_url = url
+        try:
+            movie.jumpToFrame(0)
+            self._movie_native = movie.currentImage().size()
+        except Exception:
+            self._movie_native = None
+        self._scale_movie_to_label()
+        self._thumb_lbl.setText("")
+        self._thumb_lbl.setMovie(movie)
+        try:
+            movie.start()
+        except Exception:
+            pass
+        # A playing animation is a real picture: stop the initial-fetch retry
+        # loop and surface it to the parent view's image-first bookkeeping.
+        self._loaded_ok = True
+        try:
+            self._retry_timer.stop()
+        except Exception:
+            pass
+        self._position_tag_overlay()
+        self._position_source_overlay()
+        self._position_heart()
+
     def _apply_pixmap(self, pm: QPixmap):
         if pm is None or pm.isNull():
             return
         if not self._is_alive():
             return
+        # A static frame replaces any animation currently playing.
+        self._stop_movie()
         # The pixmap width is driven exclusively by the value last requested
         # by the parent GalleryView (set_thumb_width).  We deliberately ignore
         # QLabel.width() here: live geometry can momentarily report a much
@@ -710,6 +888,9 @@ class GalleryView(QWidget):
         self._resort_timer.timeout.connect(self._resort_for_images)
         self._cells = []
         self._selected_cell = None
+        # Optional raw-GIF byte fetcher propagated to every cell so .gif
+        # thumbnails animate (QMovie).  Wired by the owning pane.
+        self._gif_fetch_cb = None
 
         # Let the transparent window background (BackgroundWidget) show through
         # any empty area of the grid.  The populated cells keep their own
@@ -745,6 +926,16 @@ class GalleryView(QWidget):
         lay.addWidget(self._table)
 
         self._table.viewport().installEventFilter(self)
+
+    def set_gif_fetch_cb(self, cb):
+        """Wire a raw-GIF byte fetcher ``cb(url, on_bytes)`` so .gif thumbnails
+        animate (QMovie) in every cell, current and future."""
+        self._gif_fetch_cb = cb
+        for cell in self._cells:
+            try:
+                cell.set_gif_fetch_cb(cb)
+            except Exception:
+                pass
 
     def page_size(self) -> int:
         try:
@@ -895,6 +1086,10 @@ class GalleryView(QWidget):
                 source_label_getter=self._source_label_getter,
                 source_overlay_anchor=self._source_overlay_anchor,
             )
+            # Wire the gif fetcher before the cell's deferred initial fetch
+            # runs so .gif thumbnails take the QMovie animation path.
+            if self._gif_fetch_cb is not None:
+                cell.set_gif_fetch_cb(self._gif_fetch_cb)
             cell.set_thumb_width(col_w)
             cell.clicked.connect(self._on_cell_clicked)
             cell.dbl_clicked.connect(self._on_cell_dbl_clicked)

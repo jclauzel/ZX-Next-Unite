@@ -1976,8 +1976,9 @@ def getit_run_in_thread(fn, on_result, on_error):
 
 def _gif_fetch_bytes(url, on_bytes):
     """Fetch raw image bytes for *url* off the UI thread and deliver them to
-    ``on_bytes(bytes_or_None)`` on the main thread. Used by GalleryItemViewer to
-    play animated GIFs (the static-image path stays QPixmap-based)."""
+    ``on_bytes(bytes_or_None)`` on the main thread. Used by GalleryItemViewer and
+    by the gallery thumbnail cells (GalleryCell) to play animated GIFs as a
+    looping QMovie (the static-image path stays QPixmap-based)."""
     def _fn(_u=url):
         return _http_fetch_bytes_with_retry(_u, timeout=20)
     getit_run_in_thread(_fn, lambda data: on_bytes(data),
@@ -9041,6 +9042,8 @@ class MainWindow(QMainWindow):
             is_favorite_cb=lambda e: self._fav_is({**e, "_fav_source": "getit"}),
             toggle_favorite_cb=lambda e: self._fav_toggle({**e, "_fav_source": "getit"}),
         )
+        # Animate .gif thumbnails (QMovie) just like the in-pane item viewer.
+        self.getit_gallery_view.set_gif_fetch_cb(_gif_fetch_bytes)
         self._fav_fetchers = getattr(self, "_fav_fetchers", {})
         self._fav_fetchers["getit"] = {
             "thumb": _getit_thumb_fetch,
@@ -10680,6 +10683,8 @@ class MainWindow(QMainWindow):
             toggle_favorite_cb=lambda e: self._fav_toggle({**e, "_fav_source": "zxdb"}),
             tooltip_getter=_zxdb_tooltip_getter,
         )
+        # Animate .gif thumbnails (QMovie) just like the in-pane item viewer.
+        self.zxdb_gallery_view.set_gif_fetch_cb(_gif_fetch_bytes)
         self._fav_fetchers = getattr(self, "_fav_fetchers", {})
         self._fav_fetchers["zxdb"] = {
             "thumb": _zxdb_thumb_fetch,
@@ -13755,6 +13760,8 @@ class MainWindow(QMainWindow):
             toggle_favorite_cb=lambda e: self._fav_toggle({**e, "_fav_source": "zxart"}),
             tooltip_getter=_zxart_tooltip_getter,
         )
+        # Animate .gif thumbnails (QMovie) just like the in-pane item viewer.
+        self.zxart_gallery_view.set_gif_fetch_cb(_gif_fetch_bytes)
         self._fav_fetchers = getattr(self, "_fav_fetchers", {})
         self._fav_fetchers["zxart"] = {
             "thumb": _zxart_thumb_fetch,
@@ -16269,6 +16276,8 @@ class MainWindow(QMainWindow):
             toggle_favorite_cb=lambda e: self._fav_toggle(e),
             source_label_getter=self._fav_source_label_for,
         )
+        # Animate .gif thumbnails (QMovie) just like the in-pane item viewer.
+        self.favorites_gallery_view.set_gif_fetch_cb(_gif_fetch_bytes)
 
         def _fav_open_fullscreen(entry):
             if not isinstance(entry, dict):
@@ -16516,6 +16525,8 @@ class MainWindow(QMainWindow):
             source_label_getter=_allinone_source_label,
             source_overlay_anchor="bottomright",
         )
+        # Animate .gif thumbnails (QMovie) just like the in-pane item viewer.
+        self.allinone_gallery_view.set_gif_fetch_cb(_gif_fetch_bytes)
 
         def _allinone_on_cell_dbl_clicked(entry):
             try:
@@ -16868,6 +16879,8 @@ class MainWindow(QMainWindow):
                 source_label_getter=lambda _e: "itch.io",
                 source_overlay_anchor="bottomleft",
             )
+            # Animate .gif thumbnails (QMovie) just like the in-pane item viewer.
+            self.itchio_gallery_view.set_gif_fetch_cb(_gif_fetch_bytes)
             # Table view (index 0) flipped via the View combo; default Gallery.
             self.itchio_results_table = QTableWidget(0, 3)
             self.itchio_results_table.setHorizontalHeaderLabels(
