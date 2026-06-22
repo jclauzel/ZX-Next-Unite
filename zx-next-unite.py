@@ -314,6 +314,7 @@ from zxnu_config import *
 from zxnu_workers import *
 from zxnu_media import *
 from zxnu_gallery import *
+import zxnu_itchio
 # ----------------------------------------------------------------------
 
 
@@ -2256,6 +2257,7 @@ class MainWindow(QMainWindow):
         self._zxart_view_mode        = "gallery"
         self._favorites_view_mode    = "gallery"
         self._allinone_view_mode     = "gallery"
+        self._itchio_view_mode       = "gallery"
 
         # Shared gate for search autocomplete. Honours the Settings checkbox
         # (and the persisted SETTING_SEARCH_AUTOCOMPLETE value) so every pane's
@@ -2771,6 +2773,7 @@ class MainWindow(QMainWindow):
                     (SETTING_ZXART_VIEW_MODE, "_zxart_view_mode"),
                     (SETTING_FAVORITES_VIEW_MODE, "_favorites_view_mode"),
                     (SETTING_ALLINONE_VIEW_MODE, "_allinone_view_mode"),
+                    (SETTING_ITCHIO_VIEW_MODE, "_itchio_view_mode"),
                 ):
                     if _pane_key in configuration_dictionary and configuration_dictionary[_pane_key] != "":
                         val = configuration_dictionary[_pane_key].strip().lower()
@@ -2830,6 +2833,49 @@ class MainWindow(QMainWindow):
                         self.nextsync_pygame_button.setChecked(True)
                     finally:
                         self._nextsync_pygame_restoring = False
+
+                # Restore the SD Card retro 8-bit log mode the same way.
+                _sdcard_pg_pref = configuration_dictionary.get(
+                    SETTING_SDCARD_PYGAME_LOG, "").strip().lower()
+                if _sdcard_pg_pref in ("true", "1", "yes") and \
+                        hasattr(self, "main_pygame_button") and \
+                        not self.main_pygame_button.isChecked():
+                    self._main_pygame_restoring = True
+                    try:
+                        self.main_pygame_button.setChecked(True)
+                    finally:
+                        self._main_pygame_restoring = False
+
+                # itch.io tab: prefill the saved API key and apply the saved
+                # show/hide preference (the tab is built visible by default).
+                try:
+                    _key_field = getattr(self, "itchio_key_input", None)
+                    if _key_field is not None:
+                        _key_field.setText(
+                            configuration_dictionary.get(SETTING_ITCHIO_API_KEY, "") or "")
+                    _itch_show_pref = configuration_dictionary.get(
+                        SETTING_SHOW_ITCHIO_TAB, "").strip().lower()
+                    _itch_show = _itch_show_pref not in ("false", "0", "no")  # default on
+                    _itch_cb = getattr(self, "settings_show_itchio_tab_checkbox", None)
+                    if _itch_cb is not None and _itch_cb.isEnabled():
+                        _itch_cb.blockSignals(True)
+                        _itch_cb.setChecked(_itch_show)
+                        _itch_cb.blockSignals(False)
+                    _itch_fn = getattr(self, "_itchio_tab_set_visible", None)
+                    if _itch_fn is not None:
+                        _itch_fn(_itch_show)
+                    # Auto-connect once at startup when the tab is enabled and a
+                    # key was saved, so collections are ready without the user
+                    # having to click Connect.
+                    _itch_load = getattr(self, "_itchio_load_collections", None)
+                    _itch_key = (configuration_dictionary.get(
+                        SETTING_ITCHIO_API_KEY, "") or "").strip()
+                    if (_itch_show and _itch_key and _itch_load is not None
+                            and not getattr(self, "_itchio_autoconnected", False)):
+                        self._itchio_autoconnected = True
+                        QTimer.singleShot(0, _itch_load)
+                except Exception:
+                    pass
 
                 # Alien Floyd's (pygame-ce) optional background + dedicated tab
                 # (both default off). Disable the controls when pygame-ce is not
@@ -3486,6 +3532,15 @@ class MainWindow(QMainWindow):
             newItem = QListWidgetItem()
             newItem.setText(string_to_log)
             self.listWidgetLog.insertItem(0, newItem)
+
+            # Mirror into the optional retro 8-bit pygame log (terminal-style,
+            # newest at the bottom) whenever it has been built.
+            retro = getattr(self, "_main_retro_log", None)
+            if retro is not None:
+                try:
+                    retro.append(string_to_log)
+                except Exception:
+                    pass
 
         def add_nextsync_log_window(string_to_log:str, from_top:bool = True):
 
@@ -4705,12 +4760,14 @@ class MainWindow(QMainWindow):
             action_copy_text = QAction("Copy text to clipboard", self.treeview)
             action_copy_path = QAction("Copy path to clipboard", self.treeview)
             action_copy = QAction("Copy", self.treeview)
+            action_cut = QAction("Cut", self.treeview)
             action_paste = QAction("Paste", self.treeview)
             action_newdir = QAction("Create new directory…", self.treeview)
             action_rename = QAction("Rename", self.treeview)
             action_copy_text.triggered.connect(lambda: QGuiApplication.clipboard().setText(name))
             action_copy_path.triggered.connect(lambda: QGuiApplication.clipboard().setText(file_path))
-            action_copy.triggered.connect(_local_explorer_copy_selection)
+            action_copy.triggered.connect(lambda: _local_explorer_copy_selection())
+            action_cut.triggered.connect(lambda: _local_explorer_copy_selection(mode="cut"))
             action_paste.setEnabled(_explorer_clipboard_has_items())
             action_paste.triggered.connect(lambda: QTimer.singleShot(0, lambda: _explorer_paste_into_local(
                 new_dir_target, local_explorer_refresh, add_main_log_window)))
@@ -4725,6 +4782,7 @@ class MainWindow(QMainWindow):
             menu.addAction(action_copy_path)
             menu.addSeparator()
             menu.addAction(action_copy)
+            menu.addAction(action_cut)
             menu.addAction(action_paste)
             menu.addAction(action_newdir)
             menu.addAction(action_rename)
@@ -4811,13 +4869,16 @@ class MainWindow(QMainWindow):
             finally:
                 local_explorer_refresh()
 
-        def local_explorer_import_external_paths(paths, dest_dir, refresh_fn=None):
+        def local_explorer_import_external_paths(paths, dest_dir, refresh_fn=None,
+                                                 on_complete=None):
             """Copy files/folders dropped from the OS file manager into dest_dir
             (local filesystem) on a background thread with a progress dialog.
             Reuses the shared copy worker; never overwrites (name clashes get a
             '-(copy)' suffix) and refreshes the explorer when done. *refresh_fn*
             selects which explorer to re-stat (defaults to the SD-card local one);
-            the NextSync paste passes its own refresher."""
+            the NextSync paste passes its own refresher. *on_complete*, when given,
+            is called with a single bool (True only if the transfer finished without
+            error or cancellation) — used by cut+paste to remove the source after."""
             if not dest_dir or not os.path.isdir(dest_dir):
                 add_main_log_window("Import failed: no valid destination folder.")
                 return
@@ -4839,20 +4900,27 @@ class MainWindow(QMainWindow):
                 items.append((src, target, src_is_dir))
 
             if not items:
+                if on_complete:
+                    on_complete(False)
                 return
 
             dlg    = HdfProgressDialog("Importing into folder…", self)
             worker = HdfTaskWorker(_run_nextsync_import_task, items)
+            outcome = {"error": False, "cancelled": False}
 
             dlg.cancel_requested.connect(worker.cancel)
             worker.signals.progress.connect(dlg.set_progress)
             worker.signals.status.connect(dlg.set_status)
             worker.signals.error.connect(add_main_log_window)
+            worker.signals.error.connect(lambda *_: outcome.update(error=True))
             worker.signals.cancelled.connect(dlg.mark_cancelled)
+            worker.signals.cancelled.connect(lambda: outcome.update(cancelled=True))
 
             def _on_local_import_finished():
                 dlg.close()
                 (refresh_fn or local_explorer_refresh)()
+                if on_complete:
+                    on_complete(not outcome["error"] and not outcome["cancelled"])
 
             worker.signals.finished.connect(_on_local_import_finished)
             self.threadpool.start(worker)
@@ -4893,6 +4961,7 @@ class MainWindow(QMainWindow):
             action_copy_path = QAction("Copy path to clipboard", self.nextsync_treeview)
             action_newdir = QAction("Create new directory…", self.nextsync_treeview)
             action_copy = QAction("Copy", self.nextsync_treeview)
+            action_cut = QAction("Cut", self.nextsync_treeview)
             action_paste = QAction("Paste", self.nextsync_treeview)
             action_rename = QAction("Rename", self.nextsync_treeview)
             action_delete = QAction("Delete", self.nextsync_treeview)
@@ -4900,6 +4969,7 @@ class MainWindow(QMainWindow):
             action_copy_text.triggered.connect(lambda: QGuiApplication.clipboard().setText(name))
             action_copy_path.triggered.connect(lambda: QGuiApplication.clipboard().setText(file_path))
             action_copy.triggered.connect(lambda: nextsync_copy_explorer_item(file_path))
+            action_cut.triggered.connect(lambda: nextsync_copy_explorer_item(file_path, mode="cut"))
             # Defer the dialog-showing actions until after the context menu's modal
             # event loop has closed: showing a QMessageBox/QInputDialog from inside
             # menu.exec() fights the menu's input grab and can hang the UI.
@@ -4913,6 +4983,7 @@ class MainWindow(QMainWindow):
             menu.addSeparator()
             menu.addAction(action_newdir)
             menu.addAction(action_copy)
+            menu.addAction(action_cut)
             menu.addAction(action_paste)
             menu.addAction(action_rename)
             menu.addAction(action_delete)
@@ -4949,12 +5020,12 @@ class MainWindow(QMainWindow):
             finally:
                 nextsync_refresh_explorer()
 
-        def nextsync_copy_explorer_item(file_path):
-            """Remember a file/folder for a later Paste. Routed through the shared
-            cross-explorer clipboard so Copy/Paste works between the NextSync
-            explorer, the SD-card local explorer and the SD-card image."""
+        def nextsync_copy_explorer_item(file_path, mode="copy"):
+            """Remember a file/folder for a later Paste (or Cut, when mode='cut').
+            Routed through the shared cross-explorer clipboard so Copy/Cut/Paste work
+            between the NextSync explorer, the SD-card local explorer and the image."""
             _explorer_clipboard_set("local", [(file_path, os.path.isdir(file_path))],
-                                    add_nextsync_log_window)
+                                    add_nextsync_log_window, mode=mode)
 
         def _nextsync_unique_path(path, is_dir):
             """Return path, or a non-colliding '-(copy)' variant if it already exists."""
@@ -5488,7 +5559,8 @@ class MainWindow(QMainWindow):
             self.threadpool.start(worker)
             dlg.exec()
 
-        def image_get_paths_to_local(image_items, dest_dir, refresh_fn=None):
+        def image_get_paths_to_local(image_items, dest_dir, refresh_fn=None,
+                                     on_complete=None):
             """Download image entries dragged out of the SD-card image tree into a
             local folder. *image_items* is a list of (image_path, is_dir); *dest_dir*
             is the local directory the drop landed on. This is the drag-and-drop
@@ -5533,23 +5605,28 @@ class MainWindow(QMainWindow):
             dlg    = HdfProgressDialog("Downloading from image…", self)
             worker = HdfTaskWorker(_run_get_task, image_path, items, dest,
                                    directory_navigation, is_windows)
+            outcome = {"error": False, "cancelled": False}
 
             dlg.cancel_requested.connect(worker.cancel)
             worker.signals.progress.connect(dlg.set_progress)
             worker.signals.status.connect(dlg.set_status)
             worker.signals.error.connect(add_main_log_window)
+            worker.signals.error.connect(lambda *_: outcome.update(error=True))
             worker.signals.cancelled.connect(dlg.mark_cancelled)
+            worker.signals.cancelled.connect(lambda: outcome.update(cancelled=True))
 
             def _on_get_finished():
                 dlg.close()
                 (refresh_fn or local_explorer_refresh)()
                 set_all_buttons_enabled()
+                if on_complete:
+                    on_complete(not outcome["error"] and not outcome["cancelled"])
 
             worker.signals.finished.connect(_on_get_finished)
             self.threadpool.start(worker)
             dlg.exec()
 
-        # ── Shared cross-explorer clipboard (Ctrl+C / Ctrl+V) ─────────────────
+        # ── Shared cross-explorer clipboard (Ctrl+C / Ctrl+V / Ctrl+X) ─────────
         # One buffer drives Copy/Paste across all three explorers: the SD-card
         # local tree, the NextSync local tree and the SD-card image tree. It
         # remembers the source kind ('local' real files vs 'image' in-image
@@ -5586,39 +5663,82 @@ class MainWindow(QMainWindow):
             return [u.toLocalFile() for u in md.urls()
                     if u.isLocalFile() and u.toLocalFile()]
 
-        def _explorer_clipboard_set(source, items, log_fn=None):
+        def _os_clipboard_is_cut():
+            """True when the files on the system clipboard were *cut* (move) rather
+            than copied. Windows records this in the 'Preferred DropEffect' clipboard
+            format — a little-endian DWORD where bit 1 (value 2) is DROPEFFECT_MOVE
+            and bit 2 (value 5/copy) is a plain copy. Other OS file managers have no
+            such convention, so a cut there is indistinguishable from a copy and we
+            conservatively treat it as a copy."""
+            try:
+                md = QGuiApplication.clipboard().mimeData()
+                if md is None:
+                    return False
+                # Qt exposes the raw Windows clipboard format under a mangled name;
+                # accept both the friendly and the qt-windows-mime spellings.
+                for fmt in ("Preferred DropEffect",
+                            'application/x-qt-windows-mime;value="Preferred DropEffect"'):
+                    if md.hasFormat(fmt):
+                        raw = bytes(md.data(fmt))
+                        if len(raw) >= 4:
+                            effect = int.from_bytes(raw[:4], "little")
+                            # DROPEFFECT_COPY == 1, DROPEFFECT_MOVE == 2: a cut sets
+                            # the move bit (copy sets only bit 0, so 1 & 2 == 0).
+                            return bool(effect & 2)
+            except Exception:
+                pass
+            return False
+
+        def _explorer_clipboard_set(source, items, log_fn=None, mode="copy"):
             items = [(p, bool(d)) for (p, d) in items if p]
             if not items:
                 return
-            self._explorer_clipboard = {"source": source, "items": items}
+            self._explorer_clipboard = {"source": source, "items": items, "mode": mode}
             self._explorer_clip_serial = _next_clip_serial()
             if log_fn:
                 names = ", ".join(os.path.basename(p.rstrip("/\\")) or p
                                   for p, _ in items[:3])
                 more = "" if len(items) <= 3 else f" (+{len(items) - 3} more)"
-                log_fn(f"Copied to clipboard: {names}{more}")
+                verb = "Cut to" if mode == "cut" else "Copied to"
+                log_fn(f"{verb} clipboard: {names}{more}")
+
+        def _explorer_clipboard_clear():
+            """Forget the internal clipboard buffer (used after a cut+paste move so
+            a second paste cannot duplicate or re-move the now-relocated source)."""
+            self._explorer_clipboard = None
+            self._explorer_clip_serial = _next_clip_serial()
 
         def _explorer_effective_clip():
             """Resolve which copy source a Paste should use. Returns
-            ('os', [paths]) for system-clipboard files, ('clip', clipdict) for the
-            internal buffer, or (None, None). The most recently updated wins; ties
-            (e.g. files already on the clipboard at startup) favour the OS."""
+            ('os', [paths], mode) for system-clipboard files, ('clip', clipdict, mode)
+            for the internal buffer, or (None, None, None). *mode* is 'copy' or 'cut'.
+            The most recently updated source wins; ties (e.g. files already on the
+            clipboard at startup) favour the OS."""
             os_paths = _os_clipboard_files()
             clip = getattr(self, "_explorer_clipboard", None)
             clip_has = bool(clip and clip.get("items"))
             os_serial = getattr(self, "_os_clip_serial", 0)
             clip_serial = getattr(self, "_explorer_clip_serial", 0)
             if os_paths and (not clip_has or os_serial >= clip_serial):
-                return ("os", os_paths)
+                return ("os", os_paths, "cut" if _os_clipboard_is_cut() else "copy")
             if clip_has:
-                return ("clip", clip)
+                return ("clip", clip, clip.get("mode", "copy"))
             if os_paths:
-                return ("os", os_paths)
-            return (None, None)
+                return ("os", os_paths, "cut" if _os_clipboard_is_cut() else "copy")
+            return (None, None, None)
 
         def _explorer_clipboard_has_items():
-            kind, _data = _explorer_effective_clip()
+            kind, _data, _mode = _explorer_effective_clip()
             return kind is not None
+
+        def _same_dir(path, dir_path):
+            """True if *path* lives directly inside *dir_path* (case-insensitive on
+            Windows). Used to make a cut+paste into the source's own folder a no-op."""
+            try:
+                parent = os.path.dirname(os.path.abspath(path.rstrip("/\\")))
+                return os.path.normcase(parent) == os.path.normcase(os.path.abspath(dir_path))
+            except Exception:
+                return False
 
         def _image_name_in_dir(image_path, parent, name):
             """True if *name* already exists in the image directory *parent*."""
@@ -5670,8 +5790,11 @@ class MainWindow(QMainWindow):
             finally:
                 shutil.rmtree(tmp, ignore_errors=True)
 
-        def image_copy_items_within(image_items, target_dir):
-            """Paste image clipboard entries into another image folder (image->image)."""
+        def image_copy_items_within(image_items, target_dir, on_complete=None):
+            """Paste image clipboard entries into another image folder (image->image).
+            *on_complete*, when given, is called with a single bool (True only if the
+            copy finished without error or cancellation) so cut+paste can remove the
+            source entries afterward."""
             global right_disk_image_explorer_content
             if not right_disk_image_explorer_content:
                 add_main_log_window("Please load an image file first !")
@@ -5690,6 +5813,68 @@ class MainWindow(QMainWindow):
             image_path = self.right_disk_image_path
             dlg    = HdfProgressDialog("Copying within image…", self)
             worker = HdfTaskWorker(_run_image_copy_task, image_path, items, target)
+            outcome = {"error": False, "cancelled": False}
+
+            dlg.cancel_requested.connect(worker.cancel)
+            worker.signals.progress.connect(dlg.set_progress)
+            worker.signals.status.connect(dlg.set_status)
+            worker.signals.error.connect(add_main_log_window)
+            worker.signals.error.connect(lambda *_: outcome.update(error=True))
+            worker.signals.cancelled.connect(dlg.mark_cancelled)
+            worker.signals.cancelled.connect(lambda: outcome.update(cancelled=True))
+
+            def _on_done():
+                dlg.close()
+                image_reload_dir(target or "/")
+                set_all_buttons_enabled()
+                if on_complete:
+                    on_complete(not outcome["error"] and not outcome["cancelled"])
+
+            worker.signals.finished.connect(_on_done)
+            self.threadpool.start(worker)
+            dlg.exec()
+
+        def _delete_local_paths_after_move(paths, log_fn):
+            """Silently remove real-filesystem source files/folders once a cut+paste
+            copy has succeeded (this is what turns a copy into a move). Clears the
+            Windows read-only attribute on the way down so rmtree cannot stall."""
+            def _force_remove(func, path, exc_info):
+                try:
+                    os.chmod(path, stat.S_IWRITE)
+                    func(path)
+                except OSError:
+                    pass
+            for p in paths:
+                try:
+                    if not p or not os.path.exists(p):
+                        continue
+                    if os.path.isdir(p):
+                        shutil.rmtree(p, onerror=_force_remove)
+                    else:
+                        os.remove(p)
+                    if log_fn:
+                        log_fn(f"Moved (removed source): {p}")
+                except OSError as e:
+                    logging.error(f"Cut: failed to remove source {p}: {e}", exc_info=True)
+                    if log_fn:
+                        log_fn(f"Cut: failed to remove source {p}: {e}")
+
+        def _delete_image_paths_after_move(paths, log_fn):
+            """Remove in-image source entries once a cut+paste copy has succeeded.
+            hdfmonkey deletes run on the thread pool with a progress dialog, then the
+            affected source folders are re-listed so the moved entries disappear."""
+            paths = [p for p in paths if p and p != UP_DIRECTORY]
+            if not paths:
+                return
+            image_path = self.right_disk_image_path
+            parents = []
+            for p in paths:
+                parent = p.rstrip("/").rsplit("/", 1)[0] or "/"
+                if parent not in parents:
+                    parents.append(parent)
+            set_all_buttons_disabled()
+            dlg    = HdfProgressDialog("Removing moved source…", self)
+            worker = HdfTaskWorker(_run_delete_task, image_path, paths)
 
             dlg.cancel_requested.connect(worker.cancel)
             worker.signals.progress.connect(dlg.set_progress)
@@ -5697,48 +5882,126 @@ class MainWindow(QMainWindow):
             worker.signals.error.connect(add_main_log_window)
             worker.signals.cancelled.connect(dlg.mark_cancelled)
 
-            def _on_done():
+            def _done():
                 dlg.close()
-                image_reload_dir(target or "/")
+                for parent in parents:
+                    image_reload_dir(parent)
                 set_all_buttons_enabled()
+                if log_fn:
+                    log_fn("Moved: removed source from image.")
 
-            worker.signals.finished.connect(_on_done)
+            worker.signals.finished.connect(_done)
             self.threadpool.start(worker)
             dlg.exec()
 
         def _explorer_paste_into_local(dest_dir, refresh_fn, log_fn):
             """Paste into a real-filesystem directory (either local explorer):
-            OS-clipboard files, a local->local copy, or an image->local download."""
-            kind, data = _explorer_effective_clip()
+            OS-clipboard files, a local->local copy, or an image->local download.
+            When the clipboard is in 'cut' mode the source is removed after a
+            successful copy, turning the paste into a move."""
+            kind, data, mode = _explorer_effective_clip()
             if kind is None:
                 return
             if not dest_dir or not os.path.isdir(dest_dir):
                 log_fn("Paste failed: no valid destination folder.")
                 return
+            is_cut = (mode == "cut")
+
             if kind == "os":
-                local_explorer_import_external_paths(data, dest_dir, refresh_fn=refresh_fn)
+                src_paths = list(data)
+                def _after(success, _p=src_paths):
+                    if success and is_cut:
+                        _delete_local_paths_after_move(_p, log_fn)
+                        local_explorer_refresh()
+                        nextsync_refresh_explorer()
+                        try:
+                            QGuiApplication.clipboard().clear()
+                        except Exception:
+                            pass
+                local_explorer_import_external_paths(data, dest_dir, refresh_fn=refresh_fn,
+                                                     on_complete=_after if is_cut else None)
             elif data["source"] == "local":
                 paths = [p for (p, _d) in data["items"]]
-                local_explorer_import_external_paths(paths, dest_dir, refresh_fn=refresh_fn)
+                # Cutting into the source's own folder is a no-op move.
+                if is_cut and paths and all(_same_dir(p, dest_dir) for p in paths):
+                    log_fn("Nothing to move: items are already in this folder.")
+                    _explorer_clipboard_clear()
+                    return
+                def _after(success, _p=paths):
+                    if success and is_cut:
+                        _delete_local_paths_after_move(_p, log_fn)
+                        # Refresh both local explorers so the source view also
+                        # reflects the removal, wherever the cut originated.
+                        local_explorer_refresh()
+                        nextsync_refresh_explorer()
+                        _explorer_clipboard_clear()
+                local_explorer_import_external_paths(paths, dest_dir, refresh_fn=refresh_fn,
+                                                     on_complete=_after if is_cut else None)
             else:
-                image_get_paths_to_local(list(data["items"]), dest_dir, refresh_fn=refresh_fn)
+                img_items = list(data["items"])
+                img_paths = [p for (p, _d) in img_items]
+                def _after(success, _p=img_paths):
+                    if success and is_cut:
+                        # Defer so the download dialog's event loop fully unwinds
+                        # before the delete dialog opens its own.
+                        QTimer.singleShot(0, lambda: _delete_image_paths_after_move(_p, log_fn))
+                        _explorer_clipboard_clear()
+                image_get_paths_to_local(img_items, dest_dir, refresh_fn=refresh_fn,
+                                         on_complete=_after if is_cut else None)
 
         def _explorer_paste_into_image(target_dir):
             """Paste into the SD-card image at *target_dir*: OS-clipboard files,
-            a local->image upload, or an image->image copy."""
-            kind, data = _explorer_effective_clip()
+            a local->image upload, or an image->image copy. In 'cut' mode the source
+            is removed after a successful copy, turning the paste into a move."""
+            kind, data, mode = _explorer_effective_clip()
             if kind is None:
                 return
+            is_cut = (mode == "cut")
+
             if kind == "os":
-                image_upload_external_paths(data, target_dir)
+                src_paths = list(data)
+                def _after(success, _p=src_paths):
+                    if success and is_cut:
+                        _delete_local_paths_after_move(_p, add_main_log_window)
+                        local_explorer_refresh()
+                        nextsync_refresh_explorer()
+                        try:
+                            QGuiApplication.clipboard().clear()
+                        except Exception:
+                            pass
+                image_upload_external_paths(data, target_dir,
+                                            on_complete=_after if is_cut else None)
             elif data["source"] == "local":
                 paths = [p for (p, _d) in data["items"]]
-                image_upload_external_paths(paths, target_dir)
+                def _after(success, _p=paths):
+                    if success and is_cut:
+                        _delete_local_paths_after_move(_p, add_main_log_window)
+                        local_explorer_refresh()
+                        nextsync_refresh_explorer()
+                image_upload_external_paths(paths, target_dir,
+                                            on_complete=_after if is_cut else None)
             else:
-                image_copy_items_within(list(data["items"]), target_dir)
+                img_items = list(data["items"])
+                img_paths = [p for (p, _d) in img_items]
+                target = (target_dir or "/").rstrip("/") or "/"
+                # Cutting into the source's own image folder is a no-op move.
+                if is_cut and img_paths and all(
+                        (p.rstrip("/").rsplit("/", 1)[0] or "/") == target for p in img_paths):
+                    add_main_log_window("Nothing to move: items are already in this folder.")
+                    _explorer_clipboard_clear()
+                    return
+                def _after(success, _p=img_paths):
+                    if success and is_cut:
+                        # Defer so the copy dialog's event loop fully unwinds
+                        # before the delete dialog opens its own.
+                        QTimer.singleShot(0, lambda: _delete_image_paths_after_move(_p, add_main_log_window))
+                        _explorer_clipboard_clear()
+                image_copy_items_within(img_items, target_dir,
+                                        on_complete=_after if is_cut else None)
 
-        def _local_explorer_copy_selection():
-            """Copy the SD-card local tree's selection to the shared clipboard."""
+        def _local_explorer_copy_selection(mode="copy"):
+            """Copy (or, when mode='cut', cut) the SD-card local tree's selection to
+            the shared clipboard."""
             items = []
             for ix in self.treeview.selectionModel().selectedRows(0):
                 src = self.proxy_model.mapToSource(ix)
@@ -5751,7 +6014,7 @@ class MainWindow(QMainWindow):
                     src = self.proxy_model.mapToSource(cur)
                     if self.model.fileName(src) != "..":
                         items.append((self.model.filePath(src), self.model.isDir(src)))
-            _explorer_clipboard_set("local", items, add_main_log_window)
+            _explorer_clipboard_set("local", items, add_main_log_window, mode=mode)
 
         def _local_explorer_paste_target_dir():
             cur = self.treeview.currentIndex()
@@ -5762,8 +6025,9 @@ class MainWindow(QMainWindow):
                     return path if self.model.isDir(src) else os.path.dirname(path)
             return local_current_view_dir()
 
-        def _nextsync_explorer_copy_selection():
-            """Copy the NextSync local tree's selection to the shared clipboard."""
+        def _nextsync_explorer_copy_selection(mode="copy"):
+            """Copy (or, when mode='cut', cut) the NextSync local tree's selection to
+            the shared clipboard."""
             items = []
             for ix in self.nextsync_treeview.selectionModel().selectedRows(0):
                 src = self.nextsync_model.mapToSource(ix)
@@ -5778,7 +6042,7 @@ class MainWindow(QMainWindow):
                     if self.nextsync_filesystem_model.fileName(src) != "..":
                         items.append((self.nextsync_filesystem_model.filePath(src),
                                       self.nextsync_filesystem_model.isDir(src)))
-            _explorer_clipboard_set("local", items, add_nextsync_log_window)
+            _explorer_clipboard_set("local", items, add_nextsync_log_window, mode=mode)
 
         def _nextsync_explorer_paste_target_dir():
             cur = self.nextsync_treeview.currentIndex()
@@ -5789,12 +6053,13 @@ class MainWindow(QMainWindow):
                     return path if self.nextsync_filesystem_model.isDir(src) else os.path.dirname(path)
             return nextsync_current_view_dir()
 
-        def _image_explorer_copy_selection():
-            """Copy the SD-card image tree's selection to the shared clipboard."""
+        def _image_explorer_copy_selection(mode="copy"):
+            """Copy (or, when mode='cut', cut) the SD-card image tree's selection to
+            the shared clipboard."""
             items = list(self.image_selected_paths)
             if not items and self.image_selected_path:
                 items = [(self.image_selected_path, self.image_selected_is_dir)]
-            _explorer_clipboard_set("image", items, add_main_log_window)
+            _explorer_clipboard_set("image", items, add_main_log_window, mode=mode)
 
 
         def _check_access_denied_is_full_disk(image_path):
@@ -5942,9 +6207,11 @@ class MainWindow(QMainWindow):
                     break
                 _run_put_task(signals, cancel_event, image_path, upload_path, dest_file_path)
 
-        def image_upload_external_paths(paths, target_dir):
+        def image_upload_external_paths(paths, target_dir, on_complete=None):
             """Copy local files/folders (e.g. dropped from Windows Explorer) into
-            the loaded disk image under *target_dir*."""
+            the loaded disk image under *target_dir*. *on_complete*, when given, is
+            called with a single bool (True only if the upload finished without error
+            or cancellation) so cut+paste can remove the local source after."""
             global right_disk_image_explorer_content
 
             if not right_disk_image_explorer_content:
@@ -5980,17 +6247,22 @@ class MainWindow(QMainWindow):
 
             dlg    = HdfProgressDialog("Uploading to image…", self)
             worker = HdfTaskWorker(_run_put_external_task, image_path, items)
+            outcome = {"error": False, "cancelled": False}
 
             dlg.cancel_requested.connect(worker.cancel)
             worker.signals.progress.connect(dlg.set_progress)
             worker.signals.status.connect(dlg.set_status)
             worker.signals.error.connect(add_main_log_window)
+            worker.signals.error.connect(lambda *_: outcome.update(error=True))
             worker.signals.cancelled.connect(dlg.mark_cancelled)
+            worker.signals.cancelled.connect(lambda: outcome.update(cancelled=True))
 
             def _on_external_put_finished():
                 dlg.close()
                 image_reload_dir(reload_dir)
                 set_all_buttons_enabled()
+                if on_complete:
+                    on_complete(not outcome["error"] and not outcome["cancelled"])
 
             worker.signals.finished.connect(_on_external_put_finished)
             self.threadpool.start(worker)
@@ -6141,6 +6413,40 @@ class MainWindow(QMainWindow):
             type_item.setEditable(False)
             size_item.setEditable(False)
             return [name_item, type_item, size_item]
+
+        def image_recolor_all():
+            """Re-apply the configured item colors to every row already shown in
+            the image explorer tree, in place. This is synchronous (it only
+            touches existing QStandardItems) so it does not need to re-list the
+            image — used when the user changes the colors in Settings and when
+            returning to the SD Card Utility tab."""
+            model = getattr(self, "image_model", None)
+            if model is None:
+                return
+            def _recolor(parent_item):
+                for r in range(parent_item.rowCount()):
+                    name_item = parent_item.child(r, 0)
+                    if name_item is None:
+                        continue
+                    type_item = parent_item.child(r, 1)
+                    size_item = parent_item.child(r, 2)
+                    if bool(name_item.data(IMG_ISDIR_ROLE)):
+                        name_item.setForeground(self.img_color_dir_name)
+                        if type_item is not None:
+                            type_item.setForeground(self.img_color_dir_type)
+                    else:
+                        name_item.setForeground(self.img_color_file_name)
+                        if type_item is not None:
+                            type_item.setForeground(self.img_color_file_ext)
+                        if size_item is not None:
+                            size_item.setForeground(self.img_color_file_size)
+                    if name_item.hasChildren():
+                        _recolor(name_item)
+            try:
+                _recolor(model.invisibleRootItem())
+            except Exception:
+                pass
+        self._image_recolor_all = image_recolor_all
 
         def image_populate_item(parent_name_item, dir_path, on_done=None):
             """(Re)load the children of *dir_path* under *parent_name_item*
@@ -6335,7 +6641,9 @@ class MainWindow(QMainWindow):
                 menu.addAction(new_folder_label, image_newfolder_dialog)
                 menu.addSeparator()
                 copy_label = f"Copy {selected_count} items" if selected_count > 1 else "Copy"
-                menu.addAction(copy_label, _image_explorer_copy_selection)
+                menu.addAction(copy_label, lambda: _image_explorer_copy_selection())
+                cut_label = f"Cut {selected_count} items" if selected_count > 1 else "Cut"
+                menu.addAction(cut_label, lambda: _image_explorer_copy_selection(mode="cut"))
                 action_paste = menu.addAction("Paste")
                 action_paste.setEnabled(_explorer_clipboard_has_items())
                 action_paste.triggered.connect(
@@ -7221,9 +7529,12 @@ class MainWindow(QMainWindow):
         self.treeview.customContextMenuRequested.connect(on_treeview_context_menu)
 
         def _local_tree_key_press(event):
-            # Ctrl+C / Ctrl+V copy & paste via the shared cross-explorer clipboard.
+            # Ctrl+C / Ctrl+X / Ctrl+V copy, cut & paste via the shared clipboard.
             if event.matches(QKeySequence.StandardKey.Copy):
                 _local_explorer_copy_selection()
+                return
+            if event.matches(QKeySequence.StandardKey.Cut):
+                _local_explorer_copy_selection(mode="cut")
                 return
             if event.matches(QKeySequence.StandardKey.Paste):
                 _explorer_paste_into_local(_local_explorer_paste_target_dir(),
@@ -7381,9 +7692,11 @@ class MainWindow(QMainWindow):
         set_table_image_properties()
 
         def _image_tree_key_press(event):
-            # Ctrl+C / Ctrl+V copy & paste via the shared cross-explorer clipboard.
+            # Ctrl+C / Ctrl+X / Ctrl+V copy, cut & paste via the shared clipboard.
             if event.matches(QKeySequence.StandardKey.Copy):
                 _image_explorer_copy_selection()
+            elif event.matches(QKeySequence.StandardKey.Cut):
+                _image_explorer_copy_selection(mode="cut")
             elif event.matches(QKeySequence.StandardKey.Paste):
                 _explorer_paste_into_image(image_dest_dir())
             elif event.key() == Qt.Key.Key_Delete and self.image_selected_path:
@@ -7606,7 +7919,107 @@ class MainWindow(QMainWindow):
         self.zx_next_unite_form.addRow(self.horizontal4)
 
         # Add Log Window
-        self.horizontal5.addWidget(self.listWidgetLog)
+        # Optional retro 8-bit pygame log for the SD Card tab, mirroring the one on
+        # the NextSync tab. Pygame is optional: the toggle disables itself with an
+        # install hint when pygame-ce is missing. Page 0 = the classic list log,
+        # page 1 = the retro display (built lazily the first time it is switched on,
+        # and sharing the NextSync starfield-animation preference).
+        self._main_retro_log = None
+        self._main_pygame_on = False
+
+        self.main_pygame_button = QPushButton("🎮 Pygame")
+        self.main_pygame_button.setCheckable(True)
+        self.main_pygame_button.setToolTip(
+            "Switch the SD Card log window to a retro 8-bit pygame display:\n"
+            "an animated starfield with green Consolas text.\n"
+            "Requires the optional 'pygame-ce' package.")
+
+        self.main_log_stack = QStackedWidget(self)
+        self.main_log_stack.setMinimumHeight(120)
+        self.main_log_stack.setMaximumHeight(160)
+        self.main_log_stack.addWidget(self.listWidgetLog)
+
+        self.main_log_container = QWidget(self)
+        _main_log_v = QVBoxLayout(self.main_log_container)
+        _main_log_v.setContentsMargins(0, 0, 0, 0)
+        _main_log_v.setSpacing(2)
+        _main_log_v.addWidget(self.main_pygame_button)
+        _main_log_v.addWidget(self.main_log_stack)
+
+        def _main_build_retro_log():
+            if self._main_retro_log is not None:
+                return self._main_retro_log
+            from zxnu_pygame import RetroLogWidget
+            widget = RetroLogWidget()
+            widget.setMinimumHeight(120)
+            try:
+                widget.enable_background(getattr(self, "_nextsync_pygame_anim", True))
+            except Exception:
+                pass
+            # Seed it with the existing classic-log contents. The list shows
+            # newest-first, so iterate bottom-up for chronological order.
+            for i in range(self.listWidgetLog.count() - 1, -1, -1):
+                widget.append(self.listWidgetLog.item(i).text())
+            self._main_retro_log = widget
+            self.main_log_stack.addWidget(widget)
+            return widget
+
+        def _main_pygame_disable(reason=""):
+            btn = self.main_pygame_button
+            btn.blockSignals(True)
+            btn.setChecked(False)
+            btn.setText("🎮 Pygame")
+            btn.blockSignals(False)
+            btn.setEnabled(False)
+            if reason:
+                btn.setToolTip(reason)
+
+        def _main_pygame_persist(enabled):
+            # Skip writing while restoring the saved choice at startup so a
+            # transient "pygame unavailable" never clobbers the user's pref.
+            if getattr(self, "_main_pygame_restoring", False):
+                return
+            try:
+                configuration_dictionary[SETTING_SDCARD_PYGAME_LOG] = (
+                    "true" if enabled else "false")
+                save_configuration_file()
+            except Exception:
+                pass
+
+        def _main_on_pygame_toggled(checked):
+            if checked:
+                try:
+                    from zxnu_pygame import pygame_available
+                    ok, why = pygame_available()
+                except Exception as exc:
+                    ok, why = False, str(exc)
+                if not ok:
+                    _main_pygame_disable(
+                        f"{why}\nInstall with: pip install pygame-ce")
+                    add_main_log_window(
+                        "Pygame mode unavailable — run: pip install pygame-ce")
+                    return
+                try:
+                    widget = _main_build_retro_log()
+                except Exception as exc:
+                    _main_pygame_disable(f"Pygame init failed: {exc}")
+                    return
+                self._main_pygame_on = True
+                self.main_pygame_button.setText("🖼 Classic")
+                self.main_log_stack.setCurrentWidget(widget)
+                widget.start()
+                _main_pygame_persist(True)
+            else:
+                self._main_pygame_on = False
+                self.main_pygame_button.setText("🎮 Pygame")
+                if self._main_retro_log is not None:
+                    self._main_retro_log.stop()
+                self.main_log_stack.setCurrentWidget(self.listWidgetLog)
+                _main_pygame_persist(False)
+
+        self.main_pygame_button.toggled.connect(_main_on_pygame_toggled)
+
+        self.horizontal5.addWidget(self.main_log_container)
 
         self.horizontal5.addWidget(self.imageexplorerbuttonscontainer)
 
@@ -7752,7 +8165,8 @@ class MainWindow(QMainWindow):
         self._allinone_color_timer.timeout.connect(_allinone_color_tick)
 
         # ── Favorites helpers (cross-pane, captured by closures below) ──
-        _FAV_SOURCE_LABELS = {"getit": "GetIt", "zxdb": "ZXDB", "zxart": "zxArt"}
+        _FAV_SOURCE_LABELS = {"getit": "GetIt", "zxdb": "ZXDB", "zxart": "zxArt",
+                              "itchio": "itch.io"}
 
         def _fav_source_of(entry):
             """Best-effort detection of which pane an entry came from."""
@@ -8008,9 +8422,12 @@ class MainWindow(QMainWindow):
         self.nextsync_treeview.customContextMenuRequested.connect(nextsync_on_treeview_context_menu)
 
         def _nextsync_tree_key_press(event):
-            # Ctrl+C / Ctrl+V copy & paste via the shared cross-explorer clipboard.
+            # Ctrl+C / Ctrl+X / Ctrl+V copy, cut & paste via the shared clipboard.
             if event.matches(QKeySequence.StandardKey.Copy):
                 _nextsync_explorer_copy_selection()
+                return
+            if event.matches(QKeySequence.StandardKey.Cut):
+                _nextsync_explorer_copy_selection(mode="cut")
                 return
             if event.matches(QKeySequence.StandardKey.Paste):
                 _explorer_paste_into_local(_nextsync_explorer_paste_target_dir(),
@@ -9382,6 +9799,9 @@ class MainWindow(QMainWindow):
                 configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
                 configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
                 configuration_dictionary[SETTING_ALLINONE_VIEW_MODE]  = mode
+                if hasattr(self, '_itchio_apply_view_mode'):
+                    self._itchio_apply_view_mode(mode, persist=False)
+                configuration_dictionary[SETTING_ITCHIO_VIEW_MODE]    = mode
                 save_configuration_file()
 
         self._getit_apply_view_mode = _getit_apply_view_mode
@@ -11821,6 +12241,9 @@ class MainWindow(QMainWindow):
                 configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
                 configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
                 configuration_dictionary[SETTING_ALLINONE_VIEW_MODE]  = mode
+                if hasattr(self, '_itchio_apply_view_mode'):
+                    self._itchio_apply_view_mode(mode, persist=False)
+                configuration_dictionary[SETTING_ITCHIO_VIEW_MODE]    = mode
                 save_configuration_file()
 
         self._zxdb_apply_view_mode = _zxdb_apply_view_mode
@@ -15005,6 +15428,9 @@ class MainWindow(QMainWindow):
                 configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
                 configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
                 configuration_dictionary[SETTING_ALLINONE_VIEW_MODE]  = mode
+                if hasattr(self, '_itchio_apply_view_mode'):
+                    self._itchio_apply_view_mode(mode, persist=False)
+                configuration_dictionary[SETTING_ITCHIO_VIEW_MODE]    = mode
                 save_configuration_file()
 
         self._zxart_apply_view_mode = _zxart_apply_view_mode
@@ -15786,7 +16212,7 @@ class MainWindow(QMainWindow):
                 pass
 
         def _fav_extra_fetch(url, on_pixmap):
-            for src in ("getit", "zxdb", "zxart"):
+            for src in ("getit", "zxdb", "zxart", "itchio"):
                 fetch = (self._fav_fetchers or {}).get(src) or {}
                 ef = fetch.get("extra")
                 if ef is not None:
@@ -15834,6 +16260,9 @@ class MainWindow(QMainWindow):
             elif src == "zxart":
                 target_title = ZX_NEXT_UNITE_TAB_TITLE_ZXART
                 opener = _zxart_open_gallery_viewer
+            elif src == "itchio" and getattr(self, "_itchio_open_gallery_viewer", None):
+                target_title = ZX_NEXT_UNITE_TAB_TITLE_ITCHIO
+                opener = self._itchio_open_gallery_viewer
             else:
                 self._fav_navigate_to_source(entry)
                 return
@@ -16040,7 +16469,8 @@ class MainWindow(QMainWindow):
         self.allinone_screenshot_label.setVisible(False)
 
         # --- Aggregated gallery view ---
-        _ALLINONE_SOURCE_LABELS = {"getit": "GetIt", "zxdb": "ZXDB", "zxart": "ZXArt"}
+        _ALLINONE_SOURCE_LABELS = {"getit": "GetIt", "zxdb": "ZXDB", "zxart": "ZXArt",
+                                   "itchio": "itch.io"}
 
         def _allinone_source_label(e):
             try:
@@ -16203,12 +16633,672 @@ class MainWindow(QMainWindow):
             pass
         self._allinone_color_timer.start()
 
+        # ─── ONLINE: itch.io Tab (optional, requires the 'itch-dl' package) ──
+        # Browses the logged-in user's itch.io collections (the same content as
+        # https://itch.io/my-collections) in a GalleryView, and installs a
+        # selected item by delegating to itch-dl. Authentication is a personal
+        # itch.io API key, stored in hdfg.cfg. Built only when itch-dl is
+        # importable; the Settings toggle and saved preference control whether
+        # the tab is shown. See zxnu_itchio.py for the API/install helpers.
+        self._itchio_last_entries = []      # last collection/search results
+        self._itchio_collections  = []
+        self._itchio_owned        = set()   # game-id strings the user owns
+        self._itchio_library      = None    # cached collections+purchases for search
+        self._itchio_tab_widget   = None
+
+        def _itchio_api_key():
+            return (configuration_dictionary.get(SETTING_ITCHIO_API_KEY, "") or "").strip()
+
+        def _itchio_downloads_dir():
+            d = os.path.abspath(os.path.join("downloads", "itchio"))
+            try:
+                os.makedirs(d, exist_ok=True)
+            except Exception:
+                pass
+            return d
+
+        if zxnu_itchio.itchdl_available()[0]:
+            zxnextunite_itchio_tab = QWidget(wid_inner.tab)
+            zxnextunite_itchio_tab.setAttribute(Qt.WA_TranslucentBackground)
+            zxnextunite_itchio_tab.setAutoFillBackground(False)
+            _itchio_grid = QGridLayout(zxnextunite_itchio_tab)
+
+            self._itchio_stack = QStackedWidget()
+            self._itchio_stack.setAttribute(Qt.WA_TranslucentBackground)
+            self._itchio_stack.setAutoFillBackground(False)
+
+            _itchio_main = QWidget()
+            _itchio_v = QVBoxLayout(_itchio_main)
+            _itchio_v.setContentsMargins(6, 6, 6, 6)
+
+            # --- Authentication row ---
+            _itchio_auth = QHBoxLayout()
+            _itchio_auth.addWidget(QLabel("itch.io API key:"))
+            self.itchio_key_input = QLineEdit()
+            self.itchio_key_input.setEchoMode(QLineEdit.Password)
+            self.itchio_key_input.setPlaceholderText(
+                "Paste your personal API key (itch.io → Settings → API keys)")
+            self.itchio_key_input.setText(_itchio_api_key())
+            _itchio_auth.addWidget(self.itchio_key_input, 1)
+            self.itchio_connect_button = QPushButton("Connect")
+            _itchio_auth.addWidget(self.itchio_connect_button)
+            self.itchio_getkey_button = QPushButton("Get API key…")
+            self.itchio_getkey_button.setToolTip(
+                "Open https://itch.io/user/settings/api-keys in your browser")
+            _itchio_auth.addWidget(self.itchio_getkey_button)
+            # Generic link to the itch.io website (always visible).
+            self.itchio_site_link = QLabel(
+                '<a href="https://itch.io/" style="color:#9cd2ff;">🌐 itch.io ↗</a>')
+            self.itchio_site_link.setTextFormat(Qt.RichText)
+            self.itchio_site_link.setOpenExternalLinks(True)
+            self.itchio_site_link.setToolTip("Open https://itch.io/ in your browser")
+            _itchio_auth.addWidget(self.itchio_site_link)
+            _itchio_v.addLayout(_itchio_auth)
+
+            # --- Collections row ---
+            _itchio_crow = QHBoxLayout()
+            _itchio_crow.addWidget(QLabel("Collection:"))
+            self.itchio_collection_combo = QComboBox()
+            self.itchio_collection_combo.setMinimumWidth(260)
+            _itchio_crow.addWidget(self.itchio_collection_combo, 1)
+            self.itchio_refresh_button = QPushButton("Refresh")
+            _itchio_crow.addWidget(self.itchio_refresh_button)
+            _itchio_crow.addWidget(QLabel("View:"))
+            self.itchio_view_combo = QComboBox()
+            self.itchio_view_combo.addItem("Table",   "table")    # index 0
+            self.itchio_view_combo.addItem("Gallery", "gallery")  # index 1
+            self.itchio_view_combo.setToolTip(
+                "Switch between the classic table view and the picture (gallery)\n"
+                "view. Persisted across sessions in the config file.")
+            _itchio_crow.addWidget(self.itchio_view_combo)
+            _itchio_v.addLayout(_itchio_crow)
+
+            self.itchio_status_label = QLabel("")
+            self.itchio_status_label.setStyleSheet("color: #aaa;")
+            self.itchio_status_label.setWordWrap(True)
+            _itchio_v.addWidget(self.itchio_status_label)
+
+            def _itchio_set_status(msg):
+                try:
+                    self.itchio_status_label.setText(str(msg))
+                except Exception:
+                    pass
+
+            # --- Async image + thumbnail helpers ---
+            def _itchio_extra_fetch(url, on_pixmap):
+                """Generic image-URL → QPixmap loader (cover art / screenshots)."""
+                if not url or (isinstance(url, str) and url.startswith("placeholder://")):
+                    if isinstance(url, str) and url.startswith("placeholder://"):
+                        rest = url[len("placeholder://"):]
+                        label, _, sub = rest.partition("/")
+                        pm = zxfmt_make_placeholder_pixmap(label or "itch.io", sub)
+                        if not pm.isNull():
+                            on_pixmap(pm)
+                    return
+                def _fn(_u=url):
+                    tmp = tempfile.NamedTemporaryFile(suffix=".img", delete=False)
+                    tmp.close()
+                    with open(tmp.name, "wb") as _fh:
+                        _fh.write(_http_fetch_bytes_with_retry(_u, timeout=20))
+                    return tmp.name
+                def _ok(path):
+                    px = QPixmap(path)
+                    try: os.unlink(path)
+                    except Exception: pass
+                    on_pixmap(px if not px.isNull() else None)
+                def _err(_e):
+                    on_pixmap(None)
+                getit_run_in_thread(_fn, _ok, _err)
+
+            def _itchio_thumb_fetch(entry, set_pixmap, set_screenshots,
+                                    set_tags=None, set_info_text=None):
+                cover = (entry.get("cover_url") or "").strip()
+                title = entry.get("title") or entry.get("id") or ""
+                def _placeholder():
+                    ph = f"placeholder://itch.io/{title}"
+                    set_screenshots([ph])
+                    pm = zxfmt_make_placeholder_pixmap("itch.io", title)
+                    if not pm.isNull():
+                        set_pixmap(pm, ph)
+                if not cover:
+                    _placeholder()
+                    return
+                set_screenshots([cover])
+                def _fn(_u=cover):
+                    tmp = tempfile.NamedTemporaryFile(suffix=".img", delete=False)
+                    tmp.close()
+                    with open(tmp.name, "wb") as _fh:
+                        _fh.write(_http_fetch_bytes_with_retry(_u, timeout=20))
+                    return (tmp.name, _u)
+                def _ok(res, _set=set_pixmap):
+                    path, u = res
+                    px = QPixmap(path)
+                    try: os.unlink(path)
+                    except Exception: pass
+                    if px.isNull():
+                        _placeholder()
+                    else:
+                        _set(px, u)
+                def _err(_e):
+                    _placeholder()
+                getit_run_in_thread(_fn, _ok, _err)
+
+            def _itchio_title_getter(e):
+                return str(e.get("title") or e.get("id") or "")
+
+            def _itchio_info_getter(e):
+                parts = []
+                if e.get("author"):
+                    parts.append(str(e["author"]))
+                if e.get("classification"):
+                    parts.append(str(e["classification"]))
+                return " · ".join(parts)
+
+            self.itchio_gallery_view = GalleryView(
+                rows_per_page_getter=lambda: self._gallery_rows_per_page,
+                anim_mode_getter=lambda: self._gallery_anim_mode,
+                cols_getter=lambda: self._gallery_cols,
+                img_size_getter=lambda: self._gallery_img_size,
+                thumb_fetch_cb=_itchio_thumb_fetch,
+                extra_fetch_cb=_itchio_extra_fetch,
+                title_getter=_itchio_title_getter,
+                info_getter=_itchio_info_getter,
+                source_label_getter=lambda _e: "itch.io",
+                source_overlay_anchor="bottomleft",
+            )
+            # Table view (index 0) flipped via the View combo; default Gallery.
+            self.itchio_results_table = QTableWidget(0, 3)
+            self.itchio_results_table.setHorizontalHeaderLabels(
+                ["Title", "Author", "Type"])
+            self.itchio_results_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            self.itchio_results_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+            self.itchio_results_table.setSelectionMode(QAbstractItemView.SingleSelection)
+            self.itchio_results_table.verticalHeader().setVisible(False)
+            try:
+                _ihh = self.itchio_results_table.horizontalHeader()
+                _ihh.setStretchLastSection(False)
+                _ihh.setSectionResizeMode(0, QHeaderView.Stretch)
+                _ihh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+                _ihh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+            except Exception:
+                pass
+
+            self.itchio_view_stack = QStackedWidget()
+            self.itchio_view_stack.addWidget(self.itchio_results_table)  # idx 0 = table
+            self.itchio_view_stack.addWidget(self.itchio_gallery_view)   # idx 1 = gallery
+            _itchio_v.addWidget(self.itchio_view_stack, 1)
+            self._itchio_stack.addWidget(_itchio_main)   # index 0
+
+            def _itchio_table_entry_for_row(row):
+                if row < 0 or row >= self.itchio_results_table.rowCount():
+                    return None
+                it = self.itchio_results_table.item(row, 0)
+                e = it.data(Qt.UserRole) if it is not None else None
+                return e if isinstance(e, dict) else None
+
+            def _itchio_fill_table(entries):
+                t = self.itchio_results_table
+                t.setRowCount(0)
+                for e in entries:
+                    r = t.rowCount()
+                    t.insertRow(r)
+                    it0 = QTableWidgetItem(str(e.get("title") or e.get("id") or ""))
+                    it0.setData(Qt.UserRole, e)
+                    t.setItem(r, 0, it0)
+                    t.setItem(r, 1, QTableWidgetItem(str(e.get("author") or "")))
+                    t.setItem(r, 2, QTableWidgetItem(str(e.get("classification") or "")))
+
+            def _itchio_populate(entries):
+                """Render results into both the gallery and the table views."""
+                self._itchio_last_entries = list(entries)
+                self.itchio_gallery_view.populate(entries)
+                _itchio_fill_table(entries)
+            self._itchio_populate = _itchio_populate
+
+            def _itchio_table_dbl(_idx):
+                e = _itchio_table_entry_for_row(self.itchio_results_table.currentRow())
+                if e is not None:
+                    _itchio_open_gallery_viewer(e)
+            self.itchio_results_table.doubleClicked.connect(_itchio_table_dbl)
+
+            def _itchio_apply_view_mode(mode, *, persist=True):
+                mode = (mode or "gallery").lower()
+                if mode not in ("table", "gallery"):
+                    mode = "gallery"
+                self._itchio_view_mode = mode
+                self.itchio_view_stack.setCurrentIndex(0 if mode == "table" else 1)
+                cb = self.itchio_view_combo
+                target = 0 if mode == "table" else 1
+                if cb.currentIndex() != target:
+                    cb.blockSignals(True)
+                    cb.setCurrentIndex(target)
+                    cb.blockSignals(False)
+                if persist:
+                    # Sync the shared view mode across all online panes.
+                    if hasattr(self, '_getit_apply_view_mode'):
+                        self._getit_apply_view_mode(mode, persist=False)
+                    if hasattr(self, '_zxdb_apply_view_mode'):
+                        self._zxdb_apply_view_mode(mode, persist=False)
+                    if hasattr(self, '_zxart_apply_view_mode'):
+                        self._zxart_apply_view_mode(mode, persist=False)
+                    if hasattr(self, '_favorites_apply_view_mode'):
+                        self._favorites_apply_view_mode(mode, persist=False)
+                    if hasattr(self, '_allinone_apply_view_mode'):
+                        self._allinone_apply_view_mode(mode, persist=False)
+                    configuration_dictionary[SETTING_GETIT_VIEW_MODE]     = mode
+                    configuration_dictionary[SETTING_ZXDB_VIEW_MODE]      = mode
+                    configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
+                    configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
+                    configuration_dictionary[SETTING_ALLINONE_VIEW_MODE]  = mode
+                    configuration_dictionary[SETTING_ITCHIO_VIEW_MODE]    = mode
+                    save_configuration_file()
+            self._itchio_apply_view_mode = _itchio_apply_view_mode
+            self.itchio_view_combo.currentIndexChanged.connect(
+                lambda _i: _itchio_apply_view_mode(
+                    self.itchio_view_combo.currentData() or "gallery"))
+            # Apply the default now (Gallery); the saved preference is re-applied
+            # after the config file is loaded.
+            _itchio_apply_view_mode(self._itchio_view_mode, persist=False)
+
+            # Register fetchers so the Unite! aggregated gallery can render and
+            # open itch.io items too.
+            self._fav_fetchers = getattr(self, "_fav_fetchers", {})
+            self._fav_fetchers["itchio"] = {
+                "thumb": _itchio_thumb_fetch,
+                "extra": _itchio_extra_fetch,
+                "title": _itchio_title_getter,
+                "info":  _itchio_info_getter,
+            }
+
+            # --- The in-pane item viewer with an Install button + status ---
+            def _itchio_open_gallery_viewer(entry, make_viewer=None, install=True):
+                if not isinstance(entry, dict):
+                    return None
+                title = entry.get("title") or entry.get("id") or ""
+                gid   = str(entry.get("id") or "")
+                cover = (entry.get("cover_url") or "").strip()
+                dest  = _itchio_downloads_dir()
+                owned = gid in (self._itchio_owned or set())  # set membership, no I/O
+
+                def _status_text(installed_flag):
+                    bits = ["Owned" if owned else "Not in your library"]
+                    if installed_flag is None:
+                        bits.append("checking download status…")
+                    else:
+                        bits.append("Downloaded locally" if installed_flag
+                                    else "Not downloaded")
+                    return " · ".join(bits)
+
+                base_rows = [
+                    ("Title:",   title),
+                    ("Author:",  entry.get("author", "")),
+                    ("Type:",    entry.get("classification", "")),
+                    ("About:",   entry.get("short_text", "")),
+                    ("itch.io:", entry.get("url", "")),
+                ]
+                # Build the viewer immediately; the local "is it already
+                # downloaded?" disk scan is resolved on a worker thread below so
+                # opening an item never blocks the UI thread.
+                info_rows = base_rows + [("Status:", _status_text(None))]
+
+                _mk = make_viewer or (lambda **kw: GalleryItemViewer(parent=self, **kw))
+                viewer = _mk(
+                    title=title,
+                    info_rows=info_rows,
+                    screenshots=[cover] if cover else [],
+                    extra_fetch_cb=_itchio_extra_fetch,
+                )
+                viewer.set_placeholder("itch.io", title)
+                viewer.set_open_web_url(entry.get("url", ""), "itch.io")
+                viewer._itchio_busy = False   # True while an install runs
+
+                # Repurpose the Download button as the itch-dl "Install" action;
+                # neutral label until the off-thread status check resolves.
+                viewer.btn_download.setText("⬇  Install")
+
+                def _itchio_open_install_folder(_=False, _e=entry):
+                    """Open the item's install folder (or the itch.io downloads
+                    root if the exact folder can't be resolved) in the OS file
+                    explorer."""
+                    p = zxnu_itchio.installed_path(_e, dest) or dest
+                    try:
+                        if not os.path.isdir(p):
+                            p = dest
+                        os.makedirs(p, exist_ok=True)
+                    except OSError:
+                        pass
+                    if not os.path.isdir(p):
+                        return
+                    try:
+                        if sys.platform == "win32":
+                            os.startfile(p)
+                        elif sys.platform == "darwin":
+                            subprocess.Popen(["open", p])
+                        else:
+                            subprocess.Popen(["xdg-open", p])
+                    except Exception:
+                        pass
+
+                def _itchio_refresh_install_buttons(_v, installed_flag):
+                    """Set the Install button label and reveal the 'Open install
+                    folder' button (the repurposed Send-to-SD button) only when
+                    the item is downloaded locally."""
+                    try:
+                        _v.btn_download.setText(
+                            "✓  Re-install" if installed_flag else "⬇  Install")
+                        if installed_flag:
+                            _v.btn_send_sd.setText("📂  Open install folder")
+                            _v.btn_send_sd.setToolTip(
+                                zxnu_itchio.installed_path(entry, dest) or dest)
+                            _v.btn_send_sd.setEnabled(True)
+                            _v.btn_send_sd.setVisible(True)
+                        else:
+                            _v.btn_send_sd.setVisible(False)
+                    except RuntimeError:
+                        pass
+
+                def _chk_fn(_e=entry, _d=dest):
+                    return zxnu_itchio.installed_status(_e, _d)
+                def _chk_ok(installed_flag, _v=viewer):
+                    # Don't clobber an install that the user has already started.
+                    if getattr(_v, "_itchio_busy", False):
+                        return
+                    _itchio_refresh_install_buttons(_v, installed_flag)
+                    try:
+                        _v.refresh_meta(
+                            title, base_rows + [("Status:", _status_text(installed_flag))])
+                    except RuntimeError:
+                        pass
+                def _chk_err(_e):
+                    pass
+                getit_run_in_thread(_chk_fn, _chk_ok, _chk_err)
+
+                def _install(_=False, _e=entry, _viewer=viewer):
+                    key = _itchio_api_key()
+                    if not key:
+                        _itchio_set_status("Enter your itch.io API key and Connect first.")
+                        _viewer.refresh_meta(title, base_rows + [
+                            ("Status:", "No API key — enter one on the itch.io tab.")])
+                        return
+                    _viewer._itchio_busy = True
+                    _viewer.btn_download.setEnabled(False)
+                    _viewer.btn_download.setText("⬇  Installing…")
+                    _itchio_set_status(f"Installing “{title}” via itch-dl…")
+                    def _fn(_g=_e, _k=key):
+                        return zxnu_itchio.install_game(
+                            _g, _k, dest, log_cb=lambda ln: None)
+                    def _ok(res, _v=_viewer):
+                        ok, msg = res
+                        # The status label lives on the persistent tab, so it is
+                        # always safe to update.
+                        _itchio_set_status(msg)
+                        # The viewer may have been closed (its C++ widget torn
+                        # down) while the install ran on the worker thread; touch
+                        # it defensively so a late callback can't crash the app.
+                        try:
+                            _v._itchio_busy = False
+                            _v.btn_download.setEnabled(True)
+                            # Re-scan so the 'Open install folder' button appears
+                            # once the download has completed.
+                            _itchio_refresh_install_buttons(
+                                _v, zxnu_itchio.installed_status(_e, dest) if ok else False)
+                            _v.refresh_meta(title, base_rows + [("Status:", msg)])
+                        except RuntimeError:
+                            pass
+                    def _err(e, _v=_viewer):
+                        _itchio_set_status(f"Install failed: {e}")
+                        try:
+                            _v._itchio_busy = False
+                            _v.btn_download.setEnabled(True)
+                            _v.btn_download.setText("⬇  Install")
+                        except RuntimeError:
+                            pass
+                    getit_run_in_thread(_fn, _ok, _err)
+
+                viewer.set_actions(download_cb=_install)
+                # itch.io items use Install, Open-install-folder and Open-on-
+                # website; the NextSync send button is not relevant. The
+                # Send-to-SD button is repurposed as 'Open install folder' and
+                # stays hidden until the item is found downloaded locally.
+                viewer.btn_send_ns.setVisible(False)
+                viewer.btn_download.setVisible(True)
+                viewer.btn_send_sd.clicked.connect(_itchio_open_install_folder)
+                viewer.btn_send_sd.setVisible(False)
+
+                if install:
+                    viewer.install_into_stack(
+                        self._itchio_stack,
+                        close_fn=lambda: self._itchio_stack.setCurrentIndex(0),
+                    )
+                return viewer
+
+            self._itchio_open_gallery_viewer = _itchio_open_gallery_viewer
+            self.itchio_gallery_view.cell_dbl_clicked.connect(_itchio_open_gallery_viewer)
+
+            # --- Collection / search loading (async) ---
+            def _itchio_load_collection_games(cid):
+                key = _itchio_api_key()
+                if not key or not cid:
+                    return
+                _itchio_set_status("Loading collection…")
+                def _fn(_c=cid, _k=key):
+                    return zxnu_itchio.collection_games(_k, _c)
+                def _ok(games):
+                    _itchio_populate(games)
+                    _itchio_set_status(f"{len(games)} item(s) in this collection.")
+                    _aio = getattr(self, "_allinone_repopulate", None)
+                    if _aio is not None:
+                        try: _aio()
+                        except Exception: pass
+                def _err(e):
+                    _itchio_set_status(f"itch.io: {e}")
+                getit_run_in_thread(_fn, _ok, _err)
+            self._itchio_load_collection_games = _itchio_load_collection_games
+
+            # Sentinel stored as the combo's item data for the purchases entry.
+            _ITCHIO_OWNED_KEY = "__owned__"
+
+            def _itchio_load_owned_games():
+                key = _itchio_api_key()
+                if not key:
+                    return
+                _itchio_set_status("Loading purchased / owned games…")
+                def _fn(_k=key):
+                    return zxnu_itchio.owned_games(_k)
+                def _ok(games):
+                    _itchio_populate(games)
+                    _itchio_set_status(f"{len(games)} purchased / owned game(s).")
+                    _aio = getattr(self, "_allinone_repopulate", None)
+                    if _aio is not None:
+                        try: _aio()
+                        except Exception: pass
+                def _err(e):
+                    _itchio_set_status(f"itch.io: {e}")
+                getit_run_in_thread(_fn, _ok, _err)
+            self._itchio_load_owned_games = _itchio_load_owned_games
+
+            def _itchio_load_selection(data):
+                """Load whichever combo entry is selected (a collection id, or
+                the purchases sentinel)."""
+                if data == _ITCHIO_OWNED_KEY:
+                    _itchio_load_owned_games()
+                elif data:
+                    _itchio_load_collection_games(data)
+
+            def _itchio_set_connecting(busy):
+                """Toggle the busy state: while a connect/login is in flight the
+                Connect/Refresh buttons are disabled so requests cannot overlap.
+                The actual itch.io validation runs on a worker thread, so the UI
+                stays responsive throughout."""
+                self._itchio_connecting = bool(busy)
+                try:
+                    self.itchio_connect_button.setEnabled(not busy)
+                    self.itchio_refresh_button.setEnabled(not busy)
+                except RuntimeError:
+                    pass
+
+            def _itchio_load_collections():
+                # Guard against overlapping connects (e.g. the startup
+                # auto-connect racing a quick manual click).
+                if getattr(self, "_itchio_connecting", False):
+                    return
+                key = _itchio_api_key()
+                if not key:
+                    _itchio_set_status("Enter your itch.io API key and click Connect.")
+                    return
+                _itchio_set_status("Connecting to itch.io…")
+                _itchio_set_connecting(True)
+                # Validation + collection/owned listing all run off the UI
+                # thread via getit_run_in_thread; results are marshalled back
+                # to the UI thread through Qt queued signals (_ok / _err).
+                def _fn(_k=key):
+                    ok, name = zxnu_itchio.validate_key(_k)
+                    if not ok:
+                        raise RuntimeError(name)
+                    cols  = zxnu_itchio.list_collections(_k)
+                    owned = zxnu_itchio.owned_game_ids(_k)
+                    return (name, cols, owned)
+                def _ok(res):
+                    _itchio_set_connecting(False)
+                    name, cols, owned = res
+                    self._itchio_collections = cols
+                    self._itchio_owned = owned
+                    # New connection → the cached search library is stale.
+                    self._itchio_library = None
+                    self.itchio_collection_combo.blockSignals(True)
+                    self.itchio_collection_combo.clear()
+                    # Purchases / owned games first, then the user's collections.
+                    self.itchio_collection_combo.addItem(
+                        f"🛒 Purchased / Owned games ({len(owned)})",
+                        _ITCHIO_OWNED_KEY)
+                    for c in cols:
+                        self.itchio_collection_combo.addItem(
+                            f"{c['title']} ({c['count']})", c["id"])
+                    # Default to the purchased / owned games.
+                    self.itchio_collection_combo.setCurrentIndex(0)
+                    self.itchio_collection_combo.blockSignals(False)
+                    _itchio_set_status(
+                        f"Connected as {name} — {len(cols)} collection(s), "
+                        f"{len(owned)} purchased.")
+                    _itchio_load_selection(
+                        self.itchio_collection_combo.currentData())
+                    # Pre-build the combined search library (collections +
+                    # purchases) in the background so the first Unite! search is
+                    # instant rather than triggering the heavy fetch on demand.
+                    self._itchio_prebuild_library()
+                def _err(e):
+                    _itchio_set_connecting(False)
+                    _itchio_set_status(f"itch.io: {e}")
+                getit_run_in_thread(_fn, _ok, _err)
+            self._itchio_load_collections = _itchio_load_collections
+
+            def _itchio_on_connect():
+                key = self.itchio_key_input.text().strip()
+                configuration_dictionary[SETTING_ITCHIO_API_KEY] = key
+                if not self._initialising:
+                    save_configuration_file()
+                _itchio_load_collections()
+
+            def _itchio_on_collection_changed(_idx):
+                _itchio_load_selection(self.itchio_collection_combo.currentData())
+
+            def _itchio_on_getkey():
+                try:
+                    import webbrowser
+                    webbrowser.open("https://itch.io/user/settings/api-keys", new=2)
+                except Exception:
+                    pass
+
+            self.itchio_connect_button.clicked.connect(_itchio_on_connect)
+            self.itchio_key_input.returnPressed.connect(_itchio_on_connect)
+            self.itchio_refresh_button.clicked.connect(_itchio_on_connect)
+            self.itchio_collection_combo.currentIndexChanged.connect(
+                _itchio_on_collection_changed)
+            self.itchio_getkey_button.clicked.connect(_itchio_on_getkey)
+
+            def _itchio_prebuild_library():
+                """Fetch the combined library (collections + purchases) off the
+                UI thread and cache it, so the first Unite! search is instant.
+                Guarded so it never rebuilds while a build is already running."""
+                key = _itchio_api_key()
+                if not key or getattr(self, "_itchio_library_building", False):
+                    return
+                self._itchio_library_building = True
+                cols = list(self._itchio_collections or [])
+                def _fn(_k=key, _cols=cols):
+                    return zxnu_itchio.library_games(_k, _cols)
+                def _ok(lib):
+                    self._itchio_library = lib
+                    self._itchio_library_building = False
+                def _err(_e):
+                    self._itchio_library_building = False
+                getit_run_in_thread(_fn, _ok, _err)
+            self._itchio_prebuild_library = _itchio_prebuild_library
+
+            # Cross-search entry point used by the Unite! multi-search. Searches
+            # the user's own library — every game across their collections plus
+            # their purchases — by title/author. The combined library is built
+            # once (off the UI thread) and cached until the next Connect.
+            def _itchio_cross_search(query, on_done=None):
+                key = _itchio_api_key()
+                if not key or not query:
+                    if on_done: on_done()
+                    return
+                q = query.strip().lower()
+                cols = list(self._itchio_collections or [])
+                cached = self._itchio_library
+                def _fn(_k=key, _cols=cols, _lib=cached):
+                    lib = _lib
+                    if lib is None:
+                        lib = zxnu_itchio.library_games(_k, _cols)
+                    return lib
+                def _ok(lib):
+                    self._itchio_library = lib   # cache for subsequent searches
+                    matches = [g for g in lib
+                               if q in (g.get("title") or "").lower()
+                               or q in (g.get("author") or "").lower()]
+                    self._itchio_last_entries = matches
+                    _aio = getattr(self, "_allinone_repopulate", None)
+                    if _aio is not None:
+                        try: _aio()
+                        except Exception: pass
+                    if on_done: on_done()
+                def _err(_e):
+                    if on_done: on_done()
+                getit_run_in_thread(_fn, _ok, _err)
+            self._itchio_cross_search = _itchio_cross_search
+
+            # --- Assemble + insert the tab (shown by default; Settings hides it) ---
+            _itchio_grid.addWidget(self._itchio_stack)
+            zxnextunite_itchio_tab.setLayout(_itchio_grid)
+            zxnextunite_itchio_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_ITCHIO
+            self._itchio_tab_widget = zxnextunite_itchio_tab
+
+            def _itchio_target_index(tabw):
+                """Slot the itch.io tab right after the ZXDB tab; fall back to
+                after ZXArt, then after GetIt, else the end."""
+                for _title in (ZX_NEXT_UNITE_TAB_TITLE_ZXDB,
+                               ZX_NEXT_UNITE_TAB_TITLE_ZXART,
+                               ZX_NEXT_UNITE_TAB_TITLE_GETIT):
+                    for _i in range(tabw.count()):
+                        if tabw.tabText(_i).startswith(_title):
+                            return _i + 1
+                return tabw.count()
+            self._itchio_target_index = _itchio_target_index
+
+            wid_inner.tab.insertTab(
+                _itchio_target_index(wid_inner.tab),
+                zxnextunite_itchio_tab, ZX_NEXT_UNITE_TAB_TITLE_ITCHIO)
+            # Startup auto-connect (when a key is saved) is triggered from the
+            # config-restore path, since the saved key is not loaded yet here.
+
         # --- Aggregation + tab badge ---
         def _allinone_collect():
             merged = []
             for src, attr in (("getit", "_getit_last_entries"),
                               ("zxdb",  "_zxdb_last_entries"),
-                              ("zxart", "_zxart_last_entries")):
+                              ("zxart", "_zxart_last_entries"),
+                              ("itchio", "_itchio_last_entries")):
                 lst = getattr(self, attr, None) or []
                 for e in lst:
                     if not isinstance(e, dict):
@@ -16386,6 +17476,13 @@ class MainWindow(QMainWindow):
                 sources.append(_cross_search_zxdb)
             if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
                 sources.append(_cross_search_zxart)
+            # itch.io joins the fan-out only when the optional tab is built and
+            # the user has configured an API key (i.e. is "logged in").
+            _itch_search = getattr(self, "_itchio_cross_search", None)
+            _itch_on = bool(_itch_search) and bool(
+                (configuration_dictionary.get(SETTING_ITCHIO_API_KEY, "") or "").strip())
+            if _itch_on:
+                sources.append(_itch_search)
 
             pending = {"count": len(sources)}
 
@@ -16415,6 +17512,11 @@ class MainWindow(QMainWindow):
             if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
                 try:
                     _cross_search_zxart(q, _allinone_source_done)
+                except Exception:
+                    _allinone_source_done()
+            if _itch_on:
+                try:
+                    _itch_search(q, _allinone_source_done)
                 except Exception:
                     _allinone_source_done()
 
@@ -16930,6 +18032,9 @@ class MainWindow(QMainWindow):
                 configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
                 configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
                 configuration_dictionary[SETTING_ALLINONE_VIEW_MODE]  = mode
+                if hasattr(self, '_itchio_apply_view_mode'):
+                    self._itchio_apply_view_mode(mode, persist=False)
+                configuration_dictionary[SETTING_ITCHIO_VIEW_MODE]    = mode
                 save_configuration_file()
 
         self._favorites_apply_view_mode = _favorites_apply_view_mode
@@ -16985,6 +18090,9 @@ class MainWindow(QMainWindow):
                 configuration_dictionary[SETTING_ZXART_VIEW_MODE]     = mode
                 configuration_dictionary[SETTING_FAVORITES_VIEW_MODE] = mode
                 configuration_dictionary[SETTING_ALLINONE_VIEW_MODE]  = mode
+                if hasattr(self, '_itchio_apply_view_mode'):
+                    self._itchio_apply_view_mode(mode, persist=False)
+                configuration_dictionary[SETTING_ITCHIO_VIEW_MODE]    = mode
                 save_configuration_file()
 
         self._allinone_apply_view_mode = _allinone_apply_view_mode
@@ -17007,6 +18115,7 @@ class MainWindow(QMainWindow):
                 "getit": _getit_open_gallery_viewer,
                 "zxdb":  _zxdb_open_gallery_viewer,
                 "zxart": _zxart_open_gallery_viewer,
+                "itchio": getattr(self, "_itchio_open_gallery_viewer", None),
             }.get(src)
             if opener is None:
                 return
@@ -17296,6 +18405,10 @@ class MainWindow(QMainWindow):
             def _apply_color(color: QColor):
                 _update_swatch(color)
                 save_configuration_file()
+                # Re-tint the rows already shown in the image explorer so the
+                # change is visible immediately (no async re-listing needed).
+                if hasattr(self, "_image_recolor_all"):
+                    self._image_recolor_all()
 
             def _on_click():
                 current = getattr(self, color_attr)
@@ -17693,12 +18806,13 @@ class MainWindow(QMainWindow):
                 save_configuration_file()
             except Exception:
                 pass
-            w = getattr(self, "_nextsync_retro_log", None)
-            if w is not None:
-                try:
-                    w.enable_background(on)
-                except Exception:
-                    pass
+            for _attr in ("_nextsync_retro_log", "_main_retro_log"):
+                w = getattr(self, _attr, None)
+                if w is not None:
+                    try:
+                        w.enable_background(on)
+                    except Exception:
+                        pass
 
         self.settings_nextsync_pygame_anim_checkbox = QCheckBox(
             "NextSync — starfield log animation (pygame mode)")
@@ -17830,6 +18944,49 @@ class MainWindow(QMainWindow):
         self.settings_alien_floyd_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_tab_changed())
         grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 25, 0, 1, 2)
+
+        # ── itch.io: optional online tab (driven by the 'itch-dl' package) ───
+        def _itchio_tab_set_visible(on):
+            page = getattr(self, "_itchio_tab_widget", None)
+            if page is None:
+                return  # itch-dl not installed → nothing to show/hide
+            tabw = wid_inner.tab
+            idx = tabw.indexOf(page)
+            if on:
+                if idx != -1:
+                    return
+                # Re-insert at its default position (just after the ZXArt tab).
+                _pos_fn = getattr(self, "_itchio_target_index", None)
+                pos = _pos_fn(tabw) if _pos_fn is not None else tabw.count()
+                tabw.insertTab(pos, page, ZX_NEXT_UNITE_TAB_TITLE_ITCHIO)
+            else:
+                if idx != -1:
+                    tabw.removeTab(idx)   # keeps the widget alive for re-adding
+        self._itchio_tab_set_visible = _itchio_tab_set_visible
+
+        def _settings_itchio_tab_changed():
+            on = self.settings_show_itchio_tab_checkbox.isChecked()
+            configuration_dictionary[SETTING_SHOW_ITCHIO_TAB] = "true" if on else "false"
+            if not self._initialising:
+                save_configuration_file()
+            _itchio_tab_set_visible(on)
+
+        self.settings_show_itchio_tab_checkbox = QCheckBox(
+            "Show the itch.io tab (browse & install your itch.io collections)")
+        self.settings_show_itchio_tab_checkbox.setChecked(True)
+        _itchdl_ok, _itchdl_why = zxnu_itchio.itchdl_available()
+        if not _itchdl_ok:
+            self.settings_show_itchio_tab_checkbox.setEnabled(False)
+            self.settings_show_itchio_tab_checkbox.setChecked(False)
+            self.settings_show_itchio_tab_checkbox.setToolTip(_itchdl_why)
+        else:
+            self.settings_show_itchio_tab_checkbox.setToolTip(
+                "Add an 'itch.io' tab that browses your itch.io collections and\n"
+                "installs items via itch-dl. On by default. Saved to the\n"
+                "configuration file. Requires the optional 'itch-dl' package.")
+        self.settings_show_itchio_tab_checkbox.stateChanged.connect(
+            lambda _s: _settings_itchio_tab_changed())
+        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 27, 0, 1, 2)
 
         # ── NextSync: what to do when a received file/dir already exists locally ──
         def _settings_nextsync_send_conflict_changed():
@@ -18197,6 +19354,10 @@ class MainWindow(QMainWindow):
             _stop_transfer_idle_animation()
             if tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GOOEY):
                 _start_transfer_idle_animation()
+                # Re-tint the existing rows with the current item colors (the
+                # user may have changed them in Settings). This is synchronous
+                # and instant, independent of the async re-listing below.
+                self._image_recolor_all()
                 if right_disk_image_explorer_content:
                     # Refresh the explorer when returning to the SD Card tab. The
                     # listing runs on a worker thread (no UI-thread hdfmonkey call
@@ -18264,14 +19425,17 @@ class MainWindow(QMainWindow):
                 btn = getattr(self, "nextsync_pygame_button", None)
                 if btn is not None and btn.isEnabled() and not btn.isChecked():
                     btn.setChecked(True)
+            if _unset(SETTING_SDCARD_PYGAME_LOG):
+                btn = getattr(self, "main_pygame_button", None)
+                if btn is not None and btn.isEnabled() and not btn.isChecked():
+                    btn.setChecked(True)
             if _unset(SETTING_ALIEN_FLOYD_BG):
                 cb = getattr(self, "settings_alien_floyd_bg_checkbox", None)
                 if cb is not None and not cb.isChecked():
                     cb.setChecked(True)
-            if _unset(SETTING_ALIEN_FLOYD_TAB):
-                cb = getattr(self, "settings_alien_floyd_tab_checkbox", None)
-                if cb is not None and not cb.isChecked():
-                    cb.setChecked(True)
+            # The dedicated "Alien Floyd's" tab stays OFF by default on first run;
+            # the user can enable it from Settings. (Its checkbox already defaults
+            # to unchecked, so no first-run flip is applied here.)
 
         _apply_first_run_pygame_defaults()
 
@@ -18282,6 +19446,10 @@ class MainWindow(QMainWindow):
         self._zxart_apply_view_mode(self._zxart_view_mode, persist=False)
         self._favorites_apply_view_mode(self._favorites_view_mode, persist=False)
         self._allinone_apply_view_mode(self._allinone_view_mode, persist=False)
+        # itch.io is optional (built only when itch-dl is installed) and follows
+        # the same shared view mode as the other online panes.
+        if hasattr(self, "_itchio_apply_view_mode"):
+            self._itchio_apply_view_mode(self._getit_view_mode, persist=False)
 
         # Connect tab-changed AFTER load so setCurrentIndex during config restore
         # does not trigger on_tab_changed before state is ready.

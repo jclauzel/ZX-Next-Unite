@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "7.7.3"
+ZX_NEXT_UNITE_VERSION = "7.7.5"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -32,13 +32,14 @@ ZX_NEXT_UNITE_CONFIG_FILE_NAME = os.path.join(os.path.dirname(os.path.abspath(sy
 NEXTSYNC_PREPARE_DEBOUNCE_MS = 300
 
 ZX_NEXT_UNITE_TAB_TITLE_GOOEY = "TOOL: SD Card Utility"
-ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "TOOL: Network Transfer Manager (NextSync)"
+ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "TOOL: NextSync"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC_SYNCON = "NextSync - Sync ON"
 ZX_NEXT_UNITE_TAB_TITLE_GETIT = "🌍 GetIt"
 ZX_NEXT_UNITE_TAB_TITLE_ZXDB  = "🌍 ZXDB/ZXinfo.dk"
 ZX_NEXT_UNITE_TAB_TITLE_ZXART = "🌍 ZXArt.ee"
 ZX_NEXT_UNITE_TAB_TITLE_FAVORITES = "🌍 ♥ Favorites"
 ZX_NEXT_UNITE_TAB_TITLE_ALLINONE  = "🌍 Unite!"
+ZX_NEXT_UNITE_TAB_TITLE_ITCHIO    = "🌍 itch.io"
 
 GETIT_BASE_URL = "https://zxnext.uk"
 GETIT_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
@@ -55,8 +56,15 @@ ZXART_BASE_URL = "https://zxart.ee/api"
 ZXART_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
 ZXART_PAGE_SIZE = 20
 
-# AllInOne pane aggregates results from GetIt + ZXDB + zxArt. Paging is
-# applied client-side on the merged result list.
+# itch.io — optional tab driven by the 'itch-dl' package. Browsing uses the
+# public itch.io API directly (api.itch.io) with the user's personal API key;
+# the actual install/download of a collection item is delegated to itch-dl.
+ITCH_API_BASE = "https://api.itch.io"
+ITCH_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
+ITCH_PAGE_SIZE = 30
+
+# AllInOne pane aggregates results from GetIt + ZXDB + zxArt (+ itch.io when a
+# key is configured). Paging is applied client-side on the merged result list.
 ALLINONE_PAGE_SIZE = GETIT_PAGE_SIZE + ZXDB_PAGE_SIZE + ZXART_PAGE_SIZE
 
 
@@ -114,6 +122,10 @@ SETTING_FAVORITES_VIEW_MODE    = "favorites_view_mode"     # "gallery" (default)
 SETTING_ALLINONE_VIEW_MODE     = "allinone_view_mode"      # "gallery" (default) or "table"
 SETTING_ALLINONE_PYGAME_MODE   = "allinone_pygame_mode"    # "true" => pygame visualization, else classic
 SETTING_NEXTSYNC_PYGAME_MODE   = "nextsync_pygame_mode"    # "true" => retro 8-bit pygame log window on the NextSync tab, else classic list
+SETTING_SDCARD_PYGAME_LOG      = "sdcard_pygame_log"       # "true" => retro 8-bit pygame log window on the SD Card utility tab, else classic list
+SETTING_ITCHIO_API_KEY         = "itchio_api_key"          # str: personal itch.io API key (https://itch.io/user/settings/api-keys)
+SETTING_SHOW_ITCHIO_TAB        = "show_itchio_tab"         # "false" => hide the itch.io tab (default shown when itch-dl is installed)
+SETTING_ITCHIO_VIEW_MODE       = "itchio_view_mode"        # "gallery" (default) or "table"
 SETTING_NEXTSYNC_PYGAME_ANIM   = "nextsync_pygame_anim"    # "false" => freeze the starfield in the NextSync retro log (default on)
 SETTING_ALLINONE_PYGAME_ANIM   = "allinone_pygame_anim"    # "false" => disable the Space-Invaders background (default on)
 SETTING_ALIEN_FLOYD_BG         = "alien_floyd_bg"          # "true" => pygame-ce "Alien Floyd's" animated background on all tabs (default off)
@@ -300,6 +312,20 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("Here we are now you have it!"),
              (""),
              (""),
+             ("Keyboard shortcuts"),
+             ("------------------"),
+             ("The three file explorers (SD Card local, SD Card disk image and NextSync local) share these shortcuts. Copy / Cut / Paste work across all three explorers and also exchange with the operating-system clipboard (e.g. copy in Windows Explorer, paste into the disk image, and vice-versa):"),
+             ("    Ctrl+C  -  Copy the selected file(s)/folder(s) to the shared clipboard."),
+             ("    Ctrl+X  -  Cut the selection (moved to the destination on the next paste)."),
+             ("    Ctrl+V  -  Paste into the selected / currently shown folder."),
+             ("    F2      -  Rename the selected file or folder."),
+             ("    Delete  -  Delete the selected file or folder (disk-image & NextSync explorers)."),
+             (""),
+             ("In the picture (gallery) item viewer (double-click an item in the GetIt, ZXDB, zxArt or itch.io tabs):"),
+             ("    Esc           -  Close the viewer and return to the gallery."),
+             ("    Left / Right  -  Show the previous / next screenshot."),
+             (""),
+             (""),
              ("Third party license"),
              ("-------------------"),
              ("zx-next-unite is a Qt Application using pyside6 in Python on top of Qt6, which retains the GPLv2 Licensing."),
@@ -310,6 +336,10 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org."),
              (""),
              ("pygame-ce is distributed under the GNU LGPL v2.1 license and, like Pyside6, is not bundled and needs to be installed separately (see installation instructions)."),
+             (""),
+             ("zx-next-unite optionally uses itch-dl by Dragoon Aethis to power the itch.io tab (browsing and installing your itch.io collections). Many thanks to its author - see https://github.com/DragoonAethis/itch-dl."),
+             (""),
+             ("itch-dl is distributed under the MIT license (Copyright (c) 2022 Dragoon Aethis) and, like Pyside6 and pygame-ce, is not bundled and needs to be installed separately (see installation instructions). The itch.io tab is only shown when itch-dl is installed."),
              (""),
              ("Setup & How to:"),
              ("---------------"),
@@ -431,7 +461,8 @@ SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, S
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
-SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM)
+SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_SDCARD_PYGAME_LOG,
+SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
@@ -439,7 +470,7 @@ DISK_ARROWS_BUTTONS_SIZE = 30
 CSPECT_SCREEN_SIZES = (("Screen Size X1", "-w1"),("Screen Size X2", "-w2"),("Screen Size X3", "-w3"), ("Screen Size X4", "-w4"), ("Fullscreen", "-fullscreen"))
 CSPECT_SOUND = (("Sound On", ""),("Sound Off", "-sound"))
 CSPECT_SCREEN_SYNC = (("VSync On", "-vsync"),("VSync Off", ""))
-CSPECT_JOYSTICK = (("Joystick On", "-vsync"),("Joystick Off", ""))
+CSPECT_JOYSTICK = (("Joystick On", "-joystick"),("Joystick Off", ""))
 CSPECT_FREQUENCY = (("50Hz", ""),("60Hz", "-60"))
 CSPECT_BASE_ARGUMENTS = "-basickeys -zxnext -nextrom"
 

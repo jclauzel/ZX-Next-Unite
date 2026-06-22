@@ -1206,6 +1206,19 @@ class GalleryItemViewer(QWidget):
         close_bar = QHBoxLayout()
         close_bar.setContentsMargins(10, 8, 10, 4)
         close_bar.addStretch()
+        # Top-right "open on website" link (globe). Hidden until a caller wires
+        # it via set_open_web_url(); mirrors the action-bar "Open on website"
+        # button so the source page is reachable from the top of the viewer too.
+        self._web_btn = QToolButton()
+        self._web_btn.setText("🌐")
+        self._web_btn.setCursor(Qt.PointingHandCursor)
+        self._web_btn.setStyleSheet(
+            "QToolButton { color: #9cd2ff; background: #2b2b2b; border: none;"
+            " font-size: 15px; padding: 3px 10px; }"
+            "QToolButton:hover { background: #294055; }"
+        )
+        self._web_btn.setVisible(False)
+        close_bar.addWidget(self._web_btn)
         self._heart_btn = QToolButton()
         self._heart_btn.setText("♡")
         self._heart_btn.setCursor(Qt.PointingHandCursor)
@@ -1489,31 +1502,40 @@ class GalleryItemViewer(QWidget):
         self.btn_launch_mame.setVisible(mame_cb is not None)
 
     def set_open_web_url(self, url: str, site_label: str = ""):
-        """Wire (and show) the 'Open on website' button.  The button opens
-        *url* in the user's default external browser via ``webbrowser.open``.
-        When *url* is empty the button is hidden."""
+        """Wire (and show) the 'Open on website' affordances: the action-bar
+        button *and* the top-right globe link.  Both open *url* in the user's
+        default external browser via ``webbrowser.open``.  When *url* is empty
+        they are hidden."""
         url = (url or "").strip()
-        try:
-            with __import__("warnings").catch_warnings():
-                __import__("warnings").simplefilter("ignore", RuntimeWarning)
-                self.btn_open_web.clicked.disconnect()
-        except (RuntimeError, TypeError):
-            pass
+        import warnings
+        for _btn in (self.btn_open_web, self._web_btn):
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    _btn.clicked.disconnect()
+            except (RuntimeError, TypeError):
+                pass
         if not url:
             self.btn_open_web.setVisible(False)
             self.btn_open_web.setEnabled(False)
+            self._web_btn.setVisible(False)
             return
         label = f"🌐  Open on {site_label}" if site_label else "🌐  Open on website"
         self.btn_open_web.setText(label)
         self.btn_open_web.setToolTip(url)
         self.btn_open_web.setVisible(True)
         self.btn_open_web.setEnabled(True)
+        # Top-right globe link mirrors the same destination.
+        self._web_btn.setToolTip(
+            f"Open on {site_label}" if site_label else f"Open {url}")
+        self._web_btn.setVisible(True)
         def _go(_=False, _u=url):
             try:
                 webbrowser.open(_u, new=2)
             except Exception:
                 pass
         self.btn_open_web.clicked.connect(_go)
+        self._web_btn.clicked.connect(_go)
 
     def set_download_available(self, has_dl: bool):
         """Show or hide the download / SD / NextSync action buttons depending

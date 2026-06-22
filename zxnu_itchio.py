@@ -1,0 +1,353 @@
+"""itch.io integration helpers for zx-next-unite.
+
+This module is intentionally self-contained and dependency-light:
+
+* Detection — :func:`itchdl_available` reports whether the optional ``itch-dl``
+  package is importable. The whole itch.io tab is gated on this so the feature
+  stays optional.
+* Browsing — collections, collection games, owned games and search are read
+  straight from the public itch.io API (``api.itch.io``) with the user's
+  personal API key (https://itch.io/user/settings/api-keys), via ``urllib``.
+  This needs no third-party code and keeps the browsing UI responsive.
+* Installing — the actual download of a collection item is delegated to
+  ``itch-dl`` (run as a subprocess), matching its supported interface.
+
+Every network call raises on failure; callers run them on a background thread
+(see ``getit_run_in_thread`` in the main app) and surface errors in the UI.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+from zxnu_config import ITCH_API_BASE, ITCH_USER_AGENT, ITCH_PAGE_SIZE
+
+
+# ── optional-dependency detection ──────────────────────────────────────────
+
+def itchdl_available():
+    """Return ``(ok, reason)``. *ok* is True when the optional ``itch-dl``
+    package can be imported; *reason* is a short human-readable string used to
+    hint the user how to enable the feature when it is missing."""
+    try:
+        import itch_dl  # noqa: F401
+        return True, "itch-dl is installed"
+    except Exception as exc:  # ImportError or a broken install
+        return False, (
+            "The optional 'itch-dl' package is not installed.\n"
+            "Install it with:  pip install itch-dl\n"
+            f"({exc})"
+        )
+
+
+# ── low-level API access ───────────────────────────────────────────────────
+
+def _api_get(path, api_key, params=None, timeout=20):
+    """GET ``{ITCH_API_BASE}{path}`` authenticated with *api_key* and return the
+    decoded JSON object. Raises urllib/JSON errors on failure."""
+    url = ITCH_API_BASE + path
+    if params:
+        url += ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "User-Agent": ITCH_USER_AGENT,
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read()
+    return json.loads(raw.decode("utf-8", errors="replace") or "{}")
+
+
+def _normalise_game(game):
+    """Map an itch.io API ``game`` object to the flat dict shape the gallery
+    widgets expect (``id``, ``title``, ``url``, ``cover_url``, ``author`` …)."""
+    if not isinstance(game, dict):
+        return None
+    user = game.get("user") or {}
+    return {
+        "id": str(game.get("id") or ""),
+        "title": game.get("title") or "",
+        "url": game.get("url") or "",
+        "cover_url": game.get("cover_url") or game.get("still_cover_url") or "",
+        "author": (user.get("display_name") or user.get("username") or ""),
+        "short_text": game.get("short_text") or "",
+        "classification": game.get("classification") or "",
+        "min_price": game.get("min_price"),
+        "_fav_source": "itchio",
+        "source": "itchio",
+    }
+
+
+# ── public API used by the UI ──────────────────────────────────────────────
+
+def validate_key(api_key, timeout=20):
+    """Return ``(ok, message)``. On success *message* is the itch.io display
+    name; on failure it is a short error suitable for the status label."""
+    api_key = (api_key or "").strip()
+    if not api_key:
+        return False, "No API key entered."
+    try:
+        data = _api_get("/profile", api_key, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            return False, "Invalid API key (itch.io rejected it)."
+        return False, f"itch.io error: HTTP {exc.code}"
+    except Exception as exc:
+        return False, f"Connection failed: {exc}"
+    user = (data or {}).get("user") or {}
+    name = user.get("display_name") or user.get("username") or ""
+    if not name:
+        return False, "Invalid API key."
+    return True, name
+
+
+def list_collections(api_key, timeout=20):
+    """Return a list of ``{'id', 'title', 'count'}`` for the user's
+    collections (https://itch.io/my-collections)."""
+    data = _api_get("/profile/collections", api_key, timeout=timeout)
+    out = []
+    for c in (data or {}).get("collections", []) or []:
+        if not isinstance(c, dict):
+            continue
+        out.append({
+            "id": str(c.get("id") or ""),
+            "title": c.get("title") or f"Collection {c.get('id')}",
+            "count": int(c.get("games_count") or 0),
+        })
+    return out
+
+
+def collection_games(api_key, collection_id, max_pages=20, timeout=20):
+    """Return the normalised game dicts in a collection, following pagination."""
+    games = []
+    page = 1
+    while page <= max_pages:
+        data = _api_get(
+            f"/collections/{collection_id}/collection-games",
+            api_key, params={"page": page}, timeout=timeout,
+        )
+        rows = (data or {}).get("collection_games") or []
+        if not rows:
+            break
+        for row in rows:
+            g = _normalise_game((row or {}).get("game"))
+            if g and g["id"]:
+                games.append(g)
+        per_page = int((data or {}).get("per_page") or len(rows) or 1)
+        if len(rows) < per_page:
+            break
+        page += 1
+    return games
+
+
+def owned_game_ids(api_key, max_pages=20, timeout=20):
+    """Return a set of game-id strings the user owns (their itch.io library).
+    Used to flag collection items the user already owns."""
+    owned = set()
+    page = 1
+    while page <= max_pages:
+        try:
+            data = _api_get("/profile/owned-keys", api_key,
+                            params={"page": page}, timeout=timeout)
+        except Exception:
+            break
+        rows = (data or {}).get("owned_keys") or []
+        if not rows:
+            break
+        for row in rows:
+            g = (row or {}).get("game") or {}
+            gid = g.get("id")
+            if gid is not None:
+                owned.add(str(gid))
+        per_page = int((data or {}).get("per_page") or len(rows) or 1)
+        if len(rows) < per_page:
+            break
+        page += 1
+    return owned
+
+
+def owned_games(api_key, max_pages=20, timeout=20):
+    """Return the normalised game dicts the user owns (their itch.io library /
+    purchases), following pagination. Like :func:`owned_game_ids` but returns
+    the full game records so they can be browsed/searched."""
+    games = []
+    seen = set()
+    page = 1
+    while page <= max_pages:
+        data = _api_get("/profile/owned-keys", api_key,
+                        params={"page": page}, timeout=timeout)
+        rows = (data or {}).get("owned_keys") or []
+        if not rows:
+            break
+        for row in rows:
+            g = _normalise_game((row or {}).get("game"))
+            if g and g["id"] and g["id"] not in seen:
+                seen.add(g["id"])
+                games.append(g)
+        per_page = int((data or {}).get("per_page") or len(rows) or 1)
+        if len(rows) < per_page:
+            break
+        page += 1
+    return games
+
+
+def library_games(api_key, collections, max_pages=20, timeout=20):
+    """Return the user's combined library — purchased/owned games plus every
+    game across *collections* — de-duplicated by game id. Used to search the
+    user's own itch.io content (collections + purchases)."""
+    seen = set()
+    out = []
+    for g in owned_games(api_key, max_pages=max_pages, timeout=timeout):
+        if g["id"] not in seen:
+            seen.add(g["id"])
+            out.append(g)
+    for c in (collections or []):
+        cid = c.get("id") if isinstance(c, dict) else c
+        if not cid:
+            continue
+        try:
+            for g in collection_games(api_key, cid, max_pages=max_pages,
+                                      timeout=timeout):
+                if g["id"] not in seen:
+                    seen.add(g["id"])
+                    out.append(g)
+        except Exception:
+            continue
+    return out
+
+
+def search_library(api_key, collections, query, timeout=20):
+    """Return the user's library games (collections + purchases) whose title or
+    author matches *query* (case-insensitive substring)."""
+    q = (query or "").strip().lower()
+    if not q:
+        return []
+    lib = library_games(api_key, collections, timeout=timeout)
+    return [g for g in lib
+            if q in (g.get("title") or "").lower()
+            or q in (g.get("author") or "").lower()]
+
+
+def search_games(api_key, query, timeout=20):
+    """Return normalised game dicts matching *query* via the global itch.io
+    search API (the whole catalogue, not just the user's library)."""
+    query = (query or "").strip()
+    if not query:
+        return []
+    data = _api_get("/search/games", api_key,
+                    params={"query": query}, timeout=timeout)
+    out = []
+    for g in (data or {}).get("games", []) or []:
+        ng = _normalise_game(g)
+        if ng and ng["id"]:
+            out.append(ng)
+    return out[:ITCH_PAGE_SIZE]
+
+
+# ── install / installed-status ─────────────────────────────────────────────
+
+def _game_slug(game):
+    """Best-effort slug for a game from its url (``author.itch.io/the-game``)."""
+    url = (game or {}).get("url") or ""
+    m = re.search(r"itch\.io/([^/?#]+)", url)
+    if m:
+        return m.group(1)
+    title = (game or {}).get("title") or ""
+    return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+
+
+def _itchdl_command(game_url, api_key, dest_dir):
+    """Build the itch-dl invocation. Prefer ``python -m itch_dl`` (works in the
+    current venv); the caller falls back to the ``itch-dl`` script on failure."""
+    base = [sys.executable, "-m", "itch_dl"]
+    return base + [game_url, "--api-key", api_key, "--download-to", dest_dir]
+
+
+def install_game(game, api_key, dest_dir, log_cb=None, timeout=3600):
+    """Download/install a single game via itch-dl into *dest_dir*.
+
+    Returns ``(ok, message)``. *log_cb*, when given, receives streamed output
+    lines so the UI can show progress. Runs synchronously — call from a worker
+    thread."""
+    api_key = (api_key or "").strip()
+    game_url = (game or {}).get("url") or ""
+    if not api_key:
+        return False, "No API key configured."
+    if not game_url:
+        return False, "This item has no itch.io URL to install."
+    os.makedirs(dest_dir, exist_ok=True)
+
+    def _log(line):
+        if log_cb:
+            try:
+                log_cb(line)
+            except Exception:
+                pass
+
+    # Try `python -m itch_dl` first, then the `itch-dl` console script.
+    attempts = [
+        _itchdl_command(game_url, api_key, dest_dir),
+        ["itch-dl", game_url, "--api-key", api_key, "--download-to", dest_dir],
+    ]
+    last_err = ""
+    for cmd in attempts:
+        _log(f"$ {' '.join(c if c != api_key else '***' for c in cmd)}")
+        try:
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=timeout,
+            )
+        except FileNotFoundError as exc:
+            last_err = str(exc)
+            continue
+        except subprocess.TimeoutExpired:
+            return False, "itch-dl timed out."
+        out = (proc.stdout or "") + (proc.stderr or "")
+        for ln in out.splitlines():
+            _log(ln)
+        if proc.returncode == 0:
+            return True, f"Installed to {dest_dir}"
+        last_err = f"itch-dl exited with code {proc.returncode}"
+        # A non-zero exit is a real failure (not a missing executable): stop.
+        return False, last_err
+    return False, f"Could not launch itch-dl: {last_err}"
+
+
+def installed_path(game, dest_dir):
+    """Best-effort path to where *game* appears to be downloaded under
+    *dest_dir*. itch-dl lays files out per game/author, so we look for a
+    directory whose name matches the game slug or title (case-insensitive).
+    Returns the matched directory path, or None if not found."""
+    if not dest_dir or not os.path.isdir(dest_dir):
+        return None
+    slug = _game_slug(game).lower()
+    title = re.sub(r"[^a-z0-9]+", "-", ((game or {}).get("title") or "").lower()).strip("-")
+    wanted = {s for s in (slug, title) if s}
+    if not wanted:
+        return None
+    try:
+        for root, dirs, _files in os.walk(dest_dir):
+            # Limit recursion depth to keep this cheap.
+            depth = root[len(dest_dir):].count(os.sep)
+            if depth >= 3:
+                dirs[:] = []
+                continue
+            for d in dirs:
+                norm = re.sub(r"[^a-z0-9]+", "-", d.lower()).strip("-")
+                if norm in wanted or any(w and w in norm for w in wanted):
+                    return os.path.join(root, d)
+    except Exception:
+        return None
+    return None
+
+
+def installed_status(game, dest_dir):
+    """True when *game* appears to be already downloaded under *dest_dir*."""
+    return installed_path(game, dest_dir) is not None

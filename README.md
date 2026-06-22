@@ -5,6 +5,7 @@ ZX-Next-Unite by Julien Clauzel based on:
 
 This project is licensed under the terms of the MIT license.
 ZX-Next-Unite is a Qt Application using pyside6 and pygame-ce in Python on top of Qt6, which retains the GPLv2 Licensing (see the LICENSE file).
+ZX-Next-Unite also optionally uses [itch-dl](https://github.com/DragoonAethis/itch-dl) by Dragoon Aethis to power the itch.io tab (browsing and installing your itch.io collections). itch-dl is distributed under the MIT license (Copyright (c) 2022 Dragoon Aethis). Like pyside6 and pygame-ce it is not bundled and must be installed separately; the itch.io tab is only shown when itch-dl is installed.
 
 Videos:
 * "Setup & How to": [https://youtu.be/-gUxV4fM1yo](https://youtu.be/-gUxV4fM1yo) (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )
@@ -40,6 +41,21 @@ When ready hit the "Yes, start NextSync server" button and on your next type ".s
 There are many other option & features in the tool for example once the first full sync has been done it will create a SyncPoint file so it knows only what needs to be done and synced the next time you run the .sync command. If such a file exists, a button will appear that allows you to delete it in order that you can perform a full new sync if need be. A create SyncIgnore button will appear if such a file is not present. These file types allow you to control what file extensions will not be synced and send to the remote machine.
 
 For more information, please check the "Help" tab in the tool or below.
+
+Keyboard shortcuts
+------------------
+The three built-in file explorers (the SD Card local explorer, the SD Card disk-image explorer and the NextSync local explorer) share the usual editing shortcuts. Copy / Cut / Paste work *across* all three explorers and also exchange with the operating-system clipboard (e.g. copy in Windows Explorer then paste into the disk image, and vice-versa):
+
+- Ctrl+C — Copy the selected file(s)/folder(s) to the shared clipboard.
+- Ctrl+X — Cut the selection (it is moved to the destination on the next paste).
+- Ctrl+V — Paste into the selected folder (or the folder currently shown).
+- F2 — Rename the selected file or folder.
+- Delete — Delete the selected file or folder (disk-image and NextSync explorers).
+
+In the picture (gallery) item viewer — opened by double-clicking an item in the GetIt, ZXDB, zxArt or itch.io tabs:
+
+- Esc — Close the viewer and return to the gallery.
+- Left / Right arrows — Show the previous / next screenshot.
 
 Installation
 ------------
@@ -258,6 +274,18 @@ When ready hit the “Yes, start NextSync server” button and on your next type
 There are many other option & features in the tool for example once the first full sync has been done it will create a SyncPoint file so it knows only what needs to be done and synced the next time you run the .sync command. If such a file exists, a button will appear that allows you to delete it in order that you can perform a full new sync if need be. A create SyncIgnore button will appear if such a file is not present. These file types allow you to control what file extensions will not be synced and send to the remote machine.
 
 For more information, please check the “Help” tab in the tool or below.
+
+Keyboard shortcuts
+------------------
+The three built-in file explorers (the SD Card local explorer, the SD Card disk-image explorer and the NextSync local explorer) share the usual editing shortcuts. Copy / Cut / Paste work across all three explorers and also exchange with the operating-system clipboard:
+
+- Ctrl+C — Copy the selected file(s)/folder(s) to the shared clipboard.
+- Ctrl+X — Cut the selection (it is moved to the destination on the next paste).
+- Ctrl+V — Paste into the selected folder (or the folder currently shown).
+- F2 — Rename the selected file or folder.
+- Delete — Delete the selected file or folder (disk-image and NextSync explorers).
+
+In the picture (gallery) item viewer (double-click an item in the GetIt, ZXDB, zxArt or itch.io tabs): Esc closes the viewer, and the Left / Right arrows show the previous / next screenshot.
 
 Installation
 ------------
