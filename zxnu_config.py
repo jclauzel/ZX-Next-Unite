@@ -547,9 +547,58 @@ HDFMONKEY_EXECUTABLE = "hdfmonkey"
 DOWNLOADS_CSPECT_DIRNAME = os.path.join("downloads", "itchio", "mdf200", "cspect")
 
 
+def hdfmonkey_bundle_subpaths():
+    """Return candidate ``(relative_subpath, exe_filename)`` pairs, in priority
+    order, where the itch.io CSpect bundle ships an hdfmonkey build runnable on
+    the *current* platform.
+
+    The itch.io CSpect package carries hdfmonkey builds for every platform side
+    by side under ``hdfmonkey/<platform>/``:
+
+        hdfmonkey/windows-64/hdfmonkey.exe   (Windows)
+        hdfmonkey/linux-musl/hdfmonkey       (Linux)
+        hdfmonkey/macos-intel/hdfmonkey      (macOS, Intel)
+        hdfmonkey/macos-mn/hdfmonkey         (macOS, Apple Silicon / "MN")
+
+    Because the Linux and both macOS builds all share the bare file name
+    ``hdfmonkey``, callers must match the full platform-specific *sub-path*
+    rather than the file name — otherwise a binary built for another OS could be
+    handed back. Returns an empty list on unrecognised platforms.
+    """
+    system = platform.system()
+    if system == "Windows":
+        exe = HDFMONKEY_EXECUTABLE + ".exe"
+        return [(os.path.join("hdfmonkey", "windows-64", exe), exe)]
+    exe = HDFMONKEY_EXECUTABLE
+    if system == "Linux":
+        return [(os.path.join("hdfmonkey", "linux-musl", exe), exe)]
+    if system == "Darwin":
+        machine = (platform.machine() or "").lower()
+        # Prefer the build native to this Mac; fall back to the other. Apple
+        # Silicon ("MN") can run the Intel binary through Rosetta 2, but an Intel
+        # Mac can never run the arm64 build, so order accordingly.
+        dirs = (["macos-mn", "macos-intel"]
+                if machine in ("arm64", "aarch64")
+                else ["macos-intel", "macos-mn"])
+        return [(os.path.join("hdfmonkey", d, exe), exe) for d in dirs]
+    return []
+
+
+def hdfmonkey_needs_exec_bit():
+    """True on Linux/macOS, where a freshly extracted itch.io hdfmonkey binary
+    has no executable permission bit and must be ``chmod +x`` before it runs."""
+    return platform.system() in ("Linux", "Darwin")
+
+
+def hdfmonkey_chmod_instruction(hdfmonkey_path):
+    """The exact shell command the user must run to make a bundled itch.io
+    hdfmonkey executable. The path is quoted so spaces are handled."""
+    return f'sudo chmod +x "{hdfmonkey_path}"'
+
+
 def find_emulators_in_downloads(base_dir, scan_for_cspect=True, scan_for_hdfmonkey=True):
-    """Recursively search ``<base_dir>/downloads/cspect`` for a CSpect.exe and,
-    on Windows only, a bundled hdfmonkey executable.
+    """Recursively search ``<base_dir>/downloads/cspect`` for a CSpect.exe and a
+    bundled hdfmonkey executable built for the current platform.
 
     Returns ``(cspect_path, hdfmonkey_path)`` where each element is the full path
     to the first matching executable found, or ``None`` if not found / not
@@ -557,63 +606,84 @@ def find_emulators_in_downloads(base_dir, scan_for_cspect=True, scan_for_hdfmonk
     application directory or on PATH — itch.io CSpect installs land under
     ``downloads/cspect`` (optionally in a per-version sub-folder).
 
-    The hdfmonkey search is Windows-only: on Linux/macOS hdfmonkey is installed
-    manually via ``make`` and is not shipped with CSpect, so ``scan_for_hdfmonkey``
-    is ignored there. The walk is potentially slow (many files), so callers run
-    it on a background thread.
+    The hdfmonkey search now covers Windows, Linux and macOS (Intel + Apple
+    Silicon): the itch.io CSpect package ships an hdfmonkey build for each of
+    these under ``hdfmonkey/<platform>/`` (see ``hdfmonkey_bundle_subpaths``).
+    The walk is potentially slow (many files), so callers run it on a background
+    thread.
     """
     search_root = os.path.join(base_dir, DOWNLOADS_CSPECT_DIRNAME)
     if not os.path.isdir(search_root):
         return (None, None)
 
-    is_windows = platform.system() == "Windows"
     want_cspect = bool(scan_for_cspect)
-    want_hdfmonkey = bool(scan_for_hdfmonkey) and is_windows
+    want_hdfmonkey = bool(scan_for_hdfmonkey)
 
     cspect_target = (CSPECT_EXECUTABLE_NAME + ".exe").lower()
-    # hdfmonkey discovery is Windows-only (see want_hdfmonkey above), so only
-    # accept the Windows executable. CSpect bundles ship hdfmonkey for several
-    # platforms side by side (e.g. hdfmonkey/linux-musl/hdfmonkey alongside
-    # hdfmonkey/windows-64/hdfmonkey.exe); matching the extension-less Linux
-    # binary would hand back an ELF that cannot run on Windows.
-    hdf_target = (HDFMONKEY_EXECUTABLE + ".exe").lower()
+    # Platform-specific bundle locations for hdfmonkey, in priority order. We
+    # match the full sub-path (e.g. .../hdfmonkey/linux-musl/hdfmonkey) rather
+    # than the bare file name: on Linux/macOS the bundle ships several same-named
+    # "hdfmonkey" binaries (one per platform) and only the one under the matching
+    # platform folder can actually run here.
+    hdf_candidates = hdfmonkey_bundle_subpaths() if want_hdfmonkey else []
+    want_hdfmonkey = want_hdfmonkey and bool(hdf_candidates)
+    # (path-suffix, priority rank) pairs; a leading separator anchors the match
+    # to whole path components.
+    hdf_suffixes = [(os.sep + sp.lower(), rank)
+                    for rank, (sp, _exe) in enumerate(hdf_candidates)]
 
     cspect_path = None
     hdfmonkey_path = None
+    hdf_best_rank = None  # priority rank of the best hdfmonkey match so far
     for dirpath, _dirnames, filenames in os.walk(search_root):
         for filename in filenames:
             low = filename.lower()
             if want_cspect and cspect_path is None and low == cspect_target:
                 cspect_path = os.path.join(dirpath, filename)
-            elif want_hdfmonkey and hdfmonkey_path is None and low == hdf_target:
-                hdfmonkey_path = os.path.join(dirpath, filename)
-        if (not want_cspect or cspect_path is not None) and \
-           (not want_hdfmonkey or hdfmonkey_path is not None):
+                continue
+            # Keep looking for hdfmonkey until the top-priority (rank 0) build is
+            # found, so a native build wins over a lower-priority fallback.
+            if want_hdfmonkey and (hdf_best_rank is None or hdf_best_rank > 0):
+                full = os.path.join(dirpath, filename)
+                full_low = full.lower()
+                for suffix, rank in hdf_suffixes:
+                    if full_low.endswith(suffix) and \
+                       (hdf_best_rank is None or rank < hdf_best_rank):
+                        hdfmonkey_path = full
+                        hdf_best_rank = rank
+                        break
+        cspect_done = (not want_cspect) or cspect_path is not None
+        hdf_done = (not want_hdfmonkey) or hdf_best_rank == 0
+        if cspect_done and hdf_done:
             break  # everything we were asked to find has been located
     return (cspect_path, hdfmonkey_path)
 
 
 def find_hdfmonkey_near_cspect(cspect_path):
-    """On Windows, locate an ``hdfmonkey.exe`` shipped alongside a manually
-    installed CSpect.
+    """Locate an hdfmonkey executable shipped alongside a manually installed
+    CSpect, for the current platform.
 
-    CSpect distributions bundle the Windows hdfmonkey build under
-    ``hdfmonkey\\windows-64\\hdfmonkey.exe`` next to ``CSpect.exe`` (and a copy
-    is sometimes placed directly beside it). So when CSpect was found on PATH or
-    in the application directory but hdfmonkey is otherwise missing, this picks
-    up that bundled copy without needing the itch.io downloads scan.
+    CSpect distributions bundle hdfmonkey under
+    ``hdfmonkey/<platform>/hdfmonkey[.exe]`` next to the CSpect executable (and a
+    copy is sometimes placed directly beside it). So when CSpect was found on
+    PATH or in the application directory but hdfmonkey is otherwise missing, this
+    picks up that bundled copy without needing the itch.io downloads scan. The
+    platform-specific sub-folders (windows-64 / linux-musl / macos-intel /
+    macos-mn) come from ``hdfmonkey_bundle_subpaths``.
 
-    Returns the full path to the executable, or ``None`` when not on Windows,
-    when ``cspect_path`` is falsy, or when no copy is found.
+    Returns the full path to the executable, or ``None`` when ``cspect_path`` is
+    falsy or when no copy is found for this platform.
     """
-    if not cspect_path or platform.system() != "Windows":
+    if not cspect_path:
         return None
     cspect_dir = os.path.dirname(os.path.abspath(cspect_path))
-    exe = HDFMONKEY_EXECUTABLE + ".exe"
-    for candidate in (
-        os.path.join(cspect_dir, "hdfmonkey", "windows-64", exe),
-        os.path.join(cspect_dir, exe),
-    ):
+    # Platform-specific bundle locations first (in priority order)...
+    candidates = [os.path.join(cspect_dir, subpath)
+                  for subpath, _exe in hdfmonkey_bundle_subpaths()]
+    # ...then the binary dropped directly beside CSpect (some manual installs).
+    exe = HDFMONKEY_EXECUTABLE + (".exe" if platform.system() == "Windows" else "")
+    candidates.append(os.path.join(cspect_dir, exe))
+    for candidate in candidates:
         if os.path.isfile(candidate):
             return candidate
     return None

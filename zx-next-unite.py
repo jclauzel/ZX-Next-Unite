@@ -2233,7 +2233,8 @@ class MainWindow(QMainWindow):
         self._cspect_from_downloads = False
 
         # Full path to a bundled hdfmonkey executable discovered under
-        # downloads/cspect (Windows only). None means "use the PATH/'hdfmonkey'
+        # downloads/cspect (Windows/Linux/macOS — the itch.io CSpect package
+        # ships a build per platform). None means "use the PATH/'hdfmonkey'
         # default". execute_hdf_monkey and _hdfmonkey_binary_found prefer it.
         self._hdfmonkey_executable_path = None
         # Set True while the async downloads/cspect scan is in flight so the
@@ -2454,7 +2455,6 @@ class MainWindow(QMainWindow):
             self.cspect_vsync.setDisabled(True)
             self.cspect_joystick.setDisabled(True)
             self.cspect_frequency.setDisabled(True)
-            self.button_open_config_file.setDisabled(True)
 
         def set_all_buttons_enabled():
             self.imageinput.setDisabled(False)
@@ -2477,7 +2477,6 @@ class MainWindow(QMainWindow):
             self.cspect_vsync.setDisabled(False)
             self.cspect_joystick.setDisabled(False)
             self.cspect_frequency.setDisabled(False)
-            self.button_open_config_file.setDisabled(False)
 
         def enable_image_selection():
             self.imageinput.setDisabled(False)
@@ -4166,6 +4165,25 @@ class MainWindow(QMainWindow):
                 exec_process = subprocess.run(argv, shell=False, check=True,
                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                               **subprocess_no_window_kwargs())
+
+            except PermissionError as ex:
+                    # On Linux/macOS the itch.io CSpect bundle ships hdfmonkey
+                    # without its executable bit set, so the OS refuses to launch
+                    # it (EACCES / "Permission denied"). Surface that in the
+                    # SD-card log window with the exact fix and full path, rather
+                    # than letting it bubble up as an opaque failure.
+                    exec_process = subprocess.CompletedProcess(args=[hdfmonkey_exe], returncode=-1)
+                    if silent:
+                        logging.debug(f"hdfmonkey {command_to_execute} permission denied (silent): {execution_cmd} - {ex}")
+                    else:
+                        logging.error(f"Permission denied running hdfmonkey: {execution_cmd} - {ex}")
+                        add_main_log_window(f"ERROR: Permission denied running hdfmonkey: {hdfmonkey_exe}")
+                        if hdfmonkey_needs_exec_bit():
+                            cmd = hdfmonkey_chmod_instruction(hdfmonkey_exe)
+                            add_main_log_window(
+                                "The hdfmonkey provided by the CSpect itch.io package is not "
+                                "executable. Make it executable by running:")
+                            add_main_log_window(f"    {cmd}")
 
             except (FileNotFoundError,subprocess.CalledProcessError) as ex:
                     # If hdfmonkey can't actually be located, offer to install it
@@ -8168,14 +8186,8 @@ class MainWindow(QMainWindow):
 
         self.horizontal6.addWidget(self.cspect_frequency)
 
-        self.button_open_config_file = QPushButton("Open config file", self)
-        self.button_open_config_file.setText("Open config file")
-        self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
-        self.horizontal6.addWidget(self.button_open_config_file)
-
         # Hide all CSpect controls when the CSpect emulator was not found at
-        # startup (application directory or PATH). The MAME button and the
-        # general "Open config file" button are unaffected.
+        # startup (application directory or PATH). The MAME button is unaffected.
         if self._cspect_executable_path is None:
             for _cspect_widget in (
                 self.button_start_cspect,
@@ -19323,6 +19335,14 @@ class MainWindow(QMainWindow):
             lambda _i: _settings_nextsync_send_conflict_changed())
         grid_tab_Settings.addWidget(self.settings_nextsync_send_conflict_combo, 2, 1)
 
+        # "Open config file" — moved here from the SD-card tab. Opens hdfg.cfg in
+        # the system text editor so advanced users can hand-edit settings. Placed
+        # at the bottom of the Settings tab, left-aligned so it keeps its natural
+        # width rather than stretching across both columns.
+        self.button_open_config_file = QPushButton("Open config file", self)
+        self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
+        grid_tab_Settings.addWidget(self.button_open_config_file, 28, 0, 1, 2, Qt.AlignLeft)
+
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
         zxnextunite_Settings_tab.tab_name_private = "Settings"
@@ -19823,6 +19843,37 @@ class MainWindow(QMainWindow):
             if success and self.settings_warn_image_nearly_full_checkbox.isChecked():
                 _warn_if_image_nearly_full(self.right_disk_image_path)
 
+        def _notify_bundled_hdfmonkey(hdfmonkey_path):
+            """When a bundled itch.io hdfmonkey is adopted on Linux/macOS, warn
+            the user it must be made executable first — the freshly extracted
+            binary carries no executable bit, so running it as-is yields a
+            'Permission denied'. Logs the exact command (with full path) to the
+            SD-card log window and shows a toast. No-op on Windows, and skipped
+            once the user has already made the binary executable (so it does not
+            nag on every launch)."""
+            if not hdfmonkey_needs_exec_bit():
+                return
+            try:
+                if os.access(hdfmonkey_path, os.X_OK):
+                    return  # already executable — nothing to warn about
+            except Exception:
+                pass
+            cmd = hdfmonkey_chmod_instruction(hdfmonkey_path)
+            add_main_log_window(
+                "NOTE: The hdfmonkey bundled with the CSpect itch.io package is "
+                "not executable yet. If you get a 'Permission denied' error, "
+                "make it executable by running:")
+            add_main_log_window(f"    {cmd}")
+            self._show_toast(
+                "ℹ  Make hdfmonkey executable",
+                "The hdfmonkey bundled with the CSpect itch.io package needs its "
+                "executable bit set before it can run, otherwise you will get a "
+                "'Permission denied' error.\r\n\r\nRun this command in a "
+                f"terminal:\r\n{cmd}",
+                variant="yellow",
+                duration_ms=15000,
+            )
+
         _is_windows = platform.system() == "Windows"
         _hdfmonkey_present = is_hdfmonkey_present()
         _startup_load_started = False
@@ -19843,12 +19894,14 @@ class MainWindow(QMainWindow):
         # walk can be slow. The emulator-detection toast waits for the result;
         # when nothing needs scanning it fires on a short timer as before.
         _need_cspect = self._cspect_executable_path is None
-        _need_hdfmonkey = _is_windows and not _hdfmonkey_present
+        # hdfmonkey may be bundled with the itch.io CSpect package on every
+        # platform (Windows/Linux/macOS), so scan for it whenever it is missing.
+        _need_hdfmonkey = not _hdfmonkey_present
 
         # When CSpect was already found (manual install on PATH or the
-        # application directory) but hdfmonkey is still missing, CSpect ships
-        # hdfmonkey.exe alongside itself under hdfmonkey\windows-64 — pick that
-        # up directly. This is a couple of os.path.isfile checks, so it runs
+        # application directory) but hdfmonkey is still missing, CSpect ships an
+        # hdfmonkey build alongside itself under hdfmonkey/<platform>/ — pick
+        # that up directly. This is a couple of os.path.isfile checks, so it runs
         # synchronously here and saves the slower itch.io downloads scan below.
         if _need_hdfmonkey and self._cspect_executable_path:
             _near_hdfmonkey = find_hdfmonkey_near_cspect(self._cspect_executable_path)
@@ -19859,6 +19912,8 @@ class MainWindow(QMainWindow):
                 self.download_and_install_hdfmonkey_button.setVisible(False)
                 self.button_new_folder.setVisible(True)
                 self.button_delete_files.setVisible(True)
+                # On Linux/macOS the bundled binary needs +x before it will run.
+                _notify_bundled_hdfmonkey(_near_hdfmonkey)
                 if not _startup_load_started:
                     load_image(_warn_after_startup_load)
                     _startup_load_started = True
@@ -19889,6 +19944,8 @@ class MainWindow(QMainWindow):
                 self.download_and_install_hdfmonkey_button.setVisible(False)
                 self.button_new_folder.setVisible(True)
                 self.button_delete_files.setVisible(True)
+                # On Linux/macOS the bundled binary needs +x before it will run.
+                _notify_bundled_hdfmonkey(hdfmonkey_path)
                 # Load the image now if startup couldn't (hdfmonkey was missing).
                 if not _startup_load_started:
                     load_image(_warn_after_startup_load)
