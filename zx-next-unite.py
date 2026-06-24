@@ -51,7 +51,7 @@
     To update embedded images use: pyside6-rcc rc_backgrounds.qrc -o rc_backgrounds.py
 
     pip install pyinstaller
-    pyinstaller --onefile --windowed --upx-dir C:\upx --collect-all itch_dl --collect-all bs4 zx-next-unite.py
+    pyinstaller --onefile --windowed --upx-dir C:\\upx --collect-all itch_dl --collect-all bs4 zx-next-unite.py
     pyinstaller --onefile --windowed --upx-dir C:\\upx zx-next-unite.py
     pyinstaller --onefile --windowed --noupx zx-next-unite.py
 """
