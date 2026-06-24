@@ -2122,9 +2122,26 @@ class MainWindow(QMainWindow):
             found.append("Mame")
 
         if found:
+            body = "Found: " + " and ".join(found) + "."
+            # Append the resolved CSpect / hdfmonkey paths so the user can see
+            # exactly which copy will be used (PATH, app directory, or a bundled
+            # itch.io install discovered under downloads/cspect).
+            cspect_path = getattr(self, "_cspect_executable_path", None)
+            if cspect_path:
+                body += "\r\nCSpect: " + cspect_path
+            hdfmonkey_path = getattr(self, "_hdfmonkey_executable_path", None)
+            if not hdfmonkey_path:
+                hdfmonkey_path = (shutil.which(HDFMONKEY_EXECUTABLE)
+                                  or shutil.which(HDFMONKEY_EXECUTABLE + ".exe"))
+            if hdfmonkey_path:
+                body += "\r\nhdfmonkey: " + hdfmonkey_path
+            # Likewise show the resolved MAME path (usually found on PATH).
+            mame_path = getattr(self, "_mame_executable_path", None)
+            if mame_path:
+                body += "\r\nMame: " + mame_path
             self._show_toast(
                 "\u2705  Emulator(s) detected",
-                "Found: " + " and ".join(found) + ".",
+                body,
                 variant="green",
                 duration_ms=5000,
             )
@@ -2208,8 +2225,26 @@ class MainWindow(QMainWindow):
         self._mame_executable_path = find_mame_executable()
 
         # Detect whether the CSpect emulator is available (application directory
-        # or PATH). When absent, all CSpect controls are hidden.
+        # or PATH). When absent, all CSpect controls are hidden. A background
+        # scan of downloads/cspect (see the startup code) may later fill this in
+        # from an itch.io CSpect install; _cspect_from_downloads records when that
+        # bundled copy is in use so launch_cspect can run it from its own folder.
         self._cspect_executable_path = find_cspect_executable()
+        self._cspect_from_downloads = False
+
+        # Full path to a bundled hdfmonkey executable discovered under
+        # downloads/cspect (Windows only). None means "use the PATH/'hdfmonkey'
+        # default". execute_hdf_monkey and _hdfmonkey_binary_found prefer it.
+        self._hdfmonkey_executable_path = None
+        # Set True while the async downloads/cspect scan is in flight so the
+        # startup emulator-detection toast waits for its results instead of
+        # firing on a fixed timer.
+        self._emulator_scan_pending = False
+        # Strong reference to the in-flight downloads/cspect scan worker. The
+        # generic Worker creates an unparented WorkerSignals, so this keeps the
+        # worker and its signals alive until the scan finishes (otherwise Qt
+        # drops the queued result/finished events when the sender is collected).
+        self._emulator_scan_worker = None
 
         # Live QColor instances for the image explorer — updated by Settings pickers
         self.img_color_up_directory = hex_to_qcolor(DEFAULT_COLOR_UP_DIRECTORY)
@@ -2487,8 +2522,12 @@ class MainWindow(QMainWindow):
 
         def _hdfmonkey_binary_found():
             """True if the hdfmonkey executable can be located (PATH, current
-            directory, or the application directory). Used to tell a genuine
-            hdfmonkey error apart from "it isn't installed", without running it."""
+            directory, the application directory, or a bundled copy discovered
+            under downloads/cspect). Used to tell a genuine hdfmonkey error apart
+            from "it isn't installed", without running it."""
+            override = getattr(self, "_hdfmonkey_executable_path", None)
+            if override and os.path.isfile(override):
+                return True
             if shutil.which(HDFMONKEY_EXECUTABLE):
                 return True
             names = [HDFMONKEY_EXECUTABLE]
@@ -3168,17 +3207,37 @@ class MainWindow(QMainWindow):
                 if configuration_dictionary[SETTING_CUSTOM] != "":
                     cspect_arguments += " " + configuration_dictionary[SETTING_CUSTOM] + " "
 
-                cspect_arguments += " -mmc=" + self.right_disk_image_path + " "
+                # When the CSpect copy in use is a bundled itch.io install under
+                # downloads/cspect, it must be launched from its own folder so its
+                # Next ROMs resolve. The working directory then differs from the
+                # app directory, so the image path must be absolute.
+                cspect_exe = getattr(self, "_cspect_executable_path", None)
+                use_bundled = (getattr(self, "_cspect_from_downloads", False)
+                               and cspect_exe and os.path.isfile(cspect_exe))
+                if use_bundled:
+                    cspect_cwd = os.path.dirname(cspect_exe)
+                    mmc_path = os.path.abspath(self.right_disk_image_path) if self.right_disk_image_path else self.right_disk_image_path
+                else:
+                    cspect_cwd = None
+                    mmc_path = self.right_disk_image_path
+
+                cspect_arguments += " -mmc=" + mmc_path + " "
 
                 logging.info(f"Cspect start with arguments: {cspect_arguments}")
                 add_main_log_window(f"Cspect start with arguments: {cspect_arguments}")
 
                 try:
                     if platform.system() == "Windows":
-                        execute_shell_command ("CSpect.exe", cspect_arguments)
+                        if use_bundled:
+                            execute_shell_command (f'"{cspect_exe}"', cspect_arguments, cwd=cspect_cwd)
+                        else:
+                            execute_shell_command ("CSpect.exe", cspect_arguments)
                         #execute_shell_command_no_wait ("CSpect.exe", cspect_arguments)
                     else:
-                        execute_shell_command ("mono CSpect.exe", cspect_arguments)
+                        if use_bundled:
+                            execute_shell_command (f'mono "{cspect_exe}"', cspect_arguments, cwd=cspect_cwd)
+                        else:
+                            execute_shell_command ("mono CSpect.exe", cspect_arguments)
                 except subprocess.CalledProcessError as ex:
                     if ex.returncode == 1:
                         logging.error("CSpect.exe is not present in the same local directory as zx-next-unite.Please install it from http://cspect.org")
@@ -4092,10 +4151,13 @@ class MainWindow(QMainWindow):
         def execute_hdf_monkey(command_to_execute, image_path, additional_args="", silent=False, extra_argv=None, prompt_if_missing=True):
             # Sentinel with a non-zero returncode in case we never reach subprocess.run
             exec_process = subprocess.CompletedProcess(args=[], returncode=-1)
-            execution_cmd = f'{HDFMONKEY_EXECUTABLE} {command_to_execute} {image_path} {additional_args}'
+            # Prefer a bundled hdfmonkey discovered under downloads/cspect
+            # (Windows only); otherwise fall back to the PATH/"hdfmonkey" default.
+            hdfmonkey_exe = getattr(self, "_hdfmonkey_executable_path", None) or HDFMONKEY_EXECUTABLE
+            execution_cmd = f'{hdfmonkey_exe} {command_to_execute} {image_path} {additional_args}'
             try:
                 img = image_path.strip('"')
-                argv = [HDFMONKEY_EXECUTABLE, command_to_execute, img]
+                argv = [hdfmonkey_exe, command_to_execute, img]
                 if extra_argv is not None:
                     # Caller passes a clean list of path strings – no quoting/parsing needed
                     argv += extra_argv
@@ -4147,9 +4209,9 @@ class MainWindow(QMainWindow):
 
             return exec_process
 
-        def execute_shell_command(command_to_execute, additional_args = ""):
+        def execute_shell_command(command_to_execute, additional_args = "", cwd = None):
             execution_cmd = command_to_execute + " " + additional_args
-            return subprocess.run(execution_cmd, shell=True, check=True, stdout=subprocess.PIPE)
+            return subprocess.run(execution_cmd, shell=True, check=True, stdout=subprocess.PIPE, cwd=cwd)
 
         def execute_shell_command_no_wait(command_to_execute, additional_args = ""):
             execution_cmd = command_to_execute + " " + additional_args
@@ -19754,10 +19816,6 @@ class MainWindow(QMainWindow):
         # Use a small delay (not 0) so the first paint/show events have a
         # chance to be processed before any thumbnail fetch threads spin up.
         QTimer.singleShot(150, _deferred_startup_tab_activation)
-        # Report which emulators were detected at startup via a 5-second toast
-        # (green when found, yellow advisory when none are available). Deferred
-        # so it appears after the window is shown.
-        QTimer.singleShot(400, self._show_emulator_detection_toast)
         # Expose the nested save function so closeEvent (a class method) can call it.
         self._save_configuration_file = save_configuration_file
 
@@ -19765,16 +19823,116 @@ class MainWindow(QMainWindow):
             if success and self.settings_warn_image_nearly_full_checkbox.isChecked():
                 _warn_if_image_nearly_full(self.right_disk_image_path)
 
+        _is_windows = platform.system() == "Windows"
+        _hdfmonkey_present = is_hdfmonkey_present()
         _startup_load_started = False
-        if is_hdfmonkey_present():
+        if _hdfmonkey_present:
             load_image(_warn_after_startup_load)
             _startup_load_started = True
-        else:
-            if platform.system() == "Windows":
-                show_hdf_monkey_download_and_install_buttons()
-                if is_hdfmonkey_present():
+        elif _is_windows:
+            # hdfmonkey isn't on PATH / in the app dir. Show the download button
+            # for now; the background scan below may still turn up a bundled copy
+            # under downloads/cspect, in which case the button is hidden again and
+            # the image is loaded from _on_emulator_scan_done.
+            show_hdf_monkey_download_and_install_buttons()
+
+        # Background scan of downloads/cspect for an itch.io CSpect bundle. Run
+        # only when CSpect (any platform) or hdfmonkey (Windows only) is still
+        # missing — itch.io installs land under downloads/cspect, possibly in a
+        # per-version sub-folder. Kept off the UI thread because the recursive
+        # walk can be slow. The emulator-detection toast waits for the result;
+        # when nothing needs scanning it fires on a short timer as before.
+        _need_cspect = self._cspect_executable_path is None
+        _need_hdfmonkey = _is_windows and not _hdfmonkey_present
+
+        # When CSpect was already found (manual install on PATH or the
+        # application directory) but hdfmonkey is still missing, CSpect ships
+        # hdfmonkey.exe alongside itself under hdfmonkey\windows-64 — pick that
+        # up directly. This is a couple of os.path.isfile checks, so it runs
+        # synchronously here and saves the slower itch.io downloads scan below.
+        if _need_hdfmonkey and self._cspect_executable_path:
+            _near_hdfmonkey = find_hdfmonkey_near_cspect(self._cspect_executable_path)
+            if _near_hdfmonkey:
+                self._hdfmonkey_executable_path = _near_hdfmonkey
+                _need_hdfmonkey = False
+                add_main_log_window(f"Found hdfmonkey alongside CSpect: {_near_hdfmonkey}")
+                self.download_and_install_hdfmonkey_button.setVisible(False)
+                self.button_new_folder.setVisible(True)
+                self.button_delete_files.setVisible(True)
+                if not _startup_load_started:
                     load_image(_warn_after_startup_load)
                     _startup_load_started = True
+
+        def _on_emulator_scan_done(result):
+            self._emulator_scan_pending = False
+            try:
+                cspect_path, hdfmonkey_path = result
+            except (TypeError, ValueError):
+                cspect_path = hdfmonkey_path = None
+
+            if cspect_path and not self._cspect_executable_path:
+                self._cspect_executable_path = cspect_path
+                self._cspect_from_downloads = True
+                # The CSpect controls were hidden at construction because no
+                # emulator was found; reveal them now that a bundled copy exists.
+                for _w in (self.button_start_cspect, self.cspect_screensize,
+                           self.cspect_sound, self.cspect_vsync,
+                           self.cspect_joystick, self.cspect_frequency):
+                    _w.setVisible(True)
+                add_main_log_window(f"Found CSpect under downloads/cspect: {cspect_path}")
+
+            if hdfmonkey_path and not self._hdfmonkey_executable_path:
+                self._hdfmonkey_executable_path = hdfmonkey_path
+                add_main_log_window(f"Found hdfmonkey under downloads/cspect: {hdfmonkey_path}")
+                # A bundled hdfmonkey makes the download/install wizard
+                # unnecessary; hide it and restore the image controls.
+                self.download_and_install_hdfmonkey_button.setVisible(False)
+                self.button_new_folder.setVisible(True)
+                self.button_delete_files.setVisible(True)
+                # Load the image now if startup couldn't (hdfmonkey was missing).
+                if not _startup_load_started:
+                    load_image(_warn_after_startup_load)
+
+            self._show_emulator_detection_toast()
+
+        if _need_cspect or _need_hdfmonkey:
+            self._emulator_scan_pending = True
+            _app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+
+            def _scan_downloads(progress_callback=None):
+                # Wrapper so the generic Worker's injected progress_callback kwarg
+                # is absorbed; find_emulators_in_downloads is a pure helper.
+                return find_emulators_in_downloads(
+                    _app_dir, scan_for_cspect=_need_cspect,
+                    scan_for_hdfmonkey=_need_hdfmonkey)
+
+            def _scan_finished_fallback():
+                # Ensure the toast still appears if the worker errored before
+                # emitting a result (result fires first on success, so this is a
+                # no-op then). Also drop the strong reference kept below so the
+                # worker and its signals can be collected now that it is done.
+                if self._emulator_scan_pending:
+                    self._emulator_scan_pending = False
+                    self._show_emulator_detection_toast()
+                self._emulator_scan_worker = None
+
+            _scan_worker = self._Worker(_scan_downloads)
+            _scan_worker.signals.result.connect(_on_emulator_scan_done)
+            _scan_worker.signals.finished.connect(_scan_finished_fallback)
+            # Keep the worker (and therefore its WorkerSignals) alive until it
+            # finishes. self._Worker creates an unparented WorkerSignals; without
+            # a strong reference here the local _scan_worker is collected as soon
+            # as __init__ returns, and Qt then discards the still-queued result/
+            # finished events (sender destroyed) — so the scan results and the
+            # detection toast would silently never arrive. Same pattern as the
+            # NextSync scan worker retention above.
+            self._emulator_scan_worker = _scan_worker
+            self.threadpool.start(_scan_worker)
+        else:
+            # Nothing to scan — report detected emulators via a 5-second toast
+            # (green when found, yellow advisory when none are available),
+            # deferred so it appears after the window is shown.
+            QTimer.singleShot(400, self._show_emulator_detection_toast)
 
         # The image listing above now runs asynchronously and manages the path
         # label itself ("Loading image…" while in flight, then the real path or an

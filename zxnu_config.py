@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "7.7.6"
+ZX_NEXT_UNITE_VERSION = "7.7.7"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -539,6 +539,84 @@ def hex_to_qcolor(hex_str: str) -> QColor:
 UP_DIRECTORY = "[Up Directory..]"
 DIRECTORY_CREATION_NOT_ALLOWED_CHARACTERS = ('"', '<', '>', ':', '\\', '/', '|', '?', '*', '!', '(',')', '.', "'", '$', '@')
 HDFMONKEY_EXECUTABLE = "hdfmonkey"
+
+# Sub-directory (relative to the application directory) where itch.io CSpect
+# installs are downloaded by the itch.io tab. Several CSpect versions may live
+# here, each in its own sub-folder, and the Windows builds ship hdfmonkey.exe
+# alongside CSpect.exe.
+DOWNLOADS_CSPECT_DIRNAME = os.path.join("downloads", "itchio", "mdf200", "cspect")
+
+
+def find_emulators_in_downloads(base_dir, scan_for_cspect=True, scan_for_hdfmonkey=True):
+    """Recursively search ``<base_dir>/downloads/cspect`` for a CSpect.exe and,
+    on Windows only, a bundled hdfmonkey executable.
+
+    Returns ``(cspect_path, hdfmonkey_path)`` where each element is the full path
+    to the first matching executable found, or ``None`` if not found / not
+    searched for. This is the fallback used when neither tool is present in the
+    application directory or on PATH — itch.io CSpect installs land under
+    ``downloads/cspect`` (optionally in a per-version sub-folder).
+
+    The hdfmonkey search is Windows-only: on Linux/macOS hdfmonkey is installed
+    manually via ``make`` and is not shipped with CSpect, so ``scan_for_hdfmonkey``
+    is ignored there. The walk is potentially slow (many files), so callers run
+    it on a background thread.
+    """
+    search_root = os.path.join(base_dir, DOWNLOADS_CSPECT_DIRNAME)
+    if not os.path.isdir(search_root):
+        return (None, None)
+
+    is_windows = platform.system() == "Windows"
+    want_cspect = bool(scan_for_cspect)
+    want_hdfmonkey = bool(scan_for_hdfmonkey) and is_windows
+
+    cspect_target = (CSPECT_EXECUTABLE_NAME + ".exe").lower()
+    # hdfmonkey discovery is Windows-only (see want_hdfmonkey above), so only
+    # accept the Windows executable. CSpect bundles ship hdfmonkey for several
+    # platforms side by side (e.g. hdfmonkey/linux-musl/hdfmonkey alongside
+    # hdfmonkey/windows-64/hdfmonkey.exe); matching the extension-less Linux
+    # binary would hand back an ELF that cannot run on Windows.
+    hdf_target = (HDFMONKEY_EXECUTABLE + ".exe").lower()
+
+    cspect_path = None
+    hdfmonkey_path = None
+    for dirpath, _dirnames, filenames in os.walk(search_root):
+        for filename in filenames:
+            low = filename.lower()
+            if want_cspect and cspect_path is None and low == cspect_target:
+                cspect_path = os.path.join(dirpath, filename)
+            elif want_hdfmonkey and hdfmonkey_path is None and low == hdf_target:
+                hdfmonkey_path = os.path.join(dirpath, filename)
+        if (not want_cspect or cspect_path is not None) and \
+           (not want_hdfmonkey or hdfmonkey_path is not None):
+            break  # everything we were asked to find has been located
+    return (cspect_path, hdfmonkey_path)
+
+
+def find_hdfmonkey_near_cspect(cspect_path):
+    """On Windows, locate an ``hdfmonkey.exe`` shipped alongside a manually
+    installed CSpect.
+
+    CSpect distributions bundle the Windows hdfmonkey build under
+    ``hdfmonkey\\windows-64\\hdfmonkey.exe`` next to ``CSpect.exe`` (and a copy
+    is sometimes placed directly beside it). So when CSpect was found on PATH or
+    in the application directory but hdfmonkey is otherwise missing, this picks
+    up that bundled copy without needing the itch.io downloads scan.
+
+    Returns the full path to the executable, or ``None`` when not on Windows,
+    when ``cspect_path`` is falsy, or when no copy is found.
+    """
+    if not cspect_path or platform.system() != "Windows":
+        return None
+    cspect_dir = os.path.dirname(os.path.abspath(cspect_path))
+    exe = HDFMONKEY_EXECUTABLE + ".exe"
+    for candidate in (
+        os.path.join(cspect_dir, "hdfmonkey", "windows-64", exe),
+        os.path.join(cspect_dir, exe),
+    ):
+        if os.path.isfile(candidate):
+            return candidate
+    return None
 FILTER_LABEL_TEXT = "Filter: "
 FILTER_TEXT_WIDTH = 320
 _zxart_current_language: str = DEFAULT_ZXART_LANGUAGE
