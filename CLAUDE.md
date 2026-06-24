@@ -34,6 +34,20 @@ pip install pyinstaller
 pyinstaller --onefile --windowed --noupx zx-next-unite.py
 ```
 
+If the optional itch.io feature is in use, also fully bundle `itch-dl` and its
+dependencies so installs work in the frozen exe (its submodules are not pulled
+in by a bare `import itch_dl`, and the in-process installer in `zxnu_itchio.py`
+imports `itch_dl.config` / `handlers` / `downloader` / `keys` / `api`):
+
+```
+pyinstaller --onefile --windowed --noupx --collect-all itch_dl --collect-all bs4 zx-next-unite.py
+```
+
+Note: in a frozen build `sys.executable` is the GUI exe, not a Python
+interpreter, so itch-dl must be driven in-process — never via
+`[sys.executable, "-m", "itch_dl", …]`, which would just relaunch the app. See
+`_install_in_process` in `zxnu_itchio.py`.
+
 ## Regenerating embedded Qt resources
 
 Background images are compiled into `rc_backgrounds.py` from `rc_backgrounds.qrc`. Regenerate after adding/removing image assets:

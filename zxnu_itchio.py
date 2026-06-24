@@ -16,7 +16,10 @@ Every network call raises on failure; callers run them on a background thread
 (see ``getit_run_in_thread`` in the main app) and surface errors in the UI.
 """
 
+import contextlib
+import io
 import json
+import logging
 import os
 import re
 import subprocess
@@ -271,6 +274,136 @@ def _itchdl_command(game_url, api_key, dest_dir):
     return base + [game_url, "--api-key", api_key, "--download-to", dest_dir]
 
 
+class _StreamToLog(io.TextIOBase):
+    """A minimal writable text stream that forwards completed lines to a callback.
+
+    A ``--windowed`` PyInstaller build has ``sys.stdout`` / ``sys.stderr`` set to
+    ``None``, so itch-dl's tqdm progress bar (stderr) and ``print()`` summary
+    (stdout) raise ``'NoneType' object has no attribute 'write'`` and abort the
+    download. Substituting this stream keeps those writes working. tqdm redraws a
+    line in place with ``\\r``; we only emit on ``\\n`` (keeping the text after the
+    last ``\\r``) so progress redraws don't flood the log."""
+
+    def __init__(self, emit):
+        super().__init__()
+        self._emit = emit
+        self._buf = ""
+
+    def writable(self):
+        return True
+
+    def write(self, s):
+        if not s:
+            return 0
+        if not isinstance(s, str):
+            try:
+                s = s.decode("utf-8", "replace")
+            except Exception:
+                s = str(s)
+        self._buf += s
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            line = line.split("\r")[-1].rstrip()
+            if line and self._emit:
+                try:
+                    self._emit(line)
+                except Exception:
+                    pass
+        # Don't let an unterminated tqdm bar grow the buffer without bound.
+        if len(self._buf) > 8192:
+            self._buf = self._buf[-1024:]
+        return len(s)
+
+    def flush(self):
+        return None
+
+
+def _install_in_process(game_url, api_key, dest_dir, log_cb=None):
+    """Run itch-dl entirely in-process (no subprocess).
+
+    This is required for the PyInstaller-frozen build: there ``sys.executable``
+    is the GUI executable, not a Python interpreter, so
+    ``[sys.executable, "-m", "itch_dl", …]`` does not run itch-dl — it relaunches
+    the whole application (the "the app restarts and nothing downloads" symptom).
+    itch-dl is bundled into the frozen exe and importable, and it downloads using
+    threads (``tqdm.contrib.concurrent.thread_map``) rather than multiprocessing,
+    so it is safe to drive its pipeline directly here.
+
+    Mirrors ``itch_dl.cli.run()`` but without reading ``sys.argv`` / calling
+    ``sys.exit``, and forwards itch-dl's logging (emitted on the root logger) to
+    *log_cb*. Returns ``(ok, message)``; runs synchronously — call from a worker
+    thread."""
+
+    def _log(line):
+        if log_cb:
+            try:
+                log_cb(line)
+            except Exception:
+                pass
+
+    try:
+        from itch_dl.config import Settings
+        from itch_dl.handlers import get_jobs_for_url_or_path, preprocess_job_urls
+        from itch_dl.downloader import drive_downloads
+        from itch_dl.keys import get_download_keys
+        from itch_dl.api import ItchApiClient
+    except Exception as exc:
+        return False, f"Could not load the bundled itch-dl: {exc}"
+
+    # Forward itch-dl's progress (it logs on the root logger, level INFO) to the
+    # UI log for the duration of the download, then detach again.
+    class _CbHandler(logging.Handler):
+        def emit(self, record):
+            try:
+                _log(self.format(record))
+            except Exception:
+                pass
+
+    handler = _CbHandler()
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    root = logging.getLogger()
+    root.addHandler(handler)
+
+    # In a --windowed frozen exe, sys.stdout/sys.stderr are None. itch-dl's
+    # tqdm/print writes would crash on that; redirect them to a log-forwarding
+    # stream. Also disable logging.raiseExceptions so that any pre-existing root
+    # StreamHandler bound to the None stream fails silently (logging swallows the
+    # error) instead of dumping tracebacks once we provide a real stderr.
+    writer = _StreamToLog(_log)
+    prev_raise = logging.raiseExceptions
+    logging.raiseExceptions = False
+    try:
+        with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+            settings = Settings(api_key=api_key, download_to=dest_dir, parallel=1)
+
+            # Validate the key up front (same check itch-dl's CLI makes).
+            client = ItchApiClient(settings.api_key, settings.user_agent)
+            profile_req = client.get("/profile")
+            if not profile_req.ok:
+                return False, f"itch.io rejected the API key: {profile_req.text}"
+
+            jobs = get_jobs_for_url_or_path(game_url, settings)
+            jobs = preprocess_job_urls(jobs, settings)
+            if not jobs:
+                return False, "itch-dl found nothing to download for this item."
+
+            settings.download_to = os.path.normpath(settings.download_to or os.getcwd())
+            os.makedirs(settings.download_to, exist_ok=True)
+
+            keys = get_download_keys(client)
+            drive_downloads(jobs, settings, keys)
+            return True, f"Installed to {dest_dir}"
+    except SystemExit as exc:
+        # itch-dl internals call exit()/sys.exit() on fatal config problems.
+        return False, f"itch-dl aborted: {exc}"
+    except Exception as exc:
+        return False, f"itch-dl failed: {exc}"
+    finally:
+        logging.raiseExceptions = prev_raise
+        root.removeHandler(handler)
+
+
 def install_game(game, api_key, dest_dir, log_cb=None, timeout=3600):
     """Download/install a single game via itch-dl into *dest_dir*.
 
@@ -291,6 +424,16 @@ def install_game(game, api_key, dest_dir, log_cb=None, timeout=3600):
                 log_cb(line)
             except Exception:
                 pass
+
+    # In a PyInstaller-frozen build, sys.executable is the GUI executable rather
+    # than a Python interpreter, so a "[sys.executable, -m, itch_dl, …]"
+    # subprocess just relaunches the app instead of running itch-dl (the folder
+    # is created but nothing is downloaded). Run itch-dl in-process there — it is
+    # bundled into the exe and importable. The subprocess path below is kept for
+    # the source/venv build, where it stays nicely isolated and already works.
+    if getattr(sys, "frozen", False):
+        _log("Running bundled itch-dl in-process (frozen build)…")
+        return _install_in_process(game_url, api_key, dest_dir, log_cb=_log)
 
     # Try `python -m itch_dl` first, then the `itch-dl` console script.
     attempts = [
