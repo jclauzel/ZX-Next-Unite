@@ -8174,6 +8174,14 @@ class MainWindow(QMainWindow):
         for sc in CSPECT_SCREEN_SIZES:
              self.cspect_screensize.addItem(sc[0])
 
+        # First-run default (no cfg present): "Screen Size X3" rather than the
+        # combo's natural index-0 ("Screen Size X1"). A saved configuration
+        # overrides this later in load_configuration_file(). Set before the
+        # signal is connected so it doesn't trigger a spurious config save.
+        _screensize_default_idx = next(
+            (i for i, sc in enumerate(CSPECT_SCREEN_SIZES) if sc[0] == "Screen Size X3"), 0)
+        self.cspect_screensize.setCurrentIndex(_screensize_default_idx)
+
         self.cspect_screensize.show()
         self.cspect_screensize.currentIndexChanged.connect(set_cspect_screen_size)
 
