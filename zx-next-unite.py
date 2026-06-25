@@ -1906,6 +1906,26 @@ def _popup_height_for(popup, row_count: int, max_visible: int = 8,
     return min(max_pixels, row_h * visible + frame + 4)
 
 
+def _qimage_from_data(data) -> QImage:
+    """Decode raw image *bytes* into a QImage. Safe to call off the GUI thread
+    (unlike QPixmap, which must be constructed on the main thread): worker
+    threads can do the expensive decode here and the UI thread then turns the
+    result into a QPixmap with the cheap ``QPixmap.fromImage()`` (the pixels are
+    already decoded). Returns a null QImage on failure.
+
+    This keeps thumbnail decoding off the UI thread so populating a gallery —
+    especially the Unite! tab, which fetches from every source at once — no
+    longer stutters while many images are decoded back-to-back on the main
+    thread."""
+    img = QImage()
+    try:
+        if data:
+            img.loadFromData(data)
+    except Exception:
+        return QImage()
+    return img
+
+
 def getit_run_in_thread(fn, on_result, on_error):
     """Run *fn* in a daemon thread. Results are marshalled to the main thread
     via Qt queued signal connections, which are thread-safe.
@@ -9010,16 +9030,13 @@ class MainWindow(QMainWindow):
                 if not pm.isNull():
                     set_pixmap(pm, placeholder_url)
             def _fn(_u=url):
-                tmp = tempfile.NamedTemporaryFile(suffix=".bmp", delete=False)
-                tmp.close()
-                with open(tmp.name, "wb") as _fh:
-                    _fh.write(_http_fetch_bytes_with_retry(_u, timeout=20))
-                return (tmp.name, _u)
+                # Fetch *and* decode off the UI thread (QImage is thread-safe);
+                # the UI callback only does the cheap QPixmap.fromImage().
+                data = _http_fetch_bytes_with_retry(_u, timeout=20)
+                return (_qimage_from_data(data), _u)
             def _on_done(res, _set=set_pixmap):
-                path, u = res
-                px = QPixmap(path)
-                try: os.unlink(path)
-                except Exception: pass
+                img, u = res
+                px = QPixmap.fromImage(img) if (img is not None and not img.isNull()) else QPixmap()
                 # Suppress libpng warnings for malformed PNGs
                 if px.isNull():
                     _make_placeholder()
@@ -10578,18 +10595,22 @@ class MainWindow(QMainWindow):
                 if urls:
                     set_screenshots(urls)
                     def _img_fn(_u=urls[0]):
-                        return (_u, _http_fetch_bytes_with_retry(
-                            _u, headers={"User-Agent": ZXDB_USER_AGENT}, timeout=20))
+                        data = _http_fetch_bytes_with_retry(
+                            _u, headers={"User-Agent": ZXDB_USER_AGENT}, timeout=20)
+                        # SCR images need the GUI-thread converter; decode every
+                        # other format into a QImage here, off the UI thread.
+                        if zxscr_url_is_scr(_u):
+                            return (_u, data, None)
+                        return (_u, None, _qimage_from_data(data))
                     def _img_ok(r):
-                        u, data = r
-                        if zxscr_url_is_scr(u):
+                        u, scr_data, img = r
+                        if scr_data is not None:
                             pm = zxscr_convert_bytes_to_pixmap(
-                                data, _zxscr_basename_for_url(u))
+                                scr_data, _zxscr_basename_for_url(u))
                             if pm is not None and not pm.isNull():
                                 set_pixmap(pm, u)
-                                return
-                        px = QPixmap()
-                        px.loadFromData(data)
+                            return
+                        px = QPixmap.fromImage(img) if (img is not None and not img.isNull()) else QPixmap()
                         if not px.isNull():
                             set_pixmap(px, u)
                     getit_run_in_thread(_img_fn, _img_ok, lambda _e: None)
@@ -13661,18 +13682,22 @@ class MainWindow(QMainWindow):
                 return
             set_screenshots(urls)
             def _img_fn(_u=urls[0]):
-                return (_u, _http_fetch_bytes_with_retry(
-                    zxart_safe_url(_u), headers={"User-Agent": ZXART_USER_AGENT}, timeout=20))
+                data = _http_fetch_bytes_with_retry(
+                    zxart_safe_url(_u), headers={"User-Agent": ZXART_USER_AGENT}, timeout=20)
+                # SCR images need the GUI-thread converter; decode every other
+                # format into a QImage here, off the UI thread.
+                if zxscr_url_is_scr(_u):
+                    return (_u, data, None)
+                return (_u, None, _qimage_from_data(data))
             def _img_ok(res):
-                u, data = res
-                if zxscr_url_is_scr(u):
+                u, scr_data, img = res
+                if scr_data is not None:
                     pm = zxscr_convert_bytes_to_pixmap(
-                        data, _zxscr_basename_for_url(u))
+                        scr_data, _zxscr_basename_for_url(u))
                     if pm is not None and not pm.isNull():
                         set_pixmap(pm, u)
-                        return
-                px = QPixmap()
-                px.loadFromData(data)
+                    return
+                px = QPixmap.fromImage(img) if (img is not None and not img.isNull()) else QPixmap()
                 if not px.isNull():
                     set_pixmap(px, u)
             getit_run_in_thread(_img_fn, _img_ok, lambda _e: None)
@@ -16945,16 +16970,13 @@ class MainWindow(QMainWindow):
                     return
                 set_screenshots([cover])
                 def _fn(_u=cover):
-                    tmp = tempfile.NamedTemporaryFile(suffix=".img", delete=False)
-                    tmp.close()
-                    with open(tmp.name, "wb") as _fh:
-                        _fh.write(_http_fetch_bytes_with_retry(_u, timeout=20))
-                    return (tmp.name, _u)
+                    # Fetch *and* decode off the UI thread (QImage is
+                    # thread-safe); the UI callback only does QPixmap.fromImage.
+                    data = _http_fetch_bytes_with_retry(_u, timeout=20)
+                    return (_qimage_from_data(data), _u)
                 def _ok(res, _set=set_pixmap):
-                    path, u = res
-                    px = QPixmap(path)
-                    try: os.unlink(path)
-                    except Exception: pass
+                    img, u = res
+                    px = QPixmap.fromImage(img) if (img is not None and not img.isNull()) else QPixmap()
                     if px.isNull():
                         _placeholder()
                     else:
@@ -20115,7 +20137,12 @@ QImageReader.setAllocationLimit(0)
 # emitted by Qt's PNG handler when decoding images downloaded from GetIt / ZXDB
 # / ZXArt that carry malformed ancillary chunks.  libpng recovers and the image
 # still renders correctly, so the whole family is silently ignored.
-_QT_SUPPRESS_MSGS = ("Point size <= 0", "libpng warning:")
+# "AtSpiAdaptor" covers the harmless Linux AT-SPI accessibility-bridge warning
+# ('AtSpiAdaptor::applicationInterface does not implement
+# "GetApplicationBusAddress" …') printed at startup when the desktop's
+# accessibility bus is incomplete.  Disabling the bridge via QT_ACCESSIBILITY
+# does not reliably stop it on every distro, so it is filtered here too.
+_QT_SUPPRESS_MSGS = ("Point size <= 0", "libpng warning:", "AtSpiAdaptor")
 def _qt_message_handler(msg_type, context, message):
     if any(s in message for s in _QT_SUPPRESS_MSGS):
         return
