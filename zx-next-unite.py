@@ -3417,12 +3417,16 @@ class MainWindow(QMainWindow):
             image_confirm_deletion_dialog()
 
 
-        def is_hdfmonkey_present():
+        def is_hdfmonkey_present(silent=False):
 
             # Pure probe (used at startup and after install): never pop the
             # "install hdfmonkey?" dialog from here — startup already surfaces the
             # download button, and the dialog is reserved for real user actions.
-            hdfmonkeyexecresult = execute_hdf_monkey("", "", prompt_if_missing=False)
+            # *silent* keeps a failed probe out of the log/console: at startup the
+            # bundled itch.io CSpect hdfmonkey hasn't been discovered yet, so a
+            # bare-"hdfmonkey"-not-on-PATH failure here is misleading — the
+            # subsequent downloads/cspect scan may still find a usable copy.
+            hdfmonkeyexecresult = execute_hdf_monkey("", "", silent=silent, prompt_if_missing=False)
 
             try:
                 if hdfmonkeyexecresult.returncode == 0:
@@ -4200,13 +4204,19 @@ class MainWindow(QMainWindow):
                     if (not silent) and prompt_if_missing and (not self._hdfmonkey_prompt_shown) and (not _hdfmonkey_binary_found()):
                         self._hdfmonkey_prompt_shown = True
                         self._hdfmonkey_missing_signals.missing.emit()
+                    stderr_text = ""
                     if not isinstance(ex, FileNotFoundError):
                         stderr_text = (ex.stderr or b"").decode(errors="replace").strip()
                         exec_process = subprocess.CompletedProcess(args=ex.cmd, returncode=ex.returncode,
                                                                    stdout=ex.stdout, stderr=ex.stderr)
                     if silent:
-                        logging.debug(f"hdfmonkey {command_to_execute} returned {ex.returncode} (silent): {execution_cmd}"
-                                      + (f" | stderr: {stderr_text}" if stderr_text else ""))
+                        # FileNotFoundError has no returncode/stderr — log it as a
+                        # plain "not found" rather than touching those attributes.
+                        if isinstance(ex, FileNotFoundError):
+                            logging.debug(f"hdfmonkey {command_to_execute} not found (silent): {execution_cmd} - {ex}")
+                        else:
+                            logging.debug(f"hdfmonkey {command_to_execute} returned {ex.returncode} (silent): {execution_cmd}"
+                                          + (f" | stderr: {stderr_text}" if stderr_text else ""))
                     elif isinstance(ex, FileNotFoundError) or ex.returncode == 1:
                         logging.error(f"Failed executing hdfmonkey: {execution_cmd} - Once hdfmonkey is installed in the same directory please close the application and restart it.")
                         add_main_log_window("ERROR: Once hdfmonkey is installed in the same directory please close the application and restart it.")
@@ -19850,39 +19860,11 @@ class MainWindow(QMainWindow):
             if success and self.settings_warn_image_nearly_full_checkbox.isChecked():
                 _warn_if_image_nearly_full(self.right_disk_image_path)
 
-        def _notify_bundled_hdfmonkey(hdfmonkey_path):
-            """When a bundled itch.io hdfmonkey is adopted on Linux/macOS, warn
-            the user it must be made executable first — the freshly extracted
-            binary carries no executable bit, so running it as-is yields a
-            'Permission denied'. Logs the exact command (with full path) to the
-            SD-card log window and shows a toast. No-op on Windows, and skipped
-            once the user has already made the binary executable (so it does not
-            nag on every launch)."""
-            if not hdfmonkey_needs_exec_bit():
-                return
-            try:
-                if os.access(hdfmonkey_path, os.X_OK):
-                    return  # already executable — nothing to warn about
-            except Exception:
-                pass
-            cmd = hdfmonkey_chmod_instruction(hdfmonkey_path)
-            add_main_log_window(
-                "NOTE: The hdfmonkey bundled with the CSpect itch.io package is "
-                "not executable yet. If you get a 'Permission denied' error, "
-                "make it executable by running:")
-            add_main_log_window(f"    {cmd}")
-            self._show_toast(
-                "ℹ  Make hdfmonkey executable",
-                "The hdfmonkey bundled with the CSpect itch.io package needs its "
-                "executable bit set before it can run, otherwise you will get a "
-                "'Permission denied' error.\r\n\r\nRun this command in a "
-                f"terminal:\r\n{cmd}",
-                variant="yellow",
-                duration_ms=15000,
-            )
-
         _is_windows = platform.system() == "Windows"
-        _hdfmonkey_present = is_hdfmonkey_present()
+        # Quiet probe: a bundled itch.io CSpect hdfmonkey isn't discovered until
+        # the downloads/cspect scan below, so don't log a misleading "hdfmonkey
+        # not found" error here when that scan may still turn one up.
+        _hdfmonkey_present = is_hdfmonkey_present(silent=True)
         _startup_load_started = False
         if _hdfmonkey_present:
             load_image(_warn_after_startup_load)
@@ -19919,8 +19901,6 @@ class MainWindow(QMainWindow):
                 self.download_and_install_hdfmonkey_button.setVisible(False)
                 self.button_new_folder.setVisible(True)
                 self.button_delete_files.setVisible(True)
-                # On Linux/macOS the bundled binary needs +x before it will run.
-                _notify_bundled_hdfmonkey(_near_hdfmonkey)
                 if not _startup_load_started:
                     load_image(_warn_after_startup_load)
                     _startup_load_started = True
@@ -19951,8 +19931,6 @@ class MainWindow(QMainWindow):
                 self.download_and_install_hdfmonkey_button.setVisible(False)
                 self.button_new_folder.setVisible(True)
                 self.button_delete_files.setVisible(True)
-                # On Linux/macOS the bundled binary needs +x before it will run.
-                _notify_bundled_hdfmonkey(hdfmonkey_path)
                 # Load the image now if startup couldn't (hdfmonkey was missing).
                 if not _startup_load_started:
                     load_image(_warn_after_startup_load)
