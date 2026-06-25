@@ -972,7 +972,12 @@ class GalleryView(QWidget):
         self._pixmap_cache         = {}
         self._resort_timer = QTimer(self)
         self._resort_timer.setSingleShot(True)
-        self._resort_timer.setInterval(250)
+        # Debounce the image-first re-sort. Each re-sort is a full re-render of
+        # the page's cell widgets (the only Qt-safe way to reorder QTableWidget
+        # cell widgets), so the window is kept comfortably wide to coalesce a
+        # burst of arriving thumbnails into a single relayout rather than
+        # churning the UI thread on a slow machine.
+        self._resort_timer.setInterval(400)
         self._resort_timer.timeout.connect(self._resort_for_images)
         self._cells = []
         self._selected_cell = None
