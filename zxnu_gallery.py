@@ -579,6 +579,12 @@ class GalleryCell(QFrame):
             return
         if not self._is_alive():
             return
+        # A real picture is already showing — typically because the parent view
+        # seeded this cell from its pixmap cache during an image-first re-sort.
+        # Skip the network fetch so repeated re-sorts don't re-download images
+        # that are already resolved (important on a slow connection / VM).
+        if self._loaded_ok:
+            return
         self._fetch_attempts += 1
         try:
             # Newer callbacks accept an extra `set_tags` callable so that
@@ -783,19 +789,25 @@ class GalleryCell(QFrame):
                 pass
 
     def _scale_movie_to_label(self):
-        if self._movie is None or self._movie_native is None:
-            return
-        nw = self._movie_native.width()
-        nh = self._movie_native.height()
-        if nw <= 0 or nh <= 0:
+        if self._movie is None:
             return
         # Mirror the static-pixmap sizing: a 4:3 box driven by the width last
         # requested by the parent view (see _apply_pixmap for why we ignore the
         # live QLabel geometry here).
         target_w = max(40, int(self._thumb_w))
         box = QSize(target_w, int(target_w * 3 / 4))
+        nw = self._movie_native.width()  if self._movie_native is not None else 0
+        nh = self._movie_native.height() if self._movie_native is not None else 0
         try:
-            self._movie.setScaledSize(QSize(nw, nh).scaled(box, Qt.KeepAspectRatio))
+            if nw > 0 and nh > 0:
+                self._movie.setScaledSize(QSize(nw, nh).scaled(box, Qt.KeepAspectRatio))
+            else:
+                # Native frame size not known yet (QMovie can report a null
+                # currentImage() before it has started). Clamp to the 4:3 box so
+                # the GIF never plays at its larger native size and visibly
+                # "jumps" big next to the scaled static thumbnail; _play_movie
+                # re-scales precisely once the first real frame arrives.
+                self._movie.setScaledSize(box)
         except Exception:
             pass
 
@@ -811,6 +823,31 @@ class GalleryCell(QFrame):
         self._scale_movie_to_label()
         self._thumb_lbl.setText("")
         self._thumb_lbl.setMovie(movie)
+        # If the native frame size wasn't available above, correct the scaling
+        # once the first real frame is decoded so the GIF settles at the right
+        # 4:3 size instead of staying clamped to the box (and never jumps to its
+        # larger native size in between).
+        if not (self._movie_native is not None
+                and self._movie_native.width() > 0
+                and self._movie_native.height() > 0):
+            def _on_first_frame(_n, _m=movie):
+                if self._movie is not _m or not self._is_alive():
+                    return
+                try:
+                    sz = _m.currentImage().size()
+                except Exception:
+                    sz = None
+                if sz is not None and sz.width() > 0 and sz.height() > 0:
+                    self._movie_native = sz
+                    self._scale_movie_to_label()
+                    try:
+                        _m.frameChanged.disconnect(_on_first_frame)
+                    except Exception:
+                        pass
+            try:
+                movie.frameChanged.connect(_on_first_frame)
+            except Exception:
+                pass
         try:
             movie.start()
         except Exception:
@@ -923,6 +960,12 @@ class GalleryView(QWidget):
         # the grid is re-sorted (image-bearing first) on a short debounce.
         self._no_image_key_getter  = no_image_key_getter
         self._no_image_keys        = set()
+        # Keys of entries that have *resolved a real picture* at runtime.  This
+        # is the positive counterpart to _no_image_keys: as fetches succeed,
+        # those cells are promoted ahead of still-pending ones so image-bearing
+        # tiles lead the grid progressively (not just after every imageless one
+        # has reported in).  Reset on every fresh populate().
+        self._has_image_keys       = set()
         self._current_entries      = []
         # Shared pixmap cache (entry-key -> (QPixmap, url)) so an image-first
         # re-sort can redraw resolved pictures instantly without re-fetching.
@@ -1050,17 +1093,42 @@ class GalleryView(QWidget):
                 return True
         return True
 
+    def _image_rank(self, e) -> int:
+        """Three-way image ranking used to order the grid:
+
+            2 = a real picture has resolved (or the populate-time predicate
+                says the entry has one) → lead the grid
+            1 = still pending / unknown → middle, in original order
+            0 = known imageless (only a synthetic placeholder) → sink to bottom
+
+        Runtime knowledge (_has_image_keys / _no_image_keys) takes precedence
+        over the predicate so a cell that actually failed/succeeded overrides
+        its populate-time guess."""
+        key = self._entry_image_key(e)
+        if key is not None and key in self._no_image_keys:
+            return 0
+        if key is not None and key in self._has_image_keys:
+            return 2
+        if self._image_predicate is not None:
+            try:
+                return 2 if self._image_predicate(e) else 0
+            except Exception:
+                return 1
+        return 1
+
     def _order_image_first(self, entries):
-        """Stable-partition *entries* so items with a real picture come first
-        and known-imageless items (placeholder bitmap/file/text/utility) sink
-        to the bottom."""
+        """Stable-partition *entries* so items with a real picture come first,
+        still-loading items keep their order in the middle, and known-imageless
+        items (placeholder bitmap/file/text/utility) sink to the bottom."""
         if not entries:
             return entries
-        if self._image_predicate is None and not self._no_image_keys:
+        if (self._image_predicate is None
+                and not self._no_image_keys and not self._has_image_keys):
             return entries
-        with_img    = [e for e in entries if self._has_image(e)]
-        without_img = [e for e in entries if not self._has_image(e)]
-        return with_img + without_img
+        with_img = [e for e in entries if self._image_rank(e) == 2]
+        pending  = [e for e in entries if self._image_rank(e) == 1]
+        without  = [e for e in entries if self._image_rank(e) == 0]
+        return with_img + pending + without
 
     def populate(self, entries):
         """Render `entries` (list of dicts) into the grid. Excess capacity is
@@ -1069,6 +1137,7 @@ class GalleryView(QWidget):
         # A fresh page of entries: forget what we learned about the previous
         # page so the new content is evaluated from scratch.
         self._no_image_keys = set()
+        self._has_image_keys = set()
         self._pixmap_cache = {}
         self._resort_timer.stop()
         entries = self._order_image_first(entries)
@@ -1166,6 +1235,14 @@ class GalleryView(QWidget):
         if isinstance(url, str) and url.startswith("placeholder://"):
             return
         self._pixmap_cache[key] = (pm, url or "")
+        # Positive image-first signal: this cell now has a real picture.  Record
+        # it and arm the debounced re-sort so it is promoted ahead of pending /
+        # imageless cells.  The debounce coalesces the burst of resolutions into
+        # a single relayout once the page settles; an already-known key produces
+        # no order change and the re-sort no-ops.
+        if key not in self._has_image_keys:
+            self._has_image_keys.add(key)
+            self._resort_timer.start()
 
     def select_entry(self, predicate):
         """Mark the first cell whose entry satisfies `predicate(entry)` as
