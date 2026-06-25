@@ -3234,12 +3234,22 @@ class MainWindow(QMainWindow):
                 cspect_exe = getattr(self, "_cspect_executable_path", None)
                 use_bundled = (getattr(self, "_cspect_from_downloads", False)
                                and cspect_exe and os.path.isfile(cspect_exe))
+                # The image path may be stored with surrounding quotes (kept so
+                # spaces survive the shell). Strip them before any os.path work:
+                # os.path.abspath() on a string starting with '"' treats it as a
+                # relative path and prepends the cwd, yielding a bogus value like
+                # <cwd>\"C:\temp\img". Re-quote only the final path below.
+                img_path = (self.right_disk_image_path or "").strip().strip('"')
                 if use_bundled:
+                    # CSpect runs from its own folder so its Next ROMs resolve;
+                    # the working dir then differs from the app dir, so the image
+                    # path must be absolute.
                     cspect_cwd = os.path.dirname(cspect_exe)
-                    mmc_path = os.path.abspath(self.right_disk_image_path) if self.right_disk_image_path else self.right_disk_image_path
+                    if img_path:
+                        img_path = os.path.abspath(img_path)
                 else:
                     cspect_cwd = None
-                    mmc_path = self.right_disk_image_path
+                mmc_path = f'"{img_path}"' if img_path else img_path
 
                 cspect_arguments += " -mmc=" + mmc_path + " "
 
