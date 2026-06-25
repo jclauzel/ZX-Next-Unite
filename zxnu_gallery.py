@@ -981,6 +981,13 @@ class GalleryView(QWidget):
         self._resort_timer.timeout.connect(self._resort_for_images)
         self._cells = []
         self._selected_cell = None
+        # Entries handed to populate() while the gallery was not visible.  The
+        # expensive cell-widget creation (and the thumbnail-fetch threads each
+        # cell spawns) is deferred until the gallery is actually shown — see
+        # populate()/showEvent().  This is the big win for Unite!'s Random /
+        # search, which otherwise builds the GetIt + ZXDB + zxArt galleries on
+        # their hidden tabs in addition to the visible aggregate, all at once.
+        self._pending_populate = None
         # Optional raw-GIF byte fetcher propagated to every cell so .gif
         # thumbnails animate (QMovie).  Wired by the owning pane.
         self._gif_fetch_cb = None
@@ -1137,8 +1144,27 @@ class GalleryView(QWidget):
 
     def populate(self, entries):
         """Render `entries` (list of dicts) into the grid. Excess capacity is
-        cleared. Caller must have already paged the entries appropriately."""
+        cleared. Caller must have already paged the entries appropriately.
+
+        When the gallery is not currently visible (e.g. it lives on a hidden
+        tab, or is the non-current page of its pane's view stack), the cell
+        widgets — and the thumbnail-fetch thread each one spawns — are NOT built
+        now.  The entries are stashed and rendered lazily from showEvent() when
+        the gallery is actually shown.  This avoids the large UI-thread stall
+        (and thread thundering-herd) that Unite!'s Random/search caused by
+        eagerly populating the GetIt/ZXDB/zxArt galleries on their hidden tabs."""
         entries = list(entries or [])
+        self._pending_populate = entries
+        if self.isVisible():
+            self._flush_pending_populate()
+
+    def _flush_pending_populate(self):
+        """Render any entries stashed by populate() while the gallery was
+        hidden.  No-op when nothing is pending."""
+        if self._pending_populate is None:
+            return
+        entries = self._pending_populate
+        self._pending_populate = None
         # A fresh page of entries: forget what we learned about the previous
         # page so the new content is evaluated from scratch.
         self._no_image_keys = set()
@@ -1155,7 +1181,19 @@ class GalleryView(QWidget):
         image-first ordering changes at runtime."""
         entries = list(entries or [])
         rows_needed = (len(entries) + self._cols() - 1) // self._cols() if entries else 0
-        # Tear down any existing cells
+        # Tear down any existing cells.  Detach each one from the table's
+        # index-widget map *first* (removeCellWidget) and only then deleteLater
+        # it.  Detaching explicitly prevents a later setCellWidget()/
+        # setRowCount() from trying to delete a widget that is already pending
+        # deletion — a double-free that crashes when a page is re-rendered while
+        # a previous one (still resolving thumbnails) is torn down.
+        try:
+            for r in range(self._table.rowCount()):
+                for c in range(self._table.columnCount()):
+                    if self._table.cellWidget(r, c) is not None:
+                        self._table.removeCellWidget(r, c)
+        except Exception:
+            pass
         for c in self._cells:
             try:
                 c.setParent(None)
@@ -1285,7 +1323,19 @@ class GalleryView(QWidget):
         # QPixmap can remain at the size it was rendered at right before the
         # viewer was shown and visibly overflow the 4-column row.
         super().showEvent(ev)
-        QTimer.singleShot(0, self._apply_dimensions)
+        # Render entries that arrived while we were hidden (deferred by
+        # populate()), then size everything to the now-known viewport width.
+        # Both are scheduled (not run inline) so the show event finishes first
+        # rather than rebuilding the cell widgets in the middle of it.  Guarded
+        # because the timer can fire after the view's C++ object is gone (app
+        # shutdown / tab teardown).
+        def _after_shown():
+            try:
+                self._flush_pending_populate()
+                self._apply_dimensions()
+            except RuntimeError:
+                pass
+        QTimer.singleShot(0, _after_shown)
 
     def _apply_dimensions(self):
         cols  = self._cols()
@@ -1318,11 +1368,9 @@ class GalleryView(QWidget):
 
         We remember the entry's identity in ``self._no_image_keys`` and arm a
         short debounce timer.  When it fires, the whole page is re-sorted
-        (image-bearing first) via a full re-populate — the only safe way to
-        reorder ``QTableWidget`` cell widgets without Qt deleting them.  The
-        debounce coalesces the burst of callbacks that arrive as a page's
-        fetches resolve into a single relayout, and the shared pixmap cache
-        means image-bearing cells redraw instantly with no re-download."""
+        (image-bearing first) via a full re-render.  The debounce coalesces the
+        burst of callbacks that arrive as a page's fetches resolve into a single
+        relayout."""
         try:
             entry = cell.entry()
         except Exception:
