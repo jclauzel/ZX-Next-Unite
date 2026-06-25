@@ -596,6 +596,32 @@ def hdfmonkey_chmod_instruction(hdfmonkey_path):
     return f'sudo chmod +x "{hdfmonkey_path}"'
 
 
+def ensure_hdfmonkey_executable(hdfmonkey_path):
+    """On Linux/macOS, make a bundled hdfmonkey binary executable if it isn't
+    already, so it launches like a manually compiled build instead of failing
+    with EACCES ("Permission denied").
+
+    The itch.io CSpect package ships the Linux/macOS hdfmonkey without its
+    executable permission bit. The binary lives under the user's own downloads
+    directory, so a plain ``os.chmod`` (no sudo) is enough to add the bits.
+
+    Returns True if the file is (now) executable, False on any failure. No-op
+    that returns True on Windows; returns False for the bare ``hdfmonkey`` PATH
+    default (not a real file) so callers don't assume a fix was applied."""
+    if not hdfmonkey_needs_exec_bit():
+        return True
+    if not hdfmonkey_path or not os.path.isfile(hdfmonkey_path):
+        return False
+    try:
+        mode = os.stat(hdfmonkey_path).st_mode
+        if mode & 0o111:
+            return True  # already executable
+        os.chmod(hdfmonkey_path, mode | 0o111)
+        return True
+    except OSError:
+        return False
+
+
 def find_emulators_in_downloads(base_dir, scan_for_cspect=True, scan_for_hdfmonkey=True):
     """Recursively search ``<base_dir>/downloads/cspect`` for a CSpect.exe and a
     bundled hdfmonkey executable built for the current platform.

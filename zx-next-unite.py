@@ -4155,6 +4155,12 @@ class MainWindow(QMainWindow):
             # (Windows only); otherwise fall back to the PATH/"hdfmonkey" default.
             hdfmonkey_exe = getattr(self, "_hdfmonkey_executable_path", None) or HDFMONKEY_EXECUTABLE
             execution_cmd = f'{hdfmonkey_exe} {command_to_execute} {image_path} {additional_args}'
+            # On Linux/macOS the itch.io CSpect bundle ships hdfmonkey without
+            # its executable bit set, so the OS would refuse to launch it
+            # (EACCES). Add the bit ourselves (the binary is in the user's own
+            # downloads dir, no sudo needed) so it runs like a manually compiled
+            # build. No-op on Windows / for the bare "hdfmonkey" PATH default.
+            ensure_hdfmonkey_executable(hdfmonkey_exe)
             try:
                 img = image_path.strip('"')
                 argv = [hdfmonkey_exe, command_to_execute, img]
@@ -4168,11 +4174,11 @@ class MainWindow(QMainWindow):
                                               **subprocess_no_window_kwargs())
 
             except PermissionError as ex:
-                    # On Linux/macOS the itch.io CSpect bundle ships hdfmonkey
-                    # without its executable bit set, so the OS refuses to launch
-                    # it (EACCES / "Permission denied"). Surface that in the
-                    # SD-card log window with the exact fix and full path, rather
-                    # than letting it bubble up as an opaque failure.
+                    # The proactive chmod above couldn't make the bundled
+                    # hdfmonkey executable (e.g. read-only filesystem or a file
+                    # the user doesn't own). Surface that in the SD-card log
+                    # window with the exact fix and full path, rather than
+                    # letting it bubble up as an opaque failure.
                     exec_process = subprocess.CompletedProcess(args=[hdfmonkey_exe], returncode=-1)
                     if silent:
                         logging.debug(f"hdfmonkey {command_to_execute} permission denied (silent): {execution_cmd} - {ex}")
