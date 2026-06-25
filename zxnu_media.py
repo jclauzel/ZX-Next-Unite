@@ -432,6 +432,12 @@ ZXSCR_PALETTE_BRIGHT = (
 )
 ZXSCR_BYTES = 6912
 
+# Cache of packed 32-byte RGBX pixel runs keyed by (byte, ink, paper, bright),
+# shared across all SCR decodes.  A screen only uses a small set of such
+# combinations, so after warm-up to_qimage() is dominated by fast slice copies
+# rather than per-pixel work.  Bounded at 256*8*8*2 = 32768 small entries.
+_ZXSCR_RUN_CACHE: dict = {}
+
 
 def zxscr_is_screen_bytes(data) -> bool:
     """Return True if *data* looks like a 6912-byte Spectrum screen dump."""
@@ -466,34 +472,56 @@ class ZxSpectrumScreen:
         return 192
 
     def to_qimage(self, flash_phase: bool = False) -> QImage:
-        """Render the screen to a 256x192 ``QImage`` (RGB32)."""
-        img = QImage(256, 192, QImage.Format_RGB32)
+        """Render the screen to a 256x192 ``QImage`` (RGBX8888).
+
+        The pixel buffer is assembled in a single pass and handed to QImage in
+        one call.  The previous implementation made one ``QImage.setPixel()``
+        call per pixel (~49k Qt round-trips) and was a serious UI-thread hog on
+        slower machines; this is ~100x faster.  RGBX8888 is byte-ordered
+        (R, G, B, X) so the buffer layout is endianness-independent, and the
+        method returns a plain QImage so it is safe to run off the GUI thread
+        (only ``QPixmap`` construction is GUI-thread-only)."""
         data = self._data
-        attrs = data  # alias for clarity; offset 6144 onwards
+        buf = bytearray(256 * 192 * 4)
+        pal_n = ZXSCR_PALETTE_NORMAL
+        pal_b = ZXSCR_PALETTE_BRIGHT
+        run_cache = _ZXSCR_RUN_CACHE
         for y in range(192):
-            row_off = _zxscr_pixel_row_offset(y)
+            row_off  = _zxscr_pixel_row_offset(y)
             attr_row = (y >> 3) * 32 + 6144
-            char_y = y >> 3  # not used after row_off but kept for clarity
+            o = y * 1024  # 256 px * 4 bytes
             for cx in range(32):
                 byte = data[row_off + cx]
-                attr = attrs[attr_row + cx]
+                attr = data[attr_row + cx]
                 ink   = attr & 0x07
                 paper = (attr >> 3) & 0x07
-                bright = bool(attr & 0x40)
-                flash  = bool(attr & 0x80)
-                if flash and flash_phase:
+                if (attr & 0x80) and flash_phase:   # FLASH swap
                     ink, paper = paper, ink
-                pal = ZXSCR_PALETTE_BRIGHT if bright else ZXSCR_PALETTE_NORMAL
-                ink_r, ink_g, ink_b = pal[ink]
-                pap_r, pap_g, pap_b = pal[paper]
-                ink_px = (0xFF << 24) | (ink_r << 16) | (ink_g << 8) | ink_b
-                pap_px = (0xFF << 24) | (pap_r << 16) | (pap_g << 8) | pap_b
-                x = cx * 8
-                # MSB is the leftmost pixel of the byte.
-                for bit in range(8):
-                    on = (byte >> (7 - bit)) & 1
-                    img.setPixel(x + bit, y, ink_px if on else pap_px)
-        return img
+                bright = attr & 0x40
+                # An 8x1 pixel run is fully determined by (byte, ink, paper,
+                # bright); cache the packed 32-byte run so a screen (which reuses
+                # the same byte/colour combinations heavily) is mostly fast
+                # slice-copies after warm-up.  This keeps the GIL held for as
+                # little time as possible — important because the decode runs on
+                # a worker thread but Python's GIL still serialises it against
+                # the UI thread.
+                key = (byte, ink, paper, bright)
+                run = run_cache.get(key)
+                if run is None:
+                    pal = pal_b if bright else pal_n
+                    ir, ig, ib = pal[ink]
+                    pr, pg, pb = pal[paper]
+                    ink4 = bytes((ir, ig, ib, 0xFF))
+                    pap4 = bytes((pr, pg, pb, 0xFF))
+                    # MSB is the leftmost pixel of the byte.
+                    run = b"".join(ink4 if (byte >> (7 - bit)) & 1 else pap4
+                                   for bit in range(8))
+                    run_cache[key] = run
+                buf[o:o + 32] = run
+                o += 32
+        # bytes(buf) is copied into the QImage via .copy() so the temporary
+        # buffer can be freed immediately (QImage does not own external data).
+        return QImage(bytes(buf), 256, 192, QImage.Format_RGBX8888).copy()
 
 
 def zxscr_url_is_scr(url) -> bool:
@@ -513,6 +541,37 @@ def zxscr_url_is_scr(url) -> bool:
 _ZXSCR_PIXMAP_CACHE_LOCK = threading.RLock()
 _ZXSCR_PIXMAP_CACHE: dict = {}
 
+# Parallel cache of decoded QImages.  Unlike QPixmap, a QImage can be built on
+# a worker thread, so the expensive SCR decode is done off the GUI thread and
+# the UI only pays the cheap QPixmap.fromImage().
+_ZXSCR_QIMAGE_CACHE_LOCK = threading.RLock()
+_ZXSCR_QIMAGE_CACHE: dict = {}
+
+
+def zxscr_qimage_from_bytes(data: bytes, base_name: str = None,
+                            flash_phase: bool = False):
+    """Decode *data* (6912-byte SCR) into a ``QImage``.
+
+    Safe to call OFF the GUI thread (only QPixmap is GUI-thread-only), so
+    worker threads can do the heavy decode and hand the UI a ready QImage to
+    ``QPixmap.fromImage()``.  Cached by *base_name* when supplied.  Returns a
+    QImage or None on failure."""
+    if not zxscr_is_screen_bytes(data):
+        return None
+    if base_name is not None:
+        with _ZXSCR_QIMAGE_CACHE_LOCK:
+            cached = _ZXSCR_QIMAGE_CACHE.get(base_name)
+        if cached is not None:
+            return cached
+    try:
+        img = ZxSpectrumScreen(data).to_qimage(flash_phase)
+    except Exception:
+        return None
+    if base_name is not None and img is not None and not img.isNull():
+        with _ZXSCR_QIMAGE_CACHE_LOCK:
+            _ZXSCR_QIMAGE_CACHE[base_name] = img
+    return img
+
 
 def _zxscr_basename_for_url(url: str) -> str:
     """Derive a cache key (no extension) from *url*."""
@@ -528,23 +587,28 @@ def _zxscr_basename_for_url(url: str) -> str:
 
 
 def zxscr_convert_bytes_to_pixmap(data: bytes, base_name: str):
-    """Decode *data* (6912-byte SCR) and cache the QPixmap in memory.
-    Returns a QPixmap or None on failure."""
+    """GUI-thread helper: decode *data* (6912-byte SCR) into a cached QPixmap.
+    Returns a QPixmap or None on failure.  Must run on the GUI thread because
+    of ``QPixmap``; off-thread callers should use ``zxscr_qimage_from_bytes``
+    and convert with ``QPixmap.fromImage()`` themselves.  The decode is shared
+    with the QImage cache so a worker-thread pre-decode is reused for free."""
     if not zxscr_is_screen_bytes(data):
         return None
     with _ZXSCR_PIXMAP_CACHE_LOCK:
         cached = _ZXSCR_PIXMAP_CACHE.get(base_name)
     if cached is not None:
         return cached
+    img = zxscr_qimage_from_bytes(data, base_name)
+    if img is None or img.isNull():
+        return None
     try:
-        img = ZxSpectrumScreen(data).to_qimage()
         pm = QPixmap.fromImage(img)
-        if not pm.isNull():
-            with _ZXSCR_PIXMAP_CACHE_LOCK:
-                _ZXSCR_PIXMAP_CACHE[base_name] = pm
-        return pm
     except Exception:
         return None
+    if not pm.isNull():
+        with _ZXSCR_PIXMAP_CACHE_LOCK:
+            _ZXSCR_PIXMAP_CACHE[base_name] = pm
+    return pm
 
 
 def zxscr_try_pixmap_from_url_bytes(url, data):

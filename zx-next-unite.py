@@ -10597,19 +10597,17 @@ class MainWindow(QMainWindow):
                     def _img_fn(_u=urls[0]):
                         data = _http_fetch_bytes_with_retry(
                             _u, headers={"User-Agent": ZXDB_USER_AGENT}, timeout=20)
-                        # SCR images need the GUI-thread converter; decode every
-                        # other format into a QImage here, off the UI thread.
+                        # Decode off the UI thread for every format — including
+                        # SCR, whose (now buffer-based) decode produces a QImage
+                        # that is safe to build on a worker thread. Only the
+                        # cheap QPixmap.fromImage() runs back on the UI thread.
                         if zxscr_url_is_scr(_u):
-                            return (_u, data, None)
-                        return (_u, None, _qimage_from_data(data))
+                            img = zxscr_qimage_from_bytes(data, _zxscr_basename_for_url(_u))
+                        else:
+                            img = _qimage_from_data(data)
+                        return (_u, img)
                     def _img_ok(r):
-                        u, scr_data, img = r
-                        if scr_data is not None:
-                            pm = zxscr_convert_bytes_to_pixmap(
-                                scr_data, _zxscr_basename_for_url(u))
-                            if pm is not None and not pm.isNull():
-                                set_pixmap(pm, u)
-                            return
+                        u, img = r
                         px = QPixmap.fromImage(img) if (img is not None and not img.isNull()) else QPixmap()
                         if not px.isNull():
                             set_pixmap(px, u)
@@ -13684,19 +13682,17 @@ class MainWindow(QMainWindow):
             def _img_fn(_u=urls[0]):
                 data = _http_fetch_bytes_with_retry(
                     zxart_safe_url(_u), headers={"User-Agent": ZXART_USER_AGENT}, timeout=20)
-                # SCR images need the GUI-thread converter; decode every other
-                # format into a QImage here, off the UI thread.
+                # Decode off the UI thread for every format — including SCR,
+                # whose (now buffer-based) decode produces a QImage that is safe
+                # to build on a worker thread. Only the cheap QPixmap.fromImage()
+                # runs back on the UI thread.
                 if zxscr_url_is_scr(_u):
-                    return (_u, data, None)
-                return (_u, None, _qimage_from_data(data))
+                    img = zxscr_qimage_from_bytes(data, _zxscr_basename_for_url(_u))
+                else:
+                    img = _qimage_from_data(data)
+                return (_u, img)
             def _img_ok(res):
-                u, scr_data, img = res
-                if scr_data is not None:
-                    pm = zxscr_convert_bytes_to_pixmap(
-                        scr_data, _zxscr_basename_for_url(u))
-                    if pm is not None and not pm.isNull():
-                        set_pixmap(pm, u)
-                    return
+                u, img = res
                 px = QPixmap.fromImage(img) if (img is not None and not img.isNull()) else QPixmap()
                 if not px.isNull():
                     set_pixmap(px, u)
