@@ -8337,7 +8337,8 @@ class MainWindow(QMainWindow):
 
         def _fav_refresh_all_galleries():
             for attr in ("getit_gallery_view", "zxdb_gallery_view",
-                         "zxart_gallery_view", "favorites_gallery_view"):
+                         "zxart_gallery_view", "favorites_gallery_view",
+                         "itchio_gallery_view", "allinone_gallery_view"):
                 gv = getattr(self, attr, None)
                 if gv is not None:
                     try:
@@ -16483,13 +16484,28 @@ class MainWindow(QMainWindow):
         self.favorites_view_stack.addWidget(self.favorites_gallery_view)    # idx 1 = gallery
 
         fav_container = QWidget()
+        fav_container.setAutoFillBackground(False)
+        fav_container.setAttribute(Qt.WA_TranslucentBackground)
         fav_v = QVBoxLayout(fav_container)
         fav_v.setContentsMargins(0, 0, 0, 0)
         fav_v.addLayout(fav_top_row)
         fav_v.addWidget(self.favorites_view_stack)
         fav_container.setLayout(fav_v)
 
-        grid_tab_favorites.addWidget(fav_container)
+        # Wrap in a scroll area so a vertical scrollbar appears when the tab is
+        # too short for its content — matching the GetIt / ZXDB / zxArt tabs.
+        fav_scroll = QScrollArea()
+        fav_scroll.setWidget(fav_container)
+        fav_scroll.setWidgetResizable(True)
+        fav_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        fav_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        fav_scroll.setFrameShape(QFrame.NoFrame)
+        fav_scroll.setAutoFillBackground(False)
+        fav_scroll.setAttribute(Qt.WA_TranslucentBackground)
+        fav_scroll.viewport().setAutoFillBackground(False)
+        fav_scroll.viewport().setAttribute(Qt.WA_TranslucentBackground)
+
+        grid_tab_favorites.addWidget(fav_scroll)
         zxnextunite_Favorites_tab.setLayout(grid_tab_favorites)
         zxnextunite_Favorites_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_FAVORITES
         wid_inner.tab.addTab(zxnextunite_Favorites_tab,
@@ -16969,6 +16985,8 @@ class MainWindow(QMainWindow):
                 info_getter=_itchio_info_getter,
                 source_label_getter=lambda _e: "itch.io",
                 source_overlay_anchor="bottomleft",
+                is_favorite_cb=lambda e: self._fav_is({**e, "_fav_source": "itchio"}),
+                toggle_favorite_cb=lambda e: self._fav_toggle({**e, "_fav_source": "itchio"}),
             )
             # Animate .gif thumbnails (QMovie) just like the in-pane item viewer.
             self.itchio_gallery_view.set_gif_fetch_cb(_gif_fetch_bytes)
@@ -16993,7 +17011,20 @@ class MainWindow(QMainWindow):
             self.itchio_view_stack.addWidget(self.itchio_results_table)  # idx 0 = table
             self.itchio_view_stack.addWidget(self.itchio_gallery_view)   # idx 1 = gallery
             _itchio_v.addWidget(self.itchio_view_stack, 1)
-            self._itchio_stack.addWidget(_itchio_main)   # index 0
+            # Wrap the main page in a scroll area so a vertical scrollbar appears
+            # when the tab is too short for its content — matching the GetIt /
+            # ZXDB / zxArt tabs (which lack one here otherwise).
+            _itchio_scroll = QScrollArea()
+            _itchio_scroll.setWidget(_itchio_main)
+            _itchio_scroll.setWidgetResizable(True)
+            _itchio_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            _itchio_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            _itchio_scroll.setFrameShape(QFrame.NoFrame)
+            _itchio_scroll.setAutoFillBackground(False)
+            _itchio_scroll.setAttribute(Qt.WA_TranslucentBackground)
+            _itchio_scroll.viewport().setAutoFillBackground(False)
+            _itchio_scroll.viewport().setAttribute(Qt.WA_TranslucentBackground)
+            self._itchio_stack.addWidget(_itchio_scroll)   # index 0
 
             def _itchio_table_entry_for_row(row):
                 if row < 0 or row >= self.itchio_results_table.rowCount():
@@ -17117,6 +17148,8 @@ class MainWindow(QMainWindow):
                 if hasattr(viewer, "set_gif_fetch_cb"):
                     viewer.set_gif_fetch_cb(_gif_fetch_bytes)
                 viewer.set_placeholder("itch.io", title)
+                _fav_entry_itchio = {**entry, "_fav_source": "itchio"}
+                viewer.set_favorite_hooks(_fav_entry_itchio, self._fav_is, self._fav_toggle)
                 viewer.set_open_web_url(entry.get("url", ""), "itch.io")
                 viewer._itchio_busy = False   # True while an install runs
 
@@ -20052,6 +20085,17 @@ def _mainwindow_resize_event(self, event):
 MainWindow.resizeEvent = _mainwindow_resize_event
 
 import signal
+
+# On Linux, Qt's AT-SPI accessibility bridge prints a harmless but noisy
+# warning at startup when the desktop's accessibility bus is incomplete:
+#   AtSpiAdaptor::applicationInterface does not implement
+#   "GetApplicationBusAddress" "/org/a11y/atspi/accessible/root"
+# Disable the bridge so that message doesn't clutter the console. Only do so
+# when the user hasn't set QT_ACCESSIBILITY themselves (e.g. someone relying on
+# a screen reader can keep it on by exporting QT_ACCESSIBILITY=1). Must run
+# before QApplication is constructed, as Qt reads this during startup.
+if platform.system() == "Linux" and "QT_ACCESSIBILITY" not in os.environ:
+    os.environ["QT_ACCESSIBILITY"] = "0"
 
 app = QApplication(sys.argv)
 

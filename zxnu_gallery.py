@@ -3,6 +3,7 @@ view, the in-pane item viewer and the animated background widget.
 
 Extracted from zx-next-unite.py."""
 
+import html
 import os
 import sys
 import webbrowser
@@ -99,7 +100,12 @@ class GalleryCell(QFrame):
         self._thumb_lbl.setAlignment(Qt.AlignCenter)
         self._thumb_lbl.setMinimumHeight(60)
         self._thumb_lbl.setStyleSheet("background-color: #222; color: #888;")
-        self._thumb_lbl.setText("…")
+        self._thumb_lbl.setTextFormat(Qt.RichText)
+        self._thumb_lbl.setWordWrap(True)
+        # Until the real screenshot downloads, show the type/definition we
+        # already know (e.g. GAME / DEMO / TOOL) plus the source pane rather
+        # than a bare "…", so the tile is informative while it loads.
+        self._thumb_lbl.setText(self._loading_placeholder_html())
         self._thumb_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         lay.addWidget(self._thumb_lbl, 1)
 
@@ -225,6 +231,45 @@ class GalleryCell(QFrame):
             self._info_lbl.setText(text or "")
         except Exception:
             pass
+
+    def _loading_placeholder_html(self):
+        """Build the content shown in the thumbnail *before* the real
+        screenshot downloads.  Rather than a bare "…", surface what we already
+        know about the entry: its type/definition (e.g. GAME / DEMO / TOOL,
+        taken from a category/genre-style field or the first tag) and the
+        source pane it came from (GetIt / ZXDB / zxArt / itch.io, when known).
+        Falls back to "…" when neither is available."""
+        entry = self._entry if isinstance(self._entry, dict) else {}
+        type_label = ""
+        for key in ("category", "genre", "type", "kind", "section"):
+            val = entry.get(key)
+            if isinstance(val, (list, tuple)):
+                val = val[0] if val else ""
+            if val:
+                type_label = str(val).strip()
+                break
+        if not type_label and self._tags:
+            type_label = str(self._tags[0]).strip()
+
+        source_label = ""
+        if self._source_label_getter is not None:
+            try:
+                source_label = str(self._source_label_getter(self._entry) or "").strip()
+            except Exception:
+                source_label = ""
+
+        if not type_label and not source_label:
+            return "…"
+        parts = []
+        if type_label:
+            parts.append(
+                "<div style='font-size:13pt;font-weight:bold;color:#bfe6ff;'>"
+                f"{html.escape(type_label)}</div>")
+        if source_label:
+            parts.append(
+                "<div style='font-size:9pt;color:#7f97a8;margin-top:2px;'>"
+                f"{html.escape(source_label)}</div>")
+        return "<div style='text-align:center;'>" + "".join(parts) + "</div>"
 
     def _refresh_tag_overlay(self):
         if not getattr(self, "_tag_overlay", None):
