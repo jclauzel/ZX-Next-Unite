@@ -2535,6 +2535,30 @@ class MainWindow(QMainWindow):
                 #set_all_buttons_enabled()
                 return False
 
+        def _on_hdfmonkey_button_clicked():
+            """Button handler for "Download and install HDF Monkey". Shows an
+            intermediary tip about the itch.io end-to-end CSpect install (which
+            also bundles hdfmonkey) before running the standalone hdfmonkey
+            download, so the user can choose the fuller route instead."""
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Information)
+            box.setWindowTitle("Install hdfmonkey")
+            box.setText(
+                "TIP: Did you know that if you have purchased CSpect from "
+                "itch.io you can do a full end-to-end CSpect install from "
+                "there?\n\n"
+                "Simply log into your itch.io account in the itch.io tab, "
+                "navigate to CSpect and click Install.\n\n"
+                "Do you still want to install hdfmonkey only, or abort and then "
+                "make an end-to-end install of CSpect using itch.io?")
+            continue_btn = box.addButton(
+                "Continue hdfmonkey standalone install", QMessageBox.AcceptRole)
+            box.addButton("Cancel", QMessageBox.RejectRole)
+            box.setDefaultButton(continue_btn)
+            box.exec()
+            if box.clickedButton() is continue_btn:
+                download_and_install_hdflonkey()
+
         def show_hdf_monkey_download_and_install_buttons():
             self.download_and_install_hdfmonkey_button.setVisible(True)
             self.button_new_folder.setVisible(False)
@@ -7993,7 +8017,7 @@ class MainWindow(QMainWindow):
         self.download_and_install_hdfmonkey_button = QPushButton("Download & install HDF Monkey", self)
         self.download_and_install_hdfmonkey_button.setText("Download and install HDF Monkey from speccy.org")
         self.download_and_install_hdfmonkey_button.setMinimumWidth(IMAGE_BUTTONS_SIZE)
-        self.download_and_install_hdfmonkey_button.clicked.connect(download_and_install_hdflonkey)
+        self.download_and_install_hdfmonkey_button.clicked.connect(_on_hdfmonkey_button_clicked)
         self.download_and_install_hdfmonkey_button.setVisible(False)
 
         self.hiddenspacelabel2 = QLabel()
@@ -20067,11 +20091,14 @@ class MainWindow(QMainWindow):
             load_image(_warn_after_startup_load)
             _startup_load_started = True
         elif _is_windows:
-            # hdfmonkey isn't on PATH / in the app dir. Show the download button
-            # for now; the background scan below may still turn up a bundled copy
-            # under downloads/cspect, in which case the button is hidden again and
-            # the image is loaded from _on_emulator_scan_done.
-            show_hdf_monkey_download_and_install_buttons()
+            # hdfmonkey isn't on PATH / in the app dir, but the full detection
+            # below (alongside CSpect + the downloads/cspect scan) may still turn
+            # up a bundled copy. Don't surface the download button yet — only hide
+            # the image-write controls for now. _finalize_hdfmonkey_button()
+            # reveals the download button after the scan, and only if hdfmonkey
+            # still can't be located anywhere.
+            self.button_new_folder.setVisible(False)
+            self.button_delete_files.setVisible(False)
 
         # Background scan of downloads/cspect for an itch.io CSpect bundle. Run
         # only when CSpect (any platform) or hdfmonkey (Windows only) is still
@@ -20133,6 +20160,19 @@ class MainWindow(QMainWindow):
                     load_image(_warn_after_startup_load)
 
             self._show_emulator_detection_toast()
+
+        def _finalize_hdfmonkey_button():
+            """Reveal the 'Download and install HDF Monkey' button only after the
+            full detection has run (PATH, current/app dir, alongside CSpect, and
+            the downloads/cspect scan) and hdfmonkey still can't be located.
+            Windows only, since the auto-download is a Windows zip. No-op when a
+            copy was found — the scan handlers have already restored the image
+            controls in that case."""
+            if not _is_windows:
+                return
+            if _hdfmonkey_binary_found():
+                return
+            show_hdf_monkey_download_and_install_buttons()
 
         def _rescan_emulators_after_install():
             """Re-run CSpect / hdfmonkey detection on demand (used after an
@@ -20204,6 +20244,9 @@ class MainWindow(QMainWindow):
                     self._emulator_scan_pending = False
                     self._show_emulator_detection_toast()
                 self._emulator_scan_worker = None
+                # The full detection has now finished: show the hdfmonkey
+                # download button only if no copy could be located anywhere.
+                _finalize_hdfmonkey_button()
 
             _scan_worker = self._Worker(_scan_downloads)
             _scan_worker.signals.result.connect(_on_emulator_scan_done)
