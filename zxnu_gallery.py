@@ -43,7 +43,8 @@ class GalleryCell(QFrame):
                  tags=None, parent=None,
                  is_favorite_cb=None, toggle_favorite_cb=None,
                  source_label_getter=None,
-                 source_overlay_anchor="topleft"):
+                 source_overlay_anchor="topleft",
+                 installed_getter=None):
         super().__init__(parent)
         if tooltip_text:
             self.setToolTip(tooltip_text)
@@ -56,6 +57,10 @@ class GalleryCell(QFrame):
         self._toggle_favorite_cb = toggle_favorite_cb
         self._source_label_getter = source_label_getter
         self._source_overlay_anchor = source_overlay_anchor or "topleft"
+        # Optional callable(entry) -> bool. When it returns True a green
+        # "Installed" badge is shown at the bottom-left of the thumbnail (used
+        # by the itch.io gallery to flag locally-downloaded packages).
+        self._installed_getter = installed_getter
         self._screenshots = []        # list of URL strings (or dicts {"url": ...})
         self._shot_cache  = {}        # url -> QPixmap
         self._shot_index  = 0
@@ -145,6 +150,17 @@ class GalleryCell(QFrame):
         self._source_overlay.setTextFormat(Qt.RichText)
         self._source_overlay.setStyleSheet("background: transparent;")
         self._source_overlay.setVisible(False)
+
+        # "Installed" badge (bottom-left of thumbnail).  Flags items that are
+        # already downloaded locally (itch.io gallery).  Hidden unless an
+        # installed_getter is wired and reports True for this entry.
+        self._installed_overlay = QLabel(self._thumb_lbl)
+        self._installed_overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._installed_overlay.setAlignment(Qt.AlignBottom | Qt.AlignLeft)
+        self._installed_overlay.setTextFormat(Qt.RichText)
+        self._installed_overlay.setStyleSheet("background: transparent;")
+        self._installed_overlay.setVisible(False)
+        self._refresh_installed_overlay()
         self._refresh_source_overlay()
         self._refresh_heart()
 
@@ -344,6 +360,11 @@ class GalleryCell(QFrame):
         if anchor == "bottomleft":
             x = pad
             y = self._thumb_lbl.height() - h - pad
+            # Stack above the "Installed" badge (which also hugs bottom-left)
+            # so the two chips don't overlap.
+            inst = getattr(self, "_installed_overlay", None)
+            if inst is not None and inst.isVisible():
+                y -= inst.sizeHint().height() + 2
         elif anchor == "bottomright":
             # Sit to the left of the heart button (which is anchored bottom-
             # right) if one is shown, otherwise hug the right edge.
@@ -358,6 +379,53 @@ class GalleryCell(QFrame):
             y = pad
         ov.setGeometry(x, y, w, h)
         ov.raise_()
+
+    def _refresh_installed_overlay(self):
+        ov = getattr(self, "_installed_overlay", None)
+        if ov is None:
+            return
+        getter = self._installed_getter
+        installed = False
+        if getter is not None:
+            try:
+                installed = bool(getter(self._entry))
+            except Exception:
+                installed = False
+        if not installed:
+            ov.setVisible(False)
+            ov.setText("")
+            self._position_source_overlay()
+            return
+        chip_css = (
+            "background:#1f5c2e;color:#c8ffd4;border:1px solid #3da35a;"
+            "border-radius:3px;padding:1px 6px;margin:1px 2px;"
+            "font-size:9pt;font-weight:600;"
+        )
+        ov.setText(f"<div style='text-align:left;'>"
+                   f"<span style='{chip_css}'>Installed</span></div>")
+        ov.setVisible(True)
+        self._position_installed_overlay()
+        # Keep the bottom-left source chip stacked above this badge.
+        self._position_source_overlay()
+
+    def _position_installed_overlay(self):
+        ov = getattr(self, "_installed_overlay", None)
+        if ov is None or not ov.isVisible():
+            return
+        pad = 4
+        ov.adjustSize()
+        w = min(ov.width(), max(40, self._thumb_lbl.width() - 2 * pad))
+        h = ov.sizeHint().height()
+        x = pad
+        y = self._thumb_lbl.height() - h - pad
+        ov.setGeometry(x, y, w, h)
+        ov.raise_()
+
+    def refresh_installed(self):
+        """Re-evaluate the installed_getter and show/hide the 'Installed'
+        badge.  Called by the parent view after an install/uninstall so the
+        gallery reflects the new local state without a full re-populate."""
+        self._refresh_installed_overlay()
 
     def _refresh_heart(self):
         btn = getattr(self, "_heart_btn", None)
@@ -541,6 +609,7 @@ class GalleryCell(QFrame):
         if cur is not None:
             self._apply_pixmap(cur)
         self._position_tag_overlay()
+        self._position_installed_overlay()
         self._position_source_overlay()
         self._position_heart()
         super().resizeEvent(ev)
@@ -860,6 +929,7 @@ class GalleryCell(QFrame):
         except Exception:
             pass
         self._position_tag_overlay()
+        self._position_installed_overlay()
         self._position_source_overlay()
         self._position_heart()
 
@@ -884,6 +954,7 @@ class GalleryCell(QFrame):
         self._thumb_lbl.setPixmap(scaled)
         self._thumb_lbl.setText("")
         self._position_tag_overlay()
+        self._position_installed_overlay()
         self._position_source_overlay()
         self._position_heart()
         # A pixmap was successfully applied: mark the cell loaded so the
@@ -931,7 +1002,7 @@ class GalleryView(QWidget):
                  is_favorite_cb=None, toggle_favorite_cb=None,
                  source_label_getter=None, tooltip_getter=None,
                  cols_getter=None, img_size_getter=None, parent=None,
-                 source_overlay_anchor="topleft"):
+                 source_overlay_anchor="topleft", installed_getter=None):
         super().__init__(parent)
         self._rows_per_page_getter = rows_per_page_getter
         self._anim_mode_getter     = anim_mode_getter
@@ -948,6 +1019,7 @@ class GalleryView(QWidget):
         self._toggle_favorite_cb   = toggle_favorite_cb
         self._source_label_getter  = source_label_getter
         self._source_overlay_anchor = source_overlay_anchor or "topleft"
+        self._installed_getter      = installed_getter
         # Optional predicate(entry) -> bool returning True when the entry
         # is known to have at least one image at populate-time.  Entries
         # for which the predicate returns False are moved to the end of
@@ -1034,6 +1106,18 @@ class GalleryView(QWidget):
         for cell in self._cells:
             try:
                 cell.set_gif_fetch_cb(cb)
+            except Exception:
+                pass
+
+    def refresh_installed_overlays(self):
+        """Re-evaluate every visible cell's installed_getter so the 'Installed'
+        badge appears/disappears after an install or uninstall, without a full
+        re-populate.  No-op when no installed_getter is wired."""
+        if self._installed_getter is None:
+            return
+        for cell in self._cells:
+            try:
+                cell.refresh_installed()
             except Exception:
                 pass
 
@@ -1242,6 +1326,7 @@ class GalleryView(QWidget):
                 toggle_favorite_cb=self._toggle_favorite_cb,
                 source_label_getter=self._source_label_getter,
                 source_overlay_anchor=self._source_overlay_anchor,
+                installed_getter=self._installed_getter,
             )
             # Wire the gif fetcher before the cell's deferred initial fetch
             # runs so .gif thumbnails take the QMovie animation path.
