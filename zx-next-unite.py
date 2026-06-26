@@ -17214,6 +17214,40 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
 
+                def _itchio_send_to_image(_=False, _e=entry):
+                    """Send an installed itch.io item to the loaded SD-card image:
+                    hdfmonkey-put the whole install folder into the image at the
+                    current browse path. Mirrors the GetIt/ZXDB 'Send to SD card'
+                    action (which sends downloaded content into the image)."""
+                    path = zxnu_itchio.installed_path(_e, dest)
+                    if not path or not os.path.isdir(path):
+                        _itchio_set_status("Install this item before sending to SD card.")
+                        return
+                    if not right_disk_image_explorer_content or not self.right_disk_image_path:
+                        _itchio_set_status("Please load a disk image first (SD Card tab).")
+                        return
+                    target_dir = generate_disk_file_path()
+                    _itchio_set_status(f"Sending “{title}” to the SD card image…")
+                    def _done(ok_flag):
+                        if ok_flag:
+                            self._show_sd_notification(
+                                f"Sent to SD card image:\n{os.path.basename(path)}")
+                            _itchio_set_status(f"Sent “{title}” to the SD card image.")
+                    # image_upload_external_paths shows its own progress dialog and
+                    # uploads files/folders recursively.
+                    image_upload_external_paths([path], target_dir, on_complete=_done)
+
+                def _itchio_send_via_nextsync(_=False, _e=entry):
+                    """Send an installed itch.io item to a real Spectrum Next via
+                    NextSync: start the NextSync server serving the item's install
+                    folder. Mirrors the GetIt/ZXDB 'Send via NextSync' action."""
+                    path = zxnu_itchio.installed_path(_e, dest)
+                    if not path or not os.path.isdir(path):
+                        _itchio_set_status("Install this item before sending via NextSync.")
+                        return
+                    _itchio_set_status(f"Starting NextSync for “{title}”…")
+                    QTimer.singleShot(0, lambda _f=path: self._nextsync_start_server_fn(_f))
+
                 # The item viewer is either the Qt GalleryItemViewer (Classic
                 # mode, exposes btn_* QPushButtons) or the pygame PygameItemViewer
                 # (Unite! pygame mode, exposes an internal _buttons dict). These
@@ -17239,20 +17273,50 @@ class MainWindow(QMainWindow):
                         except RuntimeError: pass
 
                 def _itchio_refresh_install_buttons(_v, installed_flag):
-                    """Set the Install / Open-folder button labels for the current
-                    download state (works in Classic and pygame modes)."""
+                    """Update the action buttons for the current download state
+                    (works in Classic and pygame modes). The three primary slots
+                    mirror GetIt/ZXDB — Install / Send to SD card / Send via
+                    NextSync — and the Send buttons are enabled only once the item
+                    is installed locally (Send to SD also needs a loaded image)."""
                     _itchio_label_button(
                         _v, "download",
                         "✓  Re-install" if installed_flag else "⬇  Install")
-                    _itchio_label_button(
-                        _v, "send_sd",
-                        "📂  Open install folder" if installed_flag
-                        else "📂  Open download folder")
+                    _inst_path = ""
+                    try:
+                        _inst_path = zxnu_itchio.installed_path(entry, dest) or ""
+                    except Exception:
+                        _inst_path = ""
+                    _img_ready = bool(self.right_disk_image_path) and bool(
+                        right_disk_image_explorer_content)
+                    # Send to SD card: needs an install and a loaded disk image.
                     sd_btn = getattr(_v, "btn_send_sd", None)
                     if sd_btn is not None:
                         try:
+                            sd_btn.setEnabled(bool(installed_flag) and _img_ready)
                             sd_btn.setToolTip(
-                                zxnu_itchio.installed_path(entry, dest) or dest)
+                                "Install this item first" if not installed_flag
+                                else ("Load a disk image first (SD Card tab)"
+                                      if not _img_ready
+                                      else f"Send {os.path.basename(_inst_path)} → image"))
+                        except RuntimeError:
+                            pass
+                    # Send via NextSync: needs an install.
+                    ns_btn = getattr(_v, "btn_send_ns", None)
+                    if ns_btn is not None:
+                        try:
+                            ns_btn.setEnabled(bool(installed_flag))
+                            ns_btn.setToolTip(
+                                "Install this item first" if not installed_flag
+                                else f"Serve {_inst_path} via NextSync")
+                        except RuntimeError:
+                            pass
+                    # Open-folder shortcut at the bottom; label tracks state.
+                    of_btn = getattr(_v, "btn_open_folder", None)
+                    if of_btn is not None:
+                        try:
+                            of_btn.setText("📂  Open install folder" if installed_flag
+                                           else "📂  Open download folder")
+                            of_btn.setToolTip(_inst_path or dest)
                         except RuntimeError:
                             pass
 
@@ -17271,6 +17335,62 @@ class MainWindow(QMainWindow):
                 def _chk_err(_e):
                     pass
                 getit_run_in_thread(_chk_fn, _chk_ok, _chk_err)
+
+                def _itchio_run_setup_extract(_e=entry):
+                    """Post-install setup: extract any .zip archives shipped in
+                    the item's ``files`` folder (e.g. a CSpect build) into a
+                    per-archive subfolder. When several archives are present, ask
+                    the user which one to extract via a drop-down (OK/Cancel,
+                    defaulting to the highest version). For a CSpect install we
+                    also re-run emulator detection afterwards so the freshly
+                    downloaded CSpect/hdfmonkey are usable without a restart."""
+                    is_cspect = "cspect" in (
+                        (_e.get("url") or "") + " " + (_e.get("title") or "")
+                    ).lower()
+
+                    def _redetect():
+                        if is_cspect:
+                            try:
+                                self._rescan_emulators_after_install()
+                            except Exception:
+                                pass
+
+                    try:
+                        install_path = zxnu_itchio.installed_path(_e, dest)
+                        zips = zxnu_itchio.find_extractable_zips(install_path)
+                    except Exception:
+                        zips = []
+                    if not zips:
+                        # Nothing new to extract (or already extracted) — still
+                        # re-detect for CSpect so a prior build is picked up.
+                        _redetect()
+                        return
+                    if len(zips) == 1:
+                        chosen = zips[0]
+                    else:
+                        # zips is sorted highest version first, so index 0 is the
+                        # latest build by default.
+                        names = [os.path.basename(z) for z in zips]
+                        name, ok = QInputDialog.getItem(
+                            self, "Extract download",
+                            "This download contains several archives.\n"
+                            "Choose which one to extract:",
+                            names, 0, False)
+                        if not ok:
+                            return
+                        chosen = zips[names.index(name)]
+
+                    # Extract on a worker thread so a large archive can't freeze
+                    # the UI.
+                    def _xfn(_zp=chosen):
+                        return zxnu_itchio.extract_zip(_zp)
+                    def _xok(out):
+                        _itchio_set_status(f"Extracted to {out}")
+                        _redetect()
+                    def _xerr(e):
+                        _itchio_set_status(f"Extraction failed: {e}")
+                    _itchio_set_status(f"Extracting {os.path.basename(chosen)}…")
+                    getit_run_in_thread(_xfn, _xok, _xerr)
 
                 def _install(_=False, _e=entry, _viewer=viewer):
                     key = _itchio_api_key()
@@ -17306,6 +17426,10 @@ class MainWindow(QMainWindow):
                             _v.refresh_meta(title, base_rows + [("Status:", msg)])
                         except Exception:
                             pass
+                        # Post-install setup: extract any bundled .zip (CSpect
+                        # builds and similar ship as archives under ``files``).
+                        if ok:
+                            _itchio_run_setup_extract(_e)
                     def _err(e, _v=_viewer):
                         _itchio_set_status(f"Install failed: {e}")
                         try: _v._itchio_busy = False
@@ -17315,19 +17439,23 @@ class MainWindow(QMainWindow):
                     getit_run_in_thread(_fn, _ok, _err)
 
                 # Wire actions through the abstract API so they work in both the
-                # Classic (Qt) and pygame item viewers: Install on the download
-                # button, Open-folder on the send-SD button. The NextSync send
-                # button is left unused (hidden).
+                # Classic (Qt) and pygame item viewers. The three primary slots
+                # mirror GetIt/ZXDB — Install / Send to SD card / Send via
+                # NextSync — and a dedicated Open-folder button sits at the bottom
+                # (Classic viewer only). The Send buttons start disabled and are
+                # enabled by _itchio_refresh_install_buttons once the async
+                # installed-status check (or an install) confirms a local copy.
                 viewer.set_actions(download_cb=_install,
-                                   send_sd_cb=_itchio_open_install_folder,
-                                   sd_enabled=True)
-                _ns_btn = getattr(viewer, "btn_send_ns", None)
-                if _ns_btn is not None:
-                    try: _ns_btn.setVisible(False)
-                    except RuntimeError: pass
+                                   send_sd_cb=_itchio_send_to_image,
+                                   send_ns_cb=_itchio_send_via_nextsync,
+                                   sd_enabled=False, ns_enabled=False)
+                if hasattr(viewer, "set_open_folder_action"):
+                    viewer.set_open_folder_action(
+                        _itchio_open_install_folder, "📂  Open download folder")
                 # Neutral initial labels; the async status check upgrades them.
                 _itchio_label_button(viewer, "download", "⬇  Install")
-                _itchio_label_button(viewer, "send_sd", "📂  Open download folder")
+                _itchio_label_button(viewer, "send_sd", "💾  Send to SD card")
+                _itchio_label_button(viewer, "send_ns", "🔁  Send via NextSync")
 
                 if install:
                     viewer.install_into_stack(
@@ -20005,6 +20133,56 @@ class MainWindow(QMainWindow):
                     load_image(_warn_after_startup_load)
 
             self._show_emulator_detection_toast()
+
+        def _rescan_emulators_after_install():
+            """Re-run CSpect / hdfmonkey detection on demand (used after an
+            itch.io CSpect install) so a freshly downloaded emulator becomes
+            usable without restarting the app. Reuses _on_emulator_scan_done to
+            apply results and show the detection toast."""
+            need_cspect = self._cspect_executable_path is None
+            need_hdfmonkey = (self._hdfmonkey_executable_path is None
+                              and not is_hdfmonkey_present(silent=True))
+            # CSpect ships an hdfmonkey build alongside itself; prefer that cheap
+            # check before the slower downloads walk.
+            if need_hdfmonkey and self._cspect_executable_path:
+                near = find_hdfmonkey_near_cspect(self._cspect_executable_path)
+                if near:
+                    self._hdfmonkey_executable_path = near
+                    need_hdfmonkey = False
+                    add_main_log_window(f"Found hdfmonkey alongside CSpect: {near}")
+                    try:
+                        self.download_and_install_hdfmonkey_button.setVisible(False)
+                        self.button_new_folder.setVisible(True)
+                        self.button_delete_files.setVisible(True)
+                    except RuntimeError:
+                        pass
+            if not (need_cspect or need_hdfmonkey):
+                # Nothing left to find; just re-affirm what is available.
+                self._show_emulator_detection_toast()
+                return
+            _dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+
+            def _rescan(progress_callback=None):
+                return find_emulators_in_downloads(
+                    _dir, scan_for_cspect=need_cspect,
+                    scan_for_hdfmonkey=need_hdfmonkey)
+
+            def _rescan_finished_fallback():
+                if self._emulator_scan_pending:
+                    self._emulator_scan_pending = False
+                    self._show_emulator_detection_toast()
+                self._emulator_scan_worker = None
+
+            self._emulator_scan_pending = True
+            _worker = self._Worker(_rescan)
+            _worker.signals.result.connect(_on_emulator_scan_done)
+            _worker.signals.finished.connect(_rescan_finished_fallback)
+            self._emulator_scan_worker = _worker
+            self.threadpool.start(_worker)
+
+        # Expose the rescan so the itch.io install flow can re-detect emulators
+        # right after a CSpect download/extract.
+        self._rescan_emulators_after_install = _rescan_emulators_after_install
 
         if _need_cspect or _need_hdfmonkey:
             self._emulator_scan_pending = True

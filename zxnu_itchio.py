@@ -27,6 +27,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 
 from zxnu_config import ITCH_API_BASE, ITCH_USER_AGENT, ITCH_PAGE_SIZE
 
@@ -494,3 +495,66 @@ def installed_path(game, dest_dir):
 def installed_status(game, dest_dir):
     """True when *game* appears to be already downloaded under *dest_dir*."""
     return installed_path(game, dest_dir) is not None
+
+
+# ── post-install zip extraction ────────────────────────────────────────────
+#
+# itch-dl lays a downloaded item's payload out under a ``files`` directory. Some
+# ZX tools (CSpect in particular) ship their build as one or more .zip archives
+# in there which still need extracting before use. After an install we look for
+# such archives and extract each into a subfolder named after the archive (so
+# ``files/CSpect3_1_4_0.zip`` → ``files/CSpect3_1_4_0/…``).
+
+def _zip_target_dir(zip_path):
+    """The folder a *zip_path* should be extracted into: a sibling directory
+    named after the archive without its ``.zip`` suffix."""
+    stem = os.path.splitext(os.path.basename(zip_path))[0]
+    return os.path.join(os.path.dirname(zip_path), stem)
+
+
+def _version_sort_key(zip_path):
+    """Natural-order key for a zip path so versioned names sort numerically
+    (``CSpect3_1_4_0`` > ``CSpect3_1_3_0`` > ``CSpect3_0_15_2``) rather than
+    lexically. Digit runs compare as ints, other runs as lower-case text."""
+    name = os.path.basename(zip_path)
+    return [int(tok) if tok.isdigit() else tok.lower()
+            for tok in re.split(r"(\d+)", name)]
+
+
+def find_extractable_zips(install_dir, include_extracted=False):
+    """Return a list of ``.zip`` paths found in any ``files`` subfolder under
+    *install_dir*, sorted newest/highest version first (so the latest build is
+    the default selection when several are offered).
+
+    By default archives that have already been extracted (their target subfolder
+    exists) are skipped, so callers can re-run this without re-prompting. Pass
+    *include_extracted* to list every archive regardless."""
+    zips = []
+    if not install_dir or not os.path.isdir(install_dir):
+        return zips
+    for root, _dirs, files in os.walk(install_dir):
+        if os.path.basename(root).lower() != "files":
+            continue
+        for f in files:
+            if not f.lower().endswith(".zip"):
+                continue
+            zp = os.path.join(root, f)
+            if include_extracted or not os.path.isdir(_zip_target_dir(zp)):
+                zips.append(zp)
+    try:
+        return sorted(zips, key=_version_sort_key, reverse=True)
+    except TypeError:
+        # Mixed int/str tokens at the same position (unusual, heterogeneous
+        # names) can't be compared; fall back to a plain descending sort.
+        return sorted(zips, reverse=True)
+
+
+def extract_zip(zip_path):
+    """Extract *zip_path* into a subfolder named after the archive and return
+    that folder's path. Raises on a bad/unreadable archive — callers run this on
+    a worker thread and surface errors in the UI."""
+    target = _zip_target_dir(zip_path)
+    os.makedirs(target, exist_ok=True)
+    with zipfile.ZipFile(zip_path) as zf:
+        zf.extractall(target)
+    return target
