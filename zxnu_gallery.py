@@ -1643,6 +1643,10 @@ class GalleryItemViewer(QWidget):
         self.btn_launch_cspect = QPushButton("🕹  Launch CSpect")
         self.btn_launch_mame   = QPushButton("🕹  Launch Mame")
         self.btn_send_ns  = QPushButton("🔁  Send via NextSync")
+        # Optional "uninstall the local copy" button, shown only when a caller
+        # wires it and the item is downloaded locally (currently the itch.io
+        # viewer).  Wired/shown via set_uninstall_action().
+        self.btn_uninstall = QPushButton("🗑  Uninstall")
         # Optional "open the local install/download folder" button, shown at the
         # very bottom of the action bar only when a caller wires it (currently
         # the itch.io viewer).  Wired/shown via set_open_folder_action().
@@ -1653,13 +1657,14 @@ class GalleryItemViewer(QWidget):
         ab_layout.addWidget(self.btn_open_web)
         for btn in (self.btn_download, self.btn_send_sd,
                     self.btn_launch_cspect, self.btn_launch_mame,
-                    self.btn_send_ns, self.btn_open_folder):
+                    self.btn_send_ns, self.btn_uninstall, self.btn_open_folder):
             btn.setStyleSheet(self._BTN_STYLE)
             btn.setEnabled(False)
             ab_layout.addWidget(btn)
         # Hidden until a caller explicitly enables them.
         self.btn_launch_cspect.setVisible(False)
         self.btn_launch_mame.setVisible(False)
+        self.btn_uninstall.setVisible(False)
         self.btn_open_folder.setVisible(False)
 
         right_layout.addWidget(action_bar)
@@ -1894,6 +1899,18 @@ class GalleryItemViewer(QWidget):
             self.btn_open_folder.setText(label)
         self._wire_btn(self.btn_open_folder, cb, cb is not None, tooltip)
         self.btn_open_folder.setVisible(cb is not None)
+
+    def set_uninstall_action(self, cb=None, visible: bool = True,
+                             label: str = "", tooltip: str = ""):
+        """Wire (and optionally show) the 'Uninstall' button.
+
+        Pass a callback to wire it; the button is revealed only when *visible*
+        is true (the itch.io viewer keeps it hidden until the item is confirmed
+        downloaded locally, then shows it).  Pass None to hide it."""
+        if label:
+            self.btn_uninstall.setText(label)
+        self._wire_btn(self.btn_uninstall, cb, cb is not None, tooltip)
+        self.btn_uninstall.setVisible(cb is not None and bool(visible))
 
     def set_open_web_url(self, url: str, site_label: str = ""):
         """Wire (and show) the 'Open on website' affordances: the action-bar

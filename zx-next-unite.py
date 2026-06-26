@@ -2557,7 +2557,8 @@ class MainWindow(QMainWindow):
             box.setDefaultButton(continue_btn)
             box.exec()
             if box.clickedButton() is continue_btn:
-                download_and_install_hdflonkey()
+                return download_and_install_hdflonkey()
+            return False
 
         def show_hdf_monkey_download_and_install_buttons():
             self.download_and_install_hdfmonkey_button.setVisible(True)
@@ -2598,15 +2599,13 @@ class MainWindow(QMainWindow):
             Linux/macOS it points the user at the upstream project. Runs on the UI
             thread (invoked via the missing-signal so it is safe from workers)."""
             if platform.system() == "Windows":
-                reply = QMessageBox.question(
-                    self, "hdfmonkey not found",
-                    "hdfmonkey doesn't seem to be installed.\n\n"
-                    "Would you like to download and install it?",
-                    QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-                if reply == QMessageBox.Yes:
-                    if download_and_install_hdflonkey():
-                        # Installed OK — allow a fresh prompt if it ever breaks again.
-                        self._hdfmonkey_prompt_shown = False
+                # Show the same "Install hdfmonkey" tip box as the SD-card tab
+                # button (it points the user at the fuller end-to-end CSpect
+                # install via itch.io, which also bundles hdfmonkey) instead of a
+                # bare "not found" prompt.
+                if _on_hdfmonkey_button_clicked():
+                    # Installed OK — allow a fresh prompt if it ever breaks again.
+                    self._hdfmonkey_prompt_shown = False
             else:
                 box = QMessageBox(self)
                 box.setIcon(QMessageBox.Warning)
@@ -17334,6 +17333,17 @@ class MainWindow(QMainWindow):
                                 else f"Serve {_inst_path} via NextSync")
                         except RuntimeError:
                             pass
+                    # Uninstall: shown only when a local copy exists.
+                    un_btn = getattr(_v, "btn_uninstall", None)
+                    if un_btn is not None:
+                        try:
+                            un_btn.setVisible(bool(installed_flag))
+                            un_btn.setEnabled(bool(installed_flag))
+                            un_btn.setToolTip(
+                                f"Delete {_inst_path} and its contents"
+                                if installed_flag else "")
+                        except RuntimeError:
+                            pass
                     # Open-folder shortcut at the bottom; label tracks state.
                     of_btn = getattr(_v, "btn_open_folder", None)
                     if of_btn is not None:
@@ -17462,6 +17472,59 @@ class MainWindow(QMainWindow):
                         _itchio_label_button(_v, "download", "⬇  Install")
                     getit_run_in_thread(_fn, _ok, _err)
 
+                def _itchio_uninstall(_=False, _e=entry, _viewer=viewer):
+                    """Delete this item's locally-downloaded copy — its install
+                    folder and everything under it — after an explicit
+                    confirmation. The deletion is irreversible, so the confirm
+                    dialog names the exact folder and defaults to Cancel."""
+                    path = zxnu_itchio.installed_path(_e, dest)
+                    if not path or not os.path.isdir(path):
+                        _itchio_set_status("This item does not appear to be downloaded.")
+                        _itchio_refresh_install_buttons(_viewer, False)
+                        return
+                    reply = QMessageBox.question(
+                        self, "Uninstall",
+                        f"This is going to completely delete the files in {path} "
+                        "and its sub folders, so they will be unrecoverable.\n\n"
+                        "Are you sure want to continue?",
+                        QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
+                    if reply != QMessageBox.Yes:
+                        return
+                    # CSpect ships as an itch.io package; removing it must
+                    # re-run emulator detection so the now-gone build stops
+                    # being offered (mirrors the post-install re-detect).
+                    is_cspect = "cspect" in (
+                        (_e.get("url") or "") + " " + (_e.get("title") or "")
+                    ).lower()
+                    try: _viewer._itchio_busy = True
+                    except RuntimeError: pass
+                    _itchio_set_status(f"Uninstalling “{title}”…")
+                    def _fn(_p=path):
+                        shutil.rmtree(_p)
+                        return _p
+                    def _ok(_removed, _v=_viewer):
+                        try: _v._itchio_busy = False
+                        except RuntimeError: pass
+                        _itchio_set_status(f"Uninstalled “{title}”.")
+                        _itchio_refresh_install_buttons(_v, False)
+                        try:
+                            _v.refresh_meta(
+                                title, base_rows + [("Status:", _status_text(False))])
+                        except Exception:
+                            pass
+                        if is_cspect:
+                            try:
+                                self._rescan_emulators_after_uninstall(path)
+                            except Exception:
+                                pass
+                    def _err(e, _v=_viewer):
+                        try: _v._itchio_busy = False
+                        except RuntimeError: pass
+                        _itchio_set_status(f"Uninstall failed: {e}")
+                        _itchio_refresh_install_buttons(
+                            _v, zxnu_itchio.installed_status(_e, dest))
+                    getit_run_in_thread(_fn, _ok, _err)
+
                 # Wire actions through the abstract API so they work in both the
                 # Classic (Qt) and pygame item viewers. The three primary slots
                 # mirror GetIt/ZXDB — Install / Send to SD card / Send via
@@ -17473,6 +17536,11 @@ class MainWindow(QMainWindow):
                                    send_sd_cb=_itchio_send_to_image,
                                    send_ns_cb=_itchio_send_via_nextsync,
                                    sd_enabled=False, ns_enabled=False)
+                if hasattr(viewer, "set_uninstall_action"):
+                    # Hidden until the async installed-status check (or an
+                    # install) confirms a local copy; _itchio_refresh_install_buttons
+                    # reveals it.
+                    viewer.set_uninstall_action(_itchio_uninstall, visible=False)
                 if hasattr(viewer, "set_open_folder_action"):
                     viewer.set_open_folder_action(
                         _itchio_open_install_folder, "📂  Open download folder")
@@ -20223,6 +20291,68 @@ class MainWindow(QMainWindow):
         # Expose the rescan so the itch.io install flow can re-detect emulators
         # right after a CSpect download/extract.
         self._rescan_emulators_after_install = _rescan_emulators_after_install
+
+        def _rescan_emulators_after_uninstall(removed_path=None):
+            """Re-detect emulators after an itch.io emulator package (CSpect) is
+            uninstalled. The install-time rescan only ever *adds* a found build;
+            it never drops one. So here we first forget any CSpect/hdfmonkey path
+            that lived inside the now-deleted *removed_path* (restoring the
+            "not found" UI), then re-run detection so a different copy — a
+            PATH-installed CSpect or another downloads build — is picked up if
+            one exists."""
+            def _under(p, root):
+                if not p or not root:
+                    return False
+                try:
+                    p = os.path.abspath(p)
+                    root = os.path.abspath(root)
+                    return os.path.commonpath([p, root]) == root
+                except (ValueError, OSError):
+                    return False
+
+            cspect_widgets = (
+                self.button_start_cspect, self.cspect_screensize,
+                self.cspect_sound, self.cspect_vsync,
+                self.cspect_joystick, self.cspect_frequency)
+
+            cleared_cspect = False
+            if _under(self._cspect_executable_path, removed_path):
+                self._cspect_executable_path = None
+                self._cspect_from_downloads = False
+                cleared_cspect = True
+                # These controls were revealed when CSpect was found; hide them
+                # again now that the build is gone.
+                for _w in cspect_widgets:
+                    try: _w.setVisible(False)
+                    except RuntimeError: pass
+            if _under(self._hdfmonkey_executable_path, removed_path):
+                self._hdfmonkey_executable_path = None
+
+            # A PATH-installed CSpect is a cheap fallback the downloads-only
+            # rescan below won't find; restore it (and its controls) if present.
+            if cleared_cspect:
+                try:
+                    _path_cspect = find_cspect_executable()
+                except Exception:
+                    _path_cspect = None
+                if _path_cspect:
+                    self._cspect_executable_path = _path_cspect
+                    self._cspect_from_downloads = False
+                    for _w in cspect_widgets:
+                        try: _w.setVisible(True)
+                        except RuntimeError: pass
+
+            # Re-run detection for whatever is still missing (walks downloads),
+            # then on Windows re-show the hdfmonkey download button if no copy
+            # remains anywhere.
+            _rescan_emulators_after_install()
+            if _is_windows and not _hdfmonkey_binary_found():
+                try:
+                    show_hdf_monkey_download_and_install_buttons()
+                except Exception:
+                    pass
+
+        self._rescan_emulators_after_uninstall = _rescan_emulators_after_uninstall
 
         if _need_cspect or _need_hdfmonkey:
             self._emulator_scan_pending = True
