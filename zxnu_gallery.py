@@ -1643,19 +1643,24 @@ class GalleryItemViewer(QWidget):
         self.btn_launch_cspect = QPushButton("🕹  Launch CSpect")
         self.btn_launch_mame   = QPushButton("🕹  Launch Mame")
         self.btn_send_ns  = QPushButton("🔁  Send via NextSync")
+        # Optional "open the local install/download folder" button, shown at the
+        # very bottom of the action bar only when a caller wires it (currently
+        # the itch.io viewer).  Wired/shown via set_open_folder_action().
+        self.btn_open_folder = QPushButton("📂  Open install folder")
         self.btn_open_web.setStyleSheet(self._BTN_STYLE)
         self.btn_open_web.setEnabled(False)
         self.btn_open_web.setVisible(False)
         ab_layout.addWidget(self.btn_open_web)
         for btn in (self.btn_download, self.btn_send_sd,
                     self.btn_launch_cspect, self.btn_launch_mame,
-                    self.btn_send_ns):
+                    self.btn_send_ns, self.btn_open_folder):
             btn.setStyleSheet(self._BTN_STYLE)
             btn.setEnabled(False)
             ab_layout.addWidget(btn)
         # Hidden until a caller explicitly enables them.
         self.btn_launch_cspect.setVisible(False)
         self.btn_launch_mame.setVisible(False)
+        self.btn_open_folder.setVisible(False)
 
         right_layout.addWidget(action_bar)
         root.addWidget(right_panel, 0)
@@ -1878,6 +1883,17 @@ class GalleryItemViewer(QWidget):
                        self._mame_enabled, mame_tooltip)
         self.btn_launch_cspect.setVisible(cspect_cb is not None)
         self.btn_launch_mame.setVisible(mame_cb is not None)
+
+    def set_open_folder_action(self, cb=None, label: str = "", tooltip: str = ""):
+        """Wire (and show) the bottom-of-bar 'Open install folder' button.
+
+        Pass a callback to reveal the button; pass None to hide it.  Used by the
+        itch.io viewer to keep the local-folder shortcut while its three primary
+        slots mirror GetIt/ZXDB (Install / Send to SD / Send via NextSync)."""
+        if label:
+            self.btn_open_folder.setText(label)
+        self._wire_btn(self.btn_open_folder, cb, cb is not None, tooltip)
+        self.btn_open_folder.setVisible(cb is not None)
 
     def set_open_web_url(self, url: str, site_label: str = ""):
         """Wire (and show) the 'Open on website' affordances: the action-bar
