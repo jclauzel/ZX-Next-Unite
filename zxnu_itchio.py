@@ -497,6 +497,46 @@ def installed_status(game, dest_dir):
     return installed_path(game, dest_dir) is not None
 
 
+def installed_dir_names(dest_dir):
+    """Return the set of normalised directory names found under *dest_dir*
+    (same depth-limited walk and normalisation as :func:`installed_path`).
+
+    Computed once and matched against many games with :func:`entry_installed`,
+    this lets a gallery flag every installed cell without re-walking the
+    downloads tree per item."""
+    names = set()
+    if not dest_dir or not os.path.isdir(dest_dir):
+        return names
+    try:
+        for root, dirs, _files in os.walk(dest_dir):
+            depth = root[len(dest_dir):].count(os.sep)
+            if depth >= 3:
+                dirs[:] = []
+                continue
+            for d in dirs:
+                names.add(re.sub(r"[^a-z0-9]+", "-", d.lower()).strip("-"))
+    except Exception:
+        return names
+    return names
+
+
+def entry_installed(game, dir_names):
+    """True when *game* matches one of the pre-scanned *dir_names* (from
+    :func:`installed_dir_names`). Mirrors :func:`installed_path`'s slug/title
+    matching, but against a cached name set instead of a fresh disk walk."""
+    if not dir_names:
+        return False
+    slug = _game_slug(game).lower()
+    title = re.sub(r"[^a-z0-9]+", "-", ((game or {}).get("title") or "").lower()).strip("-")
+    wanted = {s for s in (slug, title) if s}
+    if not wanted:
+        return False
+    for norm in dir_names:
+        if norm in wanted or any(w and w in norm for w in wanted):
+            return True
+    return False
+
+
 # ── post-install zip extraction ────────────────────────────────────────────
 #
 # itch-dl lays a downloaded item's payload out under a ``files`` directory. Some

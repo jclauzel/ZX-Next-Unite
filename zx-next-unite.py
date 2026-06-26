@@ -16861,6 +16861,37 @@ class MainWindow(QMainWindow):
                 pass
             return d
 
+        # Cache of normalised install-folder names, so the gallery can flag
+        # every locally-downloaded cell without re-walking the downloads tree
+        # per item. Invalidated (set to None) whenever an install/uninstall
+        # changes what's on disk; rebuilt lazily on the next lookup.
+        self._itchio_installed_names_cache = None
+
+        def _itchio_installed_names():
+            if self._itchio_installed_names_cache is None:
+                try:
+                    self._itchio_installed_names_cache = (
+                        zxnu_itchio.installed_dir_names(_itchio_downloads_dir()))
+                except Exception:
+                    self._itchio_installed_names_cache = set()
+            return self._itchio_installed_names_cache
+
+        def _itchio_is_installed(entry):
+            try:
+                return zxnu_itchio.entry_installed(entry, _itchio_installed_names())
+            except Exception:
+                return False
+
+        def _itchio_mark_local_state_changed():
+            """Forget the cached install scan and re-flag the gallery cells so
+            the 'Installed' badges reflect a fresh install/uninstall."""
+            self._itchio_installed_names_cache = None
+            try:
+                self.itchio_gallery_view.refresh_installed_overlays()
+            except Exception:
+                pass
+        self._itchio_mark_local_state_changed = _itchio_mark_local_state_changed
+
         if zxnu_itchio.itchdl_available()[0]:
             zxnextunite_itchio_tab = QWidget(wid_inner.tab)
             zxnextunite_itchio_tab.setAttribute(Qt.WA_TranslucentBackground)
@@ -17044,6 +17075,7 @@ class MainWindow(QMainWindow):
                 info_getter=_itchio_info_getter,
                 source_label_getter=lambda _e: "itch.io",
                 source_overlay_anchor="bottomleft",
+                installed_getter=_itchio_is_installed,
                 is_favorite_cb=lambda e: self._fav_is({**e, "_fav_source": "itchio"}),
                 toggle_favorite_cb=lambda e: self._fav_toggle({**e, "_fav_source": "itchio"}),
             )
@@ -17107,6 +17139,9 @@ class MainWindow(QMainWindow):
             def _itchio_populate(entries):
                 """Render results into both the gallery and the table views."""
                 self._itchio_last_entries = list(entries)
+                # Re-scan local installs so the "Installed" badges are accurate
+                # for this fresh batch (cheap: one bounded walk, then cached).
+                self._itchio_installed_names_cache = None
                 self.itchio_gallery_view.populate(entries)
                 _itchio_fill_table(entries)
             self._itchio_populate = _itchio_populate
@@ -17463,6 +17498,7 @@ class MainWindow(QMainWindow):
                         # Post-install setup: extract any bundled .zip (CSpect
                         # builds and similar ship as archives under ``files``).
                         if ok:
+                            _itchio_mark_local_state_changed()
                             _itchio_run_setup_extract(_e)
                     def _err(e, _v=_viewer):
                         _itchio_set_status(f"Install failed: {e}")
@@ -17507,6 +17543,7 @@ class MainWindow(QMainWindow):
                         except RuntimeError: pass
                         _itchio_set_status(f"Uninstalled “{title}”.")
                         _itchio_refresh_install_buttons(_v, False)
+                        _itchio_mark_local_state_changed()
                         try:
                             _v.refresh_meta(
                                 title, base_rows + [("Status:", _status_text(False))])
