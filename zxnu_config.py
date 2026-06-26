@@ -62,6 +62,11 @@ ZXART_PAGE_SIZE = 20
 ITCH_API_BASE = "https://api.itch.io"
 ITCH_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
 ITCH_PAGE_SIZE = 30
+# Safety bound on how many API pages the owned-games / collection / library
+# walks will follow. The walks stop naturally on the last (short) page; this is
+# only a runaway guard. Set high so large libraries (a user with 1000s of
+# purchases or a big collection) load in full rather than being truncated.
+ITCH_MAX_PAGES = 1000
 
 # AllInOne pane aggregates results from GetIt + ZXDB + zxArt (+ itch.io when a
 # key is configured). Paging is applied client-side on the merged result list.

@@ -2326,6 +2326,12 @@ class MainWindow(QMainWindow):
         self._favorites_view_mode    = "gallery"
         self._allinone_view_mode     = "gallery"
         self._itchio_view_mode       = "gallery"
+        # Whether itch.io items take part in the Unite! aggregation. itch.io is
+        # only merged in when it actually participated in a Unite! search (and
+        # the user is connected); Latest/Random browse the catalogue sources
+        # (GetIt/ZXDB/zxArt) only, so prior itch.io browsing doesn't spill onto
+        # later pages of the aggregated view.
+        self._allinone_include_itchio = False
 
         # Shared gate for search autocomplete. Honours the Settings checkbox
         # (and the persisted SETTING_SEARCH_AUTOCOMPLETE value) so every pane's
@@ -17330,6 +17336,33 @@ class MainWindow(QMainWindow):
                         try: btn.setEnabled(bool(on))
                         except RuntimeError: pass
 
+                def _itchio_btn_set(_v, key, *, enabled=None, visible=None,
+                                    tooltip=None, text=None):
+                    """Update an action button by key in either viewer mode:
+                    Classic (Qt ``btn_<key>``) or pygame (``_buttons[key]``).
+                    Only the passed attributes are changed."""
+                    btn = getattr(_v, "btn_" + key, None)
+                    if btn is not None:
+                        try:
+                            if text is not None: btn.setText(text)
+                            if enabled is not None: btn.setEnabled(bool(enabled))
+                            if visible is not None: btn.setVisible(bool(visible))
+                            if tooltip is not None: btn.setToolTip(tooltip)
+                        except RuntimeError:
+                            pass
+                        return
+                    btns = getattr(_v, "_buttons", None)
+                    if isinstance(btns, dict) and key in btns:
+                        b = btns[key]
+                        try:
+                            if text is not None: b.label = text
+                            if enabled is not None: b.enabled = bool(enabled)
+                            if visible is not None: b.visible = bool(visible)
+                            if tooltip is not None: b.tooltip = tooltip
+                            _v.redraw()
+                        except Exception:
+                            pass
+
                 def _itchio_refresh_install_buttons(_v, installed_flag):
                     """Update the action buttons for the current download state
                     (works in Classic and pygame modes). The three primary slots
@@ -17347,47 +17380,32 @@ class MainWindow(QMainWindow):
                     _img_ready = bool(self.right_disk_image_path) and bool(
                         right_disk_image_explorer_content)
                     # Send to SD card: needs an install and a loaded disk image.
-                    sd_btn = getattr(_v, "btn_send_sd", None)
-                    if sd_btn is not None:
-                        try:
-                            sd_btn.setEnabled(bool(installed_flag) and _img_ready)
-                            sd_btn.setToolTip(
-                                "Install this item first" if not installed_flag
-                                else ("Load a disk image first (SD Card tab)"
-                                      if not _img_ready
-                                      else f"Send {os.path.basename(_inst_path)} → image"))
-                        except RuntimeError:
-                            pass
+                    _itchio_btn_set(
+                        _v, "send_sd",
+                        enabled=bool(installed_flag) and _img_ready,
+                        tooltip=("Install this item first" if not installed_flag
+                                 else ("Load a disk image first (SD Card tab)"
+                                       if not _img_ready
+                                       else f"Send {os.path.basename(_inst_path)} → image")))
                     # Send via NextSync: needs an install.
-                    ns_btn = getattr(_v, "btn_send_ns", None)
-                    if ns_btn is not None:
-                        try:
-                            ns_btn.setEnabled(bool(installed_flag))
-                            ns_btn.setToolTip(
-                                "Install this item first" if not installed_flag
-                                else f"Serve {_inst_path} via NextSync")
-                        except RuntimeError:
-                            pass
+                    _itchio_btn_set(
+                        _v, "send_ns",
+                        enabled=bool(installed_flag),
+                        tooltip=("Install this item first" if not installed_flag
+                                 else f"Serve {_inst_path} via NextSync"))
                     # Uninstall: shown only when a local copy exists.
-                    un_btn = getattr(_v, "btn_uninstall", None)
-                    if un_btn is not None:
-                        try:
-                            un_btn.setVisible(bool(installed_flag))
-                            un_btn.setEnabled(bool(installed_flag))
-                            un_btn.setToolTip(
-                                f"Delete {_inst_path} and its contents"
-                                if installed_flag else "")
-                        except RuntimeError:
-                            pass
+                    _itchio_btn_set(
+                        _v, "uninstall",
+                        visible=bool(installed_flag),
+                        enabled=bool(installed_flag),
+                        tooltip=(f"Delete {_inst_path} and its contents"
+                                 if installed_flag else ""))
                     # Open-folder shortcut at the bottom; label tracks state.
-                    of_btn = getattr(_v, "btn_open_folder", None)
-                    if of_btn is not None:
-                        try:
-                            of_btn.setText("📂  Open install folder" if installed_flag
-                                           else "📂  Open download folder")
-                            of_btn.setToolTip(_inst_path or dest)
-                        except RuntimeError:
-                            pass
+                    _itchio_btn_set(
+                        _v, "open_folder",
+                        text=("📂  Open install folder" if installed_flag
+                              else "📂  Open download folder"),
+                        tooltip=(_inst_path or dest))
 
                 def _chk_fn(_e=entry, _d=dest):
                     return zxnu_itchio.installed_status(_e, _d)
@@ -17878,6 +17896,12 @@ class MainWindow(QMainWindow):
                     self._itchio_library = lib
                     self._itchio_library_building = False
                     self._itchio_update_completer()
+                    # Refresh the Unite! suggestion list now that the library
+                    # (and its purchased/collection titles) is available.
+                    _aio_notify = getattr(self, "_allinone_ac_notify", None)
+                    if callable(_aio_notify):
+                        try: _aio_notify("itchio", "")
+                        except Exception: pass
                 def _err(_e):
                     self._itchio_library_building = False
                 getit_run_in_thread(_fn, _ok, _err)
@@ -17953,10 +17977,15 @@ class MainWindow(QMainWindow):
         # --- Aggregation + tab badge ---
         def _allinone_collect():
             merged = []
-            for src, attr in (("getit", "_getit_last_entries"),
-                              ("zxdb",  "_zxdb_last_entries"),
-                              ("zxart", "_zxart_last_entries"),
-                              ("itchio", "_itchio_last_entries")):
+            sources = [("getit", "_getit_last_entries"),
+                       ("zxdb",  "_zxdb_last_entries"),
+                       ("zxart", "_zxart_last_entries")]
+            # itch.io joins the aggregation only when it took part in the last
+            # Unite! search; Latest/Random (and prior itch.io tab browsing) keep
+            # it out so it doesn't push catalogue results onto later pages.
+            if getattr(self, "_allinone_include_itchio", False):
+                sources.append(("itchio", "_itchio_last_entries"))
+            for src, attr in sources:
                 lst = getattr(self, attr, None) or []
                 for e in lst:
                     if not isinstance(e, dict):
@@ -18147,6 +18176,9 @@ class MainWindow(QMainWindow):
             _itch_on = bool(_itch_search) and getattr(self, "_itchio_connected", False)
             if _itch_on:
                 sources.append(_itch_search)
+            # itch.io results belong in this aggregation only when it actually
+            # joined the fan-out for this query.
+            self._allinone_include_itchio = _itch_on
 
             pending = {"count": len(sources)}
 
@@ -18279,6 +18311,8 @@ class MainWindow(QMainWindow):
                 self.allinone_search_input.clear()
             except Exception:
                 pass
+            # Random browses GetIt/ZXDB/zxArt only — keep itch.io out.
+            self._allinone_include_itchio = False
 
             actions = [lambda cb: getit_on_random(cb)]
             # ZXDB random — only meaningful in 'games' mode; the button there
@@ -18309,6 +18343,9 @@ class MainWindow(QMainWindow):
                 self.allinone_search_input.clear()
             except Exception:
                 pass
+            # Latest fetches GetIt/ZXDB/zxArt only — keep itch.io out so the
+            # aggregated pages show catalogue content, not prior itch.io browsing.
+            self._allinone_include_itchio = False
             # Suppress the autocomplete suggestions popup once latest is
             # requested; it stays hidden until the user types again.
             self._allinone_ac_block = True
@@ -18341,7 +18378,11 @@ class MainWindow(QMainWindow):
         _allinone_completer = QCompleter(self._allinone_ac_model, self)
         _allinone_completer.setCompletionMode(QCompleter.PopupCompletion)
         _allinone_completer.setCaseSensitivity(Qt.CaseInsensitive)
-        _allinone_completer.setFilterMode(Qt.MatchStartsWith)
+        # Substring (contains) matching so typing e.g. "cspect" also surfaces
+        # titles like "#CSpect" or "The CSpect Emulator", not just those that
+        # begin with the typed text. The merge in _allinone_ac_update_model uses
+        # the same "tl in key" rule so the model and the popup filter agree.
+        _allinone_completer.setFilterMode(Qt.MatchContains)
         # Ensure the popup follows the main window on Windows
         popup = _allinone_completer.popup()
         if popup is not None:
@@ -18417,6 +18458,16 @@ class MainWindow(QMainWindow):
                 list(zxart_cache.get(zxart_best_pfx, []))
                 if zxart_best_pfx is not None else []
             )
+            # itch.io: the user's purchased + collection titles, taken from the
+            # cached combined library. Only contributes while connected.
+            if getattr(self, "_itchio_connected", False):
+                itchio_snapshot = [
+                    (g.get("title") or "")
+                    for g in (getattr(self, "_itchio_library", None) or [])
+                    if isinstance(g, dict) and g.get("title")
+                ]
+            else:
+                itchio_snapshot = []
 
             def _fn():
                 merged: dict = {}  # lower-case title -> first-seen original
@@ -18424,19 +18475,25 @@ class MainWindow(QMainWindow):
                     if not t:
                         continue
                     key = t.lower()
-                    if key.startswith(tl) and key not in merged:
+                    if tl in key and key not in merged:
                         merged[key] = t
                 for t in zxdb_snapshot:
                     if not t:
                         continue
                     key = t.lower()
-                    if key.startswith(tl) and key not in merged:
+                    if tl in key and key not in merged:
                         merged[key] = t
                 for t in zxart_snapshot:
                     if not t:
                         continue
                     key = t.lower()
-                    if key.startswith(tl) and key not in merged:
+                    if tl in key and key not in merged:
+                        merged[key] = t
+                for t in itchio_snapshot:
+                    if not t:
+                        continue
+                    key = t.lower()
+                    if tl in key and key not in merged:
                         merged[key] = t
                 matches = sorted(merged.values(), key=str.lower)
                 return (gen, text, matches[:80])
@@ -18486,6 +18543,7 @@ class MainWindow(QMainWindow):
                         bool(getattr(self, "_getit_ac_titles", None))
                         or bool(getattr(self, "_zxdb_ac_cache", None))
                         or bool(getattr(self, "_zxart_ac_cache", None))
+                        or bool(getattr(self, "_itchio_library", None))
                     )
                     if any_data:
                         self._ac_anim_stop(self.allinone_search_input)
@@ -18568,6 +18626,21 @@ class MainWindow(QMainWindow):
                             pass
                 elif already_fetching:
                     need_fetch = True
+
+            # itch.io: build the combined library once (purchases + collections)
+            # so the user's owned titles can be suggested. Only when connected.
+            if getattr(self, "_itchio_connected", False):
+                if getattr(self, "_itchio_library", None) is None:
+                    if not getattr(self, "_itchio_library_building", False):
+                        starter = getattr(self, "_itchio_prebuild_library", None)
+                        if callable(starter):
+                            try:
+                                starter()
+                                need_fetch = True
+                            except Exception:
+                                pass
+                    else:
+                        need_fetch = True
 
             if need_fetch and not getattr(self, "_allinone_ac_waiting", False):
                 try:

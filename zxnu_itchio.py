@@ -29,7 +29,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-from zxnu_config import ITCH_API_BASE, ITCH_USER_AGENT, ITCH_PAGE_SIZE
+from zxnu_config import ITCH_API_BASE, ITCH_USER_AGENT, ITCH_PAGE_SIZE, ITCH_MAX_PAGES
 
 
 # ── optional-dependency detection ──────────────────────────────────────────
@@ -129,7 +129,7 @@ def list_collections(api_key, timeout=20):
     return out
 
 
-def collection_games(api_key, collection_id, max_pages=20, timeout=20):
+def collection_games(api_key, collection_id, max_pages=ITCH_MAX_PAGES, timeout=20):
     """Return the normalised game dicts in a collection, following pagination."""
     games = []
     page = 1
@@ -152,7 +152,7 @@ def collection_games(api_key, collection_id, max_pages=20, timeout=20):
     return games
 
 
-def owned_game_ids(api_key, max_pages=20, timeout=20):
+def owned_game_ids(api_key, max_pages=ITCH_MAX_PAGES, timeout=20):
     """Return a set of game-id strings the user owns (their itch.io library).
     Used to flag collection items the user already owns."""
     owned = set()
@@ -178,7 +178,7 @@ def owned_game_ids(api_key, max_pages=20, timeout=20):
     return owned
 
 
-def owned_games(api_key, max_pages=20, timeout=20):
+def owned_games(api_key, max_pages=ITCH_MAX_PAGES, timeout=20):
     """Return the normalised game dicts the user owns (their itch.io library /
     purchases), following pagination. Like :func:`owned_game_ids` but returns
     the full game records so they can be browsed/searched."""
@@ -203,7 +203,7 @@ def owned_games(api_key, max_pages=20, timeout=20):
     return games
 
 
-def library_games(api_key, collections, max_pages=20, timeout=20):
+def library_games(api_key, collections, max_pages=ITCH_MAX_PAGES, timeout=20):
     """Return the user's combined library — purchased/owned games plus every
     game across *collections* — de-duplicated by game id. Used to search the
     user's own itch.io content (collections + purchases)."""

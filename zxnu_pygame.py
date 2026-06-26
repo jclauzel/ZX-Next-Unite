@@ -4101,7 +4101,8 @@ class PygameItemViewer(_Scene):
     """
 
     _ACTION_ORDER = ("open_web", "download", "send_sd",
-                     "launch_cspect", "launch_mame", "send_ns")
+                     "launch_cspect", "launch_mame", "send_ns",
+                     "uninstall", "open_folder")
 
     def __init__(self, host, title="", info_rows=None, screenshots=None,
                  extra_fetch_cb=None, tags=None):
@@ -4131,6 +4132,10 @@ class PygameItemViewer(_Scene):
         self._buttons["launch_cspect"].label = "🕹  Launch CSpect"
         self._buttons["launch_mame"].label = "🕹  Launch Mame"
         self._buttons["send_ns"].label = "🔁  Send via NextSync"
+        # Optional itch.io buttons — hidden until a caller wires them (mirrors
+        # the Qt GalleryItemViewer's btn_uninstall / btn_open_folder).
+        self._buttons["uninstall"].label = "🗑  Uninstall"
+        self._buttons["open_folder"].label = "📂  Open install folder"
 
         # hit-test rects (device px, recomputed each render)
         self._close_rect = None
@@ -4186,6 +4191,33 @@ class PygameItemViewer(_Scene):
                    bool(mame_enabled) and mame_cb is not None, mame_tooltip)
         self._buttons["launch_cspect"].visible = cspect_cb is not None
         self._buttons["launch_mame"].visible = mame_cb is not None
+        self.redraw()
+
+    def set_open_folder_action(self, cb=None, label="", tooltip=""):
+        """Wire (and show) the bottom 'Open install folder' button. Mirrors the
+        Qt GalleryItemViewer method so the itch.io viewer drives both modes."""
+        b = self._buttons["open_folder"]
+        if label:
+            b.label = label
+        b.cb = cb
+        b.enabled = cb is not None
+        if tooltip:
+            b.tooltip = tooltip
+        b.visible = cb is not None
+        self.redraw()
+
+    def set_uninstall_action(self, cb=None, visible=True, label="", tooltip=""):
+        """Wire (and optionally show) the 'Uninstall' button. Revealed only when
+        *visible* (the itch.io viewer keeps it hidden until the item is confirmed
+        downloaded locally). Mirrors the Qt GalleryItemViewer method."""
+        b = self._buttons["uninstall"]
+        if label:
+            b.label = label
+        b.cb = cb
+        b.enabled = cb is not None
+        if tooltip:
+            b.tooltip = tooltip
+        b.visible = (cb is not None) and bool(visible)
         self.redraw()
 
     def set_open_web_url(self, url, site_label=""):
