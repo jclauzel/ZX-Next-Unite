@@ -499,7 +499,11 @@ class GalleryCell(QFrame):
         the main thumbnail (used immediately if already cached)."""
         if not self._is_alive():
             return
-        urls = [u for u in (urls or []) if u]
+        # Keep only renderable images — drop non-picture downloads (archives,
+        # tape/disk images, text files) the online APIs sometimes mix in, so the
+        # thumbnail never tries to decode a .zip/.txt as a picture.
+        urls = [u for u in (urls or [])
+                if u and zxfmt_url_is_displayable_image(u)]
         self._screenshots = urls
         # An animated GIF first frame is played as a looping QMovie rather than
         # shown as a static thumbnail (the prefetch below skips gif URLs when a
@@ -724,7 +728,13 @@ class GalleryCell(QFrame):
         # .gif URLs when a byte-fetcher is wired, so PNG/SCR/etc. keep their
         # existing static-pixmap path untouched.
         if self._gif_fetch_cb and self._url_is_gif(url):
-            self._play_gif(url)
+            # In "none" animation mode a GIF is frozen to its first frame so an
+            # animated (e.g. FLASH-effect) screen does not blink; the timed and
+            # on-hover modes keep playing it as a QMovie.
+            if self._anim_mode_is_none():
+                self._show_gif_static(url)
+            else:
+                self._play_gif(url)
             return
         cached = self._shot_cache.get(url)
         if cached is not None:
@@ -754,6 +764,11 @@ class GalleryCell(QFrame):
             i = self._screenshots.index(url)
         except ValueError:
             return
+        # Whether the frame currently on screen is the one being removed. The
+        # prefetch validates every URL up front and prunes the broken ones; most
+        # are not the displayed frame, so re-rendering for each would needlessly
+        # repaint (and could flicker) the thumbnail.
+        was_current = (i == self._shot_index)
         del self._screenshots[i]
         self._shot_cache.pop(url, None)
         if not self._screenshots:
@@ -769,8 +784,10 @@ class GalleryCell(QFrame):
         self._shot_index = new_idx
         if len(self._screenshots) <= 1:
             self._timer.stop()
-        # Show whichever URL is now at this slot (cached or trigger a fetch).
-        self._show_index(new_idx)
+        # Only repaint when the displayed frame actually changed (it was the
+        # dropped URL); pruning a background URL leaves the current frame as-is.
+        if was_current:
+            self._show_index(new_idx)
 
     def _notify_no_image(self):
         if self._no_image_notified:
@@ -792,6 +809,44 @@ class GalleryCell(QFrame):
         return self._shot_cache.get(self._screenshots[self._shot_index])
 
     # ---- animated GIF playback -----------------------------------------
+
+    def _anim_mode_is_none(self) -> bool:
+        """True when the global "Gallery animation" setting is "none" (no motion
+        at all, including frozen GIF thumbnails)."""
+        try:
+            return self._anim_mode_getter() == "none"
+        except Exception:
+            return False
+
+    def _show_gif_static(self, url):
+        """Show a GIF's first frame as a static thumbnail (used in "none" mode so
+        an animated screen does not blink)."""
+        if not self._gif_fetch_cb or not self._is_alive():
+            return
+        cached = self._shot_cache.get(url)
+        if cached is not None:
+            self._stop_movie()
+            self._apply_pixmap(cached)
+            return
+        def _on_bytes(data, _u=url):
+            if not self._is_alive():
+                return
+            if (self._shot_index >= len(self._screenshots)
+                    or self._screenshots[self._shot_index] != _u):
+                return
+            if data:
+                pm = QPixmap()
+                pm.loadFromData(QByteArray(data))
+                if not pm.isNull():
+                    self._shot_cache[_u] = pm
+                    self._stop_movie()
+                    self._apply_pixmap(pm)
+                    return
+            self._drop_bad_url(_u)
+        try:
+            self._gif_fetch_cb(url, _on_bytes)
+        except Exception:
+            self._drop_bad_url(url)
 
     def _play_gif(self, url):
         """Fetch *url*'s raw bytes and play it as a looping QMovie thumbnail.
@@ -1538,6 +1593,90 @@ def _gallery_stars(rating_value) -> str:
     return "★" * full + "☆" * empty + f"  ({rating_value})"
 
 
+class _ScalingImageLabel(QLabel):
+    """A QLabel that keeps the *original* pixmap and always rescales it
+    (aspect-fit, smooth) to its own current size.
+
+    Scaling happens in the label's own ``resizeEvent``, which is the single
+    authoritative signal that its geometry changed — so the picture tracks the
+    label whenever the layout resizes it (on open, on a side-panel relayout, on
+    a window resize), with no external resize plumbing to get the timing wrong.
+    This is what keeps a small native-resolution SCR screen filling the image
+    area instead of being left at a stale size (the "first screenshot doesn't
+    get rescaled" symptom)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._orig_pm = None
+        # (cacheKey, size) of the pixmap currently painted on screen. Used to
+        # skip a redundant re-paint when the exact same picture is handed back at
+        # the same size (e.g. a background URL prune or a duplicate fetch
+        # re-delivers the current image) — that was a source of visible flicker.
+        self._shown_key = None
+        # Rescaling is debounced: when an item opens, the image area is resized
+        # several times in quick succession (the stacked-widget show, then the
+        # metadata side panel laying out via refresh_meta). Rescaling on every
+        # intermediate size repaints the picture growing step by step — the
+        # "first screenshot animates from small to big" symptom. Coalesce the
+        # burst and paint once, at the final size.
+        self._apply_timer = QTimer(self)
+        self._apply_timer.setSingleShot(True)
+        self._apply_timer.setInterval(70)
+        self._apply_timer.timeout.connect(self._apply_scaled)
+
+    def set_image(self, pm):
+        """Show *pm*, remembering it as the original so later resizes can
+        rescale from full quality. Passing a null/None pixmap clears it."""
+        if pm is None or pm.isNull():
+            self.clear_image()
+            return
+        # No-op when the exact same picture is already painted at the current
+        # size: re-applying it would blank-and-repaint for nothing (flicker).
+        if (self._shown_key is not None
+                and self._shown_key == (pm.cacheKey(), self.size())):
+            self._orig_pm = pm
+            return
+        self._orig_pm = pm
+        # Debounce too, so a picture set right as the layout is still settling
+        # is painted once at the final size rather than at a transient one.
+        self._apply_timer.start()
+
+    def clear_image(self):
+        """Forget any stored image and blank the label (used for the
+        'Loading…' state and when a QMovie takes over)."""
+        self._orig_pm = None
+        self._shown_key = None
+        self._apply_timer.stop()
+        super().setPixmap(QPixmap())
+
+    def has_image(self):
+        return self._orig_pm is not None
+
+    def _apply_scaled(self):
+        if self._orig_pm is None:
+            return
+        sz = self.size()
+        if sz.width() <= 1 or sz.height() <= 1:
+            return
+        # Scale to *device* pixels and tag the pixmap with the display's device
+        # pixel ratio. On a high-DPI screen (dpr > 1) scaling only to the logical
+        # label size leaves the picture drawn at 1/dpr of the area — the "first
+        # screenshot is small" symptom; the animated frames went through a
+        # different path and filled the area, so they looked fine by contrast.
+        dpr = self.devicePixelRatioF() or 1.0
+        target = QSize(max(1, round(sz.width() * dpr)),
+                       max(1, round(sz.height() * dpr)))
+        scaled = self._orig_pm.scaled(
+            target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        scaled.setDevicePixelRatio(dpr)
+        super().setPixmap(scaled)
+        self._shown_key = (self._orig_pm.cacheKey(), sz)
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._apply_timer.start()
+
+
 class GalleryItemViewer(QWidget):
     """In-pane item viewer opened from Gallery mode (double-click on a cell).
 
@@ -1561,7 +1700,7 @@ class GalleryItemViewer(QWidget):
     )
 
     def __init__(self, title: str, info_rows: list, screenshots: list,
-                 extra_fetch_cb, tags=None, parent=None):
+                 extra_fetch_cb, tags=None, parent=None, anim_mode_getter=None):
         """
         Parameters
         ----------
@@ -1569,15 +1708,21 @@ class GalleryItemViewer(QWidget):
         info_rows      : list of (label, value) tuples; empty value → skip row
         screenshots    : list of image URL strings for the slideshow
         extra_fetch_cb : callable(url, on_pixmap_cb) – async image loader
+        anim_mode_getter : optional callable -> "hover"|"timer"|"none". When it
+                         returns "none" the multi-screenshot slideshow does not
+                         auto-advance (the user still pages with ◀/▶, and any
+                         animated GIF still plays via QMovie). Defaults to the
+                         legacy always-cycling behaviour when not supplied.
         """
         super().__init__(parent)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setStyleSheet("background: #0d0d0d;")
 
-        self._screenshots    = list(screenshots or [])
+        self._screenshots    = self._filter_shots(screenshots)
         self._shot_index     = 0
         self._shot_cache     = {}
         self._extra_fetch_cb = extra_fetch_cb
+        self._anim_mode_getter = anim_mode_getter
         self._gif_fetch_cb   = None   # (url, on_bytes) raw-bytes fetcher for GIFs
         self._movie          = None   # active QMovie for an animated GIF
         self._movie_native   = None   # QSize of the GIF's native frame
@@ -1605,7 +1750,7 @@ class GalleryItemViewer(QWidget):
         img_layout.setContentsMargins(8, 8, 8, 8)
         img_layout.setSpacing(4)
 
-        self._img_lbl = QLabel()
+        self._img_lbl = _ScalingImageLabel()
         self._img_lbl.setAlignment(Qt.AlignCenter)
         self._img_lbl.setStyleSheet("background: #0a0a0a; color: #666;")
         self._img_lbl.setText("Loading…")
@@ -1646,6 +1791,16 @@ class GalleryItemViewer(QWidget):
         nav_row.addStretch()
         img_layout.addLayout(nav_row)
 
+        # File-name caption under the image (e.g. "0035473-load-1.scr"). A fixed
+        # height keeps it from perturbing the image area's layout, and it doubles
+        # as a diagnostic for which screenshot/file is currently on screen.
+        self._shot_name = QLabel("")
+        self._shot_name.setAlignment(Qt.AlignCenter)
+        self._shot_name.setStyleSheet("color: #888; font-size: 10px; background: transparent;")
+        self._shot_name.setFixedHeight(16)
+        self._shot_name.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        img_layout.addWidget(self._shot_name)
+
         self._prev_btn.clicked.connect(self._go_prev)
         self._next_btn.clicked.connect(self._go_next)
 
@@ -1654,8 +1809,13 @@ class GalleryItemViewer(QWidget):
         # ── RIGHT: metadata + actions ────────────────────────────────────
         right_panel = QWidget()
         right_panel.setStyleSheet("background: #111;")
-        right_panel.setMinimumWidth(300)
-        right_panel.setMaximumWidth(400)
+        # Fixed width (not a min/max range): with a stretch-0 panel the layout
+        # otherwise sizes it to its *content* hint, so when the metadata reflows
+        # (a long Description wrapping, the scroll area's scrollbar toggling) the
+        # panel width shifts and the stretch-3 image panel absorbs the change —
+        # making a letterboxed picture (e.g. a 256×192 .scr) visibly rescale
+        # small↔big on the same image. A fixed width keeps the image area put.
+        right_panel.setFixedWidth(340)
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
@@ -1769,6 +1929,55 @@ class GalleryItemViewer(QWidget):
 
     # ── public API ────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _filter_shots(urls):
+        """Keep only URLs the viewer can actually render as a picture, dropping
+        non-image downloads (archives, tape/disk images, text files) that the
+        online APIs sometimes mix into the screenshot list."""
+        return [u for u in (urls or []) if zxfmt_url_is_displayable_image(u)]
+
+    @staticmethod
+    def _shot_filename(url) -> str:
+        """Human-readable file name for *url*, shown under the image. Synthetic
+        placeholder URLs have no real file, so they render blank."""
+        if not isinstance(url, str) or not url or url.startswith("placeholder://"):
+            return ""
+        s = url.split("?", 1)[0].split("#", 1)[0]
+        try:
+            from urllib.parse import unquote
+            s = unquote(s)
+        except Exception:
+            pass
+        return s.rstrip("/").rsplit("/", 1)[-1]
+
+    def _update_shot_name(self):
+        """Refresh the file-name caption under the image for the current shot."""
+        lbl = getattr(self, "_shot_name", None)
+        if lbl is None:
+            return
+        name = ""
+        if 0 <= self._shot_index < len(self._screenshots):
+            name = self._shot_filename(self._screenshots[self._shot_index])
+        lbl.setText(name)
+        lbl.setToolTip(name)
+
+    def _anim_should_cycle(self) -> bool:
+        """Whether the slideshow may auto-advance. Honours the global "Gallery
+        animation" setting: anything other than "none" cycles (preserving the
+        legacy behaviour); "none" disables auto-advance entirely."""
+        if self._anim_mode_getter is None:
+            return True
+        try:
+            return self._anim_mode_getter() != "none"
+        except Exception:
+            return True
+
+    def _maybe_start_timer(self):
+        """Start the auto-advance timer only when there is more than one
+        screenshot *and* the animation mode permits cycling."""
+        if len(self._screenshots) > 1 and self._anim_should_cycle():
+            self._timer.start()
+
     def install_into_stack(self, stack: QStackedWidget, close_fn=None):
         """Add this widget to *stack* (if not already there) and show it."""
         self._close_fn = close_fn
@@ -1777,8 +1986,7 @@ class GalleryItemViewer(QWidget):
         stack.setCurrentWidget(self)
         self.setFocus()
         self._ensure_alien_overlay()
-        if len(self._screenshots) > 1:
-            self._timer.start()
+        self._maybe_start_timer()
 
     def _ensure_alien_overlay(self):
         """When the optional Alien Floyd's background mode is on, float a
@@ -1825,14 +2033,13 @@ class GalleryItemViewer(QWidget):
         """Replace screenshot list and restart slideshow."""
         self._timer.stop()
         self._stop_movie()
-        self._screenshots = list(urls or [])
+        self._screenshots = self._filter_shots(urls)
         self._shot_index  = 0
         self._shot_cache  = {}
         self._update_nav()
         if self._screenshots:
             self._show_index(0)
-            if len(self._screenshots) > 1:
-                self._timer.start()
+            self._maybe_start_timer()
             # Proactively fetch every URL so that broken ones (HTTP 404,
             # network error, etc.) are pruned up front rather than only
             # when the cycling timer happens to land on them.
@@ -1945,6 +2152,12 @@ class GalleryItemViewer(QWidget):
             if ev.type() == QEvent.Resize:
                 self._position_alien_overlay()
                 self._position_tag_overlay()
+                # Static pictures are rescaled by the self-scaling label itself;
+                # a playing movie's scaled size is refreshed here, since the
+                # label's size can change on a layout pass (e.g. refresh_meta)
+                # without the viewer itself resizing.
+                if self._movie is not None:
+                    self._scale_movie_to_label()
             elif ev.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick):
                 if ev.button() == Qt.LeftButton:
                     self._do_close()
@@ -2075,16 +2288,11 @@ class GalleryItemViewer(QWidget):
         subtitle = self._placeholder_subtitle or self._title
         pm = zxfmt_make_placeholder_pixmap(label, subtitle)
         if pm and not pm.isNull():
-            sz = self._img_lbl.size()
-            if sz.width() > 0 and sz.height() > 0:
-                self._img_lbl.setPixmap(
-                    pm.scaled(sz, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                )
-            else:
-                self._img_lbl.setPixmap(pm)
+            self._stop_movie()
+            self._img_lbl.set_image(pm)
             self._img_lbl.setText("")
         else:
-            self._img_lbl.setPixmap(QPixmap())
+            self._img_lbl.clear_image()
             self._img_lbl.setText("No preview available")
         self._position_tag_overlay()
 
@@ -2195,7 +2403,7 @@ class GalleryItemViewer(QWidget):
         self._timer.stop()
         self._shot_index = (self._shot_index - 1) % len(self._screenshots)
         self._show_index(self._shot_index)
-        self._timer.start()
+        self._maybe_start_timer()
 
     def _go_next(self):
         if not self._screenshots:
@@ -2203,7 +2411,7 @@ class GalleryItemViewer(QWidget):
         self._timer.stop()
         self._shot_index = (self._shot_index + 1) % len(self._screenshots)
         self._show_index(self._shot_index)
-        self._timer.start()
+        self._maybe_start_timer()
 
     def _update_nav(self):
         multi = len(self._screenshots) > 1
@@ -2212,6 +2420,7 @@ class GalleryItemViewer(QWidget):
         self._shot_counter.setText(
             f"{self._shot_index + 1} / {len(self._screenshots)}" if self._screenshots else ""
         )
+        self._update_shot_name()
 
     def _show_index(self, idx: int):
         if not self._screenshots:
@@ -2226,19 +2435,27 @@ class GalleryItemViewer(QWidget):
         # .gif URLs when a byte-fetcher is wired, so other formats (PNG, SCR, …)
         # keep their existing QPixmap path untouched.
         if self._gif_fetch_cb and self._url_is_gif(url):
+            # In "none" animation mode a GIF is frozen to its first frame (a
+            # static pixmap) so an animated screen — e.g. the 2-frame ZX FLASH
+            # effect — does not blink; Timed/On-hover still play it as a QMovie.
+            play = self._anim_should_cycle()
+            if not play and url in self._shot_cache:
+                self._display_pixmap(self._shot_cache[url])
+                return
             self._stop_movie()
-            self._img_lbl.setPixmap(QPixmap())
+            self._img_lbl.clear_image()
             self._img_lbl.setText("Loading…")
-            def _on_bytes(data, _u=url):
+            def _on_bytes(data, _u=url, _play=play):
                 # Ignore a late result if the user navigated to another frame.
                 if (self._shot_index >= len(self._screenshots)
                         or self._screenshots[self._shot_index] != _u):
                     return
-                movie = self._make_movie(data)
-                if movie is not None:
-                    self._play_movie(movie)
-                    return
-                # Not actually an animated GIF — fall back to a static pixmap.
+                if _play:
+                    movie = self._make_movie(data)
+                    if movie is not None:
+                        self._play_movie(movie)
+                        return
+                # "none" mode, or not an animated GIF — show a static frame.
                 if data:
                     pm = QPixmap()
                     pm.loadFromData(QByteArray(data))
@@ -2256,7 +2473,7 @@ class GalleryItemViewer(QWidget):
         if cached is not None:
             self._display_pixmap(cached)
             return
-        self._img_lbl.setPixmap(QPixmap())
+        self._img_lbl.clear_image()
         self._img_lbl.setText("Loading…")
         if self._extra_fetch_cb:
             def _on_px(pm, _u=url):
@@ -2282,6 +2499,12 @@ class GalleryItemViewer(QWidget):
             i = self._screenshots.index(url)
         except ValueError:
             return
+        # Whether the picture currently on screen is the one being removed. The
+        # validation prefetch prunes *every* broken screenshot URL, most of
+        # which the user is not looking at; re-rendering the displayed image for
+        # each of those made the current picture flicker (blank → repaint) every
+        # time a 404 trickled in — very visible when parked on a single frame.
+        was_current = (i == self._shot_index)
         del self._screenshots[i]
         self._shot_cache.pop(url, None)
         if not self._screenshots:
@@ -2300,7 +2523,10 @@ class GalleryItemViewer(QWidget):
         self._update_nav()
         if len(self._screenshots) <= 1:
             self._timer.stop()
-        self._show_index(new_idx)
+        # Only repaint when the displayed image actually changed: either it was
+        # the dropped URL, or the index now resolves to a different screenshot.
+        if was_current:
+            self._show_index(new_idx)
 
     def set_gif_fetch_cb(self, cb):
         """Register a callback ``cb(url, on_bytes)`` that fetches raw image bytes
@@ -2357,6 +2583,9 @@ class GalleryItemViewer(QWidget):
 
     def _play_movie(self, movie):
         self._stop_movie()
+        # Drop any stored still so the self-scaling label can't repaint it over
+        # the movie on a later resize.
+        self._img_lbl.clear_image()
         self._movie = movie
         try:
             movie.jumpToFrame(0)
@@ -2376,23 +2605,27 @@ class GalleryItemViewer(QWidget):
         if pm is None or pm.isNull():
             return
         self._stop_movie()
-        sz = self._img_lbl.size()
-        self._img_lbl.setPixmap(
-            pm.scaled(sz, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        )
-        self._img_lbl.setText("")
+        # Hand the original to the self-scaling label; it fits it to its current
+        # size now and re-fits on every later resize, so the picture is never
+        # left at a stale size regardless of when it arrives relative to layout.
+        # Note: we deliberately do NOT setText("") here. set_image() debounces
+        # the actual paint by ~70ms, and blanking the label in the meantime made
+        # it flash empty on every (re)display; the scaled pixmap replaces any
+        # "Loading…" text on its own once it paints.
+        self._img_lbl.set_image(pm)
         self._position_tag_overlay()
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        # Static pictures re-fit themselves via the self-scaling label; a
+        # playing movie needs its scaled size refreshed once we have a geometry.
+        if self._movie is not None:
+            self._scale_movie_to_label()
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
         if self._movie is not None:
             self._scale_movie_to_label()
-        elif self._screenshots and self._shot_index < len(self._screenshots):
-            cached = self._shot_cache.get(self._screenshots[self._shot_index])
-            if cached:
-                self._display_pixmap(cached)
-        elif not self._screenshots and self._placeholder_label:
-            self._render_placeholder()
 
     def hideEvent(self, ev):
         self._timer.stop()

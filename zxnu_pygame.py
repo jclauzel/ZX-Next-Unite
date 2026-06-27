@@ -37,6 +37,8 @@ from PySide6.QtCore import Qt, QPoint, QTimer
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QWidget
 
+from zxnu_media import zxfmt_url_is_displayable_image
+
 
 # ── lazy pygame handle ──────────────────────────────────────────────────────
 _pg = None  # set by _ensure_pg()
@@ -3944,6 +3946,35 @@ class GalleryScene(_Scene):
         self._requested = set()
         self._scroll = 0
         self._hover = -1
+        # Thumbnails are scaled to the cell size every frame, so painting them
+        # while the host widget is still growing to its final size (e.g. right
+        # after toggling into pygame mode, before setCurrentWidget) makes a
+        # fast-arriving picture visibly "grow". Hold image drawing until the
+        # layout size has been stable briefly; show the "…" placeholder until
+        # then. (Network covers arrive after this anyway; cached SCR screens are
+        # the ones delivered fast enough to catch the resize.)
+        self._last_layout_size = None
+        self._settled = True
+        self._settle_timer = QTimer()
+        self._settle_timer.setSingleShot(True)
+        self._settle_timer.setInterval(150)
+        self._settle_timer.timeout.connect(self._on_settled)
+
+    def layout(self, size, dpr):
+        super().layout(size, dpr)
+        if size != self._last_layout_size:
+            self._last_layout_size = size
+            # Size changed (initial layout or resize): defer image drawing until
+            # it stays put for the settle interval.
+            self._settled = False
+            try:
+                self._settle_timer.start()
+            except Exception:
+                self._settled = True
+
+    def _on_settled(self):
+        self._settled = True
+        self.redraw()
 
     def set_entries(self, entries):
         self._entries = list(entries or [])
@@ -4033,7 +4064,10 @@ class GalleryScene(_Scene):
             img_rect = _pg.Rect(cell.x, cell.y, cw, img_h)
             surface.fill(C_IMG_BG, img_rect)
             surf = self._surfs.get(i)
-            if surf is not None:
+            # Only draw the picture once the layout size has settled; otherwise
+            # a fast-arriving thumbnail would be scaled to an intermediate cell
+            # size and then "grow" as the widget reaches its final size.
+            if surf is not None and self._settled:
                 scaled = _scale_keep_aspect(surf, cw, img_h)
                 sw, sh = scaled.get_size()
                 surface.blit(scaled, (cell.x + (cw - sw) // 2, cell.y + (img_h - sh) // 2))
@@ -4105,13 +4139,20 @@ class PygameItemViewer(_Scene):
                      "uninstall", "open_folder")
 
     def __init__(self, host, title="", info_rows=None, screenshots=None,
-                 extra_fetch_cb=None, tags=None):
+                 extra_fetch_cb=None, tags=None, anim_mode_getter=None):
         super().__init__()
         self.attach(host)
         self._title = title or ""
         self._rows = list(info_rows or [])
-        self._screens = [u for u in (screenshots or []) if u]
+        # Keep only renderable images — drop non-picture downloads (archives,
+        # tape/disk images, text files) the online APIs sometimes mix in.
+        self._screens = [u for u in (screenshots or [])
+                         if u and zxfmt_url_is_displayable_image(u)]
         self._extra_fetch = extra_fetch_cb
+        # Optional callable -> "hover"|"timer"|"none". "none" disables the
+        # auto-advancing slideshow (the user still pages with ◀/▶); mirrors the
+        # Qt GalleryItemViewer. Defaults to legacy always-cycling when absent.
+        self._anim_mode_getter = anim_mode_getter
         self._tags = [str(t) for t in (tags or []) if t]
         self._shot_idx = 0
         self._shot_cache = {}          # url -> Surface
@@ -4153,13 +4194,24 @@ class PygameItemViewer(_Scene):
             self._prefetch_all()
 
     # -- public API (matches GalleryItemViewer) ---------------------------
+    def _anim_should_cycle(self) -> bool:
+        """Whether the slideshow may auto-advance. Honours the global "Gallery
+        animation" setting: anything other than "none" cycles; "none" disables
+        auto-advance entirely."""
+        if self._anim_mode_getter is None:
+            return True
+        try:
+            return self._anim_mode_getter() != "none"
+        except Exception:
+            return True
+
     def install_into_stack(self, _stack, close_fn=None):
         self._close_fn = close_fn
         if self.host is not None:
             self.host.set_scene(self)
 
     def on_attach(self):
-        if len(self._screens) > 1:
+        if len(self._screens) > 1 and self._anim_should_cycle():
             self._timer.start()
 
     def on_detach(self):
@@ -4248,12 +4300,14 @@ class PygameItemViewer(_Scene):
 
     def set_screenshots(self, urls):
         self._timer.stop()
-        self._screens = [u for u in (urls or []) if u]
+        self._screens = [u for u in (urls or [])
+                         if u and zxfmt_url_is_displayable_image(u)]
         self._shot_idx = 0
         self._shot_cache = {}
         if self._screens:
             self._prefetch_all()
-            if len(self._screens) > 1 and self.host is not None and self.host.scene() is self:
+            if (len(self._screens) > 1 and self.host is not None
+                    and self.host.scene() is self and self._anim_should_cycle()):
                 self._timer.start()
         self.redraw()
 
@@ -4361,6 +4415,7 @@ class PygameItemViewer(_Scene):
             surface.blit(scaled, (area.x + (area.w - sw) // 2,
                                   area.y + (area.h - nav_h - sh) // 2))
             self._render_nav(surface, area)
+            self._render_shot_name(surface, area)
         else:
             label, subtitle = self._placeholder
             f1 = _font(self.s(28), bold=True)
@@ -4396,6 +4451,33 @@ class PygameItemViewer(_Scene):
         _draw_text(surface, "◀", self._prev_rect.x + self.s(9), y + self.s(1), f, C_TITLE)
         _draw_text(surface, "▶", self._next_rect.x + self.s(9), y + self.s(1), f, C_TITLE)
         _draw_text(surface, cnt, cx - cw // 2, y + self.s(3), _font(self.s(11)), C_TEXT_DIM)
+
+    def _shot_filename(self):
+        """File name of the screenshot currently on screen (blank for synthetic
+        placeholders) — shown under the image and handy as a diagnostic."""
+        if not self._screens:
+            return ""
+        url = self._screens[self._shot_idx % len(self._screens)]
+        if not isinstance(url, str) or url.startswith("placeholder://"):
+            return ""
+        s = url.split("?", 1)[0].split("#", 1)[0]
+        try:
+            from urllib.parse import unquote
+            s = unquote(s)
+        except Exception:
+            pass
+        return s.rstrip("/").rsplit("/", 1)[-1]
+
+    def _render_shot_name(self, surface, area):
+        name = self._shot_filename()
+        if not name:
+            return
+        f = _font(self.s(11))
+        has_nav = len(self._screens) > 1
+        y = area.bottom - self.s(44 if has_nav else 20)
+        text = _elide(name, f, area.w - self.s(20))
+        tw = f.size(text)[0]
+        _draw_text(surface, text, area.centerx - tw // 2, y, f, C_TEXT_DIM)
 
     def _render_tags(self, surface, area):
         f = _font(self.s(10), bold=True)
