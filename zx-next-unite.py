@@ -1034,10 +1034,15 @@ def zxdb_parse_game_detail(payload) -> dict:
         if not u:
             return ""
         if u.startswith("/"):
-            # ZXInfo serves screen/asset paths under https://zxinfo.dk/media.
-            # The older spectrumcomputing.co.uk host returns 404 for these
-            # relative paths (e.g. /zxscreens/0037705/0037705-load-1.png).
-            return "https://zxinfo.dk/media" + u
+            # ZXInfo hosts its own *rendered* screen images (/zxscreens/…) under
+            # https://zxinfo.dk/media, but the raw archive paths it references
+            # for screen dumps (.scr) and downloads — /pub/… and /zxdb/… — are
+            # NOT on zxinfo.dk/media (they 404 there); they live on the
+            # spectrumcomputing.co.uk mirror. Route each to the host that serves
+            # it, otherwise e.g. a .scr loading screen never renders.
+            if u.lower().startswith("/zxscreens/"):
+                return "https://zxinfo.dk/media" + u
+            return "https://spectrumcomputing.co.uk" + u
         return u
 
     # Gather candidate "asset" lists from top-level AND from each release.
@@ -1080,19 +1085,54 @@ def zxdb_parse_game_detail(payload) -> dict:
             if url in seen_urls:
                 continue
             # Deduplicate the same screen offered in multiple formats (e.g. a
-            # PNG screenshot plus its raw .scr screen dump). Key on the base
-            # filename without extension; keep the web-renderable raster
-            # version (.png/.gif/.jpg…) over a .scr that the viewer cannot
-            # display.
+            # PNG screenshot, an animated GIF and its raw .scr screen dump). Key
+            # on the base filename without extension and keep the best format.
+            #
+            # Preference (lower = better): static web raster (.png/.jpg/.bmp) is
+            # ideal; then the native .scr screen dump (the viewer decodes it
+            # crisply); then .gif LAST — a ZX loading screen offered as a GIF is
+            # usually animated (the FLASH effect), so its static .scr twin is
+            # preferred over a flickering GIF.
+            def _fmt_priority(e):
+                e = (e or "").lower()
+                if e in (".png", ".jpg", ".jpeg", ".bmp"):
+                    return 0
+                if e == ".scr":
+                    return 1
+                if e == ".gif":
+                    return 2
+                return 3
             base = os.path.basename(ulow)
             stem, ext = os.path.splitext(base)
-            prev_idx = seen_stems.get(stem)
+            # Dedup key = (screen kind, normalised stem). Including the kind
+            # stops two *different* screens that happen to share a base name
+            # (e.g. a "Running" GIF and a "Loading" SCR both named
+            # "BattleShips_2") from being merged. Normalising the stem — dropping
+            # a trailing -load/-run/… qualifier — lets the *same* screen offered
+            # under slightly different names ("BattleShips_2-load.gif" vs
+            # "BattleShips_2.scr") collapse into a single entry, so its best
+            # format wins instead of both appearing.
+            def _screen_kind(tt):
+                tt = (tt or "").lower()
+                if "load" in tt:  return "loading"
+                if "run" in tt:   return "running"
+                if "inlay" in tt or "cover" in tt or "box" in tt: return "inlay"
+                if "map" in tt:   return "map"
+                return "screen"
+            def _norm_stem(s):
+                s = s.lower()
+                for suff in ("-loading", "-running", "-load", "-run", "-screen",
+                             "_loading", "_running", "_load", "_run"):
+                    if s.endswith(suff):
+                        return s[:-len(suff)]
+                return s
+            key = (_screen_kind(t), _norm_stem(stem))
+            prev_idx = seen_stems.get(key)
             if prev_idx is not None:
                 prev_url = detail["screenshots"][prev_idx]["url"]
-                prev_is_web = any(prev_url.lower().endswith(e) for e in web_image_exts)
-                cur_is_web = ext in web_image_exts
-                if cur_is_web and not prev_is_web:
-                    # Replace the non-web entry with this web-renderable one.
+                prev_ext = os.path.splitext(prev_url.lower())[1]
+                if _fmt_priority(ext) < _fmt_priority(prev_ext):
+                    # This format is better than the one we already kept.
                     seen_urls.discard(prev_url)
                     seen_urls.add(url)
                     detail["screenshots"][prev_idx] = {
@@ -1101,17 +1141,19 @@ def zxdb_parse_game_detail(payload) -> dict:
                     }
                 continue
             seen_urls.add(url)
-            seen_stems[stem] = len(detail["screenshots"])
+            seen_stems[key] = len(detail["screenshots"])
             detail["screenshots"].append({
                 "url":  url,
                 "type": str(a.get("type") or ""),
             })
 
-    # Prefer a "running" or "loading" screen as the very first frame.
+    # Prefer the "loading" splash screen as the very first frame (it is the
+    # iconic title artwork), then the in-game "running" screen, then any other
+    # screen. This first frame is also used as the gallery thumbnail below.
     def _shot_priority(s):
         t = (s.get("type") or "").lower()
-        if "running" in t:   return 0
-        if "loading" in t:   return 1
+        if "loading" in t:   return 0
+        if "running" in t:   return 1
         if "screen"  in t:   return 2
         return 3
     detail["screenshots"].sort(key=_shot_priority)
@@ -1926,9 +1968,24 @@ def _qimage_from_data(data) -> QImage:
     return img
 
 
-def getit_run_in_thread(fn, on_result, on_error):
+# Bounds how many *gated* (gallery thumbnail/asset) fetches do their HTTP +
+# image-decode work at once. A full gallery page can kick off dozens of cells;
+# without this cap they would all run simultaneously, starving the UI thread
+# (Python GIL) and flooding the remote servers — the Unite! Latest/Random hang.
+# Threads are still daemon (so app exit never blocks on an in-flight fetch); the
+# semaphore just throttles concurrent work to GALLERY_THUMB_FETCH_WORKERS.
+_THUMB_FETCH_SEM = threading.Semaphore(max(1, int(GALLERY_THUMB_FETCH_WORKERS)))
+
+
+def getit_run_in_thread(fn, on_result, on_error, gated=False):
     """Run *fn* in a daemon thread. Results are marshalled to the main thread
     via Qt queued signal connections, which are thread-safe.
+
+    When *gated* is True the thread waits on a shared bounded semaphore before
+    doing its work, so a page full of gallery cells can't run dozens of
+    concurrent fetch/decode operations at once (which hangs the UI). Leave it
+    False for user-driven one-off work (searches, library builds, installs)
+    that should start immediately.
 
     The WorkerSignals object is parented to the QApplication and kept alive in
     a module-level registry until *after* the main-thread slot has executed,
@@ -1990,7 +2047,19 @@ def getit_run_in_thread(fn, on_result, on_error):
             except RuntimeError:
                 pass
 
-    t = threading.Thread(target=_run, daemon=True)
+    target = _run
+    if gated:
+        # Throttle concurrent gallery fetch/decode work to the semaphore's
+        # permit count; the thread blocks here (cheaply) until a slot frees.
+        def _run_gated():
+            _THUMB_FETCH_SEM.acquire()
+            try:
+                _run()
+            finally:
+                _THUMB_FETCH_SEM.release()
+        target = _run_gated
+
+    t = threading.Thread(target=target, daemon=True)
     t.start()
     return t
 
@@ -2003,7 +2072,7 @@ def _gif_fetch_bytes(url, on_bytes):
     def _fn(_u=url):
         return _http_fetch_bytes_with_retry(_u, timeout=20)
     getit_run_in_thread(_fn, lambda data: on_bytes(data),
-                        lambda _e: on_bytes(None))
+                        lambda _e: on_bytes(None), gated=True)
 
 
 
@@ -2814,10 +2883,10 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
-                # Gallery animation mode: "hover" (default) or "timer"
+                # Gallery animation mode: "hover" (default), "timer" or "none"
                 if SETTING_GALLERY_ANIM_MODE in configuration_dictionary and configuration_dictionary[SETTING_GALLERY_ANIM_MODE] != "":
                     val = configuration_dictionary[SETTING_GALLERY_ANIM_MODE].strip().lower()
-                    if val in ("hover", "timer"):
+                    if val in ("hover", "timer", "none"):
                         self._gallery_anim_mode = val
                         cb = getattr(self, "settings_gallery_anim_combo", None)
                         if cb is not None:
@@ -9091,7 +9160,7 @@ class MainWindow(QMainWindow):
                 _set(px, u)
             def _on_err(_err):
                 _make_placeholder()
-            getit_run_in_thread(_fn, _on_done, _on_err)
+            getit_run_in_thread(_fn, _on_done, _on_err, gated=True)
 
             # Lazily enrich the hover-info line with the entry date, which is
             # not part of the list endpoint. Author and category already come
@@ -9108,7 +9177,7 @@ class MainWindow(QMainWindow):
                     if _e.get("category"):parts.append(_e["category"])
                     _set(" · ".join(parts))
                 def _det_err(_e): pass
-                getit_run_in_thread(_det_fn, _det_ok, _det_err)
+                getit_run_in_thread(_det_fn, _det_ok, _det_err, gated=True)
 
         def _getit_extra_fetch(url, on_pixmap):
             # GetIt only exposes a single screenshot per entry; nothing to do.
@@ -9859,7 +9928,8 @@ class MainWindow(QMainWindow):
                 _ph_cat = (entry.get("category") or "").upper()
                 if _ph_cat:
                     _ph_label = _ph_cat[:6]
-            _mk = make_viewer or (lambda **kw: GalleryItemViewer(parent=self, **kw))
+            _mk = make_viewer or (lambda **kw: GalleryItemViewer(
+                parent=self, anim_mode_getter=lambda: self._gallery_anim_mode, **kw))
             viewer = _mk(
                 title=title,
                 info_rows=info_rows,
@@ -10528,7 +10598,7 @@ class MainWindow(QMainWindow):
         self.zxdb_results_table.setColumnWidth(3, 180)
         self.zxdb_results_table.setColumnWidth(4, 120)
 
-        self.zxdb_screenshot_label = QLabel()
+        self.zxdb_screenshot_label = _ScalingImageLabel()
         self.zxdb_screenshot_label.setFixedSize(256, 192)
         self.zxdb_screenshot_label.setAlignment(Qt.AlignCenter)
         self.zxdb_screenshot_label.setStyleSheet("background: #111; border: 1px solid #444;")
@@ -10658,7 +10728,7 @@ class MainWindow(QMainWindow):
                         px = QPixmap.fromImage(img) if (img is not None and not img.isNull()) else QPixmap()
                         if not px.isNull():
                             set_pixmap(px, u)
-                    getit_run_in_thread(_img_fn, _img_ok, lambda _e: None)
+                    getit_run_in_thread(_img_fn, _img_ok, lambda _e: None, gated=True)
                     return
                 # No real image: render a typed placeholder showing the
                 # primary download format (e.g. TAP, POK, PDF) so the cell
@@ -10671,7 +10741,7 @@ class MainWindow(QMainWindow):
                 pm = zxfmt_make_placeholder_pixmap(label, sub)
                 if not pm.isNull():
                     set_pixmap(pm, placeholder_url)
-            getit_run_in_thread(_fn, _on_ok, lambda _e: None)
+            getit_run_in_thread(_fn, _on_ok, lambda _e: None, gated=True)
 
         def _zxdb_extra_fetch(url, on_pixmap):
             if isinstance(url, str) and url.startswith("placeholder://"):
@@ -10934,7 +11004,7 @@ class MainWindow(QMainWindow):
         def zxdb_clear_detail():
             _zxdb_clear_detail_rows()
             self.zxdb_screenshot_label.setText("No preview")
-            self.zxdb_screenshot_label.setPixmap(QPixmap())
+            self.zxdb_screenshot_label.clear_image()
             self.zxdb_download_button.setEnabled(False)
             self._zxdb_selected_id = ""
             self._zxdb_selected_title = ""
@@ -11084,22 +11154,16 @@ class MainWindow(QMainWindow):
         def zxdb_set_pixmap(pm: QPixmap):
             if pm is None or pm.isNull():
                 self.zxdb_screenshot_label.setText("No preview")
-                self.zxdb_screenshot_label.setPixmap(QPixmap())
+                self.zxdb_screenshot_label.clear_image()
                 return
-            self.zxdb_screenshot_label.setPixmap(
-                pm.scaled(
-                    self.zxdb_screenshot_label.size(),
-                    Qt.KeepAspectRatio,
-                    Qt.SmoothTransformation,
-                )
-            )
+            # The label keeps the original and re-fits it to its own size on
+            # every resize, so the picture never stays stuck at the size it had
+            # when first shown (the "first .scr doesn't get rescaled" symptom).
+            self.zxdb_screenshot_label.set_image(pm)
             # If the fullscreen view is showing this pane's preview, refresh it too.
             if self._zxdb_stack.currentIndex() == 1:
                 self._zxdb_fullscreen_pixmap = pm
-                fs = self.zxdb_fullscreen_label.size()
-                self.zxdb_fullscreen_label.setPixmap(
-                    pm.scaled(fs, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                )
+                self.zxdb_fullscreen_label.set_image(pm)
 
         def zxdb_update_nav_buttons():
             multi = len(self._zxdb_screenshots) > 1
@@ -11169,7 +11233,7 @@ class MainWindow(QMainWindow):
             self._zxdb_shot_index  = 0
             if not self._zxdb_screenshots:
                 self.zxdb_screenshot_label.setText("No preview")
-                self.zxdb_screenshot_label.setPixmap(QPixmap())
+                self.zxdb_screenshot_label.clear_image()
                 zxdb_update_nav_buttons()
                 return
             zxdb_show_shot_at(0)
@@ -11922,7 +11986,7 @@ class MainWindow(QMainWindow):
             self._zxdb_screenshots = []
             self._zxdb_shot_cache  = {}
             self._zxdb_shot_index  = 0
-            self.zxdb_screenshot_label.setPixmap(QPixmap())
+            self.zxdb_screenshot_label.clear_image()
 
         def _zxdb_load_game(eid: str, title_hint: str):
             self._zxdb_selected_id    = eid
@@ -12227,7 +12291,8 @@ class MainWindow(QMainWindow):
                 ("Machine:", entry.get("machine", "")),
                 ("Genre:",   entry.get("genre", "")),
             ]
-            _mk = make_viewer or (lambda **kw: GalleryItemViewer(parent=self, **kw))
+            _mk = make_viewer or (lambda **kw: GalleryItemViewer(
+                parent=self, anim_mode_getter=lambda: self._gallery_anim_mode, **kw))
             viewer = _mk(
                 title=title,
                 info_rows=info_rows_base,
@@ -13261,7 +13326,7 @@ class MainWindow(QMainWindow):
         zxdb_close_bar_widget.setLayout(zxdb_close_bar)
         zxdb_overlay_layout.addWidget(zxdb_close_bar_widget, 0)
 
-        self.zxdb_fullscreen_label = QLabel()
+        self.zxdb_fullscreen_label = _ScalingImageLabel()
         self.zxdb_fullscreen_label.setAlignment(Qt.AlignCenter)
         self.zxdb_fullscreen_label.setStyleSheet("background: #000;")
         self.zxdb_fullscreen_label.setCursor(Qt.PointingHandCursor)
@@ -13322,10 +13387,7 @@ class MainWindow(QMainWindow):
         def _zxdb_resize_fullscreen():
             px = self._zxdb_fullscreen_pixmap
             if px and not px.isNull():
-                sz = self.zxdb_fullscreen_label.size()
-                self.zxdb_fullscreen_label.setPixmap(
-                    px.scaled(sz, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                )
+                self.zxdb_fullscreen_label.set_image(px)
             self._zxdb_reposition_fs_btns()
 
         zxdb_close_btn.clicked.connect(_zxdb_hide_fullscreen)
@@ -13487,7 +13549,7 @@ class MainWindow(QMainWindow):
         self.zxart_results_table.setColumnWidth(3, 180)
         self.zxart_results_table.setColumnWidth(4, 120)
 
-        self.zxart_screenshot_label = QLabel()
+        self.zxart_screenshot_label = _ScalingImageLabel()
         self.zxart_screenshot_label.setFixedSize(256, 192)
         self.zxart_screenshot_label.setAlignment(Qt.AlignCenter)
         self.zxart_screenshot_label.setStyleSheet("background: #111; border: 1px solid #444;")
@@ -13693,7 +13755,7 @@ class MainWindow(QMainWindow):
                                 _st(_gallery_extract_tags(_e))
                             except Exception:
                                 pass
-                        getit_run_in_thread(_rel_fn, _rel_ok, lambda _e: None)
+                        getit_run_in_thread(_rel_fn, _rel_ok, lambda _e: None, gated=True)
 
             if not urls:
                 # No real picture for this entry: render a typed placeholder
@@ -13743,7 +13805,7 @@ class MainWindow(QMainWindow):
                 px = QPixmap.fromImage(img) if (img is not None and not img.isNull()) else QPixmap()
                 if not px.isNull():
                     set_pixmap(px, u)
-            getit_run_in_thread(_img_fn, _img_ok, lambda _e: None)
+            getit_run_in_thread(_img_fn, _img_ok, lambda _e: None, gated=True)
 
         def _zxart_extra_fetch(url, on_pixmap):
             if isinstance(url, str) and url.startswith("placeholder://"):
@@ -14011,7 +14073,7 @@ class MainWindow(QMainWindow):
         def zxart_clear_detail():
             _zxart_clear_detail_rows()
             self.zxart_screenshot_label.setText("No preview")
-            self.zxart_screenshot_label.setPixmap(QPixmap())
+            self.zxart_screenshot_label.clear_image()
             self.zxart_download_button.setEnabled(False)
             self._zxart_selected_id = ""
             self._zxart_selected_title = ""
@@ -14282,21 +14344,15 @@ class MainWindow(QMainWindow):
         def zxart_set_pixmap(pm: QPixmap):
             if pm is None or pm.isNull():
                 self.zxart_screenshot_label.setText("No preview")
-                self.zxart_screenshot_label.setPixmap(QPixmap())
+                self.zxart_screenshot_label.clear_image()
                 return
-            self.zxart_screenshot_label.setPixmap(
-                pm.scaled(
-                    self.zxart_screenshot_label.size(),
-                    Qt.KeepAspectRatio,
-                    Qt.SmoothTransformation,
-                )
-            )
+            # The label keeps the original and re-fits it to its own size on
+            # every resize, so the picture never stays stuck at the size it had
+            # when first shown (the "first .scr doesn't get rescaled" symptom).
+            self.zxart_screenshot_label.set_image(pm)
             if self._zxart_stack.currentIndex() == 1:
                 self._zxart_fullscreen_pixmap = pm
-                fs = self.zxart_fullscreen_label.size()
-                self.zxart_fullscreen_label.setPixmap(
-                    pm.scaled(fs, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                )
+                self.zxart_fullscreen_label.set_image(pm)
 
         def zxart_update_nav_buttons():
             multi = len(self._zxart_screenshots) > 1
@@ -14366,7 +14422,7 @@ class MainWindow(QMainWindow):
             self._zxart_shot_index  = 0
             if not self._zxart_screenshots:
                 self.zxart_screenshot_label.setText("No preview")
-                self.zxart_screenshot_label.setPixmap(QPixmap())
+                self.zxart_screenshot_label.clear_image()
                 zxart_update_nav_buttons()
                 return
             zxart_show_shot_at(0)
@@ -14996,7 +15052,7 @@ class MainWindow(QMainWindow):
             self._zxart_screenshots = []
             self._zxart_shot_cache  = {}
             self._zxart_shot_index  = 0
-            self.zxart_screenshot_label.setPixmap(QPixmap())
+            self.zxart_screenshot_label.clear_image()
 
         def _zxart_load_prod(pid: str, title_hint: str):
             """Load full production detail including releases."""
@@ -15311,7 +15367,8 @@ class MainWindow(QMainWindow):
                 ("Year:",   str(entry.get("year", "") or "")),
                 ("Type:",   entry.get("prodType", "") or entry.get("pic_type", "")),
             ]
-            _mk = make_viewer or (lambda **kw: GalleryItemViewer(parent=self, **kw))
+            _mk = make_viewer or (lambda **kw: GalleryItemViewer(
+                parent=self, anim_mode_getter=lambda: self._gallery_anim_mode, **kw))
             viewer = _mk(
                 title=title,
                 info_rows=info_rows_base,
@@ -16195,7 +16252,7 @@ class MainWindow(QMainWindow):
         zxart_close_bar_widget.setLayout(zxart_close_bar)
         zxart_overlay_layout.addWidget(zxart_close_bar_widget, 0)
 
-        self.zxart_fullscreen_label = QLabel()
+        self.zxart_fullscreen_label = _ScalingImageLabel()
         self.zxart_fullscreen_label.setAlignment(Qt.AlignCenter)
         self.zxart_fullscreen_label.setStyleSheet("background: #000;")
         self.zxart_fullscreen_label.setCursor(Qt.PointingHandCursor)
@@ -16256,10 +16313,7 @@ class MainWindow(QMainWindow):
         def _zxart_resize_fullscreen():
             px = self._zxart_fullscreen_pixmap
             if px and not px.isNull():
-                sz = self.zxart_fullscreen_label.size()
-                self.zxart_fullscreen_label.setPixmap(
-                    px.scaled(sz, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                )
+                self.zxart_fullscreen_label.set_image(px)
             self._zxart_reposition_fs_btns()
 
         zxart_close_btn.clicked.connect(_zxart_hide_fullscreen)
@@ -17057,7 +17111,7 @@ class MainWindow(QMainWindow):
                         _set(px, u)
                 def _err(_e):
                     _placeholder()
-                getit_run_in_thread(_fn, _ok, _err)
+                getit_run_in_thread(_fn, _ok, _err, gated=True)
 
             def _itchio_title_getter(e):
                 return str(e.get("title") or e.get("id") or "")
@@ -17238,7 +17292,8 @@ class MainWindow(QMainWindow):
                 # opening an item never blocks the UI thread.
                 info_rows = base_rows + [("Status:", _status_text(None))]
 
-                _mk = make_viewer or (lambda **kw: GalleryItemViewer(parent=self, **kw))
+                _mk = make_viewer or (lambda **kw: GalleryItemViewer(
+                parent=self, anim_mode_getter=lambda: self._gallery_anim_mode, **kw))
                 viewer = _mk(
                     title=title,
                     info_rows=info_rows,
@@ -18050,7 +18105,16 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        def _allinone_repopulate():
+        # Latest / Random / multi-search fan out to several sources, each of
+        # which calls _allinone_repopulate as its results land. Rebuilding the
+        # aggregated gallery on every source completion re-spawned the whole
+        # page's thumbnail threads several times over (and re-ran the image-first
+        # re-sort), which hung the UI thread. While a bulk op is in progress we
+        # coalesce those requests into a single rebuild at the end.
+        self._allinone_bulk_active = False
+        self._allinone_repopulate_pending = False
+
+        def _allinone_repopulate_now():
             try:
                 entries = _allinone_collect()
                 # Cache the full merged list so prev/next can re-slice without
@@ -18090,7 +18154,30 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+        def _allinone_repopulate():
+            # Defer while a bulk fan-out is active; _allinone_end_bulk() flushes
+            # one rebuild once every source has reported back.
+            if getattr(self, "_allinone_bulk_active", False):
+                self._allinone_repopulate_pending = True
+                return
+            _allinone_repopulate_now()
+
+        def _allinone_begin_bulk():
+            # Reset state at the start of each bulk op so a prior fan-out whose
+            # completion was dropped can't leave the gallery stuck deferring.
+            self._allinone_bulk_active = True
+            self._allinone_repopulate_pending = False
+
+        def _allinone_end_bulk(flush=False):
+            was_active = getattr(self, "_allinone_bulk_active", False)
+            self._allinone_bulk_active = False
+            if (was_active and self._allinone_repopulate_pending) or flush:
+                self._allinone_repopulate_pending = False
+                _allinone_repopulate_now()
+
         self._allinone_repopulate = _allinone_repopulate
+        self._allinone_begin_bulk = _allinone_begin_bulk
+        self._allinone_end_bulk = _allinone_end_bulk
 
         # --- Paging handlers (client-side over the merged result list) ---
         def allinone_on_prev():
@@ -18182,12 +18269,15 @@ class MainWindow(QMainWindow):
 
             pending = {"count": len(sources)}
 
+            # Coalesce the per-source AllInOne rebuilds into one at the end.
+            _allinone_begin_bulk()
+
             def _allinone_source_done():
                 pending["count"] -= 1
                 if pending["count"] <= 0:
                     _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE)
                     try:
-                        _allinone_repopulate()
+                        _allinone_end_bulk(flush=True)
                     except Exception:
                         pass
 
@@ -18253,6 +18343,10 @@ class MainWindow(QMainWindow):
 
             state = {"pending": len(actions), "done": False}
 
+            # Coalesce the per-source AllInOne rebuilds into a single rebuild
+            # when the fan-out completes (the watchdog guarantees _finish runs).
+            _allinone_begin_bulk()
+
             watchdog = QTimer(self)
             watchdog.setSingleShot(True)
             watchdog.setInterval(30000)
@@ -18267,7 +18361,7 @@ class MainWindow(QMainWindow):
                     pass
                 _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE)
                 try:
-                    _allinone_repopulate()
+                    _allinone_end_bulk(flush=True)
                 except Exception:
                     pass
 
@@ -18861,7 +18955,8 @@ class MainWindow(QMainWindow):
                 from zxnu_pygame import PygameItemViewer
                 viewer = opener(
                     entry,
-                    make_viewer=lambda **kw: PygameItemViewer(host, **kw),
+                    make_viewer=lambda **kw: PygameItemViewer(
+                        host, anim_mode_getter=lambda: self._gallery_anim_mode, **kw),
                     install=False,
                 )
             except Exception:
@@ -19091,13 +19186,15 @@ class MainWindow(QMainWindow):
             "Controls when multi-screenshot tiles cycle through their images\n"
             "in the GetIt / ZXDB / zxArt 'Gallery' (picture) view.\n"
             "  • On hover (default): cycles only while the mouse is over the tile.\n"
-            "  • Timed: cycles continuously while the gallery is visible."
+            "  • Timed: cycles continuously while the gallery is visible.\n"
+            "  • None: never cycles between images (animated GIFs still play)."
         )
         grid_tab_Settings.addWidget(gallery_anim_lbl, 6, 0)
 
         self.settings_gallery_anim_combo = QComboBox()
         self.settings_gallery_anim_combo.addItem("On hover (default)", "hover")
         self.settings_gallery_anim_combo.addItem("Timed",              "timer")
+        self.settings_gallery_anim_combo.addItem("None",               "none")
         self.settings_gallery_anim_combo.setToolTip(gallery_anim_lbl.toolTip())
         self.settings_gallery_anim_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_anim_changed()

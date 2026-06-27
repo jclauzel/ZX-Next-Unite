@@ -72,6 +72,15 @@ ITCH_MAX_PAGES = 1000
 # key is configured). Paging is applied client-side on the merged result list.
 ALLINONE_PAGE_SIZE = GETIT_PAGE_SIZE + ZXDB_PAGE_SIZE + ZXART_PAGE_SIZE
 
+# Caps how many gallery thumbnail/asset fetches do their HTTP + image-decode
+# work at once (enforced by a semaphore). A full Unite! page can have ~58 cells,
+# each kicking off an image (and sometimes a metadata) fetch; letting them all
+# run simultaneously starves the UI thread (Python GIL) and floods the remote
+# servers, hanging the UI on Latest/Random. High enough to download several in
+# parallel, low enough to keep the UI responsive. Tune up for faster bulk loads,
+# down for a smoother UI.
+GALLERY_THUMB_FETCH_WORKERS = 16
+
 
 HDF_MONKEY_WINDOWS_URL = "https://uto.speccy.org/downloads/hdfmonkey_windows.zip"
 
@@ -114,7 +123,7 @@ SETTING_BG_OPACITY        = "bg_opacity"
 SETTING_BG_IMAGE          = "bg_image"          # "" = Random, else filename (basename only)
 SETTING_CONTENT_DISCLAIMER_AGREED = "content_disclaimer_agreed"
 SETTING_NEXTSYNC_SEND_CONFLICT = "nextsync_send_conflict"   # "prompt" (default) | "overwrite" | "ignore"
-SETTING_GALLERY_ANIM_MODE      = "gallery_anim_mode"        # "hover" (default) or "timer"
+SETTING_GALLERY_ANIM_MODE      = "gallery_anim_mode"        # "hover" (default), "timer" or "none"
 SETTING_GALLERY_ROWS_PER_PAGE  = "gallery_rows_per_page"    # int 1..10, default 2
 SETTING_GALLERY_COLS           = "gallery_cols"             # int: 2 | 4 (default) | 8
 SETTING_GALLERY_IMG_SIZE       = "gallery_img_size"         # "small" | "medium" (default) | "large"

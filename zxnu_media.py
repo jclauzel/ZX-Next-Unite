@@ -535,6 +535,39 @@ def zxscr_url_is_scr(url) -> bool:
     return n.endswith(".scr")
 
 
+# Extensions the in-pane image viewer cannot render. Screenshot lists coming
+# from the online APIs (ZXDB "additionalDownloads" especially) sometimes mix
+# non-picture downloads — archives, tape/disk images, text files — in with the
+# real screens, because they are tagged with an image-ish "type". These are
+# filtered out so the viewer never tries to decode a .zip / .txt as a picture.
+ZXFMT_NON_IMAGE_EXTS = (
+    ".zip", ".rar", ".7z", ".gz", ".tar", ".lzh", ".arc",
+    ".txt", ".nfo", ".diz", ".doc", ".pdf", ".md", ".htm", ".html",
+    ".tap", ".tzx", ".pzx", ".cdt", ".csw",
+    ".z80", ".sna", ".szx", ".sp", ".slt", ".dck",
+    ".trd", ".scl", ".dsk", ".fdi", ".td0", ".mgt", ".img", ".hdf", ".mbr",
+    ".rom", ".bin", ".dat", ".pok", ".mp3", ".wav", ".ogg", ".ay", ".vtx",
+)
+
+
+def zxfmt_url_is_displayable_image(url) -> bool:
+    """Whether *url* can plausibly be shown by the image viewer.
+
+    Returns False for URLs that clearly point at a non-picture file (archive,
+    tape/disk image, text, audio, …) by extension. Synthetic ``placeholder://``
+    URLs and extensionless URLs are kept (the latter may still be images served
+    by an API endpoint); only known non-image extensions are rejected."""
+    if not isinstance(url, str) or not url:
+        return False
+    if url.startswith("placeholder://"):
+        return True
+    n = url.lower()
+    for sep in ("?", "#"):
+        if sep in n:
+            n = n.split(sep, 1)[0]
+    return not n.endswith(ZXFMT_NON_IMAGE_EXTS)
+
+
 # In-memory cache: url/base_name -> QPixmap (avoids repeated decoding)
 # Guarded by a lock because it is populated from background worker threads
 # (SCR byte conversion) and read from the GUI thread (extra-fetch callbacks).
