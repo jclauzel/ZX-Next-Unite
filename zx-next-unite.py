@@ -2109,6 +2109,59 @@ IMG_LOADING_ROLE = int(Qt.ItemDataRole.UserRole) + 4  # bool: a background "ls" 
 IMAGE_DRAG_MIME = "application/x-zxnu-image-paths"
 
 
+class _CompleterPopupHider(QtCore.QObject):
+    """Hide a manually-shown autocomplete popup when its line edit loses focus.
+
+    The search panes show their ``QCompleter`` popup themselves (``popup().show()``)
+    as a non-grabbing ``Qt.Tool`` window so the user can keep typing while the
+    suggestion list stays up.  Because the popup is shown manually — not via
+    ``QCompleter.complete()`` — QCompleter does not manage its lifetime, and a
+    ``Qt.Tool`` (unlike a ``Qt.Popup``) window does NOT auto-close when the user
+    clicks outside it.  Without this filter the suggestion list lingers on top
+    of the UI after the user clicks away (e.g. onto the Pygame/Classic toggle,
+    a gallery tile or another tab), which makes the rest of the pane — most
+    visibly the search box — feel unclickable.  Hiding it on the line edit's
+    FocusOut dismisses it for every "clicked elsewhere" path in one place.
+    """
+
+    def __init__(self, line_edit, completer, parent=None):
+        super().__init__(parent)
+        self._line_edit = line_edit
+        self._completer = completer
+        line_edit.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if obj is self._line_edit and event.type() == QtCore.QEvent.FocusOut:
+            # Typing-fix guard: keep the suggestion list up when focus is
+            # leaving the search box *because the user is interacting with the
+            # popup itself* (i.e. clicking a suggestion).  Hiding it here would
+            # swallow that click and break mouse selection.  Qt flags a popup-
+            # driven focus change with PopupFocusReason; as a cross-platform
+            # backstop we also keep it up while the cursor is over the (top-
+            # level) popup window.
+            popup = None
+            try:
+                popup = self._completer.popup()
+            except Exception:
+                popup = None
+            try:
+                reason = event.reason()
+            except Exception:
+                reason = None
+            keep_up = reason == QtCore.Qt.PopupFocusReason
+            if not keep_up and popup is not None and popup.isVisible():
+                try:
+                    keep_up = popup.geometry().contains(QCursor.pos())
+                except Exception:
+                    keep_up = False
+            if not keep_up and popup is not None:
+                try:
+                    popup.hide()
+                except Exception:
+                    pass
+        return False
+
+
 class MainWindow(QMainWindow):
 
     def _show_toast(self, title: str, message: str = "", *, variant: str = "green",
@@ -9279,6 +9332,12 @@ class MainWindow(QMainWindow):
         self.getit_view_stack.addWidget(self.getit_gallery_view)  # index 1: Gallery
 
         getit_table_row.addWidget(self.getit_view_stack, 1)
+        # Animated retro "LOADING CONTENT..." banner shown over the results area
+        # while the first fetch is in flight and nothing has been rendered yet.
+        self._getit_loading_overlay = RetroLoadingOverlay(
+            self.getit_view_stack,
+            lambda: (self.getit_results_table.rowCount() == 0
+                     and getattr(self, "_getit_search_loading", False)))
         getit_table_row.addWidget(getit_right_widget)
         getit_table_container = QWidget()
         getit_table_container.setLayout(getit_table_row)
@@ -9614,11 +9673,21 @@ class MainWindow(QMainWindow):
         popup = _getit_completer.popup()
         if popup is not None:
             popup.setParent(self)
-            popup.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.Window)
+            # Use a non-grabbing tool window (NOT Qt.Popup) so the completer
+            # popup that QLineEdit shows automatically on each keystroke never
+            # performs the implicit Windows mouse/keyboard grab — that grab can
+            # get stuck and leave the search box unclickable.  Mirrors the flags
+            # used by _getit_safe_show_popup.
+            popup.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint
+                                 | Qt.WindowStaysOnTopHint
+                                 | Qt.WindowDoesNotAcceptFocus)
+            popup.setFocusPolicy(Qt.NoFocus)
             popup.setAttribute(Qt.WA_ShowWithoutActivating)
             
         self._getit_completer = _getit_completer
         self.getit_search_input.setCompleter(_getit_completer)
+        self._getit_popup_hider = _CompleterPopupHider(
+            self.getit_search_input, _getit_completer, self)
 
         def _getit_safe_show_popup(q: str):
             """Show the GetIt completer popup without calling QCompleter.complete()."""
@@ -10923,6 +10992,12 @@ class MainWindow(QMainWindow):
         self.zxdb_view_stack.addWidget(self.zxdb_gallery_view)  # index 1
 
         zxdb_table_row.addWidget(self.zxdb_view_stack, 1)
+        # Animated retro "LOADING CONTENT..." banner over the results area while
+        # the first fetch is in flight and nothing has been rendered yet.
+        self._zxdb_loading_overlay = RetroLoadingOverlay(
+            self.zxdb_view_stack,
+            lambda: (self.zxdb_results_table.rowCount() == 0
+                     and getattr(self, "_zxdb_search_loading", False)))
         zxdb_table_row.addWidget(zxdb_right_widget)
         zxdb_table_container = QWidget()
         zxdb_table_container.setLayout(zxdb_table_row)
@@ -11738,10 +11813,18 @@ class MainWindow(QMainWindow):
         popup = _zxdb_completer.popup()
         if popup is not None:
             popup.setParent(self)
-            popup.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+            # Non-grabbing tool window (NOT Qt.Popup) so the auto-shown completer
+            # popup never performs the implicit Windows mouse/keyboard grab that
+            # can get stuck and leave the search box unclickable.
+            popup.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint
+                                 | Qt.WindowStaysOnTopHint
+                                 | Qt.WindowDoesNotAcceptFocus)
+            popup.setFocusPolicy(Qt.NoFocus)
             popup.setAttribute(Qt.WA_ShowWithoutActivating)
         self._zxdb_completer = _zxdb_completer
         self.zxdb_search_input.setCompleter(_zxdb_completer)
+        self._zxdb_popup_hider = _CompleterPopupHider(
+            self.zxdb_search_input, _zxdb_completer, self)
 
         _zxdb_ac_timer = QTimer(self)
         _zxdb_ac_timer.setSingleShot(True)
@@ -13994,6 +14077,12 @@ class MainWindow(QMainWindow):
         self.zxart_view_stack.addWidget(self.zxart_gallery_view)  # index 1
 
         zxart_table_row.addWidget(self.zxart_view_stack, 1)
+        # Animated retro "LOADING CONTENT..." banner over the results area while
+        # the first fetch is in flight and nothing has been rendered yet.
+        self._zxart_loading_overlay = RetroLoadingOverlay(
+            self.zxart_view_stack,
+            lambda: (self.zxart_results_table.rowCount() == 0
+                     and getattr(self, "_zxart_search_loading", False)))
         zxart_table_row.addWidget(zxart_right_widget)
         zxart_table_container = QWidget()
         zxart_table_container.setLayout(zxart_table_row)
@@ -14773,10 +14862,18 @@ class MainWindow(QMainWindow):
         popup = _zxart_completer.popup()
         if popup is not None:
             popup.setParent(self)
-            popup.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+            # Non-grabbing tool window (NOT Qt.Popup) so the auto-shown completer
+            # popup never performs the implicit Windows mouse/keyboard grab that
+            # can get stuck and leave the search box unclickable.
+            popup.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint
+                                 | Qt.WindowStaysOnTopHint
+                                 | Qt.WindowDoesNotAcceptFocus)
+            popup.setFocusPolicy(Qt.NoFocus)
             popup.setAttribute(Qt.WA_ShowWithoutActivating)
         self._zxart_completer = _zxart_completer
         self.zxart_search_input.setCompleter(_zxart_completer)
+        self._zxart_popup_hider = _CompleterPopupHider(
+            self.zxart_search_input, _zxart_completer, self)
 
         _zxart_ac_timer = QTimer(self)
         _zxart_ac_timer.setSingleShot(True)
@@ -16866,6 +16963,14 @@ class MainWindow(QMainWindow):
         # Wrap view_stack + right preview widget in a horizontal row
         allinone_table_row = QHBoxLayout()
         allinone_table_row.addWidget(self.allinone_view_stack, 1)
+        # Animated retro "LOADING CONTENT..." banner over the results area while
+        # the startup "Latest" multi-search is in flight and nothing has been
+        # rendered yet.  Works in both Classic (table/gallery) and Pygame modes:
+        # the overlay floats above whichever page the view-stack is showing.
+        self._allinone_loading_overlay = RetroLoadingOverlay(
+            self.allinone_view_stack,
+            lambda: (self.allinone_results_table.rowCount() == 0
+                     and getattr(self, "_allinone_bulk_active", False)))
         allinone_table_row.addWidget(allinone_right_widget)
         allinone_table_container = QWidget()
         allinone_table_container.setLayout(allinone_table_row)
@@ -17030,11 +17135,20 @@ class MainWindow(QMainWindow):
             _itchio_popup = _itchio_completer.popup()
             if _itchio_popup is not None:
                 _itchio_popup.setParent(self)
+                # Non-grabbing tool window (NOT Qt.Popup) so the auto-shown
+                # completer popup never performs the implicit Windows mouse/
+                # keyboard grab that can get stuck and leave the search box
+                # unclickable.
                 _itchio_popup.setWindowFlags(
-                    Qt.Popup | Qt.FramelessWindowHint | Qt.Window)
+                    Qt.Tool | Qt.FramelessWindowHint
+                    | Qt.WindowStaysOnTopHint
+                    | Qt.WindowDoesNotAcceptFocus)
+                _itchio_popup.setFocusPolicy(Qt.NoFocus)
                 _itchio_popup.setAttribute(Qt.WA_ShowWithoutActivating)
             self._itchio_completer = _itchio_completer
             self.itchio_search_input.setCompleter(_itchio_completer)
+            self._itchio_popup_hider = _CompleterPopupHider(
+                self.itchio_search_input, _itchio_completer, self)
 
             def _itchio_update_completer():
                 lib = self._itchio_library or []
@@ -18481,10 +18595,18 @@ class MainWindow(QMainWindow):
         popup = _allinone_completer.popup()
         if popup is not None:
             popup.setParent(self)
-            popup.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+            # Non-grabbing tool window (NOT Qt.Popup) so the auto-shown completer
+            # popup never performs the implicit Windows mouse/keyboard grab that
+            # can get stuck and leave the search box unclickable.
+            popup.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint
+                                 | Qt.WindowStaysOnTopHint
+                                 | Qt.WindowDoesNotAcceptFocus)
+            popup.setFocusPolicy(Qt.NoFocus)
             popup.setAttribute(Qt.WA_ShowWithoutActivating)
         self._allinone_completer = _allinone_completer
         self.allinone_search_input.setCompleter(_allinone_completer)
+        self._allinone_popup_hider = _CompleterPopupHider(
+            self.allinone_search_input, _allinone_completer, self)
 
         def _allinone_safe_show_popup(q: str):
             try:
@@ -19051,6 +19173,18 @@ class MainWindow(QMainWindow):
                     return
                 self._allinone_pygame_on = True
                 self.allinone_pygame_button.setText("🖼 Classic")
+                # The autocomplete dropdown is a top-level Qt.Tool window.  Shown
+                # over the continuously-repainting pygame surface on Windows it
+                # steals keyboard activation from the search box, so the user can
+                # select the text but can no longer type ("the completer gets
+                # stuck").  Dismiss any open popup and detach the completer while
+                # pygame mode is active so the search box stays a plain, fully
+                # typeable input; it is restored when switching back to Classic.
+                try:
+                    self._allinone_completer.popup().hide()
+                    self.allinone_search_input.setCompleter(None)
+                except Exception:
+                    pass
                 _allinone_pygame_feed()
                 _allinone_pygame_set_scene()
                 self.allinone_view_stack.setCurrentWidget(self._allinone_pygame_widget)
@@ -19065,6 +19199,14 @@ class MainWindow(QMainWindow):
             else:
                 self._allinone_pygame_on = False
                 self.allinone_pygame_button.setText("🎮 Pygame")
+                # Back to Classic: restore the autocomplete completer, honouring
+                # the global "Enable search autocompletion" setting.
+                try:
+                    self.allinone_search_input.setCompleter(
+                        self._allinone_completer
+                        if self._search_autocomplete_on() else None)
+                except Exception:
+                    pass
                 _allinone_apply_view_mode(
                     getattr(self, "_allinone_view_mode", "gallery"), persist=False)
                 _allinone_pygame_persist(False)
@@ -19955,13 +20097,23 @@ class MainWindow(QMainWindow):
             return cb is None or cb.isChecked()
 
         def _apply_autocomplete_setting(enabled: bool):
-            """Attach or detach completers on all three search inputs."""
+            """Attach or detach completers on every search input.
+
+            itch.io is optional (built only when the tab is present), so it is
+            looked up with getattr and skipped when absent — keeping it in line
+            with the other panes' typing guard so the global autocomplete toggle
+            governs its suggestion dropdown too."""
             for input_widget, completer in (
                 (self.getit_search_input, getattr(self, "_getit_completer", None)),
                 (self.zxdb_search_input,  getattr(self, "_zxdb_completer",  None)),
                 (self.zxart_search_input, getattr(self, "_zxart_completer", None)),
+                # Never (re)attach the Unite! completer while pygame mode is on:
+                # its dropdown steals keyboard focus over the animating surface.
                 (getattr(self, "allinone_search_input", None),
-                 getattr(self, "_allinone_completer", None)),
+                 None if getattr(self, "_allinone_pygame_on", False)
+                 else getattr(self, "_allinone_completer", None)),
+                (getattr(self, "itchio_search_input", None),
+                 getattr(self, "_itchio_completer", None)),
             ):
                 if input_widget is None:
                     continue
