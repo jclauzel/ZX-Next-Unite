@@ -4,13 +4,14 @@ view, the in-pane item viewer and the animated background widget.
 Extracted from zx-next-unite.py."""
 
 import html
+import math
 import os
 import sys
 import webbrowser
 
 from zxnu_config import *
 from zxnu_media import *
-from PySide6.QtCore import QBuffer, QByteArray, QDir, QEvent, QIODevice, QSize, QTimer, Qt, Signal
+from PySide6.QtCore import QBuffer, QByteArray, QDir, QEvent, QIODevice, QRect, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFontInfo, QMovie, QPainter, QPixmap
 from PySide6.QtWidgets import QAbstractItemView, QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTableWidget, QToolButton, QVBoxLayout, QWidget
 
@@ -2847,6 +2848,177 @@ class BackgroundWidget(QWidget):
             painter = QPainter(self)
             painter.setOpacity(self._bg_opacity / 100.0)
             painter.drawPixmap(self.rect(), self._bg_pixmap)
+
+
+class RetroLoadingOverlay(QWidget):
+    """A translucent overlay that paints a chunky, animated 8-bit
+    ``LOADING CONTENT...`` banner centred over a host widget.
+
+    It is a plain Qt overlay drawn entirely with ``QPainter`` (a hand-coded
+    5x7 pixel font), so it floats over whatever the host shows underneath —
+    the classic table / gallery widgets *or* the pygame-rendered Unite! view —
+    without caring which.  Visibility is driven by a caller-supplied predicate
+    polled on the animation timer, so the banner appears only while the pane is
+    still empty and a fetch is running, then disappears the instant real
+    content lands.
+
+    Usage::
+
+        self._overlay = RetroLoadingOverlay(
+            host_view_stack,
+            should_show_cb=lambda: (table.rowCount() == 0 and self._loading))
+    """
+
+    _FPS_MS = 70
+
+    # Bright ZX Spectrum-ish palette (black omitted), cycled per letter/frame so
+    # the banner shimmers through the rainbow as it bobs.
+    _PALETTE = [
+        (0, 110, 255), (255, 48, 48), (224, 48, 224), (48, 216, 64),
+        (48, 216, 216), (255, 208, 48), (245, 245, 245),
+    ]
+
+    # 5-wide x 7-tall pixel glyphs for the characters the banner uses.
+    _GLYPHS = {
+        " ": ("....." "....." "....." "....." "....." "....." "....."),
+        "L": ("X...." "X...." "X...." "X...." "X...." "X...." "XXXXX"),
+        "O": (".XXX." "X...X" "X...X" "X...X" "X...X" "X...X" ".XXX."),
+        "A": (".XXX." "X...X" "X...X" "XXXXX" "X...X" "X...X" "X...X"),
+        "D": ("XXXX." "X...X" "X...X" "X...X" "X...X" "X...X" "XXXX."),
+        "I": ("XXXXX" "..X.." "..X.." "..X.." "..X.." "..X.." "XXXXX"),
+        "N": ("X...X" "XX..X" "X.X.X" "X.X.X" "X.X.X" "X..XX" "X...X"),
+        "G": (".XXX." "X...X" "X...." "X.XXX" "X...X" "X...X" ".XXXX"),
+        "C": (".XXX." "X...X" "X...." "X...." "X...." "X...X" ".XXX."),
+        "T": ("XXXXX" "..X.." "..X.." "..X.." "..X.." "..X.." "..X.."),
+        "E": ("XXXXX" "X...." "X...." "XXXX." "X...." "X...." "XXXXX"),
+        ".": ("....." "....." "....." "....." "....." ".XX.." ".XX.."),
+    }
+
+    def __init__(self, host, should_show_cb, text="LOADING CONTENT", parent=None):
+        super().__init__(parent or host)
+        self._host = host
+        self._should_show_cb = should_show_cb
+        self._text = str(text).upper()
+        self._frame = 0
+        # Click-through and fully painter-driven (no opaque background) so the
+        # content/animation underneath stays visible around the banner.
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.hide()
+        if host is not None:
+            host.installEventFilter(self)
+        self._timer = QTimer(self)
+        self._timer.setInterval(self._FPS_MS)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start()
+        self._sync_geometry()
+        self._tick()
+
+    # ---- geometry / visibility -----------------------------------------
+
+    def _sync_geometry(self):
+        h = self._host
+        if h is None:
+            return
+        try:
+            self.setGeometry(0, 0, h.width(), h.height())
+        except Exception:
+            pass
+
+    def eventFilter(self, obj, ev):
+        if obj is self._host and ev.type() in (
+                QEvent.Resize, QEvent.Show, QEvent.Move):
+            self._sync_geometry()
+            if self.isVisible():
+                self.raise_()
+        return False
+
+    def _tick(self):
+        try:
+            want = bool(self._should_show_cb())
+        except Exception:
+            want = False
+        if want:
+            if not self.isVisible():
+                self._sync_geometry()
+                self.show()
+            self.raise_()
+            self._frame += 1
+            self.update()
+        elif self.isVisible():
+            self.hide()
+
+    # ---- painting -------------------------------------------------------
+
+    def paintEvent(self, event):
+        w, h = self.width(), self.height()
+        if w <= 0 or h <= 0:
+            return
+        text = self._text
+        # Always reserve three trailing dot slots so the banner never shifts
+        # horizontally as the animated "..." grows and shrinks.
+        n_slots = len(text) + 3
+        total_w_cells = n_slots * 6 - 1            # 5 px glyph + 1 px gap each
+        px = int(min(w * 0.86 / max(1, total_w_cells), h * 0.34 / 7))
+        if px < 2:
+            px = 2
+        text_w = total_w_cells * px
+        glyph_h = 7 * px
+        amp = max(1.0, px * 1.5)
+        ox = (w - text_w) // 2
+        oy = (h - glyph_h) // 2
+
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+
+        # Translucent rounded "CRT" panel behind the banner.
+        pad = px * 4
+        panel = QRect(int(ox - pad), int(oy - amp - pad),
+                      int(text_w + pad * 2), int(glyph_h + amp * 2 + pad * 2))
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(8, 10, 18, 185))
+        p.drawRoundedRect(panel, px * 2, px * 2)
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QColor(64, 86, 128, 170))
+        p.drawRoundedRect(panel, px * 2, px * 2)
+
+        # Subtle scanlines for the retro CRT feel.
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(0, 0, 0, 38))
+        line_h = max(1, px // 3)
+        y = panel.top()
+        while y < panel.bottom():
+            p.drawRect(panel.left(), y, panel.width(), line_h)
+            y += px * 2
+
+        # Number of visible trailing dots, cycling 0 -> 3.
+        dots_on = (self._frame // 5) % 4
+        shadow = max(1, px // 4)
+        palette = self._PALETTE
+
+        for i in range(n_slots):
+            if i < len(text):
+                ch = text[i]
+            else:
+                ch = "." if (i - len(text)) < dots_on else " "
+            glyph = self._GLYPHS.get(ch)
+            if not glyph:
+                continue
+            cx = ox + i * 6 * px
+            bob = int(math.sin(self._frame * 0.22 + i * 0.55) * amp)
+            col = palette[(i + self._frame // 4) % len(palette)]
+            color = QColor(col[0], col[1], col[2])
+            for r in range(7):
+                base = r * 5
+                ry = oy + r * px + bob
+                for c in range(5):
+                    if glyph[base + c] == "X":
+                        x = cx + c * px
+                        p.fillRect(x + shadow, ry + shadow, px, px,
+                                   QColor(0, 0, 0, 130))
+                        p.fillRect(x, ry, px, px, color)
+        p.end()
 
 
 # Export every public/private module-level name (including the
