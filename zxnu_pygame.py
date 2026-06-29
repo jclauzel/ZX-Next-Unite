@@ -160,6 +160,96 @@ def qpixmap_to_surface(qpix):
     return qimage_to_surface(qpix.toImage())
 
 
+def _url_is_gif(url) -> bool:
+    """Whether *url* points at a (possibly animated) GIF."""
+    if not isinstance(url, str) or not url:
+        return False
+    n = url.lower()
+    for sep in ("?", "#"):
+        if sep in n:
+            n = n.split(sep, 1)[0]
+    return n.endswith(".gif")
+
+
+class _GifPlayer:
+    """Plays an animated GIF via ``QMovie``, exposing the current frame as a
+    pygame ``Surface``.
+
+    Memory-light: QMovie streams frames on demand (CacheNone), so we keep only
+    the *current* frame in memory — even a multi-megabyte, several-hundred-frame
+    GIF stays cheap (decoding all frames up front would freeze the UI and cost
+    hundreds of MB). *on_frame* is invoked on the GUI thread after each new
+    frame so the host can repaint. Requires the Qt event loop to be running
+    (true inside the app) to advance frames."""
+
+    def __init__(self, data, on_frame=None):
+        self._ok = False
+        self.surface = None
+        self._on_frame = on_frame
+        self._movie = None
+        if not data or bytes(data[:4]) != b"GIF8":
+            return
+        try:
+            from PySide6.QtCore import QBuffer, QByteArray
+            from PySide6.QtGui import QMovie
+        except Exception:
+            return
+        try:
+            self._ba = QByteArray(bytes(data))
+            self._buf = QBuffer(self._ba)
+            self._buf.open(QBuffer.ReadOnly)
+            self._movie = QMovie(self._buf, b"gif")
+            self._movie.setCacheMode(QMovie.CacheNone)
+            if not self._movie.isValid():
+                self._movie = None
+                return
+            self._movie.frameChanged.connect(self._on_changed)
+            self._ok = True
+        except Exception:
+            self._ok = False
+            self._movie = None
+
+    def animated(self):
+        """True if this is a playable (multi-frame) GIF."""
+        if not self._ok:
+            return False
+        try:
+            # frameCount() can report 0 for some streamed GIFs; treat anything
+            # other than an explicit single frame as animated.
+            return self._movie.frameCount() != 1
+        except Exception:
+            return True
+
+    def start(self):
+        if self._ok:
+            try:
+                self._movie.start()
+            except Exception:
+                pass
+
+    def stop(self):
+        if self._movie is not None:
+            try:
+                self._movie.stop()
+            except Exception:
+                pass
+
+    def _on_changed(self, _i):
+        if self._movie is None:
+            return
+        try:
+            surf = qpixmap_to_surface(self._movie.currentPixmap())
+        except Exception:
+            surf = None
+        if surf is not None:
+            self.surface = surf
+            if self._on_frame is not None:
+                try:
+                    self._on_frame()
+                except Exception:
+                    pass
+
+
 def _surface_to_qimage(surf):
     pg = _pg
     w, h = surf.get_size()
@@ -395,6 +485,61 @@ def _elide(text, font, max_w):
     while text and font.size(text + ell)[0] > max_w:
         text = text[:-1]
     return text + ell if text else ell
+
+
+# Phosphor green used by the retro 8-bit log panes (RetroLogWidget) and the
+# item-viewer text-file console so a .txt page looks like the SD Card Utility /
+# NextSync logs in "Pygame" mode.
+_C_LOG_GREEN = (120, 255, 140)
+
+# Plain-text extensions the item viewer renders as a scrolling log console
+# (instead of trying to decode them as a picture). Mirrors the text members of
+# zxnu_media.ZXFMT_NON_IMAGE_EXTS.
+_PYG_TEXT_EXTS = (".txt", ".nfo", ".diz", ".asc", ".md", ".me", ".1st",
+                  ".text", ".readme", ".log")
+
+# Sentinel cached in PygameItemViewer._text_cache when a text fetch failed, so
+# the console shows an error instead of an endless "Loading…".
+_TEXT_FETCH_FAILED = object()
+
+
+def _url_is_text(url) -> bool:
+    """Whether *url* points at a plain-text file the item viewer should render
+    as a log console rather than an image."""
+    if not isinstance(url, str) or not url or url.startswith("placeholder://"):
+        return False
+    n = url.lower()
+    for sep in ("?", "#"):
+        if sep in n:
+            n = n.split(sep, 1)[0]
+    return n.endswith(_PYG_TEXT_EXTS)
+
+
+def _decode_text_bytes(data) -> list:
+    """Decode raw *data* bytes into a list of display lines for the console.
+    Tries UTF-8, then common 8-bit code pages, expanding tabs and normalising
+    newlines."""
+    if not data:
+        return []
+    text = None
+    for enc in ("utf-8", "cp1252", "latin-1"):
+        try:
+            text = bytes(data).decode(enc)
+            break
+        except Exception:
+            text = None
+    if text is None:
+        text = bytes(data).decode("latin-1", "replace")
+    return _text_to_lines(text)
+
+
+def _text_to_lines(text) -> list:
+    """Normalise an in-memory string into console display lines (newline
+    normalisation + tab expansion)."""
+    if not text:
+        return []
+    s = str(text).replace("\r\n", "\n").replace("\r", "\n").expandtabs(8)
+    return s.split("\n")
 
 
 def _wrap_lines(text, font, max_w):
@@ -3946,6 +4091,13 @@ class GalleryScene(_Scene):
         self._requested = set()
         self._scroll = 0
         self._hover = -1
+        # Animated-GIF thumbnails (played regardless of the "Gallery animation"
+        # setting, mirroring the Qt GalleryCell's QMovie behaviour). A raw-bytes
+        # fetcher is wired via set_gif_fetch_cb; each animated thumbnail streams
+        # through a _GifPlayer and repaints the grid as frames arrive.
+        self._gif_fetch = None
+        self._gif_players = {}  # index -> _GifPlayer
+        self._gif_urls = {}     # index -> url already handled (avoid re-fetch)
         # Thumbnails are scaled to the cell size every frame, so painting them
         # while the host widget is still growing to its final size (e.g. right
         # after toggling into pygame mode, before setCurrentWidget) makes a
@@ -3976,17 +4128,35 @@ class GalleryScene(_Scene):
         self._settled = True
         self.redraw()
 
+    def set_gif_fetch_cb(self, cb):
+        """Wire the raw-bytes fetcher (url, on_bytes) used to play animated
+        ``.gif`` thumbnails — the same fetcher the Qt gallery uses."""
+        self._gif_fetch = cb
+
+    def _stop_gif_players(self):
+        for p in self._gif_players.values():
+            try:
+                p.stop()
+            except Exception:
+                pass
+        self._gif_players = {}
+        self._gif_urls = {}
+
     def set_entries(self, entries):
         self._entries = list(entries or [])
         self._surfs = {}
         self._requested = set()
         self._scroll = 0
         self._hover = -1
+        self._stop_gif_players()
         self._fetch_visible()
         self.redraw()
 
     def on_attach(self):
         self._fetch_visible()
+
+    def on_detach(self):
+        self._stop_gif_players()
 
     def _cols(self):
         if self._cols_getter:
@@ -4026,8 +4196,34 @@ class GalleryScene(_Scene):
                     self._surfs[_i] = surf
                     self.redraw()
 
+            def _on_urls(urls, _i=i):
+                # The thumbnail's source URL(s); if the first is an animated GIF
+                # and a fetcher is wired, stream it via QMovie so the cell
+                # animates (independent of the "Gallery animation" setting).
+                if not urls or not self._gif_fetch:
+                    return
+                u = urls[0] if isinstance(urls, (list, tuple)) else urls
+                if not _url_is_gif(u) or self._gif_urls.get(_i) == u:
+                    return
+                self._gif_urls[_i] = u
+
+                def _on_bytes(data, _i2=_i):
+                    player = _GifPlayer(data, on_frame=self.redraw)
+                    if player.animated():
+                        old = self._gif_players.get(_i2)
+                        if old is not None:
+                            old.stop()
+                        self._gif_players[_i2] = player
+                        player.start()
+                        self.redraw()
+
+                try:
+                    self._gif_fetch(u, _on_bytes)
+                except Exception:
+                    pass
+
             try:
-                self._thumb_fetch(e, _on_px, lambda *_: None)
+                self._thumb_fetch(e, _on_px, _on_urls)
             except Exception:
                 pass
 
@@ -4063,7 +4259,10 @@ class GalleryScene(_Scene):
                 _pg.draw.rect(surface, C_BORDER, cell, self.s(2))
             img_rect = _pg.Rect(cell.x, cell.y, cw, img_h)
             surface.fill(C_IMG_BG, img_rect)
-            surf = self._surfs.get(i)
+            # Prefer the current animated-GIF frame; fall back to the static
+            # thumbnail surface.
+            _gp = self._gif_players.get(i)
+            surf = (_gp.surface if _gp is not None else None) or self._surfs.get(i)
             # Only draw the picture once the layout size has settled; otherwise
             # a fast-arriving thumbnail would be scaled to an intermediate cell
             # size and then "grow" as the widget reaches its final size.
@@ -4144,11 +4343,27 @@ class PygameItemViewer(_Scene):
         self.attach(host)
         self._title = title or ""
         self._rows = list(info_rows or [])
-        # Keep only renderable images — drop non-picture downloads (archives,
-        # tape/disk images, text files) the online APIs sometimes mix in.
+        # Keep renderable images *and* plain-text files (.txt/.nfo/…): images go
+        # through the slideshow as pictures, text files are rendered as a retro
+        # log console (matching the SD Card Utility / NextSync "Pygame" logs).
+        # Other non-picture downloads (archives, tape/disk images) are dropped.
         self._screens = [u for u in (screenshots or [])
-                         if u and zxfmt_url_is_displayable_image(u)]
+                         if u and (zxfmt_url_is_displayable_image(u)
+                                   or _url_is_text(u))]
         self._extra_fetch = extra_fetch_cb
+        # Text-file ("log console") support: a raw-bytes fetcher wired by the
+        # owning pane (set_text_fetch_cb), a url->lines cache (or the failure
+        # sentinel), the in-flight set, a per-width wrapped-line cache, and the
+        # vertical scroll offset/limit for the document currently on screen.
+        self._text_fetch = None
+        self._text_cache = {}
+        self._text_pending = set()
+        self._text_wrap_cache = {}
+        self._text_scroll = 0
+        self._text_max_scroll = 0
+        # URLs a caller explicitly marked as text pages (see add_text_pages),
+        # so even extension-less file endpoints render as a log console.
+        self._forced_text = set()
         # Optional callable -> "hover"|"timer"|"none". "none" disables the
         # auto-advancing slideshow (the user still pages with ◀/▶); mirrors the
         # Qt GalleryItemViewer. Defaults to legacy always-cycling when absent.
@@ -4156,6 +4371,12 @@ class PygameItemViewer(_Scene):
         self._tags = [str(t) for t in (tags or []) if t]
         self._shot_idx = 0
         self._shot_cache = {}          # url -> Surface
+        # Animated-GIF screenshots: a raw-bytes fetcher (set_gif_fetch_cb) plus a
+        # url->_GifPlayer cache so a .gif screenshot animates instead of showing
+        # a frozen first frame (always animated, like the Qt viewer's QMovie).
+        self._gif_fetch = None
+        self._gif_players = {}         # url -> _GifPlayer
+        self._gif_requested = set()
         self._close_fn = None
         self._placeholder = ("", "")
         self._meta_scroll = 0
@@ -4219,6 +4440,7 @@ class PygameItemViewer(_Scene):
             self._timer.stop()
         except Exception:
             pass
+        self._stop_gif_players()
 
     def set_favorite_hooks(self, entry, is_favorite_cb, toggle_favorite_cb):
         self._fav_entry = entry
@@ -4301,9 +4523,17 @@ class PygameItemViewer(_Scene):
     def set_screenshots(self, urls):
         self._timer.stop()
         self._screens = [u for u in (urls or [])
-                         if u and zxfmt_url_is_displayable_image(u)]
+                         if u and (zxfmt_url_is_displayable_image(u)
+                                   or _url_is_text(u))]
+        # Keep any explicitly-marked text pages (add_text_pages) after the
+        # pictures so re-setting the screenshots doesn't drop them.
+        for u in self._forced_text:
+            if u not in self._screens:
+                self._screens.append(u)
         self._shot_idx = 0
         self._shot_cache = {}
+        self._text_scroll = 0
+        self._stop_gif_players()
         if self._screens:
             self._prefetch_all()
             if (len(self._screens) > 1 and self.host is not None
@@ -4321,6 +4551,50 @@ class PygameItemViewer(_Scene):
         self._tags = [str(t) for t in (tags or []) if t]
         self.redraw()
 
+    def set_text_fetch_cb(self, cb):
+        """Wire the raw-bytes fetcher used to load plain-text (.txt/.nfo/…)
+        content pages, which are rendered as a retro log console. *cb* has the
+        signature ``cb(url, on_bytes)`` and must invoke ``on_bytes(bytes|None)``
+        on the GUI thread (same contract as the GIF fetcher)."""
+        self._text_fetch = cb
+        # A text page already on screen may have been waiting on the fetcher.
+        if self._current_is_text():
+            self.redraw()
+
+    def set_gif_fetch_cb(self, cb):
+        """Wire the raw-bytes fetcher (url, on_bytes) used to play animated
+        ``.gif`` screenshots — the same fetcher the gallery uses."""
+        self._gif_fetch = cb
+        self.redraw()
+
+    def _stop_gif_players(self):
+        for p in self._gif_players.values():
+            try:
+                p.stop()
+            except Exception:
+                pass
+        self._gif_players = {}
+        self._gif_requested = set()
+
+    def _ensure_gif(self, url):
+        """Lazily stream an animated ``.gif`` screenshot via QMovie (once)."""
+        if (url in self._gif_players or url in self._gif_requested
+                or not self._gif_fetch or not _url_is_gif(url)):
+            return
+        self._gif_requested.add(url)
+
+        def _on_bytes(data, _u=url):
+            player = _GifPlayer(data, on_frame=self.redraw)
+            if player.animated():
+                self._gif_players[_u] = player
+                player.start()
+                self.redraw()
+
+        try:
+            self._gif_fetch(url, _on_bytes)
+        except Exception:
+            pass
+
     # -- internals ---------------------------------------------------------
     def _wire(self, key, cb, enabled, tooltip=""):
         b = self._buttons[key]
@@ -4336,6 +4610,15 @@ class PygameItemViewer(_Scene):
             return
         for url in list(self._screens):
             if url in self._shot_cache:
+                continue
+            # Text pages are fetched lazily as raw bytes (see _ensure_text_fetch)
+            # — never run them through the image fetcher (which would decode-fail
+            # and _drop_url them out of the slideshow).
+            if self._is_text_url(url):
+                continue
+            # Animated GIFs are streamed on demand via QMovie (_ensure_gif); skip
+            # the static prefetch so a multi-megabyte gif isn't downloaded twice.
+            if self._gif_fetch and _url_is_gif(url):
                 continue
 
             def _on_px(px, _u=url):
@@ -4368,13 +4651,97 @@ class PygameItemViewer(_Scene):
         if not self._screens:
             return
         self._shot_idx = (self._shot_idx - 1) % len(self._screens)
+        self._text_scroll = 0
         self.redraw()
 
     def _go_next(self):
         if not self._screens:
             return
         self._shot_idx = (self._shot_idx + 1) % len(self._screens)
+        self._text_scroll = 0
         self.redraw()
+
+    # -- text-file ("log console") pages -----------------------------------
+    def _current_url(self):
+        if not self._screens:
+            return None
+        return self._screens[self._shot_idx % len(self._screens)]
+
+    def _is_text_url(self, url):
+        """Whether *url* should be rendered as a text console — either by its
+        extension or because a caller explicitly marked it text via
+        add_text_pages (used for sources whose file URLs carry no extension)."""
+        return bool(url) and (url in self._forced_text or _url_is_text(url))
+
+    def _current_is_text(self):
+        cur = self._current_url()
+        return cur is not None and self._is_text_url(cur)
+
+    def add_text_pages(self, urls):
+        """Append readable text files as console pages, regardless of whether
+        their URL carries a recognisable extension. Used by the per-source
+        openers (ZXDB instructions, zxArt/GetIt text releases, …) so a text item
+        shows up after the pictures in Pygame mode."""
+        changed = False
+        for u in (urls or []):
+            if not u:
+                continue
+            if u not in self._forced_text:
+                self._forced_text.add(u)
+                changed = True
+            if u not in self._screens:
+                self._screens.append(u)
+                changed = True
+        if changed:
+            self.redraw()
+
+    def add_text_document(self, label, text):
+        """Add an in-memory text page (e.g. the item's description/About) as a
+        log console. Unlike add_text_pages there is no network fetch — *text* is
+        supplied directly, HTML-stripped, and cached immediately. *label* is the
+        caption shown under the page."""
+        text = _strip_html(text) if text else ""
+        if not text.strip():
+            return
+        key = "textdoc://" + (str(label) or "Text")
+        self._forced_text.add(key)
+        self._text_cache[key] = _text_to_lines(text)
+        if key not in self._screens:
+            self._screens.append(key)
+        self.redraw()
+
+    def _ensure_text_fetch(self, url):
+        """Kick off a lazy raw-bytes fetch for a text page (once per url)."""
+        if url in self._text_cache or url in self._text_pending:
+            return
+        if not self._text_fetch:
+            return                       # fetcher not wired yet; keep "Loading…"
+        self._text_pending.add(url)
+
+        def _on_bytes(data, _u=url):
+            self._text_pending.discard(_u)
+            self._text_cache[_u] = (_decode_text_bytes(data) if data
+                                    else _TEXT_FETCH_FAILED)
+            self.redraw()
+
+        try:
+            self._text_fetch(url, _on_bytes)
+        except Exception:
+            self._text_pending.discard(url)
+            self._text_cache[url] = _TEXT_FETCH_FAILED
+            self.redraw()
+
+    def _wrapped_text(self, url, lines, font, max_w):
+        """Word-wrap a text document to *max_w*, cached per (url, width)."""
+        key = (url, max_w)
+        cached = self._text_wrap_cache.get(key)
+        if cached is not None:
+            return cached
+        out = []
+        for raw in lines:
+            out.extend(_wrap_lines(raw, font, max_w) or [""])
+        self._text_wrap_cache[key] = out
+        return out
 
     def _close(self):
         self._timer.stop()
@@ -4396,7 +4763,11 @@ class PygameItemViewer(_Scene):
         img_w = w - pw
         # left image area
         img_area = _pg.Rect(self.s(8), self.s(8), img_w - self.s(16), h - self.s(16))
-        surface.fill(C_IMG_BG, _pg.Rect(0, 0, img_w, h))
+        # A text page keeps the animated starfield/veil backdrop (painted by
+        # _paint_backdrop) showing through for the retro-log look; an image page
+        # gets the usual solid photo backing.
+        if not self._current_is_text():
+            surface.fill(C_IMG_BG, _pg.Rect(0, 0, img_w, h))
         self._render_image(surface, img_area)
         # right panel
         panel = _pg.Rect(img_w, 0, pw, h)
@@ -4404,10 +4775,29 @@ class PygameItemViewer(_Scene):
         self._render_panel(surface, panel)
 
     def _render_image(self, surface, area):
+        # Plain-text content (.txt/.nfo/…) is drawn as a scrolling log console
+        # rather than a picture, but keeps the same nav / file-name / tag chrome.
+        cur = self._current_url()
+        if cur is not None and self._is_text_url(cur):
+            self._render_text_console(surface, area, cur)
+            self._render_nav(surface, area)
+            self._render_shot_name(surface, area)
+            if self._tags:
+                self._render_tags(surface, area)
+            return
         surf = None
         if self._screens:
             url = self._screens[self._shot_idx % len(self._screens)]
-            surf = self._shot_cache.get(url)
+            # Animated GIF: stream it via QMovie (always, regardless of the
+            # slideshow animation mode); fall back to the static first frame
+            # until the player has produced a frame.
+            if _url_is_gif(url):
+                self._ensure_gif(url)
+                _gp = self._gif_players.get(url)
+                if _gp is not None and _gp.surface is not None:
+                    surf = _gp.surface
+            if surf is None:
+                surf = self._shot_cache.get(url)
         if surf is not None:
             nav_h = self.s(26)
             scaled = _scale_keep_aspect(surf, area.w, area.h - nav_h)
@@ -4435,6 +4825,61 @@ class PygameItemViewer(_Scene):
         if self._tags:
             self._render_tags(surface, area)
 
+    def _render_text_console(self, surface, area, url):
+        """Render a plain-text page as a retro log console: phosphor-green
+        Consolas over a dark veil (matching the SD Card Utility / NextSync
+        "Pygame" logs), scrollable with the mouse wheel."""
+        # Deepen contrast for the green text over whatever backdrop shows through.
+        veil = _pg.Surface((area.w, area.h), _pg.SRCALPHA)
+        veil.fill((4, 6, 10, 150))
+        surface.blit(veil, (area.x, area.y))
+        _pg.draw.rect(surface, C_BORDER, area, 1)
+
+        f = _font(self.s(13))
+        lh = f.get_height() + self.s(2)
+        pad = self.s(10)
+        # Reserve bottom space so the text never runs under the ◀/▶ nav row and
+        # the file-name caption.
+        has_nav = len(self._screens) > 1
+        text_top = area.y + pad
+        text_bottom = area.bottom - self.s(50 if has_nav else 28)
+        view_h = max(lh, text_bottom - text_top)
+        max_w = max(self.s(40), area.w - 2 * pad)
+
+        lines = self._text_cache.get(url)
+        if lines is None:
+            self._ensure_text_fetch(url)
+            msg = "Loading text…" if self._text_fetch else "No text loader available"
+            tw = f.size(msg)[0]
+            _draw_text(surface, msg, area.centerx - tw // 2,
+                       area.centery - lh // 2, f, (90, 170, 110))
+            self._text_max_scroll = 0
+            return
+        if lines is _TEXT_FETCH_FAILED:
+            msg = "Could not load text file."
+            tw = f.size(msg)[0]
+            _draw_text(surface, msg, area.centerx - tw // 2,
+                       area.centery - lh // 2, f, (200, 120, 120))
+            self._text_max_scroll = 0
+            return
+
+        wrapped = self._wrapped_text(url, lines, f, max_w)
+        self._text_max_scroll = max(0, len(wrapped) * lh - view_h)
+        self._text_scroll = max(0, min(self._text_scroll, self._text_max_scroll))
+
+        prev_clip = surface.get_clip()
+        surface.set_clip(_pg.Rect(area.x + self.s(2), text_top,
+                                  area.w - self.s(4), view_h))
+        x = area.x + pad
+        y = text_top - self._text_scroll
+        for line in wrapped:
+            if y > text_bottom:
+                break
+            if y + lh >= text_top:
+                _draw_text(surface, line, x, int(y), f, _C_LOG_GREEN)
+            y += lh
+        surface.set_clip(prev_clip)
+
     def _render_nav(self, surface, area):
         if len(self._screens) <= 1:
             self._prev_rect = self._next_rect = None
@@ -4460,6 +4905,8 @@ class PygameItemViewer(_Scene):
         url = self._screens[self._shot_idx % len(self._screens)]
         if not isinstance(url, str) or url.startswith("placeholder://"):
             return ""
+        if url.startswith("textdoc://"):
+            return url[len("textdoc://"):]      # caption = the document label
         s = url.split("?", 1)[0].split("#", 1)[0]
         try:
             from urllib.parse import unquote
@@ -4600,6 +5047,11 @@ class PygameItemViewer(_Scene):
                 bottom = self.size[1] - ab_h
                 self._meta_scroll = max(0, min(self._meta_max_scroll(top, bottom),
                                                self._meta_scroll - int(ev["dy"] * 0.5)))
+                self.redraw()
+            elif self._current_is_text():
+                # Wheel over the left area scrolls the text-file console.
+                self._text_scroll = max(0, min(self._text_max_scroll,
+                                               self._text_scroll - int(ev["dy"] * 0.5)))
                 self.redraw()
             return
         x = ev.get("x", -1)

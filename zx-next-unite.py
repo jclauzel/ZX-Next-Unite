@@ -978,6 +978,7 @@ def zxdb_parse_game_detail(payload) -> dict:
         "remarks":     str(zxdb_pick(src, "remarks", "originalPublication")),
         "screenshot_url": "",
         "screenshots":   [],   # list of {url, type}
+        "text_files":    [],   # list of {url, type} — readable .txt/.nfo pages
         "downloads":   [],
     }
 
@@ -1023,7 +1024,12 @@ def zxdb_parse_game_detail(payload) -> dict:
     # Web-renderable raster formats; preferred over raw .scr screen dumps when
     # the same screen is offered in more than one format.
     web_image_exts = (".png", ".gif", ".jpg", ".jpeg", ".bmp")
+    # Plain-text assets (manuals/instructions/.nfo) that the Pygame item viewer
+    # can render as a log console.  Collected separately from screenshots so the
+    # detail-pane slideshow and thumbnails stay images-only.
+    text_exts = (".txt", ".nfo", ".diz", ".asc", ".md")
     seen_urls = set()
+    seen_text_urls = set()
     # Maps a screen's base filename (without extension) to its index in
     # detail["screenshots"], so the same picture offered both as a PNG and as
     # a raw .scr screen dump (e.g. ZXInfo "additionalDownloads") is counted
@@ -1081,6 +1087,15 @@ def zxdb_parse_game_detail(payload) -> dict:
                 ))
             )
             if not is_image:
+                # Surface readable text files (e.g. "Instructions | Document
+                # (TXT)") as viewer pages — the Pygame item viewer renders them
+                # as a log console; the Qt viewer filters them back out.
+                if ulow.endswith(text_exts) and url not in seen_text_urls:
+                    seen_text_urls.add(url)
+                    detail["text_files"].append({
+                        "url":  url,
+                        "type": str(a.get("type") or ""),
+                    })
                 continue
             if url in seen_urls:
                 continue
@@ -2075,6 +2090,114 @@ def _gif_fetch_bytes(url, on_bytes):
                         lambda _e: on_bytes(None), gated=True)
 
 
+# Readable-text extensions surfaced as Pygame item-viewer "log console" pages.
+_GALLERY_TEXT_EXTS = (".txt", ".nfo", ".diz", ".asc", ".md")
+
+
+def _gallery_text_urls(files):
+    """From a list of file/download descriptors, return the URLs that point at a
+    readable text file (instructions/.nfo/…), preserving order and de-duping.
+
+    *files* items may be download dicts (``{"url", "filename"/"fileName"/"name",
+    "type", "format"}``) or ``(url, name)`` pairs. Detection is by the file
+    name's extension, so an extension-less download URL is still recognised when
+    its filename is known (the Pygame viewer is told to treat it as text via
+    GalleryItemViewer-compatible add_text_pages)."""
+    out, seen = [], set()
+    for f in files or []:
+        if isinstance(f, dict):
+            url = f.get("url") or f.get("path") or ""
+            name = (f.get("filename") or f.get("fileName")
+                    or f.get("name") or url)
+        elif isinstance(f, (tuple, list)) and len(f) >= 2:
+            url, name = f[0], f[1]
+        else:
+            url, name = f, f
+        if not url or url in seen:
+            continue
+        base = str(name or url).lower().split("?", 1)[0].split("#", 1)[0]
+        if base.endswith(_GALLERY_TEXT_EXTS):
+            seen.add(url)
+            out.append(url)
+    return out
+
+
+def _gallery_add_text_pages(viewer, files):
+    """Surface any readable text files in *files* as console pages on *viewer*
+    (no-op for the Qt GalleryItemViewer, which has no add_text_pages). Returns
+    the list of URLs added so callers can decide whether a fallback description
+    page is still needed."""
+    add = getattr(viewer, "add_text_pages", None)
+    if add is None:
+        return []
+    urls = _gallery_text_urls(files)
+    if urls:
+        add(urls)
+    return urls
+
+
+def _gallery_add_description_page(viewer, description, label="Description"):
+    """Surface the item's description/About text as a Pygame log-console page
+    (no-op for the Qt viewer or an empty description). Used as the readable-text
+    fallback for sources without a standalone .txt file."""
+    add = getattr(viewer, "add_text_document", None)
+    if add is None or not description:
+        return
+    add(label, description)
+
+
+def _make_retro_toggle_button(window, flag_attr, status_cb=None, on_change=None):
+    """Build a checkable "Classic ↔ Retro" toggle button for a gallery pane.
+
+    When checked the pane opens items in the Retro (pygame) item viewer — which
+    renders .txt/instruction pages as a green log console — instead of the
+    Classic Qt viewer. The chosen mode is stored on *window* as *flag_attr*
+    (e.g. ``_zxdb_item_retro``). The label mirrors the SD/NextSync/Unite! pygame
+    buttons: it shows the mode you will switch *to* ("🎮 Retro" while Classic,
+    "🖼 Classic" while Retro). *on_change(checked)* — when given — is called after
+    a successful toggle so the caller can persist the choice. Returns the
+    QPushButton."""
+    btn = QPushButton("🎮 Retro")
+    btn.setCheckable(True)
+    btn.setToolTip(
+        "Open items in the Retro (pygame) viewer.\n"
+        "Retro mode renders instruction/.txt pages as a green log console.\n"
+        "Requires pygame-ce (pip install pygame-ce).")
+    setattr(window, flag_attr, False)
+
+    def _toggled(checked):
+        if checked:
+            try:
+                from zxnu_pygame import pygame_available
+                ok, why = pygame_available()
+            except Exception as exc:
+                ok, why = False, str(exc)
+            if not ok:
+                btn.blockSignals(True)
+                btn.setChecked(False)
+                btn.blockSignals(False)
+                btn.setToolTip(f"{why}\nInstall with: pip install pygame-ce")
+                if status_cb is not None:
+                    try:
+                        status_cb("Retro mode unavailable — run: pip install pygame-ce")
+                    except Exception:
+                        pass
+                return
+            setattr(window, flag_attr, True)
+            btn.setText("🖼 Classic")
+        else:
+            setattr(window, flag_attr, False)
+            btn.setText("🎮 Retro")
+        if on_change is not None:
+            try:
+                on_change(checked)
+            except Exception:
+                pass
+
+    btn.toggled.connect(_toggled)
+    return btn
+
+
 
 
 
@@ -3066,6 +3189,28 @@ class MainWindow(QMainWindow):
                         self.main_pygame_button.setChecked(True)
                     finally:
                         self._main_pygame_restoring = False
+
+                # Restore each pane's Classic/Retro item-viewer choice. Routed
+                # through the toggle button so the pygame-availability check and
+                # label update are reused; persisting during restore is a no-op
+                # (save_configuration_file is guarded while _initialising).
+                self._retro_restoring = True
+                try:
+                    for _retro_key, _retro_btn_attr in (
+                        (SETTING_GETIT_ITEM_RETRO,     "getit_retro_button"),
+                        (SETTING_ZXDB_ITEM_RETRO,      "zxdb_retro_button"),
+                        (SETTING_ZXART_ITEM_RETRO,     "zxart_retro_button"),
+                        (SETTING_ITCHIO_ITEM_RETRO,    "itchio_retro_button"),
+                        (SETTING_FAVORITES_ITEM_RETRO, "favorites_retro_button"),
+                    ):
+                        _retro_pref = configuration_dictionary.get(
+                            _retro_key, "").strip().lower()
+                        _retro_btn = getattr(self, _retro_btn_attr, None)
+                        if (_retro_pref in ("true", "1", "yes") and _retro_btn is not None
+                                and not _retro_btn.isChecked()):
+                            _retro_btn.setChecked(True)
+                finally:
+                    self._retro_restoring = False
 
                 # itch.io tab: prefill the saved API key and apply the saved
                 # show/hide preference (the tab is built visible by default).
@@ -7659,6 +7804,18 @@ class MainWindow(QMainWindow):
         for c in CONFIG_FILE_SETTINGS:
             configuration_dictionary[c] = ""
 
+        def _persist_retro(key, checked):
+            """Persist a pane's Classic/Retro item-viewer choice to the config
+            file. Skips the file write while restoring saved settings (the value
+            is already loaded) and is a no-op during __init__ anyway via
+            save_configuration_file's _initialising guard."""
+            try:
+                configuration_dictionary[key] = "true" if checked else "false"
+                if not getattr(self, "_retro_restoring", False):
+                    save_configuration_file()
+            except Exception:
+                pass
+
         # Pre-populate color defaults so save works correctly before first load
         configuration_dictionary[SETTING_COLOR_UP_DIRECTORY] = DEFAULT_COLOR_UP_DIRECTORY
         configuration_dictionary[SETTING_COLOR_DIR_NAME]     = DEFAULT_COLOR_DIR_NAME
@@ -8216,7 +8373,7 @@ class MainWindow(QMainWindow):
         self._main_retro_log = None
         self._main_pygame_on = False
 
-        self.main_pygame_button = QPushButton("🎮 Pygame")
+        self.main_pygame_button = QPushButton("🎮 Retro")
         self.main_pygame_button.setCheckable(True)
         self.main_pygame_button.setToolTip(
             "Switch the SD Card log window to a retro 8-bit pygame display:\n"
@@ -8257,7 +8414,7 @@ class MainWindow(QMainWindow):
             btn = self.main_pygame_button
             btn.blockSignals(True)
             btn.setChecked(False)
-            btn.setText("🎮 Pygame")
+            btn.setText("🎮 Retro")
             btn.blockSignals(False)
             btn.setEnabled(False)
             if reason:
@@ -8300,7 +8457,7 @@ class MainWindow(QMainWindow):
                 _main_pygame_persist(True)
             else:
                 self._main_pygame_on = False
-                self.main_pygame_button.setText("🎮 Pygame")
+                self.main_pygame_button.setText("🎮 Retro")
                 if self._main_retro_log is not None:
                     self._main_retro_log.stop()
                 self.main_log_stack.setCurrentWidget(self.listWidgetLog)
@@ -8850,7 +9007,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_nextsync_pygame_anim"):
             self._nextsync_pygame_anim = True
 
-        self.nextsync_pygame_button = QPushButton("🎮 Pygame")
+        self.nextsync_pygame_button = QPushButton("🎮 Retro")
         self.nextsync_pygame_button.setCheckable(True)
         self.nextsync_pygame_button.setToolTip(
             "Switch the NextSync log window to a retro 8-bit pygame display:\n"
@@ -8887,7 +9044,7 @@ class MainWindow(QMainWindow):
             btn = self.nextsync_pygame_button
             btn.blockSignals(True)
             btn.setChecked(False)
-            btn.setText("🎮 Pygame")
+            btn.setText("🎮 Retro")
             btn.blockSignals(False)
             btn.setEnabled(False)
             if reason:
@@ -8930,7 +9087,7 @@ class MainWindow(QMainWindow):
                 _nextsync_pygame_persist(True)
             else:
                 self._nextsync_pygame_on = False
-                self.nextsync_pygame_button.setText("🎮 Pygame")
+                self.nextsync_pygame_button.setText("🎮 Retro")
                 if self._nextsync_retro_log is not None:
                     self._nextsync_retro_log.stop()
                 self.nextsync_log_stack.setCurrentWidget(self.nextsync_log)
@@ -9089,6 +9246,11 @@ class MainWindow(QMainWindow):
             "Persisted across sessions in the config file."
         )
         getit_search_row.addWidget(self.getit_view_combo)
+        self.getit_retro_button = _make_retro_toggle_button(
+            self, "_getit_item_retro",
+            on_change=lambda c, k=SETTING_GETIT_ITEM_RETRO: (
+                _persist_retro(k, c), self._pane_retro_gallery_set("getit", c)))
+        getit_search_row.addWidget(self.getit_retro_button)
 
         self.getit_status_label = QLabel("")
         getit_search_row.addWidget(self.getit_status_label, 1)
@@ -9423,6 +9585,7 @@ class MainWindow(QMainWindow):
                 self.getit_results_table.setItem(row, 3, QTableWidgetItem(e["size"]))
             self._getit_last_entries = list(entries)
             self.getit_gallery_view.populate(entries)
+            self._pane_retro_gallery_refresh("getit")
             self.getit_gallery_view.select_entry(
                 lambda _e, _sel=self._getit_selected_id: bool(_sel) and _e.get("id") == _sel
             )
@@ -10011,6 +10174,25 @@ class MainWindow(QMainWindow):
             viewer.set_placeholder(_ph_label, title)
             _fav_entry_getit = {**entry, "_fav_source": "getit"}
             viewer.set_favorite_hooks(_fav_entry_getit, self._fav_is, self._fav_toggle)
+            # Fetch the GetIt detail (DESC + real LINK filename) so the Pygame
+            # viewer can show readable text: if the entry's file is itself a
+            # text file, surface the file; otherwise show its description.
+            if getattr(viewer, "add_text_document", None) is not None:
+                def _getit_text_fn(_eid=eid):
+                    return getit_parse_detail(getit_fetch(f"/nx/{_eid}/f/"))
+
+                def _getit_text_ok(d, _eid=eid):
+                    link = (d.get("LINK") or "").strip()
+                    added = []
+                    if link.lower().endswith(_GALLERY_TEXT_EXTS):
+                        added = _gallery_add_text_pages(viewer, [{
+                            "url": f"{GETIT_BASE_URL}/nx/{_eid}/", "filename": link,
+                        }])
+                    if not added:
+                        _gallery_add_description_page(viewer, d.get("DESC"))
+
+                self._getit_viewer_text_thread = getit_run_in_thread(
+                    _getit_text_fn, _getit_text_ok, lambda _e: None)
 
             # ── action buttons ──────────────────────────────────────────
             default_name = self._getit_selected_link or f"{eid}.bin"
@@ -10048,7 +10230,8 @@ class MainWindow(QMainWindow):
                 )
             return viewer
 
-        self.getit_gallery_view.cell_dbl_clicked.connect(_getit_open_gallery_viewer)
+        self.getit_gallery_view.cell_dbl_clicked.connect(
+            lambda e: self._pane_open_item("getit", e, getattr(self, "_getit_item_retro", False)))
 
         def _getit_table_on_double_clicked(item):
             row = self.getit_results_table.currentRow()
@@ -10070,7 +10253,7 @@ class MainWindow(QMainWindow):
                     "size":   (self.getit_results_table.item(row, 3).text()
                                if self.getit_results_table.item(row, 3) else ""),
                 }
-            _getit_open_gallery_viewer(entry)
+            self._pane_open_item("getit", entry, getattr(self, "_getit_item_retro", False))
 
         self.getit_results_table.itemDoubleClicked.connect(_getit_table_on_double_clicked)
 
@@ -10080,6 +10263,8 @@ class MainWindow(QMainWindow):
                 mode = "table"
             self._getit_view_mode = mode
             self.getit_view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
+            if getattr(self, "_pane_retro_gallery_refresh", None):
+                self._pane_retro_gallery_refresh("getit")
             _table = (mode == "table")
             # Keep the right column visible in both modes so the zxnext.uk site
             # link stays shown (mirrors ZXDB/zxArt); only the preview screenshot
@@ -10620,6 +10805,11 @@ class MainWindow(QMainWindow):
             "Persisted across sessions in the config file."
         )
         zxdb_search_row.addWidget(self.zxdb_view_combo)
+        self.zxdb_retro_button = _make_retro_toggle_button(
+            self, "_zxdb_item_retro",
+            on_change=lambda c, k=SETTING_ZXDB_ITEM_RETRO: (
+                _persist_retro(k, c), self._pane_retro_gallery_set("zxdb", c)))
+        zxdb_search_row.addWidget(self.zxdb_retro_button)
 
         self.zxdb_status_label = QLabel("")
         self.zxdb_status_label.setCursor(Qt.ArrowCursor)
@@ -11117,6 +11307,7 @@ class MainWindow(QMainWindow):
                 self.zxdb_results_table.setItem(row, 5, QTableWidgetItem(e.get("genre", "")))
             self._zxdb_last_entries = list(entries)
             self.zxdb_gallery_view.populate(entries)
+            self._pane_retro_gallery_refresh("zxdb")
             self.zxdb_gallery_view.select_entry(
                 lambda _e, _sel=self._zxdb_selected_id: bool(_sel) and _e.get("id") == _sel
             )
@@ -12504,14 +12695,21 @@ class MainWindow(QMainWindow):
                 kind2, detail, shots = res
                 if kind2 == "magazine":
                     return
-                urls = [s.get("url") for s in shots if isinstance(s, dict) and s.get("url")]
-                if urls:
-                    viewer.set_screenshots(urls)
+                img_urls = [s.get("url") for s in shots
+                            if isinstance(s, dict) and s.get("url")]
+                if img_urls:
+                    viewer.set_screenshots(img_urls)
                 else:
                     _dls_tmp = _filter_download_urls(detail.get("downloads", []) or [])
                     _ph_label, _ph_fname = zxfmt_pick_best_download(_dls_tmp)
                     _ph_sub = _ph_fname or detail.get("title") or title
                     viewer.set_placeholder(_ph_label, _ph_sub)
+                # Surface readable text files (e.g. instructions) as Pygame
+                # log-console pages after the pictures; the Qt viewer ignores
+                # them. When there is none, fall back to the description.
+                if not _gallery_add_text_pages(viewer, detail.get("text_files")):
+                    _gallery_add_description_page(
+                        viewer, detail.get("description") or detail.get("remarks"))
                 rows = [
                     ("Title:",       detail.get("title", title)),
                     ("Year:",        str(detail.get("year", "") or "")),
@@ -12537,7 +12735,8 @@ class MainWindow(QMainWindow):
                 )
             return viewer
 
-        self.zxdb_gallery_view.cell_dbl_clicked.connect(_zxdb_open_gallery_viewer)
+        self.zxdb_gallery_view.cell_dbl_clicked.connect(
+            lambda e: self._pane_open_item("zxdb", e, getattr(self, "_zxdb_item_retro", False)))
 
         def _zxdb_apply_view_mode(mode: str, *, persist: bool = True):
             mode = (mode or "table").lower()
@@ -12545,6 +12744,8 @@ class MainWindow(QMainWindow):
                 mode = "table"
             self._zxdb_view_mode = mode
             self.zxdb_view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
+            if getattr(self, "_pane_retro_gallery_refresh", None):
+                self._pane_retro_gallery_refresh("zxdb")
             _table = (mode == "table")
             if hasattr(self, '_zxdb_preview_container'):
                 self._zxdb_preview_container.setVisible(_table)
@@ -12610,7 +12811,7 @@ class MainWindow(QMainWindow):
                         zxdb_set_status(f"Error loading issues: {err[1]}")
                     self._zxdb_detail_thread = getit_run_in_thread(_fn_dbl, _on_ok_dbl, _on_err_dbl)
             else:
-                _zxdb_open_gallery_viewer(entry)
+                self._pane_open_item("zxdb", entry, getattr(self, "_zxdb_item_retro", False))
 
         self.zxdb_results_table.itemDoubleClicked.connect(zxdb_on_row_double_clicked)
 
@@ -13572,6 +13773,11 @@ class MainWindow(QMainWindow):
             "Persisted across sessions in the config file."
         )
         zxart_search_row.addWidget(self.zxart_view_combo)
+        self.zxart_retro_button = _make_retro_toggle_button(
+            self, "_zxart_item_retro",
+            on_change=lambda c, k=SETTING_ZXART_ITEM_RETRO: (
+                _persist_retro(k, c), self._pane_retro_gallery_set("zxart", c)))
+        zxart_search_row.addWidget(self.zxart_retro_button)
 
         self.zxart_language_text_label = QLabel(_zxart_tr("Language:"))
         zxart_search_row.addWidget(self.zxart_language_text_label)
@@ -14418,6 +14624,7 @@ class MainWindow(QMainWindow):
             if _pending_author_rows:
                 _zxart_resolve_author_cols_async(_pending_author_rows)
             self.zxart_gallery_view.populate(entries)
+            self._pane_retro_gallery_refresh("zxart")
             self.zxart_gallery_view.select_entry(
                 lambda _e, _sel=self._zxart_selected_id: bool(_sel) and _e.get("id") == _sel
             )
@@ -15434,7 +15641,7 @@ class MainWindow(QMainWindow):
                 return
             entry = id_item.data(Qt.UserRole) or {}
             if entry:
-                _zxart_open_gallery_viewer(entry)
+                self._pane_open_item("zxart", entry, getattr(self, "_zxart_item_retro", False))
 
         self.zxart_results_table.itemDoubleClicked.connect(zxart_on_row_double_clicked)
 
@@ -15692,6 +15899,21 @@ class MainWindow(QMainWindow):
                                 _ph_label = zxfmt_label_for_name("x." + _fmts[0].lower())
                     viewer.set_placeholder(_ph_label, fetched_title)
                 _gallery_viewer_refresh_meta(viewer, fetched_title, rows)
+                # Surface readable text files among the releases (.txt/.nfo
+                # notes) as Pygame log-console pages; the Qt viewer ignores them.
+                # When there is none, fall back to the description (pulled from
+                # the metadata rows by its translated label).
+                _txt_added = []
+                if releases:
+                    _txt_added = _gallery_add_text_pages(
+                        viewer,
+                        [{"url": r.get("file"), "fileName": r.get("fileName")}
+                         for r in releases if isinstance(r, dict)])
+                if not _txt_added:
+                    _desc_label = _zxart_tr("Description:")
+                    _desc = next((r[1] for r in (rows or [])
+                                  if r and r[0] == _desc_label and len(r) > 1 and r[1]), "")
+                    _gallery_add_description_page(viewer, _desc)
                 # Mirror the ZXDB viewer: once metadata resolves, (re)assert the
                 # action-button visibility so "Download" / "Send to SD card" /
                 # "Send via NextSync" are shown when downloads are enabled for
@@ -15736,7 +15958,8 @@ class MainWindow(QMainWindow):
                 )
             return viewer
 
-        self.zxart_gallery_view.cell_dbl_clicked.connect(_zxart_open_gallery_viewer)
+        self.zxart_gallery_view.cell_dbl_clicked.connect(
+            lambda e: self._pane_open_item("zxart", e, getattr(self, "_zxart_item_retro", False)))
 
         def _zxart_apply_view_mode(mode: str, *, persist: bool = True):
             mode = (mode or "table").lower()
@@ -15744,6 +15967,8 @@ class MainWindow(QMainWindow):
                 mode = "table"
             self._zxart_view_mode = mode
             self.zxart_view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
+            if getattr(self, "_pane_retro_gallery_refresh", None):
+                self._pane_retro_gallery_refresh("zxart")
             _table = (mode == "table")
             if hasattr(self, '_zxart_preview_container'):
                 self._zxart_preview_container.setVisible(_table)
@@ -16615,7 +16840,10 @@ class MainWindow(QMainWindow):
                     self._tab_widget.setCurrentIndex(i)
                     break
             try:
-                opener(entry)
+                # Honour the Favorites pane's Classic/Retro toggle, opening the
+                # item in the source pane's chosen viewer mode.
+                self._pane_open_item(
+                    src, entry, getattr(self, "_favorites_item_retro", False))
             except Exception:
                 pass
 
@@ -16638,6 +16866,11 @@ class MainWindow(QMainWindow):
             "Persisted across sessions in the config file."
         )
         fav_top_row.addWidget(self.favorites_view_combo)
+        self.favorites_retro_button = _make_retro_toggle_button(
+            self, "_favorites_item_retro",
+            on_change=lambda c, k=SETTING_FAVORITES_ITEM_RETRO: (
+                _persist_retro(k, c), self._pane_retro_gallery_set("favorites", c)))
+        fav_top_row.addWidget(self.favorites_retro_button)
         fav_top_row.addStretch(1)
 
         # ── Table view of favorites ────────────────────────────────────────
@@ -16794,7 +17027,7 @@ class MainWindow(QMainWindow):
         )
         allinone_search_row.addWidget(self.allinone_view_combo)
 
-        self.allinone_pygame_button = QPushButton("🎮 Pygame")
+        self.allinone_pygame_button = QPushButton("🎮 Retro")
         self.allinone_pygame_button.setCheckable(True)
         self.allinone_pygame_button.setToolTip(
             "Switch the Unite! Table & Gallery views to a pygame-rendered\n"
@@ -17111,6 +17344,11 @@ class MainWindow(QMainWindow):
                 "Switch between the classic table view and the picture (gallery)\n"
                 "view. Persisted across sessions in the config file.")
             _itchio_crow.addWidget(self.itchio_view_combo)
+            self.itchio_retro_button = _make_retro_toggle_button(
+                self, "_itchio_item_retro",
+                on_change=lambda c, k=SETTING_ITCHIO_ITEM_RETRO: (
+                    _persist_retro(k, c), self._pane_retro_gallery_set("itchio", c)))
+            _itchio_crow.addWidget(self.itchio_retro_button)
             _itchio_v.addLayout(_itchio_crow)
 
             # --- Search row (filters the library: collections + purchases) ---
@@ -17318,12 +17556,13 @@ class MainWindow(QMainWindow):
                 self._itchio_installed_names_cache = None
                 self.itchio_gallery_view.populate(entries)
                 _itchio_fill_table(entries)
+                self._pane_retro_gallery_refresh("itchio")
             self._itchio_populate = _itchio_populate
 
             def _itchio_table_dbl(_idx):
                 e = _itchio_table_entry_for_row(self.itchio_results_table.currentRow())
                 if e is not None:
-                    _itchio_open_gallery_viewer(e)
+                    self._pane_open_item("itchio", e, getattr(self, "_itchio_item_retro", False))
             self.itchio_results_table.doubleClicked.connect(_itchio_table_dbl)
 
             def _itchio_apply_view_mode(mode, *, persist=True):
@@ -17332,6 +17571,8 @@ class MainWindow(QMainWindow):
                     mode = "gallery"
                 self._itchio_view_mode = mode
                 self.itchio_view_stack.setCurrentIndex(0 if mode == "table" else 1)
+                if getattr(self, "_pane_retro_gallery_refresh", None):
+                    self._pane_retro_gallery_refresh("itchio")
                 cb = self.itchio_view_combo
                 target = 0 if mode == "table" else 1
                 if cb.currentIndex() != target:
@@ -17423,6 +17664,13 @@ class MainWindow(QMainWindow):
                 viewer._itchio_busy = False   # True while an install runs
 
                 viewer._itchio_busy = False   # True while an install runs
+
+                # itch.io items are game uploads (zip/exe), not standalone text
+                # files, so surface the item's About/description as the readable
+                # Pygame log-console page (no-op for the Qt viewer).
+                _gallery_add_description_page(
+                    viewer, entry.get("short_text") or entry.get("description"),
+                    label="About")
 
                 def _itchio_open_install_folder(_=False, _e=entry):
                     """Open the item's install folder (or the itch.io downloads
@@ -17781,7 +18029,8 @@ class MainWindow(QMainWindow):
                 return viewer
 
             self._itchio_open_gallery_viewer = _itchio_open_gallery_viewer
-            self.itchio_gallery_view.cell_dbl_clicked.connect(_itchio_open_gallery_viewer)
+            self.itchio_gallery_view.cell_dbl_clicked.connect(
+                lambda e: self._pane_open_item("itchio", e, getattr(self, "_itchio_item_retro", False)))
 
             # --- Collection / search loading (async) ---
             def _itchio_load_collection_games(cid):
@@ -18915,6 +19164,7 @@ class MainWindow(QMainWindow):
         def _fav_repopulate():
             try:
                 self.favorites_gallery_view.populate(list(self._favorites))
+                self._pane_retro_gallery_refresh("favorites")
             except Exception:
                 pass
             try:
@@ -18965,6 +19215,8 @@ class MainWindow(QMainWindow):
                 mode = "gallery"
             self._favorites_view_mode = mode
             self.favorites_view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
+            if getattr(self, "_pane_retro_gallery_refresh", None):
+                self._pane_retro_gallery_refresh("favorites")
             cb = self.favorites_view_combo
             target_idx = 1 if mode == "gallery" else 0
             if cb.currentIndex() != target_idx:
@@ -19084,8 +19336,209 @@ class MainWindow(QMainWindow):
             except Exception:
                 viewer = None
             if viewer is not None:
+                # In Pygame mode a content item may be a plain-text file (.txt,
+                # .nfo, …); wire the raw-bytes fetcher so the viewer can render
+                # it as a retro log console instead of dropping it. The same
+                # fetcher also streams animated .gif screenshots.
+                if hasattr(viewer, "set_text_fetch_cb"):
+                    viewer.set_text_fetch_cb(_gif_fetch_bytes)
+                if hasattr(viewer, "set_gif_fetch_cb"):
+                    viewer.set_gif_fetch_cb(_gif_fetch_bytes)
                 viewer.install_into_stack(None, close_fn=lambda: host.set_scene(prev))
         self._allinone_pygame_open_viewer = _allinone_pygame_open_viewer
+
+        # ── Per-pane Classic ↔ Retro item-viewer routing ────────────────────
+        # Each source pane (GetIt/ZXDB/zxArt/itch.io) can open an item either in
+        # the Classic Qt GalleryItemViewer or, when its Retro toggle is on, in
+        # the pygame PygameItemViewer (which renders .txt/instruction pages as a
+        # log console). The pygame viewer needs a PygameSurfaceWidget host added
+        # to the pane's own stack; created lazily and reused across opens.
+        self._pane_pygame_hosts = {}
+
+        def _pane_info(src):
+            return {
+                "getit": (_getit_open_gallery_viewer, getattr(self, "_getit_stack", None)),
+                "zxdb":  (_zxdb_open_gallery_viewer,  getattr(self, "_zxdb_stack", None)),
+                "zxart": (_zxart_open_gallery_viewer, getattr(self, "_zxart_stack", None)),
+                "itchio": (getattr(self, "_itchio_open_gallery_viewer", None),
+                           getattr(self, "_itchio_stack", None)),
+            }.get(src)
+
+        def _ensure_pane_host(src, stack):
+            host = self._pane_pygame_hosts.get(src)
+            if host is None:
+                import zxnu_pygame as _zpg
+                host = _zpg.PygameSurfaceWidget()
+                try:
+                    host.enable_background(getattr(self, "_allinone_pygame_anim", True))
+                except Exception:
+                    pass
+                stack.addWidget(host)
+                self._pane_pygame_hosts[src] = host
+            return host
+
+        def _pane_open_item(src, entry, retro=False):
+            info = _pane_info(src)
+            if not info or info[0] is None:
+                return None
+            opener, stack = info
+            if retro and stack is not None:
+                try:
+                    from zxnu_pygame import pygame_available, PygameItemViewer
+                    ok, _why = pygame_available()
+                except Exception:
+                    ok = False
+                if ok:
+                    host = _ensure_pane_host(src, stack)
+                    viewer = opener(
+                        entry,
+                        make_viewer=lambda **kw: PygameItemViewer(
+                            host, anim_mode_getter=lambda: self._gallery_anim_mode, **kw),
+                        install=False,
+                    )
+                    if viewer is not None:
+                        if hasattr(viewer, "set_text_fetch_cb"):
+                            viewer.set_text_fetch_cb(_gif_fetch_bytes)
+                        if hasattr(viewer, "set_gif_fetch_cb"):
+                            viewer.set_gif_fetch_cb(_gif_fetch_bytes)
+                        viewer.install_into_stack(
+                            None, close_fn=lambda _s=stack: _s.setCurrentIndex(0))
+                        stack.setCurrentWidget(host)
+                    return viewer
+            # Classic (Qt) path — the opener installs into the pane stack itself.
+            return opener(entry)
+        self._pane_open_item = _pane_open_item
+
+        # ── Per-pane Retro (pygame-rendered) gallery grid ───────────────────
+        # When a pane's Retro toggle is on, its results grid is rendered by the
+        # pygame TableScene/GalleryScene (like the Unite! tab) instead of the Qt
+        # table/gallery. Built lazily and added as index 2 of the pane's
+        # <src>_view_stack; reuses the getters the pane already registered in
+        # self._fav_fetchers.
+        self._pane_retro_galleries = {}   # src -> (host, table_scene, gallery_scene)
+
+        def _pane_gallery_runtime(src):
+            # (view_stack, entries_attr, view_mode_attr, label)
+            return {
+                "getit":  (getattr(self, "getit_view_stack", None),  "_getit_last_entries",  "_getit_view_mode",  "GetIt"),
+                "zxdb":   (getattr(self, "zxdb_view_stack", None),   "_zxdb_last_entries",   "_zxdb_view_mode",   "ZXDB"),
+                "zxart":  (getattr(self, "zxart_view_stack", None),  "_zxart_last_entries",  "_zxart_view_mode",  "zxArt"),
+                "itchio": (getattr(self, "itchio_view_stack", None), "_itchio_last_entries", "_itchio_view_mode", "itch.io"),
+                "favorites": (getattr(self, "favorites_view_stack", None), "_favorites", "_favorites_view_mode", "Favorites"),
+            }.get(src)
+
+        def _pane_retro_getters(src):
+            # (title, info, thumb, open_cb, source_label, is_fav, toggle_fav)
+            if src == "favorites":
+                return (_fav_title_getter, _fav_info_getter, _fav_thumb_fetch,
+                        lambda e: self._fav_open_fullscreen(e),
+                        self._fav_source_label_for,
+                        lambda e: self._fav_is(e), lambda e: self._fav_toggle(e))
+            f = (getattr(self, "_fav_fetchers", None) or {}).get(src) or {}
+            title = f.get("title") or (lambda e: str(e.get("title") or e.get("id") or ""))
+            info = f.get("info") or (lambda e: "")
+            thumb = f.get("thumb")
+            label = {"getit": "GetIt", "zxdb": "ZXDB", "zxart": "zxArt",
+                     "itchio": "itch.io"}.get(src, src)
+            return (title, info, thumb,
+                    lambda e, _s=src: self._pane_open_item(_s, e, True),
+                    lambda _e, _l=label: _l,
+                    lambda e, _s=src: self._fav_is({**e, "_fav_source": _s}),
+                    lambda e, _s=src: self._fav_toggle({**e, "_fav_source": _s}))
+
+        def _pane_retro_gallery_build(src):
+            built = self._pane_retro_galleries.get(src)
+            if built is not None:
+                return built
+            cfg = _pane_gallery_runtime(src)
+            if not cfg or cfg[0] is None:
+                return None
+            import zxnu_pygame as _zpg
+            title, info, thumb, open_cb, src_label, is_fav, tog_fav = _pane_retro_getters(src)
+            host = _zpg.PygameSurfaceWidget()
+            table = _zpg.TableScene(source_label_getter=src_label, title_getter=title,
+                                    info_getter=info, open_cb=open_cb)
+            gallery = _zpg.GalleryScene(title_getter=title, source_label_getter=src_label,
+                                        thumb_fetch_cb=thumb, is_favorite_cb=is_fav,
+                                        toggle_favorite_cb=tog_fav, open_cb=open_cb,
+                                        cols_getter=lambda: self._gallery_cols)
+            # Animate .gif thumbnails regardless of the "Gallery animation"
+            # setting, mirroring the Qt gallery cells.
+            try:
+                gallery.set_gif_fetch_cb(_gif_fetch_bytes)
+            except Exception:
+                pass
+            try:
+                host.enable_background(getattr(self, "_allinone_pygame_anim", True))
+            except Exception:
+                pass
+            cfg[0].addWidget(host)   # index 2 of the pane's view stack
+            self._pane_retro_galleries[src] = (host, table, gallery)
+            return self._pane_retro_galleries[src]
+
+        def _pane_retro_gallery_feed(src):
+            built = self._pane_retro_galleries.get(src)
+            if built is None:
+                return
+            cfg = _pane_gallery_runtime(src)
+            entries = list(getattr(self, cfg[1], []) or []) if cfg else []
+            try:
+                built[1].set_entries(entries)
+                built[2].set_entries(entries)
+            except Exception:
+                pass
+        self._pane_retro_gallery_feed = _pane_retro_gallery_feed
+
+        def _pane_retro_gallery_set_scene(src):
+            built = self._pane_retro_galleries.get(src)
+            cfg = _pane_gallery_runtime(src)
+            if built is None or cfg is None:
+                return
+            mode = (getattr(self, cfg[2], "gallery") or "gallery")
+            built[0].set_scene(built[2] if mode == "gallery" else built[1])
+
+        def _pane_retro_gallery_set(src, on):
+            cfg = _pane_gallery_runtime(src)
+            if not cfg or cfg[0] is None:
+                return
+            view_stack = cfg[0]
+            if on:
+                try:
+                    from zxnu_pygame import pygame_available
+                    ok, _why = pygame_available()
+                except Exception:
+                    ok = False
+                if not ok:
+                    return
+                built = _pane_retro_gallery_build(src)
+                if built is None:
+                    return
+                _pane_retro_gallery_feed(src)
+                _pane_retro_gallery_set_scene(src)
+                try:
+                    built[0].enable_background(getattr(self, "_allinone_pygame_anim", True))
+                except Exception:
+                    pass
+                view_stack.setCurrentWidget(built[0])
+            else:
+                mode = (getattr(self, cfg[2], "gallery") or "gallery")
+                view_stack.setCurrentIndex(1 if mode == "gallery" else 0)
+        self._pane_retro_gallery_set = _pane_retro_gallery_set
+
+        def _pane_retro_gallery_refresh(src):
+            """Re-feed + re-assert the Retro grid when a pane's data or view mode
+            changes while Retro is on (no-op when Classic)."""
+            if not getattr(self, "_" + src + "_item_retro", False):
+                return
+            if self._pane_retro_galleries.get(src) is None:
+                _pane_retro_gallery_set(src, True)
+                return
+            _pane_retro_gallery_feed(src)
+            _pane_retro_gallery_set_scene(src)
+            cfg = _pane_gallery_runtime(src)
+            if cfg and cfg[0] is not None:
+                cfg[0].setCurrentWidget(self._pane_retro_galleries[src][0])
+        self._pane_retro_gallery_refresh = _pane_retro_gallery_refresh
 
         def _allinone_pygame_build():
             if self._allinone_pygame_widget is not None:
@@ -19107,6 +19560,12 @@ class MainWindow(QMainWindow):
                 open_cb=_allinone_pygame_open_viewer,
                 cols_getter=lambda: self._gallery_cols,
             )
+            # Animate .gif thumbnails regardless of the "Gallery animation"
+            # setting, mirroring the Qt gallery cells.
+            try:
+                self._allinone_pygame_gallery.set_gif_fetch_cb(_gif_fetch_bytes)
+            except Exception:
+                pass
             self._allinone_pygame_widget = host
             try:
                 host.enable_background(getattr(self, "_allinone_pygame_anim", True))
@@ -19143,7 +19602,7 @@ class MainWindow(QMainWindow):
             btn = self.allinone_pygame_button
             btn.blockSignals(True)
             btn.setChecked(False)
-            btn.setText("🎮 Pygame")
+            btn.setText("🎮 Retro")
             btn.blockSignals(False)
             btn.setEnabled(False)
             if reason:
@@ -19198,7 +19657,7 @@ class MainWindow(QMainWindow):
                 _allinone_pygame_persist(True)
             else:
                 self._allinone_pygame_on = False
-                self.allinone_pygame_button.setText("🎮 Pygame")
+                self.allinone_pygame_button.setText("🎮 Retro")
                 # Back to Classic: restore the autocomplete completer, honouring
                 # the global "Enable search autocompletion" setting.
                 try:
