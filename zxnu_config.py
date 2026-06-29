@@ -140,6 +140,13 @@ SETTING_SDCARD_PYGAME_LOG      = "sdcard_pygame_log"       # "true" => retro 8-b
 SETTING_ITCHIO_API_KEY         = "itchio_api_key"          # str: personal itch.io API key (https://itch.io/user/settings/api-keys)
 SETTING_SHOW_ITCHIO_TAB        = "show_itchio_tab"         # "false" => hide the itch.io tab (default shown when itch-dl is installed)
 SETTING_ITCHIO_VIEW_MODE       = "itchio_view_mode"        # "gallery" (default) or "table"
+# Per-pane item-viewer mode: "true" => open items in the Retro (pygame) viewer
+# (renders .txt/instruction pages as a log console), else the Classic Qt viewer.
+SETTING_GETIT_ITEM_RETRO       = "getit_item_retro"
+SETTING_ZXDB_ITEM_RETRO        = "zxdb_item_retro"
+SETTING_ZXART_ITEM_RETRO       = "zxart_item_retro"
+SETTING_ITCHIO_ITEM_RETRO      = "itchio_item_retro"
+SETTING_FAVORITES_ITEM_RETRO   = "favorites_item_retro"
 SETTING_NEXTSYNC_PYGAME_ANIM   = "nextsync_pygame_anim"    # "false" => freeze the starfield in the NextSync retro log (default on)
 SETTING_ALLINONE_PYGAME_ANIM   = "allinone_pygame_anim"    # "false" => disable the Space-Invaders background (default on)
 SETTING_ALIEN_FLOYD_BG         = "alien_floyd_bg"          # "true" => pygame-ce "Alien Floyd's" animated background on all tabs (default off)
@@ -476,7 +483,8 @@ SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVO
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
 SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_SDCARD_PYGAME_LOG,
-SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE)
+SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE,
+SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
