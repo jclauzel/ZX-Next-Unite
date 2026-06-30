@@ -2146,6 +2146,21 @@ def _gallery_add_description_page(viewer, description, label="Description"):
     add(label, description)
 
 
+def _wrap_flow_row(flow_layout):
+    """Put a FlowLayout on a fresh QWidget and enable height-for-width so the
+    wrapping toolbar can grow taller (onto extra rows) when the window is too
+    narrow to fit it on one line. Returns the container widget to add to the
+    parent layout."""
+    w = QWidget()
+    w.setAttribute(Qt.WA_TranslucentBackground)
+    w.setAutoFillBackground(False)
+    w.setLayout(flow_layout)
+    sp = w.sizePolicy()
+    sp.setHeightForWidth(True)
+    w.setSizePolicy(sp)
+    return w
+
+
 def _make_retro_toggle_button(window, flag_attr, status_cb=None, on_change=None):
     """Build a checkable "Classic ↔ Retro" toggle button for a gallery pane.
 
@@ -9201,11 +9216,12 @@ class MainWindow(QMainWindow):
         self.getit_form = QFormLayout()
         self.getit_form.setContentsMargins(4, 4, 4, 4)
 
-        # --- Search row ---
-        getit_search_row = QHBoxLayout()
+        # --- Search row (wraps onto extra rows when the window is narrow) ---
+        getit_search_row = FlowLayout(margin=2)
         self.getit_search_input = QLineEdit()
         self.getit_search_input.setPlaceholderText("Search files... (leave empty for latest 20)")
         self.getit_search_input.setMinimumWidth(280)
+        self.getit_search_input.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         getit_search_row.addWidget(self.getit_search_input)
 
         self._getit_search_valid_lbl = QLabel()
@@ -9253,10 +9269,9 @@ class MainWindow(QMainWindow):
         getit_search_row.addWidget(self.getit_retro_button)
 
         self.getit_status_label = QLabel("")
-        getit_search_row.addWidget(self.getit_status_label, 1)
+        getit_search_row.addWidget(self.getit_status_label)
 
-        getit_search_widget = QWidget()
-        getit_search_widget.setLayout(getit_search_row)
+        getit_search_widget = _wrap_flow_row(getit_search_row)
         # NOTE: the search/button bar is intentionally NOT added to the
         # scrolled form here.  It is placed in a fixed header above the
         # scroll area (see _getit_stack assembly) so the vertical scroller
@@ -10741,11 +10756,12 @@ class MainWindow(QMainWindow):
         self.zxdb_form = QFormLayout()
         self.zxdb_form.setContentsMargins(4, 4, 4, 4)
 
-        # --- Search row ---
-        zxdb_search_row = QHBoxLayout()
+        # --- Search row (wraps onto extra rows when the window is narrow) ---
+        zxdb_search_row = FlowLayout(margin=2)
         self.zxdb_search_input = QLineEdit()
         self.zxdb_search_input.setPlaceholderText("Search ZXDB games... (leave empty for random selection)")
         self.zxdb_search_input.setMinimumWidth(280)
+        self.zxdb_search_input.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         zxdb_search_row.addWidget(self.zxdb_search_input)
 
         self._zxdb_search_valid_lbl = QLabel()
@@ -10833,10 +10849,9 @@ class MainWindow(QMainWindow):
                 else:
                     subprocess.Popen(["xdg-open", p])
         self.zxdb_status_label.mousePressEvent = _zxdb_status_mouse_press
-        zxdb_search_row.addWidget(self.zxdb_status_label, 1)
+        zxdb_search_row.addWidget(self.zxdb_status_label)
 
-        zxdb_search_widget = QWidget()
-        zxdb_search_widget.setLayout(zxdb_search_row)
+        zxdb_search_widget = _wrap_flow_row(zxdb_search_row)
         # Keep the search/button bar fixed above the scroll area (see the
         # _zxdb_stack assembly) so the vertical scroller only covers the
         # results/details area, matching the Unite! tab.
@@ -13705,11 +13720,12 @@ class MainWindow(QMainWindow):
         self.zxart_form = QFormLayout()
         self.zxart_form.setContentsMargins(4, 4, 4, 4)
 
-        # --- Search row ---
-        zxart_search_row = QHBoxLayout()
+        # --- Search row (wraps onto extra rows when the window is narrow) ---
+        zxart_search_row = FlowLayout(margin=2)
         self.zxart_search_input = QLineEdit()
         self.zxart_search_input.setPlaceholderText("Search zxART productions... (leave empty to browse latest)")
         self.zxart_search_input.setMinimumWidth(280)
+        self.zxart_search_input.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         zxart_search_row.addWidget(self.zxart_search_input)
 
         self._zxart_search_valid_lbl = QLabel()
@@ -13813,10 +13829,9 @@ class MainWindow(QMainWindow):
                     subprocess.Popen(["xdg-open", p])
 
         self.zxart_status_label.mousePressEvent = _zxart_status_mouse_press
-        zxart_search_row.addWidget(self.zxart_status_label, 1)
+        zxart_search_row.addWidget(self.zxart_status_label)
 
-        zxart_search_widget = QWidget()
-        zxart_search_widget.setLayout(zxart_search_row)
+        zxart_search_widget = _wrap_flow_row(zxart_search_row)
         # Keep the search/button bar fixed above the scroll area (see the
         # _zxart_stack assembly) so the vertical scroller only covers the
         # results/details area, matching the Unite! tab.
@@ -16976,13 +16991,14 @@ class MainWindow(QMainWindow):
         allinone_v = QVBoxLayout(zxnextunite_AllInOne_tab)
         allinone_v.setContentsMargins(4, 4, 4, 4)
 
-        # --- Search row ---
-        allinone_search_row = QHBoxLayout()
+        # --- Search row (wraps onto extra rows when the window is narrow) ---
+        allinone_search_row = FlowLayout(margin=2)
         self.allinone_search_input = QLineEdit()
         self.allinone_search_input.setPlaceholderText(
             "Search across GetIt + ZXDB + zxArt..."
         )
         self.allinone_search_input.setMinimumWidth(280)
+        self.allinone_search_input.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         allinone_search_row.addWidget(self.allinone_search_input)
 
         self._allinone_search_valid_lbl = QLabel()
@@ -17037,9 +17053,9 @@ class MainWindow(QMainWindow):
         allinone_search_row.addWidget(self.allinone_pygame_button)
 
         self.allinone_status_label = QLabel("")
-        allinone_search_row.addWidget(self.allinone_status_label, 1)
+        allinone_search_row.addWidget(self.allinone_status_label)
 
-        allinone_v.addLayout(allinone_search_row)
+        allinone_v.addWidget(_wrap_flow_row(allinone_search_row))
 
         # --- Preview panel (right column, shown only in Table view) ---
         self.allinone_screenshot_label = QLabel()
@@ -17304,15 +17320,16 @@ class MainWindow(QMainWindow):
             _itchio_v = QVBoxLayout(_itchio_main)
             _itchio_v.setContentsMargins(6, 6, 6, 6)
 
-            # --- Authentication row ---
-            _itchio_auth = QHBoxLayout()
+            # --- Authentication row (wraps when the window is narrow) ---
+            _itchio_auth = FlowLayout(margin=2)
             _itchio_auth.addWidget(QLabel("itch.io API key:"))
             self.itchio_key_input = QLineEdit()
             self.itchio_key_input.setEchoMode(QLineEdit.Password)
             self.itchio_key_input.setPlaceholderText(
                 "Paste your personal API key (itch.io → Settings → API keys)")
             self.itchio_key_input.setText(_itchio_api_key())
-            _itchio_auth.addWidget(self.itchio_key_input, 1)
+            self.itchio_key_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            _itchio_auth.addWidget(self.itchio_key_input)
             self.itchio_connect_button = QPushButton("Connect")
             _itchio_auth.addWidget(self.itchio_connect_button)
             self.itchio_getkey_button = QPushButton("Get API key…")
@@ -17326,14 +17343,15 @@ class MainWindow(QMainWindow):
             self.itchio_site_link.setOpenExternalLinks(True)
             self.itchio_site_link.setToolTip("Open https://itch.io/ in your browser")
             _itchio_auth.addWidget(self.itchio_site_link)
-            _itchio_v.addLayout(_itchio_auth)
+            _itchio_v.addWidget(_wrap_flow_row(_itchio_auth))
 
-            # --- Collections row ---
-            _itchio_crow = QHBoxLayout()
+            # --- Collections row (wraps when the window is narrow) ---
+            _itchio_crow = FlowLayout(margin=2)
             _itchio_crow.addWidget(QLabel("Collection:"))
             self.itchio_collection_combo = QComboBox()
             self.itchio_collection_combo.setMinimumWidth(260)
-            _itchio_crow.addWidget(self.itchio_collection_combo, 1)
+            self.itchio_collection_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            _itchio_crow.addWidget(self.itchio_collection_combo)
             self.itchio_refresh_button = QPushButton("Refresh")
             _itchio_crow.addWidget(self.itchio_refresh_button)
             _itchio_crow.addWidget(QLabel("View:"))
@@ -17349,19 +17367,22 @@ class MainWindow(QMainWindow):
                 on_change=lambda c, k=SETTING_ITCHIO_ITEM_RETRO: (
                     _persist_retro(k, c), self._pane_retro_gallery_set("itchio", c)))
             _itchio_crow.addWidget(self.itchio_retro_button)
-            _itchio_v.addLayout(_itchio_crow)
+            _itchio_v.addWidget(_wrap_flow_row(_itchio_crow))
 
             # --- Search row (filters the library: collections + purchases) ---
-            _itchio_srow = QHBoxLayout()
+            # Wraps the Search button onto a second line when the window is too
+            # narrow to fit it beside the (expanding) input box.
+            _itchio_srow = FlowLayout(margin=2)
             _itchio_srow.addWidget(QLabel("Search:"))
             self.itchio_search_input = QLineEdit()
             self.itchio_search_input.setPlaceholderText(
                 "Search your itch.io library (collections + purchases)…")
             self.itchio_search_input.setClearButtonEnabled(True)
-            _itchio_srow.addWidget(self.itchio_search_input, 1)
+            self.itchio_search_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            _itchio_srow.addWidget(self.itchio_search_input)
             self.itchio_search_button = QPushButton("Search")
             _itchio_srow.addWidget(self.itchio_search_button)
-            _itchio_v.addLayout(_itchio_srow)
+            _itchio_v.addWidget(_wrap_flow_row(_itchio_srow))
 
             # Autocomplete over the library titles (populated once the library
             # is built after Connect).
