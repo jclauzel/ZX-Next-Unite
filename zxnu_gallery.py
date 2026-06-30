@@ -2852,15 +2852,14 @@ class BackgroundWidget(QWidget):
 
 class RetroLoadingOverlay(QWidget):
     """A translucent overlay that paints a chunky, animated 8-bit
-    ``LOADING CONTENT...`` banner centred over a host widget.
+    ``SEARCHING...`` banner centred over a host widget.
 
     It is a plain Qt overlay drawn entirely with ``QPainter`` (a hand-coded
     5x7 pixel font), so it floats over whatever the host shows underneath —
     the classic table / gallery widgets *or* the pygame-rendered Unite! view —
     without caring which.  Visibility is driven by a caller-supplied predicate
-    polled on the animation timer, so the banner appears only while the pane is
-    still empty and a fetch is running, then disappears the instant real
-    content lands.
+    polled on the animation timer, so the banner appears while a fetch is in
+    flight (even over already-populated content) and disappears when it lands.
 
     Usage::
 
@@ -2891,10 +2890,13 @@ class RetroLoadingOverlay(QWidget):
         "C": (".XXX." "X...X" "X...." "X...." "X...." "X...X" ".XXX."),
         "T": ("XXXXX" "..X.." "..X.." "..X.." "..X.." "..X.." "..X.."),
         "E": ("XXXXX" "X...." "X...." "XXXX." "X...." "X...." "XXXXX"),
+        "S": (".XXXX" "X...." "X...." ".XXX." "....X" "....X" "XXXX."),
+        "R": ("XXXX." "X...X" "X...X" "XXXX." "X.X.." "X..X." "X...X"),
+        "H": ("X...X" "X...X" "X...X" "XXXXX" "X...X" "X...X" "X...X"),
         ".": ("....." "....." "....." "....." "....." ".XX.." ".XX.."),
     }
 
-    def __init__(self, host, should_show_cb, text="LOADING CONTENT", parent=None):
+    def __init__(self, host, should_show_cb, text="SEARCHING", parent=None):
         super().__init__(parent or host)
         self._host = host
         self._should_show_cb = should_show_cb
@@ -2960,9 +2962,11 @@ class RetroLoadingOverlay(QWidget):
         # horizontally as the animated "..." grows and shrinks.
         n_slots = len(text) + 3
         total_w_cells = n_slots * 6 - 1            # 5 px glyph + 1 px gap each
-        px = int(min(w * 0.86 / max(1, total_w_cells), h * 0.34 / 7))
-        if px < 2:
-            px = 2
+        # Compact, centred "flyout": size the pixel font to a small fraction of
+        # the host and cap it so the banner stays small/unobtrusive even on big
+        # windows (was 0.86*w / 0.34*h, which filled most of the pane).
+        px = int(min(w * 0.40 / max(1, total_w_cells), h * 0.16 / 7))
+        px = max(2, min(px, 5))
         text_w = total_w_cells * px
         glyph_h = 7 * px
         amp = max(1.0, px * 1.5)
