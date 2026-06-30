@@ -3,9 +3,123 @@
 Extracted from zx-next-unite.py."""
 
 import threading
-from PySide6.QtCore import QObject, QRunnable, QSortFilterProxyModel, QTimer, Qt, Signal, Slot
+from PySide6.QtCore import (
+    QObject, QPoint, QRect, QRunnable, QSize, QSortFilterProxyModel, QTimer,
+    Qt, Signal, Slot,
+)
 from PySide6.QtGui import QFontInfo
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import (
+    QDialog, QHBoxLayout, QLabel, QLayout, QProgressBar, QPushButton, QVBoxLayout,
+)
+
+
+class FlowLayout(QLayout):
+    """Left-to-right layout that wraps onto a new row when the available width
+    runs out, instead of squeezing items past their minimum size.
+
+    A plain ``QHBoxLayout`` toolbar overlaps its widgets when the window is made
+    narrower than the row's combined minimum width: the box layout shrinks each
+    item's allocated slot below its minimum, but ``QWidget.setGeometry`` clamps
+    the widget back up to its minimum, so neighbours get drawn on top of each
+    other (e.g. the Search button overlapping the search box).  Wrapping avoids
+    that entirely -- items that no longer fit move to the next row.
+
+    Adapted from the Qt "Flow Layout" example, with two additions used by the
+    search/toolbar rows:
+
+    * hidden widgets (``item.isEmpty()``) reserve no space, and
+    * any item whose horizontal size policy is Expanding/MinimumExpanding grows
+      to share the leftover width on its row -- the flow-layout equivalent of a
+      ``QBoxLayout`` stretch factor, so a search input can still fill the bar.
+    """
+
+    def __init__(self, parent=None, margin=0, hspacing=6, vspacing=4):
+        super().__init__(parent)
+        self._items = []
+        self._hspace = hspacing
+        self._vspace = vspacing
+        self.setContentsMargins(margin, margin, margin, margin)
+
+    # --- QLayout plumbing -------------------------------------------------
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index):
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientations(Qt.Orientation(0))
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self._items:
+            if item.isEmpty():
+                continue
+            size = size.expandedTo(item.minimumSize())
+        m = self.contentsMargins()
+        return size + QSize(m.left() + m.right(), m.top() + m.bottom())
+
+    # --- layout core ------------------------------------------------------
+    @staticmethod
+    def _expanding(item):
+        return bool(item.expandingDirections() & Qt.Horizontal)
+
+    def _do_layout(self, rect, test_only):
+        m = self.contentsMargins()
+        area = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
+        y = area.y()
+        line = []          # [(item, width, height), ...] for the current row
+        line_w = 0         # widths + interior spacing accumulated so far
+
+        def flush(line, y):
+            if not line:
+                return 0
+            used = sum(w for _, w, _h in line) + self._hspace * (len(line) - 1)
+            extra = max(0, area.width() - used)
+            growers = [t for t in line if self._expanding(t[0])]
+            per = extra // len(growers) if growers else 0
+            x = area.x()
+            line_h = 0
+            for it, w, h in line:
+                ww = w + (per if self._expanding(it) else 0)
+                if not test_only:
+                    it.setGeometry(QRect(QPoint(x, y), QSize(ww, h)))
+                x += ww + self._hspace
+                line_h = max(line_h, h)
+            return line_h
+
+        for item in self._items:
+            if item.isEmpty():            # hidden widget -> no space reserved
+                continue
+            hint = item.sizeHint()
+            w, h = hint.width(), hint.height()
+            projected = line_w + (self._hspace if line else 0) + w
+            if line and projected > area.width():
+                y += flush(line, y) + self._vspace
+                line, line_w = [], 0
+            line.append((item, w, h))
+            line_w += (self._hspace if len(line) > 1 else 0) + w
+        y += flush(line, y)
+        return y - rect.y() + m.bottom()
 
 
 class DotDotFirstProxyModel(QSortFilterProxyModel):
