@@ -132,6 +132,7 @@ C_HEADER    = (28, 28, 28)
 C_BADGE_BG  = (28, 58, 82)
 C_BADGE_TX  = (191, 230, 255)
 C_GRID_LINE = (40, 40, 40)
+C_STAR      = (255, 204, 68)   # gold star rating (mirrors classic #ffcc44)
 
 
 # ── conversions ─────────────────────────────────────────────────────────────
@@ -4087,6 +4088,13 @@ class GalleryScene(_Scene):
         self._open_cb = open_cb
         self._cols_getter = cols_getter
         self._entries = []
+        # Per-entry (title, rating) split out of the aggregated title once when
+        # entries are set (mirrors TableScene). The rating carries the zxART
+        # star span, e.g. "★★★☆☆  (4.2)"; _show_ratings is True when at least
+        # one visible entry has one, so a star line is reserved under the title
+        # (matching the classic GalleryCell's gold second line).
+        self._titles = []       # index -> (title, rating)
+        self._show_ratings = False
         self._surfs = {}        # index -> scaled Surface
         self._requested = set()
         self._scroll = 0
@@ -4144,6 +4152,16 @@ class GalleryScene(_Scene):
 
     def set_entries(self, entries):
         self._entries = list(entries or [])
+        self._titles = []
+        for e in self._entries:
+            raw = ""
+            if isinstance(e, dict) and self._title_getter:
+                try:
+                    raw = self._title_getter(e)
+                except Exception:
+                    raw = ""
+            self._titles.append(_split_title_rating(raw))
+        self._show_ratings = any(r for _t, r in self._titles)
         self._surfs = {}
         self._requested = set()
         self._scroll = 0
@@ -4171,7 +4189,10 @@ class GalleryScene(_Scene):
         gap = self.s(8)
         w = self.size[0]
         cw = max(self.s(80), (w - gap * (cols + 1)) // cols)
-        ch = int(cw * 0.82) + self.s(22)   # image (~4:3) + title strip
+        strip = self.s(22)                 # title line
+        if self._show_ratings:
+            strip += self.s(15)            # + gold star-rating line
+        ch = int(cw * 0.82) + strip        # image (~4:3) + title/rating strip
         return cw, ch, gap
 
     def _cell_rect(self, idx):
@@ -4274,11 +4295,19 @@ class GalleryScene(_Scene):
                 lbl = "…"
                 _draw_text(surface, lbl, cell.centerx - self.s(4),
                            cell.y + img_h // 2 - self.s(6), tf, C_TEXT_OFF)
-            # title strip
-            title, _r = _split_title_rating(
-                self._title_getter(e) if self._title_getter else "")
+            # title strip (+ gold star-rating line, like the classic GalleryCell)
+            if i < len(self._titles):
+                title, rating = self._titles[i]
+            else:
+                title, rating = _split_title_rating(
+                    self._title_getter(e) if self._title_getter else "")
+            ty = cell.y + img_h + self.s(3)
             _draw_text(surface, _elide(title, tf, cw - self.s(6)),
-                       cell.x + self.s(3), cell.y + img_h + self.s(3), tf, C_TEXT)
+                       cell.x + self.s(3), ty, tf, C_TEXT)
+            if rating and self._show_ratings:
+                sf = _font(self.s(9))
+                _draw_text(surface, _elide(rating, sf, cw - self.s(6)),
+                           cell.x + self.s(3), ty + tf.get_height(), sf, C_STAR)
             # source badge (bottom-right of image)
             src = self._src_lbl(e) if self._src_lbl else ""
             if src:
