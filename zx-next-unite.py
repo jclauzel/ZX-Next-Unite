@@ -9509,12 +9509,13 @@ class MainWindow(QMainWindow):
         self.getit_view_stack.addWidget(self.getit_gallery_view)  # index 1: Gallery
 
         getit_table_row.addWidget(self.getit_view_stack, 1)
-        # Animated retro "LOADING CONTENT..." banner shown over the results area
-        # while the first fetch is in flight and nothing has been rendered yet.
+        # Animated retro "SEARCHING..." banner shown over the results area
+        # whenever a fetch is in flight — including re-searches
+        # over already-populated content, so it stays visible on top of the
+        # pygame GalleryScene (not only on the first/empty load).
         self._getit_loading_overlay = RetroLoadingOverlay(
             self.getit_view_stack,
-            lambda: (self.getit_results_table.rowCount() == 0
-                     and getattr(self, "_getit_search_loading", False)))
+            lambda: getattr(self, "_getit_search_loading", False))
         getit_table_row.addWidget(getit_right_widget)
         getit_table_container = QWidget()
         getit_table_container.setLayout(getit_table_row)
@@ -11197,12 +11198,13 @@ class MainWindow(QMainWindow):
         self.zxdb_view_stack.addWidget(self.zxdb_gallery_view)  # index 1
 
         zxdb_table_row.addWidget(self.zxdb_view_stack, 1)
-        # Animated retro "LOADING CONTENT..." banner over the results area while
-        # the first fetch is in flight and nothing has been rendered yet.
+        # Animated retro "SEARCHING..." banner over the
+        # results area whenever a fetch is in flight — including re-searches over
+        # already-populated content, so it stays visible on top of the pygame
+        # GalleryScene (not only on the first/empty load).
         self._zxdb_loading_overlay = RetroLoadingOverlay(
             self.zxdb_view_stack,
-            lambda: (self.zxdb_results_table.rowCount() == 0
-                     and getattr(self, "_zxdb_search_loading", False)))
+            lambda: getattr(self, "_zxdb_search_loading", False))
         zxdb_table_row.addWidget(zxdb_right_widget)
         zxdb_table_container = QWidget()
         zxdb_table_container.setLayout(zxdb_table_row)
@@ -14298,12 +14300,13 @@ class MainWindow(QMainWindow):
         self.zxart_view_stack.addWidget(self.zxart_gallery_view)  # index 1
 
         zxart_table_row.addWidget(self.zxart_view_stack, 1)
-        # Animated retro "LOADING CONTENT..." banner over the results area while
-        # the first fetch is in flight and nothing has been rendered yet.
+        # Animated retro "SEARCHING..." banner over the
+        # results area whenever a fetch is in flight — including re-searches over
+        # already-populated content, so it stays visible on top of the pygame
+        # GalleryScene (not only on the first/empty load).
         self._zxart_loading_overlay = RetroLoadingOverlay(
             self.zxart_view_stack,
-            lambda: (self.zxart_results_table.rowCount() == 0
-                     and getattr(self, "_zxart_search_loading", False)))
+            lambda: getattr(self, "_zxart_search_loading", False))
         zxart_table_row.addWidget(zxart_right_widget)
         zxart_table_container = QWidget()
         zxart_table_container.setLayout(zxart_table_row)
@@ -17212,14 +17215,15 @@ class MainWindow(QMainWindow):
         # Wrap view_stack + right preview widget in a horizontal row
         allinone_table_row = QHBoxLayout()
         allinone_table_row.addWidget(self.allinone_view_stack, 1)
-        # Animated retro "LOADING CONTENT..." banner over the results area while
-        # the startup "Latest" multi-search is in flight and nothing has been
-        # rendered yet.  Works in both Classic (table/gallery) and Pygame modes:
-        # the overlay floats above whichever page the view-stack is showing.
+        # Animated retro "SEARCHING..." banner over the
+        # results area whenever a multi-source fan-out is in flight — including
+        # re-searches over already-populated content, so it stays visible on top
+        # of the pygame GalleryScene (not only on the first/empty load).
+        # Works in both Classic (table/gallery) and Pygame modes: the overlay
+        # floats above whichever page the view-stack is showing.
         self._allinone_loading_overlay = RetroLoadingOverlay(
             self.allinone_view_stack,
-            lambda: (self.allinone_results_table.rowCount() == 0
-                     and getattr(self, "_allinone_bulk_active", False)))
+            lambda: getattr(self, "_allinone_bulk_active", False))
         allinone_table_row.addWidget(allinone_right_widget)
         allinone_table_container = QWidget()
         allinone_table_container.setLayout(allinone_table_row)
