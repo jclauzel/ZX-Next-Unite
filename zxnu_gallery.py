@@ -13,7 +13,7 @@ from zxnu_config import *
 from zxnu_media import *
 from PySide6.QtCore import QBuffer, QByteArray, QDir, QEvent, QIODevice, QRect, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFontInfo, QMovie, QPainter, QPixmap
-from PySide6.QtWidgets import QAbstractItemView, QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTableWidget, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QAbstractItemView, QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTableWidget, QToolButton, QToolTip, QVBoxLayout, QWidget
 
 
 class GalleryCell(QFrame):
@@ -3022,6 +3022,390 @@ class RetroLoadingOverlay(QWidget):
                         p.fillRect(x + shadow, ry + shadow, px, px,
                                    QColor(0, 0, 0, 130))
                         p.fillRect(x, ry, px, px, color)
+        p.end()
+
+
+class TabSpriteSidebar(QWidget):
+    """A slim vertical bar of animated 8-bit sprite icons that mirror — and
+    drive — a ``QTabWidget``.
+
+    On narrow windows the top tab bar overflows behind ``<`` / ``>`` scroll
+    arrows; this sidebar gives a permanent, always-visible column of colourful
+    retro icons (one per tab) so the user can jump straight to any tab.  Each
+    icon is a small pixel-art sprite (a char grid + colour palette, the same
+    technique as the pygame "Alien Floyd" sprites) painted with ``QPainter`` so
+    it needs no optional pygame dependency.  The icons gently bob and shimmer,
+    and the active tab gets a rainbow-cycled highlight.
+
+    The bar polls the tab widget on its animation timer and rebuilds itself when
+    the set of tabs changes (tabs are added/removed for the optional itch.io /
+    Alien Floyd's panes), so it stays in sync without extra wiring.
+    """
+
+    _GRID = 11           # sprites are 11x11 char grids ('.' = transparent)
+    _PX = 3              # pixels per sprite cell
+    _CELL_H = 50         # vertical pitch of each icon cell
+    _BAR_W = 54          # fixed sidebar width
+    _FPS_MS = 90
+
+    # Rainbow palette cycled on the active-tab highlight (ZX-ish, black omitted).
+    _HILITE = [
+        (0, 110, 255), (255, 48, 48), (224, 48, 224), (48, 216, 64),
+        (48, 216, 216), (255, 208, 48), (245, 245, 245),
+    ]
+
+    # (lowercased keyword found in the tab title) -> sprite key. First match
+    # wins, so order the more specific keywords first.
+    _MATCH = (
+        ("sd card", "sd"), ("nextsync", "sync"), ("sync", "sync"),
+        ("getit", "getit"), ("zxart", "zxart"), ("zxinfo", "zxdb"),
+        ("zxdb", "zxdb"), ("favorite", "fav"), ("unite", "unite"),
+        ("itch", "itchio"), ("floyd", "floyd"), ("alien", "floyd"),
+        ("setting", "settings"), ("help", "help"),
+    )
+
+    # name -> (rows, palette).  Each row is _GRID chars wide.
+    _SPRITES = {
+        "sd": ([
+            "...........",
+            ".bbbbbb....",
+            ".bBBBBBb...",
+            ".bBBBBBBb..",
+            ".bBBBBBBb..",
+            ".byyyyyBb..",
+            ".bBBBBBBb..",
+            ".bBBBBBBb..",
+            ".bBBBBBBb..",
+            ".bbbbbbbb..",
+            "...........",
+        ], {"b": (35, 60, 120), "B": (85, 135, 220), "y": (245, 205, 80)}),
+        "sync": ([
+            "...........",
+            "..g........",
+            ".ggg.......",
+            "ggggg......",
+            "..g.....c..",
+            "..g.....c..",
+            "..g.....c..",
+            "......ccccc",
+            ".......ccc.",
+            "........c..",
+            "...........",
+        ], {"g": (80, 210, 110), "c": (110, 210, 235)}),
+        "getit": ([
+            "...bbbbb...",
+            "..bbbbbbb..",
+            ".bbgggbbbb.",
+            ".bggggbbbb.",
+            "bbbgggbbbbb",
+            "bbbbbbgggbb",
+            ".bbbbbgggb.",
+            ".bbbbbgggb.",
+            "..bbbbbbb..",
+            "...bbbbb...",
+            "...........",
+        ], {"b": (70, 150, 225), "g": (80, 200, 110)}),
+        "zxart": ([
+            "...........",
+            ".fffffffff.",
+            ".fsssssssf.",
+            ".fsssysssf.",
+            ".fgggggggf.",
+            ".fgrgrgggf.",
+            ".fgggggggf.",
+            ".fffffffff.",
+            "...........",
+            "...........",
+            "...........",
+        ], {"f": (150, 90, 50), "s": (120, 200, 235), "y": (255, 220, 90),
+            "g": (80, 190, 110), "r": (230, 80, 90)}),
+        "zxdb": ([
+            "...........",
+            "..ddddddd..",
+            ".dDDDDDDDd.",
+            "..ddddddd..",
+            ".dDDDDDDDd.",
+            ".dDDDDDDDd.",
+            "..ddddddd..",
+            ".dDDDDDDDd.",
+            ".dDDDDDDDd.",
+            "..ddddddd..",
+            "...........",
+        ], {"d": (90, 210, 225), "D": (40, 150, 180)}),
+        "fav": ([
+            "...........",
+            "..rr...rr..",
+            ".rRRr.rRRr.",
+            "rRRRRrRRRRr",
+            "rRRRRRRRRRr",
+            "rRRRRRRRRRr",
+            ".rRRRRRRRr.",
+            "..rRRRRRr..",
+            "...rRRRr...",
+            "....rRr....",
+            ".....r.....",
+        ], {"r": (190, 40, 60), "R": (255, 85, 110)}),
+        "unite": ([
+            ".....y.....",
+            ".....y.....",
+            "....yYy....",
+            "....yYy....",
+            "yyyyYYYyyyy",
+            ".yYYYYYYYy.",
+            "..YYYYYYY..",
+            "..YYY.YYY..",
+            ".yYY...YYy.",
+            ".y.......y.",
+            "...........",
+        ], {"y": (230, 180, 40), "Y": (255, 225, 90)}),
+        "itchio": ([
+            "...........",
+            ".RRRRRRRRR.",
+            ".RRRRRRRRR.",
+            ".RRRwwwRRR.",
+            ".RRRwwwRRR.",
+            ".RRRRRRRRR.",
+            ".RRRwwwRRR.",
+            ".RRRwwwRRR.",
+            ".RRRwwwRRR.",
+            ".RRRRRRRRR.",
+            "...........",
+        ], {"R": (250, 60, 60), "w": (255, 255, 255)}),
+        "settings": ([
+            "...g.g.g...",
+            "..ggGGGgg..",
+            "...GGGGG...",
+            ".gGG...GGg.",
+            ".gG..h..Gg.",
+            "gGG.hhh.GGg",
+            ".gG..h..Gg.",
+            ".gGG...GGg.",
+            "...GGGGG...",
+            "..ggGGGgg..",
+            "...g.g.g...",
+        ], {"g": (110, 110, 120), "G": (170, 175, 190), "h": (60, 60, 70)}),
+        "help": ([
+            "...........",
+            "...yyyyy...",
+            "..yy...yy..",
+            ".......yy..",
+            "....yyyy...",
+            "....yy.....",
+            "....yy.....",
+            "...........",
+            "....yy.....",
+            "...........",
+            "...........",
+        ], {"y": (255, 215, 70)}),
+        "floyd": ([
+            ".....w.....",
+            "....www....",
+            "...wwwww...",
+            "..wwwwwww..",
+            ".wwwwwwwww.",
+            "wwwwwwwwwww",
+            "...........",
+            "RRoyyGGbbvv",
+            "RRoyyGGbbvv",
+            "...........",
+            "...........",
+        ], {"w": (240, 240, 250), "R": (230, 60, 60), "o": (240, 150, 50),
+            "y": (245, 225, 80), "G": (70, 200, 110), "b": (70, 130, 230),
+            "v": (170, 90, 210)}),
+        "fallback": ([
+            "....ggg....",
+            "...gGGGg...",
+            "..gGGGGGg..",
+            ".gGGGGGGGg.",
+            "gGGGGGGGGGg",
+            "gGGGGGGGGGg",
+            ".gGGGGGGGg.",
+            "..gGGGGGg..",
+            "...gGGGg...",
+            "....ggg....",
+            "...........",
+        ], {"g": (120, 120, 140), "G": (180, 185, 205)}),
+    }
+
+    def __init__(self, tab_widget, parent=None):
+        super().__init__(parent)
+        self._tab = tab_widget
+        self._cells = []        # list of (tab_index, sprite_key)
+        self._signature = None
+        self._frame = 0
+        self._hover = -1
+        self.setFixedWidth(self._BAR_W)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.setMouseTracking(True)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setCursor(Qt.PointingHandCursor)
+        try:
+            tab_widget.currentChanged.connect(lambda *_: self.update())
+        except Exception:
+            pass
+        self._rebuild()
+        self._timer = QTimer(self)
+        self._timer.setInterval(self._FPS_MS)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start()
+
+    # ---- tab mirroring --------------------------------------------------
+    def _sprite_key_for(self, title):
+        t = str(title or "").lower()
+        for needle, key in self._MATCH:
+            if needle in t:
+                return key
+        if str(title or "").strip() == "?":   # the Help tab is titled "?"
+            return "help"
+        return "fallback"
+
+    def _compute_cells(self):
+        cells = []
+        tab = self._tab
+        try:
+            n = tab.count()
+        except Exception:
+            return cells
+        for i in range(n):
+            try:
+                if hasattr(tab, "isTabVisible") and not tab.isTabVisible(i):
+                    continue
+                cells.append((i, self._sprite_key_for(tab.tabText(i))))
+            except Exception:
+                continue
+        return cells
+
+    def _rebuild(self):
+        self._cells = self._compute_cells()
+        self._signature = tuple(self._cells)
+        self.updateGeometry()
+        self.update()
+
+    def _tick(self):
+        self._frame += 1
+        sig = tuple(self._compute_cells())
+        if sig != self._signature:
+            self._rebuild()
+        else:
+            self.update()
+
+    # ---- geometry / hit testing ----------------------------------------
+    def sizeHint(self):
+        return QSize(self._BAR_W, max(self._CELL_H, self._CELL_H * len(self._cells)))
+
+    def _pitch(self):
+        """Vertical spacing per icon — compressed (down to a floor that still
+        fits the 33px sprite) so all icons stay visible on short windows."""
+        n = max(1, len(self._cells))
+        avail = max(0, self.height() - 12)
+        return max(38, min(self._CELL_H, avail // n if n else self._CELL_H))
+
+    def _cell_rect(self, slot):
+        pitch = self._pitch()
+        return QRect(2, 6 + slot * pitch, self._BAR_W - 4, pitch - 4)
+
+    def _slot_at(self, pos):
+        for slot in range(len(self._cells)):
+            if self._cell_rect(slot).contains(pos):
+                return slot
+        return -1
+
+    # ---- input ----------------------------------------------------------
+    def mousePressEvent(self, ev):
+        slot = self._slot_at(ev.position().toPoint() if hasattr(ev, "position") else ev.pos())
+        if 0 <= slot < len(self._cells):
+            idx = self._cells[slot][0]
+            try:
+                self._tab.setCurrentIndex(idx)
+            except Exception:
+                pass
+            self.update()
+
+    def mouseMoveEvent(self, ev):
+        pos = ev.position().toPoint() if hasattr(ev, "position") else ev.pos()
+        slot = self._slot_at(pos)
+        if slot != self._hover:
+            self._hover = slot
+            self.update()
+
+    def leaveEvent(self, _ev):
+        if self._hover != -1:
+            self._hover = -1
+            self.update()
+
+    def event(self, ev):
+        if ev.type() == QEvent.ToolTip:
+            slot = self._slot_at(ev.pos())
+            if 0 <= slot < len(self._cells):
+                idx = self._cells[slot][0]
+                try:
+                    QToolTip.showText(ev.globalPos(), self._tab.tabText(idx), self)
+                except Exception:
+                    pass
+            else:
+                QToolTip.hideText()
+            return True
+        return super().event(ev)
+
+    # ---- painting -------------------------------------------------------
+    @staticmethod
+    def _draw_sprite(p, rows, palette, ox, oy, px, bright):
+        for r, line in enumerate(rows):
+            for c, ch in enumerate(line):
+                col = palette.get(ch)
+                if col is None:
+                    continue
+                qc = QColor(min(255, int(col[0] * bright)),
+                            min(255, int(col[1] * bright)),
+                            min(255, int(col[2] * bright)))
+                p.fillRect(ox + c * px, oy + r * px, px, px, qc)
+
+    def paintEvent(self, _ev):
+        if not self._cells:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, False)
+        cur = -1
+        try:
+            cur = self._tab.currentIndex()
+        except Exception:
+            cur = -1
+        px = self._PX
+        sw = self._GRID * px
+        for slot, (idx, key) in enumerate(self._cells):
+            rect = self._cell_rect(slot)
+            selected = (idx == cur)
+            hovered = (slot == self._hover)
+
+            if selected:
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(20, 24, 40, 200))
+                p.drawRoundedRect(rect, 7, 7)
+                col = self._HILITE[(self._frame // 3) % len(self._HILITE)]
+                p.setBrush(Qt.NoBrush)
+                pen = p.pen()
+                pen.setColor(QColor(col[0], col[1], col[2]))
+                pen.setWidth(2)
+                p.setPen(pen)
+                p.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 7, 7)
+            elif hovered:
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(255, 255, 255, 28))
+                p.drawRoundedRect(rect, 7, 7)
+
+            rows, palette = self._SPRITES.get(key, self._SPRITES["fallback"])
+            sh = len(rows) * px
+            if selected:
+                bob = int(round(math.sin(self._frame * 0.25) * 2))
+                bright = 1.0
+            else:
+                bob = int(round(math.sin(self._frame * 0.15 + slot * 0.7) * 1.5))
+                base = 1.0 if hovered else 0.80
+                bright = base + 0.14 * math.sin(self._frame * 0.16 + slot * 0.5)
+            ox = rect.x() + (rect.width() - sw) // 2
+            oy = rect.y() + (rect.height() - sh) // 2 + bob
+            self._draw_sprite(p, rows, palette, ox, oy, px, bright)
         p.end()
 
 

@@ -8601,7 +8601,13 @@ class MainWindow(QMainWindow):
         wid_inner.tab.setAttribute(Qt.WA_TranslucentBackground)
         wid_inner.tab.setAutoFillBackground(False)
         self._tab_widget = wid_inner.tab
-        grid_inner.addWidget(wid_inner.tab)
+        # Animated 8-bit sprite sidebar (left) mirroring the tabs, so the user
+        # can jump straight to any tab on narrow windows where the top tab bar
+        # overflows behind the < / > scroll arrows.
+        self._tab_sidebar = TabSpriteSidebar(wid_inner.tab, wid_inner)
+        grid_inner.addWidget(self._tab_sidebar, 0, 0)
+        grid_inner.addWidget(wid_inner.tab, 0, 1)
+        grid_inner.setColumnStretch(1, 1)
 
         # ---- Initialize AllInOne tab color cycling timer early ----
         _ALLINONE_COLORS = [QColor('red'), QColor('#FFD700'),
