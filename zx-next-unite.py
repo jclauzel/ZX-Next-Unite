@@ -2580,6 +2580,8 @@ class MainWindow(QMainWindow):
         self._gallery_rows_per_page  = DEFAULT_GALLERY_ROWS_PER_PAGE
         self._gallery_cols           = DEFAULT_GALLERY_COLS
         self._gallery_img_size       = DEFAULT_GALLERY_IMG_SIZE
+        # Unite! multi-search result ordering; overridden when the cfg loads.
+        self._search_sort_mode       = DEFAULT_SEARCH_SORT_MODE
         self._getit_view_mode        = "gallery"
         self._zxdb_view_mode         = "gallery"
         self._zxart_view_mode        = "gallery"
@@ -3084,6 +3086,19 @@ class MainWindow(QMainWindow):
                             for _i in range(cb.count()):
                                 if cb.itemData(_i) == val:
                                     cb.setCurrentIndex(_i)
+                                    break
+
+                # Search sort rendering preference: "getit_first" (default),
+                # "mixed" or "classic"
+                if SETTING_SEARCH_SORT_MODE in configuration_dictionary and configuration_dictionary[SETTING_SEARCH_SORT_MODE] != "":
+                    _ssm = configuration_dictionary[SETTING_SEARCH_SORT_MODE].strip().lower()
+                    if _ssm in (SEARCH_SORT_GETIT_FIRST, SEARCH_SORT_MIXED, SEARCH_SORT_CLASSIC):
+                        self._search_sort_mode = _ssm
+                        _sscb = getattr(self, "settings_search_sort_combo", None)
+                        if _sscb is not None:
+                            for _i in range(_sscb.count()):
+                                if _sscb.itemData(_i) == _ssm:
+                                    _sscb.setCurrentIndex(_i)
                                     break
 
                 # Gallery rows per page: int 1..10
@@ -11249,6 +11264,13 @@ class MainWindow(QMainWindow):
         self._zxdb_shot_token  = 0         # invalidates outstanding fetches when row changes
         self._zxdb_slideshow_timer = QTimer(self)
         self._zxdb_slideshow_timer.setInterval(5000)
+        # Stepping back with ◀/< holds on that image for a long beat (60s) so the
+        # user can study it before the normal 5s cadence resumes. Guarded by the
+        # shot token so a later row selection can't let a stale dwell advance
+        # freshly-loaded screenshots.
+        self._zxdb_shot_dwell_timer = QTimer(self)
+        self._zxdb_shot_dwell_timer.setSingleShot(True)
+        self._zxdb_dwell_token = -1
 
         # ---- Helpers ----
 
@@ -11499,15 +11521,29 @@ class MainWindow(QMainWindow):
 
         self._zxdb_slideshow_timer.timeout.connect(zxdb_slideshow_tick)
 
+        def _zxdb_shot_dwell_elapsed():
+            # The 60s pause after a ◀/< press is over: if still on the same
+            # screenshot set, advance and resume the normal 5s cadence.
+            if (self._zxdb_dwell_token == self._zxdb_shot_token
+                    and len(self._zxdb_screenshots) > 1):
+                zxdb_show_shot_at(self._zxdb_shot_index + 1)
+                self._zxdb_slideshow_timer.start()
+
+        self._zxdb_shot_dwell_timer.timeout.connect(_zxdb_shot_dwell_elapsed)
+
         def _zxdb_nav_prev():
             if len(self._zxdb_screenshots) > 1:
                 self._zxdb_slideshow_timer.stop()
+                self._zxdb_shot_dwell_timer.stop()
                 zxdb_show_shot_at(self._zxdb_shot_index - 1)
-                self._zxdb_slideshow_timer.start()
+                # Dwell 60s on the image the user stepped back to, then resume.
+                self._zxdb_dwell_token = self._zxdb_shot_token
+                self._zxdb_shot_dwell_timer.start(60000)
 
         def _zxdb_nav_next():
             if len(self._zxdb_screenshots) > 1:
                 self._zxdb_slideshow_timer.stop()
+                self._zxdb_shot_dwell_timer.stop()
                 zxdb_show_shot_at(self._zxdb_shot_index + 1)
                 self._zxdb_slideshow_timer.start()
 
@@ -14349,6 +14385,13 @@ class MainWindow(QMainWindow):
         self._zxart_shot_token     = 0
         self._zxart_slideshow_timer = QTimer(self)
         self._zxart_slideshow_timer.setInterval(5000)
+        # Stepping back with ◀/< holds on that image for a long beat (60s) so the
+        # user can study it before the normal 5s cadence resumes. Guarded by the
+        # shot token so a later row selection can't let a stale dwell advance
+        # freshly-loaded screenshots.
+        self._zxart_shot_dwell_timer = QTimer(self)
+        self._zxart_shot_dwell_timer.setSingleShot(True)
+        self._zxart_dwell_token = -1
 
         # ---- Helpers ----
 
@@ -14719,15 +14762,29 @@ class MainWindow(QMainWindow):
 
         self._zxart_slideshow_timer.timeout.connect(zxart_slideshow_tick)
 
+        def _zxart_shot_dwell_elapsed():
+            # The 60s pause after a ◀/< press is over: if still on the same
+            # screenshot set, advance and resume the normal 5s cadence.
+            if (self._zxart_dwell_token == self._zxart_shot_token
+                    and len(self._zxart_screenshots) > 1):
+                zxart_show_shot_at(self._zxart_shot_index + 1)
+                self._zxart_slideshow_timer.start()
+
+        self._zxart_shot_dwell_timer.timeout.connect(_zxart_shot_dwell_elapsed)
+
         def _zxart_nav_prev():
             if len(self._zxart_screenshots) > 1:
                 self._zxart_slideshow_timer.stop()
+                self._zxart_shot_dwell_timer.stop()
                 zxart_show_shot_at(self._zxart_shot_index - 1)
-                self._zxart_slideshow_timer.start()
+                # Dwell 60s on the image the user stepped back to, then resume.
+                self._zxart_dwell_token = self._zxart_shot_token
+                self._zxart_shot_dwell_timer.start(60000)
 
         def _zxart_nav_next():
             if len(self._zxart_screenshots) > 1:
                 self._zxart_slideshow_timer.stop()
+                self._zxart_shot_dwell_timer.stop()
                 zxart_show_shot_at(self._zxart_shot_index + 1)
                 self._zxart_slideshow_timer.start()
 
@@ -18425,22 +18482,58 @@ class MainWindow(QMainWindow):
 
         # --- Aggregation + tab badge ---
         def _allinone_collect():
-            merged = []
-            sources = [("getit", "_getit_last_entries"),
-                       ("zxdb",  "_zxdb_last_entries"),
-                       ("zxart", "_zxart_last_entries")]
+            # Gather each source's tagged entries into its own bucket so the
+            # configured sort mode can arrange them. The gallery's image-first
+            # re-sort still lifts picture-bearing items to the top within
+            # whatever base order we return here — that rule is common to every
+            # mode; only the per-source ordering below changes.
+            src_attr = {"getit":  "_getit_last_entries",
+                        "zxdb":   "_zxdb_last_entries",
+                        "zxart":  "_zxart_last_entries",
+                        "itchio": "_itchio_last_entries"}
+            order = ["getit", "zxdb", "zxart"]
             # itch.io joins the aggregation only when it took part in the last
             # Unite! search; Latest/Random (and prior itch.io tab browsing) keep
             # it out so it doesn't push catalogue results onto later pages.
             if getattr(self, "_allinone_include_itchio", False):
-                sources.append(("itchio", "_itchio_last_entries"))
-            for src, attr in sources:
-                lst = getattr(self, attr, None) or []
-                for e in lst:
-                    if not isinstance(e, dict):
-                        continue
-                    tagged = {**e, "_fav_source": src}
-                    merged.append(tagged)
+                order.append("itchio")
+            buckets = {}
+            for src in order:
+                lst = getattr(self, src_attr[src], None) or []
+                buckets[src] = [{**e, "_fav_source": src}
+                                for e in lst if isinstance(e, dict)]
+
+            mode = getattr(self, "_search_sort_mode", DEFAULT_SEARCH_SORT_MODE)
+
+            if mode == SEARCH_SORT_MIXED:
+                # Round-robin interleave so GetIt is scattered among the other
+                # sources rather than leading the list. GetIt is placed last in
+                # the cycle so it never takes the very first slot.
+                cycle = [s for s in ("zxdb", "zxart", "itchio", "getit")
+                         if buckets.get(s)]
+                merged = []
+                i = 0
+                while True:
+                    took_any = False
+                    for s in cycle:
+                        b = buckets[s]
+                        if i < len(b):
+                            merged.append(b[i])
+                            took_any = True
+                    if not took_any:
+                        break
+                    i += 1
+                return merged
+
+            if mode == SEARCH_SORT_CLASSIC:
+                # ZXDB / zxArt (and itch.io) first, GetIt content trailing last.
+                seq = ("zxdb", "zxart", "itchio", "getit")
+            else:
+                # Default "GetIt first class": GetIt leads, then the rest.
+                seq = ("getit", "zxdb", "zxart", "itchio")
+            merged = []
+            for s in seq:
+                merged.extend(buckets.get(s, []))
             return merged
 
         def _allinone_update_tab_badge(n):
@@ -20480,13 +20573,52 @@ class MainWindow(QMainWindow):
             lambda _i: _settings_nextsync_send_conflict_changed())
         grid_tab_Settings.addWidget(self.settings_nextsync_send_conflict_combo, 2, 1)
 
+        # ── Unite! search result sort / render preference ──────────────────
+        def _settings_search_sort_changed():
+            data = (self.settings_search_sort_combo.currentData()
+                    or DEFAULT_SEARCH_SORT_MODE)
+            self._search_sort_mode = data
+            configuration_dictionary[SETTING_SEARCH_SORT_MODE] = data
+            save_configuration_file()
+            # Re-render the Unite! aggregation so the new ordering takes effect
+            # immediately on any results already on screen.
+            _aio = getattr(self, "_allinone_repopulate", None)
+            if callable(_aio):
+                try:
+                    _aio()
+                except Exception:
+                    pass
+
+        search_sort_lbl = QLabel("Search sort rendering preference:")
+        search_sort_lbl.setToolTip(
+            "How Unite! multi-search results are ordered when rendered.\n"
+            "Every mode still floats items that have a picture/screenshot to the\n"
+            "top; they differ only in how the sources are arranged underneath.\n"
+            "  • GetIt first class (default): GetIt catalogue items lead, then\n"
+            "    ZXDB, zxArt and itch.io.\n"
+            "  • Mixed: GetIt is no longer first — sources are interleaved so\n"
+            "    GetIt content is scattered among the others.\n"
+            "  • Classic: ZXDB and zxArt items are preferred to the top, with\n"
+            "    GetIt content placed at the end."
+        )
+        grid_tab_Settings.addWidget(search_sort_lbl, 28, 0)
+
+        self.settings_search_sort_combo = QComboBox()
+        self.settings_search_sort_combo.addItem("GetIt first class (default)", SEARCH_SORT_GETIT_FIRST)
+        self.settings_search_sort_combo.addItem("Mixed",   SEARCH_SORT_MIXED)
+        self.settings_search_sort_combo.addItem("Classic", SEARCH_SORT_CLASSIC)
+        self.settings_search_sort_combo.setToolTip(search_sort_lbl.toolTip())
+        self.settings_search_sort_combo.currentIndexChanged.connect(
+            lambda _i: _settings_search_sort_changed())
+        grid_tab_Settings.addWidget(self.settings_search_sort_combo, 28, 1)
+
         # "Open config file" — moved here from the SD-card tab. Opens hdfg.cfg in
         # the system text editor so advanced users can hand-edit settings. Placed
         # at the bottom of the Settings tab, left-aligned so it keeps its natural
         # width rather than stretching across both columns.
         self.button_open_config_file = QPushButton("Open config file", self)
         self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
-        grid_tab_Settings.addWidget(self.button_open_config_file, 28, 0, 1, 2, Qt.AlignLeft)
+        grid_tab_Settings.addWidget(self.button_open_config_file, 29, 0, 1, 2, Qt.AlignLeft)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)

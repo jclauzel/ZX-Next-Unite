@@ -1918,8 +1918,17 @@ class GalleryItemViewer(QWidget):
 
         # ── slideshow timer ───────────────────────────────────────────────
         self._timer = QTimer(self)
-        self._timer.setInterval(4000)
+        self._timer.setInterval(5000)
         self._timer.timeout.connect(self._go_next)
+
+        # Stepping *back* with ◀ (or the Left arrow) holds on that image for a
+        # long beat (60s) so the user can actually read/inspect it before the
+        # normal 5s cadence resumes. A dedicated one-shot timer keeps the main
+        # slideshow interval untouched.
+        self._prev_dwell_ms = 60000
+        self._dwell_timer = QTimer(self)
+        self._dwell_timer.setSingleShot(True)
+        self._dwell_timer.timeout.connect(self._on_dwell_elapsed)
 
         self._update_nav()
         if self._screenshots:
@@ -2033,6 +2042,7 @@ class GalleryItemViewer(QWidget):
     def set_screenshots(self, urls: list):
         """Replace screenshot list and restart slideshow."""
         self._timer.stop()
+        self._dwell_timer.stop()
         self._stop_movie()
         self._screenshots = self._filter_shots(urls)
         self._shot_index  = 0
@@ -2380,6 +2390,7 @@ class GalleryItemViewer(QWidget):
 
     def _do_close(self):
         self._timer.stop()
+        self._dwell_timer.stop()
         self._stop_movie()
         if self._close_fn:
             self._close_fn()
@@ -2402,17 +2413,28 @@ class GalleryItemViewer(QWidget):
         if not self._screenshots:
             return
         self._timer.stop()
+        self._dwell_timer.stop()
         self._shot_index = (self._shot_index - 1) % len(self._screenshots)
         self._show_index(self._shot_index)
-        self._maybe_start_timer()
+        # Dwell on the image the user stepped back to for 60s (instead of the
+        # usual ~5s) before the normal cadence resumes — but only when the
+        # slideshow would otherwise auto-advance.
+        if len(self._screenshots) > 1 and self._anim_should_cycle():
+            self._dwell_timer.start(self._prev_dwell_ms)
 
     def _go_next(self):
         if not self._screenshots:
             return
         self._timer.stop()
+        self._dwell_timer.stop()
         self._shot_index = (self._shot_index + 1) % len(self._screenshots)
         self._show_index(self._shot_index)
         self._maybe_start_timer()
+
+    def _on_dwell_elapsed(self):
+        """The 60s pause after a ◀ press is over — advance to the next image
+        and let the normal 5s cadence take over again."""
+        self._go_next()
 
     def _update_nav(self):
         multi = len(self._screenshots) > 1
