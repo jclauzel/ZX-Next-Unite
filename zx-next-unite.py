@@ -2580,6 +2580,10 @@ class MainWindow(QMainWindow):
         self._gallery_rows_per_page  = DEFAULT_GALLERY_ROWS_PER_PAGE
         self._gallery_cols           = DEFAULT_GALLERY_COLS
         self._gallery_img_size       = DEFAULT_GALLERY_IMG_SIZE
+        # Gallery slideshow pause time (seconds); mirrored into the shared
+        # zxnu_config global so every viewer picks it up.
+        self._gallery_slideshow_secs = DEFAULT_GALLERY_SLIDESHOW_SECS
+        set_gallery_slideshow_secs(self._gallery_slideshow_secs)
         # Unite! multi-search result ordering; overridden when the cfg loads.
         self._search_sort_mode       = DEFAULT_SEARCH_SORT_MODE
         self._getit_view_mode        = "gallery"
@@ -3138,6 +3142,28 @@ class MainWindow(QMainWindow):
                             for _i in range(_gscb.count()):
                                 if _gscb.itemData(_i) == _gsz:
                                     _gscb.setCurrentIndex(_i)
+                                    break
+
+                # Gallery slideshow pause time (seconds): 5 (default)|10|15|30|60
+                if SETTING_GALLERY_SLIDESHOW_SECS in configuration_dictionary and configuration_dictionary[SETTING_GALLERY_SLIDESHOW_SECS] != "":
+                    try:
+                        _gss = int(configuration_dictionary[SETTING_GALLERY_SLIDESHOW_SECS])
+                    except (TypeError, ValueError):
+                        _gss = DEFAULT_GALLERY_SLIDESHOW_SECS
+                    if _gss in GALLERY_SLIDESHOW_SECS_CHOICES:
+                        self._gallery_slideshow_secs = _gss
+                        set_gallery_slideshow_secs(_gss)
+                        # Refresh the persistent detail-slideshow timers so a
+                        # loaded value applies without reopening an item.
+                        for _tn in ("_zxdb_slideshow_timer", "_zxart_slideshow_timer"):
+                            _t = getattr(self, _tn, None)
+                            if _t is not None:
+                                _t.setInterval(gallery_slideshow_interval_ms())
+                        _sscb = getattr(self, "settings_gallery_slideshow_combo", None)
+                        if _sscb is not None:
+                            for _i in range(_sscb.count()):
+                                if _sscb.itemData(_i) == _gss:
+                                    _sscb.setCurrentIndex(_i)
                                     break
 
                 # Per-pane view mode: "table" (default) or "gallery"
@@ -11263,7 +11289,7 @@ class MainWindow(QMainWindow):
         self._zxdb_shot_index  = 0
         self._zxdb_shot_token  = 0         # invalidates outstanding fetches when row changes
         self._zxdb_slideshow_timer = QTimer(self)
-        self._zxdb_slideshow_timer.setInterval(5000)
+        self._zxdb_slideshow_timer.setInterval(gallery_slideshow_interval_ms())
         # Stepping back with ◀/< holds on that image for a long beat (60s) so the
         # user can study it before the normal 5s cadence resumes. Guarded by the
         # shot token so a later row selection can't let a stale dwell advance
@@ -14384,7 +14410,7 @@ class MainWindow(QMainWindow):
         self._zxart_shot_index     = 0
         self._zxart_shot_token     = 0
         self._zxart_slideshow_timer = QTimer(self)
-        self._zxart_slideshow_timer.setInterval(5000)
+        self._zxart_slideshow_timer.setInterval(gallery_slideshow_interval_ms())
         # Stepping back with ◀/< holds on that image for a long beat (60s) so the
         # user can study it before the normal 5s cadence resumes. Guarded by the
         # shot token so a later row selection can't let a stale dwell advance
@@ -20031,40 +20057,75 @@ class MainWindow(QMainWindow):
         )
         grid_tab_Settings.addWidget(self.settings_gallery_img_size_combo, 9, 1)
 
+        def _settings_gallery_slideshow_changed():
+            val = self.settings_gallery_slideshow_combo.currentData()
+            try:
+                secs = int(val)
+            except (TypeError, ValueError):
+                secs = DEFAULT_GALLERY_SLIDESHOW_SECS
+            self._gallery_slideshow_secs = secs
+            set_gallery_slideshow_secs(secs)
+            configuration_dictionary[SETTING_GALLERY_SLIDESHOW_SECS] = str(secs)
+            # Apply immediately to the persistent detail-slideshow timers so a
+            # change takes effect without reopening an item.
+            for _tn in ("_zxdb_slideshow_timer", "_zxart_slideshow_timer"):
+                _t = getattr(self, _tn, None)
+                if _t is not None:
+                    _t.setInterval(gallery_slideshow_interval_ms())
+            save_configuration_file()
+
+        gallery_slideshow_lbl = QLabel("Gallery slideshow pause time:")
+        gallery_slideshow_lbl.setToolTip(
+            "How long each screenshot is shown before the auto-advancing gallery\n"
+            "slideshow moves to the next image. Default is 5 seconds."
+        )
+        grid_tab_Settings.addWidget(gallery_slideshow_lbl, 10, 0)
+
+        self.settings_gallery_slideshow_combo = QComboBox()
+        for _secs in GALLERY_SLIDESHOW_SECS_CHOICES:
+            _lbl = f"{_secs} seconds (default)" if _secs == DEFAULT_GALLERY_SLIDESHOW_SECS else f"{_secs} seconds"
+            self.settings_gallery_slideshow_combo.addItem(_lbl, _secs)
+        self.settings_gallery_slideshow_combo.setCurrentIndex(0)  # default: 5s
+        self.settings_gallery_slideshow_combo.setToolTip(gallery_slideshow_lbl.toolTip())
+        self.settings_gallery_slideshow_combo.currentIndexChanged.connect(
+            lambda _i: _settings_gallery_slideshow_changed()
+        )
+        grid_tab_Settings.addWidget(self.settings_gallery_slideshow_combo, 10, 1)
+
         settings_section_lbl = QLabel("SD Card Image Explorer — Item Colors:")
         settings_section_lbl.setToolTip("Customize the foreground color for each item type displayed in the SD card image explorer.")
-        grid_tab_Settings.addWidget(settings_section_lbl, 10, 0, 1, 2)
+        grid_tab_Settings.addWidget(settings_section_lbl, 12, 0, 1, 2)
 
         self.settings_btn_color_up_directory = _make_color_button(
             SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory",
             "  Up Directory item",
             "Color used for the '[Up Directory..]' navigation row in the image explorer.",
-            11)
+            13)
         self.settings_btn_color_dir_name = _make_color_button(
             SETTING_COLOR_DIR_NAME, "img_color_dir_name",
             "  Directory name",
             "Color used for directory name entries in the image explorer.",
-            12)
+            14)
         self.settings_btn_color_dir_type = _make_color_button(
             SETTING_COLOR_DIR_TYPE, "img_color_dir_type",
             "  Directory type label",
             "Color used for the 'DIR' type label column of directory entries.",
-            13)
+            15)
         self.settings_btn_color_file_name = _make_color_button(
             SETTING_COLOR_FILE_NAME, "img_color_file_name",
             "  File name",
             "Color used for file name entries in the image explorer.",
-            14)
+            16)
         self.settings_btn_color_file_ext = _make_color_button(
             SETTING_COLOR_FILE_EXT, "img_color_file_ext",
             "  File extension",
             "Color used for the file extension column in the image explorer.",
-            15)
+            17)
         self.settings_btn_color_file_size = _make_color_button(
             SETTING_COLOR_FILE_SIZE, "img_color_file_size",
             "  File size",
             "Color used for the file size column in the image explorer.",
-            16)
+            18)
 
         # ---- Background image opacity ----
         bg_opacity_lbl = QLabel("Background image opacity (%):")
@@ -20072,7 +20133,7 @@ class MainWindow(QMainWindow):
             "Controls how visible the background image is behind the UI.\n"
             "0 = fully hidden, 100 = fully visible. Default is 5%."
         )
-        grid_tab_Settings.addWidget(bg_opacity_lbl, 17, 0)
+        grid_tab_Settings.addWidget(bg_opacity_lbl, 19, 0)
 
         bg_opacity_row = QWidget()
         bg_opacity_row_layout = QHBoxLayout(bg_opacity_row)
@@ -20155,7 +20216,7 @@ class MainWindow(QMainWindow):
 
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_slider, 1)
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_spinbox, 0)
-        grid_tab_Settings.addWidget(bg_opacity_row, 17, 1)
+        grid_tab_Settings.addWidget(bg_opacity_row, 19, 1)
 
         # ---- Background image selector ----
         bg_image_lbl = QLabel("Background image:")
@@ -20163,7 +20224,7 @@ class MainWindow(QMainWindow):
             "Choose a specific background image or 'Random' to cycle through\n"
             "all images in the script folder every 5 seconds."
         )
-        grid_tab_Settings.addWidget(bg_image_lbl, 18, 0)
+        grid_tab_Settings.addWidget(bg_image_lbl, 20, 0)
 
         bg_image_row = QWidget()
         bg_image_row_layout = QHBoxLayout(bg_image_row)
@@ -20206,7 +20267,7 @@ class MainWindow(QMainWindow):
         self.settings_bg_image_preview.setToolTip("Preview of the selected background image.")
         bg_image_row_layout.addWidget(self.settings_bg_image_preview, 0)
 
-        grid_tab_Settings.addWidget(bg_image_row, 18, 1)
+        grid_tab_Settings.addWidget(bg_image_row, 20, 1)
 
         def _update_bg_image_preview(path: str):
             """Refresh the thumbnail label for the given absolute image path."""
@@ -20267,7 +20328,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_crash_log_enabled_checkbox.stateChanged.connect(
             settings_crash_log_enabled_statechanged)
-        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 19, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 21, 0, 1, 2)
 
         def settings_disable_no_emulator_toast_statechanged():
             configuration_dictionary[SETTING_DISABLE_NO_EMULATOR_TOAST] = "true" if self.settings_disable_no_emulator_toast_checkbox.isChecked() else "false"
@@ -20281,7 +20342,7 @@ class MainWindow(QMainWindow):
             "Check this if you do not use any emulator and do not want the reminder."
         )
         self.settings_disable_no_emulator_toast_checkbox.stateChanged.connect(settings_disable_no_emulator_toast_statechanged)
-        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 20, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 22, 0, 1, 2)
 
         # ── MAME options (only shown when the MAME emulator was detected) ──
         if getattr(self, "_mame_executable_path", None):
@@ -20295,7 +20356,7 @@ class MainWindow(QMainWindow):
                 "This is inserted right after the MAME executable and is no longer part\n"
                 "of the command-line parameters below."
             )
-            grid_tab_Settings.addWidget(mame_rom_lbl, 21, 0)
+            grid_tab_Settings.addWidget(mame_rom_lbl, 23, 0)
 
             self.settings_mame_rom_combo = QComboBox()
             for _rom_name in MAME_ROM_CHOICE:
@@ -20303,7 +20364,7 @@ class MainWindow(QMainWindow):
             self.settings_mame_rom_combo.setToolTip(mame_rom_lbl.toolTip())
             self.settings_mame_rom_combo.currentIndexChanged.connect(
                 lambda _i: settings_mame_rom_changed())
-            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 21, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 23, 1)
 
             def settings_mame_params_changed():
                 configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = self.settings_mame_params_edit.text()
@@ -20316,7 +20377,7 @@ class MainWindow(QMainWindow):
                 "and the '-hard1 <image>' arguments are added automatically at launch,\n"
                 "so the loaded image is always the last argument."
             )
-            grid_tab_Settings.addWidget(mame_params_lbl, 22, 0)
+            grid_tab_Settings.addWidget(mame_params_lbl, 24, 0)
 
             self.settings_mame_params_edit = QLineEdit()
             self.settings_mame_params_edit.setText(
@@ -20324,7 +20385,7 @@ class MainWindow(QMainWindow):
                     SETTING_MAME_COMMAND_LINE_PARAMETERS, MAME_DEFAULT_COMMAND_LINE))
             self.settings_mame_params_edit.setToolTip(mame_params_lbl.toolTip())
             self.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
-            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 22, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 24, 1)
 
         # ── Unite! pygame background animation toggle ──────────────────────
         def _settings_pygame_anim_changed():
@@ -20353,7 +20414,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_pygame_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 23, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 25, 0, 1, 2)
 
         # ── NextSync retro-log starfield animation toggle ──────────────────
         def _settings_nextsync_anim_changed():
@@ -20385,7 +20446,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_nextsync_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_nextsync_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 26, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 28, 0, 1, 2)
 
         # ── Alien Floyd's: optional pygame-ce animated background everywhere ──
         # A Pink Floyd homage. When on, a pygame-ce "Alien Floyd's" animation
@@ -20430,7 +20491,7 @@ class MainWindow(QMainWindow):
             "file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_bg_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_bg_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 24, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 26, 0, 1, 2)
 
         # ── Alien Floyd's: optional dedicated full-window tab ────────────────
         self._alien_floyd_tab_widget = None
@@ -20502,7 +20563,7 @@ class MainWindow(QMainWindow):
             "configuration file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 25, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 27, 0, 1, 2)
 
         # ── itch.io: optional online tab (driven by the 'itch-dl' package) ───
         def _itchio_tab_set_visible(on):
@@ -20545,7 +20606,7 @@ class MainWindow(QMainWindow):
                 "configuration file. Requires the optional 'itch-dl' package.")
         self.settings_show_itchio_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_itchio_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 27, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 29, 0, 1, 2)
 
         # ── NextSync: what to do when a received file/dir already exists locally ──
         def _settings_nextsync_send_conflict_changed():
@@ -20589,7 +20650,7 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
-        search_sort_lbl = QLabel("Search sort rendering preference:")
+        search_sort_lbl = QLabel("Gallery search sort ordering preference:")
         search_sort_lbl.setToolTip(
             "How Unite! multi-search results are ordered when rendered.\n"
             "Every mode still floats items that have a picture/screenshot to the\n"
@@ -20601,7 +20662,7 @@ class MainWindow(QMainWindow):
             "  • Classic: ZXDB and zxArt items are preferred to the top, with\n"
             "    GetIt content placed at the end."
         )
-        grid_tab_Settings.addWidget(search_sort_lbl, 28, 0)
+        grid_tab_Settings.addWidget(search_sort_lbl, 11, 0)
 
         self.settings_search_sort_combo = QComboBox()
         self.settings_search_sort_combo.addItem("GetIt first class (default)", SEARCH_SORT_GETIT_FIRST)
@@ -20610,7 +20671,7 @@ class MainWindow(QMainWindow):
         self.settings_search_sort_combo.setToolTip(search_sort_lbl.toolTip())
         self.settings_search_sort_combo.currentIndexChanged.connect(
             lambda _i: _settings_search_sort_changed())
-        grid_tab_Settings.addWidget(self.settings_search_sort_combo, 28, 1)
+        grid_tab_Settings.addWidget(self.settings_search_sort_combo, 11, 1)
 
         # "Open config file" — moved here from the SD-card tab. Opens hdfg.cfg in
         # the system text editor so advanced users can hand-edit settings. Placed
@@ -20618,7 +20679,7 @@ class MainWindow(QMainWindow):
         # width rather than stretching across both columns.
         self.button_open_config_file = QPushButton("Open config file", self)
         self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
-        grid_tab_Settings.addWidget(self.button_open_config_file, 29, 0, 1, 2, Qt.AlignLeft)
+        grid_tab_Settings.addWidget(self.button_open_config_file, 30, 0, 1, 2, Qt.AlignLeft)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)

@@ -1917,8 +1917,11 @@ class GalleryItemViewer(QWidget):
         root.addWidget(right_panel, 0)
 
         # ── slideshow timer ───────────────────────────────────────────────
+        # Interval comes from the shared, user-configurable "Gallery slideshow
+        # pause time" (re-read each time the timer is (re)armed in
+        # _maybe_start_timer so a settings change takes effect on open viewers).
         self._timer = QTimer(self)
-        self._timer.setInterval(5000)
+        self._timer.setInterval(gallery_slideshow_interval_ms())
         self._timer.timeout.connect(self._go_next)
 
         # Stepping *back* with ◀ (or the Left arrow) holds on that image for a
@@ -1986,6 +1989,7 @@ class GalleryItemViewer(QWidget):
         """Start the auto-advance timer only when there is more than one
         screenshot *and* the animation mode permits cycling."""
         if len(self._screenshots) > 1 and self._anim_should_cycle():
+            self._timer.setInterval(gallery_slideshow_interval_ms())
             self._timer.start()
 
     def install_into_stack(self, stack: QStackedWidget, close_fn=None):
@@ -3069,6 +3073,7 @@ class TabSpriteSidebar(QWidget):
     _CELL_H = 50         # vertical pitch of each icon cell
     _BAR_W = 54          # fixed sidebar width
     _FPS_MS = 90
+    _SPIN_STEP = 0.5     # radians/frame of the hover "flip around vertical axis"
 
     # Rainbow palette cycled on the active-tab highlight (ZX-ish, black omitted).
     _HILITE = [
@@ -3167,19 +3172,23 @@ class TabSpriteSidebar(QWidget):
             "....rRr....",
             ".....r.....",
         ], {"r": (190, 40, 60), "R": (255, 85, 110)}),
+        # A Mobius / infinity ribbon: two loops meeting at a central twist. The
+        # light runs diagonally (bright top-left -> dark bottom-left, dark
+        # top-right -> bright bottom-right) so the strip reads as a band with a
+        # half-twist rather than a flat figure-eight.
         "unite": ([
-            ".....y.....",
-            ".....y.....",
-            "....yYy....",
-            "....yYy....",
-            "yyyyYYYyyyy",
-            ".yYYYYYYYy.",
-            "..YYYYYYY..",
-            "..YYY.YYY..",
-            ".yYY...YYy.",
-            ".y.......y.",
             "...........",
-        ], {"y": (230, 180, 40), "Y": (255, 225, 90)}),
+            "...........",
+            "..YYY.ooo..",
+            ".YY.y.y.oo.",
+            ".Y..yoy..o.",
+            ".o..yoy..Y.",
+            ".oo.y.y.YY.",
+            "..ooo.YYY..",
+            "...........",
+            "...........",
+            "...........",
+        ], {"Y": (255, 230, 120), "y": (235, 190, 70), "o": (150, 100, 35)}),
         "itchio": ([
             "...........",
             ".RRRRRRRRR.",
@@ -3256,6 +3265,7 @@ class TabSpriteSidebar(QWidget):
         self._signature = None
         self._frame = 0
         self._hover = -1
+        self._hover_start = 0    # frame at which the current hover began
         self.setFixedWidth(self._BAR_W)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self.setMouseTracking(True)
@@ -3349,6 +3359,7 @@ class TabSpriteSidebar(QWidget):
         slot = self._slot_at(pos)
         if slot != self._hover:
             self._hover = slot
+            self._hover_start = self._frame   # restart the flip face-on
             self.update()
 
     def leaveEvent(self, _ev):
@@ -3427,7 +3438,25 @@ class TabSpriteSidebar(QWidget):
                 bright = base + 0.14 * math.sin(self._frame * 0.16 + slot * 0.5)
             ox = rect.x() + (rect.width() - sw) // 2
             oy = rect.y() + (rect.height() - sh) // 2 + bob
-            self._draw_sprite(p, rows, palette, ox, oy, px, bright)
+            if hovered:
+                # Spin the icon about its vertical centre line (a 3D-style flip):
+                # a horizontal scale of cos(angle) squashes it toward an edge and,
+                # once negative, mirrors it — so it reads as continuous rotation
+                # around a centre vertical axis.
+                angle = (self._frame - self._hover_start) * self._SPIN_STEP
+                sx = math.cos(angle)
+                if abs(sx) < 0.07:            # keep a thin sliver visible edge-on
+                    sx = 0.07 if sx >= 0 else -0.07
+                cx = ox + sw / 2.0
+                cy = oy + sh / 2.0
+                p.save()
+                p.translate(cx, cy)
+                p.scale(sx, 1.0)
+                p.translate(-cx, -cy)
+                self._draw_sprite(p, rows, palette, ox, oy, px, bright)
+                p.restore()
+            else:
+                self._draw_sprite(p, rows, palette, ox, oy, px, bright)
         p.end()
 
 

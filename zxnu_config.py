@@ -128,6 +128,7 @@ SETTING_GALLERY_ANIM_MODE      = "gallery_anim_mode"        # "hover" (default),
 SETTING_GALLERY_ROWS_PER_PAGE  = "gallery_rows_per_page"    # int 1..10, default 2
 SETTING_GALLERY_COLS           = "gallery_cols"             # int: 2 | 4 (default) | 8
 SETTING_GALLERY_IMG_SIZE       = "gallery_img_size"         # "small" | "medium" (default) | "large"
+SETTING_GALLERY_SLIDESHOW_SECS = "gallery_slideshow_secs"   # int seconds: 5 (default) | 10 | 15 | 30 | 60
 SETTING_GETIT_VIEW_MODE        = "getit_view_mode"          # "table" (default) or "gallery"
 SETTING_ZXDB_VIEW_MODE         = "zxdb_view_mode"
 SETTING_ZXART_VIEW_MODE        = "zxart_view_mode"
@@ -290,6 +291,36 @@ DEFAULT_GALLERY_ANIM_MODE      = "hover"
 DEFAULT_GALLERY_ROWS_PER_PAGE  = 2
 DEFAULT_GALLERY_COLS           = 4
 DEFAULT_GALLERY_IMG_SIZE       = "medium"
+# Gallery slideshow pause time (seconds): how long each screenshot stays on
+# screen before the auto-advancing slideshow moves on. Shared by every gallery
+# item viewer (Qt + pygame) and the ZXDB / zxArt detail slideshows.
+DEFAULT_GALLERY_SLIDESHOW_SECS = 5
+GALLERY_SLIDESHOW_SECS_CHOICES = (5, 10, 15, 30, 60)
+# The live slideshow pause time (seconds) is kept in a module-level global so
+# every viewer shares one user-configurable cadence without threading a getter
+# through each constructor. MainWindow calls set_gallery_slideshow_secs() on
+# config load and whenever the Settings combo changes; the viewers read the
+# interval back via gallery_slideshow_interval_ms() each time they (re)arm.
+_gallery_slideshow_secs = DEFAULT_GALLERY_SLIDESHOW_SECS
+
+def set_gallery_slideshow_secs(secs):
+    """Set the shared slideshow pause time (seconds). Silently ignores anything
+    that is not one of GALLERY_SLIDESHOW_SECS_CHOICES."""
+    global _gallery_slideshow_secs
+    try:
+        s = int(secs)
+    except (TypeError, ValueError):
+        return
+    if s in GALLERY_SLIDESHOW_SECS_CHOICES:
+        _gallery_slideshow_secs = s
+
+def gallery_slideshow_secs():
+    """Current slideshow pause time, in seconds."""
+    return _gallery_slideshow_secs
+
+def gallery_slideshow_interval_ms():
+    """Current slideshow pause time in milliseconds (for QTimer.setInterval)."""
+    return _gallery_slideshow_secs * 1000
 # Unite! multi-search result sort/render modes. These decide the *base* order
 # of the merged result list before the gallery's image-first re-sort lifts
 # picture-bearing items to the top (that image-first rule is common to all
@@ -491,7 +522,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
 CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE,
 SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME,
 SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_SEARCH_SORT_MODE, SETTING_GALLERY_ANIM_MODE,
-SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
+SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GALLERY_SLIDESHOW_SECS, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
