@@ -17,6 +17,7 @@ import random
 
 import datetime
 import fnmatch
+import signal
 import socket
 import struct
 import time
@@ -91,6 +92,31 @@ def getFileList():
 
 def timestamp():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+# ---- Graceful Ctrl-C handling -------------------------------------------
+# Ctrl-C should stop the server, but only at a *safe* moment - when no file is
+# mid-transfer - so we never leave a half-written file on either side (PC->Next
+# or Next->PC). The SIGINT handler only records the request (and, if a transfer
+# is in progress, tells the user we'll wait); the main loop honours it at file
+# boundaries: after the current file has been fully transmitted.
+_stop_requested = False   # set True once Ctrl-C has been pressed
+_in_transfer = False      # True while a file is actively being transferred
+_stop_notified = False    # so we print the "will wait" notice only once
+
+def _request_stop(signum, frame):
+    global _stop_requested, _stop_notified
+    _stop_requested = True
+    if _stop_notified:
+        # Already told the user; ignore further Ctrl-C presses so we don't
+        # interrupt a transfer part-way and corrupt a file.
+        return
+    _stop_notified = True
+    print()
+    if _in_transfer:
+        print(f"{timestamp()} | Ctrl-C received - will stop once the current file has")
+        print(f"{timestamp()} | finished transferring (to avoid corrupting files). Please wait...")
+    else:
+        print(f"{timestamp()} | Ctrl-C received - stopping the sync server...")
 
 def sendpacket(conn, payload, packetno):
     checksum0 = 0 # random.choice([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]) # 5%
@@ -204,6 +230,12 @@ def receive_files(conn, stats):
     rather than the plain conn.recv(1024) used by the main command loop.
     Returns when the Next sends 'B' (bye) or the connection drops.
     """
+    global _in_transfer
+    # The Next drives this whole push session; we can't cleanly interrupt it
+    # mid-way without stranding the Next, so the safe boundary is the end of
+    # the session (every file fully written). Mark it as an active transfer so
+    # a Ctrl-C during it prints the "will wait" notice.
+    _in_transfer = True
     print(f'{timestamp()} | Receiving files from the Next...')
     sendpacket(conn, b"Send", 0)   # ack -> Next starts sending
     stats['packets'] += 1
@@ -356,6 +388,9 @@ def receive_files(conn, stats):
         cur_file.close()
         cur_file = None
 
+    # Session finished (all files written): it is now safe to honour a Ctrl-C.
+    _in_transfer = False
+
     # Record received files in the syncpoint so the next PC->Next sync treats
     # them as already known and skips them (matching the glob path form
     # getFileList uses).
@@ -394,9 +429,16 @@ def warnings():
     print()
 
 def main():
+    global _in_transfer
+    # Catch Ctrl-C (SIGINT) so we can shut down gracefully at a file boundary
+    # instead of aborting mid-transfer and corrupting a file.
+    signal.signal(signal.SIGINT, _request_stop)
     print(f"NextSync server, protocol version {VERSION}")
     print("by Julien Clauzel 2026 and Jari Komppa 2020")
     print("Sync4 (bidirectional) backport")
+    print()
+    print("Press Ctrl-C on the keyboard at any time to exit.")
+    print("(If a file is being transferred, it will finish first to avoid corruption.)")
     print()
     hostinfo = socket.gethostbyname_ex(socket.gethostname())
     print(f"Running on host:\n    {hostinfo[0]}")
@@ -425,6 +467,7 @@ def main():
         print(f"{timestamp()} |   PC  -> Next : .sync4   (or .syncfast)")
         print(f"{timestamp()} |   Next -> PC  : .sync4 -send <file or directory>")
         print(f"{timestamp()} | .sync4  now supports -slow -default -fast additional command option to specify network speed transfer rate")
+        print(f"{timestamp()} | Press Ctrl-C to exit.")
         # Stats for this connection. Held in a dict so receive_files() can
         # update the upload counters in place.
         stats = {
@@ -439,7 +482,22 @@ def main():
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(("", PORT))
             s.listen()
-            conn, addr = s.accept()
+            # Poll accept() with a short timeout so a Ctrl-C pressed while we're
+            # idle (no client connected) is noticed promptly - no transfer is in
+            # progress, so it's safe to stop right away.
+            s.settimeout(1.0)
+            conn = None
+            addr = None
+            while not _stop_requested:
+                try:
+                    conn, addr = s.accept()
+                    break
+                except socket.timeout:
+                    continue
+            if conn is None:
+                # Ctrl-C while waiting for a connection: stop immediately.
+                break
+            s.settimeout(None)
             # Make sure *nixes close the socket when we ask it to.
             conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
             f = getFileList()
@@ -487,7 +545,19 @@ def main():
                     elif data == b"Next" or data == b"Neex": # Really common mistransmit. Probably uart-esp..
                         if data == b"Neex":
                             stats['gee'] += 1
-                        if fn >= len(f):
+                        # File boundary: the previously requested file (if any) has now
+                        # been fully transmitted. This is the safe point to honour a
+                        # pending Ctrl-C - tell the Next there is nothing more to sync
+                        # instead of starting another file.
+                        if _stop_requested:
+                            print(f"{timestamp()} | Ctrl-C: current file done, telling the Next there is nothing more to sync")
+                            packet = b'\x00\x00\x00\x00\x00' # end of.
+                            stats['packets'] += 1
+                            sendpacket(conn, packet, 0)
+                            stats['totalbytes'] += len(packet)
+                            update_syncpoint(knownfiles)
+                            _in_transfer = False
+                        elif fn >= len(f):
                             print(f"{timestamp()} | Nothing (more) to sync")
                             packet = b'\x00\x00\x00\x00\x00' # end of.
                             stats['packets'] += 1
@@ -495,6 +565,7 @@ def main():
                             stats['totalbytes'] += len(packet)
                             # Sync complete, set sync point
                             update_syncpoint(knownfiles)
+                            _in_transfer = False
                         else:
                             specfn = opt_drive + f[fn][0].replace('\\','/')
                             print(f"{timestamp()} | File:{f[fn][0]} (as {specfn}) length:{f[fn][1]} bytes")
@@ -510,6 +581,8 @@ def main():
                             fileofs = 0
                             packetno = 0
                             fn+=1
+                            # A new file is now being transmitted to the Next.
+                            _in_transfer = True
                     elif data == b"Get" or data == b"Gee": # Really common mistransmit. Probably uart-esp..
                         bytecount = MAX_PAYLOAD
                         if bytecount + fileofs > len(filedata):
@@ -523,6 +596,9 @@ def main():
                         packetno += 1
                         if data == b"Gee":
                             stats['gee'] += 1
+                        # Whole file has now been sent to the Next.
+                        if fileofs >= len(filedata):
+                            _in_transfer = False
                     elif data == b"Retry":
                         stats['retries'] += 1
                         print(f"{timestamp()} | Resending")
@@ -537,6 +613,7 @@ def main():
                         sendpacket(conn, str.encode("Later"), 0)
                         print(f"{timestamp()} | Closing connection")
                         talking = False
+                        _in_transfer = False
                     elif data == b"Sync2" or data == b"Sync1" or data == b"Sync":
                         packet = str.encode("Nextsync 0.8 or later needed")
                         print(f'{timestamp()} | Old version requested')
@@ -557,6 +634,12 @@ def main():
         print()
         if opt_sync_once:
             working = False
+        # Connection finished at a safe boundary; if Ctrl-C was requested during
+        # it, stop the server now (the current file has been fully transferred).
+        if _stop_requested:
+            working = False
+
+    print(f"{timestamp()} | Sync server stopped. Bye!")
 
 
 for x in sys.argv[1:]:
