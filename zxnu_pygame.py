@@ -4436,9 +4436,11 @@ class PygameItemViewer(_Scene):
         self._next_rect = None
         self._hover_btn = None
 
-        # slideshow timer (own QTimer, like the Qt viewer)
+        # slideshow timer (own QTimer, like the Qt viewer). Interval comes from
+        # the shared, user-configurable "Gallery slideshow pause time", re-read
+        # each time the timer is (re)armed via _arm_timer().
         self._timer = QTimer()
-        self._timer.setInterval(5000)
+        self._timer.setInterval(self._slideshow_interval_ms())
         self._timer.timeout.connect(self._go_next)
 
         # Stepping *back* with ◀ (or the Left arrow) holds on that image for a
@@ -4454,6 +4456,20 @@ class PygameItemViewer(_Scene):
             self._prefetch_all()
 
     # -- public API (matches GalleryItemViewer) ---------------------------
+    @staticmethod
+    def _slideshow_interval_ms():
+        """Shared, user-configurable slideshow pause time in milliseconds."""
+        try:
+            from zxnu_config import gallery_slideshow_interval_ms
+            return gallery_slideshow_interval_ms()
+        except Exception:
+            return 5000
+
+    def _arm_timer(self):
+        """(Re)start the auto-advance timer at the current pause interval."""
+        self._timer.setInterval(self._slideshow_interval_ms())
+        self._timer.start()
+
     def _anim_should_cycle(self) -> bool:
         """Whether the slideshow may auto-advance. Honours the global "Gallery
         animation" setting: anything other than "none" cycles; "none" disables
@@ -4472,7 +4488,7 @@ class PygameItemViewer(_Scene):
 
     def on_attach(self):
         if len(self._screens) > 1 and self._anim_should_cycle():
-            self._timer.start()
+            self._arm_timer()
 
     def on_detach(self):
         try:
@@ -4579,7 +4595,7 @@ class PygameItemViewer(_Scene):
             self._prefetch_all()
             if (len(self._screens) > 1 and self.host is not None
                     and self.host.scene() is self and self._anim_should_cycle()):
-                self._timer.start()
+                self._arm_timer()
         self.redraw()
 
     def refresh_meta(self, title, rows):
@@ -4716,9 +4732,9 @@ class PygameItemViewer(_Scene):
         self._shot_idx = (self._shot_idx + 1) % len(self._screens)
         self._text_scroll = 0
         self.redraw()
-        # Re-arm the normal 5s cadence (also resumes it after a ◀ dwell).
+        # Re-arm the normal cadence (also resumes it after a ◀ dwell).
         if self._cycling_active():
-            self._timer.start()
+            self._arm_timer()
         else:
             self._timer.stop()
 
