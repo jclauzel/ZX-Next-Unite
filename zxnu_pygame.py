@@ -4388,6 +4388,7 @@ class PygameItemViewer(_Scene):
         self._text_cache = {}
         self._text_pending = set()
         self._text_wrap_cache = {}
+        self._text_blockw_cache = {}   # (url, max_w) -> widest-line px (centring)
         self._text_scroll = 0
         self._text_max_scroll = 0
         # URLs a caller explicitly marked as text pages (see add_text_pages),
@@ -4437,8 +4438,17 @@ class PygameItemViewer(_Scene):
 
         # slideshow timer (own QTimer, like the Qt viewer)
         self._timer = QTimer()
-        self._timer.setInterval(4000)
+        self._timer.setInterval(5000)
         self._timer.timeout.connect(self._go_next)
+
+        # Stepping *back* with ◀ (or the Left arrow) holds on that image for a
+        # long beat (60s) so the user can actually read/inspect it before the
+        # normal 5s cadence resumes. A dedicated one-shot timer keeps the main
+        # slideshow interval untouched.
+        self._prev_dwell_ms = 60000
+        self._dwell_timer = QTimer()
+        self._dwell_timer.setSingleShot(True)
+        self._dwell_timer.timeout.connect(self._on_dwell_elapsed)
 
         if self._screens:
             self._prefetch_all()
@@ -4467,6 +4477,7 @@ class PygameItemViewer(_Scene):
     def on_detach(self):
         try:
             self._timer.stop()
+            self._dwell_timer.stop()
         except Exception:
             pass
         self._stop_gif_players()
@@ -4551,6 +4562,7 @@ class PygameItemViewer(_Scene):
 
     def set_screenshots(self, urls):
         self._timer.stop()
+        self._dwell_timer.stop()
         self._screens = [u for u in (urls or [])
                          if u and (zxfmt_url_is_displayable_image(u)
                                    or _url_is_text(u))]
@@ -4676,19 +4688,44 @@ class PygameItemViewer(_Scene):
             self._shot_idx = 0
         self.redraw()
 
+    def _cycling_active(self):
+        """Whether the auto-advance slideshow should currently be running: more
+        than one page, this scene is the one on screen, and the animation mode
+        permits cycling."""
+        return (len(self._screens) > 1 and self.host is not None
+                and self.host.scene() is self and self._anim_should_cycle())
+
     def _go_prev(self):
         if not self._screens:
             return
+        self._timer.stop()
+        self._dwell_timer.stop()
         self._shot_idx = (self._shot_idx - 1) % len(self._screens)
         self._text_scroll = 0
         self.redraw()
+        # Dwell on the image the user stepped back to for 60s (instead of the
+        # usual ~5s) before the normal cadence resumes — but only when the
+        # slideshow would otherwise auto-advance.
+        if self._cycling_active():
+            self._dwell_timer.start(self._prev_dwell_ms)
 
     def _go_next(self):
         if not self._screens:
             return
+        self._dwell_timer.stop()
         self._shot_idx = (self._shot_idx + 1) % len(self._screens)
         self._text_scroll = 0
         self.redraw()
+        # Re-arm the normal 5s cadence (also resumes it after a ◀ dwell).
+        if self._cycling_active():
+            self._timer.start()
+        else:
+            self._timer.stop()
+
+    def _on_dwell_elapsed(self):
+        """The 60s pause after a ◀ press is over — advance to the next image
+        and let the normal 5s cadence take over again."""
+        self._go_next()
 
     # -- text-file ("log console") pages -----------------------------------
     def _current_url(self):
@@ -4772,8 +4809,26 @@ class PygameItemViewer(_Scene):
         self._text_wrap_cache[key] = out
         return out
 
+    def _text_block_width(self, url, wrapped, font, max_w):
+        """Pixel width of the widest wrapped line (capped at *max_w*), cached
+        per (url, max_w) so horizontal centring costs nothing per frame."""
+        key = (url, max_w)
+        cached = self._text_blockw_cache.get(key)
+        if cached is not None:
+            return cached
+        w = 0
+        for line in wrapped:
+            if line:
+                lw = font.size(line)[0]
+                if lw > w:
+                    w = lw
+        w = min(w, max_w)
+        self._text_blockw_cache[key] = w
+        return w
+
     def _close(self):
         self._timer.stop()
+        self._dwell_timer.stop()
         if self._close_fn:
             try:
                 self._close_fn()
@@ -4893,14 +4948,26 @@ class PygameItemViewer(_Scene):
             return
 
         wrapped = self._wrapped_text(url, lines, f, max_w)
-        self._text_max_scroll = max(0, len(wrapped) * lh - view_h)
+        content_h = len(wrapped) * lh
+        self._text_max_scroll = max(0, content_h - view_h)
         self._text_scroll = max(0, min(self._text_scroll, self._text_max_scroll))
+
+        # Centre the text block in the console so it reads from the middle
+        # rather than hugging the top-left corner. Horizontally: offset by the
+        # widest line so the block is centred (lines stay left-aligned to each
+        # other for readability; a long page that already fills the width stays
+        # effectively flush). Vertically: centre the block when it fits without
+        # scrolling; once it overflows, anchor to the top and honour the scroll.
+        block_w = self._text_block_width(url, wrapped, f, max_w)
+        x = area.x + max(pad, (max_w - block_w) // 2 + pad)
+        if self._text_max_scroll <= 0:
+            y = text_top + max(0, (view_h - content_h) // 2)
+        else:
+            y = text_top - self._text_scroll
 
         prev_clip = surface.get_clip()
         surface.set_clip(_pg.Rect(area.x + self.s(2), text_top,
                                   area.w - self.s(4), view_h))
-        x = area.x + pad
-        y = text_top - self._text_scroll
         for line in wrapped:
             if y > text_bottom:
                 break
