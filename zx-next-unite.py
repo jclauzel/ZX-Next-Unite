@@ -3248,6 +3248,18 @@ class MainWindow(QMainWindow):
                     finally:
                         self._main_pygame_restoring = False
 
+                # Restore the Help ("?") retro 8-bit console mode the same way.
+                _help_pg_pref = configuration_dictionary.get(
+                    SETTING_HELP_PYGAME_LOG, "").strip().lower()
+                if _help_pg_pref in ("true", "1", "yes") and \
+                        hasattr(self, "help_pygame_button") and \
+                        not self.help_pygame_button.isChecked():
+                    self._help_pygame_restoring = True
+                    try:
+                        self.help_pygame_button.setChecked(True)
+                    finally:
+                        self._help_pygame_restoring = False
+
                 # Restore each pane's Classic/Retro item-viewer choice. Routed
                 # through the toggle button so the pygame-availability check and
                 # label update are reused; persisting during restore is a no-op
@@ -4040,6 +4052,15 @@ class MainWindow(QMainWindow):
                 self.listWidgetHelp.insertItem(0, newItem)
             else:
                 self.listWidgetHelp.insertItem(self.listWidgetHelp.count(), newItem)
+
+            # Mirror into the optional retro 8-bit pygame console (terminal-style,
+            # newest at the bottom) whenever it has been built.
+            retro = getattr(self, "_help_retro_log", None)
+            if retro is not None:
+                try:
+                    retro.append(string_to_log)
+                except Exception:
+                    pass
 
         def set_table_image_properties():
             # Header + column sizing for the image explorer tree. Kept under the
@@ -8469,7 +8490,9 @@ class MainWindow(QMainWindow):
             if self._main_retro_log is not None:
                 return self._main_retro_log
             from zxnu_pygame import RetroLogWidget
-            widget = RetroLogWidget()
+            # scrollable live log: auto-follows the newest line, but the user can
+            # scroll up (scrollbar / wheel) to read the history.
+            widget = RetroLogWidget(scrollable=True, follow_tail=True)
             widget.setMinimumHeight(120)
             try:
                 widget.enable_background(getattr(self, "_nextsync_pygame_anim", True))
@@ -9105,7 +9128,9 @@ class MainWindow(QMainWindow):
             if self._nextsync_retro_log is not None:
                 return self._nextsync_retro_log
             from zxnu_pygame import RetroLogWidget
-            widget = RetroLogWidget()
+            # scrollable live log: auto-follows the newest line, but the user can
+            # scroll up (scrollbar / wheel) to read the history.
+            widget = RetroLogWidget(scrollable=True, follow_tail=True)
             widget.setMinimumHeight(NEXTSYNC_UI_HEIGTH)
             try:
                 widget.enable_background(getattr(self, "_nextsync_pygame_anim", True))
@@ -20571,7 +20596,7 @@ class MainWindow(QMainWindow):
                 save_configuration_file()
             except Exception:
                 pass
-            for _attr in ("_nextsync_retro_log", "_main_retro_log"):
+            for _attr in ("_nextsync_retro_log", "_main_retro_log", "_help_retro_log"):
                 w = getattr(self, _attr, None)
                 if w is not None:
                     try:
@@ -20850,11 +20875,111 @@ class MainWindow(QMainWindow):
         wid_inner.tab.addTab(settings_scroll, "Settings 🔩")
 
           # Create Help Tab
+        # Mirrors the SD Card Utility log window: a Classic/Retro toggle that
+        # swaps the help list for a retro 8-bit pygame console (the animated
+        # $/£/€ starfield with green Consolas text). Pygame is optional — the
+        # toggle disables itself with an install hint when pygame-ce is missing.
+        # When pygame is present, retro mode is turned on automatically for this
+        # tab on first run (see _apply_first_run_pygame_defaults). Page 0 = the
+        # classic help list, page 1 = the retro console (built lazily the first
+        # time it is switched on, and sharing the NextSync starfield-animation
+        # preference).
         zxnextunite_Help_tab = QWidget(wid_inner.tab)
         zxnextunite_Help_tab.setAttribute(Qt.WA_TranslucentBackground)
         zxnextunite_Help_tab.setAutoFillBackground(False)
-        grid_tab_Help = QGridLayout(zxnextunite_Help_tab)
-        grid_tab_Help.addWidget(self.listWidgetHelp) # TODO as above use the form container of Help use the form container
+
+        self._help_retro_log = None
+        self._help_pygame_on = False
+
+        self.help_pygame_button = QPushButton("🎮 Retro")
+        self.help_pygame_button.setCheckable(True)
+        self.help_pygame_button.setToolTip(
+            "Switch the help window to a retro 8-bit pygame console:\n"
+            "an animated starfield with green Consolas text.\n"
+            "Requires the optional 'pygame-ce' package.")
+
+        self.help_log_stack = QStackedWidget(self)
+        self.help_log_stack.addWidget(self.listWidgetHelp)   # page 0 = classic list
+
+        grid_tab_Help = QVBoxLayout(zxnextunite_Help_tab)
+        grid_tab_Help.setContentsMargins(0, 0, 0, 0)
+        grid_tab_Help.setSpacing(2)
+        grid_tab_Help.addWidget(self.help_pygame_button)
+        grid_tab_Help.addWidget(self.help_log_stack)
+
+        def _help_build_retro_log():
+            if self._help_retro_log is not None:
+                return self._help_retro_log
+            from zxnu_pygame import RetroLogWidget
+            # scrollable=True adds a vertical scrollbar (+ mouse wheel) so the
+            # long help text can be read in full, top-to-bottom.
+            widget = RetroLogWidget(scrollable=True)
+            try:
+                widget.enable_background(getattr(self, "_nextsync_pygame_anim", True))
+            except Exception:
+                pass
+            # Seed it with the existing help contents. The help list reads
+            # top-down (first line first), so iterate top-to-bottom for the same
+            # reading order.
+            for i in range(self.listWidgetHelp.count()):
+                widget.append(self.listWidgetHelp.item(i).text())
+            self._help_retro_log = widget
+            self.help_log_stack.addWidget(widget)
+            return widget
+
+        def _help_pygame_disable(reason=""):
+            btn = self.help_pygame_button
+            btn.blockSignals(True)
+            btn.setChecked(False)
+            btn.setText("🎮 Retro")
+            btn.blockSignals(False)
+            btn.setEnabled(False)
+            if reason:
+                btn.setToolTip(reason)
+
+        def _help_pygame_persist(enabled):
+            # Skip writing while restoring the saved choice at startup so a
+            # transient "pygame unavailable" never clobbers the user's pref.
+            if getattr(self, "_help_pygame_restoring", False):
+                return
+            try:
+                configuration_dictionary[SETTING_HELP_PYGAME_LOG] = (
+                    "true" if enabled else "false")
+                save_configuration_file()
+            except Exception:
+                pass
+
+        def _help_on_pygame_toggled(checked):
+            if checked:
+                try:
+                    from zxnu_pygame import pygame_available
+                    ok, why = pygame_available()
+                except Exception as exc:
+                    ok, why = False, str(exc)
+                if not ok:
+                    _help_pygame_disable(
+                        f"{why}\nInstall with: pip install pygame-ce")
+                    return
+                try:
+                    widget = _help_build_retro_log()
+                except Exception as exc:
+                    _help_pygame_disable(f"Pygame init failed: {exc}")
+                    return
+                self._help_pygame_on = True
+                self.help_pygame_button.setText("🖼 Classic")
+                self.help_log_stack.setCurrentWidget(widget)
+                widget.start()
+                _help_pygame_persist(True)
+            else:
+                self._help_pygame_on = False
+                self.help_pygame_button.setText("🎮 Retro")
+                if self._help_retro_log is not None:
+                    self._help_retro_log.stop()
+                self.help_log_stack.setCurrentWidget(self.listWidgetHelp)
+                _help_pygame_persist(False)
+
+        self.help_pygame_button.toggled.connect(_help_on_pygame_toggled)
+
         zxnextunite_Help_tab.setLayout(grid_tab_Help)
         wid_inner.tab.addTab(zxnextunite_Help_tab, "?")
 
@@ -21249,6 +21374,10 @@ class MainWindow(QMainWindow):
                     btn.setChecked(True)
             if _unset(SETTING_SDCARD_PYGAME_LOG):
                 btn = getattr(self, "main_pygame_button", None)
+                if btn is not None and btn.isEnabled() and not btn.isChecked():
+                    btn.setChecked(True)
+            if _unset(SETTING_HELP_PYGAME_LOG):
+                btn = getattr(self, "help_pygame_button", None)
                 if btn is not None and btn.isEnabled() and not btn.isChecked():
                     btn.setChecked(True)
             if _unset(SETTING_ALIEN_FLOYD_BG):

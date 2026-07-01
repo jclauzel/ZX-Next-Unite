@@ -35,7 +35,7 @@ import time as _time
 
 from PySide6.QtCore import Qt, QPoint, QTimer
 from PySide6.QtGui import QColor, QImage, QPainter
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget, QScrollBar
 
 from zxnu_media import zxfmt_url_is_displayable_image
 
@@ -3520,7 +3520,8 @@ class RetroLogWidget(QWidget):
 
     _C_LOG = (120, 255, 140)        # phosphor green for the log text
 
-    def __init__(self, parent=None, fps=30, max_lines=600):
+    def __init__(self, parent=None, fps=30, max_lines=600, scrollable=False,
+                 follow_tail=False):
         super().__init__(parent)
         # pygame is imported lazily off the UI thread (see AlienFloydWidget).
         prewarm_async()
@@ -3534,7 +3535,27 @@ class RetroLogWidget(QWidget):
         self._line_h = 0            # cached line height in device px
         self._t = 0
         self._bg_anim = True        # animate the starfield (Settings toggle)
+        # Optional user-driven vertical scrolling. Two flavours:
+        #   * follow_tail=False — top-anchored, starts at the top and stays put
+        #     (the "?" Help console: read a long, static text top-to-bottom).
+        #   * follow_tail=True  — bottom-anchored live log (SD Card / NextSync):
+        #     auto-follows the newest line, but the user can scroll up through the
+        #     history; scrolling back to the bottom resumes auto-follow. Keeps the
+        #     blinking terminal cursor on the newest line while pinned.
+        self._scrollable = bool(scrollable)
+        self._follow_tail = bool(follow_tail)
+        self._pin_bottom = True     # (follow_tail) True while the view tracks the tail
+        self._sbar = None
+        self._sbar_w = 0            # scrollbar gutter width in logical px
+        self._wrap_cache = None     # cached wrapped lines (scrollable mode only)
+        self._wrap_key = None
+        self._content_ver = 0       # bumped on append/clear to invalidate the wrap cache
         self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        if self._scrollable:
+            self._sbar = QScrollBar(Qt.Vertical, self)
+            self._sbar_w = max(12, self._sbar.sizeHint().width())
+            self._sbar.setSingleStep(1)
+            self._sbar.valueChanged.connect(self._on_scroll)
         self._timer = QTimer(self)
         self._timer.setInterval(int(1000 / max(1, fps)))
         self._timer.timeout.connect(self._tick)
@@ -3550,9 +3571,11 @@ class RetroLogWidget(QWidget):
         self._lines.extend(new)
         if len(self._lines) > self._max_lines:
             self._lines = self._lines[-self._max_lines:]
+        self._content_ver += 1
         # Kick off a smooth upward scroll for the freshly added line(s); cap the
-        # offset so a burst doesn't fling the text far off-screen.
-        if self._line_h:
+        # offset so a burst doesn't fling the text far off-screen. The scrollable
+        # Help console is positioned by its scrollbar instead, so it skips this.
+        if self._line_h and not self._scrollable:
             self._scroll = min(self._scroll + self._line_h * len(new),
                                self._line_h * 4)
         self.update()
@@ -3560,6 +3583,7 @@ class RetroLogWidget(QWidget):
     def clear(self):
         self._lines = []
         self._scroll = 0.0
+        self._content_ver += 1
         self.update()
 
     def enable_background(self, flag):
@@ -3614,7 +3638,26 @@ class RetroLogWidget(QWidget):
     def resizeEvent(self, ev):
         self._dpr = max(1.0, float(self.devicePixelRatioF() or 1.0))
         self._ensure_surface()
+        if self._sbar is not None:
+            self._sbar.setGeometry(self.width() - self._sbar_w, 0,
+                                   self._sbar_w, self.height())
         super().resizeEvent(ev)
+        self.update()
+
+    def wheelEvent(self, ev):
+        if self._scrollable and self._sbar is not None:
+            steps = ev.angleDelta().y() / 120.0    # one wheel notch == 120
+            self._sbar.setValue(self._sbar.value() - int(round(steps)) * 3)
+            ev.accept()
+            return
+        super().wheelEvent(ev)
+
+    def _on_scroll(self, _v):
+        # In a live log, remember whether the user is parked at the bottom so we
+        # keep auto-following the newest line (and stop following once they
+        # scroll up to read history).
+        if self._follow_tail and self._sbar is not None:
+            self._pin_bottom = self._sbar.value() >= self._sbar.maximum()
         self.update()
 
     def _tick(self):
@@ -3668,6 +3711,13 @@ class RetroLogWidget(QWidget):
         font = _font(self.s(13), bold=False)   # Consolas (see _UI_FONT_NAMES)
         lh = font.get_height() + self.s(2)
         self._line_h = lh
+        if self._scrollable:
+            self._render_scrollable(surface, w, h, pad, font, lh)
+        else:
+            self._render_log(surface, w, h, pad, font, lh)
+
+    def _render_log(self, surface, w, h, pad, font, lh):
+        """Bottom-anchored live-log rendering (SD Card / NextSync)."""
         max_w = max(1, w - 2 * pad)
         # Wrap from the newest line upward until the visible area is filled.
         visible_rows = int(h / lh) + 3
@@ -3693,6 +3743,64 @@ class RetroLogWidget(QWidget):
                 line = line + "█"
             _draw_text(surface, line, pad, int(y), font, self._C_LOG)
             y -= lh
+
+    def _render_scrollable(self, surface, w, h, pad, font, lh):
+        """User-scrollable rendering. Draws from the scrollbar's top row down.
+        The Help console (follow_tail=False) starts at the top; live logs
+        (follow_tail=True) auto-follow the newest line and can be scrolled up to
+        read history, keeping the blinking terminal cursor on the newest line."""
+        # Reserve the right-hand gutter so text never hides beneath the scrollbar.
+        reserve = self.s(self._sbar_w) if self._sbar is not None else 0
+        max_w = max(1, w - 2 * pad - reserve)
+        wrapped = self._wrapped_all(font, max_w)
+        visible_rows = max(1, int((h - 2 * pad) / lh))
+        self._sync_scrollbar(len(wrapped), visible_rows)
+        if not wrapped:
+            return
+        top = self._sbar.value() if self._sbar is not None else 0
+        top = max(0, min(top, max(0, len(wrapped) - 1)))
+        cursor_on = self._follow_tail and (self._t // 12) % 2 == 0
+        last = len(wrapped) - 1
+        y = pad
+        i = top
+        while i < len(wrapped) and (y + lh) <= (h - pad):
+            line = wrapped[i]
+            if i == last and cursor_on:    # blinking block cursor on the newest line
+                line = line + "█"
+            _draw_text(surface, line, pad, int(y), font, self._C_LOG)
+            y += lh
+            i += 1
+
+    def _wrapped_all(self, font, max_w):
+        """All lines wrapped to *max_w*, cached until the text or width change."""
+        key = (max_w, self._content_ver)
+        if self._wrap_key != key:
+            out = []
+            for raw in self._lines:
+                for piece in (_wrap_lines(raw, font, max_w) or [""]):
+                    out.append(piece)
+            self._wrap_cache = out
+            self._wrap_key = key
+        return self._wrap_cache
+
+    def _sync_scrollbar(self, total_rows, visible_rows):
+        """Keep the scrollbar's range/page-step in step with the wrapped content
+        and hide it when everything already fits. In follow_tail mode, re-pin to
+        the bottom as new content grows the range so the log tracks the newest
+        line until the user scrolls up."""
+        sb = self._sbar
+        if sb is None:
+            return
+        maximum = max(0, total_rows - visible_rows)
+        if sb.maximum() != maximum or sb.pageStep() != visible_rows:
+            sb.blockSignals(True)
+            sb.setRange(0, maximum)
+            sb.setPageStep(visible_rows)
+            if self._follow_tail and self._pin_bottom:
+                sb.setValue(maximum)   # keep tracking the tail as it grows
+            sb.blockSignals(False)
+        if sb.isVisible() != (maximum > 0):
+            sb.setVisible(maximum > 0)
 
 
 # ── scene base ──────────────────────────────────────────────────────────────
