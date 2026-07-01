@@ -2535,6 +2535,8 @@ class MainWindow(QMainWindow):
         self.img_color_file_name    = hex_to_qcolor(DEFAULT_COLOR_FILE_NAME)
         self.img_color_file_ext     = hex_to_qcolor(DEFAULT_COLOR_FILE_EXT)
         self.img_color_file_size    = hex_to_qcolor(DEFAULT_COLOR_FILE_SIZE)
+        # Desktop theme mode driving the colours above (overridden on cfg load).
+        self._desktop_theme_mode    = DEFAULT_DESKTOP_THEME
 
         self.left_file_explorer_selection_file_name = ""
         self.left_file_explorer_selection_full_filename_path = ""
@@ -3391,6 +3393,20 @@ class MainWindow(QMainWindow):
                 _load_color_setting(SETTING_COLOR_FILE_NAME,    DEFAULT_COLOR_FILE_NAME,    "img_color_file_name",    "settings_btn_color_file_name")
                 _load_color_setting(SETTING_COLOR_FILE_EXT,     DEFAULT_COLOR_FILE_EXT,     "img_color_file_ext",     "settings_btn_color_file_ext")
                 _load_color_setting(SETTING_COLOR_FILE_SIZE,    DEFAULT_COLOR_FILE_SIZE,    "img_color_file_size",    "settings_btn_color_file_size")
+
+                # Desktop theme mode. Automatic re-detects the OS light/dark
+                # theme at every startup and Dark re-applies the dark tweaks
+                # (both overriding the per-colour values just loaded); Custom
+                # keeps the hand-picked colours above.
+                _theme_cfg = configuration_dictionary.get(SETTING_DESKTOP_THEME, "").strip().lower()
+                if _theme_cfg in (DESKTOP_THEME_AUTOMATIC, DESKTOP_THEME_WHITE,
+                                  DESKTOP_THEME_DARK, DESKTOP_THEME_BLACK,
+                                  DESKTOP_THEME_CUSTOM):
+                    self._desktop_theme_mode = _theme_cfg
+                if hasattr(self, "_select_desktop_theme_in_combo"):
+                    self._select_desktop_theme_in_combo(self._desktop_theme_mode)
+                if hasattr(self, "_apply_desktop_theme_colors"):
+                    self._apply_desktop_theme_colors(persist=False)
 
                 # Background opacity
                 _bg_opacity_raw = configuration_dictionary.get(SETTING_BG_OPACITY, "").strip()
@@ -7879,6 +7895,7 @@ class MainWindow(QMainWindow):
         configuration_dictionary[SETTING_COLOR_FILE_NAME]    = DEFAULT_COLOR_FILE_NAME
         configuration_dictionary[SETTING_COLOR_FILE_EXT]     = DEFAULT_COLOR_FILE_EXT
         configuration_dictionary[SETTING_COLOR_FILE_SIZE]    = DEFAULT_COLOR_FILE_SIZE
+        configuration_dictionary[SETTING_DESKTOP_THEME]      = DEFAULT_DESKTOP_THEME
 
         # Init UI forms
 
@@ -19850,6 +19867,128 @@ class MainWindow(QMainWindow):
         zxnextunite_Settings_tab.setAutoFillBackground(False)
         grid_tab_Settings = QGridLayout(zxnextunite_Settings_tab)
 
+        # ── Desktop theme (top of the Settings pane) ───────────────────────
+        # Drives the SD Card explorer font colours. Automatic follows the OS
+        # (high-contrast -> all black, dark -> orange/yellow, else -> light
+        # blue); White/Dark/Black force a palette; Custom leaves the user's
+        # picked colours alone. Picking any colour below switches to Custom.
+        def _desktop_theme_variant():
+            """Colour variant to apply: 'light', 'dark' or 'black' (or None for
+            Custom, meaning 'leave the colours as they are')."""
+            mode = getattr(self, "_desktop_theme_mode", DEFAULT_DESKTOP_THEME)
+            if mode == DESKTOP_THEME_CUSTOM:
+                return None
+            if mode == DESKTOP_THEME_WHITE:
+                return "light"
+            if mode == DESKTOP_THEME_DARK:
+                return "dark"
+            if mode == DESKTOP_THEME_BLACK:
+                return "black"
+            # Automatic: accessibility high-contrast wins, then dark, else light.
+            try:
+                if detect_system_high_contrast():
+                    return "black"
+            except Exception:
+                pass
+            try:
+                if detect_system_dark_theme():
+                    return "dark"
+            except Exception:
+                pass
+            return "light"
+        self._desktop_theme_variant = _desktop_theme_variant
+
+        # setting_key, colour attr, swatch-button attr, light hex, dark hex, black hex
+        _theme_palette = (
+            (SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory", "settings_btn_color_up_directory", DEFAULT_COLOR_UP_DIRECTORY, DEFAULT_COLOR_UP_DIRECTORY, HIGH_CONTRAST_COLOR),
+            (SETTING_COLOR_DIR_NAME,     "img_color_dir_name",     "settings_btn_color_dir_name",     DEFAULT_COLOR_DIR_NAME,     DARK_COLOR_DIR_NAME,        HIGH_CONTRAST_COLOR),
+            (SETTING_COLOR_DIR_TYPE,     "img_color_dir_type",     "settings_btn_color_dir_type",     DEFAULT_COLOR_DIR_TYPE,     DARK_COLOR_DIR_TYPE,        HIGH_CONTRAST_COLOR),
+            (SETTING_COLOR_FILE_NAME,    "img_color_file_name",    "settings_btn_color_file_name",    DEFAULT_COLOR_FILE_NAME,    DEFAULT_COLOR_FILE_NAME,    HIGH_CONTRAST_COLOR),
+            (SETTING_COLOR_FILE_EXT,     "img_color_file_ext",     "settings_btn_color_file_ext",     DEFAULT_COLOR_FILE_EXT,     DEFAULT_COLOR_FILE_EXT,     HIGH_CONTRAST_COLOR),
+            (SETTING_COLOR_FILE_SIZE,    "img_color_file_size",    "settings_btn_color_file_size",    DEFAULT_COLOR_FILE_SIZE,    DEFAULT_COLOR_FILE_SIZE,    HIGH_CONTRAST_COLOR),
+        )
+        _theme_variant_col = {"light": 3, "dark": 4, "black": 5}
+
+        def _apply_desktop_theme_colors(persist=False):
+            """Recompute the SD Card explorer font colours from the current
+            Desktop Theme mode. White/Dark/Black/Automatic derive the palette;
+            Custom keeps the user's colours (snapshotting them to the cfg when
+            persist=True)."""
+            mode = getattr(self, "_desktop_theme_mode", DEFAULT_DESKTOP_THEME)
+            if mode == DESKTOP_THEME_CUSTOM:
+                if persist:
+                    for _entry in _theme_palette:
+                        _c = getattr(self, _entry[1], None)
+                        if _c is not None:
+                            configuration_dictionary[_entry[0]] = qcolor_to_hex(_c)
+                return
+            variant = _desktop_theme_variant() or "light"
+            _col = _theme_variant_col[variant]
+            for _entry in _theme_palette:
+                _k, _ca, _ba = _entry[0], _entry[1], _entry[2]
+                _color = hex_to_qcolor(_entry[_col])
+                setattr(self, _ca, _color)
+                if persist:
+                    configuration_dictionary[_k] = qcolor_to_hex(_color)
+                _btn = getattr(self, _ba, None)
+                if _btn is not None:
+                    _btn.setStyleSheet(f"background-color: {qcolor_to_hex(_color)}; border: 1px solid #888;")
+            if hasattr(self, "_image_recolor_all"):
+                try:
+                    self._image_recolor_all()
+                except Exception:
+                    pass
+        self._apply_desktop_theme_colors = _apply_desktop_theme_colors
+
+        def _select_desktop_theme_in_combo(mode):
+            cb = getattr(self, "settings_desktop_theme_combo", None)
+            if cb is None:
+                return
+            for _i in range(cb.count()):
+                if cb.itemData(_i) == mode:
+                    cb.blockSignals(True)
+                    cb.setCurrentIndex(_i)
+                    cb.blockSignals(False)
+                    break
+        self._select_desktop_theme_in_combo = _select_desktop_theme_in_combo
+
+        def _settings_desktop_theme_changed():
+            val = self.settings_desktop_theme_combo.currentData() or DEFAULT_DESKTOP_THEME
+            self._desktop_theme_mode = val
+            configuration_dictionary[SETTING_DESKTOP_THEME] = val
+            _apply_desktop_theme_colors(persist=True)
+            save_configuration_file()
+
+        desktop_theme_lbl = QLabel("Desktop Theme:")
+        desktop_theme_lbl.setToolTip(
+            "Chooses the SD Card explorer font colours.\n"
+            "  • Automatic (default): follow the operating system. If a\n"
+            "    high-contrast/accessibility theme is on, all fonts turn black;\n"
+            "    otherwise a dark desktop turns the Directory name orange and the\n"
+            "    Directory type label yellow, and a light desktop keeps them blue.\n"
+            "  • White mode: always use the light colours (Directory name and\n"
+            "    Directory type label stay blue).\n"
+            "  • Dark mode: Directory name orange, Directory type label yellow.\n"
+            "  • High contrast (black): every font colour is black — for users\n"
+            "    who are blind or have low vision.\n"
+            "  • Custom: keep your hand-picked colours. Changing any colour\n"
+            "    below switches to Custom automatically."
+        )
+        grid_tab_Settings.addWidget(desktop_theme_lbl, 0, 0)
+
+        self.settings_desktop_theme_combo = QComboBox()
+        self.settings_desktop_theme_combo.addItem("Automatic (default)",   DESKTOP_THEME_AUTOMATIC)
+        self.settings_desktop_theme_combo.addItem("White mode",            DESKTOP_THEME_WHITE)
+        self.settings_desktop_theme_combo.addItem("Dark mode",             DESKTOP_THEME_DARK)
+        self.settings_desktop_theme_combo.addItem("High contrast (black)", DESKTOP_THEME_BLACK)
+        self.settings_desktop_theme_combo.addItem("Custom",                DESKTOP_THEME_CUSTOM)
+        self.settings_desktop_theme_combo.setCurrentIndex(0)  # default: automatic
+        self.settings_desktop_theme_combo.setToolTip(desktop_theme_lbl.toolTip())
+        self.settings_desktop_theme_combo.currentIndexChanged.connect(
+            lambda _i: _settings_desktop_theme_changed()
+        )
+        grid_tab_Settings.addWidget(self.settings_desktop_theme_combo, 0, 1)
+
         def settings_warn_image_nearly_full_statechanged():
             configuration_dictionary[SETTING_WARN_IMAGE_NEARLY_FULL] = "true" if self.settings_warn_image_nearly_full_checkbox.isChecked() else "false"
             save_configuration_file()
@@ -19862,7 +20001,7 @@ class MainWindow(QMainWindow):
             "Uncheck this option to suppress that warning."
         )
         self.settings_warn_image_nearly_full_checkbox.stateChanged.connect(settings_warn_image_nearly_full_statechanged)
-        grid_tab_Settings.addWidget(self.settings_warn_image_nearly_full_checkbox, 0, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_warn_image_nearly_full_checkbox, 1, 0, 1, 2)
 
         def settings_no_prompt_on_deletion_statechanged():
             configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION] = "true" if self.settings_no_prompt_on_deletion_checkbox.isChecked() else "false"
@@ -19876,7 +20015,7 @@ class MainWindow(QMainWindow):
             "Leave unchecked to keep the confirmation prompt (recommended)."
         )
         self.settings_no_prompt_on_deletion_checkbox.stateChanged.connect(settings_no_prompt_on_deletion_statechanged)
-        grid_tab_Settings.addWidget(self.settings_no_prompt_on_deletion_checkbox, 1, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_no_prompt_on_deletion_checkbox, 2, 0, 1, 2)
 
         def settings_avail_check_statechanged():
             configuration_dictionary[SETTING_AVAIL_CHECK] = "true" if self.settings_avail_check_checkbox.isChecked() else "false"
@@ -19893,7 +20032,7 @@ class MainWindow(QMainWindow):
         self.settings_avail_check_checkbox.stateChanged.connect(settings_avail_check_statechanged)
         _avail_check_visible = ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS or ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS
         self.settings_avail_check_checkbox.setVisible(_avail_check_visible)
-        grid_tab_Settings.addWidget(self.settings_avail_check_checkbox, 3, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_avail_check_checkbox, 4, 0, 1, 2)
 
         def settings_multi_search_statechanged():
             configuration_dictionary[SETTING_MULTI_SEARCH] = "true" if self.settings_multi_search_checkbox.isChecked() else "false"
@@ -19907,7 +20046,7 @@ class MainWindow(QMainWindow):
             "with the number of results found, e.g. ZXDB (5)."
         )
         self.settings_multi_search_checkbox.stateChanged.connect(settings_multi_search_statechanged)
-        grid_tab_Settings.addWidget(self.settings_multi_search_checkbox, 4, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_multi_search_checkbox, 5, 0, 1, 2)
 
         def settings_search_autocomplete_statechanged():
             enabled = self.settings_search_autocomplete_checkbox.isChecked()
@@ -19923,7 +20062,7 @@ class MainWindow(QMainWindow):
             "Uncheck to disable autocomplete suggestions on all search inputs."
         )
         self.settings_search_autocomplete_checkbox.stateChanged.connect(settings_search_autocomplete_statechanged)
-        grid_tab_Settings.addWidget(self.settings_search_autocomplete_checkbox, 5, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_search_autocomplete_checkbox, 6, 0, 1, 2)
 
         # ---- Gallery (picture view) settings ----
         def _settings_gallery_anim_changed():
@@ -19940,7 +20079,7 @@ class MainWindow(QMainWindow):
             "  • Timed: cycles continuously while the gallery is visible.\n"
             "  • None: never cycles between images (animated GIFs still play)."
         )
-        grid_tab_Settings.addWidget(gallery_anim_lbl, 6, 0)
+        grid_tab_Settings.addWidget(gallery_anim_lbl, 7, 0)
 
         self.settings_gallery_anim_combo = QComboBox()
         self.settings_gallery_anim_combo.addItem("On hover (default)", "hover")
@@ -19950,7 +20089,7 @@ class MainWindow(QMainWindow):
         self.settings_gallery_anim_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_anim_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_anim_combo, 6, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_anim_combo, 7, 1)
 
         def _settings_gallery_rows_changed(val: int):
             val = max(GALLERY_MIN_ROWS, min(GALLERY_MAX_ROWS, int(val)))
@@ -19963,14 +20102,14 @@ class MainWindow(QMainWindow):
             "Number of thumbnail rows shown per gallery page.\n"
             f"Range {GALLERY_MIN_ROWS}–{GALLERY_MAX_ROWS}. Default {DEFAULT_GALLERY_ROWS_PER_PAGE}."
         )
-        grid_tab_Settings.addWidget(gallery_rows_lbl, 7, 0)
+        grid_tab_Settings.addWidget(gallery_rows_lbl, 8, 0)
 
         self.settings_gallery_rows_spin = QSpinBox()
         self.settings_gallery_rows_spin.setRange(GALLERY_MIN_ROWS, GALLERY_MAX_ROWS)
         self.settings_gallery_rows_spin.setValue(DEFAULT_GALLERY_ROWS_PER_PAGE)
         self.settings_gallery_rows_spin.setToolTip(gallery_rows_lbl.toolTip())
         self.settings_gallery_rows_spin.valueChanged.connect(_settings_gallery_rows_changed)
-        grid_tab_Settings.addWidget(self.settings_gallery_rows_spin, 7, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_rows_spin, 8, 1)
 
         def _make_color_button(setting_key, color_attr, label_text, tooltip_text, grid_row):
             """Create a label + color-swatch button at the given grid row."""
@@ -19989,6 +20128,12 @@ class MainWindow(QMainWindow):
 
             def _apply_color(color: QColor):
                 _update_swatch(color)
+                # Hand-picking a colour switches the Desktop Theme to Custom so
+                # Automatic/Dark no longer overrides the user's choice.
+                self._desktop_theme_mode = DESKTOP_THEME_CUSTOM
+                configuration_dictionary[SETTING_DESKTOP_THEME] = DESKTOP_THEME_CUSTOM
+                if hasattr(self, "_select_desktop_theme_in_combo"):
+                    self._select_desktop_theme_in_combo(DESKTOP_THEME_CUSTOM)
                 save_configuration_file()
                 # Re-tint the rows already shown in the image explorer so the
                 # change is visible immediately (no async re-listing needed).
@@ -20018,7 +20163,7 @@ class MainWindow(QMainWindow):
             "Number of thumbnail columns shown in the gallery grid.\n"
             "Default is 4. Choose 2 for larger tiles or 8 for more items per row."
         )
-        grid_tab_Settings.addWidget(gallery_cols_lbl, 8, 0)
+        grid_tab_Settings.addWidget(gallery_cols_lbl, 9, 0)
 
         self.settings_gallery_cols_combo = QComboBox()
         self.settings_gallery_cols_combo.addItem("2", 2)
@@ -20029,7 +20174,7 @@ class MainWindow(QMainWindow):
         self.settings_gallery_cols_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_cols_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_cols_combo, 8, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_cols_combo, 9, 1)
 
         def _settings_gallery_img_size_changed():
             val = self.settings_gallery_img_size_combo.currentData() or DEFAULT_GALLERY_IMG_SIZE
@@ -20044,7 +20189,7 @@ class MainWindow(QMainWindow):
             "  • Medium (default): standard size\n"
             "  • Large: double the medium height"
         )
-        grid_tab_Settings.addWidget(gallery_img_size_lbl, 9, 0)
+        grid_tab_Settings.addWidget(gallery_img_size_lbl, 10, 0)
 
         self.settings_gallery_img_size_combo = QComboBox()
         self.settings_gallery_img_size_combo.addItem("Small",          "small")
@@ -20055,7 +20200,7 @@ class MainWindow(QMainWindow):
         self.settings_gallery_img_size_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_img_size_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_img_size_combo, 9, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_img_size_combo, 10, 1)
 
         def _settings_gallery_slideshow_changed():
             val = self.settings_gallery_slideshow_combo.currentData()
@@ -20079,7 +20224,7 @@ class MainWindow(QMainWindow):
             "How long each screenshot is shown before the auto-advancing gallery\n"
             "slideshow moves to the next image. Default is 5 seconds."
         )
-        grid_tab_Settings.addWidget(gallery_slideshow_lbl, 10, 0)
+        grid_tab_Settings.addWidget(gallery_slideshow_lbl, 11, 0)
 
         self.settings_gallery_slideshow_combo = QComboBox()
         for _secs in GALLERY_SLIDESHOW_SECS_CHOICES:
@@ -20090,42 +20235,42 @@ class MainWindow(QMainWindow):
         self.settings_gallery_slideshow_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_slideshow_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_slideshow_combo, 10, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_slideshow_combo, 11, 1)
 
         settings_section_lbl = QLabel("SD Card Image Explorer — Item Colors:")
         settings_section_lbl.setToolTip("Customize the foreground color for each item type displayed in the SD card image explorer.")
-        grid_tab_Settings.addWidget(settings_section_lbl, 12, 0, 1, 2)
+        grid_tab_Settings.addWidget(settings_section_lbl, 13, 0, 1, 2)
 
         self.settings_btn_color_up_directory = _make_color_button(
             SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory",
             "  Up Directory item",
             "Color used for the '[Up Directory..]' navigation row in the image explorer.",
-            13)
+            14)
         self.settings_btn_color_dir_name = _make_color_button(
             SETTING_COLOR_DIR_NAME, "img_color_dir_name",
             "  Directory name",
             "Color used for directory name entries in the image explorer.",
-            14)
+            15)
         self.settings_btn_color_dir_type = _make_color_button(
             SETTING_COLOR_DIR_TYPE, "img_color_dir_type",
             "  Directory type label",
             "Color used for the 'DIR' type label column of directory entries.",
-            15)
+            16)
         self.settings_btn_color_file_name = _make_color_button(
             SETTING_COLOR_FILE_NAME, "img_color_file_name",
             "  File name",
             "Color used for file name entries in the image explorer.",
-            16)
+            17)
         self.settings_btn_color_file_ext = _make_color_button(
             SETTING_COLOR_FILE_EXT, "img_color_file_ext",
             "  File extension",
             "Color used for the file extension column in the image explorer.",
-            17)
+            18)
         self.settings_btn_color_file_size = _make_color_button(
             SETTING_COLOR_FILE_SIZE, "img_color_file_size",
             "  File size",
             "Color used for the file size column in the image explorer.",
-            18)
+            19)
 
         # ---- Background image opacity ----
         bg_opacity_lbl = QLabel("Background image opacity (%):")
@@ -20133,7 +20278,7 @@ class MainWindow(QMainWindow):
             "Controls how visible the background image is behind the UI.\n"
             "0 = fully hidden, 100 = fully visible. Default is 5%."
         )
-        grid_tab_Settings.addWidget(bg_opacity_lbl, 19, 0)
+        grid_tab_Settings.addWidget(bg_opacity_lbl, 20, 0)
 
         bg_opacity_row = QWidget()
         bg_opacity_row_layout = QHBoxLayout(bg_opacity_row)
@@ -20216,7 +20361,7 @@ class MainWindow(QMainWindow):
 
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_slider, 1)
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_spinbox, 0)
-        grid_tab_Settings.addWidget(bg_opacity_row, 19, 1)
+        grid_tab_Settings.addWidget(bg_opacity_row, 20, 1)
 
         # ---- Background image selector ----
         bg_image_lbl = QLabel("Background image:")
@@ -20224,7 +20369,7 @@ class MainWindow(QMainWindow):
             "Choose a specific background image or 'Random' to cycle through\n"
             "all images in the script folder every 5 seconds."
         )
-        grid_tab_Settings.addWidget(bg_image_lbl, 20, 0)
+        grid_tab_Settings.addWidget(bg_image_lbl, 21, 0)
 
         bg_image_row = QWidget()
         bg_image_row_layout = QHBoxLayout(bg_image_row)
@@ -20267,7 +20412,7 @@ class MainWindow(QMainWindow):
         self.settings_bg_image_preview.setToolTip("Preview of the selected background image.")
         bg_image_row_layout.addWidget(self.settings_bg_image_preview, 0)
 
-        grid_tab_Settings.addWidget(bg_image_row, 20, 1)
+        grid_tab_Settings.addWidget(bg_image_row, 21, 1)
 
         def _update_bg_image_preview(path: str):
             """Refresh the thumbnail label for the given absolute image path."""
@@ -20328,7 +20473,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_crash_log_enabled_checkbox.stateChanged.connect(
             settings_crash_log_enabled_statechanged)
-        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 21, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 22, 0, 1, 2)
 
         def settings_disable_no_emulator_toast_statechanged():
             configuration_dictionary[SETTING_DISABLE_NO_EMULATOR_TOAST] = "true" if self.settings_disable_no_emulator_toast_checkbox.isChecked() else "false"
@@ -20342,7 +20487,7 @@ class MainWindow(QMainWindow):
             "Check this if you do not use any emulator and do not want the reminder."
         )
         self.settings_disable_no_emulator_toast_checkbox.stateChanged.connect(settings_disable_no_emulator_toast_statechanged)
-        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 22, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 23, 0, 1, 2)
 
         # ── MAME options (only shown when the MAME emulator was detected) ──
         if getattr(self, "_mame_executable_path", None):
@@ -20356,7 +20501,7 @@ class MainWindow(QMainWindow):
                 "This is inserted right after the MAME executable and is no longer part\n"
                 "of the command-line parameters below."
             )
-            grid_tab_Settings.addWidget(mame_rom_lbl, 23, 0)
+            grid_tab_Settings.addWidget(mame_rom_lbl, 24, 0)
 
             self.settings_mame_rom_combo = QComboBox()
             for _rom_name in MAME_ROM_CHOICE:
@@ -20364,7 +20509,7 @@ class MainWindow(QMainWindow):
             self.settings_mame_rom_combo.setToolTip(mame_rom_lbl.toolTip())
             self.settings_mame_rom_combo.currentIndexChanged.connect(
                 lambda _i: settings_mame_rom_changed())
-            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 23, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 24, 1)
 
             def settings_mame_params_changed():
                 configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = self.settings_mame_params_edit.text()
@@ -20377,7 +20522,7 @@ class MainWindow(QMainWindow):
                 "and the '-hard1 <image>' arguments are added automatically at launch,\n"
                 "so the loaded image is always the last argument."
             )
-            grid_tab_Settings.addWidget(mame_params_lbl, 24, 0)
+            grid_tab_Settings.addWidget(mame_params_lbl, 25, 0)
 
             self.settings_mame_params_edit = QLineEdit()
             self.settings_mame_params_edit.setText(
@@ -20385,7 +20530,7 @@ class MainWindow(QMainWindow):
                     SETTING_MAME_COMMAND_LINE_PARAMETERS, MAME_DEFAULT_COMMAND_LINE))
             self.settings_mame_params_edit.setToolTip(mame_params_lbl.toolTip())
             self.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
-            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 24, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 25, 1)
 
         # ── Unite! pygame background animation toggle ──────────────────────
         def _settings_pygame_anim_changed():
@@ -20414,7 +20559,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_pygame_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 25, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 26, 0, 1, 2)
 
         # ── NextSync retro-log starfield animation toggle ──────────────────
         def _settings_nextsync_anim_changed():
@@ -20446,7 +20591,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_nextsync_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_nextsync_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 28, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 29, 0, 1, 2)
 
         # ── Alien Floyd's: optional pygame-ce animated background everywhere ──
         # A Pink Floyd homage. When on, a pygame-ce "Alien Floyd's" animation
@@ -20491,7 +20636,7 @@ class MainWindow(QMainWindow):
             "file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_bg_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_bg_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 26, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 27, 0, 1, 2)
 
         # ── Alien Floyd's: optional dedicated full-window tab ────────────────
         self._alien_floyd_tab_widget = None
@@ -20563,7 +20708,7 @@ class MainWindow(QMainWindow):
             "configuration file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 27, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 28, 0, 1, 2)
 
         # ── itch.io: optional online tab (driven by the 'itch-dl' package) ───
         def _itchio_tab_set_visible(on):
@@ -20606,7 +20751,7 @@ class MainWindow(QMainWindow):
                 "configuration file. Requires the optional 'itch-dl' package.")
         self.settings_show_itchio_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_itchio_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 29, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 30, 0, 1, 2)
 
         # ── NextSync: what to do when a received file/dir already exists locally ──
         def _settings_nextsync_send_conflict_changed():
@@ -20623,7 +20768,7 @@ class MainWindow(QMainWindow):
             "  • Overwrite: always replace the local file.\n"
             "  • Ignore: never touch existing local files."
         )
-        grid_tab_Settings.addWidget(nextsync_send_conflict_lbl, 2, 0)
+        grid_tab_Settings.addWidget(nextsync_send_conflict_lbl, 3, 0)
 
         self.settings_nextsync_send_conflict_combo = QComboBox()
         self.settings_nextsync_send_conflict_combo.addItem("Prompt (default)", "prompt")
@@ -20632,7 +20777,7 @@ class MainWindow(QMainWindow):
         self.settings_nextsync_send_conflict_combo.setToolTip(nextsync_send_conflict_lbl.toolTip())
         self.settings_nextsync_send_conflict_combo.currentIndexChanged.connect(
             lambda _i: _settings_nextsync_send_conflict_changed())
-        grid_tab_Settings.addWidget(self.settings_nextsync_send_conflict_combo, 2, 1)
+        grid_tab_Settings.addWidget(self.settings_nextsync_send_conflict_combo, 3, 1)
 
         # ── Unite! search result sort / render preference ──────────────────
         def _settings_search_sort_changed():
@@ -20662,7 +20807,7 @@ class MainWindow(QMainWindow):
             "  • Classic: ZXDB and zxArt items are preferred to the top, with\n"
             "    GetIt content placed at the end."
         )
-        grid_tab_Settings.addWidget(search_sort_lbl, 11, 0)
+        grid_tab_Settings.addWidget(search_sort_lbl, 12, 0)
 
         self.settings_search_sort_combo = QComboBox()
         self.settings_search_sort_combo.addItem("GetIt first class (default)", SEARCH_SORT_GETIT_FIRST)
@@ -20671,7 +20816,7 @@ class MainWindow(QMainWindow):
         self.settings_search_sort_combo.setToolTip(search_sort_lbl.toolTip())
         self.settings_search_sort_combo.currentIndexChanged.connect(
             lambda _i: _settings_search_sort_changed())
-        grid_tab_Settings.addWidget(self.settings_search_sort_combo, 11, 1)
+        grid_tab_Settings.addWidget(self.settings_search_sort_combo, 12, 1)
 
         # "Open config file" — moved here from the SD-card tab. Opens hdfg.cfg in
         # the system text editor so advanced users can hand-edit settings. Placed
@@ -20679,7 +20824,7 @@ class MainWindow(QMainWindow):
         # width rather than stretching across both columns.
         self.button_open_config_file = QPushButton("Open config file", self)
         self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
-        grid_tab_Settings.addWidget(self.button_open_config_file, 30, 0, 1, 2, Qt.AlignLeft)
+        grid_tab_Settings.addWidget(self.button_open_config_file, 31, 0, 1, 2, Qt.AlignLeft)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)

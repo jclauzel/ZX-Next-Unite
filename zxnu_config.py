@@ -119,6 +119,7 @@ SETTING_COLOR_DIR_TYPE    = "color_dir_type"
 SETTING_COLOR_FILE_NAME   = "color_file_name"
 SETTING_COLOR_FILE_EXT    = "color_file_ext"
 SETTING_COLOR_FILE_SIZE   = "color_file_size"
+SETTING_DESKTOP_THEME     = "desktop_theme"     # "automatic" (default) | "dark" | "custom"
 SETTING_IMAGE_HISTORY     = "image_history"
 SETTING_BG_OPACITY        = "bg_opacity"
 SETTING_BG_IMAGE          = "bg_image"          # "" = Random, else filename (basename only)
@@ -346,6 +347,145 @@ DEFAULT_COLOR_FILE_NAME   = "#00ff00"
 DEFAULT_COLOR_FILE_EXT    = "#00ff00"
 DEFAULT_COLOR_FILE_SIZE   = "#00ff00"
 
+# ── Desktop theme (SD Card explorer font colours) ───────────────────────────
+# Mode meanings:
+#   "automatic" - follow the OS: high-contrast/accessibility -> all-black
+#                 palette, else dark desktop -> the dark tweaks, else -> the
+#                 light (white) palette (the plain defaults above).
+#   "white"     - force the light palette (Directory name/type stay blue).
+#   "dark"      - force the dark tweaks (orange/yellow).
+#   "black"     - high-contrast: every font colour is black (accessibility).
+#   "custom"    - user hand-picked colours; leave them alone.
+DESKTOP_THEME_AUTOMATIC = "automatic"
+DESKTOP_THEME_WHITE     = "white"
+DESKTOP_THEME_DARK      = "dark"
+DESKTOP_THEME_BLACK     = "black"
+DESKTOP_THEME_CUSTOM    = "custom"
+DEFAULT_DESKTOP_THEME   = DESKTOP_THEME_AUTOMATIC
+# In dark mode only the two hard-to-read blue entries change; every other colour
+# keeps its default.
+DARK_COLOR_DIR_NAME     = "#ffa500"   # Directory name : orange (was blue)
+DARK_COLOR_DIR_TYPE     = "#ffff00"   # Directory type : yellow (was blue)
+# High-contrast (accessibility): every explorer font colour becomes black.
+HIGH_CONTRAST_COLOR     = "#000000"
+
+def detect_system_dark_theme():
+    """Best-effort detection of whether the OS desktop theme is dark.
+
+    Returns True for dark, False for light/unknown. Cross-platform (Windows and
+    Linux desktops — GNOME, KDE, Commodore OS, …), trying in order:
+      1. Qt's own colour-scheme hint (Qt 6.5+, reads the OS setting directly),
+      2. the Windows registry (AppsUseLightTheme),
+      3. GNOME gsettings / KDE kdeglobals,
+      4. the active QPalette's lightness (covers any other Qt-themed desktop).
+    """
+    import sys as _sys
+    try:
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import Qt as _Qt
+        app = QApplication.instance()
+    except Exception:
+        app = None
+
+    # 1) Qt colour-scheme hint (most reliable when present).
+    if app is not None:
+        try:
+            hints = app.styleHints()
+            if hasattr(hints, "colorScheme"):
+                scheme = hints.colorScheme()
+                if scheme == _Qt.ColorScheme.Dark:
+                    return True
+                if scheme == _Qt.ColorScheme.Light:
+                    return False
+        except Exception:
+            pass
+
+    # 2) Windows registry (authoritative when the Qt hint is unavailable).
+    if _sys.platform.startswith("win"):
+        try:
+            import winreg
+            k = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+            val, _ = winreg.QueryValueEx(k, "AppsUseLightTheme")
+            winreg.CloseKey(k)
+            return int(val) == 0
+        except Exception:
+            pass
+
+    # 3) Linux desktops: GNOME (gsettings) then KDE (kdeglobals).
+    try:
+        import subprocess
+        for _key in ("color-scheme", "gtk-theme"):
+            out = subprocess.run(
+                ["gsettings", "get", "org.gnome.desktop.interface", _key],
+                capture_output=True, text=True, timeout=1.5)
+            if out.returncode == 0 and "dark" in out.stdout.lower():
+                return True
+    except Exception:
+        pass
+    try:
+        import os as _os
+        _kg = _os.path.expanduser("~/.config/kdeglobals")
+        if _os.path.isfile(_kg):
+            with open(_kg, "r", errors="ignore") as _f:
+                for _line in _f:
+                    _l = _line.strip().lower()
+                    if _l.startswith("colorscheme") and "dark" in _l:
+                        return True
+    except Exception:
+        pass
+
+    # 4) Fallback: compare the active palette's window vs text lightness. Works
+    #    on any desktop that themes Qt (incl. Commodore OS) once an app exists.
+    if app is not None:
+        try:
+            from PySide6.QtGui import QPalette
+            pal = app.palette()
+            win = pal.color(QPalette.ColorRole.Window)
+            txt = pal.color(QPalette.ColorRole.WindowText)
+            return win.lightness() < txt.lightness()
+        except Exception:
+            pass
+    return False
+
+def detect_system_high_contrast():
+    """Best-effort detection of an OS high-contrast / accessibility theme.
+
+    Returns True when the user has a high-contrast accessibility mode enabled
+    (Windows "High Contrast", GNOME a11y high-contrast, or a HighContrast GTK
+    theme). Used so Automatic mode can switch the explorer fonts to the
+    all-black high-contrast palette for readability.
+    """
+    import sys as _sys
+    if _sys.platform.startswith("win"):
+        try:
+            import winreg
+            k = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Control Panel\Accessibility\HighContrast")
+            flags, _ = winreg.QueryValueEx(k, "Flags")
+            winreg.CloseKey(k)
+            return (int(flags) & 1) == 1   # HCF_HIGHCONTRASTON
+        except Exception:
+            return False
+    # Linux GNOME: explicit a11y high-contrast toggle, or a HighContrast theme.
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["gsettings", "get", "org.gnome.desktop.a11y.interface", "high-contrast"],
+            capture_output=True, text=True, timeout=1.5)
+        if out.returncode == 0 and "true" in out.stdout.lower():
+            return True
+        out = subprocess.run(
+            ["gsettings", "get", "org.gnome.desktop.interface", "gtk-theme"],
+            capture_output=True, text=True, timeout=1.5)
+        if out.returncode == 0 and "highcontrast" in out.stdout.lower().replace("-", "").replace(" ", ""):
+            return True
+    except Exception:
+        pass
+    return False
+
 PORT = 2048    # Port to listen on (non-privileged ports are > 1023)
 VERSION3 = "NextSync3"
 # Sync4 adds the bidirectional ("-send") upload direction (Next -> PC). Old Sync3
@@ -521,7 +661,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
             )
 CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE,
 SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME,
-SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_SEARCH_SORT_MODE, SETTING_GALLERY_ANIM_MODE,
+SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_DESKTOP_THEME, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_SEARCH_SORT_MODE, SETTING_GALLERY_ANIM_MODE,
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GALLERY_SLIDESHOW_SECS, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
