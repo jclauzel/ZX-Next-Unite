@@ -2926,18 +2926,25 @@ class MainWindow(QMainWindow):
 
                 #  Now set the settings back to the application SETTING_SCREENSIZE and others
 
-                # Restore image history into the combo (most-recent-first list stored as '|'-delimited)
+                # Restore image history into the combo (most-recent-first list
+                # stored as '|'-delimited). Entries saved by older versions may
+                # carry surrounding quotes / forward slashes, so tidy each one
+                # (dropping any that become empty or duplicate after cleanup).
                 history_raw = configuration_dictionary.get(SETTING_IMAGE_HISTORY, "")
                 if history_raw:
-                    history_entries = [p for p in history_raw.split("|") if p.strip()]
+                    history_entries = []
+                    for p in history_raw.split("|"):
+                        clean = normalize_sd_image_path(p)
+                        if clean and clean not in history_entries:
+                            history_entries.append(clean)
                     self.imageinput.blockSignals(True)
                     self.imageinput.clear()
                     for entry in history_entries[:MAX_IMAGE_HISTORY]:
                         self.imageinput.addItem(entry)
                     self.imageinput.blockSignals(False)
 
-                # Set the active image path (most recently used)
-                current_hddfile = configuration_dictionary[SETTING_HDDFILE]
+                # Set the active image path (most recently used), tidied the same way.
+                current_hddfile = normalize_sd_image_path(configuration_dictionary[SETTING_HDDFILE])
                 self.imageinput.setCurrentText(current_hddfile)
                 self.cspect_sound.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_SOUND]))
                 self.cspect_screensize.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_SCREENSIZE]))
@@ -3546,14 +3553,20 @@ class MainWindow(QMainWindow):
 
         def get_pyhdfmgooey_currenttab_config():
             configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING] = wid_inner.tab.currentIndex()
-            configuration_dictionary[SETTING_HDDFILE] = self.imageinput.currentText()
+            # Persist the tidied path (no surrounding quotes, native separators)
+            # so the config file stays clean regardless of what is in the box.
+            configuration_dictionary[SETTING_HDDFILE] = normalize_sd_image_path(self.imageinput.currentText())
             configuration_dictionary[SETTING_SCREENSIZE] = self.cspect_screensize.currentIndex()
             configuration_dictionary[SETTING_SOUND] = self.cspect_sound.currentIndex()
             configuration_dictionary[SETTING_VSYNC] = self.cspect_vsync.currentIndex()
             configuration_dictionary[SETTING_JOYSTICK] = self.cspect_joystick.currentIndex()
             configuration_dictionary[SETTING_HERTZ] = self.cspect_frequency.currentIndex()
-            # Persist the full history as a '|'-delimited string
-            history_items = [self.imageinput.itemText(i) for i in range(self.imageinput.count()) if self.imageinput.itemText(i)]
+            # Persist the full history as a '|'-delimited string (each entry tidied).
+            history_items = []
+            for i in range(self.imageinput.count()):
+                clean = normalize_sd_image_path(self.imageinput.itemText(i))
+                if clean and clean not in history_items:
+                    history_items.append(clean)
             configuration_dictionary[SETTING_IMAGE_HISTORY] = "|".join(history_items)
             #save_configuration_file()
 
@@ -3614,11 +3627,12 @@ class MainWindow(QMainWindow):
                 cspect_exe = getattr(self, "_cspect_executable_path", None)
                 use_bundled = (getattr(self, "_cspect_from_downloads", False)
                                and cspect_exe and os.path.isfile(cspect_exe))
-                # The image path may be stored with surrounding quotes (kept so
-                # spaces survive the shell). Strip them before any os.path work:
+                # The path is normalised (unquoted) when loaded, but strip any
+                # stray surrounding quotes defensively before os.path work:
                 # os.path.abspath() on a string starting with '"' treats it as a
                 # relative path and prepends the cwd, yielding a bogus value like
-                # <cwd>\"C:\temp\img". Re-quote only the final path below.
+                # <cwd>\"C:\temp\img". Re-quote only the final path below (the
+                # -mmc= argument goes through the shell, so spaces need quoting).
                 img_path = (self.right_disk_image_path or "").strip().strip('"')
                 if use_bundled:
                     # CSpect runs from its own folder so its Next ROMs resolve;
@@ -3932,8 +3946,19 @@ class MainWindow(QMainWindow):
             global right_disk_image_explorer_content
             global right_disk_image_explorer_path
 
+            # Tidy whatever is in the box (typed, pasted, picked or restored):
+            # drop stray surrounding quotes and, on Windows, show native
+            # backslash separators. Reflect the cleaned value back into the box
+            # so the user sees e.g. C:\temp\next.img rather than "C:/temp\next.img".
+            # blockSignals avoids re-entering load_image while we rewrite the text.
+            _clean_image_path = normalize_sd_image_path(self.imageinput.currentText())
+            if _clean_image_path != self.imageinput.currentText():
+                self.imageinput.blockSignals(True)
+                self.imageinput.setCurrentText(_clean_image_path)
+                self.imageinput.blockSignals(False)
+
             # Populate right image path content
-            self.right_disk_image_path = self.imageinput.currentText()
+            self.right_disk_image_path = _clean_image_path
 
             right_disk_image_explorer_path = []
             right_disk_image_explorer_content = []
@@ -4213,7 +4238,7 @@ class MainWindow(QMainWindow):
             dialog.setFileMode(QFileDialog.AnyFile)
             dialog.setViewMode(QFileDialog.Detail)
             fileName = QFileDialog.getOpenFileName(self,"Open File","/home/", "Images (*.img *.hdf)" )
-            self.imageinput.setCurrentText('"' + str(fileName[0]) + '"')
+            self.imageinput.setCurrentText(normalize_sd_image_path(fileName[0]))
             configuration_dictionary[SETTING_HDDFILE] = self.imageinput.currentText()
 
             right_disk_image_explorer_path = []
@@ -4371,7 +4396,7 @@ class MainWindow(QMainWindow):
                 global right_disk_image_selected_files
 
                 # Select the downloaded image into the image input
-                self.imageinput.setCurrentText('"' + str(image_to_load) + '"')
+                self.imageinput.setCurrentText(normalize_sd_image_path(image_to_load))
                 configuration_dictionary[SETTING_HDDFILE] = self.imageinput.currentText()
 
                 right_disk_image_explorer_path = []
@@ -21424,6 +21449,22 @@ class MainWindow(QMainWindow):
                 btn = getattr(self, "help_pygame_button", None)
                 if btn is not None and btn.isEnabled() and not btn.isChecked():
                     btn.setChecked(True)
+            # Per-pane Classic/Retro item-viewer toggles (GetIt, ZXDB, zxArt,
+            # itch.io, Favorites). Default them to Retro too so every gallery
+            # pane opens items in the pygame viewer on first run, matching the
+            # Unite! tab. Each button's toggled handler persists the choice and
+            # applies the retro gallery scene, so flipping it on is enough.
+            for _retro_key, _retro_btn_attr in (
+                (SETTING_GETIT_ITEM_RETRO,     "getit_retro_button"),
+                (SETTING_ZXDB_ITEM_RETRO,      "zxdb_retro_button"),
+                (SETTING_ZXART_ITEM_RETRO,     "zxart_retro_button"),
+                (SETTING_ITCHIO_ITEM_RETRO,    "itchio_retro_button"),
+                (SETTING_FAVORITES_ITEM_RETRO, "favorites_retro_button"),
+            ):
+                if _unset(_retro_key):
+                    btn = getattr(self, _retro_btn_attr, None)
+                    if btn is not None and btn.isEnabled() and not btn.isChecked():
+                        btn.setChecked(True)
             if _unset(SETTING_ALIEN_FLOYD_BG):
                 cb = getattr(self, "settings_alien_floyd_bg_checkbox", None)
                 if cb is not None and not cb.isChecked():

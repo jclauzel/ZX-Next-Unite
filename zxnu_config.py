@@ -743,6 +743,32 @@ def hex_to_qcolor(hex_str: str) -> QColor:
     color = QColor(hex_str)
     return color if color.isValid() else QColor(255, 255, 255)
 
+
+def normalize_sd_image_path(raw) -> str:
+    """Tidy an SD-card image path for display and storage.
+
+    Strips any surrounding quotes and leading/trailing whitespace — older
+    hdfg.cfg files and the file picker used to wrap the path in double quotes,
+    e.g. ``"C:/temp/next.img"`` — and, on Windows, rewrites forward slashes to
+    native backslashes so a mixed value like ``"C:/temp\\next.img"`` displays as
+    ``C:\\temp\\next.img``.  On Linux/macOS separators are left untouched (a
+    backslash is a legal filename character there), only the quotes/whitespace
+    are removed, e.g. ``/home/user/next.img``.
+
+    Paths containing spaces are preserved verbatim: hdfmonkey is run via an argv
+    list and the emulators re-quote the path themselves at launch, so no
+    surrounding quotes are needed here for ``C:\\temp\\ha ha\\next.img`` to load.
+    Returns ``""`` for blank/empty input."""
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    # Peel off one or more layers of matched surrounding quotes ("..." or '...').
+    while len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+        s = s[1:-1].strip()
+    if platform.system() == "Windows":
+        s = s.replace("/", "\\")
+    return s
+
 UP_DIRECTORY = "[Up Directory..]"
 DIRECTORY_CREATION_NOT_ALLOWED_CHARACTERS = ('"', '<', '>', ':', '\\', '/', '|', '?', '*', '!', '(',')', '.', "'", '$', '@')
 HDFMONKEY_EXECUTABLE = "hdfmonkey"
