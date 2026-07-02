@@ -14406,6 +14406,7 @@ class MainWindow(QMainWindow):
             "extra": _zxart_extra_fetch,
             "title": _zxart_gallery_title,
             "info":  _zxart_fav_table_info,
+            "has_image": _zxart_has_image,
         }
         self.zxart_view_stack.addWidget(self.zxart_gallery_view)  # index 1
 
@@ -17770,6 +17771,8 @@ class MainWindow(QMainWindow):
                 "extra": _itchio_extra_fetch,
                 "title": _itchio_title_getter,
                 "info":  _itchio_info_getter,
+                # An itch.io entry has a picture only when it carries a cover URL.
+                "has_image": lambda e: bool((e.get("cover_url") or "").strip()),
             }
 
             # --- The in-pane item viewer with an Install button + status ---
@@ -18549,6 +18552,32 @@ class MainWindow(QMainWindow):
             # config-restore path, since the saved key is not loaded yet here.
 
         # --- Aggregation + tab badge ---
+        def _allinone_has_image(e):
+            """Whether an aggregated entry is known to carry a real picture.
+            zxArt / itch.io expose this in their list data; GetIt and ZXDB always
+            attempt a real image, so they are treated optimistically (True) and
+            the Qt gallery's runtime re-sort sinks any that turn out imageless."""
+            src = (e.get("_fav_source") or e.get("source") or "").lower()
+            pred = ((self._fav_fetchers or {}).get(src) or {}).get("has_image")
+            if pred is None:
+                return True
+            try:
+                return bool(pred(e))
+            except Exception:
+                return True
+
+        def _allinone_order_image_first(entries):
+            """Stable-partition so picture-bearing entries lead and known-
+            imageless ones sink to the bottom. Applied to every sort mode so
+            "Mixed" can no longer surface imageless items at the top — the same
+            image-first guarantee GetIt-first and Classic already get from their
+            base ordering. Order within each group is preserved, so each mode's
+            arrangement of the picture-bearing items is untouched."""
+            keep, sink = [], []
+            for e in entries:
+                (keep if _allinone_has_image(e) else sink).append(e)
+            return keep + sink
+
         def _allinone_collect():
             # Gather each source's tagged entries into its own bucket so the
             # configured sort mode can arrange them. The gallery's image-first
@@ -18591,18 +18620,23 @@ class MainWindow(QMainWindow):
                     if not took_any:
                         break
                     i += 1
-                return merged
-
-            if mode == SEARCH_SORT_CLASSIC:
+            elif mode == SEARCH_SORT_CLASSIC:
                 # ZXDB / zxArt (and itch.io) first, GetIt content trailing last.
                 seq = ("zxdb", "zxart", "itchio", "getit")
+                merged = []
+                for s in seq:
+                    merged.extend(buckets.get(s, []))
             else:
                 # Default "GetIt first class": GetIt leads, then the rest.
                 seq = ("getit", "zxdb", "zxart", "itchio")
-            merged = []
-            for s in seq:
-                merged.extend(buckets.get(s, []))
-            return merged
+                merged = []
+                for s in seq:
+                    merged.extend(buckets.get(s, []))
+
+            # Common to every mode: float picture-bearing entries to the top and
+            # sink known-imageless ones, so no mode (notably "Mixed") starts the
+            # gallery with imageless content.
+            return _allinone_order_image_first(merged)
 
         def _allinone_update_tab_badge(n):
             try:
