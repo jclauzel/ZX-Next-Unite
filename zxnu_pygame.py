@@ -1203,6 +1203,460 @@ def _make_clive_face(px):
     return spr
 
 
+# ── walking Sir Clive Sinclair (Jet-Set-Willy style stroller) ─────────────────
+# A big, full-body pixel homage to Sir Clive Sinclair (bald pate, ginger side
+# hair + beard, glasses, grey suit, navy tie) drawn with the same multi-colour
+# palette-sprite technique as the Alien Floyd cast.  The head + torso are fixed;
+# only the legs change per animation frame to give a simple walk cycle
+# (together → passing → stride → passing), so the figure ambles sideways across
+# the retro log panes like Miner Willy in Jet Set Willy.
+_CLIVE_WALK_PALETTE = {
+    "S": (232, 196, 166),   # skin
+    "h": (170, 105, 65),    # ginger side hair
+    "b": (185, 120, 75),    # ginger beard
+    "g": (215, 215, 225),   # glasses frame
+    "l": (170, 205, 225),   # glasses lens
+    "W": (212, 216, 226),   # shirt / collar
+    "J": (145, 145, 150),   # grey suit jacket
+    "j": (95, 95, 105),     # trousers (darker suit)
+    "T": (45, 50, 95),      # navy tie
+    "K": (40, 40, 48),      # shoes
+}
+
+# Head + torso (14 rows, 16 columns) — shared by every walk frame.
+_CLIVE_WALK_TOP = [
+    "......SSSS......",
+    "....hhSSSShh....",
+    "...hSSSSSSSSh...",
+    "...hgllggllgh...",
+    "...hSSSSSSSSh...",
+    "...hbbSSSSbbh...",
+    "....bbbSSbbb....",
+    ".....WWWW.......",
+    "....JJWTTWJJ....",
+    "...JJJWTTWJJJ...",
+    "..SJJJWTTWJJJS..",
+    "..SJJJJTTJJJJS..",
+    "...JJJJTTJJJJ...",
+    "...JJJJJJJJJJ...",
+]
+
+# Per-frame legs (6 rows, 16 columns): together → passing → stride → passing.
+_CLIVE_WALK_LEGS = [
+    [   # 0 — feet together
+        "....jjj..jjj....",
+        "....jjj..jjj....",
+        "....jjj..jjj....",
+        "....jjj..jjj....",
+        "....jjj..jjj....",
+        "...KKKK..KKKK...",
+    ],
+    [   # 1 — passing (slight spread)
+        "....jjj..jjj....",
+        "....jjj..jjj....",
+        "...jjj....jjj...",
+        "...jjj....jjj...",
+        "..jjj......jjj..",
+        "..KKK......KKK..",
+    ],
+    [   # 2 — full stride (wide)
+        "....jjj..jjj....",
+        "...jjj....jjj...",
+        "..jjj......jjj..",
+        ".jjj........jjj.",
+        ".jjj........jjj.",
+        "KKK..........KKK",
+    ],
+    [   # 3 — passing (slight spread)
+        "....jjj..jjj....",
+        "....jjj..jjj....",
+        "...jjj....jjj...",
+        "...jjj....jjj...",
+        "..jjj......jjj..",
+        "..KKK......KKK..",
+    ],
+]
+
+# ── profile (side-on) walking Clives ─────────────────────────────────────────
+# Three side-view walk cycles, in the spirit of Miner Willy: Sir Clive strides
+# in profile (nose + beard pointing the way he walks), with a proper alternating
+# leg gait and a swinging arm.  Three variants share the same head/torso/legs
+# and differ by what the front hand carries — nothing, a briefcase, or a little
+# ZX Spectrum held out to show it off.  Authored by *stamping* small
+# part-bitmaps onto a grid at fixed coordinates (rather than typing full-width
+# rows) so every row is guaranteed to be exactly _PROF_W wide.  All face right
+# as authored; the renderer flips them to face left when a stroller walks the
+# other way.
+_CLIVE_PROF_PALETTE = dict(_CLIVE_WALK_PALETTE)
+_CLIVE_PROF_PALETTE.update({
+    "C": (120, 80, 45),     # briefcase leather
+    "x": (60, 42, 26),      # briefcase latch / handle
+    "z": (28, 28, 34),      # ZX Spectrum case (black rubber-key slab)
+    "y": (104, 104, 120),   # ZX Spectrum keyboard (grey)
+})
+
+# A tiny ZX Spectrum (black slab, light badge, grey key grid) that walking-Clive
+# holds up to show off — matching the rainbow-free style of the _ZX_PATTERN
+# pickup elsewhere in this module.
+_PROF_ZX = [
+    "zzzzzz",
+    "zWWyyz",
+    "zyyyyz",
+    "zyyyyz",
+    "zzzzzz",
+]
+
+_PROF_W, _PROF_H = 16, 20
+
+# Side-on head+beard+glasses (facing right): ginger hair at the back (left),
+# bald dome, glasses lens mid-face, and the ginger beard on the chin (front).
+_PROF_HEAD = [
+    ".hSSSS..",
+    "hSSSSSS.",
+    "hSSSSSSS",
+    "hSSgllSS",
+    "hSSllSSS",
+    "hSSSSbbS",
+    ".SSbbbb.",
+    "..bbbb..",
+]
+
+# Suit torso (shoulders → hips), facing right.
+_PROF_TORSO = [
+    ".WWWW.",
+    "JWTTWJ",
+    "JJTTJJ",
+    "JJJJJJ",
+    "JJJJJJ",
+]
+
+# Alternating side-on leg gait (stamped at x=2, y=13); 'j' trousers, 'K' shoe
+# (the shoe points forward, to the right).
+_PROF_LEGS = [
+    [   # 0 — front (right) leg forward, back (left) leg trailing
+        "..jjjj....",
+        ".jj.jjj...",
+        ".j...jjj..",
+        "jj....jj..",
+        "jj....jj..",
+        "KKK..KKKK.",
+    ],
+    [   # 1 — passing: legs close, back foot lifting
+        "..jjjj....",
+        "..jjjj....",
+        "..jjjj....",
+        "..jjjj....",
+        "..jjjj....",
+        ".KKKKK....",
+    ],
+    [   # 2 — back (left) leg forward, front (right) leg trailing
+        "..jjjj....",
+        "..jjj.jj..",
+        ".jjj...j..",
+        ".jj....jj.",
+        ".jj....jj.",
+        "KKKK..KKK.",
+    ],
+    [   # 3 — passing: legs close, back foot lifting
+        "..jjjj....",
+        "..jjjj....",
+        "..jjjj....",
+        "..jjjj....",
+        "..jjjj....",
+        ".KKKKK....",
+    ],
+]
+
+# Front arm swing for the plain variant: (x, y, art) per frame.
+_PROF_ARM_PLAIN = [
+    (9, 9, ["JJ.", ".JS", "..S"]),   # 0 — swung forward
+    (9, 9, ["J", "J", "S"]),         # 1 — hanging down
+    (8, 9, [".JJ", "SJ.", "S.."]),   # 2 — swung back
+    (9, 9, ["J", "J", "S"]),         # 3 — hanging down
+]
+
+
+def _cw_grid(w, h):
+    return [["."] * w for _ in range(h)]
+
+
+def _cw_stamp(grid, x, y, art):
+    """Overlay part-bitmap *art* (list of strings, '.' = transparent) onto
+    *grid* at (x, y); non-'.' cells overwrite whatever is underneath."""
+    gh, gw = len(grid), len(grid[0])
+    for dy, row in enumerate(art):
+        gy = y + dy
+        if not (0 <= gy < gh):
+            continue
+        base = grid[gy]
+        for dx, ch in enumerate(row):
+            if ch != ".":
+                gx = x + dx
+                if 0 <= gx < gw:
+                    base[gx] = ch
+
+
+def _cw_rows(grid):
+    return ["".join(r) for r in grid]
+
+
+def _build_profile_frames(variant):
+    """Compose the 4 walk frames for a profile *variant* ('plain'/'case'/
+    'zx') into full-width row lists ready for _make_palette_sprite."""
+    frames = []
+    for fi in range(4):
+        g = _cw_grid(_PROF_W, _PROF_H)
+        _cw_stamp(g, 4, 0, _PROF_HEAD)
+        _cw_stamp(g, 4, 8, _PROF_TORSO)
+        _cw_stamp(g, 2, 13, _PROF_LEGS[fi])
+        if variant == "plain":
+            dx, dy, art = _PROF_ARM_PLAIN[fi]
+            _cw_stamp(g, dx, dy, art)
+        elif variant == "case":
+            # Arm hangs at the front holding a briefcase that bobs with the gait.
+            _cw_stamp(g, 9, 9, ["JJ", "JS", "SS"])
+            by = 13 + (0 if fi % 2 else 1)
+            _cw_stamp(g, 9, by, ["xCCx", "CCCC", "CCCC"])
+        elif variant == "zx":
+            # Front arm holds a little ZX Spectrum out to show it off; the
+            # machine lifts a touch on alternate frames as he presents it.
+            zy = 9 if fi % 2 else 10
+            _cw_stamp(g, 9, 9, ["J", "J", "S"])     # front arm down to the hand
+            _cw_stamp(g, 10, zy, _PROF_ZX)          # ZX Spectrum, held out front
+            _cw_stamp(g, 9, zy + 4, ["SS"])         # hand supporting the near edge
+        frames.append(_cw_rows(g))
+    return frames
+
+
+# ── walk-suite registry (front view + three profiles, chosen at random) ───────
+def _make_front_frames():
+    return [_CLIVE_WALK_TOP + legs for legs in _CLIVE_WALK_LEGS]
+
+
+_CLIVE_WALK_SUITES = [
+    {"profile": False, "palette": _CLIVE_WALK_PALETTE,
+     "frames": _make_front_frames()},
+    {"profile": True,  "palette": _CLIVE_PROF_PALETTE,
+     "frames": _build_profile_frames("plain")},
+    {"profile": True,  "palette": _CLIVE_PROF_PALETTE,
+     "frames": _build_profile_frames("case")},
+    {"profile": True,  "palette": _CLIVE_PROF_PALETTE,
+     "frames": _build_profile_frames("zx")},
+]
+for _s in _CLIVE_WALK_SUITES:                 # cache each suite's cell dimensions
+    _s["w"] = len(_s["frames"][0][0])
+    _s["h"] = len(_s["frames"][0])
+
+_CLIVE_WALK_NUM_SUITES = len(_CLIVE_WALK_SUITES)
+_CLIVE_WALK_CACHE = {}       # (suite, px, frame, flip) -> Surface
+
+
+def _clive_walk_suite(idx):
+    return _CLIVE_WALK_SUITES[idx % _CLIVE_WALK_NUM_SUITES]
+
+
+def _make_clive_walk(suite, px, frame, facing="right"):
+    """A cached big walking-Clive sprite from *suite* (index into
+    ``_CLIVE_WALK_SUITES``) at *px* pixels per cell.  *frame* selects the pose in
+    the walk cycle; profile suites are mirrored when *facing* is 'left'."""
+    s = _clive_walk_suite(suite)
+    px = max(1, int(px))
+    frames = s["frames"]
+    frame = int(frame) % len(frames)
+    flip = s["profile"] and facing == "left"
+    key = (suite % _CLIVE_WALK_NUM_SUITES, px, frame, flip)
+    spr = _CLIVE_WALK_CACHE.get(key)
+    if spr is None:
+        spr = _make_palette_sprite(frames[frame], s["palette"], px)
+        if flip:
+            spr = _pg.transform.flip(spr, True, False)
+        if len(_CLIVE_WALK_CACHE) > 256:
+            _CLIVE_WALK_CACHE.clear()
+        _CLIVE_WALK_CACHE[key] = spr
+    return spr
+
+
+# ── walking-Clive speech bubbles ──────────────────────────────────────────────
+# Once per crossing a stroller may stop for a few seconds and pop a speech bubble
+# plugging one of the app's browsers.  The letters cycle through a lively 8-bit
+# red / yellow / green / blue palette (shifting per frame) over a dark drop
+# shadow, so they read like chunky retro title text.
+_CLIVE_SPEAK_LINES = (
+    "Unite!",
+    "Getit check it out!",
+    "ZXDB on my way!",
+    "ZXArt is incredible!",
+)
+_CLIVE_SPEAK_COLORS = [
+    (255, 66, 66),      # red
+    (255, 216, 66),     # yellow
+    (96, 226, 108),     # green
+    (86, 156, 255),     # blue
+]
+_C_SPEAK_BUBBLE = (250, 250, 252)
+_C_SPEAK_BORDER = (28, 28, 40)
+_C_SPEAK_SHADOW = (36, 28, 30)
+
+
+class _ClivePromenade:
+    """Optional strolling Sir Clive Sinclair sprites (with speech bubbles) for a
+    retro pygame surface.
+
+    Shared by the NextSync / SD-Card / Help retro logs (:class:`RetroLogWidget`)
+    and the Unite! Table/Gallery pygame scene (:class:`PygameSurfaceWidget`).
+    Gated on the global "Alien Floyd's" preference: when it is off the strollers
+    are dropped so they vanish promptly.  The host drives it each animation
+    frame — :meth:`update` (passing the current device-pixel surface size)
+    advances state, :meth:`render` draws the sprites + bubbles on the top layer.
+    """
+
+    _MAX = 2               # at most this many on screen at once
+    _SPAWN_PROB = 0.006    # per-tick chance of a new stroller appearing
+    _TALK_PROB = 0.006     # per-tick chance a fully-visible Clive stops to talk
+    _TALK_MIN = 80         # talk pause duration (ticks; ~2.7–4s at 30fps)
+    _TALK_MAX = 120
+
+    def __init__(self, dpr=1.0):
+        self.dpr = max(1.0, float(dpr or 1.0))
+        self._walkers = []
+        self._t = 0
+
+    def s(self, px):
+        return int(round(px * self.dpr))
+
+    def set_dpr(self, dpr):
+        self.dpr = max(1.0, float(dpr or 1.0))
+
+    def active(self):
+        return bool(self._walkers)
+
+    def clear(self):
+        self._walkers = []
+
+    def _spawn(self, w, h):
+        """Add a walking Clive entering from a random edge, sized to the pane.
+        The sprite suite — front view or one of the three profiles — is picked
+        at random; profile suites face the direction of travel."""
+        suite = _random.randrange(_CLIVE_WALK_NUM_SUITES)
+        s = _clive_walk_suite(suite)
+        px = max(2, min(self.s(8), int(h * 0.5 / s["h"])))
+        sw = s["w"] * px
+        sh = s["h"] * px
+        from_left = _random.random() < 0.5
+        speed = _random.uniform(1.1, 2.2) * self.dpr
+        self._walkers.append({
+            "suite": suite,
+            "facing": "right" if from_left else "left",
+            "x": float(-sw if from_left else w),
+            "y": float(max(self.s(2), h - self.s(8) - sh)),
+            "vx": speed if from_left else -speed,
+            "px": px,
+            "sw": sw,
+            "phase": 0.0,
+            "state": "walk",            # "walk" | "talk"
+            "talk_ttl": 0,              # ticks left in the talk pause
+            "phrase": "",               # speech-bubble text while talking
+            "talked": False,            # at most one bubble per crossing
+            "stand": 0 if not s["profile"] else 1,   # feet-together pose to hold
+        })
+
+    def update(self, w, h):
+        """Spawn/advance/cull the strollers for a *w*×*h* device-pixel surface.
+        No-op (and clears any live strollers) unless the global "Alien Floyd's"
+        preference is on."""
+        if not alien_floyd_enabled():
+            if self._walkers:
+                self._walkers = []
+            return
+        if w < self.s(80) or h < self.s(60):
+            return
+        self._t += 1
+        if len(self._walkers) < self._MAX and _random.random() < self._SPAWN_PROB:
+            self._spawn(w, h)
+        alive = []
+        for wk in self._walkers:
+            if wk["state"] == "talk":
+                # Stand still (feet-together pose) and hold the bubble up.
+                wk["talk_ttl"] -= 1
+                if wk["talk_ttl"] <= 0:
+                    wk["state"] = "walk"
+                alive.append(wk)
+                continue
+            wk["x"] += wk["vx"]
+            wk["phase"] += abs(wk["vx"]) / max(1.0, wk["px"] * 1.4)
+            # Once per crossing, while fully on-screen, stop for a chat.
+            if (not wk["talked"] and wk["x"] >= 0 and wk["x"] + wk["sw"] <= w
+                    and _random.random() < self._TALK_PROB):
+                wk["talked"] = True
+                wk["state"] = "talk"
+                wk["talk_ttl"] = _random.randint(self._TALK_MIN, self._TALK_MAX)
+                wk["phrase"] = _random.choice(_CLIVE_SPEAK_LINES)
+                wk["phase"] = wk["stand"]
+            # cull once the sprite has fully walked off the far edge
+            if wk["vx"] > 0 and wk["x"] > w:
+                continue
+            if wk["vx"] < 0 and wk["x"] + wk["sw"] < 0:
+                continue
+            alive.append(wk)
+        self._walkers = alive
+
+    def render(self, surface):
+        if not self._walkers:
+            return
+        for wk in self._walkers:
+            spr = _make_clive_walk(wk["suite"], wk["px"],
+                                   int(wk["phase"]), wk["facing"])
+            surface.blit(spr, (int(wk["x"]), int(wk["y"])))
+        # Speech bubbles last, so they sit above every stroller sprite.
+        for wk in self._walkers:
+            if wk["state"] == "talk":
+                self._render_speech(surface, wk)
+
+    def _render_speech(self, surface, wk):
+        """Draw a rounded speech bubble above a paused Clive, with the phrase in
+        lively, colour-cycling 8-bit letters over a dark drop shadow."""
+        pg = _pg
+        text = wk.get("phrase") or ""
+        if not text:
+            return
+        w, h = surface.get_size()
+        pad = self.s(6)
+        fpx = self.s(13)
+        font = _font(fpx, bold=True)
+        # Shrink to fit narrow panes so the whole phrase stays inside the bubble.
+        while fpx > self.s(8) and font.size(text)[0] + 2 * pad > w - 2 * self.s(4):
+            fpx -= 1
+            font = _font(fpx, bold=True)
+        tw, th = font.size(text)
+        bubw, bubh = tw + 2 * pad, th + 2 * pad
+        cx = wk["x"] + wk["sw"] / 2.0
+        bx = int(max(self.s(3), min(cx - bubw / 2.0, w - bubw - self.s(3))))
+        by = int(max(self.s(3), wk["y"] - bubh - self.s(9)))
+        rect = pg.Rect(bx, by, bubw, bubh)
+        rad = self.s(6)
+        # tail from the bubble's underside down toward Clive's head
+        tip_x = int(max(bx + self.s(8), min(cx, bx + bubw - self.s(8))))
+        tip_y = int(min(wk["y"] + self.s(2), by + bubh + self.s(12)))
+        pg.draw.polygon(surface, _C_SPEAK_BUBBLE,
+                        [(tip_x - self.s(5), by + bubh - 1),
+                         (tip_x + self.s(5), by + bubh - 1), (int(cx), tip_y)])
+        pg.draw.rect(surface, _C_SPEAK_BUBBLE, rect, border_radius=rad)
+        pg.draw.rect(surface, _C_SPEAK_BORDER, rect, max(1, self.s(2)),
+                     border_radius=rad)
+        # colourful, lively letters (palette shifts over time) + drop shadow
+        tx, ty = bx + pad, by + pad
+        sh = max(1, self.s(1))
+        shift = self._t // 6
+        ncol = len(_CLIVE_SPEAK_COLORS)
+        for i, ch in enumerate(text):
+            cwid = font.size(ch)[0]
+            if ch != " ":
+                col = _CLIVE_SPEAK_COLORS[(i + shift) % ncol]
+                _draw_text(surface, ch, tx + sh, ty + sh, font, _C_SPEAK_SHADOW)
+                _draw_text(surface, ch, tx, ty, font, col)
+            tx += cwid
+
+
 # ── pixel asteroids ──────────────────────────────────────────────────────────
 # Two cratered rock shapes; rendered at varied pixel sizes and rotated per frame
 # so they appear to roll/tumble as they fall down the screen.  Shootable for +1.
@@ -3534,6 +3988,7 @@ class RetroLogWidget(QWidget):
         self._scroll = 0.0          # device-px the text is pushed down (eases to 0)
         self._line_h = 0            # cached line height in device px
         self._t = 0
+        self._promenade = _ClivePromenade(self._dpr)   # optional strolling Clives
         self._bg_anim = True        # animate the starfield (Settings toggle)
         # Optional user-driven vertical scrolling. Two flavours:
         #   * follow_tail=False — top-anchored, starts at the top and stays put
@@ -3637,6 +4092,7 @@ class RetroLogWidget(QWidget):
 
     def resizeEvent(self, ev):
         self._dpr = max(1.0, float(self.devicePixelRatioF() or 1.0))
+        self._promenade.set_dpr(self._dpr)
         self._ensure_surface()
         if self._sbar is not None:
             self._sbar.setGeometry(self.width() - self._sbar_w, 0,
@@ -3671,6 +4127,8 @@ class RetroLogWidget(QWidget):
         self._t += 1
         if self._bg_anim:
             self._stars.update()
+        if self._surface is not None:
+            self._promenade.update(*self._surface.get_size())
         # Ease the scroll offset back to zero so new lines slide smoothly in.
         if self._scroll > 0.5:
             self._scroll *= 0.78
@@ -3715,6 +4173,8 @@ class RetroLogWidget(QWidget):
             self._render_scrollable(surface, w, h, pad, font, lh)
         else:
             self._render_log(surface, w, h, pad, font, lh)
+        # Drawn last so the strollers pass in front of the green log text.
+        self._promenade.render(surface)
 
     def _render_log(self, surface, w, h, pad, font, lh):
         """Bottom-anchored live-log rendering (SD Card / NextSync)."""
@@ -3868,6 +4328,7 @@ class PygameSurfaceWidget(QWidget):
         # Animated Space-Invaders background + its frame clock (~30fps).
         self._bg_enabled = True
         self._bg = None
+        self._promenade = None      # optional strolling Clives (Alien Floyd mode)
         self._anim = QTimer(self)
         self._anim.setInterval(33)
         self._anim.timeout.connect(self._on_anim_tick)
@@ -3879,19 +4340,36 @@ class PygameSurfaceWidget(QWidget):
 
     def enable_background(self, flag):
         self._bg_enabled = bool(flag)
-        if self._bg_enabled and self.isVisible():
+        self.sync_animation()
+
+    def sync_animation(self):
+        """Run the frame clock while visible and something needs animating — the
+        Space-Invaders/Alien-Floyd backdrop, or the strolling Clives (which
+        appear whenever the global "Alien Floyd's" mode is on, even if the
+        backdrop animation itself is switched off)."""
+        if not alien_floyd_enabled() and self._promenade is not None:
+            self._promenade.clear()   # drop strollers promptly when turned off
+        run = (self._alive and self.isVisible()
+               and (self._bg_enabled or alien_floyd_enabled()))
+        if run and not self._anim.isActive():
             self._anim.start()
-        elif not self._bg_enabled:
+        elif not run and self._anim.isActive():
             self._anim.stop()
         self.update()
 
     def _on_anim_tick(self):
-        if not self._alive or not self.background_active():
+        if not self._alive:
             return
-        try:
-            self._bg.update()
-        except Exception:
-            pass
+        if self.background_active():
+            try:
+                self._bg.update()
+            except Exception:
+                pass
+        if self._promenade is not None and self._surface is not None:
+            try:
+                self._promenade.update(*self._surface.get_size())
+            except Exception:
+                pass
         self.update()
 
     # -- scene management --------------------------------------------------
@@ -3934,11 +4412,12 @@ class PygameSurfaceWidget(QWidget):
         self._scene = None
         self._surface = None
         self._bg = None
+        self._promenade = None
 
     def showEvent(self, ev):
         super().showEvent(ev)
-        if self._alive and self._bg_enabled:
-            self._anim.start()
+        if self._alive:
+            self.sync_animation()
 
     def hideEvent(self, ev):
         self._anim.stop()
@@ -3962,6 +4441,10 @@ class PygameSurfaceWidget(QWidget):
                     self._bg.resize((w, h), self._dpr)
                 except Exception:
                     pass
+            if self._promenade is None:
+                self._promenade = _ClivePromenade(self._dpr)
+            else:
+                self._promenade.set_dpr(self._dpr)
             if self._scene is not None:
                 try:
                     self._scene.layout((w, h), self._dpr)
@@ -3987,6 +4470,9 @@ class PygameSurfaceWidget(QWidget):
             if self.background_active():
                 self._bg.render(self._surface)
             self._scene.render(self._surface)
+            # Strolling Clives ride on the very top layer (Alien Floyd mode).
+            if self._promenade is not None:
+                self._promenade.render(self._surface)
         except Exception:
             self._surface.fill(C_BG)
         img = _surface_to_qimage(self._surface)
