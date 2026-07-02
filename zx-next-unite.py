@@ -20575,10 +20575,10 @@ class MainWindow(QMainWindow):
                     pass
 
         self.settings_pygame_anim_checkbox = QCheckBox(
-            "Unite! — Space Invaders background animation (pygame mode)")
+            "Unite! — Space Invaders background animation (Retro/pygame mode)")
         self.settings_pygame_anim_checkbox.setChecked(True)
         self.settings_pygame_anim_checkbox.setToolTip(
-            "When the Unite! tab is in pygame visualization mode, play an animated\n"
+            "When the Unite! tab is in Retro/pygame visualization mode, play an animated\n"
             "Space Invaders scene (twinkling stars, aliens and a ship) behind the\n"
             "Table / Gallery views. On by default. Saved to the configuration file."
         )
@@ -20605,11 +20605,11 @@ class MainWindow(QMainWindow):
                         pass
 
         self.settings_nextsync_pygame_anim_checkbox = QCheckBox(
-            "NextSync — starfield log animation (pygame mode)")
+            "NextSync — starfield log animation (Retro/pygame mode)")
         self.settings_nextsync_pygame_anim_checkbox.setChecked(
             getattr(self, "_nextsync_pygame_anim", True))
         self.settings_nextsync_pygame_anim_checkbox.setToolTip(
-            "When the NextSync log window is in pygame mode, animate the retro\n"
+            "When the NextSync log window is in Retro/pygame mode, animate the retro\n"
             "starfield backdrop (twinkling stars that flicker into $/£/€ signs)\n"
             "behind the green Consolas log text. On by default. When off, a plain\n"
             "dark background is used. Saved to the configuration file."
@@ -20650,7 +20650,7 @@ class MainWindow(QMainWindow):
             _apply_alien_floyd_bg(on)
 
         self.settings_alien_floyd_bg_checkbox = QCheckBox(
-            "Alien Floyd's — animated background on all tabs (pygame-ce)")
+            "Alien Floyd's — animated background on all tabs (Retro/pygame)")
         self.settings_alien_floyd_bg_checkbox.setChecked(False)
         self.settings_alien_floyd_bg_checkbox.setToolTip(
             "Pink Floyd homage. Replaces the cycling background images on every\n"
@@ -20725,7 +20725,7 @@ class MainWindow(QMainWindow):
             _alien_floyd_tab_set_visible(on)
 
         self.settings_alien_floyd_tab_checkbox = QCheckBox(
-            "Alien Floyd's — show the full-window 'Alien Floyd's' tab (pygame-ce)")
+            "Alien Floyd's — show the full-window 'Alien Floyd's' tab (Retro/pygame)")
         self.settings_alien_floyd_tab_checkbox.setChecked(False)
         self.settings_alien_floyd_tab_checkbox.setToolTip(
             "Add a dedicated 'Alien Floyd's' tab (before Settings) that shows the\n"
