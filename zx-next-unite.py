@@ -20640,6 +20640,16 @@ class MainWindow(QMainWindow):
                     bg.set_alien_mode(on)
                 except Exception:
                     pass
+            # The Unite! Table/Gallery pygame scene grows/loses its strolling
+            # Clives with this setting; nudge its frame clock so the change
+            # takes effect immediately (it runs the animation even when the
+            # Space-Invaders backdrop toggle is off, just for the Clives).
+            allinone = getattr(self, "_allinone_pygame_widget", None)
+            if allinone is not None:
+                try:
+                    allinone.sync_animation()
+                except Exception:
+                    pass
         self._apply_alien_floyd_bg = _apply_alien_floyd_bg
 
         def _settings_alien_bg_changed():
