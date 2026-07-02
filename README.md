@@ -1,6 +1,6 @@
 ZX-Next-Unite by Julien Clauzel based on: HDFM-GOOEY by em00k & NextSync by Jari Komppa
 
-ZX-Next-Unite provides a cross platform (Windows, Linux, MacOS) Graphical Interface that unites two great tools in a single utility: Hdfm-Gooey & Next Sync as well a global search functionality frontend interface to discover ZX Spectrum and ZX Spectrum Next software accros Getit, ZXDB, ZXArt, Itch.io. 
+ZX-Next-Unite provides a cross platform (Windows, Linux, MacOS) Graphical Interface that unites two great tools in a single utility: Hdfm-Gooey & Next Sync as well a global search functionality frontend interface to discover ZX Spectrum and ZX Spectrum Next software accros Getit, ZXDB, ZXArt, Itch.io external platforms. 
 
 Checkout the Wiki pages for more information on how to setup.
 
