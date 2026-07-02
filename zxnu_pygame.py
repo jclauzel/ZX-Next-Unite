@@ -4713,6 +4713,18 @@ class GalleryScene(_Scene):
         self._settle_timer.setSingleShot(True)
         self._settle_timer.setInterval(150)
         self._settle_timer.timeout.connect(self._on_settled)
+        # Runtime image-first re-ordering (mirrors the Qt gallery): entries whose
+        # thumbnail resolves to a placeholder (no real picture) are learned and
+        # sunk below the picture-bearing ones. This keeps optimistic imageless
+        # entries — e.g. brand-new ZXDB "Latest" games with no screenshot yet —
+        # from sitting at the top of the aggregated pages. Index-keyed state is
+        # remapped by entry identity so resolved thumbnails are never re-fetched.
+        self._index_of = {}          # id(entry) -> current row index
+        self._no_image_ids = set()   # id(entry) for entries known imageless
+        self._resort_timer = QTimer()
+        self._resort_timer.setSingleShot(True)
+        self._resort_timer.setInterval(250)
+        self._resort_timer.timeout.connect(self._reorder_image_first)
 
     def layout(self, size, dpr):
         super().layout(size, dpr)
@@ -4758,6 +4770,10 @@ class GalleryScene(_Scene):
         self._show_ratings = any(r for _t, r in self._titles)
         self._surfs = {}
         self._requested = set()
+        # Fresh page: forget the previous page's learned image state and rebuild
+        # the identity->index map used to keep async callbacks reorder-safe.
+        self._index_of = {id(e): i for i, e in enumerate(self._entries)}
+        self._no_image_ids = set()
         self._scroll = 0
         self._hover = -1
         self._stop_gif_players()
@@ -4805,30 +4821,52 @@ class GalleryScene(_Scene):
                 continue
             self._requested.add(i)
 
-            def _on_px(px, _url=None, _i=i):
+            # Callbacks resolve the entry's *current* index by identity, so a
+            # reorder (image-first sink) that happens between request and
+            # callback lands the surface on the right cell.
+            def _on_px(px, _url=None, _e=e):
+                # A placeholder URL means this entry has no real picture: learn
+                # it and arm the debounced image-first re-sort.
+                if isinstance(_url, str) and _url.startswith("placeholder://"):
+                    if id(_e) not in self._no_image_ids:
+                        self._no_image_ids.add(id(_e))
+                        try:
+                            self._resort_timer.start()
+                        except Exception:
+                            pass
                 surf = qpixmap_to_surface(px)
-                if surf is not None:
-                    self._surfs[_i] = surf
-                    self.redraw()
+                if surf is None:
+                    return
+                ci = self._index_of.get(id(_e))
+                if ci is None:
+                    return
+                self._surfs[ci] = surf
+                self.redraw()
 
-            def _on_urls(urls, _i=i):
+            def _on_urls(urls, _e=e):
                 # The thumbnail's source URL(s); if the first is an animated GIF
                 # and a fetcher is wired, stream it via QMovie so the cell
                 # animates (independent of the "Gallery animation" setting).
                 if not urls or not self._gif_fetch:
                     return
                 u = urls[0] if isinstance(urls, (list, tuple)) else urls
-                if not _url_is_gif(u) or self._gif_urls.get(_i) == u:
+                ci = self._index_of.get(id(_e))
+                if ci is None:
                     return
-                self._gif_urls[_i] = u
+                if not _url_is_gif(u) or self._gif_urls.get(ci) == u:
+                    return
+                self._gif_urls[ci] = u
 
-                def _on_bytes(data, _i2=_i):
+                def _on_bytes(data, _e2=_e):
                     player = _GifPlayer(data, on_frame=self.redraw)
                     if player.animated():
-                        old = self._gif_players.get(_i2)
+                        ci2 = self._index_of.get(id(_e2))
+                        if ci2 is None:
+                            return
+                        old = self._gif_players.get(ci2)
                         if old is not None:
                             old.stop()
-                        self._gif_players[_i2] = player
+                        self._gif_players[ci2] = player
                         player.start()
                         self.redraw()
 
@@ -4841,6 +4879,57 @@ class GalleryScene(_Scene):
                 self._thumb_fetch(e, _on_px, _on_urls)
             except Exception:
                 pass
+
+    def _reorder_image_first(self):
+        """Stable-sink entries whose thumbnail resolved to a placeholder below
+        the picture-bearing ones. Index-keyed render state (surfaces, GIF
+        players, requested set) is remapped by entry identity so already-loaded
+        thumbnails are preserved — no re-fetch, no misplaced surfaces."""
+        old = self._entries
+        if not old or not self._no_image_ids:
+            return
+        keep = [e for e in old
+                if not (isinstance(e, dict) and id(e) in self._no_image_ids)]
+        sink = [e for e in old
+                if isinstance(e, dict) and id(e) in self._no_image_ids]
+        new = keep + sink
+        if [id(e) for e in new] == [id(e) for e in old]:
+            return
+        old_pos = {id(e): i for i, e in enumerate(old)}
+
+        def _remap(d):
+            nd = {}
+            for ni, e in enumerate(new):
+                oi = old_pos.get(id(e))
+                if oi is not None and oi in d:
+                    nd[ni] = d[oi]
+            return nd
+
+        self._surfs = _remap(self._surfs)
+        self._gif_players = _remap(self._gif_players)
+        self._gif_urls = _remap(self._gif_urls)
+        new_requested = set()
+        for ni, e in enumerate(new):
+            oi = old_pos.get(id(e))
+            if oi is not None and oi in self._requested:
+                new_requested.add(ni)
+        self._requested = new_requested
+        self._entries = new
+        self._index_of = {id(e): i for i, e in enumerate(new)}
+        # Rebuild the parallel title/rating array for the new order.
+        self._titles = []
+        for e in new:
+            raw = ""
+            if isinstance(e, dict) and self._title_getter:
+                try:
+                    raw = self._title_getter(e)
+                except Exception:
+                    raw = ""
+            self._titles.append(_split_title_rating(raw))
+        self._show_ratings = any(r for _t, r in self._titles)
+        self._hover = -1
+        self._fetch_visible()
+        self.redraw()
 
     def _max_scroll(self):
         cols = self._cols()
@@ -5003,6 +5092,11 @@ class PygameItemViewer(_Scene):
         self._gif_requested = set()
         self._close_fn = None
         self._placeholder = ("", "")
+        # True until the owning pane resolves the item's screenshots/placeholder
+        # (usually via an async detail fetch). While loading we show "Loading…"
+        # instead of "No preview available", so an item that *does* have a
+        # picture never briefly flashes the no-preview text before it arrives.
+        self._loading = not self._screens
         self._meta_scroll = 0
 
         # favorites
@@ -5168,11 +5262,13 @@ class PygameItemViewer(_Scene):
 
     def set_placeholder(self, label, subtitle=""):
         self._placeholder = (str(label or ""), str(subtitle or "") or self._title)
+        self._loading = False
         self.redraw()
 
     def set_screenshots(self, urls):
         self._timer.stop()
         self._dwell_timer.stop()
+        self._loading = False
         self._screens = [u for u in (urls or [])
                          if u and (zxfmt_url_is_displayable_image(u)
                                    or _url_is_text(u))]
@@ -5503,7 +5599,11 @@ class PygameItemViewer(_Scene):
         else:
             label, subtitle = self._placeholder
             f1 = _font(self.s(28), bold=True)
-            msg = label or ("Loading…" if self._screens else "No preview available")
+            # While the item is still resolving its screenshots (or a picture is
+            # downloading) show "Loading…"; only report "No preview available"
+            # once the pane has confirmed there is genuinely no image.
+            msg = label or ("Loading…" if (self._screens or self._loading)
+                            else "No preview available")
             tw = f1.size(msg)[0]
             _draw_text(surface, msg, area.centerx - tw // 2,
                        area.centery - self.s(20), f1,
