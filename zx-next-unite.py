@@ -21885,6 +21885,54 @@ import signal
 if platform.system() == "Linux" and "QT_ACCESSIBILITY" not in os.environ:
     os.environ["QT_ACCESSIBILITY"] = "0"
 
+
+# ── optional --anim test override ────────────────────────────────────────────
+# `python zx-next-unite.py --anim <walk|c5|ufo|aliens>` forces the retro Sir
+# Clive promenade (Alien Floyd mode) to play that animation first — and enables
+# it without toggling the Settings preference — so the C5, flying-saucer and
+# alien-dogfight animations can be eyeballed quickly.  Requires pygame (which is
+# mandatory for any of the animations); the flag is a no-op / warning otherwise.
+def _zxnu_parse_anim_arg():
+    kind = None
+    rest = [sys.argv[0]]
+    i = 1
+    while i < len(sys.argv):
+        a = sys.argv[i]
+        if a == "--anim" and i + 1 < len(sys.argv):
+            kind = sys.argv[i + 1]
+            i += 2
+            continue
+        if a.startswith("--anim="):
+            kind = a.split("=", 1)[1]
+            i += 1
+            continue
+        rest.append(a)
+        i += 1
+    if kind is None:
+        return
+    # Strip our flag so QApplication doesn't try to interpret it.
+    sys.argv[:] = rest
+    try:
+        import zxnu_pygame as _zpg
+        ok, why = _zpg.pygame_available()
+        if not ok:
+            print("--anim ignored: %s pygame is required for the animations."
+                  % why, file=sys.stderr)
+            return
+        if kind not in _zpg._FORCE_ANIM_CHOICES:
+            print("--anim: unknown animation %r; choose one of: %s"
+                  % (kind, ", ".join(_zpg._FORCE_ANIM_CHOICES)),
+                  file=sys.stderr)
+            return
+        _zpg.set_forced_first_anim(kind)
+        print("--anim: forcing the '%s' promenade animation to play first."
+              % kind)
+    except Exception as exc:                       # pragma: no cover - defensive
+        print("--anim setup failed: %s" % exc, file=sys.stderr)
+
+
+_zxnu_parse_anim_arg()
+
 app = QApplication(sys.argv)
 
 # Remove the 256 MB image allocation cap so that large zxART images

@@ -994,26 +994,103 @@ _CLIVE_SCARF  = (150, 150, 164)
 _CLIVE_GLASS  = (150, 220, 240)
 _CLIVE_COCK   = (40, 40, 50)
 _CLIVE_FLASH  = (255, 240, 150)
+_CLIVE_HAIR   = (176, 170, 160)   # grey side/back hair around the bald pate
 
 _CLIVE_CACHE = {}        # (px, facing, roll_q, fire_q) -> Surface
 _CLIVE_ROLL_STEPS = 12   # quantised wheel angles (for caching)
 _CLIVE_FIRE_STEPS = 4    # quantised arm-raise amounts
 
 
-def _make_clive_c5(px, facing="left", roll=0.0, fire=0.0):
+# Gaze quantisation for the animated head: look_x snaps to {-3..3}/3 and look_y
+# to {-2..2}/2 so the moving head still caches to a bounded set of poses.
+_LOOK_XSTEPS = 3
+_LOOK_YSTEPS = 2
+
+
+def _quantise_look(look):
+    lx, ly = look
+    return (max(-_LOOK_XSTEPS, min(_LOOK_XSTEPS, int(round(lx * _LOOK_XSTEPS)))),
+            max(-_LOOK_YSTEPS, min(_LOOK_YSTEPS, int(round(ly * _LOOK_YSTEPS)))))
+
+
+def _draw_clive_head(surf, px, cx, cy, r, look_x=0.0, look_y=0.0):
+    """Draw Sir Clive Sinclair's head — bald pate ringed by grey side hair, a
+    full grey beard and his trademark big square glasses — centred at cell
+    (*cx*, *cy*) with radius *r* cells, onto *surf* at *px* px/cell.  Shared by
+    both the C5 and the flying-saucer sprites so his face reads the same on each
+    (and is far more recognisable than a bare skin blob).
+
+    *look_x* / *look_y* (each roughly -1..1) animate his gaze: the whole skull
+    sways a little and the face turns within it, so he glances around and nods
+    instead of staring dead ahead."""
+    pg = _pg
+
+    def P(x, y):
+        return (int(round(x * px)), int(round(y * px)))
+
+    def circ(x, y, rr, col, wdt=0):
+        pg.draw.circle(surf, col, P(x, y), max(1, int(round(rr * px))), wdt)
+
+    def ln(a, b, col, wdt):
+        pg.draw.line(surf, col, P(*a), P(*b), max(1, int(round(wdt * px))))
+
+    def poly(pts, col):
+        pg.draw.polygon(surf, col, [P(*p) for p in pts])
+
+    # whole-head sway, plus an extra facial-feature turn within the skull so the
+    # glasses/beard shift relative to the bald dome (a simple parallax gaze).
+    hx = cx + look_x * 0.30 * r
+    hy = cy + look_y * 0.26 * r
+    fx = look_x * 0.26 * r
+    fy = look_y * 0.20 * r
+
+    # grey side/back hair as a horseshoe behind the bald head
+    circ(hx, hy + 0.20 * r, 1.14 * r, _CLIVE_HAIR)
+    # bald head (skin) over it, leaving a thin hair ring at the sides/back
+    circ(hx, hy - 0.06 * r, r, _CLIVE_SKIN)
+    # full grey beard across the lower face and jaw (turns part-way with the face)
+    bx = hx + fx * 0.5
+    by = hy + fy * 0.5
+    poly([(bx - 0.98 * r, by + 0.02 * r), (bx + 0.98 * r, by + 0.02 * r),
+          (bx + 0.64 * r, by + 1.16 * r), (bx - 0.64 * r, by + 1.16 * r)],
+         _CLIVE_BEARD)
+    circ(bx, by + 0.52 * r, 0.84 * r, _CLIVE_BEARD)
+    # trademark big glasses: two dark-framed lenses joined by a bridge
+    gx = hx + fx
+    gy = hy + fy
+    lr = 0.45 * r
+    ex = 0.5 * r
+    ey = gy - 0.02 * r
+    circ(gx - ex, ey, lr, _CLIVE_SUIT)
+    circ(gx + ex, ey, lr, _CLIVE_SUIT)
+    circ(gx - ex, ey, 0.64 * lr, _CLIVE_GLASS)
+    circ(gx + ex, ey, 0.64 * lr, _CLIVE_GLASS)
+    ln((gx - ex + lr * 0.55, ey), (gx + ex - lr * 0.55, ey), _CLIVE_SUIT,
+       0.16 * r)
+    # nose just below the bridge
+    circ(gx, gy + 0.34 * r, 0.17 * r, _CLIVE_SKIN_SH)
+
+
+def _make_clive_c5(px, facing="left", roll=0.0, fire=0.0, look=(0.0, 0.0)):
     """A cached Clive-on-C5 sprite.  *facing* is 'left' (default) or 'right';
-    *roll* is the wheel angle in radians; *fire* is 0..1 (arms raised to fire)."""
+    *roll* is the wheel angle in radians; *fire* is 0..1 (arms raised to fire);
+    *look* is his (x, y) gaze direction so his head can turn/nod."""
     px = max(2, int(px))
     rq = int(round(roll / (_math.pi * 2.0) * _CLIVE_ROLL_STEPS)) % _CLIVE_ROLL_STEPS
     fq = max(0, min(_CLIVE_FIRE_STEPS, int(round(fire * _CLIVE_FIRE_STEPS))))
-    key = (px, facing, rq, fq)
+    lxq, lyq = _quantise_look(look)
+    key = (px, facing, rq, fq, lxq, lyq)
     spr = _CLIVE_CACHE.get(key)
     if spr is not None:
         return spr
-    if len(_CLIVE_CACHE) > 200:
+    if len(_CLIVE_CACHE) > 512:
         _CLIVE_CACHE.clear()
     roll = rq / _CLIVE_ROLL_STEPS * (_math.pi * 2.0)
     fire = fq / _CLIVE_FIRE_STEPS
+    # The sprite is authored facing left and mirrored for 'right'; a horizontal
+    # flip reverses a rotation's visual sense, so mirror the wheel angle too
+    # (negate it) when facing right or the wheels would spin backwards.
+    draw_roll = -roll if facing == "right" else roll
 
     pg = _pg
     surf = pg.Surface((_CLIVE_W * px, _CLIVE_H * px), pg.SRCALPHA)
@@ -1033,11 +1110,11 @@ def _make_clive_c5(px, facing="left", roll=0.0, fire=0.0):
         circle(wx, wy, wr, _CLIVE_TYRE_HL, max(1, int(round(0.35 * px))))
         circle(wx, wy, wr * 0.5, _CLIVE_HUB)
         for k in range(4):
-            a = roll + k * (_math.pi / 2)
+            a = draw_roll + k * (_math.pi / 2)
             line((wx, wy), (wx + wr * 0.46 * _math.cos(a),
                             wy + wr * 0.46 * _math.sin(a)), _CLIVE_HUBDK, 0.3)
-        circle(wx + wr * 0.6 * _math.cos(roll),
-               wy + wr * 0.6 * _math.sin(roll), 0.55, _CLIVE_YELLOW)
+        circle(wx + wr * 0.6 * _math.cos(draw_roll),
+               wy + wr * 0.6 * _math.sin(draw_roll), 0.55, _CLIVE_YELLOW)
 
     # C5 body (white aerodynamic wedge), shade band + yellow trim
     body = [P(0.5, 11.2), P(3, 8.6), P(9.5, 5.2), P(15, 3.8), P(18.6, 4.0),
@@ -1049,15 +1126,16 @@ def _make_clive_c5(px, facing="left", roll=0.0, fire=0.0):
     pg.draw.polygon(surf, _CLIVE_COCK,
                     [P(9.8, 5.4), P(15, 4.4), P(17.6, 5.2), P(16.6, 9), P(10.8, 9.2)])
 
-    # Sir Clive: suit, scarf, bald head, beard, glasses, nose
+    # Sir Clive reclining in the cockpit: a fuller suited torso + shirt V, with
+    # his head (bald pate, beard, big glasses) rising above the windscreen.
     pg.draw.polygon(surf, _CLIVE_SUIT,
-                    [P(12.8, 5.2), P(16.4, 4.6), P(17.8, 6.2), P(17, 9.2), P(13.0, 9.2)])
-    line((12.8, 4.8), (16.4, 4.4), _CLIVE_SCARF, 0.7)
-    circle(15.4, 2.9, 1.9, _CLIVE_SKIN)
-    pg.draw.polygon(surf, _CLIVE_BEARD,
-                    [P(13.6, 2.8), P(15.2, 2.6), P(15.4, 4.6), P(13.9, 4.3)])
-    line((14.2, 2.9), (15.7, 2.8), _CLIVE_GLASS, 0.3)
-    circle(13.9, 3.1, 0.4, _CLIVE_SKIN_SH)
+                    [P(10.4, 8.8), P(11.2, 5.6), P(13.4, 4.6), P(16.2, 4.8),
+                     P(17.6, 6.0), P(17.2, 9.0), P(11.0, 9.2)])
+    pg.draw.polygon(surf, _CLIVE_SCARF,
+                    [P(13.7, 5.0), P(15.2, 5.0), P(14.6, 8.4), P(13.7, 8.2)])
+    line((13.1, 4.9), (16.0, 5.0), _CLIVE_SCARF, 0.6)   # collar
+    _draw_clive_head(surf, px, 15.0, 3.2, 1.95,
+                     lxq / _LOOK_XSTEPS, lyq / _LOOK_YSTEPS)
 
     # arms: idle hold the steering low/front, firing raises them to the top
     shoulder = (14.2, 6.2)
@@ -1071,6 +1149,212 @@ def _make_clive_c5(px, facing="left", roll=0.0, fire=0.0):
     if facing == "right":
         surf = pg.transform.flip(surf, True, False)
     _CLIVE_CACHE[key] = surf
+    return surf
+
+
+# ── "Sir Clive in a flying saucer" sprite ────────────────────────────────────
+# A pixel flying saucer (UFO) with Sir Clive's bald, bearded, bespectacled head
+# under a glass dome.  The rim lights cycle through the spectrum so the saucer
+# twinkles as it drifts.  Used by the retro promenade so Clive occasionally
+# buzzes a pane in a space saucer instead of walking.  Rendered onto a 24×16
+# cell grid at *px* pixels per cell (the saucer is left/right symmetric, so no
+# facing flip is needed).
+_UFO_W = 24
+_UFO_H = 16
+_UFO_HULL    = (156, 164, 178)
+_UFO_HULL_HL = (208, 216, 230)
+_UFO_HULL_DK = (92, 98, 114)
+_UFO_DOME    = (150, 220, 240)
+_UFO_DOME_HL = (216, 245, 252)
+
+_UFO_CACHE = {}          # (px, light_q) -> Surface
+_UFO_LIGHT_STEPS = 7     # quantised rim-light colour offsets (for caching)
+
+
+def _make_clive_ufo(px, light=0.0, look=(0.0, 0.0)):
+    """A cached 'Clive in a flying saucer' sprite at *px* pixels per cell.
+    *light* rotates the rim-light colours (in whole lights) so the saucer
+    twinkles as it flies; *look* is his (x, y) gaze so his head can turn/nod."""
+    px = max(2, int(px))
+    lq = int(round(light)) % _UFO_LIGHT_STEPS
+    lxq, lyq = _quantise_look(look)
+    key = (px, lq, lxq, lyq)
+    spr = _UFO_CACHE.get(key)
+    if spr is not None:
+        return spr
+    if len(_UFO_CACHE) > 320:
+        _UFO_CACHE.clear()
+
+    pg = _pg
+    surf = pg.Surface((_UFO_W * px, _UFO_H * px), pg.SRCALPHA)
+
+    def P(cx, cy):
+        return (int(round(cx * px)), int(round(cy * px)))
+
+    def circle(cx, cy, r, col, width=0):
+        pg.draw.circle(surf, col, P(cx, cy), max(1, int(round(r * px))), width)
+
+    def ellipse(x0, y0, x1, y1, col, width=0):
+        pg.draw.ellipse(surf, col,
+                        pg.Rect(P(x0, y0), (int(round((x1 - x0) * px)),
+                                            int(round((y1 - y0) * px)))), width)
+
+    def line(a, b, col, w):
+        pg.draw.line(surf, col, P(*a), P(*b), max(1, int(round(w * px))))
+
+    # glass dome (drawn first; the saucer hull below later hides its lower rim)
+    circle(12, 6.0, 4.0, _UFO_DOME)
+    # Sir Clive under the dome (bald pate, grey beard, big glasses)
+    _draw_clive_head(surf, px, 12.0, 5.4, 1.9,
+                     lxq / _LOOK_XSTEPS, lyq / _LOOK_YSTEPS)
+    # dome glass highlight arc + dark rim
+    ellipse(8.6, 2.6, 12.6, 8.2, _UFO_DOME_HL, max(1, int(round(0.3 * px))))
+    circle(12, 6.0, 4.0, _UFO_HULL_DK, max(1, int(round(0.3 * px))))
+
+    # saucer hull: domed collar over a wide main disc, with top/bottom shading
+    ellipse(5.5, 7.2, 18.5, 10.6, _UFO_HULL)
+    ellipse(0.5, 8.6, 23.5, 13.0, _UFO_HULL)
+    ellipse(0.5, 8.6, 23.5, 12.2, _UFO_HULL_HL, max(1, int(round(0.3 * px))))
+    ellipse(2.5, 10.6, 21.5, 13.4, _UFO_HULL_DK, max(1, int(round(0.3 * px))))
+
+    # rim lights around the widest part, cycling through the spectrum
+    n = 7
+    for i in range(n):
+        lx = 3.0 + 18.0 * i / (n - 1)
+        col = _SPECTRUM[(i + lq) % len(_SPECTRUM)]
+        circle(lx, 11.0, 0.7, col)
+
+    _UFO_CACHE[key] = surf
+    return surf
+
+
+# ── green alien saucers (5 types) ────────────────────────────────────────────
+# A little squadron of green Martians, each in a small flying saucer, that now
+# and then swarm Sir Clive's UFO (see :class:`_ClivePromenade`).  Five distinct
+# creature types — cyclops, wide-eyes, three-eyes, horned and tentacle-mouth —
+# in the spirit of "Marsmare: Alienation".  Drawn onto an 18×12 cell grid.
+_ALIEN_UFO_W = 18
+_ALIEN_UFO_H = 12
+_ALIEN_NUM_TYPES = 5
+
+_ALIEN_GREENS = [
+    (122, 220, 92), (96, 208, 138), (156, 230, 74),
+    (84, 198, 150), (176, 224, 110),
+]
+_ALIEN_HULL    = (120, 132, 120)
+_ALIEN_HULL_HL = (172, 184, 168)
+_ALIEN_HULL_DK = (76, 88, 80)
+_ALIEN_DOME    = (150, 230, 170)
+_ALIEN_EYE     = (245, 248, 250)
+_ALIEN_PUPIL   = (22, 26, 30)
+_ALIEN_LIGHTS  = [(120, 255, 120), (255, 220, 90), (120, 255, 120), (90, 230, 255)]
+
+_ALIEN_UFO_CACHE = {}        # (type, px, light_q) -> Surface
+
+
+def _draw_alien_head(surf, px, cx, cy, r, t):
+    """Draw a green alien creature of type *t* (0..4), centred at cell
+    (*cx*, *cy*) with radius *r* cells, onto *surf* at *px* px/cell."""
+    pg = _pg
+    green = _ALIEN_GREENS[t % _ALIEN_NUM_TYPES]
+    dark = (max(0, green[0] - 70), max(0, green[1] - 70), max(0, green[2] - 70))
+
+    def P(x, y):
+        return (int(round(x * px)), int(round(y * px)))
+
+    def circ(x, y, rr, col, wdt=0):
+        pg.draw.circle(surf, col, P(x, y), max(1, int(round(rr * px))), wdt)
+
+    def ln(a, b, col, wdt):
+        pg.draw.line(surf, col, P(*a), P(*b), max(1, int(round(wdt * px))))
+
+    def poly(pts, col):
+        pg.draw.polygon(surf, col, [P(*p) for p in pts])
+
+    def eye(ex, ey, er):
+        circ(ex, ey, er, _ALIEN_EYE)
+        circ(ex, ey, er * 0.5, _ALIEN_PUPIL)
+
+    if t == 0:            # cyclops with a pair of bulb antennae
+        ln((cx - 0.3 * r, cy - 0.9 * r), (cx - 0.7 * r, cy - 1.8 * r), dark, 0.16)
+        circ(cx - 0.7 * r, cy - 1.8 * r, 0.28 * r, (255, 96, 96))
+        ln((cx + 0.3 * r, cy - 0.9 * r), (cx + 0.7 * r, cy - 1.8 * r), dark, 0.16)
+        circ(cx + 0.7 * r, cy - 1.8 * r, 0.28 * r, (255, 96, 96))
+        circ(cx, cy, r, green)
+        eye(cx, cy - 0.05 * r, 0.52 * r)
+    elif t == 1:          # wide-set two eyes + a single stalk
+        ln((cx, cy - 0.9 * r), (cx, cy - 1.7 * r), dark, 0.16)
+        circ(cx, cy - 1.7 * r, 0.26 * r, (255, 232, 96))
+        circ(cx, cy, r, green)
+        eye(cx - 0.44 * r, cy, 0.34 * r)
+        eye(cx + 0.44 * r, cy, 0.34 * r)
+    elif t == 2:          # three eyes in a row
+        circ(cx, cy, r, green)
+        eye(cx - 0.56 * r, cy + 0.12 * r, 0.27 * r)
+        eye(cx, cy - 0.16 * r, 0.3 * r)
+        eye(cx + 0.56 * r, cy + 0.12 * r, 0.27 * r)
+    elif t == 3:          # horned brute with two eyes
+        poly([(cx - 0.9 * r, cy - 0.6 * r), (cx - 0.5 * r, cy - 0.4 * r),
+              (cx - 0.55 * r, cy - 1.6 * r)], dark)
+        poly([(cx + 0.9 * r, cy - 0.6 * r), (cx + 0.5 * r, cy - 0.4 * r),
+              (cx + 0.55 * r, cy - 1.6 * r)], dark)
+        circ(cx, cy, r, green)
+        eye(cx - 0.4 * r, cy, 0.32 * r)
+        eye(cx + 0.4 * r, cy, 0.32 * r)
+    else:                 # tentacle-mouth with two eyes
+        circ(cx, cy, r, green)
+        eye(cx - 0.42 * r, cy - 0.18 * r, 0.32 * r)
+        eye(cx + 0.42 * r, cy - 0.18 * r, 0.32 * r)
+        for k in (-0.5, 0.0, 0.5):
+            ln((cx + k * r, cy + 0.55 * r), (cx + k * r, cy + 1.2 * r), dark, 0.16)
+
+
+def _make_alien_ufo(t, px, light=0.0):
+    """A cached green-alien saucer of type *t* at *px* px/cell.  *light* rotates
+    the rim-light colours so the saucer twinkles as it flies."""
+    px = max(2, int(px))
+    t = int(t) % _ALIEN_NUM_TYPES
+    lq = int(round(light)) % len(_ALIEN_LIGHTS)
+    key = (t, px, lq)
+    spr = _ALIEN_UFO_CACHE.get(key)
+    if spr is not None:
+        return spr
+    if len(_ALIEN_UFO_CACHE) > 200:
+        _ALIEN_UFO_CACHE.clear()
+
+    pg = _pg
+    surf = pg.Surface((_ALIEN_UFO_W * px, _ALIEN_UFO_H * px), pg.SRCALPHA)
+
+    def P(x, y):
+        return (int(round(x * px)), int(round(y * px)))
+
+    def circle(x, y, r, col, width=0):
+        pg.draw.circle(surf, col, P(x, y), max(1, int(round(r * px))), width)
+
+    def ellipse(x0, y0, x1, y1, col, width=0):
+        pg.draw.ellipse(surf, col,
+                        pg.Rect(P(x0, y0), (int(round((x1 - x0) * px)),
+                                            int(round((y1 - y0) * px)))), width)
+
+    # glass dome + alien under it (hull below hides the dome's lower rim)
+    circle(9, 4.4, 3.0, _ALIEN_DOME)
+    _draw_alien_head(surf, px, 9.0, 4.2, 1.7, t)
+    circle(9, 4.4, 3.0, _ALIEN_HULL_DK, max(1, int(round(0.3 * px))))
+
+    # saucer hull: collar over a wide main disc, with top/bottom shading
+    ellipse(4.0, 5.4, 14.0, 7.8, _ALIEN_HULL)
+    ellipse(0.5, 6.2, 17.5, 9.6, _ALIEN_HULL)
+    ellipse(0.5, 6.2, 17.5, 9.0, _ALIEN_HULL_HL, max(1, int(round(0.28 * px))))
+    ellipse(2.0, 7.8, 16.0, 10.0, _ALIEN_HULL_DK, max(1, int(round(0.28 * px))))
+
+    # rim lights around the widest part
+    n = 5
+    for i in range(n):
+        lx = 2.6 + 12.8 * i / (n - 1)
+        col = _ALIEN_LIGHTS[(i + lq) % len(_ALIEN_LIGHTS)]
+        circle(lx, 8.1, 0.55, col)
+
+    _ALIEN_UFO_CACHE[key] = surf
     return surf
 
 
@@ -1497,6 +1781,29 @@ _C_SPEAK_BUBBLE = (250, 250, 252)
 _C_SPEAK_BORDER = (28, 28, 40)
 _C_SPEAK_SHADOW = (36, 28, 30)
 
+# The attacking green aliens heckle Sir Clive with retro / space one-liners as
+# they swarm his saucer; their letters cycle through an acid-green palette.
+_ALIEN_SPEAK_LINES = (
+    "Let's go Mars!",
+    "Let's hit the moon!",
+    "Bididibidi!",
+    "Where is Alien 8?",
+    "We want Elite!",
+    "Z80 cycles!",
+    "48K forever!",
+    "Beep boop Speccy!",
+    "Take us to Jetpac!",
+    "Nom nom pixels!",
+    "We come in 8 bits!",
+    "Zzzap zzzap!",
+)
+_ALIEN_SPEAK_COLORS = [
+    (120, 255, 120),    # bright green
+    (200, 255, 90),     # lime
+    (90, 230, 255),     # cyan
+    (255, 240, 120),    # pale yellow
+]
+
 
 class _ClivePromenade:
     """Optional strolling Sir Clive Sinclair sprites (with speech bubbles) for a
@@ -1510,15 +1817,29 @@ class _ClivePromenade:
     advances state, :meth:`render` draws the sprites + bubbles on the top layer.
     """
 
-    _MAX = 2               # at most this many on screen at once
+    _MAX = 2               # hard cap on crossers on screen at once
     _SPAWN_PROB = 0.006    # per-tick chance of a new stroller appearing
+    _SECOND_FACTOR = 0.03  # a second simultaneous crosser is this much rarer
     _TALK_PROB = 0.006     # per-tick chance a fully-visible Clive stops to talk
     _TALK_MIN = 80         # talk pause duration (ticks; ~2.7–4s at 30fps)
     _TALK_MAX = 120
+    # Which flavour of Clive crosses next: mostly on foot, sometimes driving his
+    # C5, and now and then buzzing past in a flying saucer.
+    _KINDS = ("walk", "walk", "walk", "c5", "ufo")
+    # Alien-saucer dogfight: while Clive is fully on-screen in his UFO there is a
+    # per-tick chance a green squadron scrambles to swarm him (once per crossing).
+    _ALIEN_PROB = 0.02
+    _ALIEN_MIN = 2         # squadron size range
+    _ALIEN_MAX = 4
 
     def __init__(self, dpr=1.0):
         self.dpr = max(1.0, float(dpr or 1.0))
         self._walkers = []
+        self._aliens = []          # attacking green-alien saucers
+        self._lasers = []          # Clive's UFO laser bolts [x, y, vx, vy, ttl]
+        self._blasts = []          # explosion particle bursts
+        self._fire_cd = 0          # ticks until Clive's next laser bolt
+        self._forced_done = False  # consumed the --anim test override yet?
         self._t = 0
 
     def s(self, px):
@@ -1528,12 +1849,27 @@ class _ClivePromenade:
         self.dpr = max(1.0, float(dpr or 1.0))
 
     def active(self):
-        return bool(self._walkers)
+        return bool(self._walkers or self._aliens or self._lasers
+                    or self._blasts)
 
     def clear(self):
         self._walkers = []
+        self._aliens = []
+        self._lasers = []
+        self._blasts = []
 
     def _spawn(self, w, h):
+        """Add a new crossing Clive — on foot, in his C5, or in a flying saucer
+        (chosen at random per :data:`_KINDS`) — entering from a random edge."""
+        kind = _random.choice(self._KINDS)
+        if kind == "c5":
+            self._spawn_c5(w, h)
+        elif kind == "ufo":
+            self._spawn_ufo(w, h)
+        else:
+            self._spawn_walk(w, h)
+
+    def _spawn_walk(self, w, h):
         """Add a walking Clive entering from a random edge, sized to the pane.
         The sprite suite — front view or one of the three profiles — is picked
         at random; profile suites face the direction of travel."""
@@ -1545,6 +1881,7 @@ class _ClivePromenade:
         from_left = _random.random() < 0.5
         speed = _random.uniform(1.1, 2.2) * self.dpr
         self._walkers.append({
+            "kind": "walk",
             "suite": suite,
             "facing": "right" if from_left else "left",
             "x": float(-sw if from_left else w),
@@ -1560,21 +1897,103 @@ class _ClivePromenade:
             "stand": 0 if not s["profile"] else 1,   # feet-together pose to hold
         })
 
+    def _spawn_c5(self, w, h):
+        """Add Sir Clive driving his C5 across the foot of the pane; the wheels
+        roll as he goes and he may still stop for a chat (like a stroller)."""
+        px = max(2, min(self.s(7), int(h * 0.42 / _CLIVE_H)))
+        sw = _CLIVE_W * px
+        sh = _CLIVE_H * px
+        from_left = _random.random() < 0.5
+        speed = _random.uniform(1.8, 3.4) * self.dpr
+        self._walkers.append({
+            "kind": "c5",
+            "facing": "right" if from_left else "left",
+            "x": float(-sw if from_left else w),
+            "y": float(max(self.s(2), h - self.s(6) - sh)),
+            "vx": speed if from_left else -speed,
+            "px": px,
+            "sw": sw,
+            "phase": 0.0,               # signed wheel-roll accumulator (radians)
+            "state": "walk",
+            "talk_ttl": 0,
+            "phrase": "",
+            "talked": False,
+            "look_x": 0.0, "look_y": 0.0,     # current (eased) head gaze
+            "look_tx": 0.0, "look_ty": 0.0,   # gaze target
+            "look_cd": 0,                     # ticks until the next glance
+        })
+
+    def _spawn_ufo(self, w, h):
+        """Add Sir Clive buzzing the pane in a flying saucer: it drifts across
+        at a randomly varying speed while wandering up and down the sky."""
+        px = max(2, min(self.s(12), int(h * 0.68 / _UFO_H)))
+        sw = _UFO_W * px
+        sh = _UFO_H * px
+        from_left = _random.random() < 0.5
+        speed = _random.uniform(0.8, 3.2) * self.dpr    # various speeds
+        y_lo = float(self.s(2))
+        y_hi = float(max(y_lo + 1.0, h - sh - self.s(2)))
+        y0 = _random.uniform(y_lo, y_hi)
+        self._walkers.append({
+            "kind": "ufo",
+            "facing": "right" if from_left else "left",
+            "x": float(-sw if from_left else w),
+            "y": y0,
+            "y_base": y0,               # eased cruising altitude
+            "y_target": _random.uniform(y_lo, y_hi),
+            "y_lo": y_lo,
+            "y_hi": y_hi,
+            "vx": speed if from_left else -speed,
+            "px": px,
+            "sw": sw,
+            "sh": sh,
+            "phase": 0.0,               # rim-light twinkle
+            "wob": _random.uniform(0.0, 2 * _math.pi),   # vertical bob phase
+            "bob_amp": float(_random.randint(self.s(2), max(self.s(2) + 1,
+                                                            self.s(6)))),
+            "state": "fly",
+            "battled": False,           # scrambled the alien squadron yet?
+            "talk_ttl": 0,
+            "phrase": "",
+            "talked": False,
+            "look_x": 0.0, "look_y": 0.0,     # current (eased) head gaze
+            "look_tx": 0.0, "look_ty": 0.0,   # gaze target
+            "look_cd": 0,                     # ticks until the next glance
+        })
+
     def update(self, w, h):
         """Spawn/advance/cull the strollers for a *w*×*h* device-pixel surface.
         No-op (and clears any live strollers) unless the global "Alien Floyd's"
         preference is on."""
         if not alien_floyd_enabled():
-            if self._walkers:
-                self._walkers = []
+            if self._walkers or self._aliens or self._lasers or self._blasts:
+                self.clear()
             return
         if w < self.s(80) or h < self.s(60):
             return
         self._t += 1
-        if len(self._walkers) < self._MAX and _random.random() < self._SPAWN_PROB:
-            self._spawn(w, h)
+        # Test override: force a specific animation to appear first (--anim).
+        if not self._forced_done and _FORCE_FIRST_ANIM:
+            self._forced_done = True
+            self._force_spawn(w, h)
+        else:
+            # Usually keep a single crosser on screen; a second one is rare, so
+            # gate it on a much smaller chance (the attacking alien saucers are
+            # tracked separately, so they're unaffected by this cap).
+            n = len(self._walkers)
+            prob = (self._SPAWN_PROB if n == 0
+                    else self._SPAWN_PROB * self._SECOND_FACTOR)
+            if n < self._MAX and _random.random() < prob:
+                self._spawn(w, h)
         alive = []
         for wk in self._walkers:
+            # Flying saucers wander their own way (no talk pause).
+            if wk.get("kind") == "ufo":
+                if self._update_ufo(wk, w, h):
+                    alive.append(wk)
+                continue
+            if wk.get("kind") == "c5":
+                self._update_head_look(wk)   # head keeps glancing, even chatting
             if wk["state"] == "talk":
                 # Stand still (feet-together pose) and hold the bubble up.
                 wk["talk_ttl"] -= 1
@@ -1583,7 +2002,12 @@ class _ClivePromenade:
                 alive.append(wk)
                 continue
             wk["x"] += wk["vx"]
-            wk["phase"] += abs(wk["vx"]) / max(1.0, wk["px"] * 1.4)
+            if wk.get("kind") == "c5":
+                # Signed roll so the wheels (and the yellow hub marker) turn the
+                # way the C5 actually travels — matching the game's convention.
+                wk["phase"] += wk["vx"] / max(1.0, wk["px"] * 5.0)
+            else:
+                wk["phase"] += abs(wk["vx"]) / max(1.0, wk["px"] * 1.4)
             # Once per crossing, while fully on-screen, stop for a chat.
             if (not wk["talked"] and wk["x"] >= 0 and wk["x"] + wk["sw"] <= w
                     and _random.random() < self._TALK_PROB):
@@ -1591,7 +2015,10 @@ class _ClivePromenade:
                 wk["state"] = "talk"
                 wk["talk_ttl"] = _random.randint(self._TALK_MIN, self._TALK_MAX)
                 wk["phrase"] = _random.choice(_CLIVE_SPEAK_LINES)
-                wk["phase"] = wk["stand"]
+                if wk.get("kind") != "c5":
+                    # Walkers freeze on the feet-together pose; the C5 just holds
+                    # its current wheel angle (no snap) while it chats.
+                    wk["phase"] = wk["stand"]
             # cull once the sprite has fully walked off the far edge
             if wk["vx"] > 0 and wk["x"] > w:
                 continue
@@ -1599,23 +2026,267 @@ class _ClivePromenade:
                 continue
             alive.append(wk)
         self._walkers = alive
+        self._update_battle(w, h)
+
+    def _update_ufo(self, wk, w, h):
+        """Advance a wandering saucer: horizontal drift at a randomly varying
+        speed, an eased cruising altitude that changes now and then, plus a
+        gentle vertical bob.  Returns ``False`` once it has flown fully off the
+        far edge (so the caller drops it)."""
+        # Occasionally change pace (keeping direction) so speeds vary in flight.
+        if _random.random() < 0.03:
+            base = _random.uniform(0.8, 3.2) * self.dpr
+            wk["vx"] = base if wk["vx"] >= 0 else -base
+        # Now and then pick a new cruising altitude somewhere in the sky.
+        if _random.random() < 0.02:
+            wk["y_target"] = _random.uniform(wk["y_lo"], wk["y_hi"])
+        wk["x"] += wk["vx"]
+        wk["y_base"] += (wk["y_target"] - wk["y_base"]) * 0.03
+        wk["wob"] += 0.12
+        wk["y"] = wk["y_base"] + _math.sin(wk["wob"]) * wk["bob_amp"]
+        wk["y"] = max(wk["y_lo"], min(wk["y_hi"], wk["y"]))
+        wk["phase"] += 0.1              # twinkle the rim lights
+        self._update_head_look(wk)
+        if wk["vx"] > 0 and wk["x"] > w:
+            return False
+        if wk["vx"] < 0 and wk["x"] + wk["sw"] < 0:
+            return False
+        return True
+
+    def _update_head_look(self, wk):
+        """Ease Sir Clive's gaze toward a wandering target, picking a new one now
+        and then, so his head turns and nods as he rides along."""
+        wk["look_cd"] -= 1
+        if wk["look_cd"] <= 0:
+            wk["look_cd"] = _random.randint(18, 55)
+            wk["look_tx"] = _random.uniform(-1.0, 1.0)
+            wk["look_ty"] = _random.uniform(-0.7, 1.0)
+        wk["look_x"] += (wk["look_tx"] - wk["look_x"]) * 0.12
+        wk["look_y"] += (wk["look_ty"] - wk["look_y"]) * 0.12
+
+    # -- alien-saucer dogfight -------------------------------------------------
+    def _primary_ufo(self):
+        """The Clive-UFO the aliens engage: the first flying saucer on screen."""
+        for wk in self._walkers:
+            if wk.get("kind") == "ufo":
+                return wk
+        return None
+
+    def _start_alien_wave(self, clive, w, h):
+        """Scramble a small squadron of green alien saucers that fly in from the
+        edges to swarm *clive* (his UFO)."""
+        n = _random.randint(self._ALIEN_MIN, self._ALIEN_MAX)
+        px = max(2, int(clive["px"] * 0.8))
+        sw = _ALIEN_UFO_W * px
+        sh = _ALIEN_UFO_H * px
+        # Desired positions relative to Clive (fractions of his sprite size) so
+        # the squadron fans out around him rather than stacking on one spot.
+        slots = [(-1.05, -0.15), (1.05, -0.15), (-0.7, -1.0),
+                 (0.7, -1.0), (0.0, -1.25), (-1.2, -0.9)]
+        _random.shuffle(slots)
+        t0 = _random.randrange(_ALIEN_NUM_TYPES)
+        for i in range(n):
+            edge = _random.choice(("top", "left", "right"))
+            if edge == "left":
+                x = float(-sw); y = _random.uniform(0, h - sh)
+            elif edge == "right":
+                x = float(w); y = _random.uniform(0, h - sh)
+            else:
+                x = _random.uniform(0, w - sw); y = float(-sh)
+            self._aliens.append({
+                "type": (t0 + i) % _ALIEN_NUM_TYPES,   # spread the 5 types
+                "px": px, "sw": sw, "sh": sh,
+                "x": x, "y": y, "vx": 0.0, "vy": 0.0,
+                "slot": slots[i % len(slots)],
+                "state": "approach",
+                "light": _random.uniform(0.0, 4.0),
+                # Kick off some already heckling (staggered) so bubbles show
+                # even though Clive's heavy fire makes for short lives.
+                "phrase": _random.choice(_ALIEN_SPEAK_LINES),
+                "talk_ttl": _random.randint(0, 70),
+            })
+
+    def _update_battle(self, w, h):
+        """Drive the optional alien dogfight: trigger a wave, fly the aliens in
+        toward Clive, let Clive return heavy laser fire, resolve hits and age
+        the explosions."""
+        clive = self._primary_ufo()
+        # Trigger a wave once per crossing while Clive is fully on-screen.
+        if (clive is not None and not self._aliens and not clive["battled"]
+                and clive["x"] >= 0 and clive["x"] + clive["sw"] <= w
+                and _random.random() < self._ALIEN_PROB):
+            clive["battled"] = True
+            self._start_alien_wave(clive, w, h)
+
+        if clive is not None:
+            ccx = clive["x"] + clive["sw"] / 2.0
+            ccy = clive["y"] + clive["sh"] / 2.0
+        # Move the aliens: approach their slot beside Clive, or flee if he's gone.
+        kept = []
+        for a in self._aliens:
+            a["light"] += 0.15
+            # Heckle Sir Clive with a retro one-liner now and then.
+            if a["talk_ttl"] > 0:
+                a["talk_ttl"] -= 1
+            elif a["state"] != "flee" and _random.random() < 0.04:
+                a["phrase"] = _random.choice(_ALIEN_SPEAK_LINES)
+                a["talk_ttl"] = _random.randint(45, 85)
+            if clive is None:
+                a["state"] = "flee"
+            if a["state"] == "flee":
+                a["y"] -= 3.4 * self.dpr
+                a["x"] += a["vx"]
+            else:
+                tx = ccx + a["slot"][0] * clive["sw"] - a["sw"] / 2.0
+                ty = ccy + a["slot"][1] * clive["sh"] - a["sh"] / 2.0
+                a["vx"] = a["vx"] * 0.86 + (tx - a["x"]) * 0.03
+                a["vy"] = a["vy"] * 0.86 + (ty - a["y"]) * 0.03
+                a["x"] += a["vx"]
+                a["y"] += a["vy"]
+            # cull aliens that have fled off the top/sides
+            if (a["y"] + a["sh"] < 0 or a["x"] + a["sw"] < -self.s(4)
+                    or a["x"] > w + self.s(4)):
+                continue
+            kept.append(a)
+        self._aliens = kept
+
+        # Clive returns heavy fire at the nearest alien.
+        if self._fire_cd > 0:
+            self._fire_cd -= 1
+        if clive is not None and self._aliens and self._fire_cd <= 0:
+            self._fire_cd = _random.randint(4, 9)      # heavy, rapid fire
+            target = min(self._aliens,
+                         key=lambda a: (a["x"] + a["sw"] / 2.0 - ccx) ** 2
+                         + (a["y"] + a["sh"] / 2.0 - ccy) ** 2)
+            self._fire_laser(ccx, clive["y"] + clive["sh"] * 0.42, target)
+
+        # Advance laser bolts; a bolt reaching an alien blows it up.
+        live = []
+        for L in self._lasers:
+            L[0] += L[2]; L[1] += L[3]; L[4] -= 1
+            hit = None
+            for a in self._aliens:
+                if (abs(L[0] - (a["x"] + a["sw"] / 2.0)) < a["sw"] * 0.45
+                        and abs(L[1] - (a["y"] + a["sh"] / 2.0)) < a["sh"] * 0.45):
+                    hit = a
+                    break
+            if hit is not None:
+                self._spawn_blast(hit["x"] + hit["sw"] / 2.0,
+                                  hit["y"] + hit["sh"] / 2.0)
+                self._aliens.remove(hit)
+                continue
+            if L[4] > 0 and -self.s(8) < L[0] < w + self.s(8) \
+                    and -self.s(8) < L[1] < h + self.s(8):
+                live.append(L)
+        self._lasers = live
+        self._update_blasts()
+
+    def _fire_laser(self, ox, oy, target):
+        """Fire a laser bolt from (ox, oy) toward *target*'s centre."""
+        tx = target["x"] + target["sw"] / 2.0
+        ty = target["y"] + target["sh"] / 2.0
+        ang = _math.atan2(ty - oy, tx - ox)
+        spd = 8.0 * self.dpr
+        self._lasers.append([ox, oy, _math.cos(ang) * spd,
+                             _math.sin(ang) * spd, 34])
+
+    def _spawn_blast(self, x, y):
+        parts = []
+        for _ in range(12):
+            ang = _random.uniform(0, 2 * _math.pi)
+            spd = _random.uniform(0.6, 2.6) * self.dpr
+            parts.append([x, y, _math.cos(ang) * spd, _math.sin(ang) * spd])
+        self._blasts.append({"parts": parts, "age": 0})
+
+    def _update_blasts(self):
+        kept = []
+        for ex in self._blasts:
+            ex["age"] += 1
+            for p in ex["parts"]:
+                p[0] += p[2]
+                p[1] += p[3]
+            if ex["age"] < 18:
+                kept.append(ex)
+        self._blasts = kept
+
+    def _force_spawn(self, w, h):
+        """Spawn the animation named by the ``--anim`` test override right away
+        (see :func:`set_forced_first_anim`)."""
+        kind = _FORCE_FIRST_ANIM
+        if kind == "c5":
+            self._spawn_c5(w, h)
+        elif kind in ("ufo", "aliens"):
+            self._spawn_ufo(w, h)
+            u = self._walkers[-1]
+            if kind == "aliens":
+                # Centre Clive and scramble the squadron immediately for testing.
+                u["x"] = float(w * 0.5 - u["sw"] / 2.0)
+                u["y"] = float(max(u["y_lo"], min(u["y_hi"], h * 0.42)))
+                u["battled"] = True
+                self._start_alien_wave(u, w, h)
+        else:
+            self._spawn_walk(w, h)
 
     def render(self, surface):
-        if not self._walkers:
+        if not self.active():
             return
+        # Alien saucers first, so Clive and the laser fire read on top of them.
+        for a in self._aliens:
+            surface.blit(_make_alien_ufo(a["type"], a["px"], a["light"]),
+                         (int(a["x"]), int(a["y"])))
         for wk in self._walkers:
-            spr = _make_clive_walk(wk["suite"], wk["px"],
-                                   int(wk["phase"]), wk["facing"])
+            kind = wk.get("kind", "walk")
+            if kind == "ufo":
+                spr = _make_clive_ufo(wk["px"], wk["phase"],
+                                      look=(wk["look_x"], wk["look_y"]))
+            elif kind == "c5":
+                spr = _make_clive_c5(wk["px"], wk["facing"], roll=wk["phase"],
+                                     look=(wk["look_x"], wk["look_y"]))
+            else:
+                spr = _make_clive_walk(wk["suite"], wk["px"],
+                                       int(wk["phase"]), wk["facing"])
             surface.blit(spr, (int(wk["x"]), int(wk["y"])))
-        # Speech bubbles last, so they sit above every stroller sprite.
+        # Laser fire and explosions over the saucers.
+        self._render_lasers(surface)
+        self._render_blasts(surface)
+        # Speech bubbles last, so they sit above every sprite: Clive strollers
+        # first, then the aliens heckling him in acid green.
         for wk in self._walkers:
-            if wk["state"] == "talk":
+            if wk.get("state") == "talk":
                 self._render_speech(surface, wk)
+        for a in self._aliens:
+            if a.get("talk_ttl", 0) > 0 and a.get("phrase"):
+                self._render_speech(surface, a, _ALIEN_SPEAK_COLORS)
 
-    def _render_speech(self, surface, wk):
-        """Draw a rounded speech bubble above a paused Clive, with the phrase in
-        lively, colour-cycling 8-bit letters over a dark drop shadow."""
+    def _render_lasers(self, surface):
+        """Draw Clive's laser bolts as bright green energy streaks with a white
+        core."""
         pg = _pg
+        for L in self._lasers:
+            hx, hy = int(L[0]), int(L[1])
+            tx, ty = int(L[0] - L[2] * 1.6), int(L[1] - L[3] * 1.6)
+            pg.draw.line(surface, (120, 255, 140), (tx, ty), (hx, hy),
+                         max(2, self.s(2)))
+            pg.draw.line(surface, (240, 255, 240),
+                         ((tx + hx) // 2, (ty + hy) // 2), (hx, hy),
+                         max(1, self.s(1)))
+
+    def _render_blasts(self, surface):
+        pg = _pg
+        sz = max(1, self.s(2))
+        for ex in self._blasts:
+            fade = max(0.0, 1.0 - ex["age"] / 18.0)
+            col = (int(255 * fade), int(235 * fade), int(120 * fade))
+            for p in ex["parts"]:
+                surface.fill(col, pg.Rect(int(p[0]), int(p[1]), sz, sz))
+
+    def _render_speech(self, surface, wk, colors=None):
+        """Draw a rounded speech bubble above *wk* (a Clive stroller or an alien
+        saucer), with the phrase in lively, colour-cycling 8-bit letters over a
+        dark drop shadow.  *colors* overrides the letter palette (aliens use an
+        acid-green one)."""
+        pg = _pg
+        colors = colors or _CLIVE_SPEAK_COLORS
         text = wk.get("phrase") or ""
         if not text:
             return
@@ -1647,11 +2318,11 @@ class _ClivePromenade:
         tx, ty = bx + pad, by + pad
         sh = max(1, self.s(1))
         shift = self._t // 6
-        ncol = len(_CLIVE_SPEAK_COLORS)
+        ncol = len(colors)
         for i, ch in enumerate(text):
             cwid = font.size(ch)[0]
             if ch != " ":
-                col = _CLIVE_SPEAK_COLORS[(i + shift) % ncol]
+                col = colors[(i + shift) % ncol]
                 _draw_text(surface, ch, tx + sh, ty + sh, font, _C_SPEAK_SHADOW)
                 _draw_text(surface, ch, tx, ty, font, col)
             tx += cwid
@@ -3659,6 +4330,21 @@ SpaceInvadersBackground = AlienFloydBackground
 # threaded through with the preference.
 _ALIEN_FLOYD_ENABLED = False
 
+# Optional "force this promenade animation first" test override, set from the
+# ``--anim`` command-line flag (see zx-next-unite.py).  One of 'walk', 'c5',
+# 'ufo' or 'aliens', or None for normal random behaviour.  When set it also
+# implicitly enables the Alien Floyd machinery so the forced animation is
+# actually visible without toggling the Settings preference.
+_FORCE_FIRST_ANIM = None
+_FORCE_ANIM_CHOICES = ("walk", "c5", "ufo", "aliens")
+
+
+def set_forced_first_anim(kind):
+    """Force each promenade to spawn *kind* ('walk'/'c5'/'ufo'/'aliens') as its
+    first animation, for easy testing.  Requires pygame to be installed."""
+    global _FORCE_FIRST_ANIM
+    _FORCE_FIRST_ANIM = kind if kind in _FORCE_ANIM_CHOICES else None
+
 
 def set_alien_floyd_enabled(flag):
     """Enable/disable the global Alien Floyd's background preference."""
@@ -3667,8 +4353,9 @@ def set_alien_floyd_enabled(flag):
 
 
 def alien_floyd_enabled():
-    """True when the Alien Floyd's background mode is currently enabled."""
-    return _ALIEN_FLOYD_ENABLED
+    """True when the Alien Floyd's background mode is currently enabled (or a
+    ``--anim`` test override is forcing a specific animation)."""
+    return _ALIEN_FLOYD_ENABLED or (_FORCE_FIRST_ANIM is not None)
 
 
 # ── persistent arcade high-score table (leaderboard) ────────────────────────

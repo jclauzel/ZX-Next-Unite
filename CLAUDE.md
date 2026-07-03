@@ -25,6 +25,13 @@ python -m pip install pyside6
 
 No build step is needed for development. There are no tests or linters configured in this project.
 
+For quickly eyeballing the retro "Alien Floyd" Sir Clive promenade animations
+(the ones drawn in `zxnu_pygame.py`), pass `--anim` to force one to play first
+and switch the mode on without touching Settings — e.g.
+`python zx-next-unite.py --anim aliens`. Choices: `walk`, `c5`, `ufo`, `aliens`
+(the last spawns Clive's saucer plus the attacking green alien squadron).
+Requires pygame.
+
 ## Packaging (optional)
 
 Create a standalone executable with PyInstaller:
