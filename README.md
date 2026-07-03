@@ -8,6 +8,8 @@ across **GetIt**, **ZXDB/ZXInfo**, **zxArt** and **itch.io**.
 By Julien Clauzel, based on **HDFM-GOOEY** by em00k and **NextSync** by Jari
 Komppa (with the Sync4 extensions by Julien Clauzel).
 
+Co-developed with the assistance of **Claude** (Anthropic's AI).
+
 ## Features
 
 - **SD Card tab** — mount an HDF image, copy files in/out with a built-in
