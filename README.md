@@ -1,11 +1,53 @@
-ZX-Next-Unite by Julien Clauzel based on: HDFM-GOOEY by em00k & NextSync by Jari Komppa
+# ZX-Next-Unite
 
-ZX-Next-Unite provides a cross platform (Windows, Linux, MacOS) Graphical Interface that unites two great tools in a single utility: Hdfm-Gooey & Next Sync as well a global search functionality frontend interface to discover ZX Spectrum and ZX Spectrum Next software accros Getit, ZXDB, ZXArt, Itch.io external platforms. 
+Cross-platform (Windows, Linux, macOS) desktop app for ZX Spectrum Next users.
+It unites two great tools — **Hdfm-Gooey** and **NextSync** — in a single GUI,
+and adds a built-in browser to discover ZX Spectrum / Spectrum Next software
+across **GetIt**, **ZXDB/ZXInfo**, **zxArt** and **itch.io**.
 
-Checkout the Wiki pages for more information on how to setup.
+By Julien Clauzel, based on **HDFM-GOOEY** by em00k and **NextSync** by Jari
+Komppa (with the Sync4 extensions by Julien Clauzel).
 
-Legal Disclaimer — Third-Party Content
----------------------------------------
+## Features
+
+- **SD Card tab** — mount an HDF image, copy files in/out with a built-in
+  explorer, then launch **CSpect** or **MAME** directly. No emulator command
+  lines to remember.
+- **NextSync tab** — push files over Wi-Fi from your PC to a real Spectrum Next
+  (KS1/KS2 or clones with an ESP module) using the `.sync4` dot command.
+- **Online libraries** — search and download from GetIt, ZXDB/ZXInfo, zxArt and
+  (optionally) itch.io.
+
+## Quick start
+
+**Windows:** download the latest `ZX-Next-Unite-v8.x` executable from the
+[Releases](https://github.com/jclauzel/ZX-Next-Unite/releases) page — no Python needed.
+
+**From source (any platform):**
+
+    git clone https://github.com/jclauzel/ZX-Next-Unite
+    cd ZX-Next-Unite
+    python -m pip install -r REQUIREMENTS.txt
+    python zx-next-unite.py
+
+Use `python3` on Linux/macOS. Only **PySide6** is required; `pygame-ce` and
+`itch-dl` are optional.
+
+## Documentation
+
+Full setup, emulator / hdfmonkey / Mono configuration and troubleshooting are in
+the **[Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki)**:
+
+- [Home / overview](https://github.com/jclauzel/ZX-Next-Unite/wiki)
+- [Installation](https://github.com/jclauzel/ZX-Next-Unite/wiki/Installation)
+
+## License
+
+Released under the **MIT** license (see [LICENSE](LICENSE)). Built on **PySide6**
+and **pygame-ce** (Qt 6, GPLv2/LGPL) and optionally
+[itch-dl](https://github.com/DragoonAethis/itch-dl) by Dragoon Aethis (MIT).
+
+## Legal disclaimer — third-party content
 
 > **The author of ZX-Next-Unite does NOT distribute any files, ROMs, games, demos, graphics, music, or any other content obtained through the GetIt, ZXDB, or zxArt integrations.**
 
@@ -16,5 +58,3 @@ All content is served exclusively by the respective third-party services listed 
 If in doubt, consult the terms of service of the relevant platform and seek appropriate legal advice before downloading or using any content.
 
 The first time you open the GetIt, ZXDB, or zxArt pane, the application will display this disclaimer and ask you to acknowledge it. You can dismiss the dialog to continue using the pane; the dialog will reappear on the next visit until you check *"I agree and understand. Do not show this message again"*, at which point your acknowledgement is saved to `hdfg.cfg` and the dialog will not be shown again.
-
-
