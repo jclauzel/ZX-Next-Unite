@@ -15,7 +15,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "8.3"
+ZX_NEXT_UNITE_VERSION = "8.4"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -134,6 +134,7 @@ SETTING_COLOR_DIR_TYPE    = "color_dir_type"
 SETTING_COLOR_FILE_NAME   = "color_file_name"
 SETTING_COLOR_FILE_EXT    = "color_file_ext"
 SETTING_COLOR_FILE_SIZE   = "color_file_size"
+SETTING_COLOR_GENERAL_TEXT = "color_general_text"   # app-wide Classic-mode text colour
 SETTING_DESKTOP_THEME     = "desktop_theme"     # "automatic" (default) | "dark" | "custom"
 SETTING_IMAGE_HISTORY     = "image_history"
 SETTING_BG_OPACITY        = "bg_opacity"
@@ -362,6 +363,12 @@ DEFAULT_COLOR_DIR_TYPE    = "#0000ff"
 DEFAULT_COLOR_FILE_NAME   = "#00ff00"
 DEFAULT_COLOR_FILE_EXT    = "#00ff00"
 DEFAULT_COLOR_FILE_SIZE   = "#00ff00"
+# General app-wide UI text (labels, checkboxes, section headers, …) in Classic
+# (non-pygame) mode. The tab panes are always rendered dark regardless of the OS
+# theme, so this defaults to a light colour that stays readable even when the OS
+# desktop uses a light/White palette (which would otherwise leave the text black
+# and invisible — see issue #118).
+DEFAULT_COLOR_GENERAL_TEXT = "#e8e8e8"
 
 # ── Desktop theme (SD Card explorer font colours) ───────────────────────────
 # Mode meanings:
@@ -384,6 +391,9 @@ DARK_COLOR_DIR_NAME     = "#ffa500"   # Directory name : orange (was blue)
 DARK_COLOR_DIR_TYPE     = "#ffff00"   # Directory type : yellow (was blue)
 # High-contrast (accessibility): every explorer font colour becomes black.
 HIGH_CONTRAST_COLOR     = "#000000"
+# General UI text in high-contrast mode: the tab panes stay dark, so the most
+# readable / highest-contrast choice for the app chrome is pure white.
+HIGH_CONTRAST_TEXT_COLOR = "#ffffff"
 
 def detect_system_dark_theme():
     """Best-effort detection of whether the OS desktop theme is dark.
@@ -677,7 +687,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
             )
 CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE,
 SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME,
-SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_DESKTOP_THEME, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_SEARCH_SORT_MODE, SETTING_GALLERY_ANIM_MODE,
+SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_COLOR_GENERAL_TEXT, SETTING_DESKTOP_THEME, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_SEARCH_SORT_MODE, SETTING_GALLERY_ANIM_MODE,
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GALLERY_SLIDESHOW_SECS, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,

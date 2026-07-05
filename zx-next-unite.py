@@ -2557,6 +2557,8 @@ class MainWindow(QMainWindow):
         self.img_color_file_name    = hex_to_qcolor(DEFAULT_COLOR_FILE_NAME)
         self.img_color_file_ext     = hex_to_qcolor(DEFAULT_COLOR_FILE_EXT)
         self.img_color_file_size    = hex_to_qcolor(DEFAULT_COLOR_FILE_SIZE)
+        # App-wide Classic-mode UI text colour (labels/checkboxes on the dark panes).
+        self.img_color_general_text = hex_to_qcolor(DEFAULT_COLOR_GENERAL_TEXT)
         # Desktop theme mode driving the colours above (overridden on cfg load).
         self._desktop_theme_mode    = DEFAULT_DESKTOP_THEME
 
@@ -3446,6 +3448,7 @@ class MainWindow(QMainWindow):
                 _load_color_setting(SETTING_COLOR_FILE_NAME,    DEFAULT_COLOR_FILE_NAME,    "img_color_file_name",    "settings_btn_color_file_name")
                 _load_color_setting(SETTING_COLOR_FILE_EXT,     DEFAULT_COLOR_FILE_EXT,     "img_color_file_ext",     "settings_btn_color_file_ext")
                 _load_color_setting(SETTING_COLOR_FILE_SIZE,    DEFAULT_COLOR_FILE_SIZE,    "img_color_file_size",    "settings_btn_color_file_size")
+                _load_color_setting(SETTING_COLOR_GENERAL_TEXT, DEFAULT_COLOR_GENERAL_TEXT, "img_color_general_text", "settings_btn_color_general_text")
 
                 # Desktop theme mode. Automatic re-detects the OS light/dark
                 # theme at every startup and Dark re-applies the dark tweaks
@@ -7975,6 +7978,7 @@ class MainWindow(QMainWindow):
         configuration_dictionary[SETTING_COLOR_FILE_NAME]    = DEFAULT_COLOR_FILE_NAME
         configuration_dictionary[SETTING_COLOR_FILE_EXT]     = DEFAULT_COLOR_FILE_EXT
         configuration_dictionary[SETTING_COLOR_FILE_SIZE]    = DEFAULT_COLOR_FILE_SIZE
+        configuration_dictionary[SETTING_COLOR_GENERAL_TEXT] = DEFAULT_COLOR_GENERAL_TEXT
         configuration_dictionary[SETTING_DESKTOP_THEME]      = DEFAULT_DESKTOP_THEME
 
         # Init UI forms
@@ -20024,6 +20028,9 @@ class MainWindow(QMainWindow):
             (SETTING_COLOR_FILE_NAME,    "img_color_file_name",    "settings_btn_color_file_name",    DEFAULT_COLOR_FILE_NAME,    DEFAULT_COLOR_FILE_NAME,    HIGH_CONTRAST_COLOR),
             (SETTING_COLOR_FILE_EXT,     "img_color_file_ext",     "settings_btn_color_file_ext",     DEFAULT_COLOR_FILE_EXT,     DEFAULT_COLOR_FILE_EXT,     HIGH_CONTRAST_COLOR),
             (SETTING_COLOR_FILE_SIZE,    "img_color_file_size",    "settings_btn_color_file_size",    DEFAULT_COLOR_FILE_SIZE,    DEFAULT_COLOR_FILE_SIZE,    HIGH_CONTRAST_COLOR),
+            # General app-wide UI text. The panes are always dark, so light and
+            # dark variants both use a light colour; high contrast uses white.
+            (SETTING_COLOR_GENERAL_TEXT, "img_color_general_text", "settings_btn_color_general_text", DEFAULT_COLOR_GENERAL_TEXT, DEFAULT_COLOR_GENERAL_TEXT, HIGH_CONTRAST_TEXT_COLOR),
         )
         _theme_variant_col = {"light": 3, "dark": 4, "black": 5}
 
@@ -20054,6 +20061,12 @@ class MainWindow(QMainWindow):
             if hasattr(self, "_image_recolor_all"):
                 try:
                     self._image_recolor_all()
+                except Exception:
+                    pass
+            # Re-apply the general UI text colour to the (always-dark) tab panes.
+            if hasattr(self, "_refresh_tab_stylesheet"):
+                try:
+                    self._refresh_tab_stylesheet()
                 except Exception:
                     pass
         self._apply_desktop_theme_colors = _apply_desktop_theme_colors
@@ -20257,10 +20270,16 @@ class MainWindow(QMainWindow):
                 # change is visible immediately (no async re-listing needed).
                 if hasattr(self, "_image_recolor_all"):
                     self._image_recolor_all()
+                # If the general UI text colour changed, re-apply it to the panes.
+                if hasattr(self, "_refresh_tab_stylesheet"):
+                    self._refresh_tab_stylesheet()
 
             def _on_click():
                 current = getattr(self, color_attr)
-                chosen = QColorDialog.getColor(current, zxnextunite_Settings_tab, f"Choose color — {label_text}")
+                # Parent the picker to the main window (not the Settings tab) so the
+                # tab widget's general-text stylesheet can't leak into a non-native
+                # colour dialog on platforms that render it as a Qt widget.
+                chosen = QColorDialog.getColor(current, self, f"Choose color — {label_text}")
                 if chosen.isValid():
                     _apply_color(chosen)
 
@@ -20355,8 +20374,11 @@ class MainWindow(QMainWindow):
         )
         grid_tab_Settings.addWidget(self.settings_gallery_slideshow_combo, 11, 1)
 
-        settings_section_lbl = QLabel("SD Card Image Explorer — Item Colors:")
-        settings_section_lbl.setToolTip("Customize the foreground color for each item type displayed in the SD card image explorer.")
+        settings_section_lbl = QLabel("Local file explorers & App Text Colors:")
+        settings_section_lbl.setToolTip(
+            "Customize the foreground color of each item type shown in the SD card\n"
+            "image explorer, plus the general app text color (labels, checkboxes,\n"
+            "section headers) used across the app in Classic (non-pygame) mode.")
         grid_tab_Settings.addWidget(settings_section_lbl, 13, 0, 1, 2)
 
         self.settings_btn_color_up_directory = _make_color_button(
@@ -20389,6 +20411,15 @@ class MainWindow(QMainWindow):
             "  File size",
             "Color used for the file size column in the image explorer.",
             19)
+        self.settings_btn_color_general_text = _make_color_button(
+            SETTING_COLOR_GENERAL_TEXT, "img_color_general_text",
+            "  General UI text",
+            "Color for general app text (labels, checkboxes, section headers)\n"
+            "in Classic (non-pygame) mode. The tab panes are always dark, so a\n"
+            "light desktop/White theme would otherwise make this text black and\n"
+            "unreadable. The White/Dark/Automatic/High-contrast themes set this\n"
+            "automatically; picking a color here switches to the Custom theme.",
+            20)
 
         # ---- Background image opacity ----
         bg_opacity_lbl = QLabel("Background image opacity (%):")
@@ -20396,7 +20427,7 @@ class MainWindow(QMainWindow):
             "Controls how visible the background image is behind the UI.\n"
             "0 = fully hidden, 100 = fully visible. Default is 5%."
         )
-        grid_tab_Settings.addWidget(bg_opacity_lbl, 20, 0)
+        grid_tab_Settings.addWidget(bg_opacity_lbl, 21, 0)
 
         bg_opacity_row = QWidget()
         bg_opacity_row_layout = QHBoxLayout(bg_opacity_row)
@@ -20424,7 +20455,19 @@ class MainWindow(QMainWindow):
         def _build_tab_stylesheet(alpha: int) -> str:
             """Return a QTabWidget stylesheet whose pane background uses the
             given alpha (0–255), allowing the BackgroundWidget behind it to
-            show through at the configured opacity level."""
+            show through at the configured opacity level.
+
+            It also forces the general UI text colour on the free-standing
+            "chrome" widgets (labels, checkboxes, radio buttons, group boxes)
+            that paint directly onto the always-dark pane. Without this the
+            text colour is inherited from the OS palette, so a light/White
+            desktop theme renders it black-on-dark and unreadable (issue #118).
+            Widgets that carry their own colour (e.g. the ``color: #888`` hint
+            labels) keep it — a widget's own style sheet wins over this one —
+            and controls with their own opaque background (combos, spin boxes,
+            line edits) are intentionally left on the platform palette."""
+            _gt = getattr(self, "img_color_general_text", None)
+            _text_hex = qcolor_to_hex(_gt) if _gt is not None else DEFAULT_COLOR_GENERAL_TEXT
             return (
                 f"QTabWidget::pane {{"
                 f"  background: rgba(43,43,43,{alpha});"
@@ -20453,8 +20496,23 @@ class MainWindow(QMainWindow):
                 f"QScrollArea > QWidget > QWidget {{"
                 f"  background: transparent;"
                 f"}}"
+                f"QLabel, QCheckBox, QRadioButton, QGroupBox, QGroupBox::title {{"
+                f"  color: {_text_hex};"
+                f"}}"
             )
         self._build_tab_stylesheet = _build_tab_stylesheet
+
+        def _refresh_tab_stylesheet():
+            """Rebuild and re-apply the tab-widget stylesheet at the current
+            background-opacity level. Used when the general UI text colour
+            changes (Desktop Theme switch or the 'General UI text' picker)."""
+            try:
+                _val = self.settings_bg_opacity_slider.value()
+            except Exception:
+                _val = BackgroundWidget.DEFAULT_OPACITY
+            _pane_alpha = max(0, min(255, int(255 - (_val / 100.0) * 255)))
+            self._tab_widget.setStyleSheet(_build_tab_stylesheet(_pane_alpha))
+        self._refresh_tab_stylesheet = _refresh_tab_stylesheet
         # Apply default opacity stylesheet immediately (before config loads)
         _default_pane_alpha = max(0, min(255, int(255 - (BackgroundWidget.DEFAULT_OPACITY / 100.0) * 255)))
         self._tab_widget.setStyleSheet(_build_tab_stylesheet(_default_pane_alpha))
@@ -20479,7 +20537,7 @@ class MainWindow(QMainWindow):
 
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_slider, 1)
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_spinbox, 0)
-        grid_tab_Settings.addWidget(bg_opacity_row, 20, 1)
+        grid_tab_Settings.addWidget(bg_opacity_row, 21, 1)
 
         # ---- Background image selector ----
         bg_image_lbl = QLabel("Background image:")
@@ -20487,7 +20545,7 @@ class MainWindow(QMainWindow):
             "Choose a specific background image or 'Random' to cycle through\n"
             "all images in the script folder every 5 seconds."
         )
-        grid_tab_Settings.addWidget(bg_image_lbl, 21, 0)
+        grid_tab_Settings.addWidget(bg_image_lbl, 22, 0)
 
         bg_image_row = QWidget()
         bg_image_row_layout = QHBoxLayout(bg_image_row)
@@ -20530,7 +20588,7 @@ class MainWindow(QMainWindow):
         self.settings_bg_image_preview.setToolTip("Preview of the selected background image.")
         bg_image_row_layout.addWidget(self.settings_bg_image_preview, 0)
 
-        grid_tab_Settings.addWidget(bg_image_row, 21, 1)
+        grid_tab_Settings.addWidget(bg_image_row, 22, 1)
 
         def _update_bg_image_preview(path: str):
             """Refresh the thumbnail label for the given absolute image path."""
@@ -20591,7 +20649,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_crash_log_enabled_checkbox.stateChanged.connect(
             settings_crash_log_enabled_statechanged)
-        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 22, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 23, 0, 1, 2)
 
         def settings_disable_no_emulator_toast_statechanged():
             configuration_dictionary[SETTING_DISABLE_NO_EMULATOR_TOAST] = "true" if self.settings_disable_no_emulator_toast_checkbox.isChecked() else "false"
@@ -20605,7 +20663,7 @@ class MainWindow(QMainWindow):
             "Check this if you do not use any emulator and do not want the reminder."
         )
         self.settings_disable_no_emulator_toast_checkbox.stateChanged.connect(settings_disable_no_emulator_toast_statechanged)
-        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 23, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 24, 0, 1, 2)
 
         # ── MAME options (only shown when the MAME emulator was detected) ──
         if getattr(self, "_mame_executable_path", None):
@@ -20619,7 +20677,7 @@ class MainWindow(QMainWindow):
                 "This is inserted right after the MAME executable and is no longer part\n"
                 "of the command-line parameters below."
             )
-            grid_tab_Settings.addWidget(mame_rom_lbl, 24, 0)
+            grid_tab_Settings.addWidget(mame_rom_lbl, 25, 0)
 
             self.settings_mame_rom_combo = QComboBox()
             for _rom_name in MAME_ROM_CHOICE:
@@ -20627,7 +20685,7 @@ class MainWindow(QMainWindow):
             self.settings_mame_rom_combo.setToolTip(mame_rom_lbl.toolTip())
             self.settings_mame_rom_combo.currentIndexChanged.connect(
                 lambda _i: settings_mame_rom_changed())
-            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 24, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 25, 1)
 
             def settings_mame_params_changed():
                 configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = self.settings_mame_params_edit.text()
@@ -20640,7 +20698,7 @@ class MainWindow(QMainWindow):
                 "and the '-hard1 <image>' arguments are added automatically at launch,\n"
                 "so the loaded image is always the last argument."
             )
-            grid_tab_Settings.addWidget(mame_params_lbl, 25, 0)
+            grid_tab_Settings.addWidget(mame_params_lbl, 26, 0)
 
             self.settings_mame_params_edit = QLineEdit()
             self.settings_mame_params_edit.setText(
@@ -20648,7 +20706,7 @@ class MainWindow(QMainWindow):
                     SETTING_MAME_COMMAND_LINE_PARAMETERS, MAME_DEFAULT_COMMAND_LINE))
             self.settings_mame_params_edit.setToolTip(mame_params_lbl.toolTip())
             self.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
-            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 25, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 26, 1)
 
         # ── Unite! pygame background animation toggle ──────────────────────
         def _settings_pygame_anim_changed():
@@ -20677,7 +20735,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_pygame_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 26, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 27, 0, 1, 2)
 
         # ── NextSync retro-log starfield animation toggle ──────────────────
         def _settings_nextsync_anim_changed():
@@ -20709,7 +20767,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_nextsync_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_nextsync_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 29, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 30, 0, 1, 2)
 
         # ── Alien Floyd's: optional pygame-ce animated background everywhere ──
         # A Pink Floyd homage. When on, a pygame-ce "Alien Floyd's" animation
@@ -20764,7 +20822,7 @@ class MainWindow(QMainWindow):
             "file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_bg_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_bg_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 27, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 28, 0, 1, 2)
 
         # ── Alien Floyd's: optional dedicated full-window tab ────────────────
         self._alien_floyd_tab_widget = None
@@ -20836,7 +20894,7 @@ class MainWindow(QMainWindow):
             "configuration file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 28, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 29, 0, 1, 2)
 
         # ── itch.io: optional online tab (driven by the 'itch-dl' package) ───
         def _itchio_tab_set_visible(on):
@@ -20879,7 +20937,7 @@ class MainWindow(QMainWindow):
                 "configuration file. Requires the optional 'itch-dl' package.")
         self.settings_show_itchio_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_itchio_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 30, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 31, 0, 1, 2)
 
         # ── NextSync: what to do when a received file/dir already exists locally ──
         def _settings_nextsync_send_conflict_changed():
@@ -20952,7 +21010,7 @@ class MainWindow(QMainWindow):
         # width rather than stretching across both columns.
         self.button_open_config_file = QPushButton("Open config file", self)
         self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
-        grid_tab_Settings.addWidget(self.button_open_config_file, 31, 0, 1, 2, Qt.AlignLeft)
+        grid_tab_Settings.addWidget(self.button_open_config_file, 32, 0, 1, 2, Qt.AlignLeft)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
