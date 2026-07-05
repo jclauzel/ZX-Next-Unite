@@ -3944,15 +3944,25 @@ class AlienFloydBackground:
         _draw_text(surface, slabel, sx + self.s(1), y + self.s(15) + self.s(1),
                    sf, (0, 0, 0))
         _draw_text(surface, slabel, sx, y + self.s(15), sf, _C_GAME_SCORE)
-        # Lives, top-left, as a row of little cannon icons.
+        # Lives, bottom-left, as a row of little cannon icons.  Kept clear of
+        # the word/score HUD up top; sits along the bottom edge (drawn after the
+        # ship, so the icons overlay Sir Clive's C5 when it drives past).
         lab = _font(self.s(11), bold=True)
-        _draw_text(surface, "LIVES", self.s(10), y, lab, _C_SHIP)
         life_spr = _make_sprite(_CANNON, _C_SHIP, max(1, self.s(1)))
         lw = life_spr.get_width()
+        lh = life_spr.get_height()
+        ly = self.h - lh - self.s(8)
+        _draw_text(surface, "LIVES", self.s(10), ly - self.s(14), lab, _C_SHIP)
         for i in range(max(0, self._lives)):
             surface.blit(life_spr,
-                         (int(self.s(10) + i * (lw + self.s(4))),
-                          int(y + self.s(15))))
+                         (int(self.s(10) + i * (lw + self.s(4))), int(ly)))
+        # Wave counter, bottom-right (mirrors the attract HUD's WAVE readout).
+        wf = _font(self.s(14), bold=True)
+        wlabel = "WAVE %d" % getattr(self, "_wave", 1)
+        ww = wf.size(wlabel)[0]
+        wy = self.h - wf.get_height() - self.s(8)
+        _draw_text(surface, wlabel, self.w - ww - self.s(10), wy,
+                   wf, (190, 220, 255))
         # Brief "word complete" banner.
         if self._win_flash > 0 and (self._win_flash // 6) % 2 == 0:
             bf = _font(self.s(20), bold=True)
@@ -4305,8 +4315,8 @@ class AlienFloydBackground:
 
     def _render_hud(self, surface):
         f = _font(self.s(14), bold=True)
-        _draw_text(surface, "SCORE %06d" % self._score,
-                   self.s(10), self.s(8), f, (170, 255, 170))
+        # No live "SCORE" counter in the auto-playing attract scene: it isn't a
+        # real game the viewer is playing, so only the high score + wave show.
         hi = max(self._score, get_alien_hiscore())
         hlabel = "HI %06d" % hi
         hw = f.size(hlabel)[0]
@@ -4314,7 +4324,8 @@ class AlienFloydBackground:
                    f, (255, 220, 120))
         wlabel = "WAVE %d" % getattr(self, "_wave", 1)
         ww = f.size(wlabel)[0]
-        _draw_text(surface, wlabel, self.w - ww - self.s(10), self.s(8),
+        wy = self.h - f.get_height() - self.s(8)
+        _draw_text(surface, wlabel, self.w - ww - self.s(10), wy,
                    f, (190, 220, 255))
 
 
