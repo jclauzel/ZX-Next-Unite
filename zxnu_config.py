@@ -4,11 +4,13 @@ Extracted from zx-next-unite.py to reduce the size of the main module.
 Contains no GUI/window logic — only configuration constants, lookup
 tables, small pure helpers and the zxArt language state."""
 
+import io
 import os
 import platform
 import shutil
 import subprocess
 import sys
+import zipfile
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
@@ -82,7 +84,20 @@ ALLINONE_PAGE_SIZE = GETIT_PAGE_SIZE + ZXDB_PAGE_SIZE + ZXART_PAGE_SIZE
 GALLERY_THUMB_FETCH_WORKERS = 16
 
 
+# Legacy single-platform Windows build (kept only as a manual fallback URL in
+# messages). The pre-compiled binary it ships has a known bug (issue #50), so the
+# in-app auto-download now uses HDF_MONKEY_JJJS_URL below instead.
 HDF_MONKEY_WINDOWS_URL = "https://uto.speccy.org/downloads/hdfmonkey_windows.zip"
+
+# Current in-app auto-download source for hdfmonkey: a jjjs-packaged release that
+# bundles fixed builds for every platform (windows-64 / linux-musl / macos-intel
+# / macos-mn). The forum attachment is served by id; the session token (sid) in a
+# copy-pasted browser link expires, so we deliberately omit it. The archive is a
+# zip-inside-a-zip: the outer zip holds a ZipCrypto-encrypted inner zip plus a
+# 'password.txt' whose contents (currently "jjjs") unlock it. See
+# extract_hdfmonkey_from_jjjs_zip().
+HDF_MONKEY_JJJS_URL = "https://www.specnext.com/forum/download/file.php?id=1159"
+HDF_MONKEY_JJJS_ZIP_PASSWORD = b"jjjs"
 
 SETTING_HDDFILE = "hddffile"
 SETTING_EXPLORERPATH = "explorerpath"
@@ -779,6 +794,48 @@ HDFMONKEY_EXECUTABLE = "hdfmonkey"
 # alongside CSpect.exe.
 DOWNLOADS_CSPECT_DIRNAME = os.path.join("downloads", "itchio", "mdf200", "cspect")
 
+# Sub-directory (relative to the application directory) where the standalone
+# hdfmonkey auto-download (HDF_MONKEY_JJJS_URL) unpacks the build for the current
+# platform, mirroring the itch.io CSpect layout: downloads/hdfmonkey/<platform>/.
+DOWNLOADS_HDFMONKEY_DIRNAME = os.path.join("downloads", "hdfmonkey")
+
+
+def hdfmonkey_platform_dirs():
+    """Return candidate ``(platform_dirname, exe_filename)`` pairs, in priority
+    order, naming the per-platform sub-folder that carries an hdfmonkey build
+    runnable on the *current* platform.
+
+    Both the itch.io CSpect package and the standalone hdfmonkey release
+    (``hdfmonkey-…-jjjs.zip``) lay their builds out under the same per-platform
+    folder names::
+
+        windows-64/hdfmonkey.exe   (Windows)
+        linux-musl/hdfmonkey       (Linux)
+        macos-intel/hdfmonkey      (macOS, Intel)
+        macos-mn/hdfmonkey         (macOS, Apple Silicon / "MN")
+
+    The bare file name is shared across the Linux and both macOS builds, so
+    callers must key off the platform folder rather than the file name. Returns
+    an empty list on unrecognised platforms.
+    """
+    system = platform.system()
+    if system == "Windows":
+        exe = HDFMONKEY_EXECUTABLE + ".exe"
+        return [("windows-64", exe)]
+    exe = HDFMONKEY_EXECUTABLE
+    if system == "Linux":
+        return [("linux-musl", exe)]
+    if system == "Darwin":
+        machine = (platform.machine() or "").lower()
+        # Prefer the build native to this Mac; fall back to the other. Apple
+        # Silicon ("MN") can run the Intel binary through Rosetta 2, but an Intel
+        # Mac can never run the arm64 build, so order accordingly.
+        dirs = (["macos-mn", "macos-intel"]
+                if machine in ("arm64", "aarch64")
+                else ["macos-intel", "macos-mn"])
+        return [(d, exe) for d in dirs]
+    return []
+
 
 def hdfmonkey_bundle_subpaths():
     """Return candidate ``(relative_subpath, exe_filename)`` pairs, in priority
@@ -786,7 +843,8 @@ def hdfmonkey_bundle_subpaths():
     the *current* platform.
 
     The itch.io CSpect package carries hdfmonkey builds for every platform side
-    by side under ``hdfmonkey/<platform>/``:
+    by side under ``hdfmonkey/<platform>/`` (see ``hdfmonkey_platform_dirs`` for
+    the per-platform folder names):
 
         hdfmonkey/windows-64/hdfmonkey.exe   (Windows)
         hdfmonkey/linux-musl/hdfmonkey       (Linux)
@@ -798,23 +856,8 @@ def hdfmonkey_bundle_subpaths():
     rather than the file name — otherwise a binary built for another OS could be
     handed back. Returns an empty list on unrecognised platforms.
     """
-    system = platform.system()
-    if system == "Windows":
-        exe = HDFMONKEY_EXECUTABLE + ".exe"
-        return [(os.path.join("hdfmonkey", "windows-64", exe), exe)]
-    exe = HDFMONKEY_EXECUTABLE
-    if system == "Linux":
-        return [(os.path.join("hdfmonkey", "linux-musl", exe), exe)]
-    if system == "Darwin":
-        machine = (platform.machine() or "").lower()
-        # Prefer the build native to this Mac; fall back to the other. Apple
-        # Silicon ("MN") can run the Intel binary through Rosetta 2, but an Intel
-        # Mac can never run the arm64 build, so order accordingly.
-        dirs = (["macos-mn", "macos-intel"]
-                if machine in ("arm64", "aarch64")
-                else ["macos-intel", "macos-mn"])
-        return [(os.path.join("hdfmonkey", d, exe), exe) for d in dirs]
-    return []
+    return [(os.path.join("hdfmonkey", d, exe), exe)
+            for d, exe in hdfmonkey_platform_dirs()]
 
 
 def hdfmonkey_needs_exec_bit():
@@ -946,6 +989,110 @@ def find_hdfmonkey_near_cspect(cspect_path):
         if os.path.isfile(candidate):
             return candidate
     return None
+
+
+def find_hdfmonkey_in_downloads(base_dir):
+    """Locate an hdfmonkey executable installed by the standalone auto-download
+    (HDF_MONKEY_JJJS_URL) under ``<base_dir>/downloads/hdfmonkey/<platform>/``.
+
+    This is the persistence hook for the "install hdfmonkey only" button: the
+    extracted binary lands in a per-platform sub-folder there (see
+    ``extract_hdfmonkey_from_jjjs_zip``), so a later launch re-discovers it the
+    same cheap way ``find_hdfmonkey_near_cspect`` picks up a CSpect-bundled copy.
+
+    Returns the full path to the first matching build for this platform, or
+    ``None`` when none is present.
+    """
+    if not base_dir:
+        return None
+    root = os.path.join(base_dir, DOWNLOADS_HDFMONKEY_DIRNAME)
+    for plat_dir, exe in hdfmonkey_platform_dirs():
+        candidate = os.path.join(root, plat_dir, exe)
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def extract_hdfmonkey_from_jjjs_zip(outer_zip_path, dest_root,
+                                    password=HDF_MONKEY_JJJS_ZIP_PASSWORD):
+    """Extract the hdfmonkey build for the *current* platform out of a downloaded
+    jjjs-packaged archive and return the full path to the installed executable.
+
+    The archive downloaded from ``HDF_MONKEY_JJJS_URL`` is a zip-inside-a-zip:
+
+        hdfmonkey-…-jjjs.zip            (outer, unencrypted)
+          ├── hdfm-…-jjjs.zip           (inner, ZipCrypto-encrypted)
+          │     ├── windows-64/hdfmonkey.exe
+          │     ├── linux-musl/hdfmonkey
+          │     ├── macos-intel/hdfmonkey
+          │     └── macos-mn/hdfmonkey
+          └── password.txt              ("jjjs")
+
+    Only the single binary matching this platform is written, to
+    ``<dest_root>/<platform>/hdfmonkey[.exe]``. The password bundled in
+    ``password.txt`` is preferred over *password* so a future re-pack that
+    changes it keeps working; ZipCrypto (not AES) means Python's stdlib
+    ``zipfile`` can decrypt it with no extra dependency. On Linux/macOS the
+    freshly written binary is made executable.
+
+    Raises ``RuntimeError`` when the platform is unsupported or the expected
+    build is absent; propagates ``zipfile``/OS errors for the caller to report.
+    """
+    plat_dirs = hdfmonkey_platform_dirs()
+    if not plat_dirs:
+        raise RuntimeError(
+            f"No hdfmonkey build is available for this platform "
+            f"({platform.system()}).")
+
+    with zipfile.ZipFile(outer_zip_path) as outer:
+        outer_names = outer.namelist()
+        # Prefer the password shipped alongside the inner zip; fall back to the
+        # documented default if it is missing or empty.
+        pwd = password
+        if "password.txt" in outer_names:
+            try:
+                shipped = outer.read("password.txt").decode("utf-8", "replace").strip()
+                if shipped:
+                    pwd = shipped.encode("utf-8")
+            except Exception:
+                pass  # keep the default password
+        # The inner archive is the (only) nested .zip entry.
+        inner_name = next(
+            (n for n in outer_names if n.lower().endswith(".zip")), None)
+        if inner_name is None:
+            raise RuntimeError(
+                "Downloaded hdfmonkey archive does not contain the expected "
+                "inner zip.")
+        try:
+            inner_bytes = outer.read(inner_name, pwd=pwd)
+        except RuntimeError:
+            # A future re-pack might drop the encryption; retry without a
+            # password rather than failing outright.
+            inner_bytes = outer.read(inner_name)
+
+    with zipfile.ZipFile(io.BytesIO(inner_bytes)) as inner:
+        inner_names = set(inner.namelist())
+        for plat_dir, exe in plat_dirs:
+            # Zip entries always use forward slashes regardless of host OS.
+            member = f"{plat_dir}/{exe}"
+            if member not in inner_names:
+                continue
+            target_dir = os.path.join(dest_root, plat_dir)
+            os.makedirs(target_dir, exist_ok=True)
+            dest = os.path.join(target_dir, exe)
+            with inner.open(member) as src, open(dest, "wb") as out:
+                shutil.copyfileobj(src, out)
+            # Linux/macOS builds ship without the executable bit; add it so the
+            # binary launches straight away (it lives in the user's own
+            # downloads dir, so no elevation is needed).
+            ensure_hdfmonkey_executable(dest)
+            return dest
+
+    raise RuntimeError(
+        f"Downloaded hdfmonkey archive has no build for this platform "
+        f"({platform.system()} {platform.machine()}).")
+
+
 FILTER_LABEL_TEXT = "Filter: "
 FILTER_TEXT_WIDTH = 320
 _zxart_current_language: str = DEFAULT_ZXART_LANGUAGE

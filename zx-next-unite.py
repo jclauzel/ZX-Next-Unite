@@ -19,8 +19,10 @@
             - Make sure Spectrum Next roms installed are installed in local directory (they should be provided in the CSpect zip package by default).
                 These two files namely: enNextZX.rom and enNxtMMC.rom -MUST- be placed in the root folder of your #CSpect.
         - You will need Spectrum Next images files that you can download from https://zxspectrumnext.online/cspect/  such as https://zxnext.uk/hosted/index_files/hdfimages/cspect-next-2gb.zip
-        - Download & install hdfmonkey by Matt Westcott https://github.com/gasman/hdfmonkey , on Windows either compile the source manually or download a pre-compiled version at:
-            https://uto.speccy.org/downloads/hdfmonkey_windows.zip
+        - hdfmonkey by Matt Westcott https://github.com/gasman/hdfmonkey is installed automatically when missing: use the
+            'Download and install HDF Monkey' button (bottom right of the SD Card tab). It fetches a pre-compiled build for
+            your platform (Windows / Linux / macOS). The recommended route is a full CSpect install from the itch.io tab,
+            which bundles hdfmonkey as well.
         - On Mac/Linux you will need to install mono-complete
 
     * Additional help pages:
@@ -33,12 +35,13 @@
 
             - hdfmonkey -
 
-        If you are running the app on Windows and hdfmonkey in not present in the same directory, you will see an error message in the main log Windows as it is missing.
-           if that is the case you will see a 'Download and Install button' bottom right, once clicked it will try to fetch https://uto.speccy.org/downloads/hdfmonkey_windows.zip
-           and unzip hdfmonkey executable in the same directory.
+        If hdfmonkey is not present, you will see an error message in the main log window as it is missing.
+           if that is the case you will see a 'Download and install HDF Monkey' button bottom right; once clicked it fetches
+           a pre-compiled build for your platform (Windows / Linux / macOS) and installs it under downloads/hdfmonkey/.
                If the above automated install is successful, you should then be able to select an image and navigate it.
 
-        On Mac/Linux you will need to install hdfmonkey manually based on the instructions for your platform that can be found at: https://github.com/gasman/hdfmonkey
+        Alternatively, install hdfmonkey manually based on the instructions for your platform at https://github.com/gasman/hdfmonkey ,
+        or (recommended) do a full CSpect install from the itch.io tab, which bundles hdfmonkey too.
 
     * On Windows: OpenAL sound library is required for CSpect you may download it from here: https://openal.org/
 
@@ -2437,6 +2440,25 @@ class MainWindow(QMainWindow):
                     duration_ms=10000,
                 )
 
+    def _show_hdfmonkey_installed_toast(self, hdfmonkey_path: str):
+        """Show a green success toast after hdfmonkey is auto-installed via the
+        'Download and install HDF Monkey' button, confirming the install and the
+        exact location on disk of the binary that will be used.
+
+        Mirrors _show_emulator_detection_toast, but fires independently of any
+        emulator (CSpect / MAME) state — hdfmonkey is the SD-card tool, so its
+        install should be reported on its own. Auto-dismisses after 8 seconds.
+        """
+        body = "hdfmonkey has been installed and is ready to use."
+        if hdfmonkey_path:
+            body += "\r\nLocation: " + hdfmonkey_path
+        self._show_toast(
+            "✅  hdfmonkey installed",
+            body,
+            variant="green",
+            duration_ms=8000,
+        )
+
     def _show_sd_notification(self, message: str):
         """Show a small, auto-dismissing toast confirming that a
         'Send to SD card' task has completed.
@@ -2788,24 +2810,47 @@ class MainWindow(QMainWindow):
                 opener.addheaders = [('User-Agent', ZXART_USER_AGENT)]
                 urllib.request.install_opener(opener)
 
-                zip_path, _ = urllib.request.urlretrieve(HDF_MONKEY_WINDOWS_URL)
-                with zipfile.ZipFile(zip_path, "r") as f:
-                    f.extractall()
+                # The jjjs release bundles fixed hdfmonkey builds for every
+                # platform inside a password-protected inner zip. Extract only the
+                # build for this OS into downloads/hdfmonkey/<platform>/ and use it
+                # directly: recorded so execute_hdf_monkey prefers it, and
+                # re-discovered on the next launch by find_hdfmonkey_in_downloads
+                # (so this works on Windows, Linux and macOS, not just Windows).
+                app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+                dest_root = os.path.join(app_dir, DOWNLOADS_HDFMONKEY_DIRNAME)
+                zip_path, _ = urllib.request.urlretrieve(HDF_MONKEY_JJJS_URL)
+                try:
+                    hdfmonkey_path = extract_hdfmonkey_from_jjjs_zip(zip_path, dest_root)
+                finally:
+                    try:
+                        os.remove(zip_path)
+                    except OSError:
+                        pass
+
+                self._hdfmonkey_executable_path = hdfmonkey_path
                 self.button_new_folder.setVisible(True)
                 self.button_delete_files.setVisible(True)
                 self.download_and_install_hdfmonkey_button.setVisible(False)
-                logging.info("Successfully installed hdfmonkey.")
-                add_main_log_window("Successfully installed hdfmonkey.")
+                logging.info(f"Successfully installed hdfmonkey: {hdfmonkey_path}")
+                add_main_log_window(f"Successfully installed hdfmonkey: {hdfmonkey_path}")
 
-                if is_hdfmonkey_present():
-                    # load_image restores the controls itself once the (async)
-                    # listing completes.
-                    load_image()
+                # Confirm the install with a green toast (like the emulator
+                # detection one) showing where the binary landed on disk.
+                self._show_hdfmonkey_installed_toast(hdfmonkey_path)
+
+                # Reload the currently-selected image straight away so the file
+                # explorer repopulates without the user having to reopen it via
+                # "Select Disk Image". The extract succeeded and
+                # _hdfmonkey_executable_path now points at a verified binary, so
+                # there's no need to re-probe first; load_image() restores the
+                # controls once the (async) listing completes, and safely no-ops
+                # when no image is selected.
+                load_image()
 
                 return True
             except Exception as e:
-                logging.error(f"Failed downloading & installing hdfmonkey: {e}, please download and install manually in current folder the executable from: {HDF_MONKEY_WINDOWS_URL} ")
-                add_main_log_window(f"Failed downloading & installing hdfmonkey: {e}, please download and install manually in current folder the executable from: {HDF_MONKEY_WINDOWS_URL} ")
+                logging.error(f"Failed downloading & installing hdfmonkey: {e}. You can install it manually from https://github.com/gasman/hdfmonkey , or (recommended) do a full CSpect install from the itch.io tab, which also bundles hdfmonkey.")
+                add_main_log_window(f"Failed downloading & installing hdfmonkey: {e}. You can install it manually from https://github.com/gasman/hdfmonkey , or (recommended) do a full CSpect install from the itch.io tab, which also bundles hdfmonkey.")
                 #set_all_buttons_enabled()
                 return False
 
@@ -2847,6 +2892,14 @@ class MainWindow(QMainWindow):
             override = getattr(self, "_hdfmonkey_executable_path", None)
             if override and os.path.isfile(override):
                 return True
+            # A copy left by the standalone auto-download (downloads/hdfmonkey/
+            # <platform>/) counts too, even before startup re-adopts it as the
+            # active override (e.g. right after a fresh launch).
+            try:
+                if find_hdfmonkey_in_downloads(os.path.dirname(os.path.abspath(sys.argv[0]))):
+                    return True
+            except Exception:
+                pass
             if shutil.which(HDFMONKEY_EXECUTABLE):
                 return True
             names = [HDFMONKEY_EXECUTABLE]
@@ -2868,34 +2921,15 @@ class MainWindow(QMainWindow):
             return False
 
         def prompt_install_hdfmonkey():
-            """Offer to install hdfmonkey when it appears to be missing. On Windows
-            this runs the same download/install flow as the SD-card tab button; on
-            Linux/macOS it points the user at the upstream project. Runs on the UI
-            thread (invoked via the missing-signal so it is safe from workers)."""
-            if platform.system() == "Windows":
-                # Show the same "Install hdfmonkey" tip box as the SD-card tab
-                # button (it points the user at the fuller end-to-end CSpect
-                # install via itch.io, which also bundles hdfmonkey) instead of a
-                # bare "not found" prompt.
-                if _on_hdfmonkey_button_clicked():
-                    # Installed OK — allow a fresh prompt if it ever breaks again.
-                    self._hdfmonkey_prompt_shown = False
-            else:
-                box = QMessageBox(self)
-                box.setIcon(QMessageBox.Warning)
-                box.setWindowTitle("hdfmonkey not found")
-                box.setTextFormat(Qt.RichText)
-                box.setText(
-                    "hdfmonkey doesn't seem to be installed.<br><br>"
-                    "Please install it manually from:<br>"
-                    '<a href="https://github.com/gasman/hdfmonkey">https://github.com/gasman/hdfmonkey</a>')
-                # Make the link open in the system browser when clicked.
-                lbl = box.findChild(QLabel, "qt_msgbox_label")
-                if lbl is not None:
-                    lbl.setOpenExternalLinks(True)
-                    lbl.setTextInteractionFlags(Qt.TextBrowserInteraction)
-                box.setStandardButtons(QMessageBox.Ok)
-                box.exec()
+            """Offer to install hdfmonkey when it appears to be missing, on every
+            platform. The jjjs auto-download ships fixed builds for Windows, Linux
+            and macOS, so this runs the same "Install hdfmonkey" tip box + download
+            flow as the SD-card tab button (which also points the user at the
+            fuller end-to-end CSpect install via itch.io). Runs on the UI thread
+            (invoked via the missing-signal so it is safe from workers)."""
+            if _on_hdfmonkey_button_clicked():
+                # Installed OK — allow a fresh prompt if it ever breaks again.
+                self._hdfmonkey_prompt_shown = False
 
         # Marshals the "hdfmonkey is missing" prompt onto the UI thread: the
         # signal may be emitted from a worker thread (uploads/deletes), so the
@@ -3853,13 +3887,19 @@ class MainWindow(QMainWindow):
             hdfmonkeyexecresult = execute_hdf_monkey("", "", silent=silent, prompt_if_missing=False)
 
             try:
+                # Key presence off hdfmonkey's usage banner in stdout, NOT the
+                # return code: the empty/unknown probe command makes hdfmonkey
+                # exit non-zero (the jjjs 0.5.7 build returns 1), so a returncode
+                # check would misreport a perfectly working build as missing.
+                command_execution = str(hdfmonkeyexecresult.stdout)
+                if "hdfmonkey help" in command_execution:
+                    return True
+                # It ran but produced no recognisable hdfmonkey banner. Only warn
+                # when it exited cleanly — a genuine not-found / other failure is
+                # already surfaced by execute_hdf_monkey.
                 if hdfmonkeyexecresult.returncode == 0:
-                    command_execution = hdfmonkeyexecresult.stdout
-                    if "hdfmonkey help" not in str(command_execution):
-                        add_main_log_window("Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.")
-                        return False
-                    else:
-                        return True
+                    add_main_log_window("Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.")
+                return False
             except Exception as e:
                 logging.error(f"Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.... {e}")
                 add_main_log_window(f"Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.... {e}")
@@ -4662,14 +4702,8 @@ class MainWindow(QMainWindow):
                             logging.debug(f"hdfmonkey {command_to_execute} returned {ex.returncode} (silent): {execution_cmd}"
                                           + (f" | stderr: {stderr_text}" if stderr_text else ""))
                     elif isinstance(ex, FileNotFoundError) or ex.returncode == 1:
-                        logging.error(f"Failed executing hdfmonkey: {execution_cmd} - Once hdfmonkey is installed in the same directory please close the application and restart it.")
-                        add_main_log_window("ERROR: Once hdfmonkey is installed in the same directory please close the application and restart it.")
-                        if platform.system() == "Windows":
-                            logging.error(f"ERROR: hdfmonkey is required and likely not present in local directory, please install a pre-compiled version from https://uto.speccy.org/downloads/hdfmonkey_windows.zip or compile it from https://github.com/gasman/hdfmonkey.")
-                            add_main_log_window("ERROR: hdfmonkey is required and likely not present in local directory, please install a pre-compiled version from https://uto.speccy.org/downloads/hdfmonkey_windows.zip or compile it from https://github.com/gasman/hdfmonkey.")
-                        else:
-                            logging.error(f"ERROR: hdfmonkey execution failed: {ex}, please make sure it is installed from https://github.com/gasman/hdfmonkey and working properly.")
-                            add_main_log_window(f"ERROR: hdfmonkey execution failed: {ex}, please make sure it is installed from https://github.com/gasman/hdfmonkey and working properly.")
+                        logging.error(f"Failed executing hdfmonkey: {execution_cmd} - Once hdfmonkey is installed please close the application and restart it.")
+                        add_main_log_window("ERROR: hdfmonkey could not be found. Use the 'Download and install HDF Monkey' button (bottom right of the SD Card tab) to install it automatically, or do a full CSpect install from the itch.io tab, which also bundles hdfmonkey. It can also be installed manually from https://github.com/gasman/hdfmonkey — restart the app once installed.")
                     elif ex.returncode == 255:
                         if execution_cmd is not None:
                             logging.error(f"ERROR: hdfmonkey failed - A file can't be opened: {execution_cmd} this is commonly caused by strange characters such as quotes and signs")
@@ -8418,7 +8452,7 @@ class MainWindow(QMainWindow):
         self.button_new_folder.clicked.connect(image_newfolder)
 
         self.download_and_install_hdfmonkey_button = QPushButton("Download & install HDF Monkey", self)
-        self.download_and_install_hdfmonkey_button.setText("Download and install HDF Monkey from speccy.org")
+        self.download_and_install_hdfmonkey_button.setText("Download and install HDF Monkey")
         self.download_and_install_hdfmonkey_button.setMinimumWidth(IMAGE_BUTTONS_SIZE)
         self.download_and_install_hdfmonkey_button.clicked.connect(_on_hdfmonkey_button_clicked)
         self.download_and_install_hdfmonkey_button.setVisible(False)
@@ -21550,7 +21584,6 @@ class MainWindow(QMainWindow):
             if success and self.settings_warn_image_nearly_full_checkbox.isChecked():
                 _warn_if_image_nearly_full(self.right_disk_image_path)
 
-        _is_windows = platform.system() == "Windows"
         # Quiet probe: a bundled itch.io CSpect hdfmonkey isn't discovered until
         # the downloads/cspect scan below, so don't log a misleading "hdfmonkey
         # not found" error here when that scan may still turn one up.
@@ -21559,26 +21592,48 @@ class MainWindow(QMainWindow):
         if _hdfmonkey_present:
             load_image(_warn_after_startup_load)
             _startup_load_started = True
-        elif _is_windows:
+        else:
             # hdfmonkey isn't on PATH / in the app dir, but the full detection
-            # below (alongside CSpect + the downloads/cspect scan) may still turn
-            # up a bundled copy. Don't surface the download button yet — only hide
-            # the image-write controls for now. _finalize_hdfmonkey_button()
-            # reveals the download button after the scan, and only if hdfmonkey
-            # still can't be located anywhere.
+            # below (a prior standalone install, alongside CSpect, or the
+            # downloads/cspect scan) may still turn up a usable copy. Don't
+            # surface the download button yet — only hide the image-write controls
+            # for now. _finalize_hdfmonkey_button() reveals the download button
+            # after the scan, and only if hdfmonkey still can't be located
+            # anywhere. The jjjs auto-download covers every platform, so this is
+            # no longer Windows-only.
             self.button_new_folder.setVisible(False)
             self.button_delete_files.setVisible(False)
 
         # Background scan of downloads/cspect for an itch.io CSpect bundle. Run
-        # only when CSpect (any platform) or hdfmonkey (Windows only) is still
-        # missing — itch.io installs land under downloads/cspect, possibly in a
-        # per-version sub-folder. Kept off the UI thread because the recursive
-        # walk can be slow. The emulator-detection toast waits for the result;
-        # when nothing needs scanning it fires on a short timer as before.
+        # only when CSpect or hdfmonkey (either, any platform) is still missing —
+        # itch.io installs land under downloads/cspect, possibly in a per-version
+        # sub-folder. Kept off the UI thread because the recursive walk can be
+        # slow. The emulator-detection toast waits for the result; when nothing
+        # needs scanning it fires on a short timer as before.
         _need_cspect = self._cspect_executable_path is None
         # hdfmonkey may be bundled with the itch.io CSpect package on every
         # platform (Windows/Linux/macOS), so scan for it whenever it is missing.
         _need_hdfmonkey = not _hdfmonkey_present
+
+        # A previous "install hdfmonkey only" auto-download leaves a build under
+        # downloads/hdfmonkey/<platform>/; re-adopt it on launch (cheap isfile
+        # checks) before the slower scans so it persists across restarts on every
+        # platform.
+        if _need_hdfmonkey:
+            _dl_hdfmonkey = find_hdfmonkey_in_downloads(
+                os.path.dirname(os.path.abspath(sys.argv[0])))
+            if _dl_hdfmonkey:
+                self._hdfmonkey_executable_path = _dl_hdfmonkey
+                _need_hdfmonkey = False
+                _hdfmonkey_present = True
+                add_main_log_window(
+                    f"Found previously installed hdfmonkey: {_dl_hdfmonkey}")
+                self.download_and_install_hdfmonkey_button.setVisible(False)
+                self.button_new_folder.setVisible(True)
+                self.button_delete_files.setVisible(True)
+                if not _startup_load_started:
+                    load_image(_warn_after_startup_load)
+                    _startup_load_started = True
 
         # When CSpect was already found (manual install on PATH or the
         # application directory) but hdfmonkey is still missing, CSpect ships an
@@ -21632,13 +21687,12 @@ class MainWindow(QMainWindow):
 
         def _finalize_hdfmonkey_button():
             """Reveal the 'Download and install HDF Monkey' button only after the
-            full detection has run (PATH, current/app dir, alongside CSpect, and
-            the downloads/cspect scan) and hdfmonkey still can't be located.
-            Windows only, since the auto-download is a Windows zip. No-op when a
-            copy was found — the scan handlers have already restored the image
-            controls in that case."""
-            if not _is_windows:
-                return
+            full detection has run (PATH, current/app dir, a prior standalone
+            install, alongside CSpect, and the downloads/cspect scan) and
+            hdfmonkey still can't be located. Offered on every platform now that
+            the jjjs auto-download ships builds for Windows, Linux and macOS.
+            No-op when a copy was found — the scan handlers have already restored
+            the image controls in that case."""
             if _hdfmonkey_binary_found():
                 return
             show_hdf_monkey_download_and_install_buttons()
@@ -21744,10 +21798,10 @@ class MainWindow(QMainWindow):
                         except RuntimeError: pass
 
             # Re-run detection for whatever is still missing (walks downloads),
-            # then on Windows re-show the hdfmonkey download button if no copy
+            # then re-show the hdfmonkey download button (any platform) if no copy
             # remains anywhere.
             _rescan_emulators_after_install()
-            if _is_windows and not _hdfmonkey_binary_found():
+            if not _hdfmonkey_binary_found():
                 try:
                     show_hdf_monkey_download_and_install_buttons()
                 except Exception:
