@@ -192,6 +192,16 @@ class MameProcessSignals(QObject):
     finished = Signal(int)   # process return code
 
 
+class MameInstallSignals(QObject):
+    """Marshals updates from the MAME auto-install worker thread to the UI
+    thread, so each step of the download-then-extract job can be reported as it
+    happens. Connect with ``Qt.QueuedConnection`` (the emits originate on a
+    worker thread). The owner must keep a reference to the instance until the job
+    finishes, otherwise pending queued emits are cancelled when it is GC'd."""
+    status   = Signal(str)   # human-readable phase line for the log window
+    progress = Signal(int)   # 0-100 download progress (button text)
+
+
 class HdfTaskWorker(QRunnable):
     """Generic QRunnable that runs a callable on the thread pool.
     The callable receives (signals, cancel_event, *args, **kwargs).
