@@ -2524,8 +2524,22 @@ class MainWindow(QMainWindow):
 
         # Detect whether the MAME emulator is available on the system PATH
         # (mame.exe on Windows, mame elsewhere). When present, a "Launch Mame"
-        # button is shown next to "Launch CSpect".
+        # button is shown next to "Launch CSpect"; when absent, an "Install MAME"
+        # button offers to download the latest official build instead.
         self._mame_executable_path = find_mame_executable()
+        # A previous in-app "Install MAME" leaves the build under
+        # downloads/mame/; re-adopt it on launch (cheap isfile check) so the
+        # Launch button — not the installer — is shown across restarts.
+        if self._mame_executable_path is None:
+            try:
+                _dl_mame = find_mame_in_downloads(
+                    os.path.dirname(os.path.abspath(sys.argv[0])))
+            except Exception:
+                _dl_mame = None
+            if _dl_mame:
+                self._mame_executable_path = _dl_mame
+        # Guard so a second click can't start a concurrent MAME install.
+        self._mame_installing = False
 
         # Detect whether the CSpect emulator is available (application directory
         # or PATH). When absent, all CSpect controls are hidden. A background
@@ -3768,6 +3782,9 @@ class MainWindow(QMainWindow):
             # to its own install directory, so run it from there; otherwise it
             # exits immediately when those files cannot be found.
             mame_cwd = os.path.dirname(mame_path) or None
+            # Reset per-launch: set True if MAME reports the missing-boot-ROM
+            # fatal error, so _on_mame_finished can advise the manual TBBLUE step.
+            self._mame_missing_files = False
             try:
                 if platform.system() == "Windows":
                     # CREATE_NEW_PROCESS_GROUP (0x200) detaches MAME from the app;
@@ -3804,14 +3821,47 @@ class MainWindow(QMainWindow):
             # Marshal captured output back to the UI thread via queued signals
             # (Qt widgets must only be touched from the main thread).
             mame_signals = MameProcessSignals()
-            mame_signals.output.connect(
-                lambda line: add_main_log_window(f"MAME: {line}"),
-                Qt.QueuedConnection,
-            )
+
+            def _on_mame_output(line):
+                add_main_log_window(f"MAME: {line}")
+                # Detect the "boot ROM missing" fatal error so the finished
+                # handler can point the user at the manual TBBLUE step. Runs on
+                # the UI thread (queued) before _on_mame_finished (see the reader
+                # below: outputs are emitted, then 'finished' in a finally).
+                if "required files are missing" in line.lower():
+                    self._mame_missing_files = True
+
+            mame_signals.output.connect(_on_mame_output, Qt.QueuedConnection)
 
             def _on_mame_finished(return_code):
                 add_main_log_window(f"MAME exited with code {return_code}.")
                 logging.info(f"MAME exited with code {return_code}.")
+                # MAME aborts when the ZX Spectrum Next boot ROM (TBBLUE, e.g.
+                # boot-30204.bin) is absent — a manual step the auto-install
+                # deliberately leaves to the user. Point them at the guide.
+                if getattr(self, "_mame_missing_files", False):
+                    add_main_log_window(
+                        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) "
+                        "is missing. This step is manual — see "
+                        f"{MAME_INSTALL_WIKI_URL} and follow \"Get TBBLUE (the "
+                        "Next 'boot ROM')\". Put the file tbblue.zip into MAME's "
+                        "roms folder (downloads\\mame\\roms) — DON'T extract it — "
+                        "and try again. You must provide a legally acquired, "
+                        "licensed ROM.")
+                    logging.warning(
+                        "MAME launch failed: TBBLUE boot ROM missing. See "
+                        f"{MAME_INSTALL_WIKI_URL}")
+                    try:
+                        self._show_toast(
+                            "⚠  MAME needs the Next boot ROM",
+                            "MAME can't run without the TBBLUE boot ROM — a manual "
+                            "step.\r\nSee " + MAME_INSTALL_WIKI_URL + " → \"Get "
+                            "TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder "
+                            "(downloads\\mame\\roms) — DON'T extract it.\r\n"
+                            "Use only a legally acquired, licensed ROM.",
+                            variant="yellow", duration_ms=12000)
+                    except Exception:
+                        pass
 
             mame_signals.finished.connect(_on_mame_finished, Qt.QueuedConnection)
             # Keep a reference so the signals object is not garbage-collected
@@ -3836,6 +3886,249 @@ class MainWindow(QMainWindow):
                 args=(mame_proc, mame_signals),
                 daemon=True,
             ).start()
+
+        # ── Automatic MAME install (64-bit Windows) ──────────────────────────
+        # When MAME isn't on PATH, the SD-card tab shows an "Install MAME" button
+        # instead of a disabled "Launch Mame". It detects the latest official
+        # release on GitHub, downloads the self-extracting Windows binary for this
+        # CPU (x64/arm64) and unpacks it into downloads/mame — no external 7-Zip
+        # or extra Python dependency needed (the SFX extracts silently with
+        # "-o<dir> -y"). The download/extract runs on the thread pool so the UI
+        # stays responsive; only the small "latest release" JSON is fetched inline.
+        def _fetch_latest_mame_asset(arch):
+            """Query the MAME 'latest release' API and return
+            (tag, asset_name, download_url, size_bytes) for this architecture's
+            Windows self-extractor. Raises on network error or when no matching
+            asset exists (GitHub's API requires a User-Agent header)."""
+            req = urllib.request.Request(
+                MAME_GITHUB_LATEST_RELEASE_API,
+                headers={"User-Agent": ZXART_USER_AGENT,
+                         "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                release = json.loads(resp.read().decode("utf-8", "replace"))
+            picked = select_mame_release_asset(release, arch)
+            if not picked:
+                raise RuntimeError(
+                    f"the latest MAME release has no Windows {arch} build.")
+            return picked
+
+        def _mame_install_job(url, asset_name, dest_root, mame_sig):
+            """Worker-thread job: download the MAME self-extractor and unpack it.
+
+            Never touches Qt widgets — phase lines and the button's percentage
+            are marshalled to the UI via *mame_sig* (queued). Streams the download
+            to downloads/mame/<asset>, runs the SFX with '-o<dir> -y' to extract
+            in place, deletes the installer and returns the path to the installed
+            mame executable. The caller keeps *mame_sig* alive for the duration."""
+            def _phase(msg):
+                try:
+                    mame_sig.status.emit(msg)
+                except RuntimeError:
+                    pass
+
+            def _prog(pct):
+                try:
+                    mame_sig.progress.emit(pct)
+                except RuntimeError:
+                    pass
+
+            os.makedirs(dest_root, exist_ok=True)
+            sfx_path = os.path.join(dest_root, asset_name)
+
+            # ── Phase 1: download ──
+            _phase(f"MAME install ▸ Downloading {asset_name} …")
+            req = urllib.request.Request(
+                url, headers={"User-Agent": ZXART_USER_AGENT})
+            with urllib.request.urlopen(req, timeout=60) as resp, \
+                    open(sfx_path, "wb") as out:
+                try:
+                    total = int(resp.headers.get("Content-Length") or 0)
+                except (TypeError, ValueError):
+                    total = 0
+                read = 0
+                while True:
+                    chunk = resp.read(262144)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    read += len(chunk)
+                    if total:
+                        _prog(min(98, int(read * 100 / total)))
+            _prog(99)
+            _phase(f"MAME install ▸ Download finished ({read // 1048576} MB).")
+
+            # ── Phase 2: extract ──
+            # MAME's Windows .exe is a 7-Zip self-extractor: "-o<dir> -y" unpacks
+            # it silently (verified: no GUI, mame.exe lands at the top of <dir>).
+            _phase("MAME install ▸ Extracting the archive (this can take a moment) …")
+            subprocess.run(
+                [sfx_path, f"-o{dest_root}", "-y"],
+                check=True, cwd=dest_root,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                **subprocess_no_window_kwargs())
+            _phase("MAME install ▸ Extraction finished; cleaning up the installer.")
+            try:
+                os.remove(sfx_path)
+            except OSError:
+                pass
+            return find_mame_in_downloads(
+                os.path.dirname(os.path.abspath(sys.argv[0])))
+
+        def _on_mame_install_progress(pct):
+            try:
+                if pct >= 99:
+                    self.button_install_mame.setText("⬇  Installing MAME… unpacking")
+                else:
+                    self.button_install_mame.setText(f"⬇  Installing MAME… {pct}%")
+            except RuntimeError:
+                pass
+
+        def _on_mame_install_result(mame_path):
+            self._mame_installing = False
+            # Re-run the normal MAME detection so the app adopts the freshly
+            # installed build straight away — the user shouldn't have to restart.
+            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            try:
+                detected = find_mame_executable() or find_mame_in_downloads(app_dir)
+            except Exception:
+                detected = None
+            detected = detected or mame_path
+            if not detected:
+                try:
+                    self.button_install_mame.setEnabled(True)
+                    self.button_install_mame.setText("⬇  Install MAME")
+                except RuntimeError:
+                    pass
+                add_main_log_window(
+                    "MAME install ▸ FAILED — the download and extraction finished, "
+                    "but no mame.exe could be found in downloads/mame.")
+                logging.error("MAME install: mame.exe not found after extraction.")
+                try:
+                    self._show_toast(
+                        "⚠  MAME install failed",
+                        "The archive was extracted but mame.exe could not be "
+                        "located in downloads/mame.",
+                        variant="yellow", duration_ms=8000)
+                except Exception:
+                    pass
+                return
+            self._mame_executable_path = detected
+            try:
+                self.button_install_mame.setVisible(False)
+                self.button_start_mame.setVisible(True)
+            except RuntimeError:
+                pass
+            add_main_log_window(f"MAME install ▸ SUCCESS — MAME detected at: {detected}")
+            add_main_log_window(
+                "MAME is ready to launch now — no restart needed. Use the "
+                "'🕹  Launch Mame' button.")
+            # One manual step remains: MAME needs the ZX Spectrum Next boot ROM
+            # (TBBLUE, e.g. boot-30204.bin), which we deliberately don't fetch.
+            add_main_log_window(
+                "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See "
+                f"{MAME_INSTALL_WIKI_URL} → \"Get TBBLUE (the Next 'boot ROM')\". "
+                "Put the file tbblue.zip into MAME's roms folder "
+                "(downloads\\mame\\roms) — DON'T extract it. You must provide a "
+                "legally acquired, licensed ROM.")
+            logging.info(f"Successfully installed MAME: {detected}")
+            try:
+                self._show_toast(
+                    "✅  MAME installed",
+                    "MAME is installed — no restart needed.\r\n"
+                    "Manual step: add the TBBLUE boot ROM.\r\n"
+                    "See " + MAME_INSTALL_WIKI_URL + " → \"Get TBBLUE\".\r\n"
+                    "Put tbblue.zip into MAME's roms folder\r\n"
+                    "(downloads\\mame\\roms) — DON'T extract it.\r\n"
+                    "Use only a legally acquired, licensed ROM.",
+                    variant="green", duration_ms=12000)
+            except Exception:
+                pass
+
+        def _on_mame_install_error(err):
+            self._mame_installing = False
+            try:
+                self.button_install_mame.setEnabled(True)
+                self.button_install_mame.setText("⬇  Install MAME")
+            except RuntimeError:
+                pass
+            detail = err[1] if isinstance(err, (tuple, list)) and len(err) > 1 else err
+            add_main_log_window(
+                f"MAME install ▸ FAILED — {detail}. You can download it manually "
+                "from https://www.mamedev.org/release.html")
+            logging.error(f"Failed to download/install MAME: {err}")
+            try:
+                QMessageBox.warning(
+                    self, "Install MAME",
+                    f"MAME installation failed.\n\n{detail}\n\n"
+                    "You can download it manually from "
+                    "https://www.mamedev.org/release.html")
+            except Exception:
+                pass
+
+        def install_mame():
+            """Detect, download and install the latest MAME (button handler)."""
+            if getattr(self, "_mame_installing", False):
+                return
+            arch = mame_windows_asset_arch()
+            if arch is None:
+                QMessageBox.information(
+                    self, "Install MAME",
+                    "Automatic MAME installation is only available on 64-bit "
+                    "Windows (x64 / arm64).\n\nDownload the official binaries for "
+                    "your system from:\nhttps://www.mamedev.org/release.html")
+                return
+            add_main_log_window("Detecting the latest MAME release…")
+            try:
+                tag, asset_name, url, size = _fetch_latest_mame_asset(arch)
+            except Exception as e:
+                add_main_log_window(f"Could not detect the latest MAME release: {e}")
+                logging.error(f"MAME release detection failed: {e}")
+                QMessageBox.warning(
+                    self, "Install MAME",
+                    f"Could not detect the latest MAME release.\n\n{e}\n\n"
+                    "Check your internet connection, or download manually from "
+                    "https://www.mamedev.org/release.html")
+                return
+            size_txt = f"{size / 1048576:.0f} MB" if size else "about 90 MB"
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle("Install MAME")
+            box.setText(
+                f"Latest MAME detected: {tag}\n"
+                f"Package: {asset_name} ({arch})\n\n"
+                f"Download (~{size_txt}) and install it into the downloads "
+                f"folder?\nNote: the fully extracted install is large (~500 MB).")
+            go = box.addButton("Download and install", QMessageBox.AcceptRole)
+            box.addButton("Cancel", QMessageBox.RejectRole)
+            box.setDefaultButton(go)
+            box.exec()
+            if box.clickedButton() is not go:
+                return
+            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            dest_root = os.path.join(app_dir, DOWNLOADS_MAME_DIRNAME)
+            self._mame_installing = True
+            self.button_install_mame.setEnabled(False)
+            self.button_install_mame.setText("⬇  Installing MAME… 0%")
+            add_main_log_window(
+                f"MAME install ▸ Starting: {tag} ({asset_name}, ~{size_txt}).")
+            # Channel for the worker's phase log lines + button percentage. It is
+            # stored on self so it outlives install_mame(): otherwise it would be
+            # garbage-collected the moment this method returns, cancelling the
+            # queued emits before they reach the UI thread. Connected with
+            # Qt.QueuedConnection so the slots run on the UI thread.
+            mame_sig = MameInstallSignals()
+            mame_sig.status.connect(
+                lambda line: add_main_log_window(line), Qt.QueuedConnection)
+            mame_sig.progress.connect(_on_mame_install_progress, Qt.QueuedConnection)
+            self._mame_install_signals = mame_sig
+            # Run the download+extract off the UI thread. getit_run_in_thread
+            # keeps its own result/error signals alive (parented to the app) until
+            # the main-thread slot has run, so the completion callbacks fire
+            # reliably — the missing piece that left the button stuck before.
+            getit_run_in_thread(
+                lambda: _mame_install_job(url, asset_name, dest_root, mame_sig),
+                _on_mame_install_result,
+                _on_mame_install_error)
 
 
         # Expose the emulator launch helpers so other UI surfaces (e.g. the
@@ -7992,8 +8285,8 @@ class MainWindow(QMainWindow):
         # zx_next_unite horizontals
         self.horizontal1 = QHBoxLayout()
         self.horizontal2 = QHBoxLayout()
-        self.horizontal3 = QHBoxLayout()
-        self.horizontal4 = QHBoxLayout()
+        # horizontal3 (explorers) and horizontal4 (Path) are now the
+        # sdcard_explorer_grid built further below.
         self.horizontal5 = QHBoxLayout()
         self.horizontal6 = QHBoxLayout()
 
@@ -8415,17 +8708,32 @@ class MainWindow(QMainWindow):
         image_explorer_vbox.addWidget(self.image_treeview)
         image_explorer_vbox.addWidget(self.image_usage_gauge)
 
-        self.horizontal3.addWidget(self.treeview)
-
         self.centralbuttons.addWidget(self.button_to_image)
         self.centralbuttons.addWidget(self.button_to_disk)
 
         self.centralbuttons.setAlignment(Qt.AlignCenter)
         self.centralbuttonscontainer.setLayout(self.centralbuttons)
-        self.horizontal3.addWidget(self.centralbuttonscontainer)
-        self.horizontal3.addWidget(self.image_explorer_container)
 
-        self.zx_next_unite_form.addRow(self.horizontal3)
+        # SD Card explorer area, laid out as a 3-column grid so the rows below
+        # the explorers line up with them:
+        #   row 0: [ local file explorer ][ ⇄ transfer buttons ][ disk image explorer ]
+        #   row 1:                                              [ New Folder / Delete… ]
+        #   row 2: [ Path box — matches local explorer width ]
+        # The two explorer columns share the stretch equally (the centre
+        # transfer-button column keeps its natural width), so the New Folder /
+        # Delete buttons sit directly under the disk image explorer and the Path
+        # box matches the local file explorer's width. Moving the buttons out of
+        # the log-window row (below) lets that log stretch the full width.
+        self.sdcard_explorer_grid = QGridLayout()
+        self.sdcard_explorer_grid.setContentsMargins(0, 0, 0, 0)
+        self.sdcard_explorer_grid.addWidget(self.treeview, 0, 0)
+        self.sdcard_explorer_grid.addWidget(self.centralbuttonscontainer, 0, 1)
+        self.sdcard_explorer_grid.addWidget(self.image_explorer_container, 0, 2)
+        self.sdcard_explorer_grid.setColumnStretch(0, 1)
+        self.sdcard_explorer_grid.setColumnStretch(2, 1)
+        self.sdcard_explorer_grid.setRowStretch(0, 1)
+
+        self.zx_next_unite_form.addRow(self.sdcard_explorer_grid)
 
         self.listWidgetLog = QListWidget(self)
 
@@ -8510,6 +8818,10 @@ class MainWindow(QMainWindow):
 
         self.imageexplorerbuttonscontainer.setLayout(self.imageexplorerbuttons)
 
+        # Place the New Folder / Delete Files buttons directly beneath the disk
+        # image explorer (grid row 1, right column).
+        self.sdcard_explorer_grid.addWidget(self.imageexplorerbuttonscontainer, 1, 2)
+
         # Show Explorer selected Path
 
         self.file_explorer_path = QLineEdit()
@@ -8517,9 +8829,9 @@ class MainWindow(QMainWindow):
         self.file_explorer_path.setPlaceholderText("Path...")
         self.file_explorer_path.editingFinished.connect(on_file_explorer_path_edited)
 
-        self.horizontal4.addWidget(self.file_explorer_path)
-
-        self.zx_next_unite_form.addRow(self.horizontal4)
+        # Path box in grid row 2, left column, so it matches the local file
+        # explorer's width instead of spanning the whole window.
+        self.sdcard_explorer_grid.addWidget(self.file_explorer_path, 2, 0)
 
         # Add Log Window
         # Optional retro 8-bit pygame log for the SD Card tab, mirroring the one on
@@ -8624,21 +8936,37 @@ class MainWindow(QMainWindow):
 
         self.main_pygame_button.toggled.connect(_main_on_pygame_toggled)
 
+        # Log window occupies the full row width now that the New Folder /
+        # Delete buttons have moved up under the disk image explorer.
         self.horizontal5.addWidget(self.main_log_container)
-
-        self.horizontal5.addWidget(self.imageexplorerbuttonscontainer)
 
         self.zx_next_unite_form.addRow(self.horizontal5)
 
         # Add action buttons at the bottom
 
         # "Launch Mame" button — placed before "Launch CSpect". Only shown when
-        # the MAME executable was found on the system PATH at startup.
+        # a MAME executable was found (PATH or a prior downloads/mame install).
+        _mame_available = self._mame_executable_path is not None
         self.button_start_mame = QPushButton("🕹  Launch Mame", self)
         self.button_start_mame.setText("🕹  Launch Mame")
         self.button_start_mame.clicked.connect(launch_mame)
-        self.button_start_mame.setVisible(self._mame_executable_path is not None)
+        self.button_start_mame.setVisible(_mame_available)
         self.horizontal6.addWidget(self.button_start_mame)
+
+        # "Install MAME" button — shown in place of "Launch Mame" when MAME is
+        # missing, on platforms where the automatic install is supported (64-bit
+        # Windows). It detects the latest official release, downloads it and
+        # extracts it into downloads/mame; on success the Launch button (revealed
+        # by _on_mame_install_result) replaces it.
+        self.button_install_mame = QPushButton("⬇  Install MAME", self)
+        self.button_install_mame.setToolTip(
+            "Detect the latest MAME release for this PC, then download and\n"
+            "install it into the downloads/mame folder. Requires an internet\n"
+            "connection (~90 MB download, ~500 MB installed).")
+        self.button_install_mame.clicked.connect(install_mame)
+        self.button_install_mame.setVisible(
+            (not _mame_available) and (mame_windows_asset_arch() is not None))
+        self.horizontal6.addWidget(self.button_install_mame)
 
         self.button_start_cspect = QPushButton("🕹  LaunchCSpect", self)
         self.button_start_cspect.setText("🕹  Launch CSpect")
@@ -17438,10 +17766,15 @@ class MainWindow(QMainWindow):
         # Start the AllInOne tab text color cycling animation. Give every
         # other tab an explicit readable text color first, since the
         # stylesheet no longer sets one (so setTabTextColor can take effect
-        # on the AllInOne tab without being overridden).
+        # on the AllInOne tab without being overridden). Seed with the current
+        # general UI text colour so the tabs honour the theme / user pick;
+        # _refresh_tab_stylesheet() re-applies it whenever it changes and once
+        # more after the config file loads.
         try:
             _tab_bar = self._tab_widget.tabBar()
-            _default_tab_color = QColor("#dddddd")
+            _default_tab_color = getattr(
+                self, "img_color_general_text", None
+            ) or hex_to_qcolor(DEFAULT_COLOR_GENERAL_TEXT)
             for _i in range(self._tab_widget.count()):
                 if "Unite!" not in self._tab_widget.tabText(_i):
                     _tab_bar.setTabTextColor(_i, _default_tab_color)
@@ -20502,16 +20835,37 @@ class MainWindow(QMainWindow):
             )
         self._build_tab_stylesheet = _build_tab_stylesheet
 
+        def _apply_tab_text_colors():
+            """Paint every tab label with the current general UI text colour so
+            the tab bar honours the Desktop Theme / 'General UI text' pick. The
+            colour-cycling 'Unite!' tab is skipped — its own animation timer
+            owns its colour. Tab text colours are set explicitly because the
+            tab stylesheet deliberately omits a QTabBar::tab colour (so the
+            Unite! cycling can take effect); a stylesheet colour would override
+            setTabTextColor and freeze the animation."""
+            try:
+                _tab_bar = self._tab_widget.tabBar()
+            except Exception:
+                return
+            _gt = getattr(self, "img_color_general_text", None)
+            _color = _gt if _gt is not None else hex_to_qcolor(DEFAULT_COLOR_GENERAL_TEXT)
+            for _i in range(self._tab_widget.count()):
+                if "Unite!" not in self._tab_widget.tabText(_i):
+                    _tab_bar.setTabTextColor(_i, _color)
+        self._apply_tab_text_colors = _apply_tab_text_colors
+
         def _refresh_tab_stylesheet():
             """Rebuild and re-apply the tab-widget stylesheet at the current
-            background-opacity level. Used when the general UI text colour
-            changes (Desktop Theme switch or the 'General UI text' picker)."""
+            background-opacity level, and re-tint the tab-bar labels. Used when
+            the general UI text colour changes (Desktop Theme switch or the
+            'General UI text' picker)."""
             try:
                 _val = self.settings_bg_opacity_slider.value()
             except Exception:
                 _val = BackgroundWidget.DEFAULT_OPACITY
             _pane_alpha = max(0, min(255, int(255 - (_val / 100.0) * 255)))
             self._tab_widget.setStyleSheet(_build_tab_stylesheet(_pane_alpha))
+            _apply_tab_text_colors()
         self._refresh_tab_stylesheet = _refresh_tab_stylesheet
         # Apply default opacity stylesheet immediately (before config loads)
         _default_pane_alpha = max(0, min(255, int(255 - (BackgroundWidget.DEFAULT_OPACITY / 100.0) * 255)))
@@ -21503,6 +21857,15 @@ class MainWindow(QMainWindow):
         #  Start main logic
 
         load_configuration_file()
+        # Re-tint the tab bar with the just-loaded general UI text colour. This
+        # covers Custom mode (whose theme re-apply returns early without
+        # refreshing) and the Settings / itch.io tabs that are added after the
+        # initial colouring pass, so every tab honours the saved colour.
+        if hasattr(self, "_refresh_tab_stylesheet"):
+            try:
+                self._refresh_tab_stylesheet()
+            except Exception:
+                pass
         self._initialising = False
 
         def _apply_first_run_pygame_defaults():

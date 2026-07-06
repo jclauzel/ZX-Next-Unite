@@ -15,7 +15,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "8.4"
+ZX_NEXT_UNITE_VERSION = "8.5"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -719,6 +719,12 @@ MAME_EXECUTABLE_NAME = "mame"
 MAME_DEFAULT_COMMAND_LINE = "{MAME_EXECUTABLE_NAME} -ui_active -nounevenstretch -aspect 2:1 -video bgfx  -bgfx_screen_chains unfiltered -window -skip_gameinfo -confirm_quit"
 # Appended right before the image path at launch time.
 MAME_HARD_DISK_PARAMETER = "-hard1"
+# Setup guide for the ZX Spectrum Next MAME support. Notably it documents the
+# one manual step the auto-install can't do for the user: obtaining the TBBLUE
+# "boot ROM" (e.g. boot-30204.bin) without which MAME aborts with "Required
+# files are missing". Surfaced after a successful install and when a launch
+# fails for that reason.
+MAME_INSTALL_WIKI_URL = "https://wiki.specnext.dev/MAME:Installing"
 
 def find_mame_executable():
     """Return the full path to the MAME executable if it can be found on the
@@ -733,6 +739,59 @@ def find_mame_executable():
     if candidate is None and platform.system() == "Windows":
         candidate = shutil.which(MAME_EXECUTABLE_NAME + ".exe")
     return candidate
+
+
+# ── MAME auto-install (Windows) ───────────────────────────────────────────
+# The official MAME Windows binaries are published on GitHub as self-extracting
+# 7-Zip archives named ``mame<ver>b_x64.exe`` / ``mame<ver>b_arm64.exe`` (the
+# ``b`` = binaries; ``s`` is the source build). These SFX .exe files extract
+# silently from the command line with ``<sfx> -o<dir> -y``, so no external 7-Zip
+# or extra Python dependency is needed. We query the "latest release" endpoint,
+# pick the asset matching this CPU architecture, download it, and unpack it into
+# ``downloads/mame/`` (see the UI's install_mame flow and find_mame_in_downloads).
+MAME_GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/mamedev/mame/releases/latest"
+
+
+def mame_windows_asset_arch():
+    """Return the MAME Windows binary architecture tag for this machine — either
+    ``"x64"`` or ``"arm64"`` — or ``None`` when the automatic install is not
+    supported here (non-Windows, or an unrecognised CPU). MAME publishes only
+    64-bit Windows binaries, so 32-bit hosts return ``None``."""
+    if platform.system() != "Windows":
+        return None
+    machine = (platform.machine() or "").lower()
+    if machine in ("arm64", "aarch64"):
+        return "arm64"
+    if machine in ("amd64", "x86_64", "x64"):
+        return "x64"
+    return None
+
+
+def select_mame_release_asset(release, arch):
+    """Pick the Windows binaries self-extractor for *arch* out of a parsed GitHub
+    "latest release" object.
+
+    *release* is the decoded JSON dict from ``MAME_GITHUB_LATEST_RELEASE_API``
+    and *arch* is a tag from :func:`mame_windows_asset_arch` (``"x64"`` /
+    ``"arm64"``). MAME names the binary self-extractors ``mame<ver>b_<arch>.exe``
+    (the ``b`` distinguishes them from the ``s`` source build), so match on that
+    suffix. Returns ``(tag_name, asset_name, download_url, size_bytes)`` for the
+    first match, or ``None`` when the release carries no build for this arch.
+    """
+    if not isinstance(release, dict) or not arch:
+        return None
+    tag = release.get("tag_name") or ""
+    suffix = f"b_{arch}.exe".lower()
+    for asset in release.get("assets") or []:
+        name = asset.get("name") or ""
+        url = asset.get("browser_download_url") or ""
+        if url and name.lower().endswith(suffix):
+            try:
+                size = int(asset.get("size") or 0)
+            except (TypeError, ValueError):
+                size = 0
+            return (tag, name, url, size)
+    return None
 
 
 CSPECT_EXECUTABLE_NAME = "CSpect"
@@ -808,6 +867,11 @@ DOWNLOADS_CSPECT_DIRNAME = os.path.join("downloads", "itchio", "mdf200", "cspect
 # hdfmonkey auto-download (HDF_MONKEY_JJJS_URL) unpacks the build for the current
 # platform, mirroring the itch.io CSpect layout: downloads/hdfmonkey/<platform>/.
 DOWNLOADS_HDFMONKEY_DIRNAME = os.path.join("downloads", "hdfmonkey")
+
+# Sub-directory (relative to the application directory) where the MAME
+# auto-install (see MAME_GITHUB_LATEST_RELEASE_API) unpacks the latest official
+# Windows binaries. The self-extractor drops mame.exe and its support tree here.
+DOWNLOADS_MAME_DIRNAME = os.path.join("downloads", "mame")
 
 
 def hdfmonkey_platform_dirs():
@@ -1020,6 +1084,34 @@ def find_hdfmonkey_in_downloads(base_dir):
         candidate = os.path.join(root, plat_dir, exe)
         if os.path.isfile(candidate):
             return candidate
+    return None
+
+
+def find_mame_in_downloads(base_dir):
+    """Locate a MAME executable installed by the in-app auto-install under
+    ``<base_dir>/downloads/mame/``.
+
+    This is the persistence hook for the "Install MAME" button: the
+    self-extractor drops ``mame.exe`` at the top of that folder (see the UI's
+    install_mame flow), so a later launch re-discovers it cheaply — the same way
+    :func:`find_hdfmonkey_in_downloads` re-adopts a standalone hdfmonkey build.
+
+    The direct ``downloads/mame/mame.exe`` hit is checked first; a bounded walk
+    is the fallback in case a future layout nests it in a sub-folder. Returns the
+    full path to the executable, or ``None`` when none is present.
+    """
+    if not base_dir:
+        return None
+    root = os.path.join(base_dir, DOWNLOADS_MAME_DIRNAME)
+    if not os.path.isdir(root):
+        return None
+    exe = MAME_EXECUTABLE_NAME + ".exe" if platform.system() == "Windows" else MAME_EXECUTABLE_NAME
+    direct = os.path.join(root, exe)
+    if os.path.isfile(direct):
+        return direct
+    for dirpath, _dirnames, filenames in os.walk(root):
+        if exe in filenames:
+            return os.path.join(dirpath, exe)
     return None
 
 
