@@ -2512,6 +2512,20 @@ class MainWindow(QMainWindow):
         # MAME ROM/system choice (e.g. "tbblue"); seeded with the first entry so a
         # first-run cfg persists a value the user can change in the Settings tab.
         configuration_dictionary[SETTING_MAME_ROM_CHOICE] = MAME_ROM_CHOICE[0]
+        # CSpect mouse-capture combo index; a cfg file predating this option has no
+        # entry, so default to 0 ("Mouse On" — no parameter passed) to avoid a
+        # KeyError when the CSpect settings are restored below.
+        configuration_dictionary[SETTING_MOUSE] = ""
+        # CSpect additional launch parameters (free-text, editable in Settings).
+        # Seeded empty so the key always exists — launch_cspect and the config
+        # writer both index it directly.
+        configuration_dictionary[SETTING_CUSTOM] = ""
+        # Startup "is a newer MAME available?" check (default on; "false" to skip)
+        # and the release tag of the MAME build installed via the app (used to
+        # compare against the latest release without re-running the binary).
+        # Seeded so the config writer never KeyErrors on these new keys.
+        configuration_dictionary[SETTING_MAME_UPDATE_CHECK] = ""
+        configuration_dictionary[SETTING_MAME_INSTALLED_TAG] = ""
         # Optional pygame-ce "Alien Floyd's" features (both default off).
         configuration_dictionary[SETTING_ALIEN_FLOYD_BG] = ""
         configuration_dictionary[SETTING_ALIEN_FLOYD_TAB] = ""
@@ -2787,6 +2801,7 @@ class MainWindow(QMainWindow):
             self.cspect_sound.setDisabled(True)
             self.cspect_vsync.setDisabled(True)
             self.cspect_joystick.setDisabled(True)
+            self.cspect_mouse.setDisabled(True)
             self.cspect_frequency.setDisabled(True)
 
         def set_all_buttons_enabled():
@@ -2809,66 +2824,320 @@ class MainWindow(QMainWindow):
             self.cspect_sound.setDisabled(False)
             self.cspect_vsync.setDisabled(False)
             self.cspect_joystick.setDisabled(False)
+            self.cspect_mouse.setDisabled(False)
             self.cspect_frequency.setDisabled(False)
+
+        def _update_mame_launch_button():
+            """Enable the 'Launch Mame' button whenever MAME is available and a
+            real disk-image file is selected — independent of hdfmonkey.
+
+            Launching MAME boots the Next with the selected HDF as its hard disk
+            and never calls hdfmonkey (the SD-card file-explorer tool). So a
+            missing hdfmonkey must not keep the button disabled: without this,
+            set_all_buttons_enabled() (which re-enables the launch button) only
+            ever runs after a successful image *listing*, which needs hdfmonkey —
+            so with hdfmonkey absent the MAME button stayed disabled even though
+            MAME was installed and ready. The button is still hidden outright when
+            MAME isn't installed (setVisible(_mame_available)), and still disabled
+            during transfers/loads via set_all_buttons_disabled()."""
+            try:
+                available = getattr(self, "_mame_executable_path", None) is not None
+                img = (self.imageinput.currentText() or "").strip().strip('"')
+                self.button_start_mame.setEnabled(
+                    available and bool(img) and os.path.isfile(img))
+            except (RuntimeError, AttributeError):
+                pass
 
         def enable_image_selection():
             self.imageinput.setDisabled(False)
             self.selectimage.setDisabled(False)
+            # The MAME launch button is gated on MAME + a valid image, not on
+            # hdfmonkey — so refresh it here, the resting state used when the
+            # image explorer is unavailable (e.g. hdfmonkey missing or a failed
+            # load). Keeps 'Launch Mame' usable without hdfmonkey.
+            _update_mame_launch_button()
 
         def disable_image_selection():
             self.imageinput.setDisabled(True)
             self.selectimage.setDisabled(True)
 
-        def download_and_install_hdflonkey():
-            try:
-                # Set a proper User-Agent header to avoid connection rejection
-                opener = urllib.request.build_opener()
-                opener.addheaders = [('User-Agent', ZXART_USER_AGENT)]
-                urllib.request.install_opener(opener)
+        def _hdfmonkey_downloads_root():
+            """Top-level ``downloads`` folder next to the app (created if needed).
+            This is where the auto-download saves the jjjs zip and where the
+            manual-fallback flow asks the user to drop a hand-downloaded copy."""
+            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            root = os.path.join(app_dir, DOWNLOADS_ROOT_DIRNAME)
+            os.makedirs(root, exist_ok=True)
+            return root
 
-                # The jjjs release bundles fixed hdfmonkey builds for every
-                # platform inside a password-protected inner zip. Extract only the
-                # build for this OS into downloads/hdfmonkey/<platform>/ and use it
-                # directly: recorded so execute_hdf_monkey prefers it, and
-                # re-discovered on the next launch by find_hdfmonkey_in_downloads
-                # (so this works on Windows, Linux and macOS, not just Windows).
-                app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-                dest_root = os.path.join(app_dir, DOWNLOADS_HDFMONKEY_DIRNAME)
-                zip_path, _ = urllib.request.urlretrieve(HDF_MONKEY_JJJS_URL)
-                try:
-                    hdfmonkey_path = extract_hdfmonkey_from_jjjs_zip(zip_path, dest_root)
-                finally:
+        def _download_hdfmonkey_zip():
+            """STEP 1 — download the jjjs hdfmonkey archive from
+            HDF_MONKEY_JJJS_URL into the downloads folder.
+
+            Logs each stage (URL, HTTP status, content type/length, bytes read,
+            save location) so a failure points at the real cause. Returns the
+            saved zip path on success, or None on failure — importantly it detects
+            the common specnext.com case where an HTML login / anti-robot page is
+            returned with a 200 status instead of the actual attachment, rather
+            than letting that non-zip flow through to a confusing extract error.
+            """
+            downloads_root = _hdfmonkey_downloads_root()
+            dest_zip = os.path.join(downloads_root, HDF_MONKEY_JJJS_ZIP_FILENAME)
+            add_main_log_window(f"hdfmonkey: [1/2] downloading archive from {HDF_MONKEY_JJJS_URL} ...")
+            logging.info(f"hdfmonkey download: requesting {HDF_MONKEY_JJJS_URL}")
+            try:
+                req = urllib.request.Request(
+                    HDF_MONKEY_JJJS_URL, headers={"User-Agent": ZXART_USER_AGENT})
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    status = getattr(resp, "status", None) or resp.getcode()
+                    content_type = resp.headers.get("Content-Type", "") or ""
+                    content_length = resp.headers.get("Content-Length", "") or ""
+                    final_url = resp.geturl()
+                    add_main_log_window(
+                        f"hdfmonkey: server responded HTTP {status}; "
+                        f"Content-Type='{content_type}', "
+                        f"Content-Length='{content_length or 'unknown'}'.")
+                    logging.info(
+                        f"hdfmonkey download: HTTP {status} type={content_type!r} "
+                        f"len={content_length!r} final_url={final_url!r}")
+                    data = resp.read()
+            except urllib.error.HTTPError as e:
+                add_main_log_window(
+                    f"hdfmonkey: download failed — server returned HTTP {e.code} "
+                    f"{e.reason}. specnext.com may require a forum login or an "
+                    f"anti-robot confirmation before the file can be downloaded.")
+                logging.error(f"hdfmonkey download HTTPError: {e.code} {e.reason}")
+                return None
+            except urllib.error.URLError as e:
+                add_main_log_window(
+                    f"hdfmonkey: download failed — could not reach "
+                    f"{HDF_MONKEY_JJJS_URL} ({e.reason}). Check your internet "
+                    f"connection, or a firewall/proxy blocking the request.")
+                logging.error(f"hdfmonkey download URLError: {e.reason}")
+                return None
+            except Exception as e:
+                add_main_log_window(f"hdfmonkey: download failed — {e}")
+                logging.error(f"hdfmonkey download error: {e}")
+                return None
+
+            add_main_log_window(f"hdfmonkey: downloaded {len(data):,} bytes.")
+            logging.info(f"hdfmonkey download: read {len(data)} bytes")
+
+            # Guard against the forum returning an HTML login / anti-robot / error
+            # page (often with a 200 status) instead of the real attachment. A
+            # genuine zip starts with the 'PK' local-file-header magic.
+            if data[:2] != b"PK":
+                head = data[:200].decode("utf-8", "replace").strip()
+                head = " ".join(head.split())
+                lower = data[:1024].lower()
+                looks_html = b"<html" in lower or b"<!doctype" in lower
+                if looks_html:
+                    add_main_log_window(
+                        "hdfmonkey: the server returned a web page, not the zip "
+                        "file — this usually means specnext.com is asking for a "
+                        "login or an anti-robot confirmation before the download "
+                        "starts.")
+                else:
+                    add_main_log_window(
+                        "hdfmonkey: the downloaded data is not a zip file "
+                        f"(it begins with: {head!r}).")
+                logging.error(
+                    f"hdfmonkey download: not a zip (html={looks_html}); "
+                    f"head={head!r}")
+                return None
+
+            try:
+                with open(dest_zip, "wb") as f:
+                    f.write(data)
+            except OSError as e:
+                add_main_log_window(
+                    f"hdfmonkey: could not save the downloaded zip to "
+                    f"{dest_zip} — {e}")
+                logging.error(f"hdfmonkey download save error: {e}")
+                return None
+
+            add_main_log_window(f"hdfmonkey: saved archive to {dest_zip}.")
+            logging.info(f"hdfmonkey download: saved {dest_zip}")
+            return dest_zip
+
+        def _install_hdfmonkey_from_zip(zip_path, keep_zip=False):
+            """STEP 2 — extract this platform's hdfmonkey binary out of a jjjs
+            archive (auto-downloaded or manually dropped) into
+            downloads/hdfmonkey/<platform>/.
+
+            The extracted binary is recorded so execute_hdf_monkey prefers it and
+            re-discovered on the next launch by find_hdfmonkey_in_downloads (so
+            this works on Windows, Linux and macOS). Returns the installed binary
+            path on success, or None on failure. ``keep_zip`` leaves a
+            user-provided archive in place; an auto-downloaded one is removed once
+            it has been unpacked.
+            """
+            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            dest_root = os.path.join(app_dir, DOWNLOADS_HDFMONKEY_DIRNAME)
+            add_main_log_window(
+                f"hdfmonkey: [2/2] extracting the build for this platform from "
+                f"{zip_path} ...")
+            logging.info(f"hdfmonkey install: extracting from {zip_path}")
+            try:
+                hdfmonkey_path = extract_hdfmonkey_from_jjjs_zip(zip_path, dest_root)
+            except Exception as e:
+                add_main_log_window(
+                    f"hdfmonkey: could not extract the binary from {zip_path} — "
+                    f"{e}. The archive may be incomplete or corrupted; try "
+                    f"downloading it again.")
+                logging.error(f"hdfmonkey install extract error: {e}")
+                return None
+            finally:
+                if not keep_zip:
                     try:
                         os.remove(zip_path)
                     except OSError:
                         pass
+            add_main_log_window(f"hdfmonkey: extracted binary to {hdfmonkey_path}.")
+            logging.info(f"hdfmonkey install: extracted {hdfmonkey_path}")
+            return hdfmonkey_path
 
-                self._hdfmonkey_executable_path = hdfmonkey_path
-                self.button_new_folder.setVisible(True)
-                self.button_delete_files.setVisible(True)
-                self.download_and_install_hdfmonkey_button.setVisible(False)
-                logging.info(f"Successfully installed hdfmonkey: {hdfmonkey_path}")
-                add_main_log_window(f"Successfully installed hdfmonkey: {hdfmonkey_path}")
+        def _finish_hdfmonkey_install(hdfmonkey_path):
+            """Common UI updates once hdfmonkey has been installed (whether via
+            the automatic download or the manual-drop fallback)."""
+            self._hdfmonkey_executable_path = hdfmonkey_path
+            self.button_new_folder.setVisible(True)
+            self.button_delete_files.setVisible(True)
+            self.download_and_install_hdfmonkey_button.setVisible(False)
+            # hdfmonkey is now installed — stop the yellow attention pulse and
+            # restore the button's normal look straight away.
+            _stop_hdfmonkey_button_animation()
+            logging.info(f"Successfully installed hdfmonkey: {hdfmonkey_path}")
+            add_main_log_window(f"Successfully installed hdfmonkey: {hdfmonkey_path}")
 
-                # Confirm the install with a green toast (like the emulator
-                # detection one) showing where the binary landed on disk.
-                self._show_hdfmonkey_installed_toast(hdfmonkey_path)
+            # Confirm the install with a green toast (like the emulator detection
+            # one) showing where the binary landed on disk.
+            self._show_hdfmonkey_installed_toast(hdfmonkey_path)
 
-                # Reload the currently-selected image straight away so the file
-                # explorer repopulates without the user having to reopen it via
-                # "Select Disk Image". The extract succeeded and
-                # _hdfmonkey_executable_path now points at a verified binary, so
-                # there's no need to re-probe first; load_image() restores the
-                # controls once the (async) listing completes, and safely no-ops
-                # when no image is selected.
-                load_image()
+            # Reload the currently-selected image straight away so the file
+            # explorer repopulates without the user having to reopen it via
+            # "Select Disk Image". The extract succeeded and
+            # _hdfmonkey_executable_path now points at a verified binary, so
+            # there's no need to re-probe first; load_image() restores the
+            # controls once the (async) listing completes, and safely no-ops when
+            # no image is selected.
+            load_image()
 
-                return True
-            except Exception as e:
-                logging.error(f"Failed downloading & installing hdfmonkey: {e}. You can install it manually from https://github.com/gasman/hdfmonkey , or (recommended) do a full CSpect install from the itch.io tab, which also bundles hdfmonkey.")
-                add_main_log_window(f"Failed downloading & installing hdfmonkey: {e}. You can install it manually from https://github.com/gasman/hdfmonkey , or (recommended) do a full CSpect install from the itch.io tab, which also bundles hdfmonkey.")
-                #set_all_buttons_enabled()
+        def _try_install_hdfmonkey_from_manual_zip():
+            """Look for a jjjs hdfmonkey zip the user dropped into the downloads
+            folder and, if a valid one is found, install from it. Returns True on
+            a successful install."""
+            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            manual_zip = find_hdfmonkey_jjjs_zip_in_downloads(app_dir)
+            if not manual_zip:
                 return False
+            add_main_log_window(
+                f"hdfmonkey: found a manually-downloaded archive at "
+                f"{manual_zip} — installing from it.")
+            logging.info(f"hdfmonkey: installing from manual zip {manual_zip}")
+            # Leave a hand-placed archive in place so the user can retry offline.
+            hdfmonkey_path = _install_hdfmonkey_from_zip(manual_zip, keep_zip=True)
+            if hdfmonkey_path:
+                _finish_hdfmonkey_install(hdfmonkey_path)
+                return True
+            return False
+
+        def _prompt_manual_hdfmonkey_download():
+            """After an automatic download failure, invite the user to fetch the
+            zip in a browser and drop it into the downloads folder, then retry
+            detecting it from there. Returns True if a manually-dropped zip was
+            subsequently found and installed."""
+            downloads_root = _hdfmonkey_downloads_root()
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Warning)
+            box.setWindowTitle("hdfmonkey download failed")
+            box.setText(
+                "The automatic hdfmonkey download from specnext.com failed — the "
+                "forum may be asking for a login or an anti-robot confirmation "
+                "before the download can start (see the log for details).\n\n"
+                "You can install it manually instead:\n"
+                f"1. Click 'Open download page' below (or browse to\n"
+                f"    {HDF_MONKEY_JJJS_URL} ).\n"
+                "2. Download the hdfmonkey .zip file.\n"
+                f"3. Drop the downloaded .zip into this folder:\n"
+                f"    {downloads_root}\n"
+                "4. Click \"I've dropped the zip - try again\".")
+            open_page_btn = box.addButton("Open download page", QMessageBox.ActionRole)
+            open_folder_btn = box.addButton("Open downloads folder", QMessageBox.ActionRole)
+            retry_btn = box.addButton("I've dropped the zip - try again", QMessageBox.AcceptRole)
+            box.addButton("Cancel", QMessageBox.RejectRole)
+            box.setDefaultButton(retry_btn)
+            while True:
+                box.exec()
+                clicked = box.clickedButton()
+                if clicked is open_page_btn:
+                    try:
+                        webbrowser.open(HDF_MONKEY_JJJS_URL)
+                        add_main_log_window(
+                            f"hdfmonkey: opened {HDF_MONKEY_JJJS_URL} in your "
+                            f"browser. Save the .zip into {downloads_root}, then "
+                            f"click 'try again'.")
+                    except Exception as e:
+                        add_main_log_window(
+                            f"hdfmonkey: could not open the browser automatically "
+                            f"({e}). Please browse to {HDF_MONKEY_JJJS_URL} "
+                            f"manually.")
+                    continue  # reshow the dialog so the user can retry afterwards
+                if clicked is open_folder_btn:
+                    try:
+                        if sys.platform == "win32":
+                            os.startfile(downloads_root)
+                        elif sys.platform == "darwin":
+                            subprocess.Popen(["open", downloads_root])
+                        else:
+                            subprocess.Popen(["xdg-open", downloads_root])
+                    except Exception as e:
+                        add_main_log_window(
+                            f"hdfmonkey: could not open {downloads_root} ({e}).")
+                    continue
+                if clicked is retry_btn:
+                    if _try_install_hdfmonkey_from_manual_zip():
+                        return True
+                    add_main_log_window(
+                        f"hdfmonkey: no valid hdfmonkey .zip found in "
+                        f"{downloads_root} yet. Download it from "
+                        f"{HDF_MONKEY_JJJS_URL} and drop the .zip there, then try "
+                        f"again.")
+                    continue  # let the user place the file and retry
+                return False  # Cancel / dialog closed
+
+        def download_and_install_hdflonkey():
+            """Install hdfmonkey in two explicit, individually-logged steps:
+            download the jjjs archive, then extract this platform's binary. If a
+            valid archive is already sitting in the downloads folder (e.g. the
+            user dropped one after a previous failure) it is used directly; if the
+            automatic download fails, the manual browser-download fallback is
+            offered."""
+            # Use an already-present (manually-dropped) archive first — this makes
+            # a retry after the manual route succeed without hitting the network
+            # again, and keeps the whole flow working when specnext.com blocks us.
+            if _try_install_hdfmonkey_from_manual_zip():
+                return True
+
+            zip_path = _download_hdfmonkey_zip()
+            if not zip_path:
+                # Download blocked/failed — offer the manual browser route (drop
+                # the zip into downloads, then detect it from there).
+                return _prompt_manual_hdfmonkey_download()
+
+            hdfmonkey_path = _install_hdfmonkey_from_zip(zip_path, keep_zip=False)
+            if not hdfmonkey_path:
+                # A file downloaded but could not be unpacked — the cleanest
+                # recovery is a fresh (manual) download.
+                add_main_log_window(
+                    "hdfmonkey: you can install it manually from "
+                    "https://github.com/gasman/hdfmonkey , or (recommended) do a "
+                    "full CSpect install from the itch.io tab, which also bundles "
+                    "hdfmonkey.")
+                return _prompt_manual_hdfmonkey_download()
+
+            _finish_hdfmonkey_install(hdfmonkey_path)
+            return True
 
         def _on_hdfmonkey_button_clicked():
             """Button handler for "Download and install HDF Monkey". Shows an
@@ -2899,6 +3168,15 @@ class MainWindow(QMainWindow):
             self.download_and_install_hdfmonkey_button.setVisible(True)
             self.button_new_folder.setVisible(False)
             self.button_delete_files.setVisible(False)
+            # Draw the eye to the install button with a yellow 'breathing' pulse
+            # while hdfmonkey is missing; it stops itself once the button is
+            # hidden (i.e. hdfmonkey has been installed/detected).
+            _start_hdfmonkey_button_animation()
+            # hdfmonkey is confirmed missing here, so the file explorer stays
+            # disabled — but MAME doesn't need hdfmonkey, so make sure its launch
+            # button reflects (MAME present + a valid image) rather than staying
+            # stuck disabled.
+            _update_mame_launch_button()
 
         def _hdfmonkey_binary_found():
             """True if the hdfmonkey executable can be located (PATH, current
@@ -3000,6 +3278,7 @@ class MainWindow(QMainWindow):
                 self.cspect_screensize.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_SCREENSIZE]))
                 self.cspect_vsync.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_VSYNC]))
                 self.cspect_joystick.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_JOYSTICK]))
+                self.cspect_mouse.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MOUSE]))
                 self.cspect_frequency.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_HERTZ]))
 
                 if configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING]== "":
@@ -3131,6 +3410,25 @@ class MainWindow(QMainWindow):
                     self.settings_mame_params_edit.setText(_params)
                     self.settings_mame_params_edit.blockSignals(False)
                     configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = _params
+
+                # MAME "check for a newer version at startup" toggle (default on).
+                # Only exists as a widget when MAME was detected at startup.
+                if hasattr(self, "settings_mame_update_check_checkbox"):
+                    _mame_upd = configuration_dictionary.get(
+                        SETTING_MAME_UPDATE_CHECK, "").strip().lower()
+                    _mame_upd_on = _mame_upd not in ("false", "0", "no")  # default on
+                    self.settings_mame_update_check_checkbox.blockSignals(True)
+                    self.settings_mame_update_check_checkbox.setChecked(_mame_upd_on)
+                    self.settings_mame_update_check_checkbox.blockSignals(False)
+
+                # CSpect additional launch parameters (editable text). Always
+                # present; empty means "no extra parameters".
+                if hasattr(self, "settings_cspect_params_edit"):
+                    _cspect_params = configuration_dictionary.get(SETTING_CUSTOM, "")
+                    self.settings_cspect_params_edit.blockSignals(True)
+                    self.settings_cspect_params_edit.setText(_cspect_params)
+                    self.settings_cspect_params_edit.blockSignals(False)
+                    configuration_dictionary[SETTING_CUSTOM] = _cspect_params
                 # Ensure runtime state matches the persisted setting (the
                 # early-bootstrap read already honoured this, but reapply here
                 # so any cfg edits made between launches take immediate effect).
@@ -3611,6 +3909,7 @@ class MainWindow(QMainWindow):
             configuration_dictionary[SETTING_SOUND] = self.cspect_sound.currentIndex()
             configuration_dictionary[SETTING_VSYNC] = self.cspect_vsync.currentIndex()
             configuration_dictionary[SETTING_JOYSTICK] = self.cspect_joystick.currentIndex()
+            configuration_dictionary[SETTING_MOUSE] = self.cspect_mouse.currentIndex()
             configuration_dictionary[SETTING_HERTZ] = self.cspect_frequency.currentIndex()
             # Persist the full history as a '|'-delimited string (each entry tidied).
             history_items = []
@@ -3637,6 +3936,10 @@ class MainWindow(QMainWindow):
             configuration_dictionary[SETTING_JOYSTICK] = self.cspect_joystick.currentIndex()
             save_configuration_file()
 
+        def set_cspect_mouse_on_off():
+            configuration_dictionary[SETTING_MOUSE] = self.cspect_mouse.currentIndex()
+            save_configuration_file()
+
         def set_cspect_display_frequency():
             configuration_dictionary[SETTING_HERTZ] = self.cspect_frequency.currentIndex()
             save_configuration_file()
@@ -3657,12 +3960,14 @@ class MainWindow(QMainWindow):
                 cspect_sound_text = self.cspect_sound.currentText()
                 cspect_vsync_text = self.cspect_vsync.currentText()
                 cspect_joystick_text = self.cspect_joystick.currentText()
+                cspect_mouse_text = self.cspect_mouse.currentText()
                 cspect_frequency_text = self.cspect_frequency.currentText()
 
                 cspect_arguments += get_tuple_value(CSPECT_SCREEN_SIZES, cspect_screensize_text) + " "
                 cspect_arguments += get_tuple_value(CSPECT_SOUND, cspect_sound_text) + " "
                 cspect_arguments += get_tuple_value(CSPECT_SCREEN_SYNC, cspect_vsync_text) + " "
                 cspect_arguments += get_tuple_value(CSPECT_JOYSTICK, cspect_joystick_text) + " "
+                cspect_arguments += get_tuple_value(CSPECT_MOUSE, cspect_mouse_text) + " "
                 cspect_arguments += get_tuple_value(CSPECT_FREQUENCY, cspect_frequency_text) + " "
 
                 if configuration_dictionary[SETTING_ESC] != "":
@@ -3729,7 +4034,16 @@ class MainWindow(QMainWindow):
 
 
         def launch_mame():
-            if not right_disk_image_explorer_content:  # check that we have an image content first
+            # Launching MAME boots the Next with the selected HDF as its hard
+            # disk and never calls hdfmonkey, so gate on a real image file being
+            # selected rather than on right_disk_image_explorer_content (the
+            # hdfmonkey-produced listing, which is empty when hdfmonkey is
+            # missing) — otherwise MAME could never be launched without hdfmonkey.
+            _sel_image = self.imageinput.currentText().strip().strip('"')
+            if not (_sel_image and os.path.isfile(_sel_image)):
+                add_main_log_window(
+                    "Select a valid ZX Spectrum Next disk image (.img/.hdf) "
+                    "before launching MAME.")
                 return
 
             mame_path = getattr(self, "_mame_executable_path", None)
@@ -3787,9 +4101,11 @@ class MainWindow(QMainWindow):
             self._mame_missing_files = False
             try:
                 if platform.system() == "Windows":
-                    # CREATE_NEW_PROCESS_GROUP (0x200) detaches MAME from the app;
-                    # subprocess_no_window_kwargs() adds CREATE_NO_WINDOW + a hidden
-                    # STARTUPINFO so no console window flashes when launching it.
+                    # CREATE_NEW_PROCESS_GROUP (0x200) detaches MAME from the app.
+                    # gui_app=True keeps CREATE_NO_WINDOW (so MAME's own console
+                    # doesn't flash while we capture its stdout) but drops the
+                    # SW_HIDE STARTUPINFO — otherwise MAME's emulator window would
+                    # inherit that hidden show-state and open invisible.
                     mame_proc = subprocess.Popen(
                         mame_argv,
                         stdin=subprocess.DEVNULL,
@@ -3799,7 +4115,7 @@ class MainWindow(QMainWindow):
                         text=True,
                         bufsize=1,
                         cwd=mame_cwd,
-                        **subprocess_no_window_kwargs(extra_flags=0x00000200),
+                        **subprocess_no_window_kwargs(extra_flags=0x00000200, gui_app=True),
                     )
                 else:
                     mame_proc = subprocess.Popen(
@@ -4013,6 +4329,17 @@ class MainWindow(QMainWindow):
                     pass
                 return
             self._mame_executable_path = detected
+            # Remember which release we just installed so the startup update check
+            # can compare against the latest GitHub release without re-running the
+            # binary. Set by _start_mame_install for both first-time installs and
+            # updates.
+            _installed_tag = getattr(self, "_mame_pending_install_tag", "")
+            if _installed_tag:
+                configuration_dictionary[SETTING_MAME_INSTALLED_TAG] = _installed_tag
+                try:
+                    save_configuration_file()
+                except Exception:
+                    pass
             try:
                 self.button_install_mame.setVisible(False)
                 self.button_start_mame.setVisible(True)
@@ -4065,6 +4392,42 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+        def _start_mame_install(tag, asset_name, url, size, size_txt):
+            """Kick off the MAME download+extract worker for a chosen release
+            asset. Shared by the first-time install (install_mame) and the
+            startup auto-update flow — both overwrite any existing downloads/mame
+            files (the SFX runs with '-y'). *tag* is remembered so a successful
+            install persists the installed release for later update checks."""
+            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            dest_root = os.path.join(app_dir, DOWNLOADS_MAME_DIRNAME)
+            self._mame_pending_install_tag = tag
+            self._mame_installing = True
+            try:
+                self.button_install_mame.setEnabled(False)
+                self.button_install_mame.setText("⬇  Installing MAME… 0%")
+            except RuntimeError:
+                pass
+            add_main_log_window(
+                f"MAME install ▸ Starting: {tag} ({asset_name}, ~{size_txt}).")
+            # Channel for the worker's phase log lines + button percentage. It is
+            # stored on self so it outlives this call: otherwise it would be
+            # garbage-collected the moment we return, cancelling the queued emits
+            # before they reach the UI thread. Connected with Qt.QueuedConnection
+            # so the slots run on the UI thread.
+            mame_sig = MameInstallSignals()
+            mame_sig.status.connect(
+                lambda line: add_main_log_window(line), Qt.QueuedConnection)
+            mame_sig.progress.connect(_on_mame_install_progress, Qt.QueuedConnection)
+            self._mame_install_signals = mame_sig
+            # Run the download+extract off the UI thread. getit_run_in_thread
+            # keeps its own result/error signals alive (parented to the app) until
+            # the main-thread slot has run, so the completion callbacks fire
+            # reliably — the missing piece that left the button stuck before.
+            getit_run_in_thread(
+                lambda: _mame_install_job(url, asset_name, dest_root, mame_sig),
+                _on_mame_install_result,
+                _on_mame_install_error)
+
         def install_mame():
             """Detect, download and install the latest MAME (button handler)."""
             if getattr(self, "_mame_installing", False):
@@ -4104,31 +4467,127 @@ class MainWindow(QMainWindow):
             box.exec()
             if box.clickedButton() is not go:
                 return
-            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-            dest_root = os.path.join(app_dir, DOWNLOADS_MAME_DIRNAME)
-            self._mame_installing = True
-            self.button_install_mame.setEnabled(False)
-            self.button_install_mame.setText("⬇  Installing MAME… 0%")
-            add_main_log_window(
-                f"MAME install ▸ Starting: {tag} ({asset_name}, ~{size_txt}).")
-            # Channel for the worker's phase log lines + button percentage. It is
-            # stored on self so it outlives install_mame(): otherwise it would be
-            # garbage-collected the moment this method returns, cancelling the
-            # queued emits before they reach the UI thread. Connected with
-            # Qt.QueuedConnection so the slots run on the UI thread.
-            mame_sig = MameInstallSignals()
-            mame_sig.status.connect(
-                lambda line: add_main_log_window(line), Qt.QueuedConnection)
-            mame_sig.progress.connect(_on_mame_install_progress, Qt.QueuedConnection)
-            self._mame_install_signals = mame_sig
-            # Run the download+extract off the UI thread. getit_run_in_thread
-            # keeps its own result/error signals alive (parented to the app) until
-            # the main-thread slot has run, so the completion callbacks fire
-            # reliably — the missing piece that left the button stuck before.
-            getit_run_in_thread(
-                lambda: _mame_install_job(url, asset_name, dest_root, mame_sig),
-                _on_mame_install_result,
-                _on_mame_install_error)
+            _start_mame_install(tag, asset_name, url, size, size_txt)
+
+        def _probe_mame_version_number(mame_path):
+            """Ask an installed MAME binary for its version and return the integer
+            minor version (e.g. 272), or None. Runs on a worker thread (blocking
+            subprocess). Used only when no installed release tag was persisted
+            (MAME was installed manually / before the update-check feature): a
+            copy installed via the app records its tag, so this probe is skipped.
+
+            'mame -version' prints the version and exits; on an older build that
+            doesn't know the option, MAME still prints its usage banner ("MAME
+            v0.NNN …") which carries the version too, so parsing the combined
+            output is robust either way."""
+            try:
+                proc = subprocess.run(
+                    [mame_path, "-version"],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    cwd=os.path.dirname(mame_path) or None,
+                    text=True, timeout=20,
+                    **subprocess_no_window_kwargs())
+                return parse_mame_version_number(proc.stdout or "")
+            except Exception as exc:
+                logging.info(f"MAME version probe failed: {exc}")
+                return None
+
+        def _prompt_mame_update(info, installed_num):
+            """UI-thread dialog offering to update MAME to a newer release found
+            by the startup check. 'Update' reuses the standard install flow
+            (download + silent SFX extract, overwriting the existing files);
+            'Cancel' does nothing."""
+            tag = info["tag"]
+            asset_name = info["asset_name"]
+            url = info["url"]
+            size = info["size"]
+            latest_num = info["latest_num"]
+            size_txt = f"{size / 1048576:.0f} MB" if size else "about 90 MB"
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle("MAME update available")
+            box.setText(
+                "A newer version of MAME is available.\n\n"
+                f"Installed: 0.{installed_num}\n"
+                f"Latest: {tag}  (0.{latest_num})\n"
+                f"Package: {asset_name}\n\n"
+                f"Download (~{size_txt}) and update your MAME install now?\n"
+                "The existing files in the downloads MAME folder will be "
+                "overwritten.")
+            upd = box.addButton("Update", QMessageBox.AcceptRole)
+            box.addButton("Cancel", QMessageBox.RejectRole)
+            box.setDefaultButton(upd)
+            box.exec()
+            if box.clickedButton() is upd:
+                add_main_log_window(
+                    f"MAME update ▸ user chose to update to {tag}.")
+                _start_mame_install(tag, asset_name, url, size, size_txt)
+
+        def _check_mame_update_async():
+            """At startup, if MAME is installed and the check is enabled, look up
+            the latest MAME release on GitHub (off the UI thread) and, when it is
+            newer than the installed build, offer to update. Any failure is
+            logged quietly and never disrupts startup."""
+            pref = configuration_dictionary.get(
+                SETTING_MAME_UPDATE_CHECK, "").strip().lower()
+            if pref in ("false", "0", "no"):
+                return  # user disabled the check
+            if getattr(self, "_mame_executable_path", None) is None:
+                return  # MAME not installed — nothing to update
+            if getattr(self, "_mame_installing", False):
+                return  # an install/update is already running
+            arch = mame_windows_asset_arch()
+            if arch is None:
+                return  # auto-install/update unsupported on this OS/CPU
+            mame_path = self._mame_executable_path
+            installed_tag = configuration_dictionary.get(
+                SETTING_MAME_INSTALLED_TAG, "")
+
+            def _job():
+                # Prefer the persisted tag of an app-managed install; otherwise
+                # ask the binary itself. Do this first so a probe failure still
+                # lets us fetch the release (and vice-versa).
+                installed_num = parse_mame_version_number(installed_tag)
+                if installed_num is None:
+                    installed_num = _probe_mame_version_number(mame_path)
+                tag, asset_name, url, size = _fetch_latest_mame_asset(arch)
+                return {
+                    "installed_num": installed_num,
+                    "latest_num": parse_mame_version_number(tag),
+                    "tag": tag, "asset_name": asset_name,
+                    "url": url, "size": size,
+                }
+
+            def _on_result(info):
+                try:
+                    installed_num = info.get("installed_num")
+                    latest_num = info.get("latest_num")
+                    if latest_num is None:
+                        return
+                    if installed_num is None:
+                        add_main_log_window(
+                            "MAME update check: could not determine the installed "
+                            "MAME version; skipping.")
+                        return
+                    if latest_num <= installed_num:
+                        add_main_log_window(
+                            f"MAME is up to date (installed 0.{installed_num}, "
+                            f"latest 0.{latest_num}).")
+                        return
+                    _prompt_mame_update(info, installed_num)
+                except Exception as exc:
+                    logging.info(f"MAME update check result handling failed: {exc}")
+
+            def _on_error(err):
+                detail = err[1] if isinstance(err, (tuple, list)) and len(err) > 1 else err
+                logging.info(f"MAME update check skipped: {detail}")
+
+            add_main_log_window("Checking for a newer MAME release…")
+            getit_run_in_thread(_job, _on_result, _on_error)
+
+        # Expose so the startup sequence can kick the check once the config
+        # (enable flag + installed tag) has been loaded.
+        self._check_mame_update_async = _check_mame_update_async
 
 
         # Expose the emulator launch helpers so other UI surfaces (e.g. the
@@ -4270,6 +4729,72 @@ class MainWindow(QMainWindow):
                     btn.setStyleSheet("")
                 except RuntimeError:
                     pass
+
+        def _start_hdfmonkey_button_animation():
+            """Pulse the 'Download and install HDF Monkey' button in a soft yellow
+            'breathing' glow while hdfmonkey is missing, so it draws the eye — the
+            amber counterpart to the green transfer-arrow pulse
+            (_start_transfer_idle_animation).
+
+            The timer polices itself: on each tick it checks whether the button is
+            still on offer and stops (restoring the normal look) the moment the
+            button is explicitly hidden — which happens as soon as hdfmonkey is
+            installed or otherwise detected. So callers only ever need to *start*
+            it (from show_hdf_monkey_download_and_install_buttons); every place
+            that hides the button on a successful install/detection stops it for
+            free. Safe to call repeatedly — a second call is a no-op while it runs.
+            """
+            btn = self.download_and_install_hdfmonkey_button
+            if getattr(self, "_hdfmonkey_btn_anim_timer", None) is not None:
+                return  # already pulsing
+
+            steps = 22
+            phase = {"n": 0}
+
+            def _alpha_for(pos):
+                pos %= (2 * steps)
+                tri = pos / steps if pos <= steps else (2 * steps - pos) / steps
+                return int(150 * tri)
+
+            def _tick():
+                # Auto-stop once the button is no longer offered (hdfmonkey found
+                # / installed) so a stray timer can't keep restyling a hidden or
+                # deleted widget. isHidden() (not isVisible()) is used so merely
+                # switching away from the SD-card tab doesn't cancel the pulse.
+                try:
+                    hidden = btn.isHidden()
+                except RuntimeError:
+                    hidden = True
+                if hidden:
+                    _stop_hdfmonkey_button_animation()
+                    return
+                phase["n"] = (phase["n"] + 1) % (2 * steps)
+                a = _alpha_for(phase["n"])
+                try:
+                    btn.setStyleSheet(
+                        "QPushButton { "
+                        f"background-color: rgba(241,196,15,{a}); "
+                        f"border: 1px solid rgba(241,196,15,{min(a + 60, 255)}); "
+                        "border-radius: 4px; }")
+                except RuntimeError:
+                    _stop_hdfmonkey_button_animation()
+
+            timer = QTimer(self)
+            timer.setInterval(55)
+            timer.timeout.connect(_tick)
+            timer.start()
+            self._hdfmonkey_btn_anim_timer = timer
+
+        def _stop_hdfmonkey_button_animation():
+            """Stop the yellow pulse and restore the download button's normal look."""
+            timer = getattr(self, "_hdfmonkey_btn_anim_timer", None)
+            if timer is not None:
+                timer.stop()
+                self._hdfmonkey_btn_anim_timer = None
+            try:
+                self.download_and_install_hdfmonkey_button.setStyleSheet("")
+            except RuntimeError:
+                pass
 
         def load_image(on_done=None):
             """Select and load the disk image named in the image-path combo.
@@ -9025,6 +9550,17 @@ class MainWindow(QMainWindow):
 
         self.horizontal6.addWidget(self.cspect_joystick)
 
+        # Populate Mouse Combo (mouse capture on/off; "Mouse Off" passes -mouse)
+        self.cspect_mouse = QComboBox()
+
+        for msc in CSPECT_MOUSE:
+             self.cspect_mouse.addItem(msc[0])
+
+        self.cspect_mouse.show()
+        self.cspect_mouse.currentIndexChanged.connect(set_cspect_mouse_on_off)
+
+        self.horizontal6.addWidget(self.cspect_mouse)
+
         # Populate frequency Combo
         self.cspect_frequency = QComboBox()
 
@@ -9045,6 +9581,7 @@ class MainWindow(QMainWindow):
                 self.cspect_sound,
                 self.cspect_vsync,
                 self.cspect_joystick,
+                self.cspect_mouse,
                 self.cspect_frequency,
             ):
                 _cspect_widget.setVisible(False)
@@ -21062,6 +21599,52 @@ class MainWindow(QMainWindow):
             self.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
             grid_tab_Settings.addWidget(self.settings_mame_params_edit, 26, 1)
 
+            def settings_mame_update_check_changed():
+                on = self.settings_mame_update_check_checkbox.isChecked()
+                configuration_dictionary[SETTING_MAME_UPDATE_CHECK] = "true" if on else "false"
+                save_configuration_file()
+
+            self.settings_mame_update_check_checkbox = QCheckBox(
+                "Check for a newer MAME version at startup")
+            _mame_upd_pref = configuration_dictionary.get(
+                SETTING_MAME_UPDATE_CHECK, "").strip().lower()
+            self.settings_mame_update_check_checkbox.setChecked(
+                _mame_upd_pref not in ("false", "0", "no"))  # default on
+            self.settings_mame_update_check_checkbox.setToolTip(
+                "When MAME is installed, check GitHub at startup for a newer official\n"
+                "MAME release and, if one exists, offer to download and install it\n"
+                "(overwriting the current downloads/mame files). On by default.\n"
+                "Saved to the configuration file."
+            )
+            self.settings_mame_update_check_checkbox.stateChanged.connect(
+                lambda _s: settings_mame_update_check_changed())
+            grid_tab_Settings.addWidget(self.settings_mame_update_check_checkbox, 27, 0, 1, 2)
+
+        # ── CSpect additional launch parameters ────────────────────────────
+        # Shown unconditionally (unlike the MAME block above, which is gated on
+        # MAME being detected) so the box is available even when CSpect is only
+        # found later via the async downloads scan. Edits persist to SETTING_CUSTOM
+        # and are appended to the CSpect command line by launch_cspect.
+        def settings_cspect_params_changed():
+            configuration_dictionary[SETTING_CUSTOM] = self.settings_cspect_params_edit.text()
+            save_configuration_file()
+
+        cspect_params_lbl = QLabel("CSpect additional launch parameters:")
+        cspect_params_lbl.setToolTip(
+            "Extra command-line parameters appended to the CSpect launch command,\n"
+            "on top of the options chosen on the SD Card Utility tab (screen size,\n"
+            "sound, VSync, joystick, mouse, frequency). Leave empty for none.\n"
+            "Saved to the configuration file."
+        )
+        grid_tab_Settings.addWidget(cspect_params_lbl, 28, 0)
+
+        self.settings_cspect_params_edit = QLineEdit()
+        self.settings_cspect_params_edit.setText(
+            configuration_dictionary.get(SETTING_CUSTOM, ""))
+        self.settings_cspect_params_edit.setToolTip(cspect_params_lbl.toolTip())
+        self.settings_cspect_params_edit.editingFinished.connect(settings_cspect_params_changed)
+        grid_tab_Settings.addWidget(self.settings_cspect_params_edit, 28, 1)
+
         # ── Unite! pygame background animation toggle ──────────────────────
         def _settings_pygame_anim_changed():
             on = self.settings_pygame_anim_checkbox.isChecked()
@@ -21089,7 +21672,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_pygame_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 27, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 29, 0, 1, 2)
 
         # ── NextSync retro-log starfield animation toggle ──────────────────
         def _settings_nextsync_anim_changed():
@@ -21121,7 +21704,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_nextsync_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_nextsync_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 30, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 32, 0, 1, 2)
 
         # ── Alien Floyd's: optional pygame-ce animated background everywhere ──
         # A Pink Floyd homage. When on, a pygame-ce "Alien Floyd's" animation
@@ -21176,7 +21759,7 @@ class MainWindow(QMainWindow):
             "file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_bg_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_bg_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 28, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 30, 0, 1, 2)
 
         # ── Alien Floyd's: optional dedicated full-window tab ────────────────
         self._alien_floyd_tab_widget = None
@@ -21248,7 +21831,7 @@ class MainWindow(QMainWindow):
             "configuration file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 29, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 31, 0, 1, 2)
 
         # ── itch.io: optional online tab (driven by the 'itch-dl' package) ───
         def _itchio_tab_set_visible(on):
@@ -21291,7 +21874,7 @@ class MainWindow(QMainWindow):
                 "configuration file. Requires the optional 'itch-dl' package.")
         self.settings_show_itchio_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_itchio_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 31, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 33, 0, 1, 2)
 
         # ── NextSync: what to do when a received file/dir already exists locally ──
         def _settings_nextsync_send_conflict_changed():
@@ -21364,7 +21947,7 @@ class MainWindow(QMainWindow):
         # width rather than stretching across both columns.
         self.button_open_config_file = QPushButton("Open config file", self)
         self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
-        grid_tab_Settings.addWidget(self.button_open_config_file, 32, 0, 1, 2, Qt.AlignLeft)
+        grid_tab_Settings.addWidget(self.button_open_config_file, 34, 0, 1, 2, Qt.AlignLeft)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
@@ -21998,6 +22581,15 @@ class MainWindow(QMainWindow):
         # Use a small delay (not 0) so the first paint/show events have a
         # chance to be processed before any thumbnail fetch threads spin up.
         QTimer.singleShot(150, _deferred_startup_tab_activation)
+
+        # Once the window is up and the config (enable flag + last installed MAME
+        # tag) has loaded, check GitHub for a newer MAME release in the background
+        # and offer to update if one is found. The helper self-gates: it no-ops
+        # when MAME isn't installed, the check is disabled in Settings, or
+        # automatic install isn't supported on this OS/CPU. The delay lets the
+        # emulator-detection toast appear first so the two don't collide.
+        QTimer.singleShot(1800, self._check_mame_update_async)
+
         # Expose the nested save function so closeEvent (a class method) can call it.
         self._save_configuration_file = save_configuration_file
 
@@ -22024,6 +22616,12 @@ class MainWindow(QMainWindow):
             # no longer Windows-only.
             self.button_new_folder.setVisible(False)
             self.button_delete_files.setVisible(False)
+            # MAME doesn't need hdfmonkey: with hdfmonkey absent load_image()
+            # isn't run at startup, so nothing would otherwise enable the MAME
+            # launch button even when MAME is present. Refresh it here (the
+            # background scan re-affirms via show_hdf_monkey_download_and_install
+            # once detection completes).
+            _update_mame_launch_button()
 
         # Background scan of downloads/cspect for an itch.io CSpect bundle. Run
         # only when CSpect or hdfmonkey (either, any platform) is still missing —
@@ -22088,7 +22686,8 @@ class MainWindow(QMainWindow):
                 # emulator was found; reveal them now that a bundled copy exists.
                 for _w in (self.button_start_cspect, self.cspect_screensize,
                            self.cspect_sound, self.cspect_vsync,
-                           self.cspect_joystick, self.cspect_frequency):
+                           self.cspect_joystick, self.cspect_mouse,
+                           self.cspect_frequency):
                     _w.setVisible(True)
                 add_main_log_window(f"Found CSpect under downloads/cspect: {cspect_path}")
 
@@ -22189,7 +22788,7 @@ class MainWindow(QMainWindow):
             cspect_widgets = (
                 self.button_start_cspect, self.cspect_screensize,
                 self.cspect_sound, self.cspect_vsync,
-                self.cspect_joystick, self.cspect_frequency)
+                self.cspect_joystick, self.cspect_mouse, self.cspect_frequency)
 
             cleared_cspect = False
             if _under(self._cspect_executable_path, removed_path):
