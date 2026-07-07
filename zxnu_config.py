@@ -7,6 +7,7 @@ tables, small pure helpers and the zxArt language state."""
 import io
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -15,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "8.5"
+ZX_NEXT_UNITE_VERSION = "8.6"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -98,6 +99,10 @@ HDF_MONKEY_WINDOWS_URL = "https://uto.speccy.org/downloads/hdfmonkey_windows.zip
 # extract_hdfmonkey_from_jjjs_zip().
 HDF_MONKEY_JJJS_URL = "https://www.specnext.com/forum/download/file.php?id=1159"
 HDF_MONKEY_JJJS_ZIP_PASSWORD = b"jjjs"
+# File name the in-app auto-download saves the jjjs archive under (inside the
+# top-level downloads folder). Also the name the manual-fallback message suggests
+# so find_hdfmonkey_jjjs_zip_in_downloads re-discovers a hand-placed copy.
+HDF_MONKEY_JJJS_ZIP_FILENAME = "hdfmonkey_jjjs.zip"
 
 SETTING_HDDFILE = "hddffile"
 SETTING_EXPLORERPATH = "explorerpath"
@@ -106,11 +111,14 @@ SETTING_SOUND = "sound"
 SETTING_VSYNC = "vsync"
 SETTING_HERTZ = "hertz"
 SETTING_JOYSTICK = "joy"
+SETTING_MOUSE = "mouse"
 SETTING_CSPECT = "cspect"
 SETTING_CUSTOM = "custom"
 SETTING_ESC = "esc"
 SETTING_MAME_COMMAND_LINE_PARAMETERS = "mame_command_line_parameters"
 SETTING_MAME_ROM_CHOICE              = "mame_rom_choice"            # MAME system/ROM, e.g. "tbblue" (default)
+SETTING_MAME_UPDATE_CHECK            = "mame_update_check"          # "false" => skip the startup MAME update check (default on)
+SETTING_MAME_INSTALLED_TAG           = "mame_installed_tag"         # GitHub release tag of the MAME build installed via the app (e.g. "mame0272")
 SETTING_DISABLE_NO_EMULATOR_TOAST  = "disable_no_emulator_toast"   # bool (default False)
 SETTING_NEXTSYNC_EXPLORERPATH = "nextsync_explorerpath"
 SETTING_NEXTSYNC_SYNCONCE = "nextsync_synconce"
@@ -205,7 +213,7 @@ def resource_path(relative_path):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
 
-def subprocess_no_window_kwargs(extra_flags=0):
+def subprocess_no_window_kwargs(extra_flags=0, gui_app=False):
     """Return subprocess kwargs that prevent a console window from flashing.
 
     On Windows, command-line tools such as hdfmonkey would otherwise briefly
@@ -214,17 +222,25 @@ def subprocess_no_window_kwargs(extra_flags=0):
     keeps them invisible. On other platforms this is a no-op. ``extra_flags``
     lets callers OR in additional Windows creation flags (e.g.
     CREATE_NEW_PROCESS_GROUP).
+
+    Set ``gui_app=True`` when launching a *graphical* program (e.g. the MAME
+    emulator) rather than a CLI tool. Such a program creates its own top-level
+    window and, when it does so with SW_SHOWDEFAULT, inherits the initial
+    show-state from ``STARTUPINFO.wShowWindow`` — so the SW_HIDE startupinfo used
+    for CLI tools would make the program's own window open *invisible*. For GUI
+    apps we therefore still suppress a stray console window (CREATE_NO_WINDOW)
+    but leave the show-state alone so the app's window appears normally.
     """
     if platform.system() != "Windows":
         return {}
     CREATE_NO_WINDOW = 0x08000000
-    startupinfo = subprocess.STARTUPINFO()
-    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    startupinfo.wShowWindow = subprocess.SW_HIDE
-    return {
-        "creationflags": CREATE_NO_WINDOW | extra_flags,
-        "startupinfo": startupinfo,
-    }
+    kwargs = {"creationflags": CREATE_NO_WINDOW | extra_flags}
+    if not gui_app:
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
 def zxart_legal_status_label(code) -> str:
     """Return a human-readable label for a zxArt ``legalStatus`` code.
 
@@ -685,13 +701,13 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("Enjoy!"),
              ("")
             )
-CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE,
+CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_MOUSE, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE,
 SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME,
 SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_COLOR_GENERAL_TEXT, SETTING_DESKTOP_THEME, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_SEARCH_SORT_MODE, SETTING_GALLERY_ANIM_MODE,
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GALLERY_SLIDESHOW_SECS, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
-SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
+SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
 SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_SDCARD_PYGAME_LOG, SETTING_HELP_PYGAME_LOG,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO)
@@ -703,6 +719,9 @@ CSPECT_SCREEN_SIZES = (("Screen Size X1", "-w1"),("Screen Size X2", "-w2"),("Scr
 CSPECT_SOUND = (("Sound On", ""),("Sound Off", "-sound"))
 CSPECT_SCREEN_SYNC = (("VSync On", "-vsync"),("VSync Off", ""))
 CSPECT_JOYSTICK = (("Joystick On", "-joystick"),("Joystick Off", ""))
+# CSpect captures the mouse by default; "-mouse" *disables* mouse capture. So
+# "Mouse On" (default) passes nothing and "Mouse Off" passes "-mouse".
+CSPECT_MOUSE = (("Mouse On", ""),("Mouse Off", "-mouse"))
 CSPECT_FREQUENCY = (("50Hz", ""),("60Hz", "-60"))
 CSPECT_BASE_ARGUMENTS = "-basickeys -zxnext -nextrom"
 
@@ -765,6 +784,30 @@ def mame_windows_asset_arch():
     if machine in ("amd64", "x86_64", "x64"):
         return "x64"
     return None
+
+
+def parse_mame_version_number(text):
+    """Extract MAME's integer minor version from *text*, or ``None``.
+
+    MAME versions increase monotonically (0.271, 0.272, 0.273 …) so the integer
+    after the ``0.`` is enough to compare releases. This accepts either the
+    GitHub release-tag form (``"mame0272"`` → 272) or a version string emitted by
+    the binary (``"0.272"`` / ``"MAME v0.272 (mame0272)"`` → 272), so the same
+    helper works for both the latest-release tag and the installed build's
+    self-reported version.
+    """
+    if not text:
+        return None
+    s = str(text).lower()
+    m = re.search(r"mame0*(\d+)", s)      # release-tag form, e.g. mame0272
+    if not m:
+        m = re.search(r"0\.(\d+)", s)     # version-string form, e.g. 0.272
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
 
 
 def select_mame_release_asset(release, arch):
@@ -856,6 +899,11 @@ def normalize_sd_image_path(raw) -> str:
 UP_DIRECTORY = "[Up Directory..]"
 DIRECTORY_CREATION_NOT_ALLOWED_CHARACTERS = ('"', '<', '>', ':', '\\', '/', '|', '?', '*', '!', '(',')', '.', "'", '$', '@')
 HDFMONKEY_EXECUTABLE = "hdfmonkey"
+
+# Top-level downloads folder (relative to the application directory). This is
+# where the manual-fallback flow asks the user to drop a hand-downloaded
+# hdfmonkey archive when the automatic download from specnext.com is blocked.
+DOWNLOADS_ROOT_DIRNAME = "downloads"
 
 # Sub-directory (relative to the application directory) where itch.io CSpect
 # installs are downloaded by the itch.io tab. Several CSpect versions may live
@@ -1084,6 +1132,73 @@ def find_hdfmonkey_in_downloads(base_dir):
         candidate = os.path.join(root, plat_dir, exe)
         if os.path.isfile(candidate):
             return candidate
+    return None
+
+
+def _looks_like_hdfmonkey_jjjs_zip(outer_zip):
+    """Return True when an already-opened ``zipfile.ZipFile`` has the shape of the
+    jjjs hdfmonkey archive: an outer zip carrying a nested ``.zip`` member, plus
+    either the ``password.txt`` that unlocks it or an entry name hinting at
+    hdfmonkey / jjjs. Keeps the manual-drop scan from mistaking an unrelated zip
+    in the downloads folder (an itch.io payload, say) for the hdfmonkey build."""
+    try:
+        names = [n.lower() for n in outer_zip.namelist()]
+    except Exception:
+        return False
+    if not any(n.endswith(".zip") for n in names):
+        return False
+    if any(os.path.basename(n) == "password.txt" for n in names):
+        return True
+    return any(("hdfm" in n or "jjjs" in n) for n in names)
+
+
+def find_hdfmonkey_jjjs_zip_in_downloads(base_dir):
+    """Locate a jjjs hdfmonkey archive the user manually downloaded and dropped
+    into the ``downloads`` folder.
+
+    When the in-app auto-download from ``HDF_MONKEY_JJJS_URL`` is blocked (e.g.
+    specnext.com serves a login or anti-robot page instead of the attachment),
+    the app invites the user to fetch the zip in a browser and drop it into
+    ``<base_dir>/downloads/``. This scans that folder (and the per-platform
+    ``downloads/hdfmonkey`` sub-folder) for a zip whose shape matches the jjjs
+    archive — see :func:`_looks_like_hdfmonkey_jjjs_zip` — so
+    :func:`extract_hdfmonkey_from_jjjs_zip` can then unpack it.
+
+    Returns the full path to the first matching archive, or ``None`` when none is
+    found.
+    """
+    if not base_dir:
+        return None
+    search_dirs = [
+        os.path.join(base_dir, DOWNLOADS_ROOT_DIRNAME),
+        os.path.join(base_dir, DOWNLOADS_HDFMONKEY_DIRNAME),
+    ]
+    seen = set()
+    for d in search_dirs:
+        if not os.path.isdir(d):
+            continue
+        try:
+            entries = sorted(os.listdir(d))
+        except OSError:
+            continue
+        for name in entries:
+            if not name.lower().endswith(".zip"):
+                continue
+            path = os.path.join(d, name)
+            if not os.path.isfile(path):
+                continue
+            real = os.path.realpath(path)
+            if real in seen:
+                continue
+            seen.add(real)
+            try:
+                if not zipfile.is_zipfile(path):
+                    continue
+                with zipfile.ZipFile(path) as outer:
+                    if _looks_like_hdfmonkey_jjjs_zip(outer):
+                        return path
+            except (OSError, zipfile.BadZipFile):
+                continue
     return None
 
 
