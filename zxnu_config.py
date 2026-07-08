@@ -119,6 +119,9 @@ SETTING_MAME_COMMAND_LINE_PARAMETERS = "mame_command_line_parameters"
 SETTING_MAME_ROM_CHOICE              = "mame_rom_choice"            # MAME system/ROM, e.g. "tbblue" (default)
 SETTING_MAME_UPDATE_CHECK            = "mame_update_check"          # "false" => skip the startup MAME update check (default on)
 SETTING_MAME_INSTALLED_TAG           = "mame_installed_tag"         # GitHub release tag of the MAME build installed via the app (e.g. "mame0272")
+SETTING_MAME_ASPECT                  = "mame_aspect"               # combo index into MAME_ASPECT (display aspect ratio, e.g. 2:1 / 1:1)
+SETTING_MAME_MOUSE                   = "mame_mouse"                # combo index into MAME_MOUSE (mouse capture on/off)
+SETTING_MAME_JOYSTICK                = "mame_joystick"             # combo index into MAME_JOYSTICK (joystick input on/off)
 SETTING_DISABLE_NO_EMULATOR_TOAST  = "disable_no_emulator_toast"   # bool (default False)
 SETTING_NEXTSYNC_EXPLORERPATH = "nextsync_explorerpath"
 SETTING_NEXTSYNC_SYNCONCE = "nextsync_synconce"
@@ -707,7 +710,7 @@ SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_COLOR_GENERAL_TEXT, SET
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GALLERY_SLIDESHOW_SECS, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
-SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
+SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
 SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_SDCARD_PYGAME_LOG, SETTING_HELP_PYGAME_LOG,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO)
@@ -731,11 +734,58 @@ FONT_RED = QColor(255, 0, 0)
 
 MAME_ROM_CHOICE = (("tbblue"), ("specnext_ks1"), ("specnext_ks2"), ("specnext_ks3"))
 MAME_EXECUTABLE_NAME = "mame"
-# The ROM/system (e.g. "tbblue") and the "-hard1 <image>" arguments are NOT part
-# of this default: the ROM is chosen by the user (SETTING_MAME_ROM_CHOICE) and
-# "-hard1 <image>" is appended dynamically at launch so the image is always the
-# last argument passed to MAME.
-MAME_DEFAULT_COMMAND_LINE = "{MAME_EXECUTABLE_NAME} -ui_active -nounevenstretch -aspect 2:1 -video bgfx  -bgfx_screen_chains unfiltered -window -skip_gameinfo -confirm_quit"
+
+# MAME per-launch options exposed as combo boxes in the SD Card Utility's MAME
+# group, mirroring the CSpect options. Each tuple is (label, argument); the
+# first entry is the first-run default. These are appended dynamically at launch
+# (see launch_mame) and are NOT baked into MAME_DEFAULT_COMMAND_LINE, so the
+# user can flip them from the UI without editing the raw command line. Option
+# names follow the specnext MAME guide (https://wiki.specnext.dev/MAME:Installing)
+# and `mame -showusage`:
+#   -aspect W:H            display aspect ratio (2:1 is the crisp-pixel default)
+#   -mouse                 enable host mouse capture (Kempston mouse)
+#   -mouse_device none     disable the mouse control (wiki's recommended default)
+#   -joystick              enable joystick input
+#   -joystickprovider none disable joystick detection
+MAME_ASPECT = (("Aspect 2:1", "-aspect 2:1"), ("Aspect 1:1", "-aspect 1:1"))
+MAME_MOUSE = (("Mouse Off", "-mouse_device none"), ("Mouse On", "-mouse"))
+MAME_JOYSTICK = (("Joystick On", "-joystick"), ("Joystick Off", "-joystickprovider none"))
+
+# Options now driven by the MAME group combos above. They are stripped from any
+# user-edited command-line params at launch so the combo selections are the
+# single source of truth (never duplicated or in conflict). Flag options take no
+# value; value options consume the following token.
+MAME_COMBO_FLAG_OPTIONS = frozenset({"-mouse", "-nomouse", "-joystick", "-nojoystick"})
+MAME_COMBO_VALUE_OPTIONS = frozenset({"-aspect", "-mouse_device", "-joystickprovider"})
+
+def strip_mame_combo_options(tokens):
+    """Remove the aspect/mouse/joystick options (and their values) from a list of
+    MAME command-line tokens so the values chosen in the MAME group combos are
+    authoritative. Returns a new list; the input is left unchanged."""
+    result = []
+    skip_next = False
+    for token in tokens:
+        if skip_next:
+            skip_next = False
+            continue
+        if token in MAME_COMBO_VALUE_OPTIONS:
+            skip_next = True
+            continue
+        if token in MAME_COMBO_FLAG_OPTIONS:
+            continue
+        result.append(token)
+    return result
+
+# The ROM/system (e.g. "tbblue"), the aspect/mouse/joystick options (chosen via
+# the combos above) and the "-hard1 <image>" arguments are NOT part of this
+# default: the ROM is chosen by the user (SETTING_MAME_ROM_CHOICE), the combo
+# options are appended at launch, and "-hard1 <image>" is appended dynamically
+# so the image is always the last argument passed to MAME.
+MAME_DEFAULT_COMMAND_LINE = "{MAME_EXECUTABLE_NAME} -ui_active -nounevenstretch -video bgfx -bgfx_screen_chains unfiltered -window -skip_gameinfo -confirm_quit"
+# Previous default that hard-coded "-aspect 2:1"; a saved cfg still carrying this
+# exact string is migrated to MAME_DEFAULT_COMMAND_LINE on load so the Settings
+# command-line box no longer duplicates the now combo-controlled aspect option.
+MAME_DEFAULT_COMMAND_LINE_LEGACY = "{MAME_EXECUTABLE_NAME} -ui_active -nounevenstretch -aspect 2:1 -video bgfx  -bgfx_screen_chains unfiltered -window -skip_gameinfo -confirm_quit"
 # Appended right before the image path at launch time.
 MAME_HARD_DISK_PARAMETER = "-hard1"
 # Setup guide for the ZX Spectrum Next MAME support. Notably it documents the
