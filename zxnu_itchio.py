@@ -319,6 +319,64 @@ class _StreamToLog(io.TextIOBase):
         return None
 
 
+# Shown when itch-dl "succeeds" (exit 0 / no return value) but nothing actually
+# downloaded. Since ~2025 itch.io fronts its game pages with a Cloudflare bot
+# challenge that returns HTTP 403 to non-browser clients, so itch-dl can no
+# longer scrape the page (or its data.json) to find the uploads — the itch.io
+# *API* still works (the key validates and download keys are fetched), only the
+# page/site fetch is blocked. This affects every itch-dl version (0.7.2 is the
+# latest) regardless of user-agent, so the practical workaround is a manual
+# browser download.
+ITCHIO_BLOCKED_MSG = (
+    "itch.io blocked the automated download: its game pages are now behind a "
+    "Cloudflare bot challenge that returns HTTP 403 to itch-dl, so the page "
+    "can't be read and nothing was downloaded. Open the item's itch.io page in "
+    "your browser and download the file manually.")
+
+
+def _itchdl_failure_from_output(text):
+    """Return a user-facing message when itch-dl's captured output reports that a
+    game download failed, otherwise "".
+
+    itch-dl exits 0 and ``drive_downloads`` returns ``None`` even when a game
+    fails — it merely prints ``Download failed for <url>:`` followed by the
+    reason — so the exit code / return value cannot be trusted to detect
+    failure. The Cloudflare 403 block gets a tailored, actionable message; any
+    other failure surfaces itch-dl's own reason line."""
+    if not text:
+        return ""
+    low = text.lower()
+    reported = ("download failed for" in low
+                or "could not download the game site" in low
+                or "game data fetching failed" in low)
+    if not reported:
+        return ""
+    if "403" in low or "forbidden" in low or "cloudflare" in low:
+        return ITCHIO_BLOCKED_MSG
+    for ln in text.splitlines():
+        s = ln.strip()
+        if s.startswith("- ") and s[2:].strip():
+            return s[2:].strip()
+    return "itch-dl reported the download failed; nothing was downloaded."
+
+
+def _download_produced_files(game, dest_dir):
+    """True when a real file (not just an empty game folder) was downloaded for
+    *game* under *dest_dir*.
+
+    itch-dl creates the per-game folder even when the download fails, so an
+    existing-but-empty folder must count as 'nothing downloaded'. Used as a
+    catch-all backstop so a silently failed install is never reported as
+    success regardless of how itch-dl signalled it."""
+    path = installed_path(game, dest_dir)
+    if not path or not os.path.isdir(path):
+        return False
+    for _root, _dirs, files in os.walk(path):
+        if files:
+            return True
+    return False
+
+
 def _install_in_process(game_url, api_key, dest_dir, log_cb=None):
     """Run itch-dl entirely in-process (no subprocess).
 
@@ -335,7 +393,13 @@ def _install_in_process(game_url, api_key, dest_dir, log_cb=None):
     *log_cb*. Returns ``(ok, message)``; runs synchronously — call from a worker
     thread."""
 
+    # Capture forwarded lines too: drive_downloads() prints "Download failed
+    # for <url>:" and returns None even on failure, so scanning the output is
+    # how the failure is actually detected below.
+    _captured = []
+
     def _log(line):
+        _captured.append(line)
         if log_cb:
             try:
                 log_cb(line)
@@ -394,6 +458,11 @@ def _install_in_process(game_url, api_key, dest_dir, log_cb=None):
 
             keys = get_download_keys(client)
             drive_downloads(jobs, settings, keys)
+            # drive_downloads never raises on a per-game failure; detect it from
+            # the output it printed (e.g. the Cloudflare 403 page block).
+            fail = _itchdl_failure_from_output("\n".join(_captured))
+            if fail:
+                return False, fail
             return True, f"Installed to {dest_dir}"
     except SystemExit as exc:
         # itch-dl internals call exit()/sys.exit() on fatal config problems.
@@ -405,12 +474,184 @@ def _install_in_process(game_url, api_key, dest_dir, log_cb=None):
         root.removeHandler(handler)
 
 
-def install_game(game, api_key, dest_dir, log_cb=None, timeout=3600):
-    """Download/install a single game via itch-dl into *dest_dir*.
+def _canonical_itch_url(url):
+    """Normalise an itch.io URL for equality checks (drop scheme, trailing slash,
+    case)."""
+    if not url:
+        return ""
+    return re.sub(r"^https?://", "", url.strip().lower()).rstrip("/")
 
-    Returns ``(ok, message)``. *log_cb*, when given, receives streamed output
-    lines so the UI can show progress. Runs synchronously — call from a worker
-    thread."""
+
+def _author_slug_from_url(url):
+    """Return ``(author, game_slug)`` parsed from an itch.io URL such as
+    ``https://mdf200.itch.io/cspect`` → ``("mdf200", "cspect")``. Mirrors the
+    ``<author>/<game>`` layout itch-dl uses under the download dir, so the API
+    download lands where ``installed_path`` / the emulator scan already look.
+    Falls back to ``("itchio", <slug>)`` when the subdomain can't be parsed."""
+    m = re.search(r"https?://([^./]+)\.itch\.io/([^/?#]+)", url or "")
+    if m:
+        return m.group(1), m.group(2)
+    return "itchio", (_game_slug({"url": url}) or "item")
+
+
+def _owned_key_for_game(game, api_key):
+    """Locate *game* among the user's owned itch.io download keys and return
+    ``(game_id, download_key_id)``, or ``(None, None)`` when it isn't owned.
+
+    itch.io now fronts its game *pages* with a Cloudflare bot challenge (HTTP
+    403), which is what breaks itch-dl, but the ``api.itch.io`` endpoints — incl.
+    ``/profile/owned-keys`` — are unaffected. So for anything the user owns
+    (bought, or claimed for free like CSpect) this yields the download key
+    needed to fetch the uploads directly, no page scrape required."""
+    want_url = _canonical_itch_url((game or {}).get("url"))
+    want_id = str((game or {}).get("id") or "")
+    for page in range(1, ITCH_MAX_PAGES + 1):
+        data = _api_get("/profile/owned-keys", api_key, params={"page": page})
+        keys = (data or {}).get("owned_keys") or []
+        if not keys:
+            break
+        for k in keys:
+            g = k.get("game") or {}
+            if (want_id and str(g.get("id")) == want_id) or \
+               (want_url and _canonical_itch_url(g.get("url")) == want_url):
+                return g.get("id"), k.get("id")
+        # owned-keys is paginated; stop once a short page is returned.
+        if len(keys) < int(data.get("per_page") or len(keys) or 1):
+            break
+    return None, None
+
+
+def _stream_response_to_file(resp, dest_path, log_cb=None):
+    """Stream an open HTTP response body to *dest_path* (via a .part temp file
+    that is renamed on completion). Returns the byte count."""
+    tmp = dest_path + ".part"
+    total = 0
+    with open(tmp, "wb") as fh:
+        while True:
+            chunk = resp.read(65536)
+            if not chunk:
+                break
+            fh.write(chunk)
+            total += len(chunk)
+    os.replace(tmp, dest_path)
+    if log_cb:
+        try:
+            log_cb(f"Downloaded {total} bytes → {os.path.basename(dest_path)}")
+        except Exception:
+            pass
+    return total
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Redirect handler that refuses to auto-follow, so we can read the 302
+    ``Location`` ourselves and fetch the signed CDN URL without re-sending the
+    itch.io ``Authorization`` header (the CDN rejects it with HTTP 400)."""
+
+    def redirect_request(self, *_args, **_kw):
+        return None
+
+
+def _download_api_upload(upload_id, download_key_id, api_key, dest_path, log_cb=None):
+    """Download one owned upload to *dest_path* via the itch.io API.
+
+    ``/uploads/{id}/download`` 302-redirects to a signed CDN URL that rejects the
+    ``Authorization`` header, so the redirect is resolved first (authenticated,
+    not auto-followed) and the CDN URL then fetched with a clean request."""
+    api_url = (ITCH_API_BASE + f"/uploads/{upload_id}/download"
+               f"?download_key_id={download_key_id}")
+    req = urllib.request.Request(api_url, headers={
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": ITCH_USER_AGENT,
+    })
+    opener = urllib.request.build_opener(_NoRedirect)
+    cdn_url = None
+    try:
+        with opener.open(req, timeout=60) as resp:
+            # No redirect: the API streamed the file itself.
+            _stream_response_to_file(resp, dest_path, log_cb)
+            return
+    except urllib.error.HTTPError as exc:
+        if exc.code in (301, 302, 303, 307, 308):
+            cdn_url = exc.headers.get("Location")
+        else:
+            raise
+    if not cdn_url:
+        raise RuntimeError("itch.io did not return a download URL.")
+    req2 = urllib.request.Request(cdn_url, headers={"User-Agent": ITCH_USER_AGENT})
+    with urllib.request.urlopen(req2, timeout=300) as resp2:
+        _stream_response_to_file(resp2, dest_path, log_cb)
+
+
+def install_via_api(game, api_key, dest_dir, log_cb=None):
+    """Download an *owned* itch.io item straight from the itch.io API, bypassing
+    the Cloudflare-blocked game-page scrape that itch-dl relies on.
+
+    Returns ``(ok, message)`` when the item is owned (so the API path applies),
+    or ``None`` when it isn't among the user's owned keys — signalling the caller
+    to fall back to itch-dl. The newest upload (by version-sorted filename) is
+    saved under ``<dest>/<author>/<game>/files/`` so the existing post-install
+    extract step unpacks it into a build-numbered folder and the emulator scan
+    can discover it."""
+    def _log(line):
+        if log_cb:
+            try:
+                log_cb(line)
+            except Exception:
+                pass
+
+    game_id, key_id = _owned_key_for_game(game, api_key)
+    if not game_id or not key_id:
+        return None  # not owned / no download key — let the caller fall back
+
+    _log("Downloading via the itch.io API (bypassing the Cloudflare page block)…")
+    data = _api_get(f"/games/{game_id}/uploads", api_key,
+                    params={"download_key_id": key_id})
+    uploads = [u for u in ((data or {}).get("uploads") or []) if u.get("id")]
+    if not uploads:
+        return False, "itch.io returned no downloadable files for this item."
+
+    # Newest build first (CSpect3_1_4_0 > CSpect3_1_3_0 > CSpect3_0_15_2).
+    uploads.sort(key=lambda u: _version_sort_key(u.get("filename") or ""),
+                 reverse=True)
+    upload = uploads[0]
+    filename = upload.get("filename") or f"upload-{upload['id']}"
+
+    author, slug = _author_slug_from_url((game or {}).get("url"))
+    files_dir = os.path.join(dest_dir, author, slug, "files")
+    os.makedirs(files_dir, exist_ok=True)
+    zip_path = os.path.join(files_dir, filename)
+
+    _log(f"Fetching {filename} …")
+    _download_api_upload(upload["id"], key_id, api_key, zip_path, log_cb=log_cb)
+    return True, f"Installed to {os.path.join(dest_dir, author, slug)}"
+
+
+def manual_install_zip(game, zip_path, dest_dir):
+    """Install a manually-downloaded itch.io ``.zip`` (the browser fallback used
+    when the automated download is Cloudflare-blocked).
+
+    Copies *zip_path* into the item's ``<dest>/<author>/<game>/files/`` folder —
+    the same layout an API / itch-dl install uses, so ``installed_path`` and the
+    emulator scan find it — then extracts it into a build-numbered subfolder
+    (via :func:`extract_zip`). Returns the extracted directory path."""
+    author, slug = _author_slug_from_url((game or {}).get("url"))
+    files_dir = os.path.join(dest_dir, author, slug, "files")
+    os.makedirs(files_dir, exist_ok=True)
+    target = os.path.join(files_dir, os.path.basename(zip_path))
+    if os.path.abspath(zip_path) != os.path.abspath(target):
+        import shutil
+        shutil.copy2(zip_path, target)
+    return extract_zip(target)
+
+
+def install_game(game, api_key, dest_dir, log_cb=None, timeout=3600):
+    """Download/install a single game into *dest_dir*.
+
+    Prefers the itch.io API (works for owned items, and bypasses the Cloudflare
+    bot challenge that now blocks itch-dl's page scrape); falls back to itch-dl
+    for items the user doesn't own. Returns ``(ok, message)``. *log_cb*, when
+    given, receives streamed output lines so the UI can show progress. Runs
+    synchronously — call from a worker thread."""
     api_key = (api_key or "").strip()
     game_url = (game or {}).get("url") or ""
     if not api_key:
@@ -426,17 +667,44 @@ def install_game(game, api_key, dest_dir, log_cb=None, timeout=3600):
             except Exception:
                 pass
 
-    # In a PyInstaller-frozen build, sys.executable is the GUI executable rather
-    # than a Python interpreter, so a "[sys.executable, -m, itch_dl, …]"
-    # subprocess just relaunches the app instead of running itch-dl (the folder
-    # is created but nothing is downloaded). Run itch-dl in-process there — it is
-    # bundled into the exe and importable. The subprocess path below is kept for
-    # the source/venv build, where it stays nicely isolated and already works.
+    # 1) Preferred: the itch.io API. itch-dl scrapes the game page, which itch.io
+    #    now Cloudflare-blocks (HTTP 403), but the API is unaffected — so this is
+    #    what actually restores installs for owned items (e.g. CSpect).
+    try:
+        api_result = install_via_api(game, api_key, dest_dir, log_cb=_log)
+    except Exception as exc:
+        _log(f"itch.io API download failed: {exc}")
+        api_result = (False, f"itch.io API download failed: {exc}")
+    if api_result is not None:
+        ok, msg = api_result
+        if ok and not _download_produced_files(game, dest_dir):
+            return False, ITCHIO_BLOCKED_MSG
+        return ok, msg
+
+    # 2) Not owned: fall back to itch-dl. In a PyInstaller-frozen build,
+    #    sys.executable is the GUI exe (a "-m itch_dl" subprocess would relaunch
+    #    the app), so itch-dl is driven in-process there; the source/venv build
+    #    uses the isolated subprocess path.
     if getattr(sys, "frozen", False):
         _log("Running bundled itch-dl in-process (frozen build)…")
-        return _install_in_process(game_url, api_key, dest_dir, log_cb=_log)
+        ok, msg = _install_in_process(game_url, api_key, dest_dir, log_cb=_log)
+    else:
+        ok, msg = _run_itchdl_subprocess(game_url, api_key, dest_dir, _log, timeout)
 
-    # Try `python -m itch_dl` first, then the `itch-dl` console script.
+    # Backstop: itch-dl can report success (exit 0 / no return) while itch.io
+    # blocked the actual download, leaving an empty game folder. If nothing
+    # landed on disk, override the phantom success with a clear message.
+    if ok and not _download_produced_files(game, dest_dir):
+        return False, ITCHIO_BLOCKED_MSG
+    return ok, msg
+
+
+def _run_itchdl_subprocess(game_url, api_key, dest_dir, _log, timeout):
+    """Run itch-dl as a subprocess (source/venv build) and return ``(ok, msg)``.
+
+    Tries ``python -m itch_dl`` first, then the ``itch-dl`` console script.
+    Because itch-dl exits 0 even when a game download fails, the captured output
+    is scanned for a failure report before success is declared."""
     attempts = [
         _itchdl_command(game_url, api_key, dest_dir),
         ["itch-dl", game_url, "--api-key", api_key, "--download-to", dest_dir],
@@ -456,11 +724,15 @@ def install_game(game, api_key, dest_dir, log_cb=None, timeout=3600):
         out = (proc.stdout or "") + (proc.stderr or "")
         for ln in out.splitlines():
             _log(ln)
+        # itch-dl exits 0 even when a game fails to download (it just prints
+        # "Download failed for …"), so check the output before trusting success.
+        fail = _itchdl_failure_from_output(out)
+        if fail:
+            return False, fail
         if proc.returncode == 0:
             return True, f"Installed to {dest_dir}"
-        last_err = f"itch-dl exited with code {proc.returncode}"
         # A non-zero exit is a real failure (not a missing executable): stop.
-        return False, last_err
+        return False, f"itch-dl exited with code {proc.returncode}"
     return False, f"Could not launch itch-dl: {last_err}"
 
 
