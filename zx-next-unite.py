@@ -3280,6 +3280,12 @@ class MainWindow(QMainWindow):
                 self.cspect_joystick.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_JOYSTICK]))
                 self.cspect_mouse.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MOUSE]))
                 self.cspect_frequency.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_HERTZ]))
+                # MAME option combos (aspect / mouse / joystick). Stored as combo
+                # indices; an absent value ("") maps to index 0 (the default).
+                if hasattr(self, "mame_aspect"):
+                    self.mame_aspect.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MAME_ASPECT]))
+                    self.mame_mouse.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MAME_MOUSE]))
+                    self.mame_joystick.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MAME_JOYSTICK]))
 
                 if configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING]== "":
                     # First run (no previously saved tab): default to the
@@ -3405,6 +3411,13 @@ class MainWindow(QMainWindow):
                     _params = configuration_dictionary.get(
                         SETTING_MAME_COMMAND_LINE_PARAMETERS, "")
                     if not _params:
+                        _params = MAME_DEFAULT_COMMAND_LINE
+                    # Migrate the legacy default that hard-coded "-aspect 2:1" to
+                    # the new default now that aspect is a combo box, so the
+                    # editable command-line box no longer shows a stale, now
+                    # combo-controlled option. (Launch-time stripping still handles
+                    # any other custom occurrences — see launch_mame.)
+                    elif _params.strip() == MAME_DEFAULT_COMMAND_LINE_LEGACY:
                         _params = MAME_DEFAULT_COMMAND_LINE
                     self.settings_mame_params_edit.blockSignals(True)
                     self.settings_mame_params_edit.setText(_params)
@@ -3944,6 +3957,20 @@ class MainWindow(QMainWindow):
             configuration_dictionary[SETTING_HERTZ] = self.cspect_frequency.currentIndex()
             save_configuration_file()
 
+        # MAME per-launch option combos (aspect / mouse / joystick). Persisted as
+        # combo indices, mirroring the CSpect option setters above.
+        def set_mame_aspect():
+            configuration_dictionary[SETTING_MAME_ASPECT] = self.mame_aspect.currentIndex()
+            save_configuration_file()
+
+        def set_mame_mouse():
+            configuration_dictionary[SETTING_MAME_MOUSE] = self.mame_mouse.currentIndex()
+            save_configuration_file()
+
+        def set_mame_joystick():
+            configuration_dictionary[SETTING_MAME_JOYSTICK] = self.mame_joystick.currentIndex()
+            save_configuration_file()
+
         def open_cspect_configuration_file():
             if platform.system() == "Windows":
                 execute_shell_command("notepad", ZX_NEXT_UNITE_CONFIG_FILE_NAME)
@@ -4079,7 +4106,25 @@ class MainWindow(QMainWindow):
             mame_image = self.imageinput.currentText().strip().strip('"')
             if mame_image:
                 mame_image = os.path.abspath(mame_image)
-            mame_argv = [mame_path, mame_rom] + shlex.split(mame_parameters)
+            # Drop any aspect/mouse/joystick options from the (editable) params —
+            # these are now controlled by the MAME group combos and appended
+            # below, so they must not be duplicated or conflict.
+            _param_tokens = strip_mame_combo_options(shlex.split(mame_parameters))
+            mame_argv = [mame_path, mame_rom] + _param_tokens
+
+            # Append the per-launch combo options (aspect / mouse / joystick) so
+            # the UI selections are authoritative regardless of the params string.
+            for _mame_combo, _mame_opts in (
+                (getattr(self, "mame_aspect", None), MAME_ASPECT),
+                (getattr(self, "mame_mouse", None), MAME_MOUSE),
+                (getattr(self, "mame_joystick", None), MAME_JOYSTICK),
+            ):
+                if _mame_combo is None:
+                    continue
+                _mame_arg = get_tuple_value(_mame_opts, _mame_combo.currentText())
+                if _mame_arg:
+                    mame_argv += shlex.split(_mame_arg)
+
             if mame_image:
                 mame_argv += [MAME_HARD_DISK_PARAMETER, mame_image]
 
@@ -4343,6 +4388,13 @@ class MainWindow(QMainWindow):
             try:
                 self.button_install_mame.setVisible(False)
                 self.button_start_mame.setVisible(True)
+                # Reveal the MAME option combos, hidden while only "Install MAME"
+                # was offered.
+                for _mame_combo in (getattr(self, "mame_aspect", None),
+                                    getattr(self, "mame_mouse", None),
+                                    getattr(self, "mame_joystick", None)):
+                    if _mame_combo is not None:
+                        _mame_combo.setVisible(True)
             except RuntimeError:
                 pass
             add_main_log_window(f"MAME install ▸ SUCCESS — MAME detected at: {detected}")
@@ -8813,7 +8865,7 @@ class MainWindow(QMainWindow):
         # horizontal3 (explorers) and horizontal4 (Path) are now the
         # sdcard_explorer_grid built further below.
         self.horizontal5 = QHBoxLayout()
-        self.horizontal6 = QHBoxLayout()
+        # (horizontal6 replaced by the MAME / CSpect QGroupBox rows built below.)
 
         # nextsync horizontals
 
@@ -9467,7 +9519,12 @@ class MainWindow(QMainWindow):
 
         self.zx_next_unite_form.addRow(self.horizontal5)
 
-        # Add action buttons at the bottom
+        # Add action buttons at the bottom, split into two titled groups so the
+        # MAME and CSpect controls read as separate emulators rather than one
+        # long undifferentiated button row. The MAME group sits on its own line
+        # with the CSpect group (launch + display options) stacked below it.
+        self.mame_group = QGroupBox("MAME")
+        self.mame_group_layout = QHBoxLayout(self.mame_group)
 
         # "Launch Mame" button — placed before "Launch CSpect". Only shown when
         # a MAME executable was found (PATH or a prior downloads/mame install).
@@ -9476,7 +9533,7 @@ class MainWindow(QMainWindow):
         self.button_start_mame.setText("🕹  Launch Mame")
         self.button_start_mame.clicked.connect(launch_mame)
         self.button_start_mame.setVisible(_mame_available)
-        self.horizontal6.addWidget(self.button_start_mame)
+        self.mame_group_layout.addWidget(self.button_start_mame)
 
         # "Install MAME" button — shown in place of "Launch Mame" when MAME is
         # missing, on platforms where the automatic install is supported (64-bit
@@ -9489,14 +9546,56 @@ class MainWindow(QMainWindow):
             "install it into the downloads/mame folder. Requires an internet\n"
             "connection (~90 MB download, ~500 MB installed).")
         self.button_install_mame.clicked.connect(install_mame)
-        self.button_install_mame.setVisible(
-            (not _mame_available) and (mame_windows_asset_arch() is not None))
-        self.horizontal6.addWidget(self.button_install_mame)
+        _mame_install_offered = (not _mame_available) and (mame_windows_asset_arch() is not None)
+        self.button_install_mame.setVisible(_mame_install_offered)
+        self.mame_group_layout.addWidget(self.button_install_mame)
+
+        # MAME per-launch option combos (aspect / mouse / joystick), mirroring the
+        # CSpect options. Their values are appended to the MAME command line at
+        # launch (see launch_mame) and persisted to hdfg.cfg as combo indices.
+        # They are only meaningful once MAME is installed, so they are hidden
+        # while only "Install MAME" is offered and revealed after a successful
+        # install (see _on_mame_install_result).
+        self.mame_aspect = QComboBox()
+        for _ma in MAME_ASPECT:
+            self.mame_aspect.addItem(_ma[0])
+        self.mame_aspect.setToolTip("MAME display aspect ratio (-aspect).")
+        self.mame_aspect.currentIndexChanged.connect(set_mame_aspect)
+        self.mame_group_layout.addWidget(self.mame_aspect)
+
+        self.mame_mouse = QComboBox()
+        for _mm in MAME_MOUSE:
+            self.mame_mouse.addItem(_mm[0])
+        self.mame_mouse.setToolTip(
+            "Enable host mouse capture (Kempston mouse) or disable it\n"
+            "(-mouse / -mouse_device none).")
+        self.mame_mouse.currentIndexChanged.connect(set_mame_mouse)
+        self.mame_group_layout.addWidget(self.mame_mouse)
+
+        self.mame_joystick = QComboBox()
+        for _mj in MAME_JOYSTICK:
+            self.mame_joystick.addItem(_mj[0])
+        self.mame_joystick.setToolTip(
+            "Enable or disable joystick input\n"
+            "(-joystick / -joystickprovider none).")
+        self.mame_joystick.currentIndexChanged.connect(set_mame_joystick)
+        self.mame_group_layout.addWidget(self.mame_joystick)
+
+        # Hide the option combos until MAME is actually installed (the group can
+        # still be visible to host the "Install MAME" button).
+        for _mame_combo in (self.mame_aspect, self.mame_mouse, self.mame_joystick):
+            _mame_combo.setVisible(_mame_available)
+
+        self.mame_group_layout.addStretch(1)
+
+        # --- CSpect group: launch button plus its display / input options -----
+        self.cspect_group = QGroupBox("CSpect")
+        self.cspect_group_layout = QHBoxLayout(self.cspect_group)
 
         self.button_start_cspect = QPushButton("🕹  LaunchCSpect", self)
         self.button_start_cspect.setText("🕹  Launch CSpect")
         self.button_start_cspect.clicked.connect(launch_cspect)
-        self.horizontal6.addWidget(self.button_start_cspect)
+        self.cspect_group_layout.addWidget(self.button_start_cspect)
 
         # Populate Screen Size Combo
         self.cspect_screensize = QComboBox()
@@ -9515,7 +9614,7 @@ class MainWindow(QMainWindow):
         self.cspect_screensize.show()
         self.cspect_screensize.currentIndexChanged.connect(set_cspect_screen_size)
 
-        self.horizontal6.addWidget(self.cspect_screensize)
+        self.cspect_group_layout.addWidget(self.cspect_screensize)
 
         # Populate Sound Combo
         self.cspect_sound = QComboBox()
@@ -9526,7 +9625,7 @@ class MainWindow(QMainWindow):
         self.cspect_sound.show()
         self.cspect_sound.currentIndexChanged.connect(set_cspect_sound_on_off)
 
-        self.horizontal6.addWidget(self.cspect_sound)
+        self.cspect_group_layout.addWidget(self.cspect_sound)
 
         # Populate vsync Combo
         self.cspect_vsync = QComboBox()
@@ -9537,7 +9636,7 @@ class MainWindow(QMainWindow):
         self.cspect_vsync.show()
         self.cspect_vsync.currentIndexChanged.connect(set_cspect_vsync_on_off)
 
-        self.horizontal6.addWidget(self.cspect_vsync)
+        self.cspect_group_layout.addWidget(self.cspect_vsync)
 
         # Populate Joystick Combo
         self.cspect_joystick = QComboBox()
@@ -9548,7 +9647,7 @@ class MainWindow(QMainWindow):
         self.cspect_joystick.show()
         self.cspect_joystick.currentIndexChanged.connect(set_cspect_joystick_on_off)
 
-        self.horizontal6.addWidget(self.cspect_joystick)
+        self.cspect_group_layout.addWidget(self.cspect_joystick)
 
         # Populate Mouse Combo (mouse capture on/off; "Mouse Off" passes -mouse)
         self.cspect_mouse = QComboBox()
@@ -9559,7 +9658,7 @@ class MainWindow(QMainWindow):
         self.cspect_mouse.show()
         self.cspect_mouse.currentIndexChanged.connect(set_cspect_mouse_on_off)
 
-        self.horizontal6.addWidget(self.cspect_mouse)
+        self.cspect_group_layout.addWidget(self.cspect_mouse)
 
         # Populate frequency Combo
         self.cspect_frequency = QComboBox()
@@ -9570,23 +9669,26 @@ class MainWindow(QMainWindow):
         self.cspect_frequency.show()
         self.cspect_frequency.currentIndexChanged.connect(set_cspect_display_frequency)
 
-        self.horizontal6.addWidget(self.cspect_frequency)
+        self.cspect_group_layout.addWidget(self.cspect_frequency)
 
-        # Hide all CSpect controls when the CSpect emulator was not found at
-        # startup (application directory or PATH). The MAME button is unaffected.
+        self.cspect_group_layout.addStretch(1)
+
+        # Hide the MAME group when neither of its buttons applies — i.e. MAME is
+        # not installed and the in-app installer isn't offered on this platform
+        # (only 64-bit Windows) — so we never show an empty titled box.
+        if not _mame_available and not _mame_install_offered:
+            self.mame_group.setVisible(False)
+
+        # Hide the whole CSpect group when the CSpect emulator was not found at
+        # startup (application directory or PATH). The individual controls keep
+        # their own visible flags so the async downloads/cspect scan can reveal
+        # the group later just by showing it. The MAME group is unaffected.
         if self._cspect_executable_path is None:
-            for _cspect_widget in (
-                self.button_start_cspect,
-                self.cspect_screensize,
-                self.cspect_sound,
-                self.cspect_vsync,
-                self.cspect_joystick,
-                self.cspect_mouse,
-                self.cspect_frequency,
-            ):
-                _cspect_widget.setVisible(False)
+            self.cspect_group.setVisible(False)
 
-        self.zx_next_unite_form.addRow(self.horizontal6)
+        # MAME group on its own line, CSpect group stacked directly beneath it.
+        self.zx_next_unite_form.addRow(self.mame_group)
+        self.zx_next_unite_form.addRow(self.cspect_group)
 
         set_all_buttons_disabled()
         enable_image_selection()
@@ -21587,7 +21689,11 @@ class MainWindow(QMainWindow):
                 "Command-line parameters passed to MAME. The '{MAME_EXECUTABLE_NAME}'\n"
                 "placeholder resolves to the detected executable. The ROM/system above\n"
                 "and the '-hard1 <image>' arguments are added automatically at launch,\n"
-                "so the loaded image is always the last argument."
+                "so the loaded image is always the last argument.\n"
+                "The aspect ratio, mouse and joystick options are set with the combo\n"
+                "boxes in the MAME group on the SD Card Utility tab; any -aspect,\n"
+                "-mouse/-mouse_device or -joystick/-joystickprovider options typed here\n"
+                "are ignored (the combos take precedence)."
             )
             grid_tab_Settings.addWidget(mame_params_lbl, 26, 0)
 
@@ -22682,13 +22788,9 @@ class MainWindow(QMainWindow):
             if cspect_path and not self._cspect_executable_path:
                 self._cspect_executable_path = cspect_path
                 self._cspect_from_downloads = True
-                # The CSpect controls were hidden at construction because no
-                # emulator was found; reveal them now that a bundled copy exists.
-                for _w in (self.button_start_cspect, self.cspect_screensize,
-                           self.cspect_sound, self.cspect_vsync,
-                           self.cspect_joystick, self.cspect_mouse,
-                           self.cspect_frequency):
-                    _w.setVisible(True)
+                # The CSpect group was hidden at construction because no emulator
+                # was found; reveal it now that a bundled copy exists.
+                self.cspect_group.setVisible(True)
                 add_main_log_window(f"Found CSpect under downloads/cspect: {cspect_path}")
 
             if hdfmonkey_path and not self._hdfmonkey_executable_path:
@@ -22785,21 +22887,15 @@ class MainWindow(QMainWindow):
                 except (ValueError, OSError):
                     return False
 
-            cspect_widgets = (
-                self.button_start_cspect, self.cspect_screensize,
-                self.cspect_sound, self.cspect_vsync,
-                self.cspect_joystick, self.cspect_mouse, self.cspect_frequency)
-
             cleared_cspect = False
             if _under(self._cspect_executable_path, removed_path):
                 self._cspect_executable_path = None
                 self._cspect_from_downloads = False
                 cleared_cspect = True
-                # These controls were revealed when CSpect was found; hide them
-                # again now that the build is gone.
-                for _w in cspect_widgets:
-                    try: _w.setVisible(False)
-                    except RuntimeError: pass
+                # The group was revealed when CSpect was found; hide it again now
+                # that the build is gone.
+                try: self.cspect_group.setVisible(False)
+                except RuntimeError: pass
             if _under(self._hdfmonkey_executable_path, removed_path):
                 self._hdfmonkey_executable_path = None
 
@@ -22813,9 +22909,8 @@ class MainWindow(QMainWindow):
                 if _path_cspect:
                     self._cspect_executable_path = _path_cspect
                     self._cspect_from_downloads = False
-                    for _w in cspect_widgets:
-                        try: _w.setVisible(True)
-                        except RuntimeError: pass
+                    try: self.cspect_group.setVisible(True)
+                    except RuntimeError: pass
 
             # Re-run detection for whatever is still missing (walks downloads),
             # then re-show the hdfmonkey download button (any platform) if no copy
