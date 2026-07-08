@@ -2306,7 +2306,7 @@ class _CompleterPopupHider(QtCore.QObject):
 class MainWindow(QMainWindow):
 
     def _show_toast(self, title: str, message: str = "", *, variant: str = "green",
-                    duration_ms: int = 10000):
+                    duration_ms: int = 10000, rich: bool = False):
         """Show a small, auto-dismissing toast in the bottom-right corner.
 
         ``variant`` selects the colour scheme:
@@ -2314,7 +2314,11 @@ class MainWindow(QMainWindow):
           - "yellow" : warning / advisory
 
         The toast disappears automatically after ``duration_ms`` milliseconds,
-        or immediately when the user clicks the OK button.
+        or immediately when the user clicks the OK button. When ``rich`` is True
+        the message is rendered as rich text (HTML) with clickable external
+        links (use ``<br>`` for line breaks and ``<a href=…>`` for links);
+        otherwise it is plain text so embedded URLs and ``\\r\\n`` line breaks
+        are shown verbatim.
         """
         # Colour schemes per variant: (bg, border, title_fg, btn_bg, btn_border,
         # btn_hover).
@@ -2346,6 +2350,9 @@ class MainWindow(QMainWindow):
                 msg_lbl.setWordWrap(True)
                 msg_lbl.setMaximumWidth(360)
                 msg_lbl.setStyleSheet("color: #e8e8e8; background: transparent;")
+                if rich:
+                    msg_lbl.setTextFormat(Qt.RichText)
+                    msg_lbl.setOpenExternalLinks(True)
                 lay.addWidget(msg_lbl)
 
             btn_row = QHBoxLayout()
@@ -2423,12 +2430,34 @@ class MainWindow(QMainWindow):
             mame_path = getattr(self, "_mame_executable_path", None)
             if mame_path:
                 body += "\r\nMame: " + mame_path
-            self._show_toast(
-                "\u2705  Emulator(s) detected",
-                body,
-                variant="green",
-                duration_ms=5000,
-            )
+            # After a fresh itch.io CSpect install (one-shot flag), append the
+            # Windows-only reminder to install OpenAL 1.1 \u2014 CSpect has no sound
+            # on Windows without it (Linux/macOS ship OpenAL, so it's skipped
+            # there). The link is clickable and the toast stays up \u2265 1 minute.
+            _openal = (self._cspect_openal_notice_pending
+                       and "CSpect" in found
+                       and platform.system() == "Windows")
+            self._cspect_openal_notice_pending = False
+            if _openal:
+                rich_body = body.replace("\r\n", "<br>")
+                rich_body += (
+                    "<br><br>\u26a0 On Windows, CSpect needs <b>OpenAL 1.1</b> "
+                    "for sound. If you have no audio, install it from "
+                    "<a href=\"https://www.openal.org/\">openal.org</a>.")
+                self._show_toast(
+                    "\u2705  CSpect installed",
+                    rich_body,
+                    variant="green",
+                    duration_ms=65000,
+                    rich=True,
+                )
+            else:
+                self._show_toast(
+                    "\u2705  Emulator(s) detected",
+                    body,
+                    variant="green",
+                    duration_ms=5000,
+                )
         else:
             _suppress = self.settings_disable_no_emulator_toast_checkbox.isChecked()
             if not _suppress:
@@ -2577,6 +2606,12 @@ class MainWindow(QMainWindow):
         # worker and its signals alive until the scan finishes (otherwise Qt
         # drops the queued result/finished events when the sender is collected).
         self._emulator_scan_worker = None
+        # One-shot: set True by an itch.io CSpect install so the next
+        # emulator-detection toast appends the Windows-only "install OpenAL for
+        # sound" notice (CSpect needs OpenAL 1.1 for audio on Windows). Consumed
+        # by _show_emulator_detection_toast so it never fires on a plain startup
+        # detection.
+        self._cspect_openal_notice_pending = False
 
         # Live QColor instances for the image explorer — updated by Settings pickers
         self.img_color_up_directory = hex_to_qcolor(DEFAULT_COLOR_UP_DIRECTORY)
@@ -3280,10 +3315,12 @@ class MainWindow(QMainWindow):
                 self.cspect_joystick.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_JOYSTICK]))
                 self.cspect_mouse.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MOUSE]))
                 self.cspect_frequency.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_HERTZ]))
-                # MAME option combos (aspect / mouse / joystick). Stored as combo
-                # indices; an absent value ("") maps to index 0 (the default).
+                # MAME option combos (aspect / sound / mouse / joystick). Stored
+                # as combo indices; an absent value ("") maps to index 0 (the
+                # default, i.e. "Sound On" for audio).
                 if hasattr(self, "mame_aspect"):
                     self.mame_aspect.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MAME_ASPECT]))
+                    self.mame_sound.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MAME_SOUND]))
                     self.mame_mouse.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MAME_MOUSE]))
                     self.mame_joystick.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MAME_JOYSTICK]))
 
@@ -3957,10 +3994,14 @@ class MainWindow(QMainWindow):
             configuration_dictionary[SETTING_HERTZ] = self.cspect_frequency.currentIndex()
             save_configuration_file()
 
-        # MAME per-launch option combos (aspect / mouse / joystick). Persisted as
-        # combo indices, mirroring the CSpect option setters above.
+        # MAME per-launch option combos (aspect / sound / mouse / joystick).
+        # Persisted as combo indices, mirroring the CSpect option setters above.
         def set_mame_aspect():
             configuration_dictionary[SETTING_MAME_ASPECT] = self.mame_aspect.currentIndex()
+            save_configuration_file()
+
+        def set_mame_sound():
+            configuration_dictionary[SETTING_MAME_SOUND] = self.mame_sound.currentIndex()
             save_configuration_file()
 
         def set_mame_mouse():
@@ -4116,6 +4157,7 @@ class MainWindow(QMainWindow):
             # the UI selections are authoritative regardless of the params string.
             for _mame_combo, _mame_opts in (
                 (getattr(self, "mame_aspect", None), MAME_ASPECT),
+                (getattr(self, "mame_sound", None), MAME_SOUND),
                 (getattr(self, "mame_mouse", None), MAME_MOUSE),
                 (getattr(self, "mame_joystick", None), MAME_JOYSTICK),
             ):
@@ -4391,6 +4433,7 @@ class MainWindow(QMainWindow):
                 # Reveal the MAME option combos, hidden while only "Install MAME"
                 # was offered.
                 for _mame_combo in (getattr(self, "mame_aspect", None),
+                                    getattr(self, "mame_sound", None),
                                     getattr(self, "mame_mouse", None),
                                     getattr(self, "mame_joystick", None)):
                     if _mame_combo is not None:
@@ -9563,6 +9606,16 @@ class MainWindow(QMainWindow):
         self.mame_aspect.currentIndexChanged.connect(set_mame_aspect)
         self.mame_group_layout.addWidget(self.mame_aspect)
 
+        self.mame_sound = QComboBox()
+        for _ms in MAME_SOUND:
+            self.mame_sound.addItem(_ms[0])
+        self.mame_sound.setToolTip(
+            "MAME audio output method (-sound). 'Sound On' (default) keeps MAME's\n"
+            "own backend; WASAPI / XAudio2 / PortAudio force a specific method\n"
+            "(WASAPI and XAudio2 are Windows-only); 'Sound Off' mutes (-sound none).")
+        self.mame_sound.currentIndexChanged.connect(set_mame_sound)
+        self.mame_group_layout.addWidget(self.mame_sound)
+
         self.mame_mouse = QComboBox()
         for _mm in MAME_MOUSE:
             self.mame_mouse.addItem(_mm[0])
@@ -9583,7 +9636,7 @@ class MainWindow(QMainWindow):
 
         # Hide the option combos until MAME is actually installed (the group can
         # still be visible to host the "Install MAME" button).
-        for _mame_combo in (self.mame_aspect, self.mame_mouse, self.mame_joystick):
+        for _mame_combo in (self.mame_aspect, self.mame_sound, self.mame_mouse, self.mame_joystick):
             _mame_combo.setVisible(_mame_available)
 
         self.mame_group_layout.addStretch(1)
@@ -19048,6 +19101,10 @@ class MainWindow(QMainWindow):
 
                     def _redetect():
                         if is_cspect:
+                            # Arm the Windows-only "install OpenAL for sound"
+                            # notice appended to the detection toast that the
+                            # rescan triggers once CSpect is found.
+                            self._cspect_openal_notice_pending = True
                             try:
                                 self._rescan_emulators_after_install()
                             except Exception:
@@ -19090,6 +19147,61 @@ class MainWindow(QMainWindow):
                     _itchio_set_status(f"Extracting {os.path.basename(chosen)}…")
                     getit_run_in_thread(_xfn, _xok, _xerr)
 
+                def _itchio_pick_and_install_zip(_e=entry):
+                    """Let the user install from a .zip they downloaded manually
+                    from the itch.io page (the browser fallback). The archive is
+                    copied into the item's install folder, extracted into a
+                    build-numbered subfolder, and emulator detection re-run so a
+                    manually fetched CSpect becomes usable (and its group shows)."""
+                    fn, _sel = QFileDialog.getOpenFileName(
+                        self, "Select the downloaded itch.io .zip", dest,
+                        "Zip archives (*.zip)")
+                    if not fn:
+                        return
+                    _itchio_set_status(f"Installing from {os.path.basename(fn)}…")
+                    def _fn(_g=_e, _zip=fn):
+                        return zxnu_itchio.manual_install_zip(_g, _zip, dest)
+                    def _ok(out, _g=_e):
+                        _itchio_set_status(f"Installed to {out}")
+                        _itchio_mark_local_state_changed()
+                        # Reveal the CSpect group if this was a CSpect build, and
+                        # arm the Windows-only OpenAL sound notice for it.
+                        _is_cspect = "cspect" in (
+                            (_g.get("url") or "") + " " + (_g.get("title") or "")
+                        ).lower()
+                        if _is_cspect:
+                            self._cspect_openal_notice_pending = True
+                        if hasattr(self, "_rescan_emulators_after_install"):
+                            try: self._rescan_emulators_after_install()
+                            except Exception: pass
+                    def _err(e):
+                        _itchio_set_status(f"Could not install from file: {e}")
+                    getit_run_in_thread(_fn, _ok, _err)
+
+                def _itchio_offer_manual_fallback(_e=entry, _msg=""):
+                    """On a failed/blocked automated install, offer the manual
+                    browser download: open the itch.io page, or install from an
+                    already-downloaded .zip."""
+                    url = (_e.get("url") or "").strip()
+                    box = QMessageBox(self)
+                    box.setIcon(QMessageBox.Warning)
+                    box.setWindowTitle("itch.io download")
+                    box.setText(_msg or "The automated download failed.")
+                    box.setInformativeText(
+                        "You can download it manually from the itch.io page in "
+                        "your browser, then install it from the downloaded .zip.")
+                    open_btn = (box.addButton("Open itch.io page", QMessageBox.ActionRole)
+                                if url else None)
+                    pick_btn = box.addButton("Install from .zip…", QMessageBox.AcceptRole)
+                    box.addButton("Close", QMessageBox.RejectRole)
+                    box.exec()
+                    clicked = box.clickedButton()
+                    if open_btn is not None and clicked is open_btn:
+                        try: webbrowser.open(url, new=2)
+                        except Exception: pass
+                    elif clicked is pick_btn:
+                        _itchio_pick_and_install_zip(_e)
+
                 def _install(_=False, _e=entry, _viewer=viewer):
                     key = _itchio_api_key()
                     if not key:
@@ -19104,7 +19216,7 @@ class MainWindow(QMainWindow):
                     except RuntimeError: pass
                     _itchio_enable_download(_viewer, False)
                     _itchio_label_button(_viewer, "download", "⬇  Installing…")
-                    _itchio_set_status(f"Installing “{title}” via itch-dl…")
+                    _itchio_set_status(f"Installing “{title}”…")
                     def _fn(_g=_e, _k=key):
                         return zxnu_itchio.install_game(
                             _g, _k, dest, log_cb=lambda ln: None)
@@ -19129,12 +19241,18 @@ class MainWindow(QMainWindow):
                         if ok:
                             _itchio_mark_local_state_changed()
                             _itchio_run_setup_extract(_e)
+                        else:
+                            # Automated download failed (e.g. itch.io's Cloudflare
+                            # block on non-owned items). Offer the manual browser
+                            # download fallback.
+                            _itchio_offer_manual_fallback(_e, msg)
                     def _err(e, _v=_viewer):
                         _itchio_set_status(f"Install failed: {e}")
                         try: _v._itchio_busy = False
                         except RuntimeError: pass
                         _itchio_enable_download(_v, True)
                         _itchio_label_button(_v, "download", "⬇  Install")
+                        _itchio_offer_manual_fallback(_e, f"Install failed: {e}")
                     getit_run_in_thread(_fn, _ok, _err)
 
                 def _itchio_uninstall(_=False, _e=entry, _viewer=viewer):

@@ -120,6 +120,7 @@ SETTING_MAME_ROM_CHOICE              = "mame_rom_choice"            # MAME syste
 SETTING_MAME_UPDATE_CHECK            = "mame_update_check"          # "false" => skip the startup MAME update check (default on)
 SETTING_MAME_INSTALLED_TAG           = "mame_installed_tag"         # GitHub release tag of the MAME build installed via the app (e.g. "mame0272")
 SETTING_MAME_ASPECT                  = "mame_aspect"               # combo index into MAME_ASPECT (display aspect ratio, e.g. 2:1 / 1:1)
+SETTING_MAME_SOUND                   = "mame_sound"                # combo index into MAME_SOUND (audio on/off)
 SETTING_MAME_MOUSE                   = "mame_mouse"                # combo index into MAME_MOUSE (mouse capture on/off)
 SETTING_MAME_JOYSTICK                = "mame_joystick"             # combo index into MAME_JOYSTICK (joystick input on/off)
 SETTING_DISABLE_NO_EMULATOR_TOAST  = "disable_no_emulator_toast"   # bool (default False)
@@ -710,7 +711,7 @@ SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_COLOR_GENERAL_TEXT, SET
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GALLERY_SLIDESHOW_SECS, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
-SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
+SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
 SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_SDCARD_PYGAME_LOG, SETTING_HELP_PYGAME_LOG,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO)
@@ -743,11 +744,24 @@ MAME_EXECUTABLE_NAME = "mame"
 # names follow the specnext MAME guide (https://wiki.specnext.dev/MAME:Installing)
 # and `mame -showusage`:
 #   -aspect W:H            display aspect ratio (2:1 is the crisp-pixel default)
+#   -sound <method>        audio output method: wasapi, xaudio2, portaudio or
+#                          none ("Sound On" leaves MAME's own default backend)
 #   -mouse                 enable host mouse capture (Kempston mouse)
 #   -mouse_device none     disable the mouse control (wiki's recommended default)
 #   -joystick              enable joystick input
 #   -joystickprovider none disable joystick detection
 MAME_ASPECT = (("Aspect 2:1", "-aspect 2:1"), ("Aspect 1:1", "-aspect 1:1"))
+# MAME's "-sound" selects the audio output backend (per `mame -showusage`), not a
+# simple on/off. "Sound On" (the first-run default) passes nothing so MAME keeps
+# its own default backend; the middle entries force a specific method; "Sound
+# Off" mutes with "-sound none". wasapi/xaudio2 are Windows-only backends.
+MAME_SOUND = (
+    ("Sound On", ""),
+    ("Sound WASAPI", "-sound wasapi"),
+    ("Sound XAudio2", "-sound xaudio2"),
+    ("Sound PortAudio", "-sound portaudio"),
+    ("Sound Off", "-sound none"),
+)
 MAME_MOUSE = (("Mouse Off", "-mouse_device none"), ("Mouse On", "-mouse"))
 MAME_JOYSTICK = (("Joystick On", "-joystick"), ("Joystick Off", "-joystickprovider none"))
 
@@ -756,7 +770,7 @@ MAME_JOYSTICK = (("Joystick On", "-joystick"), ("Joystick Off", "-joystickprovid
 # single source of truth (never duplicated or in conflict). Flag options take no
 # value; value options consume the following token.
 MAME_COMBO_FLAG_OPTIONS = frozenset({"-mouse", "-nomouse", "-joystick", "-nojoystick"})
-MAME_COMBO_VALUE_OPTIONS = frozenset({"-aspect", "-mouse_device", "-joystickprovider"})
+MAME_COMBO_VALUE_OPTIONS = frozenset({"-aspect", "-sound", "-mouse_device", "-joystickprovider"})
 
 def strip_mame_combo_options(tokens):
     """Remove the aspect/mouse/joystick options (and their values) from a list of
@@ -955,11 +969,13 @@ HDFMONKEY_EXECUTABLE = "hdfmonkey"
 # hdfmonkey archive when the automatic download from specnext.com is blocked.
 DOWNLOADS_ROOT_DIRNAME = "downloads"
 
-# Sub-directory (relative to the application directory) where itch.io CSpect
-# installs are downloaded by the itch.io tab. Several CSpect versions may live
-# here, each in its own sub-folder, and the Windows builds ship hdfmonkey.exe
-# alongside CSpect.exe.
-DOWNLOADS_CSPECT_DIRNAME = os.path.join("downloads", "itchio", "mdf200", "cspect")
+# Root (relative to the application directory) scanned for an itch.io CSpect
+# install. itch.io downloads land in per-author/game/version sub-folders here
+# (e.g. itchio/mdf200/cspect/files/CSpect3_1_4_0/), and the exact author/slug
+# depends on the item — plus a user may drop a manually-downloaded build here —
+# so the whole itchio tree is walked rather than one hardcoded sub-path. The
+# Windows builds ship hdfmonkey.exe alongside CSpect.exe.
+DOWNLOADS_CSPECT_DIRNAME = os.path.join("downloads", "itchio")
 
 # Sub-directory (relative to the application directory) where the standalone
 # hdfmonkey auto-download (HDF_MONKEY_JJJS_URL) unpacks the build for the current
@@ -1071,14 +1087,15 @@ def ensure_hdfmonkey_executable(hdfmonkey_path):
 
 
 def find_emulators_in_downloads(base_dir, scan_for_cspect=True, scan_for_hdfmonkey=True):
-    """Recursively search ``<base_dir>/downloads/cspect`` for a CSpect.exe and a
+    """Recursively search ``<base_dir>/downloads/itchio`` for a CSpect.exe and a
     bundled hdfmonkey executable built for the current platform.
 
     Returns ``(cspect_path, hdfmonkey_path)`` where each element is the full path
     to the first matching executable found, or ``None`` if not found / not
     searched for. This is the fallback used when neither tool is present in the
     application directory or on PATH — itch.io CSpect installs land under
-    ``downloads/cspect`` (optionally in a per-version sub-folder).
+    ``downloads/itchio`` in a per-author/game/version sub-folder (and a manually
+    downloaded build dropped anywhere under that tree is picked up too).
 
     The hdfmonkey search now covers Windows, Linux and macOS (Intel + Apple
     Silicon): the itch.io CSpect package ships an hdfmonkey build for each of
