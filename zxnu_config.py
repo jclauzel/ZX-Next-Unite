@@ -119,7 +119,7 @@ SETTING_JOYSTICK = "joy"
 SETTING_MOUSE = "mouse"
 SETTING_CSPECT = "cspect"
 SETTING_CUSTOM = "custom"
-SETTING_ESC = "esc"
+SETTING_ESC = "esc"                                                # combo index into CSPECT_ESC (ESC-exit disable on/off; default 0 = off, no -esc)
 SETTING_MAME_COMMAND_LINE_PARAMETERS = "mame_command_line_parameters"
 SETTING_MAME_ROM_CHOICE              = "mame_rom_choice"            # MAME system/ROM, e.g. "tbblue" (default)
 SETTING_MAME_UPDATE_CHECK            = "mame_update_check"          # "false" => skip the startup MAME update check (default on)
@@ -128,6 +128,7 @@ SETTING_MAME_ASPECT                  = "mame_aspect"               # combo index
 SETTING_MAME_SOUND                   = "mame_sound"                # combo index into MAME_SOUND (audio on/off)
 SETTING_MAME_MOUSE                   = "mame_mouse"                # combo index into MAME_MOUSE (mouse capture on/off)
 SETTING_MAME_JOYSTICK                = "mame_joystick"             # combo index into MAME_JOYSTICK (joystick input on/off)
+SETTING_MAME_ESC                     = "mame_esc"                  # combo index into MAME_ESC (ESC-exit disable on/off; default 0 = off, no -esc)
 SETTING_DISABLE_NO_EMULATOR_TOAST  = "disable_no_emulator_toast"   # bool (default False)
 SETTING_NEXTSYNC_EXPLORERPATH = "nextsync_explorerpath"
 SETTING_NEXTSYNC_SYNCONCE = "nextsync_synconce"
@@ -717,7 +718,7 @@ SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_COLOR_GENERAL_TEXT, SET
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GALLERY_SLIDESHOW_SECS, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
-SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
+SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
 SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_SDCARD_PYGAME_LOG, SETTING_HELP_PYGAME_LOG,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO)
@@ -733,7 +734,15 @@ CSPECT_JOYSTICK = (("Joystick On", "-joystick"),("Joystick Off", ""))
 # "Mouse On" (default) passes nothing and "Mouse Off" passes "-mouse".
 CSPECT_MOUSE = (("Mouse On", ""),("Mouse Off", "-mouse"))
 CSPECT_FREQUENCY = (("50Hz", ""),("60Hz", "-60"))
-CSPECT_BASE_ARGUMENTS = "-basickeys -zxnext -nextrom"
+# CSpect "-esc" *disables* the ESC key from quitting the emulator. By default it
+# is not passed, so ESC still exits: "Disable ESC Key Off" (index 0, default)
+# passes nothing; "Disable ESC Key On" passes "-esc".
+CSPECT_ESC = (("Disable ESC Key Off", ""),("Disable ESC Key On", "-esc"))
+# Default CSpect command-line parameters, editable in the Settings tab ("CSpect
+# default launch parameters") and persisted to hdfg.cfg (SETTING_CUSTOM). Mirrors
+# MAME_DEFAULT_COMMAND_LINE: the SD Card Utility group options (screen size,
+# sound, VSync, joystick, mouse, frequency, ESC) are appended on top at launch.
+CSPECT_DEFAULT_LAUNCH_PARAMETERS = "-basickeys -zxnext"
 
 FONT_GREEN = QColor(0, 255, 0)
 FONT_BLUE = QColor(0, 0, 255)
@@ -770,12 +779,16 @@ MAME_SOUND = (
 )
 MAME_MOUSE = (("Mouse Off", "-mouse_device none"), ("Mouse On", "-mouse"))
 MAME_JOYSTICK = (("Joystick On", "-joystick"), ("Joystick Off", "-joystickprovider none"))
+# "-esc" disables the ESC key from quitting the emulator. Not passed by default,
+# so ESC still exits: "Disable ESC Key Off" (index 0, default) passes nothing;
+# "Disable ESC Key On" passes "-esc".
+MAME_ESC = (("Disable ESC Key Off", ""), ("Disable ESC Key On", "-esc"))
 
 # Options now driven by the MAME group combos above. They are stripped from any
 # user-edited command-line params at launch so the combo selections are the
 # single source of truth (never duplicated or in conflict). Flag options take no
 # value; value options consume the following token.
-MAME_COMBO_FLAG_OPTIONS = frozenset({"-mouse", "-nomouse", "-joystick", "-nojoystick"})
+MAME_COMBO_FLAG_OPTIONS = frozenset({"-mouse", "-nomouse", "-joystick", "-nojoystick", "-esc"})
 MAME_COMBO_VALUE_OPTIONS = frozenset({"-aspect", "-sound", "-mouse_device", "-joystickprovider"})
 
 def strip_mame_combo_options(tokens):
