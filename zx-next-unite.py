@@ -2612,6 +2612,12 @@ class MainWindow(QMainWindow):
         # by _show_emulator_detection_toast so it never fires on a plain startup
         # detection.
         self._cspect_openal_notice_pending = False
+        # One-shot guard for the startup itch.io CSpect update check: it can be
+        # kicked from two places (the startup timer and the itch.io post-login
+        # callback), and _cspect_update_installing guards against overlapping
+        # download+install jobs. See _check_cspect_update_async.
+        self._cspect_update_checked = False
+        self._cspect_update_installing = False
 
         # Live QColor instances for the image explorer — updated by Settings pickers
         self.img_color_up_directory = hex_to_qcolor(DEFAULT_COLOR_UP_DIRECTORY)
@@ -3470,6 +3476,17 @@ class MainWindow(QMainWindow):
                     self.settings_mame_update_check_checkbox.blockSignals(True)
                     self.settings_mame_update_check_checkbox.setChecked(_mame_upd_on)
                     self.settings_mame_update_check_checkbox.blockSignals(False)
+
+                # CSpect "check for a newer version on itch.io at startup" toggle
+                # (default on). Always present as a widget (unlike MAME's, which
+                # is gated on detection).
+                if hasattr(self, "settings_cspect_update_check_checkbox"):
+                    _cspect_upd = configuration_dictionary.get(
+                        SETTING_CSPECT_UPDATE_CHECK, "").strip().lower()
+                    _cspect_upd_on = _cspect_upd not in ("false", "0", "no")  # default on
+                    self.settings_cspect_update_check_checkbox.blockSignals(True)
+                    self.settings_cspect_update_check_checkbox.setChecked(_cspect_upd_on)
+                    self.settings_cspect_update_check_checkbox.blockSignals(False)
 
                 # CSpect additional launch parameters (editable text). Always
                 # present; empty means "no extra parameters".
@@ -4683,6 +4700,231 @@ class MainWindow(QMainWindow):
         # Expose so the startup sequence can kick the check once the config
         # (enable flag + installed tag) has been loaded.
         self._check_mame_update_async = _check_mame_update_async
+
+        # ── CSpect update check (itch.io) ──────────────────────────────────
+        # Mirrors the MAME startup update check above, but sources the build
+        # from the user's *owned* itch.io CSpect item instead of GitHub. The
+        # closures below resolve add_main_log_window / getit_run_in_thread /
+        # configuration_dictionary at call time (late binding), exactly as the
+        # MAME check does — they are defined later in this same scope but the
+        # functions here only run after startup completes.
+
+        def _cspect_update_dest_dir():
+            """Absolute downloads/itchio root where itch.io CSpect installs land
+            (and where an update is downloaded + extracted)."""
+            return os.path.join(
+                os.path.dirname(os.path.abspath(sys.argv[0])),
+                DOWNLOADS_CSPECT_DIRNAME)
+
+        def _start_cspect_update_install(info):
+            """Download + extract the newer CSpect build found by the startup
+            check, logging every phase (download %, extraction, final extracted
+            path) to the SD Card log window. On success re-runs emulator
+            detection so the new build is adopted without a restart; on failure a
+            detailed reason is logged and shown in a dialog."""
+            if getattr(self, "_cspect_update_installing", False):
+                return
+            self._cspect_update_installing = True
+            game = info.get("game") or {"url": CSPECT_ITCH_URL, "title": "CSpect"}
+            api_key = (configuration_dictionary.get(SETTING_ITCHIO_API_KEY, "")
+                       or "").strip()
+            latest_name = info.get("version_name") or "the latest build"
+            filename = info.get("filename") or ""
+            dest_dir = _cspect_update_dest_dir()
+
+            add_main_log_window(
+                f"CSpect update ▸ Starting download + install of {latest_name} "
+                f"({filename or 'archive'}) from itch.io into {dest_dir}.")
+
+            # Marshal worker-thread log lines to the UI thread. Reuses
+            # MameInstallSignals (its 'status' str signal); kept on self so the
+            # queued emits survive until delivered (same rationale as the MAME
+            # install worker). add_main_log_window touches the QListWidget so it
+            # MUST run on the UI thread — hence the queued connection.
+            sig = MameInstallSignals()
+            sig.status.connect(lambda line: add_main_log_window(line),
+                               Qt.QueuedConnection)
+            self._cspect_update_signals = sig
+
+            def _log_cb(line):
+                try:
+                    sig.status.emit(str(line))
+                except RuntimeError:
+                    pass
+
+            def _progress_cb(read, total):
+                try:
+                    if total:
+                        pct = min(100, int(read * 100 / total))
+                        sig.status.emit(
+                            f"CSpect update ▸ downloading… {pct}% "
+                            f"({read / 1048576:.1f}/{total / 1048576:.1f} MB)")
+                    else:
+                        sig.status.emit(
+                            "CSpect update ▸ downloading… "
+                            f"{read / 1048576:.1f} MB")
+                except RuntimeError:
+                    pass
+
+            # Install exactly the build the update check identified (itch.io
+            # lists several CSpect versions; info carries the newest upload + its
+            # download key), so there's no second lookup and no chance of a
+            # mismatch with the version named in the prompt.
+            _chosen_upload = (info.get("uploads") or [None])[0]
+            _chosen_key_id = info.get("key_id")
+
+            def _job():
+                return zxnu_itchio.install_cspect_update(
+                    game, api_key, dest_dir,
+                    log_cb=_log_cb, progress_cb=_progress_cb,
+                    upload=_chosen_upload, key_id=_chosen_key_id)
+
+            def _ok(extracted):
+                self._cspect_update_installing = False
+                add_main_log_window(
+                    f"CSpect update ▸ SUCCESS — {latest_name} extracted to: "
+                    f"{extracted}")
+                # Adopt the freshly-installed build: drop the current CSpect path
+                # so the rescan re-selects the newest one (find_emulators_in_
+                # downloads now prefers the highest version folder). Also re-picks
+                # up the hdfmonkey bundled with the new CSpect.
+                self._cspect_executable_path = None
+                self._cspect_from_downloads = False
+                _rescan = getattr(self, "_rescan_emulators_after_install", None)
+                if _rescan is not None:
+                    try:
+                        _rescan()
+                    except Exception as exc:
+                        logging.info(f"CSpect update rescan failed: {exc}")
+                try:
+                    self._show_toast(
+                        "✅  CSpect updated",
+                        f"CSpect {latest_name} is installed — no restart "
+                        f"needed.\r\n{extracted}",
+                        variant="green", duration_ms=9000)
+                except Exception:
+                    pass
+
+            def _err(err):
+                self._cspect_update_installing = False
+                detail = (err[1] if isinstance(err, (tuple, list)) and len(err) > 1
+                          else err)
+                add_main_log_window(f"CSpect update ▸ FAILED — {detail}")
+                logging.error(f"CSpect update failed: {detail}")
+                try:
+                    QMessageBox.warning(
+                        self, "CSpect update failed",
+                        "The CSpect update could not be completed.\n\n"
+                        f"{detail}\n\n"
+                        "You can retry later, or install CSpect manually from the "
+                        "itch.io tab (https://mdf200.itch.io/cspect).")
+                except Exception:
+                    pass
+
+            getit_run_in_thread(_job, _ok, _err)
+
+        def _prompt_cspect_update(info):
+            """UI-thread dialog offering to update CSpect to the newer itch.io
+            build found by the startup check. 'Yes' downloads + installs it;
+            'Cancel' leaves the current build untouched."""
+            installed_name = info.get("installed_name") or "the current build"
+            latest_name = info.get("version_name") or "a newer build"
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle("CSpect update available")
+            box.setText(
+                "A newer version of CSpect is available on itch.io.\n\n"
+                f"Installed: {installed_name}\n"
+                f"Latest: {latest_name}\n\n"
+                "Download and install the newest version now?")
+            yes = box.addButton("Yes", QMessageBox.AcceptRole)
+            box.addButton("Cancel", QMessageBox.RejectRole)
+            box.setDefaultButton(yes)
+            box.exec()
+            if box.clickedButton() is yes:
+                add_main_log_window(
+                    f"CSpect update ▸ user chose to update to {latest_name}.")
+                _start_cspect_update_install(info)
+            else:
+                add_main_log_window("CSpect update ▸ user cancelled the update.")
+
+        def _check_cspect_update_async():
+            """At startup — once an itch.io API key is configured and the check is
+            enabled — ask itch.io for the newest CSpect build and, when it is
+            newer than the installed one, offer to download + install it.
+
+            Self-gates and never disrupts startup: any failure is logged to the
+            SD Card log window / Python log and swallowed. Runs once per session
+            (self._cspect_update_checked), so the two triggers — the startup timer
+            and the itch.io post-login callback — don't both fire it. The slow
+            parts (the installed-build disk scan and the itch.io API lookup) run
+            off the UI thread; the prompt runs back on the UI thread."""
+            if getattr(self, "_cspect_update_checked", False):
+                return
+            if getattr(self, "_cspect_update_installing", False):
+                return
+            pref = configuration_dictionary.get(
+                SETTING_CSPECT_UPDATE_CHECK, "").strip().lower()
+            if pref in ("false", "0", "no"):
+                return  # user disabled the check in Settings
+            api_key = (configuration_dictionary.get(SETTING_ITCHIO_API_KEY, "")
+                       or "").strip()
+            if not api_key:
+                return  # no itch.io account configured — nothing to check
+            # Passed the cheap gates. Mark done so the other trigger no-ops, then
+            # do the heavier work (disk scan + authenticated itch.io lookup) on a
+            # worker thread. The authenticated lookup doubles as the "login
+            # succeeded" confirmation — nothing is offered unless it returns.
+            self._cspect_update_checked = True
+            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+
+            def _job():
+                installed_name, installed_exe = find_installed_cspect_version(app_dir)
+                if not installed_name:
+                    return {"skip": "no itch.io CSpect install was found to update"}
+                info = zxnu_itchio.latest_cspect_upload(api_key)
+                if not info:
+                    return {"skip": "itch.io lists no CSpect download for this "
+                                    "account (not owned, or no download key)"}
+                info = dict(info)
+                info["installed_name"] = installed_name
+                info["installed_exe"] = installed_exe
+                info["newer"] = cspect_version_newer(
+                    info.get("version_name") or "", installed_name)
+                return info
+
+            def _on_result(info):
+                try:
+                    skip = info.get("skip")
+                    if skip:
+                        add_main_log_window(f"CSpect update check: {skip}.")
+                        return
+                    installed_name = info.get("installed_name")
+                    latest_name = info.get("version_name")
+                    if not info.get("newer"):
+                        add_main_log_window(
+                            f"CSpect is up to date (installed {installed_name}, "
+                            f"latest {latest_name}).")
+                        return
+                    add_main_log_window(
+                        f"CSpect update ▸ newer build available: installed "
+                        f"{installed_name}, latest {latest_name}.")
+                    _prompt_cspect_update(info)
+                except Exception as exc:
+                    logging.info(f"CSpect update check result handling failed: {exc}")
+
+            def _on_error(err):
+                detail = (err[1] if isinstance(err, (tuple, list)) and len(err) > 1
+                          else err)
+                add_main_log_window(f"CSpect update check skipped: {detail}")
+                logging.info(f"CSpect update check skipped: {detail}")
+
+            add_main_log_window("Checking itch.io for a newer CSpect release…")
+            getit_run_in_thread(_job, _on_result, _on_error)
+
+        # Expose so the startup sequence (and the itch.io post-login callback)
+        # can kick the check once the config (enable flag + API key) has loaded.
+        self._check_cspect_update_async = _check_cspect_update_async
 
 
         # Expose the emulator launch helpers so other UI surfaces (e.g. the
@@ -19217,9 +19459,9 @@ class MainWindow(QMainWindow):
                     _itchio_enable_download(_viewer, False)
                     _itchio_label_button(_viewer, "download", "⬇  Installing…")
                     _itchio_set_status(f"Installing “{title}”…")
-                    def _fn(_g=_e, _k=key):
-                        return zxnu_itchio.install_game(
-                            _g, _k, dest, log_cb=lambda ln: None)
+
+                    # Shared completion handlers for whichever download path runs
+                    # (the chosen-version API download, or the itch-dl fallback).
                     def _ok(res, _v=_viewer):
                         ok, msg = res
                         # The status label lives on the persistent tab, so it is
@@ -19253,7 +19495,63 @@ class MainWindow(QMainWindow):
                         _itchio_enable_download(_v, True)
                         _itchio_label_button(_v, "download", "⬇  Install")
                         _itchio_offer_manual_fallback(_e, f"Install failed: {e}")
-                    getit_run_in_thread(_fn, _ok, _err)
+
+                    def _reset_idle(_v=_viewer, status=None):
+                        # The user cancelled the version picker: restore the idle
+                        # Install button without treating it as a failure.
+                        try: _v._itchio_busy = False
+                        except RuntimeError: pass
+                        _itchio_enable_download(_v, True)
+                        _itchio_label_button(_v, "download", "⬇  Install")
+                        if status:
+                            _itchio_set_status(status)
+
+                    # Phase 1 (worker): list this item's downloadable files. itch.io
+                    # can expose several — CSpect ships every build (CSpect3_1_4_0,
+                    # CSpect3_1_3_0, …) side by side — so we may need to ask which to
+                    # fetch. Returns None for non-owned items (→ itch-dl fallback).
+                    def _list_fn(_g=_e, _k=key):
+                        return zxnu_itchio.list_owned_uploads(_g, _k)
+
+                    def _list_ok(listed, _v=_viewer, _k=key):
+                        if listed is None:
+                            # Not owned via the API — fall back to the full
+                            # install_game flow (itch-dl page scrape / backstop).
+                            def _fb_fn(_g=_e, _kk=_k):
+                                return zxnu_itchio.install_game(
+                                    _g, _kk, dest, log_cb=lambda ln: None)
+                            getit_run_in_thread(_fb_fn, _ok, _err)
+                            return
+                        _game_id, key_id, uploads = listed
+                        if len(uploads) == 1:
+                            chosen = uploads[0]
+                        else:
+                            # Several downloadable versions — let the user pick,
+                            # defaulting to the newest (index 0). This restores the
+                            # version chooser that the single-upload API download
+                            # otherwise bypassed.
+                            names = [u["filename"] for u in uploads]
+                            name, picked = QInputDialog.getItem(
+                                self, "Choose version to install",
+                                f"itch.io offers several versions of “{title}”.\n"
+                                "Choose which one to download and install\n"
+                                "(the newest is selected by default):",
+                                names, 0, False)
+                            if not picked:
+                                _reset_idle(status=f"Install of “{title}” cancelled.")
+                                return
+                            chosen = uploads[names.index(name)]
+                        _itchio_set_status(f"Downloading {chosen['filename']} …")
+                        # Phase 2 (worker): download the chosen upload. A successful
+                        # return means the file is on disk (download_owned_upload
+                        # raises on any network failure), so no extra backstop is
+                        # needed for this direct-API path.
+                        def _dl_fn(_g=_e, _kk=_k, _u=chosen, _kid=key_id):
+                            return zxnu_itchio.download_owned_upload(
+                                _g, _kk, dest, _u, _kid, log_cb=lambda ln: None)
+                        getit_run_in_thread(_dl_fn, _ok, _err)
+
+                    getit_run_in_thread(_list_fn, _list_ok, _err)
 
                 def _itchio_uninstall(_=False, _e=entry, _viewer=viewer):
                     """Delete this item's locally-downloaded copy — its install
@@ -19458,6 +19756,16 @@ class MainWindow(QMainWindow):
                     # purchases) in the background so the first Unite! search is
                     # instant rather than triggering the heavy fetch on demand.
                     self._itchio_prebuild_library()
+                    # Login succeeded — this is the moment to check itch.io for a
+                    # newer CSpect build (the check self-gates and runs once per
+                    # session; the startup timer is the no-tab fallback).
+                    _check_cspect = getattr(
+                        self, "_check_cspect_update_async", None)
+                    if _check_cspect is not None:
+                        try:
+                            _check_cspect()
+                        except Exception:
+                            pass
                 def _err(e):
                     _itchio_set_connecting(False)
                     _itchio_set_status(f"itch.io: {e}")
@@ -22100,6 +22408,29 @@ class MainWindow(QMainWindow):
             lambda _s: _settings_itchio_tab_changed())
         grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 33, 0, 1, 2)
 
+        # ── CSpect: check itch.io for a newer version at startup (default on) ──
+        def settings_cspect_update_check_changed():
+            on = self.settings_cspect_update_check_checkbox.isChecked()
+            configuration_dictionary[SETTING_CSPECT_UPDATE_CHECK] = (
+                "true" if on else "false")
+            save_configuration_file()
+
+        self.settings_cspect_update_check_checkbox = QCheckBox(
+            "Check for CSpect update on itch.io on startup")
+        _cspect_upd_pref = configuration_dictionary.get(
+            SETTING_CSPECT_UPDATE_CHECK, "").strip().lower()
+        self.settings_cspect_update_check_checkbox.setChecked(
+            _cspect_upd_pref not in ("false", "0", "no"))  # default on
+        self.settings_cspect_update_check_checkbox.setToolTip(
+            "When an itch.io API key is configured and CSpect was installed from\n"
+            "itch.io, check at startup whether a newer CSpect build is available\n"
+            "and, if so, offer to download and install it (into the downloads\n"
+            "folder). On by default. Saved to the configuration file.")
+        self.settings_cspect_update_check_checkbox.stateChanged.connect(
+            lambda _s: settings_cspect_update_check_changed())
+        grid_tab_Settings.addWidget(
+            self.settings_cspect_update_check_checkbox, 34, 0, 1, 2)
+
         # ── NextSync: what to do when a received file/dir already exists locally ──
         def _settings_nextsync_send_conflict_changed():
             val = self.settings_nextsync_send_conflict_combo.currentData() or DEFAULT_NEXTSYNC_SEND_CONFLICT
@@ -22171,7 +22502,7 @@ class MainWindow(QMainWindow):
         # width rather than stretching across both columns.
         self.button_open_config_file = QPushButton("Open config file", self)
         self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
-        grid_tab_Settings.addWidget(self.button_open_config_file, 34, 0, 1, 2, Qt.AlignLeft)
+        grid_tab_Settings.addWidget(self.button_open_config_file, 35, 0, 1, 2, Qt.AlignLeft)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
@@ -22814,6 +23145,17 @@ class MainWindow(QMainWindow):
         # emulator-detection toast appear first so the two don't collide.
         QTimer.singleShot(1800, self._check_mame_update_async)
 
+        # Likewise check itch.io for a newer CSpect build. This self-gates (needs
+        # the check enabled, an API key configured, and an existing itch.io CSpect
+        # install) and runs once per session. The itch.io tab's post-login
+        # callback triggers the same check the moment a connection succeeds; this
+        # timer is the fallback that also covers the case where the tab isn't
+        # present but a key is saved. The later delay keeps it clear of the MAME
+        # check and the emulator-detection toast.
+        _check_cspect = getattr(self, "_check_cspect_update_async", None)
+        if _check_cspect is not None:
+            QTimer.singleShot(2600, _check_cspect)
+
         # Expose the nested save function so closeEvent (a class method) can call it.
         self._save_configuration_file = save_configuration_file
 
@@ -22903,17 +23245,41 @@ class MainWindow(QMainWindow):
             except (TypeError, ValueError):
                 cspect_path = hdfmonkey_path = None
 
-            if cspect_path and not self._cspect_executable_path:
+            # Adopt a downloads/itchio CSpect when none is set yet, OR switch to a
+            # newer one when the build currently in use also came from downloads
+            # (find_emulators_in_downloads always returns the highest version, so
+            # a differing path means a newer build appeared — e.g. after a CSpect
+            # update). A PATH/app-dir CSpect (_cspect_from_downloads False) is left
+            # alone so the standalone setup keeps working.
+            _adopt_cspect = False
+            if cspect_path:
+                if not self._cspect_executable_path:
+                    _adopt_cspect = True
+                elif self._cspect_from_downloads and \
+                        os.path.abspath(cspect_path) != \
+                        os.path.abspath(self._cspect_executable_path):
+                    _adopt_cspect = True
+            if _adopt_cspect:
                 self._cspect_executable_path = cspect_path
                 self._cspect_from_downloads = True
                 # The CSpect group was hidden at construction because no emulator
                 # was found; reveal it now that a bundled copy exists.
                 self.cspect_group.setVisible(True)
-                add_main_log_window(f"Found CSpect under downloads/cspect: {cspect_path}")
+                add_main_log_window(f"Using CSpect under downloads/cspect: {cspect_path}")
+                # Bind hdfmonkey to the copy bundled with THIS (newest) CSpect
+                # build. Each itch.io CSpect ships its own hdfmonkey under
+                # <build>/hdfmonkey/<platform>/, so after an update the matching
+                # new hdfmonkey must replace the older build's lingering copy
+                # (the reported bug). Only override when this build actually ships
+                # one; otherwise keep whatever hdfmonkey was already found.
+                _bundled_hdf = find_hdfmonkey_near_cspect(cspect_path)
+                if _bundled_hdf and _bundled_hdf != self._hdfmonkey_executable_path:
+                    self._hdfmonkey_executable_path = None  # let the block below adopt it
+                    hdfmonkey_path = _bundled_hdf
 
             if hdfmonkey_path and not self._hdfmonkey_executable_path:
                 self._hdfmonkey_executable_path = hdfmonkey_path
-                add_main_log_window(f"Found hdfmonkey under downloads/cspect: {hdfmonkey_path}")
+                add_main_log_window(f"Using hdfmonkey bundled with CSpect: {hdfmonkey_path}")
                 # A bundled hdfmonkey makes the download/install wizard
                 # unnecessary; hide it and restore the image controls.
                 self.download_and_install_hdfmonkey_button.setVisible(False)
@@ -22941,8 +23307,14 @@ class MainWindow(QMainWindow):
             """Re-run CSpect / hdfmonkey detection on demand (used after an
             itch.io CSpect install) so a freshly downloaded emulator becomes
             usable without restarting the app. Reuses _on_emulator_scan_done to
-            apply results and show the detection toast."""
-            need_cspect = self._cspect_executable_path is None
+            apply results and show the detection toast.
+
+            When the CSpect in use already came from downloads/itchio we re-scan
+            even though one is set, so installing/updating to a newer build
+            switches to it (and to that build's bundled hdfmonkey) — a PATH/
+            app-dir CSpect is left untouched so standalone setups keep working."""
+            need_cspect = (self._cspect_executable_path is None
+                           or self._cspect_from_downloads)
             need_hdfmonkey = (self._hdfmonkey_executable_path is None
                               and not is_hdfmonkey_present(silent=True))
             # CSpect ships an hdfmonkey build alongside itself; prefer that cheap

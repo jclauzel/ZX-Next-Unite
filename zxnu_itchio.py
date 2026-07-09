@@ -29,7 +29,8 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-from zxnu_config import ITCH_API_BASE, ITCH_USER_AGENT, ITCH_PAGE_SIZE, ITCH_MAX_PAGES
+from zxnu_config import (ITCH_API_BASE, ITCH_USER_AGENT, ITCH_PAGE_SIZE,
+                         ITCH_MAX_PAGES, CSPECT_ITCH_URL, cspect_version_key)
 
 
 # ── optional-dependency detection ──────────────────────────────────────────
@@ -521,11 +522,21 @@ def _owned_key_for_game(game, api_key):
     return None, None
 
 
-def _stream_response_to_file(resp, dest_path, log_cb=None):
+def _stream_response_to_file(resp, dest_path, log_cb=None, progress_cb=None):
     """Stream an open HTTP response body to *dest_path* (via a .part temp file
-    that is renamed on completion). Returns the byte count."""
+    that is renamed on completion). Returns the byte count.
+
+    When *progress_cb* is given it is called as ``progress_cb(read, total)`` as
+    the download proceeds (``total`` is the ``Content-Length`` in bytes, or 0 if
+    the server didn't advertise one). Callbacks are throttled to roughly one per
+    512 KB so the UI log isn't flooded, plus a final 100% call on completion."""
     tmp = dest_path + ".part"
     total = 0
+    try:
+        content_length = int(resp.headers.get("Content-Length") or 0)
+    except (TypeError, ValueError):
+        content_length = 0
+    last_emit = 0
     with open(tmp, "wb") as fh:
         while True:
             chunk = resp.read(65536)
@@ -533,7 +544,18 @@ def _stream_response_to_file(resp, dest_path, log_cb=None):
                 break
             fh.write(chunk)
             total += len(chunk)
+            if progress_cb and (total - last_emit >= 524288):
+                last_emit = total
+                try:
+                    progress_cb(total, content_length)
+                except Exception:
+                    pass
     os.replace(tmp, dest_path)
+    if progress_cb:
+        try:
+            progress_cb(total, content_length or total)
+        except Exception:
+            pass
     if log_cb:
         try:
             log_cb(f"Downloaded {total} bytes → {os.path.basename(dest_path)}")
@@ -551,12 +573,15 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def _download_api_upload(upload_id, download_key_id, api_key, dest_path, log_cb=None):
+def _download_api_upload(upload_id, download_key_id, api_key, dest_path,
+                         log_cb=None, progress_cb=None):
     """Download one owned upload to *dest_path* via the itch.io API.
 
     ``/uploads/{id}/download`` 302-redirects to a signed CDN URL that rejects the
     ``Authorization`` header, so the redirect is resolved first (authenticated,
-    not auto-followed) and the CDN URL then fetched with a clean request."""
+    not auto-followed) and the CDN URL then fetched with a clean request.
+    *progress_cb* (see :func:`_stream_response_to_file`) is forwarded so callers
+    can report download progress."""
     api_url = (ITCH_API_BASE + f"/uploads/{upload_id}/download"
                f"?download_key_id={download_key_id}")
     req = urllib.request.Request(api_url, headers={
@@ -568,7 +593,7 @@ def _download_api_upload(upload_id, download_key_id, api_key, dest_path, log_cb=
     try:
         with opener.open(req, timeout=60) as resp:
             # No redirect: the API streamed the file itself.
-            _stream_response_to_file(resp, dest_path, log_cb)
+            _stream_response_to_file(resp, dest_path, log_cb, progress_cb)
             return
     except urllib.error.HTTPError as exc:
         if exc.code in (301, 302, 303, 307, 308):
@@ -579,19 +604,60 @@ def _download_api_upload(upload_id, download_key_id, api_key, dest_path, log_cb=
         raise RuntimeError("itch.io did not return a download URL.")
     req2 = urllib.request.Request(cdn_url, headers={"User-Agent": ITCH_USER_AGENT})
     with urllib.request.urlopen(req2, timeout=300) as resp2:
-        _stream_response_to_file(resp2, dest_path, log_cb)
+        _stream_response_to_file(resp2, dest_path, log_cb, progress_cb)
 
 
-def install_via_api(game, api_key, dest_dir, log_cb=None):
-    """Download an *owned* itch.io item straight from the itch.io API, bypassing
-    the Cloudflare-blocked game-page scrape that itch-dl relies on.
+def list_owned_uploads(game, api_key):
+    """List the downloadable files (uploads) for an *owned* itch.io item.
 
-    Returns ``(ok, message)`` when the item is owned (so the API path applies),
-    or ``None`` when it isn't among the user's owned keys — signalling the caller
-    to fall back to itch-dl. The newest upload (by version-sorted filename) is
-    saved under ``<dest>/<author>/<game>/files/`` so the existing post-install
-    extract step unpacks it into a build-numbered folder and the emulator scan
-    can discover it."""
+    itch.io can offer several uploads for one game — CSpect in particular ships
+    every build side by side (``CSpect3_1_4_0.zip``, ``CSpect3_1_3_0.zip``,
+    ``CSpect3_0_15_2.zip`` …) — so a caller that wants to let the user pick a
+    specific version needs the full list, not just the newest.
+
+    Returns ``(game_id, key_id, uploads)`` where *uploads* is a list of dicts
+    sorted **newest/highest-version first** so index 0 is the sensible default::
+
+        {"id", "filename", "size", "version_name", "version_key"}
+
+    or ``None`` when the item isn't among the user's owned keys / has no download
+    key / lists no uploads (the caller then falls back to itch-dl). Raises on a
+    network/API error. Runs synchronously — call from a worker thread."""
+    game_id, key_id = _owned_key_for_game(game, api_key)
+    if not game_id or not key_id:
+        return None  # not owned / no download key — let the caller fall back
+    data = _api_get(f"/games/{game_id}/uploads", api_key,
+                    params={"download_key_id": key_id})
+    raw = [u for u in ((data or {}).get("uploads") or []) if u.get("id")]
+    if not raw:
+        return None
+    # Newest build first (CSpect3_1_4_0 > CSpect3_1_3_0 > CSpect3_0_15_2).
+    raw.sort(key=lambda u: _version_sort_key(u.get("filename") or ""),
+             reverse=True)
+    uploads = []
+    for u in raw:
+        filename = u.get("filename") or f"upload-{u['id']}"
+        uploads.append({
+            "id": u["id"],
+            "filename": filename,
+            "size": u.get("size"),
+            "version_name": os.path.splitext(os.path.basename(filename))[0],
+            "version_key": cspect_version_key(filename),
+        })
+    return game_id, key_id, uploads
+
+
+def download_owned_upload(game, api_key, dest_dir, upload, key_id,
+                          log_cb=None, progress_cb=None):
+    """Download one specific *upload* dict (from :func:`list_owned_uploads`) of an
+    owned item straight from the itch.io API.
+
+    The file is saved under ``<dest>/<author>/<game>/files/`` so the existing
+    post-install extract step unpacks it into a build-numbered folder and the
+    emulator scan can discover it. Returns ``(True, message)``. *progress_cb*
+    (``progress_cb(read, total)``), when given, is forwarded to the byte stream
+    so callers can show download progress. Runs synchronously — call from a
+    worker thread."""
     def _log(line):
         if log_cb:
             try:
@@ -599,31 +665,136 @@ def install_via_api(game, api_key, dest_dir, log_cb=None):
             except Exception:
                 pass
 
-    game_id, key_id = _owned_key_for_game(game, api_key)
-    if not game_id or not key_id:
-        return None  # not owned / no download key — let the caller fall back
-
-    _log("Downloading via the itch.io API (bypassing the Cloudflare page block)…")
-    data = _api_get(f"/games/{game_id}/uploads", api_key,
-                    params={"download_key_id": key_id})
-    uploads = [u for u in ((data or {}).get("uploads") or []) if u.get("id")]
-    if not uploads:
-        return False, "itch.io returned no downloadable files for this item."
-
-    # Newest build first (CSpect3_1_4_0 > CSpect3_1_3_0 > CSpect3_0_15_2).
-    uploads.sort(key=lambda u: _version_sort_key(u.get("filename") or ""),
-                 reverse=True)
-    upload = uploads[0]
     filename = upload.get("filename") or f"upload-{upload['id']}"
-
     author, slug = _author_slug_from_url((game or {}).get("url"))
     files_dir = os.path.join(dest_dir, author, slug, "files")
     os.makedirs(files_dir, exist_ok=True)
     zip_path = os.path.join(files_dir, filename)
 
     _log(f"Fetching {filename} …")
-    _download_api_upload(upload["id"], key_id, api_key, zip_path, log_cb=log_cb)
+    _download_api_upload(upload["id"], key_id, api_key, zip_path,
+                         log_cb=log_cb, progress_cb=progress_cb)
     return True, f"Installed to {os.path.join(dest_dir, author, slug)}"
+
+
+def install_via_api(game, api_key, dest_dir, log_cb=None, progress_cb=None,
+                    upload=None, key_id=None):
+    """Download an *owned* itch.io item straight from the itch.io API, bypassing
+    the Cloudflare-blocked game-page scrape that itch-dl relies on.
+
+    Returns ``(ok, message)`` when the item is owned (so the API path applies),
+    or ``None`` when it isn't among the user's owned keys — signalling the caller
+    to fall back to itch-dl. By default the newest upload (by version-sorted
+    filename) is downloaded; pass *upload* (a dict from :func:`list_owned_uploads`
+    — and, ideally, its *key_id*) to download a specific version the user chose
+    instead. *progress_cb* (``progress_cb(read, total)``), when given, is
+    forwarded to the byte stream so callers can show download progress."""
+    def _log(line):
+        if log_cb:
+            try:
+                log_cb(line)
+            except Exception:
+                pass
+
+    # When the caller already picked an upload we still need a download key; only
+    # re-fetch the listing when we have to choose the newest ourselves.
+    if upload is None or not key_id:
+        listed = list_owned_uploads(game, api_key)
+        if listed is None:
+            # No listing available. If a specific upload was requested but the
+            # item isn't owned, surface that; otherwise let the caller fall back.
+            if upload is not None:
+                return False, "itch.io returned no download key for this item."
+            return None
+        _game_id, key_id, uploads = listed
+        if upload is None:
+            upload = uploads[0]  # newest/highest version
+
+    _log("Downloading via the itch.io API (bypassing the Cloudflare page block)…")
+    return download_owned_upload(game, api_key, dest_dir, upload, key_id,
+                                 log_cb=log_cb, progress_cb=progress_cb)
+
+
+# ── CSpect startup update check (itch.io) ──────────────────────────────────
+
+def latest_cspect_upload(api_key, game=None):
+    """Look up the newest CSpect build available to this itch.io account.
+
+    Builds a minimal game dict from :data:`CSPECT_ITCH_URL` (unless *game* is
+    supplied) and reuses :func:`list_owned_uploads` — CSpect exposes several
+    builds at once, so this walks the full version list and reports the newest
+    (index 0). Returns a dict describing the newest upload plus the whole list::
+
+        {"game", "game_id", "key_id", "uploads",
+         "filename", "version_name", "version_key"}
+
+    or ``None`` when the account doesn't own CSpect / has no download key / the
+    API lists no uploads (the caller then skips the update check quietly). Raises
+    on a network/API error so the caller can log the reason. Runs synchronously —
+    call from a worker thread."""
+    game = game or {"url": CSPECT_ITCH_URL, "title": "CSpect"}
+    listed = list_owned_uploads(game, api_key)
+    if listed is None:
+        return None  # not owned / no download key / no uploads
+    game_id, key_id, uploads = listed
+    newest = uploads[0]
+    return {
+        "game": game,
+        "game_id": game_id,
+        "key_id": key_id,
+        "uploads": uploads,
+        "filename": newest["filename"],
+        "version_name": newest["version_name"],
+        "version_key": newest["version_key"],
+    }
+
+
+def install_cspect_update(game, api_key, dest_dir, log_cb=None, progress_cb=None,
+                          upload=None, key_id=None):
+    """Download a specific owned CSpect build from itch.io and extract it.
+
+    Reuses :func:`install_via_api`, then extracts the downloaded archive into its
+    build-numbered folder (``files/CSpect3_1_4_0/``) so the emulator scan can
+    discover it. CSpect exposes several builds at once; by default the newest is
+    fetched, but the caller can pass the *upload* dict (and its *key_id*) that the
+    update check already identified so exactly that build is downloaded — no
+    second version lookup, and no risk of a mismatch with what the user was told.
+    Returns the full path to the extracted build folder. Raises ``RuntimeError``
+    with a human-readable reason on any failure so the caller can surface it in
+    the log. Runs synchronously — call from a worker thread."""
+    def _log(line):
+        if log_cb:
+            try:
+                log_cb(line)
+            except Exception:
+                pass
+
+    result = install_via_api(game, api_key, dest_dir,
+                             log_cb=log_cb, progress_cb=progress_cb,
+                             upload=upload, key_id=key_id)
+    if result is None:
+        raise RuntimeError(
+            "this itch.io account does not own CSpect (no download key was "
+            "found), so it can't be downloaded via the API.")
+    ok, msg = result
+    if not ok:
+        raise RuntimeError(msg)
+
+    install_dir = installed_path(game, dest_dir)
+    if not install_dir:
+        author, slug = _author_slug_from_url((game or {}).get("url"))
+        install_dir = os.path.join(dest_dir, author, slug)
+    # include_extracted=True: the archive we just downloaded is the newest one,
+    # and re-extracting an already-present folder is a harmless overwrite.
+    zips = find_extractable_zips(install_dir, include_extracted=True)
+    if not zips:
+        raise RuntimeError(
+            f"the CSpect archive was downloaded but could not be located under "
+            f"{install_dir} to extract.")
+    newest = zips[0]
+    _log(f"Extracting {os.path.basename(newest)} …")
+    extracted = extract_zip(newest)
+    return extracted
 
 
 def manual_install_zip(game, zip_path, dest_dir):

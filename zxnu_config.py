@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "8.6"
+ZX_NEXT_UNITE_VERSION = "8.7"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -65,6 +65,11 @@ ZXART_PAGE_SIZE = 20
 ITCH_API_BASE = "https://api.itch.io"
 ITCH_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
 ITCH_PAGE_SIZE = 30
+# Canonical itch.io page for CSpect (Mike Dailly's emulator). The startup
+# update check builds a minimal game dict from this URL to look up the account's
+# owned CSpect download key and the newest available build (see
+# zxnu_itchio.latest_cspect_upload / install_cspect_update).
+CSPECT_ITCH_URL = "https://mdf200.itch.io/cspect"
 # Safety bound on how many API pages the owned-games / collection / library
 # walks will follow. The walks stop naturally on the last (short) page; this is
 # only a runaway guard. Set high so large libraries (a user with 1000s of
@@ -172,6 +177,7 @@ SETTING_HELP_PYGAME_LOG        = "help_pygame_log"         # "true" => retro 8-b
 SETTING_ITCHIO_API_KEY         = "itchio_api_key"          # str: personal itch.io API key (https://itch.io/user/settings/api-keys)
 SETTING_SHOW_ITCHIO_TAB        = "show_itchio_tab"         # "false" => hide the itch.io tab (default shown when itch-dl is installed)
 SETTING_ITCHIO_VIEW_MODE       = "itchio_view_mode"        # "gallery" (default) or "table"
+SETTING_CSPECT_UPDATE_CHECK    = "cspect_update_check"     # "false" => skip the startup itch.io CSpect update check (default on)
 # Per-pane item-viewer mode: "true" => open items in the Retro (pygame) viewer
 # (renders .txt/instruction pages as a log console), else the Classic Qt viewer.
 SETTING_GETIT_ITEM_RETRO       = "getit_item_retro"
@@ -713,7 +719,7 @@ SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVO
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
 SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_SDCARD_PYGAME_LOG, SETTING_HELP_PYGAME_LOG,
-SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE,
+SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO)
 
 IMAGE_BUTTONS_SIZE = 190
@@ -1086,16 +1092,84 @@ def ensure_hdfmonkey_executable(hdfmonkey_path):
         return False
 
 
+def cspect_version_key(name):
+    """Natural-order sort key for a CSpect build name so versioned names compare
+    numerically rather than lexically (``CSpect3_1_4_0`` > ``CSpect3_1_3_0`` >
+    ``CSpect3_0_15_2``).
+
+    Any file extension (e.g. the ``.zip`` on an itch.io upload filename) is
+    stripped first, so the key computed for an installed build folder
+    (``CSpect3_1_4_0``) equals the one for its source archive
+    (``CSpect3_1_4_0.zip``) — otherwise the trailing ``.zip`` token would make an
+    identical version compare as *newer* and trigger a spurious update. Digit
+    runs compare as ints, other runs as lower-case text."""
+    stem = os.path.splitext(os.path.basename(name or ""))[0]
+    return [int(tok) if tok.isdigit() else tok.lower()
+            for tok in re.split(r"(\d+)", stem)]
+
+
+def cspect_version_newer(candidate_name, installed_name):
+    """True when the CSpect build *candidate_name* is a newer version than
+    *installed_name* (both compared with :func:`cspect_version_key`).
+
+    Heterogeneous names can leave an int token opposite a str token at the same
+    position, which raises ``TypeError`` on comparison; that falls back to a
+    plain case-insensitive string comparison of the stems so the check never
+    crashes the startup flow."""
+    ck = cspect_version_key(candidate_name)
+    ik = cspect_version_key(installed_name)
+    try:
+        return ck > ik
+    except TypeError:
+        a = os.path.splitext(os.path.basename(candidate_name or ""))[0].lower()
+        b = os.path.splitext(os.path.basename(installed_name or ""))[0].lower()
+        return a > b
+
+
+def find_installed_cspect_version(base_dir):
+    """Return ``(version_name, cspect_exe_path)`` for the newest CSpect build
+    installed under ``<base_dir>/downloads/itchio``, or ``(None, None)`` when no
+    itch.io CSpect install is present.
+
+    The version is taken from the executable's parent folder name (e.g.
+    ``CSpect3_1_4_0``), which is exactly how the itch.io archive extracts (see
+    ``zxnu_itchio.extract_zip``: ``files/CSpect3_1_4_0.zip`` →
+    ``files/CSpect3_1_4_0/CSpect.exe``). Used by the startup update check to know
+    which build to compare against the latest itch.io upload. The recursive walk
+    can be slow, so callers run it on a background thread."""
+    search_root = os.path.join(base_dir, DOWNLOADS_CSPECT_DIRNAME)
+    if not os.path.isdir(search_root):
+        return (None, None)
+    target = (CSPECT_EXECUTABLE_NAME + ".exe").lower()
+    best_name = None
+    best_path = None
+    for dirpath, _dirnames, filenames in os.walk(search_root):
+        for filename in filenames:
+            if filename.lower() != target:
+                continue
+            folder = os.path.basename(dirpath)
+            if best_name is None or cspect_version_newer(folder, best_name):
+                best_name = folder
+                best_path = os.path.join(dirpath, filename)
+    return (best_name, best_path)
+
+
 def find_emulators_in_downloads(base_dir, scan_for_cspect=True, scan_for_hdfmonkey=True):
     """Recursively search ``<base_dir>/downloads/itchio`` for a CSpect.exe and a
     bundled hdfmonkey executable built for the current platform.
 
     Returns ``(cspect_path, hdfmonkey_path)`` where each element is the full path
-    to the first matching executable found, or ``None`` if not found / not
-    searched for. This is the fallback used when neither tool is present in the
+    to the matching executable found, or ``None`` if not found / not searched
+    for. This is the fallback used when neither tool is present in the
     application directory or on PATH — itch.io CSpect installs land under
     ``downloads/itchio`` in a per-author/game/version sub-folder (and a manually
     downloaded build dropped anywhere under that tree is picked up too).
+
+    When several CSpect builds are installed side by side (e.g. an earlier
+    ``CSpect3_1_3_0`` left in place next to a freshly updated ``CSpect3_1_4_0``),
+    the *newest* one is returned — chosen by the version encoded in each
+    executable's parent folder name (see ``cspect_version_key``) — so the app
+    always launches the latest available build.
 
     The hdfmonkey search now covers Windows, Linux and macOS (Intel + Apple
     Silicon): the itch.io CSpect package ships an hdfmonkey build for each of
@@ -1124,13 +1198,22 @@ def find_emulators_in_downloads(base_dir, scan_for_cspect=True, scan_for_hdfmonk
                     for rank, (sp, _exe) in enumerate(hdf_candidates)]
 
     cspect_path = None
+    cspect_best_name = None  # parent-folder name of the best CSpect match so far
     hdfmonkey_path = None
     hdf_best_rank = None  # priority rank of the best hdfmonkey match so far
     for dirpath, _dirnames, filenames in os.walk(search_root):
         for filename in filenames:
             low = filename.lower()
-            if want_cspect and cspect_path is None and low == cspect_target:
-                cspect_path = os.path.join(dirpath, filename)
+            if want_cspect and low == cspect_target:
+                # Keep the newest build when multiple versions coexist: compare
+                # the version encoded in each exe's parent folder name so a
+                # freshly-updated CSpect3_1_4_0 wins over a lingering
+                # CSpect3_1_3_0, regardless of os.walk() visit order.
+                folder = os.path.basename(dirpath)
+                if cspect_best_name is None or \
+                   cspect_version_newer(folder, cspect_best_name):
+                    cspect_path = os.path.join(dirpath, filename)
+                    cspect_best_name = folder
                 continue
             # Keep looking for hdfmonkey until the top-priority (rank 0) build is
             # found, so a native build wins over a lower-priority fallback.
@@ -1143,10 +1226,24 @@ def find_emulators_in_downloads(base_dir, scan_for_cspect=True, scan_for_hdfmonk
                         hdfmonkey_path = full
                         hdf_best_rank = rank
                         break
-        cspect_done = (not want_cspect) or cspect_path is not None
+        # When scanning for CSpect we can't stop at the first hit — a newer build
+        # may sit in a later-visited folder — so only the hdfmonkey search can
+        # short-circuit the walk (and only when CSpect isn't wanted).
+        cspect_done = not want_cspect
         hdf_done = (not want_hdfmonkey) or hdf_best_rank == 0
         if cspect_done and hdf_done:
             break  # everything we were asked to find has been located
+
+    # Tie hdfmonkey to the *newest* CSpect we selected. Each itch.io CSpect build
+    # ships its own hdfmonkey under <build>/hdfmonkey/<platform>/, so the generic
+    # walk above can hand back an older lingering build's copy. When we have a
+    # winning CSpect, prefer the hdfmonkey bundled with it so updating CSpect also
+    # switches to that build's hdfmonkey. Fall back to the walk result only when
+    # the newest build ships none.
+    if want_hdfmonkey and cspect_path:
+        near = find_hdfmonkey_near_cspect(cspect_path)
+        if near:
+            hdfmonkey_path = near
     return (cspect_path, hdfmonkey_path)
 
 
