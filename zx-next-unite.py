@@ -2545,10 +2545,11 @@ class MainWindow(QMainWindow):
         # entry, so default to 0 ("Mouse On" — no parameter passed) to avoid a
         # KeyError when the CSpect settings are restored below.
         configuration_dictionary[SETTING_MOUSE] = ""
-        # CSpect additional launch parameters (free-text, editable in Settings).
-        # Seeded empty so the key always exists — launch_cspect and the config
-        # writer both index it directly.
-        configuration_dictionary[SETTING_CUSTOM] = ""
+        # CSpect default launch parameters (free-text, editable in Settings).
+        # Seeded with the built-in default so a first-run cfg persists a value the
+        # user can tweak later; launch_cspect appends the SD Card group options on
+        # top (mirroring the MAME default-command-line handling).
+        configuration_dictionary[SETTING_CUSTOM] = CSPECT_DEFAULT_LAUNCH_PARAMETERS
         # Startup "is a newer MAME available?" check (default on; "false" to skip)
         # and the release tag of the MAME build installed via the app (used to
         # compare against the latest release without re-running the binary).
@@ -2844,6 +2845,7 @@ class MainWindow(QMainWindow):
             self.cspect_joystick.setDisabled(True)
             self.cspect_mouse.setDisabled(True)
             self.cspect_frequency.setDisabled(True)
+            self.cspect_esc.setDisabled(True)
 
         def set_all_buttons_enabled():
             self.imageinput.setDisabled(False)
@@ -2867,6 +2869,7 @@ class MainWindow(QMainWindow):
             self.cspect_joystick.setDisabled(False)
             self.cspect_mouse.setDisabled(False)
             self.cspect_frequency.setDisabled(False)
+            self.cspect_esc.setDisabled(False)
 
         def _update_mame_launch_button():
             """Enable the 'Launch Mame' button whenever MAME is available and a
@@ -3321,6 +3324,7 @@ class MainWindow(QMainWindow):
                 self.cspect_joystick.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_JOYSTICK]))
                 self.cspect_mouse.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MOUSE]))
                 self.cspect_frequency.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_HERTZ]))
+                self.cspect_esc.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_ESC]))
                 # MAME option combos (aspect / sound / mouse / joystick). Stored
                 # as combo indices; an absent value ("") maps to index 0 (the
                 # default, i.e. "Sound On" for audio).
@@ -3329,6 +3333,7 @@ class MainWindow(QMainWindow):
                     self.mame_sound.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MAME_SOUND]))
                     self.mame_mouse.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MAME_MOUSE]))
                     self.mame_joystick.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MAME_JOYSTICK]))
+                    self.mame_esc.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MAME_ESC]))
 
                 if configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING]== "":
                     # First run (no previously saved tab): default to the
@@ -3488,10 +3493,19 @@ class MainWindow(QMainWindow):
                     self.settings_cspect_update_check_checkbox.setChecked(_cspect_upd_on)
                     self.settings_cspect_update_check_checkbox.blockSignals(False)
 
-                # CSpect additional launch parameters (editable text). Always
-                # present; empty means "no extra parameters".
+                # CSpect default launch parameters (editable text). Empty falls
+                # back to the built-in default, mirroring the MAME params handling.
                 if hasattr(self, "settings_cspect_params_edit"):
                     _cspect_params = configuration_dictionary.get(SETTING_CUSTOM, "")
+                    if not _cspect_params:
+                        _cspect_params = CSPECT_DEFAULT_LAUNCH_PARAMETERS
+                    # Migrate an older cfg that stored only *additional* params here
+                    # (the base "-basickeys -zxnext" used to be applied separately):
+                    # prepend the base so those users keep it now that this field
+                    # holds the full default command line.
+                    elif "-zxnext" not in _cspect_params:
+                        _cspect_params = (CSPECT_DEFAULT_LAUNCH_PARAMETERS
+                                          + " " + _cspect_params)
                     self.settings_cspect_params_edit.blockSignals(True)
                     self.settings_cspect_params_edit.setText(_cspect_params)
                     self.settings_cspect_params_edit.blockSignals(False)
@@ -3978,6 +3992,7 @@ class MainWindow(QMainWindow):
             configuration_dictionary[SETTING_JOYSTICK] = self.cspect_joystick.currentIndex()
             configuration_dictionary[SETTING_MOUSE] = self.cspect_mouse.currentIndex()
             configuration_dictionary[SETTING_HERTZ] = self.cspect_frequency.currentIndex()
+            configuration_dictionary[SETTING_ESC] = self.cspect_esc.currentIndex()
             # Persist the full history as a '|'-delimited string (each entry tidied).
             history_items = []
             for i in range(self.imageinput.count()):
@@ -4011,6 +4026,10 @@ class MainWindow(QMainWindow):
             configuration_dictionary[SETTING_HERTZ] = self.cspect_frequency.currentIndex()
             save_configuration_file()
 
+        def set_cspect_esc():
+            configuration_dictionary[SETTING_ESC] = self.cspect_esc.currentIndex()
+            save_configuration_file()
+
         # MAME per-launch option combos (aspect / sound / mouse / joystick).
         # Persisted as combo indices, mirroring the CSpect option setters above.
         def set_mame_aspect():
@@ -4029,6 +4048,10 @@ class MainWindow(QMainWindow):
             configuration_dictionary[SETTING_MAME_JOYSTICK] = self.mame_joystick.currentIndex()
             save_configuration_file()
 
+        def set_mame_esc():
+            configuration_dictionary[SETTING_MAME_ESC] = self.mame_esc.currentIndex()
+            save_configuration_file()
+
         def open_cspect_configuration_file():
             if platform.system() == "Windows":
                 execute_shell_command("notepad", ZX_NEXT_UNITE_CONFIG_FILE_NAME)
@@ -4040,7 +4063,15 @@ class MainWindow(QMainWindow):
             if right_disk_image_explorer_content:  # check that we have an image content first
                 set_all_buttons_disabled()
 
-                cspect_arguments = " " + CSPECT_BASE_ARGUMENTS + " "
+                # Editable "CSpect default launch parameters" from the Settings
+                # tab (persisted in SETTING_CUSTOM), falling back to the built-in
+                # default. The SD Card group options are appended on top below,
+                # mirroring how launch_mame handles its default command line.
+                cspect_default_params = configuration_dictionary.get(
+                    SETTING_CUSTOM, CSPECT_DEFAULT_LAUNCH_PARAMETERS)
+                if not cspect_default_params:
+                    cspect_default_params = CSPECT_DEFAULT_LAUNCH_PARAMETERS
+                cspect_arguments = " " + cspect_default_params + " "
                 cspect_screensize_text = self.cspect_screensize.currentText()
                 cspect_sound_text = self.cspect_sound.currentText()
                 cspect_vsync_text = self.cspect_vsync.currentText()
@@ -4054,12 +4085,9 @@ class MainWindow(QMainWindow):
                 cspect_arguments += get_tuple_value(CSPECT_JOYSTICK, cspect_joystick_text) + " "
                 cspect_arguments += get_tuple_value(CSPECT_MOUSE, cspect_mouse_text) + " "
                 cspect_arguments += get_tuple_value(CSPECT_FREQUENCY, cspect_frequency_text) + " "
-
-                if configuration_dictionary[SETTING_ESC] != "":
-                    cspect_arguments += " -esc "
-
-                if configuration_dictionary[SETTING_CUSTOM] != "":
-                    cspect_arguments += " " + configuration_dictionary[SETTING_CUSTOM] + " "
+                # ESC-key disable ("-esc"); "Disable ESC Key Off" (default) passes
+                # nothing so ESC still exits.
+                cspect_arguments += get_tuple_value(CSPECT_ESC, self.cspect_esc.currentText()) + " "
 
                 # When the CSpect copy in use is a bundled itch.io install under
                 # downloads/cspect, it must be launched from its own folder so its
@@ -4177,6 +4205,7 @@ class MainWindow(QMainWindow):
                 (getattr(self, "mame_sound", None), MAME_SOUND),
                 (getattr(self, "mame_mouse", None), MAME_MOUSE),
                 (getattr(self, "mame_joystick", None), MAME_JOYSTICK),
+                (getattr(self, "mame_esc", None), MAME_ESC),
             ):
                 if _mame_combo is None:
                     continue
@@ -4452,7 +4481,8 @@ class MainWindow(QMainWindow):
                 for _mame_combo in (getattr(self, "mame_aspect", None),
                                     getattr(self, "mame_sound", None),
                                     getattr(self, "mame_mouse", None),
-                                    getattr(self, "mame_joystick", None)):
+                                    getattr(self, "mame_joystick", None),
+                                    getattr(self, "mame_esc", None)):
                     if _mame_combo is not None:
                         _mame_combo.setVisible(True)
             except RuntimeError:
@@ -9876,9 +9906,18 @@ class MainWindow(QMainWindow):
         self.mame_joystick.currentIndexChanged.connect(set_mame_joystick)
         self.mame_group_layout.addWidget(self.mame_joystick)
 
+        self.mame_esc = QComboBox()
+        for _me in MAME_ESC:
+            self.mame_esc.addItem(_me[0])
+        self.mame_esc.setToolTip(
+            "Disable the ESC key from quitting MAME (-esc). 'Disable ESC Key Off'\n"
+            "(default) leaves ESC working; 'Disable ESC Key On' passes -esc.")
+        self.mame_esc.currentIndexChanged.connect(set_mame_esc)
+        self.mame_group_layout.addWidget(self.mame_esc)
+
         # Hide the option combos until MAME is actually installed (the group can
         # still be visible to host the "Install MAME" button).
-        for _mame_combo in (self.mame_aspect, self.mame_sound, self.mame_mouse, self.mame_joystick):
+        for _mame_combo in (self.mame_aspect, self.mame_sound, self.mame_mouse, self.mame_joystick, self.mame_esc):
             _mame_combo.setVisible(_mame_available)
 
         self.mame_group_layout.addStretch(1)
@@ -9965,6 +10004,20 @@ class MainWindow(QMainWindow):
         self.cspect_frequency.currentIndexChanged.connect(set_cspect_display_frequency)
 
         self.cspect_group_layout.addWidget(self.cspect_frequency)
+
+        # Populate ESC-key disable combo ("Disable ESC Key On" passes -esc)
+        self.cspect_esc = QComboBox()
+
+        for ec in CSPECT_ESC:
+             self.cspect_esc.addItem(ec[0])
+
+        self.cspect_esc.setToolTip(
+            "Disable the ESC key from quitting CSpect (-esc). 'Disable ESC Key Off'\n"
+            "(default) leaves ESC working; 'Disable ESC Key On' passes -esc.")
+        self.cspect_esc.show()
+        self.cspect_esc.currentIndexChanged.connect(set_cspect_esc)
+
+        self.cspect_group_layout.addWidget(self.cspect_esc)
 
         self.cspect_group_layout.addStretch(1)
 
@@ -22110,7 +22163,7 @@ class MainWindow(QMainWindow):
                 configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = self.settings_mame_params_edit.text()
                 save_configuration_file()
 
-            mame_params_lbl = QLabel("MAME launch parameters:")
+            mame_params_lbl = QLabel("MAME default launch parameters:")
             mame_params_lbl.setToolTip(
                 "Command-line parameters passed to MAME. The '{MAME_EXECUTABLE_NAME}'\n"
                 "placeholder resolves to the detected executable. The ROM/system above\n"
@@ -22152,27 +22205,31 @@ class MainWindow(QMainWindow):
                 lambda _s: settings_mame_update_check_changed())
             grid_tab_Settings.addWidget(self.settings_mame_update_check_checkbox, 27, 0, 1, 2)
 
-        # ── CSpect additional launch parameters ────────────────────────────
+        # ── CSpect default launch parameters ───────────────────────────────
         # Shown unconditionally (unlike the MAME block above, which is gated on
         # MAME being detected) so the box is available even when CSpect is only
-        # found later via the async downloads scan. Edits persist to SETTING_CUSTOM
-        # and are appended to the CSpect command line by launch_cspect.
+        # found later via the async downloads scan. Edits persist to SETTING_CUSTOM;
+        # launch_cspect uses this as the base command line and appends the SD Card
+        # group options (screen size, sound, VSync, joystick, mouse, frequency,
+        # ESC) on top — mirroring the MAME default-launch-parameters handling.
         def settings_cspect_params_changed():
             configuration_dictionary[SETTING_CUSTOM] = self.settings_cspect_params_edit.text()
             save_configuration_file()
 
-        cspect_params_lbl = QLabel("CSpect additional launch parameters:")
+        cspect_params_lbl = QLabel("CSpect default launch parameters:")
         cspect_params_lbl.setToolTip(
-            "Extra command-line parameters appended to the CSpect launch command,\n"
-            "on top of the options chosen on the SD Card Utility tab (screen size,\n"
-            "sound, VSync, joystick, mouse, frequency). Leave empty for none.\n"
-            "Saved to the configuration file."
+            "The base command-line parameters CSpect is launched with (default:\n"
+            f"'{CSPECT_DEFAULT_LAUNCH_PARAMETERS}'). Tweak them freely; the options\n"
+            "chosen in the CSpect group on the SD Card Utility tab (screen size,\n"
+            "sound, VSync, joystick, mouse, frequency, ESC) are appended on top at\n"
+            "launch. Leave empty to restore the built-in default. Saved to the\n"
+            "configuration file."
         )
         grid_tab_Settings.addWidget(cspect_params_lbl, 28, 0)
 
         self.settings_cspect_params_edit = QLineEdit()
         self.settings_cspect_params_edit.setText(
-            configuration_dictionary.get(SETTING_CUSTOM, ""))
+            configuration_dictionary.get(SETTING_CUSTOM, CSPECT_DEFAULT_LAUNCH_PARAMETERS))
         self.settings_cspect_params_edit.setToolTip(cspect_params_lbl.toolTip())
         self.settings_cspect_params_edit.editingFinished.connect(settings_cspect_params_changed)
         grid_tab_Settings.addWidget(self.settings_cspect_params_edit, 28, 1)
@@ -22195,7 +22252,7 @@ class MainWindow(QMainWindow):
                     pass
 
         self.settings_pygame_anim_checkbox = QCheckBox(
-            "Unite! — Space Invaders background animation (Retro/pygame mode)")
+            "Unite! — Invaders background animation (Retro/pygame mode)")
         self.settings_pygame_anim_checkbox.setChecked(True)
         self.settings_pygame_anim_checkbox.setToolTip(
             "When the Unite! tab is in Retro/pygame visualization mode, play an animated\n"
@@ -22204,7 +22261,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_pygame_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 29, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 30, 0, 1, 2)
 
         # ── NextSync retro-log starfield animation toggle ──────────────────
         def _settings_nextsync_anim_changed():
@@ -22236,7 +22293,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_nextsync_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_nextsync_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 32, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 33, 0, 1, 2)
 
         # ── Alien Floyd's: optional pygame-ce animated background everywhere ──
         # A Pink Floyd homage. When on, a pygame-ce "Alien Floyd's" animation
@@ -22291,7 +22348,7 @@ class MainWindow(QMainWindow):
             "file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_bg_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_bg_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 30, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 31, 0, 1, 2)
 
         # ── Alien Floyd's: optional dedicated full-window tab ────────────────
         self._alien_floyd_tab_widget = None
@@ -22363,7 +22420,7 @@ class MainWindow(QMainWindow):
             "configuration file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 31, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 32, 0, 1, 2)
 
         # ── itch.io: optional online tab (driven by the 'itch-dl' package) ───
         def _itchio_tab_set_visible(on):
@@ -22406,7 +22463,7 @@ class MainWindow(QMainWindow):
                 "configuration file. Requires the optional 'itch-dl' package.")
         self.settings_show_itchio_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_itchio_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 33, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 34, 0, 1, 2)
 
         # ── CSpect: check itch.io for a newer version at startup (default on) ──
         def settings_cspect_update_check_changed():
@@ -22429,7 +22486,7 @@ class MainWindow(QMainWindow):
         self.settings_cspect_update_check_checkbox.stateChanged.connect(
             lambda _s: settings_cspect_update_check_changed())
         grid_tab_Settings.addWidget(
-            self.settings_cspect_update_check_checkbox, 34, 0, 1, 2)
+            self.settings_cspect_update_check_checkbox, 29, 0, 1, 2)
 
         # ── NextSync: what to do when a received file/dir already exists locally ──
         def _settings_nextsync_send_conflict_changed():
