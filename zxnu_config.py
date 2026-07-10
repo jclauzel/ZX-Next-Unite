@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "8.7.1"
+ZX_NEXT_UNITE_VERSION = "8.7.2"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -128,7 +128,7 @@ SETTING_MAME_ASPECT                  = "mame_aspect"               # combo index
 SETTING_MAME_SOUND                   = "mame_sound"                # combo index into MAME_SOUND (audio on/off)
 SETTING_MAME_MOUSE                   = "mame_mouse"                # combo index into MAME_MOUSE (mouse capture on/off)
 SETTING_MAME_JOYSTICK                = "mame_joystick"             # combo index into MAME_JOYSTICK (joystick input on/off)
-SETTING_MAME_ESC                     = "mame_esc"                  # combo index into MAME_ESC (ESC-exit disable on/off; default 0 = off, no -confirm_quit)
+SETTING_MAME_ESC                     = "mame_esc"                  # combo index into MAME_ESC (ESC-exit disable on/off; default 1 = on, passes -confirm_quit)
 SETTING_DISABLE_NO_EMULATOR_TOAST  = "disable_no_emulator_toast"   # bool (default False)
 SETTING_NEXTSYNC_EXPLORERPATH = "nextsync_explorerpath"
 SETTING_NEXTSYNC_SYNCONCE = "nextsync_synconce"
@@ -782,9 +782,9 @@ MAME_MOUSE = (("Mouse Off", "-mouse_device none"), ("Mouse On", "-mouse"))
 MAME_JOYSTICK = (("Joystick On", "-joystick"), ("Joystick Off", "-joystickprovider none"))
 # MAME has no "-esc" option. "-confirm_quit" makes MAME prompt for confirmation
 # before quitting, so pressing ESC no longer instantly exits — effectively
-# disabling the ESC-to-quit behaviour. Not passed by default, so ESC still exits:
-# "Disable ESC Key Off" (index 0, default) passes nothing; "Disable ESC Key On"
-# passes "-confirm_quit".
+# disabling the ESC-to-quit behaviour. On by default (index 1) so ESC does not
+# accidentally quit MAME: "Disable ESC Key On" (default) passes "-confirm_quit";
+# "Disable ESC Key Off" (index 0) passes nothing so ESC still exits.
 MAME_ESC = (("Disable ESC Key Off", ""), ("Disable ESC Key On", "-confirm_quit"))
 
 # Options now driven by the MAME group combos above. They are stripped from any
