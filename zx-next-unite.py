@@ -2822,6 +2822,25 @@ class MainWindow(QMainWindow):
             self.nextsync_cancel_server.setVisible(False)
 
 
+        def _update_cspect_launch_tooltip():
+            """Hint on the greyed-out 'Launch CSpect' button that a disk image
+            must be loaded first, and clear it once one is. The button is only
+            enabled after a successful hdfmonkey listing populates
+            right_disk_image_explorer_content, so key the tooltip off that same
+            state — that keeps the hint absent during transfers (an image is
+            already loaded; the button is only transiently disabled). Qt still
+            delivers tooltip help events to disabled widgets, so the hint shows
+            while the button is greyed out."""
+            try:
+                if right_disk_image_explorer_content:
+                    self.button_start_cspect.setToolTip("")
+                else:
+                    self.button_start_cspect.setToolTip(
+                        "Load a ZX Spectrum Next disk image first — then CSpect "
+                        "can boot it from the mounted SD card.")
+            except (RuntimeError, AttributeError):
+                pass
+
         def set_all_buttons_disabled():
 
             self.imageinput.setDisabled(True)
@@ -2846,6 +2865,7 @@ class MainWindow(QMainWindow):
             self.cspect_mouse.setDisabled(True)
             self.cspect_frequency.setDisabled(True)
             self.cspect_esc.setDisabled(True)
+            _update_cspect_launch_tooltip()
 
         def set_all_buttons_enabled():
             self.imageinput.setDisabled(False)
@@ -2870,6 +2890,7 @@ class MainWindow(QMainWindow):
             self.cspect_mouse.setDisabled(False)
             self.cspect_frequency.setDisabled(False)
             self.cspect_esc.setDisabled(False)
+            _update_cspect_launch_tooltip()
 
         def _update_mame_launch_button():
             """Enable the 'Launch Mame' button whenever MAME is available and a
@@ -3460,12 +3481,13 @@ class MainWindow(QMainWindow):
                         SETTING_MAME_COMMAND_LINE_PARAMETERS, "")
                     if not _params:
                         _params = MAME_DEFAULT_COMMAND_LINE
-                    # Migrate the legacy default that hard-coded "-aspect 2:1" to
-                    # the new default now that aspect is a combo box, so the
+                    # Migrate a legacy default (the one that hard-coded
+                    # "-aspect 2:1", or the one that hard-coded "-confirm_quit")
+                    # to the new default now that both are combo boxes, so the
                     # editable command-line box no longer shows a stale, now
                     # combo-controlled option. (Launch-time stripping still handles
                     # any other custom occurrences — see launch_mame.)
-                    elif _params.strip() == MAME_DEFAULT_COMMAND_LINE_LEGACY:
+                    elif _params.strip() in MAME_DEFAULT_COMMAND_LINE_LEGACY_ALL:
                         _params = MAME_DEFAULT_COMMAND_LINE
                     self.settings_mame_params_edit.blockSignals(True)
                     self.settings_mame_params_edit.setText(_params)
@@ -9144,6 +9166,12 @@ class MainWindow(QMainWindow):
         for c in CONFIG_FILE_SETTINGS:
             configuration_dictionary[c] = ""
 
+        # CSpect ESC-key disable defaults to On ("-esc"): seed index 1 after the
+        # reset above so a cfg that predates this option (no "esc=" line) still
+        # restores as On. A cfg that carries an explicit "esc=" value overrides
+        # this when read in load_configuration_file.
+        configuration_dictionary[SETTING_ESC] = "1"
+
         def _persist_retro(key, checked):
             """Persist a pane's Classic/Retro item-viewer choice to the config
             file. Skips the file write while restoring saved settings (the value
@@ -9910,8 +9938,9 @@ class MainWindow(QMainWindow):
         for _me in MAME_ESC:
             self.mame_esc.addItem(_me[0])
         self.mame_esc.setToolTip(
-            "Disable the ESC key from quitting MAME (-esc). 'Disable ESC Key Off'\n"
-            "(default) leaves ESC working; 'Disable ESC Key On' passes -esc.")
+            "Stop the ESC key from instantly quitting MAME by requiring a quit\n"
+            "confirmation (-confirm_quit). 'Disable ESC Key Off' (default) leaves\n"
+            "ESC quitting immediately; 'Disable ESC Key On' passes -confirm_quit.")
         self.mame_esc.currentIndexChanged.connect(set_mame_esc)
         self.mame_group_layout.addWidget(self.mame_esc)
 
@@ -10011,9 +10040,16 @@ class MainWindow(QMainWindow):
         for ec in CSPECT_ESC:
              self.cspect_esc.addItem(ec[0])
 
+        # Default to "Disable ESC Key On" (index 1) so a fresh install (no cfg
+        # file, where load_configuration_file never reaches the restore below)
+        # ships with ESC-to-quit disabled. Set before the currentIndexChanged
+        # connection below so no save is triggered; a saved cfg value still wins.
+        self.cspect_esc.setCurrentIndex(1)
+
         self.cspect_esc.setToolTip(
-            "Disable the ESC key from quitting CSpect (-esc). 'Disable ESC Key Off'\n"
-            "(default) leaves ESC working; 'Disable ESC Key On' passes -esc.")
+            "Disable the ESC key from quitting CSpect (-esc). 'Disable ESC Key On'\n"
+            "(default) passes -esc so ESC won't quit; 'Disable ESC Key Off' leaves\n"
+            "ESC working.")
         self.cspect_esc.show()
         self.cspect_esc.currentIndexChanged.connect(set_cspect_esc)
 
