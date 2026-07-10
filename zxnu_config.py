@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "8.7"
+ZX_NEXT_UNITE_VERSION = "8.7.1"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -119,7 +119,7 @@ SETTING_JOYSTICK = "joy"
 SETTING_MOUSE = "mouse"
 SETTING_CSPECT = "cspect"
 SETTING_CUSTOM = "custom"
-SETTING_ESC = "esc"                                                # combo index into CSPECT_ESC (ESC-exit disable on/off; default 0 = off, no -esc)
+SETTING_ESC = "esc"                                                # combo index into CSPECT_ESC (ESC-exit disable on/off; default 1 = on, passes -esc)
 SETTING_MAME_COMMAND_LINE_PARAMETERS = "mame_command_line_parameters"
 SETTING_MAME_ROM_CHOICE              = "mame_rom_choice"            # MAME system/ROM, e.g. "tbblue" (default)
 SETTING_MAME_UPDATE_CHECK            = "mame_update_check"          # "false" => skip the startup MAME update check (default on)
@@ -128,7 +128,7 @@ SETTING_MAME_ASPECT                  = "mame_aspect"               # combo index
 SETTING_MAME_SOUND                   = "mame_sound"                # combo index into MAME_SOUND (audio on/off)
 SETTING_MAME_MOUSE                   = "mame_mouse"                # combo index into MAME_MOUSE (mouse capture on/off)
 SETTING_MAME_JOYSTICK                = "mame_joystick"             # combo index into MAME_JOYSTICK (joystick input on/off)
-SETTING_MAME_ESC                     = "mame_esc"                  # combo index into MAME_ESC (ESC-exit disable on/off; default 0 = off, no -esc)
+SETTING_MAME_ESC                     = "mame_esc"                  # combo index into MAME_ESC (ESC-exit disable on/off; default 0 = off, no -confirm_quit)
 SETTING_DISABLE_NO_EMULATOR_TOAST  = "disable_no_emulator_toast"   # bool (default False)
 SETTING_NEXTSYNC_EXPLORERPATH = "nextsync_explorerpath"
 SETTING_NEXTSYNC_SYNCONCE = "nextsync_synconce"
@@ -734,9 +734,10 @@ CSPECT_JOYSTICK = (("Joystick On", "-joystick"),("Joystick Off", ""))
 # "Mouse On" (default) passes nothing and "Mouse Off" passes "-mouse".
 CSPECT_MOUSE = (("Mouse On", ""),("Mouse Off", "-mouse"))
 CSPECT_FREQUENCY = (("50Hz", ""),("60Hz", "-60"))
-# CSpect "-esc" *disables* the ESC key from quitting the emulator. By default it
-# is not passed, so ESC still exits: "Disable ESC Key Off" (index 0, default)
-# passes nothing; "Disable ESC Key On" passes "-esc".
+# CSpect "-esc" *disables* the ESC key from quitting the emulator. On by default
+# (index 1) so ESC does not accidentally quit CSpect: "Disable ESC Key On"
+# (default) passes "-esc"; "Disable ESC Key Off" (index 0) passes nothing so ESC
+# still exits.
 CSPECT_ESC = (("Disable ESC Key Off", ""),("Disable ESC Key On", "-esc"))
 # Default CSpect command-line parameters, editable in the Settings tab ("CSpect
 # default launch parameters") and persisted to hdfg.cfg (SETTING_CUSTOM). Mirrors
@@ -779,16 +780,18 @@ MAME_SOUND = (
 )
 MAME_MOUSE = (("Mouse Off", "-mouse_device none"), ("Mouse On", "-mouse"))
 MAME_JOYSTICK = (("Joystick On", "-joystick"), ("Joystick Off", "-joystickprovider none"))
-# "-esc" disables the ESC key from quitting the emulator. Not passed by default,
-# so ESC still exits: "Disable ESC Key Off" (index 0, default) passes nothing;
-# "Disable ESC Key On" passes "-esc".
-MAME_ESC = (("Disable ESC Key Off", ""), ("Disable ESC Key On", "-esc"))
+# MAME has no "-esc" option. "-confirm_quit" makes MAME prompt for confirmation
+# before quitting, so pressing ESC no longer instantly exits — effectively
+# disabling the ESC-to-quit behaviour. Not passed by default, so ESC still exits:
+# "Disable ESC Key Off" (index 0, default) passes nothing; "Disable ESC Key On"
+# passes "-confirm_quit".
+MAME_ESC = (("Disable ESC Key Off", ""), ("Disable ESC Key On", "-confirm_quit"))
 
 # Options now driven by the MAME group combos above. They are stripped from any
 # user-edited command-line params at launch so the combo selections are the
 # single source of truth (never duplicated or in conflict). Flag options take no
 # value; value options consume the following token.
-MAME_COMBO_FLAG_OPTIONS = frozenset({"-mouse", "-nomouse", "-joystick", "-nojoystick", "-esc"})
+MAME_COMBO_FLAG_OPTIONS = frozenset({"-mouse", "-nomouse", "-joystick", "-nojoystick", "-confirm_quit", "-noconfirm_quit"})
 MAME_COMBO_VALUE_OPTIONS = frozenset({"-aspect", "-sound", "-mouse_device", "-joystickprovider"})
 
 def strip_mame_combo_options(tokens):
@@ -814,11 +817,20 @@ def strip_mame_combo_options(tokens):
 # default: the ROM is chosen by the user (SETTING_MAME_ROM_CHOICE), the combo
 # options are appended at launch, and "-hard1 <image>" is appended dynamically
 # so the image is always the last argument passed to MAME.
-MAME_DEFAULT_COMMAND_LINE = "{MAME_EXECUTABLE_NAME} -ui_active -nounevenstretch -video bgfx -bgfx_screen_chains unfiltered -window -skip_gameinfo -confirm_quit"
-# Previous default that hard-coded "-aspect 2:1"; a saved cfg still carrying this
-# exact string is migrated to MAME_DEFAULT_COMMAND_LINE on load so the Settings
-# command-line box no longer duplicates the now combo-controlled aspect option.
+MAME_DEFAULT_COMMAND_LINE = "{MAME_EXECUTABLE_NAME} -ui_active -nounevenstretch -video bgfx -bgfx_screen_chains unfiltered -window -skip_gameinfo"
+# Previous defaults a saved cfg may still carry verbatim; each is migrated to
+# MAME_DEFAULT_COMMAND_LINE on load so the Settings command-line box no longer
+# shows now combo-controlled options — the hard-coded "-aspect 2:1" (aspect is a
+# combo) and "-confirm_quit" (the ESC-confirm combo owns it). Launch-time
+# stripping still handles any other custom occurrences (see launch_mame).
 MAME_DEFAULT_COMMAND_LINE_LEGACY = "{MAME_EXECUTABLE_NAME} -ui_active -nounevenstretch -aspect 2:1 -video bgfx  -bgfx_screen_chains unfiltered -window -skip_gameinfo -confirm_quit"
+# The prior default that hard-coded "-confirm_quit" before it became combo-driven.
+MAME_DEFAULT_COMMAND_LINE_LEGACY_CONFIRM_QUIT = "{MAME_EXECUTABLE_NAME} -ui_active -nounevenstretch -video bgfx -bgfx_screen_chains unfiltered -window -skip_gameinfo -confirm_quit"
+# Every legacy default that should migrate to MAME_DEFAULT_COMMAND_LINE on load.
+MAME_DEFAULT_COMMAND_LINE_LEGACY_ALL = (
+    MAME_DEFAULT_COMMAND_LINE_LEGACY,
+    MAME_DEFAULT_COMMAND_LINE_LEGACY_CONFIRM_QUIT,
+)
 # Appended right before the image path at launch time.
 MAME_HARD_DISK_PARAMETER = "-hard1"
 # Setup guide for the ZX Spectrum Next MAME support. Notably it documents the
