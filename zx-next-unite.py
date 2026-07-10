@@ -2841,6 +2841,25 @@ class MainWindow(QMainWindow):
             except (RuntimeError, AttributeError):
                 pass
 
+        def _update_mame_launch_tooltip():
+            """Mirror _update_cspect_launch_tooltip for the MAME group: hint on
+            the greyed-out 'Launch Mame' button that a disk image must be
+            selected first, cleared once one is. Keyed off a valid image *file*
+            being selected (not the hdfmonkey listing) — MAME boots the image
+            directly without hdfmonkey, so that is exactly when it is launchable.
+            Qt still delivers tooltip help events to disabled widgets, so the
+            hint shows while the button is greyed out."""
+            try:
+                img = (self.imageinput.currentText() or "").strip().strip('"')
+                if img and os.path.isfile(img):
+                    self.button_start_mame.setToolTip("")
+                else:
+                    self.button_start_mame.setToolTip(
+                        "Select a ZX Spectrum Next disk image (.img/.hdf) first "
+                        "— then MAME can boot it as the Next's hard disk.")
+            except (RuntimeError, AttributeError):
+                pass
+
         def set_all_buttons_disabled():
 
             self.imageinput.setDisabled(True)
@@ -2865,7 +2884,15 @@ class MainWindow(QMainWindow):
             self.cspect_mouse.setDisabled(True)
             self.cspect_frequency.setDisabled(True)
             self.cspect_esc.setDisabled(True)
+            for _mame_combo in (getattr(self, "mame_aspect", None),
+                                getattr(self, "mame_sound", None),
+                                getattr(self, "mame_mouse", None),
+                                getattr(self, "mame_joystick", None),
+                                getattr(self, "mame_esc", None)):
+                if _mame_combo is not None:
+                    _mame_combo.setDisabled(True)
             _update_cspect_launch_tooltip()
+            _update_mame_launch_tooltip()
 
         def set_all_buttons_enabled():
             self.imageinput.setDisabled(False)
@@ -2890,37 +2917,57 @@ class MainWindow(QMainWindow):
             self.cspect_mouse.setDisabled(False)
             self.cspect_frequency.setDisabled(False)
             self.cspect_esc.setDisabled(False)
+            for _mame_combo in (getattr(self, "mame_aspect", None),
+                                getattr(self, "mame_sound", None),
+                                getattr(self, "mame_mouse", None),
+                                getattr(self, "mame_joystick", None),
+                                getattr(self, "mame_esc", None)):
+                if _mame_combo is not None:
+                    _mame_combo.setDisabled(False)
             _update_cspect_launch_tooltip()
+            _update_mame_launch_tooltip()
 
-        def _update_mame_launch_button():
-            """Enable the 'Launch Mame' button whenever MAME is available and a
-            real disk-image file is selected — independent of hdfmonkey.
+        def _update_mame_controls():
+            """Enable the 'Launch Mame' button *and* the MAME option combos
+            together whenever MAME is available and a real disk-image file is
+            selected — independent of hdfmonkey.
 
             Launching MAME boots the Next with the selected HDF as its hard disk
             and never calls hdfmonkey (the SD-card file-explorer tool). So a
-            missing hdfmonkey must not keep the button disabled: without this,
-            set_all_buttons_enabled() (which re-enables the launch button) only
-            ever runs after a successful image *listing*, which needs hdfmonkey —
-            so with hdfmonkey absent the MAME button stayed disabled even though
-            MAME was installed and ready. The button is still hidden outright when
-            MAME isn't installed (setVisible(_mame_available)), and still disabled
-            during transfers/loads via set_all_buttons_disabled()."""
+            missing hdfmonkey must not keep the group disabled: without this,
+            set_all_buttons_enabled() (which re-enables the group) only ever runs
+            after a successful image *listing*, which needs hdfmonkey — so with
+            hdfmonkey absent the MAME group stayed disabled even though MAME was
+            installed and ready. Mirrors the CSpect group: with no image ready
+            the whole MAME group is greyed out and the launch button shows a
+            'select an image first' hint (see _update_mame_launch_tooltip). The
+            controls are still hidden outright when MAME isn't installed
+            (setVisible(_mame_available)) and still hard-disabled during
+            transfers/loads via set_all_buttons_disabled()."""
             try:
                 available = getattr(self, "_mame_executable_path", None) is not None
                 img = (self.imageinput.currentText() or "").strip().strip('"')
-                self.button_start_mame.setEnabled(
-                    available and bool(img) and os.path.isfile(img))
+                ready = available and bool(img) and os.path.isfile(img)
+                self.button_start_mame.setEnabled(ready)
+                for _mame_combo in (getattr(self, "mame_aspect", None),
+                                    getattr(self, "mame_sound", None),
+                                    getattr(self, "mame_mouse", None),
+                                    getattr(self, "mame_joystick", None),
+                                    getattr(self, "mame_esc", None)):
+                    if _mame_combo is not None:
+                        _mame_combo.setEnabled(ready)
+                _update_mame_launch_tooltip()
             except (RuntimeError, AttributeError):
                 pass
 
         def enable_image_selection():
             self.imageinput.setDisabled(False)
             self.selectimage.setDisabled(False)
-            # The MAME launch button is gated on MAME + a valid image, not on
-            # hdfmonkey — so refresh it here, the resting state used when the
-            # image explorer is unavailable (e.g. hdfmonkey missing or a failed
-            # load). Keeps 'Launch Mame' usable without hdfmonkey.
-            _update_mame_launch_button()
+            # The MAME group is gated on MAME + a valid image, not on hdfmonkey —
+            # so refresh it here, the resting state used when the image explorer
+            # is unavailable (e.g. hdfmonkey missing or a failed load). Keeps
+            # 'Launch Mame' and its option combos usable without hdfmonkey.
+            _update_mame_controls()
 
         def disable_image_selection():
             self.imageinput.setDisabled(True)
@@ -3239,9 +3286,9 @@ class MainWindow(QMainWindow):
             _start_hdfmonkey_button_animation()
             # hdfmonkey is confirmed missing here, so the file explorer stays
             # disabled — but MAME doesn't need hdfmonkey, so make sure its launch
-            # button reflects (MAME present + a valid image) rather than staying
-            # stuck disabled.
-            _update_mame_launch_button()
+            # button and option combos reflect (MAME present + a valid image)
+            # rather than staying stuck disabled.
+            _update_mame_controls()
 
         def _hdfmonkey_binary_found():
             """True if the hdfmonkey executable can be located (PATH, current
@@ -4507,6 +4554,9 @@ class MainWindow(QMainWindow):
                                     getattr(self, "mame_esc", None)):
                     if _mame_combo is not None:
                         _mame_combo.setVisible(True)
+                # Now that MAME is present, set the just-revealed group's
+                # enabled state (and the launch hint) from the current image.
+                _update_mame_controls()
             except RuntimeError:
                 pass
             add_main_log_window(f"MAME install ▸ SUCCESS — MAME detected at: {detected}")
@@ -9171,6 +9221,10 @@ class MainWindow(QMainWindow):
         # restores as On. A cfg that carries an explicit "esc=" value overrides
         # this when read in load_configuration_file.
         configuration_dictionary[SETTING_ESC] = "1"
+        # MAME ESC-key disable likewise defaults to On ("-confirm_quit"); seed
+        # index 1 so a cfg without a "mame_esc" line restores as On, while an
+        # explicit saved value still wins in load_configuration_file.
+        configuration_dictionary[SETTING_MAME_ESC] = "1"
 
         def _persist_retro(key, checked):
             """Persist a pane's Classic/Retro item-viewer choice to the config
@@ -9937,10 +9991,15 @@ class MainWindow(QMainWindow):
         self.mame_esc = QComboBox()
         for _me in MAME_ESC:
             self.mame_esc.addItem(_me[0])
+        # Default to "Disable ESC Key On" (index 1) so a fresh install (no cfg
+        # file, where load_configuration_file never reaches the restore above)
+        # ships with quit-confirmation enabled. Set before the currentIndexChanged
+        # connection below so no save is triggered; a saved cfg value still wins.
+        self.mame_esc.setCurrentIndex(1)
         self.mame_esc.setToolTip(
             "Stop the ESC key from instantly quitting MAME by requiring a quit\n"
-            "confirmation (-confirm_quit). 'Disable ESC Key Off' (default) leaves\n"
-            "ESC quitting immediately; 'Disable ESC Key On' passes -confirm_quit.")
+            "confirmation (-confirm_quit). 'Disable ESC Key On' (default) passes\n"
+            "-confirm_quit; 'Disable ESC Key Off' lets ESC quit immediately.")
         self.mame_esc.currentIndexChanged.connect(set_mame_esc)
         self.mame_group_layout.addWidget(self.mame_esc)
 
@@ -23277,10 +23336,10 @@ class MainWindow(QMainWindow):
             self.button_delete_files.setVisible(False)
             # MAME doesn't need hdfmonkey: with hdfmonkey absent load_image()
             # isn't run at startup, so nothing would otherwise enable the MAME
-            # launch button even when MAME is present. Refresh it here (the
-            # background scan re-affirms via show_hdf_monkey_download_and_install
-            # once detection completes).
-            _update_mame_launch_button()
+            # group even when MAME is present. Refresh it here (the background
+            # scan re-affirms via show_hdf_monkey_download_and_install once
+            # detection completes).
+            _update_mame_controls()
 
         # Background scan of downloads/cspect for an itch.io CSpect bundle. Run
         # only when CSpect or hdfmonkey (either, any platform) is still missing —
