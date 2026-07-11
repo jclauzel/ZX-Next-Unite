@@ -5900,7 +5900,9 @@ class PygameItemViewer(_Scene):
 
     def set_emulator_actions(self, cspect_cb=None, mame_cb=None,
                              cspect_enabled=False, mame_enabled=False,
-                             cspect_tooltip="", mame_tooltip=""):
+                             cspect_tooltip="", mame_tooltip="", mame_label=""):
+        if mame_label:
+            self._buttons["launch_mame"].label = mame_label
         self._wire("launch_cspect", cspect_cb,
                    bool(cspect_enabled) and cspect_cb is not None, cspect_tooltip)
         self._wire("launch_mame", mame_cb,

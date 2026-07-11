@@ -129,6 +129,8 @@ SETTING_MAME_SOUND                   = "mame_sound"                # combo index
 SETTING_MAME_MOUSE                   = "mame_mouse"                # combo index into MAME_MOUSE (mouse capture on/off)
 SETTING_MAME_JOYSTICK                = "mame_joystick"             # combo index into MAME_JOYSTICK (joystick input on/off)
 SETTING_MAME_ESC                     = "mame_esc"                  # combo index into MAME_ESC (ESC-exit disable on/off; default 1 = on, passes -confirm_quit)
+SETTING_MAME_FLATPAK                 = "mame_flatpak"              # bool (Linux): launch MAME via `flatpak run org.mamedev.MAME` instead of a local binary (default off)
+SETTING_MAME_FLATPAK_ROMPATH         = "mame_flatpak_rompath"      # rom directory passed as `--rompath` when launching MAME via Flatpak (default ~/roms)
 SETTING_DISABLE_NO_EMULATOR_TOAST  = "disable_no_emulator_toast"   # bool (default False)
 SETTING_NEXTSYNC_EXPLORERPATH = "nextsync_explorerpath"
 SETTING_NEXTSYNC_SYNCONCE = "nextsync_synconce"
@@ -718,7 +720,7 @@ SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_COLOR_GENERAL_TEXT, SET
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GALLERY_SLIDESHOW_SECS, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
-SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
+SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
 SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_SDCARD_PYGAME_LOG, SETTING_HELP_PYGAME_LOG,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO)
@@ -840,6 +842,28 @@ MAME_HARD_DISK_PARAMETER = "-hard1"
 # fails for that reason.
 MAME_INSTALL_WIKI_URL = "https://wiki.specnext.dev/MAME:Installing"
 
+# Flatpak launch support (Linux). When the user enables "Launch Mame with
+# Flatpak" (SETTING_MAME_FLATPAK), MAME is started via the Flatpak CLI instead of
+# a local binary — handy on distros where MAME is only available from Flathub
+# (org.mamedev.MAME). The user-provided rom directory is appended as `--rompath`.
+MAME_FLATPAK_APP_ID = "org.mamedev.MAME"
+MAME_FLATPAK_COMMAND = ("flatpak", "run", MAME_FLATPAK_APP_ID)
+
+
+def mame_flatpak_supported():
+    """True where the "Launch Mame with Flatpak" option is offered — Linux only,
+    since Flatpak is a Linux packaging system."""
+    return platform.system() == "Linux"
+
+
+def default_mame_flatpak_rompath():
+    """Default ``--rompath`` for a Flatpak MAME launch: a ``roms`` folder in the
+    user's home directory (e.g. ``/home/<user>/roms``). Flatpak MAME is
+    sandboxed, so the user points it at a directory they control that holds the
+    boot ROM (tbblue.zip) and any others."""
+    return os.path.join(os.path.expanduser("~"), "roms")
+
+
 def find_mame_executable():
     """Return the full path to the MAME executable if it can be found on the
     system PATH, otherwise None.
@@ -881,32 +905,19 @@ def mame_windows_asset_arch():
     return None
 
 
-def mame_linux_asset_supported():
-    """True when the official mamedev/mame GitHub release ships a precompiled
-    Linux build usable on this machine — i.e. Linux on x86_64/amd64.
-
-    MAME publishes a single 64-bit Linux SDL build per release, named
-    ``mame<ver>lx.zip`` (``lx`` = Linux x86_64). There is no official arm64 or
-    32-bit Linux binary, so those hosts return ``False`` and the in-app installer
-    is not offered there (they must build from source or use a distro package).
-    macOS also returns ``False`` — MAME publishes no official macOS binary, so
-    the "Install Mame compiled binaries" button is Linux-only."""
-    if platform.system() != "Linux":
-        return False
-    machine = (platform.machine() or "").lower()
-    return machine in ("x86_64", "amd64", "x64")
-
-
 def mame_auto_install_supported():
-    """True on platforms where the app can download/update a precompiled MAME
-    build itself: 64-bit Windows (the ``…b_<arch>.exe`` self-extractors) or
-    x86_64 Linux (the official ``mame<ver>lx.zip``).
+    """True only on platforms where the app can download/update a precompiled
+    MAME build itself: 64-bit Windows (the ``…b_<arch>.exe`` self-extractors).
 
-    ``False`` on macOS — MAME publishes no official macOS binary, so there the
-    app only *detects* an existing MAME (``downloads/mame`` first, then PATH; see
-    :func:`resolve_mame_executable`) and shows the MAME group + Launch button, but
-    never offers an install or a startup update check."""
-    return mame_windows_asset_arch() is not None or mame_linux_asset_supported()
+    ``False`` on Linux and macOS — neither ships an official precompiled MAME
+    binary in the mamedev/mame GitHub release (the ``mame<ver>lx.zip`` asset is
+    just the ``-listxml`` machine database, not a build; macOS has nothing). On
+    those platforms the app only *detects* an existing MAME (``downloads/mame``
+    first, then PATH; see :func:`resolve_mame_executable`) and shows the MAME
+    group + Launch button — it never offers an install or a startup update
+    check. Users install MAME via their distro/Flatpak (Linux) or Homebrew/
+    SDLMAME (macOS)."""
+    return mame_windows_asset_arch() is not None
 
 
 def parse_mame_version_number(text):
@@ -952,31 +963,6 @@ def select_mame_release_asset(release, arch):
         name = asset.get("name") or ""
         url = asset.get("browser_download_url") or ""
         if url and name.lower().endswith(suffix):
-            try:
-                size = int(asset.get("size") or 0)
-            except (TypeError, ValueError):
-                size = 0
-            return (tag, name, url, size)
-    return None
-
-
-def select_mame_linux_release_asset(release):
-    """Pick the official Linux (x86_64) binaries zip out of a parsed GitHub
-    "latest release" object.
-
-    *release* is the decoded JSON dict from ``MAME_GITHUB_LATEST_RELEASE_API``.
-    MAME names the Linux build ``mame<ver>lx.zip`` — a *plain*, unencrypted zip
-    (unlike the Windows ``…b_<arch>.exe`` self-extractors), so match that name.
-    Returns ``(tag_name, asset_name, download_url, size_bytes)`` for the first
-    match, or ``None`` when the release carries no Linux build.
-    """
-    if not isinstance(release, dict):
-        return None
-    tag = release.get("tag_name") or ""
-    for asset in release.get("assets") or []:
-        name = asset.get("name") or ""
-        url = asset.get("browser_download_url") or ""
-        if url and re.match(r"mame0*\d+lx\.zip$", name, re.IGNORECASE):
             try:
                 size = int(asset.get("size") or 0)
             except (TypeError, ValueError):
@@ -1477,54 +1463,19 @@ def resolve_mame_executable(base_dir):
     platform's search precedence, or ``None`` when MAME is not installed.
 
     On Windows the PATH copy is preferred (a user who installed MAME system-wide
-    expects that build), falling back to an app-managed download under
-    ``downloads/mame``. On Linux/macOS the precedence is *reversed*: an
-    app-managed ``downloads/mame`` build wins over whatever ``mame`` is on PATH,
-    because the distro/PATH copy is frequently an older MAME that predates the ZX
-    Spectrum Next (tbblue) driver — the freshly downloaded precompiled build is
-    the one we want to launch. Combines the two independent lookups the startup
-    detection used to run inline, with the Linux/macOS ordering flipped."""
+    expects that build), falling back to an app-managed install under
+    ``downloads/mame`` (only Windows has an in-app installer). On Linux/macOS the
+    precedence is *reversed*: a build under ``downloads/mame`` wins over whatever
+    ``mame`` is on PATH, because the distro/PATH copy is frequently an older MAME
+    that predates the ZX Spectrum Next (tbblue) driver — so a user who drops a
+    newer build into ``downloads/mame`` gets it launched in preference. Combines
+    the two independent lookups the startup detection used to run inline, with the
+    Linux/macOS ordering flipped."""
     on_path = find_mame_executable()
     in_downloads = find_mame_in_downloads(base_dir) if base_dir else None
     if platform.system() == "Windows":
         return on_path or in_downloads
     return in_downloads or on_path
-
-
-def extract_mame_linux_zip(zip_path, dest_root):
-    """Extract the official MAME Linux (x86_64) binaries zip into *dest_root*
-    (``downloads/mame``) and return the full path to the extracted ``mame``
-    executable, or ``None`` when it can't be located afterwards.
-
-    ``mame<ver>lx.zip`` is a plain, unencrypted zip whose ``mame`` binary and
-    support tree sit at the archive root, so Python's stdlib ``zipfile`` unpacks
-    it with no external tool (the Windows path instead needs the SFX's silent
-    ``-o<dir> -y`` extraction). ``ZipFile.extractall`` does not restore the Unix
-    executable bit, so the freshly written binary is ``chmod +x``'d — it lives in
-    the user's own downloads folder, so no elevation is needed. Propagates
-    ``zipfile``/OS errors for the caller to report."""
-    os.makedirs(dest_root, exist_ok=True)
-    with zipfile.ZipFile(zip_path) as zf:
-        zf.extractall(dest_root)
-    # Locate the extracted binary (root first, then a bounded walk in case a
-    # future layout nests it) and mark it executable.
-    exe_name = MAME_EXECUTABLE_NAME  # 'mame' — this path runs on Linux/macOS only
-    found = None
-    direct = os.path.join(dest_root, exe_name)
-    if os.path.isfile(direct):
-        found = direct
-    else:
-        for dirpath, _dirnames, filenames in os.walk(dest_root):
-            if exe_name in filenames:
-                found = os.path.join(dirpath, exe_name)
-                break
-    if found:
-        try:
-            mode = os.stat(found).st_mode
-            os.chmod(found, mode | 0o111)
-        except OSError:
-            pass
-    return found
 
 
 def extract_hdfmonkey_from_jjjs_zip(outer_zip_path, dest_root,

@@ -2189,12 +2189,16 @@ class GalleryItemViewer(QWidget):
 
     def set_emulator_actions(self, cspect_cb=None, mame_cb=None,
                              cspect_enabled=False, mame_enabled=False,
-                             cspect_tooltip="", mame_tooltip=""):
+                             cspect_tooltip="", mame_tooltip="", mame_label=""):
         """Wire and reveal the emulator launch buttons shown under "Send to SD
         card".  A button is shown only when its callback is provided (i.e. the
-        emulator was detected); pass None to keep it hidden."""
+        emulator was detected); pass None to keep it hidden. *mame_label*, when
+        given, overrides the MAME button's caption (e.g. "Launch Mame (flatpak)").
+        """
         self._cspect_enabled = bool(cspect_enabled) and cspect_cb is not None
         self._mame_enabled   = bool(mame_enabled) and mame_cb is not None
+        if mame_label:
+            self.btn_launch_mame.setText(mame_label)
         self._wire_btn(self.btn_launch_cspect, cspect_cb,
                        self._cspect_enabled, cspect_tooltip)
         self._wire_btn(self.btn_launch_mame, mame_cb,
