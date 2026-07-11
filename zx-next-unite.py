@@ -2565,7 +2565,7 @@ class MainWindow(QMainWindow):
         configuration_dictionary[SETTING_MAME_UPDATE_CHECK] = ""
         configuration_dictionary[SETTING_MAME_INSTALLED_TAG] = ""
         # "Launch Mame with Flatpak" (Linux): off by default. The rom directory
-        # passed to Flatpak MAME as --rompath is seeded with the per-user default
+        # passed to Flatpak MAME as -rompath is seeded with the per-user default
         # (~/roms) so a first-run cfg persists an editable value.
         configuration_dictionary[SETTING_MAME_FLATPAK] = "false"
         configuration_dictionary[SETTING_MAME_FLATPAK_ROMPATH] = default_mame_flatpak_rompath()
@@ -4352,14 +4352,14 @@ class MainWindow(QMainWindow):
                     mame_argv += shlex.split(_mame_arg)
 
             # Flatpak MAME is sandboxed and has no roms/ next to a binary, so the
-            # user's rom directory is passed explicitly as --rompath (before the
+            # user's rom directory is passed explicitly as -rompath (before the
             # -hard1 image, which must stay last).
             if _flatpak:
                 _rompath = (configuration_dictionary.get(
                     SETTING_MAME_FLATPAK_ROMPATH, "") or "").strip()
                 if not _rompath:
                     _rompath = default_mame_flatpak_rompath()
-                mame_argv += ["--rompath", _rompath]
+                mame_argv += ["-rompath", _rompath]
 
             if mame_image:
                 mame_argv += [MAME_HARD_DISK_PARAMETER, mame_image]
@@ -22451,7 +22451,7 @@ class MainWindow(QMainWindow):
                 "Launch MAME via 'flatpak run org.mamedev.MAME' instead of a local\n"
                 "binary — for Linux systems where MAME is installed from Flathub.\n"
                 "When on, every 'Launch Mame' button becomes 'Launch Mame (flatpak)'\n"
-                "and the rom folder below is passed to MAME as --rompath. Off by\n"
+                "and the rom folder below is passed to MAME as -rompath. Off by\n"
                 "default. Saved to the configuration file."
             )
             _flatpak_on = str(configuration_dictionary.get(
@@ -22467,7 +22467,7 @@ class MainWindow(QMainWindow):
             _rompath_row_layout.setContentsMargins(20, 0, 0, 0)
             _rompath_lbl = QLabel("Flatpak rom path:")
             _rompath_lbl.setToolTip(
-                "Directory passed to Flatpak MAME as --rompath. Put the boot ROM\n"
+                "Directory passed to Flatpak MAME as -rompath. Put the boot ROM\n"
                 "(tbblue.zip) and any other ROMs here. Defaults to ~/roms.")
             self.settings_mame_flatpak_rompath_edit = QLineEdit()
             self.settings_mame_flatpak_rompath_edit.setText(
