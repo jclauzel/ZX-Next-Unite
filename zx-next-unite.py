@@ -2566,22 +2566,19 @@ class MainWindow(QMainWindow):
         # touch). Seeded so a first-run cfg persists a value.
         configuration_dictionary[SETTING_NEXTSYNC_SEND_CONFLICT] = DEFAULT_NEXTSYNC_SEND_CONFLICT
 
-        # Detect whether the MAME emulator is available on the system PATH
-        # (mame.exe on Windows, mame elsewhere). When present, a "Launch Mame"
-        # button is shown next to "Launch CSpect"; when absent, an "Install MAME"
-        # button offers to download the latest official build instead.
-        self._mame_executable_path = find_mame_executable()
-        # A previous in-app "Install MAME" leaves the build under
-        # downloads/mame/; re-adopt it on launch (cheap isfile check) so the
-        # Launch button — not the installer — is shown across restarts.
-        if self._mame_executable_path is None:
-            try:
-                _dl_mame = find_mame_in_downloads(
-                    os.path.dirname(os.path.abspath(sys.argv[0])))
-            except Exception:
-                _dl_mame = None
-            if _dl_mame:
-                self._mame_executable_path = _dl_mame
+        # Detect the MAME emulator, applying the platform's search precedence
+        # (see resolve_mame_executable). On Windows the PATH copy wins, falling
+        # back to a previous in-app "Install MAME" build under downloads/mame. On
+        # Linux/macOS the order is reversed: an app-managed downloads/mame build
+        # is preferred over an (often older) PATH ``mame`` that may predate the ZX
+        # Spectrum Next (tbblue) driver. When a build is found a "Launch Mame"
+        # button is shown; when absent, an installer button is offered instead
+        # (the SD Card tab's on Windows, the Settings tab's on x86_64 Linux).
+        try:
+            self._mame_executable_path = resolve_mame_executable(
+                os.path.dirname(os.path.abspath(sys.argv[0])))
+        except Exception:
+            self._mame_executable_path = find_mame_executable()
         # Guard so a second click can't start a concurrent MAME install.
         self._mame_installing = False
 
@@ -4431,13 +4428,16 @@ class MainWindow(QMainWindow):
             return picked
 
         def _mame_install_job(url, asset_name, dest_root, mame_sig):
-            """Worker-thread job: download the MAME self-extractor and unpack it.
+            """Worker-thread job: download the MAME package and unpack it.
 
             Never touches Qt widgets — phase lines and the button's percentage
             are marshalled to the UI via *mame_sig* (queued). Streams the download
-            to downloads/mame/<asset>, runs the SFX with '-o<dir> -y' to extract
-            in place, deletes the installer and returns the path to the installed
-            mame executable. The caller keeps *mame_sig* alive for the duration."""
+            to downloads/mame/<asset>, then unpacks it in place, deletes the
+            installer and returns the path to the installed mame executable. The
+            extract step is platform-specific: on Windows the asset is a 7-Zip
+            self-extractor run with '-o<dir> -y'; on Linux it is a plain zip
+            (mame<ver>lx.zip) unpacked with stdlib zipfile. The caller keeps
+            *mame_sig* alive for the duration."""
             def _phase(msg):
                 try:
                     mame_sig.status.emit(msg)
@@ -4476,21 +4476,35 @@ class MainWindow(QMainWindow):
             _phase(f"MAME install ▸ Download finished ({read // 1048576} MB).")
 
             # ── Phase 2: extract ──
-            # MAME's Windows .exe is a 7-Zip self-extractor: "-o<dir> -y" unpacks
-            # it silently (verified: no GUI, mame.exe lands at the top of <dir>).
-            _phase("MAME install ▸ Extracting the archive (this can take a moment) …")
-            subprocess.run(
-                [sfx_path, f"-o{dest_root}", "-y"],
-                check=True, cwd=dest_root,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                **subprocess_no_window_kwargs())
+            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            if platform.system() == "Windows":
+                # MAME's Windows .exe is a 7-Zip self-extractor: "-o<dir> -y"
+                # unpacks it silently (verified: no GUI, mame.exe lands at the
+                # top of <dir>).
+                _phase("MAME install ▸ Extracting the archive (this can take a moment) …")
+                subprocess.run(
+                    [sfx_path, f"-o{dest_root}", "-y"],
+                    check=True, cwd=dest_root,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    **subprocess_no_window_kwargs())
+                _phase("MAME install ▸ Extraction finished; cleaning up the installer.")
+                try:
+                    os.remove(sfx_path)
+                except OSError:
+                    pass
+                return find_mame_in_downloads(app_dir)
+            # Linux: the official build is a plain zip (mame<ver>lx.zip). Unpack
+            # it with stdlib zipfile (no SFX), chmod the binary executable, then
+            # remove the downloaded archive.
+            _phase(f"MAME install ▸ Extracting the archive into {dest_root} "
+                   "(this can take a moment) …")
+            mame_bin = extract_mame_linux_zip(sfx_path, dest_root)
             _phase("MAME install ▸ Extraction finished; cleaning up the installer.")
             try:
                 os.remove(sfx_path)
             except OSError:
                 pass
-            return find_mame_in_downloads(
-                os.path.dirname(os.path.abspath(sys.argv[0])))
+            return mame_bin or find_mame_in_downloads(app_dir)
 
         def _on_mame_install_progress(pct):
             try:
@@ -4501,13 +4515,79 @@ class MainWindow(QMainWindow):
             except RuntimeError:
                 pass
 
+        def _mame_finish_install(detected):
+            """Shared post-install success path for both the Windows and Linux
+            installers: adopt the freshly installed build with no restart, reveal
+            the SD Card tab's MAME launch controls, persist the installed release
+            tag (so the startup update check can compare without re-running the
+            binary), and log + toast the completion — including the one manual
+            step, dropping the TBBLUE boot ROM into MAME's roms folder. The caller
+            has already hidden its own install button and confirmed *detected* is
+            a real path."""
+            self._mame_executable_path = detected
+            _installed_tag = getattr(self, "_mame_pending_install_tag", "")
+            if _installed_tag:
+                configuration_dictionary[SETTING_MAME_INSTALLED_TAG] = _installed_tag
+                try:
+                    save_configuration_file()
+                except Exception:
+                    pass
+            try:
+                # The MAME group may have been hidden entirely at startup (MAME
+                # absent and no installer offered in that tab) — reveal it and its
+                # launch controls now that a build is present.
+                self.mame_group.setVisible(True)
+                self.button_start_mame.setVisible(True)
+                # Reveal the MAME option combos, hidden while only an installer
+                # button was offered.
+                for _mame_combo in (getattr(self, "mame_aspect", None),
+                                    getattr(self, "mame_sound", None),
+                                    getattr(self, "mame_mouse", None),
+                                    getattr(self, "mame_joystick", None),
+                                    getattr(self, "mame_esc", None)):
+                    if _mame_combo is not None:
+                        _mame_combo.setVisible(True)
+                # Now that MAME is present, set the just-revealed group's
+                # enabled state (and the launch hint) from the current image.
+                _update_mame_controls()
+            except RuntimeError:
+                pass
+            # One manual step remains: MAME needs the ZX Spectrum Next boot ROM
+            # (TBBLUE, e.g. boot-30204.bin), which we deliberately don't fetch. It
+            # goes in a 'roms' folder next to the mame binary; compute that from
+            # the detected path so the hint is right wherever the build unpacked.
+            roms_dir = os.path.join(os.path.dirname(detected), "roms")
+            add_main_log_window(f"MAME install ▸ SUCCESS — MAME detected at: {detected}")
+            add_main_log_window(
+                "MAME is ready to launch now — no restart needed. Use the "
+                "'🕹  Launch Mame' button.")
+            add_main_log_window(
+                "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See "
+                f"{MAME_INSTALL_WIKI_URL} → \"Get TBBLUE (the Next 'boot ROM')\". "
+                f"Put the file tbblue.zip into MAME's roms folder ({roms_dir}) — "
+                "DON'T extract it. You must provide a legally acquired, licensed "
+                "ROM.")
+            logging.info(f"Successfully installed MAME: {detected}")
+            try:
+                self._show_toast(
+                    "✅  MAME installed",
+                    "MAME is installed — no restart needed.\r\n"
+                    "Manual step: add the TBBLUE boot ROM.\r\n"
+                    "See " + MAME_INSTALL_WIKI_URL + " → \"Get TBBLUE\".\r\n"
+                    f"Put tbblue.zip into MAME's roms folder\r\n({roms_dir})\r\n"
+                    "— DON'T extract it.\r\n"
+                    "Use only a legally acquired, licensed ROM.",
+                    variant="green", duration_ms=12000)
+            except Exception:
+                pass
+
         def _on_mame_install_result(mame_path):
             self._mame_installing = False
             # Re-run the normal MAME detection so the app adopts the freshly
             # installed build straight away — the user shouldn't have to restart.
             app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
             try:
-                detected = find_mame_executable() or find_mame_in_downloads(app_dir)
+                detected = resolve_mame_executable(app_dir)
             except Exception:
                 detected = None
             detected = detected or mame_path
@@ -4530,60 +4610,11 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
                 return
-            self._mame_executable_path = detected
-            # Remember which release we just installed so the startup update check
-            # can compare against the latest GitHub release without re-running the
-            # binary. Set by _start_mame_install for both first-time installs and
-            # updates.
-            _installed_tag = getattr(self, "_mame_pending_install_tag", "")
-            if _installed_tag:
-                configuration_dictionary[SETTING_MAME_INSTALLED_TAG] = _installed_tag
-                try:
-                    save_configuration_file()
-                except Exception:
-                    pass
             try:
                 self.button_install_mame.setVisible(False)
-                self.button_start_mame.setVisible(True)
-                # Reveal the MAME option combos, hidden while only "Install MAME"
-                # was offered.
-                for _mame_combo in (getattr(self, "mame_aspect", None),
-                                    getattr(self, "mame_sound", None),
-                                    getattr(self, "mame_mouse", None),
-                                    getattr(self, "mame_joystick", None),
-                                    getattr(self, "mame_esc", None)):
-                    if _mame_combo is not None:
-                        _mame_combo.setVisible(True)
-                # Now that MAME is present, set the just-revealed group's
-                # enabled state (and the launch hint) from the current image.
-                _update_mame_controls()
             except RuntimeError:
                 pass
-            add_main_log_window(f"MAME install ▸ SUCCESS — MAME detected at: {detected}")
-            add_main_log_window(
-                "MAME is ready to launch now — no restart needed. Use the "
-                "'🕹  Launch Mame' button.")
-            # One manual step remains: MAME needs the ZX Spectrum Next boot ROM
-            # (TBBLUE, e.g. boot-30204.bin), which we deliberately don't fetch.
-            add_main_log_window(
-                "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See "
-                f"{MAME_INSTALL_WIKI_URL} → \"Get TBBLUE (the Next 'boot ROM')\". "
-                "Put the file tbblue.zip into MAME's roms folder "
-                "(downloads\\mame\\roms) — DON'T extract it. You must provide a "
-                "legally acquired, licensed ROM.")
-            logging.info(f"Successfully installed MAME: {detected}")
-            try:
-                self._show_toast(
-                    "✅  MAME installed",
-                    "MAME is installed — no restart needed.\r\n"
-                    "Manual step: add the TBBLUE boot ROM.\r\n"
-                    "See " + MAME_INSTALL_WIKI_URL + " → \"Get TBBLUE\".\r\n"
-                    "Put tbblue.zip into MAME's roms folder\r\n"
-                    "(downloads\\mame\\roms) — DON'T extract it.\r\n"
-                    "Use only a legally acquired, licensed ROM.",
-                    variant="green", duration_ms=12000)
-            except Exception:
-                pass
+            _mame_finish_install(detected)
 
         def _on_mame_install_error(err):
             self._mame_installing = False
@@ -4708,9 +4739,9 @@ class MainWindow(QMainWindow):
 
         def _prompt_mame_update(info, installed_num):
             """UI-thread dialog offering to update MAME to a newer release found
-            by the startup check. 'Update' reuses the standard install flow
-            (download + silent SFX extract, overwriting the existing files);
-            'Cancel' does nothing."""
+            by the startup check. 'Update' reuses the standard install flow for
+            the platform (Windows SFX or Linux zip), overwriting the existing
+            files; 'Cancel' does nothing."""
             tag = info["tag"]
             asset_name = info["asset_name"]
             url = info["url"]
@@ -4735,7 +4766,12 @@ class MainWindow(QMainWindow):
             if box.clickedButton() is upd:
                 add_main_log_window(
                     f"MAME update ▸ user chose to update to {tag}.")
-                _start_mame_install(tag, asset_name, url, size, size_txt)
+                # Route to the platform's installer: the Windows SFX flow or the
+                # Linux zip flow (which drives the Linux install buttons).
+                if platform.system() == "Windows":
+                    _start_mame_install(tag, asset_name, url, size, size_txt)
+                else:
+                    _start_linux_mame_install(tag, asset_name, url, size, size_txt)
 
         def _check_mame_update_async():
             """At startup, if MAME is installed and the check is enabled, look up
@@ -4751,7 +4787,10 @@ class MainWindow(QMainWindow):
             if getattr(self, "_mame_installing", False):
                 return  # an install/update is already running
             arch = mame_windows_asset_arch()
-            if arch is None:
+            # Update is supported where an in-app install is: 64-bit Windows
+            # (arch) or x86_64 Linux. macOS has no official binary, so it stays
+            # out (mame_auto_install_supported() is False there and we bail).
+            if not mame_auto_install_supported():
                 return  # auto-install/update unsupported on this OS/CPU
             mame_path = self._mame_executable_path
             installed_tag = configuration_dictionary.get(
@@ -4764,7 +4803,12 @@ class MainWindow(QMainWindow):
                 installed_num = parse_mame_version_number(installed_tag)
                 if installed_num is None:
                     installed_num = _probe_mame_version_number(mame_path)
-                tag, asset_name, url, size = _fetch_latest_mame_asset(arch)
+                # Fetch the latest release asset for this platform: the Windows
+                # self-extractor or the official Linux (x86_64) binaries zip.
+                if platform.system() == "Windows":
+                    tag, asset_name, url, size = _fetch_latest_mame_asset(arch)
+                else:
+                    tag, asset_name, url, size = _fetch_latest_mame_linux_asset()
                 return {
                     "installed_num": installed_num,
                     "latest_num": parse_mame_version_number(tag),
@@ -4802,6 +4846,194 @@ class MainWindow(QMainWindow):
         # Expose so the startup sequence can kick the check once the config
         # (enable flag + installed tag) has been loaded.
         self._check_mame_update_async = _check_mame_update_async
+
+        # ── Automatic MAME install (Linux, x86_64) ───────────────────────────
+        # macOS is intentionally excluded (MAME ships no official macOS binary).
+        # The official mamedev/mame GitHub release carries a precompiled Linux
+        # build, mame<ver>lx.zip — a *plain* zip (not the Windows self-extractor),
+        # so the shared _mame_install_job branches on platform for the extract
+        # step. This flow is driven by the "Install Mame compiled binaries"
+        # button on the Settings tab (self.button_install_mame_linux) and mirrors
+        # the Windows installer above, reusing the same worker/threading plumbing
+        # and the shared _mame_finish_install() success path. The whole flow is
+        # only ever reachable when that button exists (x86_64 Linux).
+        def _fetch_latest_mame_linux_asset():
+            """Query the MAME 'latest release' API and return
+            (tag, asset_name, download_url, size_bytes) for the official Linux
+            x86_64 binaries zip. Raises on network error or when the release
+            carries no Linux build (GitHub's API requires a User-Agent header)."""
+            req = urllib.request.Request(
+                MAME_GITHUB_LATEST_RELEASE_API,
+                headers={"User-Agent": ZXART_USER_AGENT,
+                         "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                release = json.loads(resp.read().decode("utf-8", "replace"))
+            picked = select_mame_linux_release_asset(release)
+            if not picked:
+                raise RuntimeError(
+                    "the latest MAME release has no Linux (x86_64) build.")
+            return picked
+
+        def _linux_install_buttons():
+            """The Linux MAME install buttons that currently exist — the SD Card
+            tab's 'Install MAME binaries' and the Settings tab's 'Install Mame
+            compiled binaries'. Both trigger the same flow, so the handlers keep
+            them in lock-step (text / enabled / visibility). Each carries its own
+            default label in ``_zxnu_default_text`` for restore on failure."""
+            return [b for b in (getattr(self, "button_install_mame_linux_sd", None),
+                                getattr(self, "button_install_mame_linux", None))
+                    if b is not None]
+
+        def _set_linux_install_buttons_text(text):
+            for _b in _linux_install_buttons():
+                try:
+                    _b.setText(text)
+                except RuntimeError:
+                    pass
+
+        def _reset_linux_install_buttons():
+            for _b in _linux_install_buttons():
+                try:
+                    _b.setEnabled(True)
+                    _b.setText(getattr(_b, "_zxnu_default_text",
+                                       "⬇  Install MAME binaries"))
+                except RuntimeError:
+                    pass
+
+        def _on_linux_mame_install_progress(pct):
+            _set_linux_install_buttons_text(
+                "⬇  Installing MAME… unpacking" if pct >= 99
+                else f"⬇  Installing MAME… {pct}%")
+
+        def _on_linux_mame_install_result(mame_path):
+            self._mame_installing = False
+            # Re-run detection (downloads/mame is preferred on Linux) so the app
+            # adopts the freshly installed build without a restart.
+            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            try:
+                detected = resolve_mame_executable(app_dir)
+            except Exception:
+                detected = None
+            detected = detected or mame_path
+            if not detected:
+                _reset_linux_install_buttons()
+                add_main_log_window(
+                    "MAME install ▸ FAILED — the download and extraction finished, "
+                    "but no 'mame' binary could be found in downloads/mame.")
+                logging.error(
+                    "MAME install (Linux): mame binary not found after extraction.")
+                try:
+                    self._show_toast(
+                        "⚠  MAME install failed",
+                        "The archive was extracted but the 'mame' binary could "
+                        "not be located in downloads/mame.",
+                        variant="yellow", duration_ms=8000)
+                except Exception:
+                    pass
+                return
+            for _b in _linux_install_buttons():
+                try:
+                    _b.setVisible(False)
+                except RuntimeError:
+                    pass
+            _mame_finish_install(detected)
+
+        def _on_linux_mame_install_error(err):
+            self._mame_installing = False
+            _reset_linux_install_buttons()
+            detail = err[1] if isinstance(err, (tuple, list)) and len(err) > 1 else err
+            add_main_log_window(
+                f"MAME install ▸ FAILED — {detail}. You can download it manually "
+                "from https://www.mamedev.org/release.html")
+            logging.error(f"Failed to download/install MAME (Linux): {err}")
+            try:
+                QMessageBox.warning(
+                    self, "Install MAME",
+                    f"MAME installation failed.\n\n{detail}\n\n"
+                    "You can download it manually from "
+                    "https://www.mamedev.org/release.html")
+            except Exception:
+                pass
+
+        def _start_linux_mame_install(tag, asset_name, url, size, size_txt):
+            """Kick off the MAME download+extract worker for the Linux binaries
+            zip. Mirrors _start_mame_install but drives the Linux install buttons
+            (SD Card + Settings tabs) and the Linux result/error handlers.
+            Overwrites any existing downloads/mame files (zipfile.extractall
+            replaces them). *tag* is remembered so a successful install persists
+            the installed release."""
+            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            dest_root = os.path.join(app_dir, DOWNLOADS_MAME_DIRNAME)
+            self._mame_pending_install_tag = tag
+            self._mame_installing = True
+            for _b in _linux_install_buttons():
+                try:
+                    _b.setEnabled(False)
+                    _b.setText("⬇  Installing MAME… 0%")
+                except RuntimeError:
+                    pass
+            add_main_log_window(
+                f"MAME install ▸ Starting: {tag} ({asset_name}, ~{size_txt}) "
+                f"→ {dest_root}.")
+            # Kept on self so the queued emits survive until delivered (same
+            # rationale as the Windows install worker).
+            mame_sig = MameInstallSignals()
+            mame_sig.status.connect(
+                lambda line: add_main_log_window(line), Qt.QueuedConnection)
+            mame_sig.progress.connect(
+                _on_linux_mame_install_progress, Qt.QueuedConnection)
+            self._mame_install_signals = mame_sig
+            getit_run_in_thread(
+                lambda: _mame_install_job(url, asset_name, dest_root, mame_sig),
+                _on_linux_mame_install_result,
+                _on_linux_mame_install_error)
+
+        def install_mame_linux():
+            """Detect, download and install the latest official MAME Linux build
+            (Settings-tab 'Install Mame compiled binaries' button handler)."""
+            if getattr(self, "_mame_installing", False):
+                return
+            if not mame_linux_asset_supported():
+                QMessageBox.information(
+                    self, "Install MAME",
+                    "Automatic MAME installation from the official binaries is "
+                    "only available on 64-bit x86_64 Linux.\n\nDownload MAME for "
+                    "your system from:\nhttps://www.mamedev.org/release.html")
+                return
+            add_main_log_window("Detecting the latest MAME release…")
+            try:
+                tag, asset_name, url, size = _fetch_latest_mame_linux_asset()
+            except Exception as e:
+                add_main_log_window(f"Could not detect the latest MAME release: {e}")
+                logging.error(f"MAME (Linux) release detection failed: {e}")
+                QMessageBox.warning(
+                    self, "Install MAME",
+                    f"Could not detect the latest MAME release.\n\n{e}\n\n"
+                    "Check your internet connection, or download manually from "
+                    "https://www.mamedev.org/release.html")
+                return
+            size_txt = f"{size / 1048576:.0f} MB" if size else "about 20 MB"
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle("Install MAME")
+            box.setText(
+                f"Latest MAME detected: {tag}\n"
+                f"Package: {asset_name} (Linux x86_64)\n\n"
+                f"Download (~{size_txt}) and install it into the downloads/mame "
+                "folder?\n\nNote: this is the official precompiled Linux build; it "
+                "still relies on the usual runtime libraries (SDL2, etc.) being "
+                "present on your system.")
+            go = box.addButton("Download and install", QMessageBox.AcceptRole)
+            box.addButton("Cancel", QMessageBox.RejectRole)
+            box.setDefaultButton(go)
+            box.exec()
+            if box.clickedButton() is not go:
+                return
+            _start_linux_mame_install(tag, asset_name, url, size, size_txt)
+
+        # Exposed so the Settings-tab button (built later in __init__) can wire to
+        # it; kept as a plain local too for reference within this scope.
+        self._install_mame_linux = install_mame_linux
 
         # ── CSpect update check (itch.io) ──────────────────────────────────
         # Mirrors the MAME startup update check above, but sources the build
@@ -9947,6 +10179,30 @@ class MainWindow(QMainWindow):
         self.button_install_mame.setVisible(_mame_install_offered)
         self.mame_group_layout.addWidget(self.button_install_mame)
 
+        # "Install MAME binaries" button — the Linux counterpart to the Windows
+        # "Install MAME" button above, shown in this same slot when no build is
+        # present under downloads/mame (independent of PATH, since the downloaded
+        # build is preferred on Linux). Runs the exact same flow as the Settings
+        # tab's button (install_mame_linux) and is kept in sync with it by the
+        # Linux install handlers. Only created on x86_64 Linux.
+        self.button_install_mame_linux_sd = None
+        _mame_linux_install_offered = (
+            mame_linux_asset_supported()
+            and find_mame_in_downloads(
+                os.path.dirname(os.path.abspath(sys.argv[0]))) is None)
+        if mame_linux_asset_supported():
+            self.button_install_mame_linux_sd = QPushButton(
+                "⬇  Install MAME binaries", self)
+            self.button_install_mame_linux_sd._zxnu_default_text = "⬇  Install MAME binaries"
+            self.button_install_mame_linux_sd.setToolTip(
+                "Download the latest official precompiled MAME build for Linux\n"
+                "(x86_64) from GitHub and unpack it into downloads/mame. Same as\n"
+                "the Settings-tab button; progress is logged in the SD Card\n"
+                "Utility window.")
+            self.button_install_mame_linux_sd.clicked.connect(install_mame_linux)
+            self.button_install_mame_linux_sd.setVisible(_mame_linux_install_offered)
+            self.mame_group_layout.addWidget(self.button_install_mame_linux_sd)
+
         # MAME per-launch option combos (aspect / mouse / joystick), mirroring the
         # CSpect options. Their values are appended to the MAME command line at
         # launch (see launch_mame) and persisted to hdfg.cfg as combo indices.
@@ -10116,10 +10372,13 @@ class MainWindow(QMainWindow):
 
         self.cspect_group_layout.addStretch(1)
 
-        # Hide the MAME group when neither of its buttons applies — i.e. MAME is
-        # not installed and the in-app installer isn't offered on this platform
-        # (only 64-bit Windows) — so we never show an empty titled box.
-        if not _mame_available and not _mame_install_offered:
+        # Hide the MAME group when none of its buttons apply — i.e. MAME is not
+        # installed and neither the Windows installer (64-bit Windows) nor the
+        # Linux "Install MAME binaries" installer is offered — so we never show
+        # an empty titled box. (The added Linux term is False on Windows, so this
+        # leaves the Windows behaviour unchanged.)
+        if (not _mame_available and not _mame_install_offered
+                and not _mame_linux_install_offered):
             self.mame_group.setVisible(False)
 
         # Hide the whole CSpect group when the CSpect emulator was not found at
@@ -22232,6 +22491,36 @@ class MainWindow(QMainWindow):
         self.settings_disable_no_emulator_toast_checkbox.stateChanged.connect(settings_disable_no_emulator_toast_statechanged)
         grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 24, 0, 1, 2)
 
+        # ── Install MAME (Linux) ───────────────────────────────────────────
+        # On x86_64 Linux, offer to download the official precompiled MAME build
+        # whenever none is present under downloads/mame — even if an (often older)
+        # 'mame' is on PATH, since resolve_mame_executable() prefers the
+        # downloaded build on Linux/macOS. Placed above the "MAME ROM / system"
+        # row and OUTSIDE the "_mame_executable_path" gate below so it shows when
+        # MAME is otherwise absent. Windows uses the SD Card tab's own installer;
+        # macOS has no official binary — so neither platform gets this button.
+        self.button_install_mame_linux = None
+        if mame_linux_asset_supported():
+            self.button_install_mame_linux = QPushButton(
+                "⬇  Install Mame compiled binaries", self)
+            self.button_install_mame_linux._zxnu_default_text = "⬇  Install Mame compiled binaries"
+            self.button_install_mame_linux.setToolTip(
+                "Download the latest official precompiled MAME build for Linux\n"
+                "(x86_64) from GitHub and unpack it into downloads/mame. Use this\n"
+                "when MAME isn't installed, or when your system MAME is too old for\n"
+                "the ZX Spectrum Next (tbblue) — the downloaded build is preferred.\n"
+                "Progress is logged in the SD Card Utility window.")
+            self.button_install_mame_linux.clicked.connect(install_mame_linux)
+            try:
+                _mame_in_dl = find_mame_in_downloads(
+                    os.path.dirname(os.path.abspath(sys.argv[0])))
+            except Exception:
+                _mame_in_dl = None
+            # Show only when no downloaded build exists yet (independent of PATH).
+            self.button_install_mame_linux.setVisible(_mame_in_dl is None)
+            grid_tab_Settings.addWidget(
+                self.button_install_mame_linux, 25, 0, 1, 2, Qt.AlignLeft)
+
         # ── MAME options (only shown when the MAME emulator was detected) ──
         if getattr(self, "_mame_executable_path", None):
             def settings_mame_rom_changed():
@@ -22244,7 +22533,7 @@ class MainWindow(QMainWindow):
                 "This is inserted right after the MAME executable and is no longer part\n"
                 "of the command-line parameters below."
             )
-            grid_tab_Settings.addWidget(mame_rom_lbl, 25, 0)
+            grid_tab_Settings.addWidget(mame_rom_lbl, 26, 0)
 
             self.settings_mame_rom_combo = QComboBox()
             for _rom_name in MAME_ROM_CHOICE:
@@ -22252,7 +22541,7 @@ class MainWindow(QMainWindow):
             self.settings_mame_rom_combo.setToolTip(mame_rom_lbl.toolTip())
             self.settings_mame_rom_combo.currentIndexChanged.connect(
                 lambda _i: settings_mame_rom_changed())
-            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 25, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 26, 1)
 
             def settings_mame_params_changed():
                 configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = self.settings_mame_params_edit.text()
@@ -22269,7 +22558,7 @@ class MainWindow(QMainWindow):
                 "-mouse/-mouse_device or -joystick/-joystickprovider options typed here\n"
                 "are ignored (the combos take precedence)."
             )
-            grid_tab_Settings.addWidget(mame_params_lbl, 26, 0)
+            grid_tab_Settings.addWidget(mame_params_lbl, 27, 0)
 
             self.settings_mame_params_edit = QLineEdit()
             self.settings_mame_params_edit.setText(
@@ -22277,28 +22566,34 @@ class MainWindow(QMainWindow):
                     SETTING_MAME_COMMAND_LINE_PARAMETERS, MAME_DEFAULT_COMMAND_LINE))
             self.settings_mame_params_edit.setToolTip(mame_params_lbl.toolTip())
             self.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
-            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 26, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 27, 1)
 
-            def settings_mame_update_check_changed():
-                on = self.settings_mame_update_check_checkbox.isChecked()
-                configuration_dictionary[SETTING_MAME_UPDATE_CHECK] = "true" if on else "false"
-                save_configuration_file()
+            # The startup update check only exists where the app can actually
+            # fetch a build (64-bit Windows / x86_64 Linux). On macOS MAME is
+            # detected and launchable but there is no official binary to update
+            # to, so the checkbox is omitted entirely rather than shown as a
+            # no-op. _check_mame_update_async bails on the same condition.
+            if mame_auto_install_supported():
+                def settings_mame_update_check_changed():
+                    on = self.settings_mame_update_check_checkbox.isChecked()
+                    configuration_dictionary[SETTING_MAME_UPDATE_CHECK] = "true" if on else "false"
+                    save_configuration_file()
 
-            self.settings_mame_update_check_checkbox = QCheckBox(
-                "Check for a newer MAME version at startup")
-            _mame_upd_pref = configuration_dictionary.get(
-                SETTING_MAME_UPDATE_CHECK, "").strip().lower()
-            self.settings_mame_update_check_checkbox.setChecked(
-                _mame_upd_pref not in ("false", "0", "no"))  # default on
-            self.settings_mame_update_check_checkbox.setToolTip(
-                "When MAME is installed, check GitHub at startup for a newer official\n"
-                "MAME release and, if one exists, offer to download and install it\n"
-                "(overwriting the current downloads/mame files). On by default.\n"
-                "Saved to the configuration file."
-            )
-            self.settings_mame_update_check_checkbox.stateChanged.connect(
-                lambda _s: settings_mame_update_check_changed())
-            grid_tab_Settings.addWidget(self.settings_mame_update_check_checkbox, 27, 0, 1, 2)
+                self.settings_mame_update_check_checkbox = QCheckBox(
+                    "Check for a newer MAME version at startup")
+                _mame_upd_pref = configuration_dictionary.get(
+                    SETTING_MAME_UPDATE_CHECK, "").strip().lower()
+                self.settings_mame_update_check_checkbox.setChecked(
+                    _mame_upd_pref not in ("false", "0", "no"))  # default on
+                self.settings_mame_update_check_checkbox.setToolTip(
+                    "When MAME is installed, check GitHub at startup for a newer official\n"
+                    "MAME release and, if one exists, offer to download and install it\n"
+                    "(overwriting the current downloads/mame files). On by default.\n"
+                    "Saved to the configuration file."
+                )
+                self.settings_mame_update_check_checkbox.stateChanged.connect(
+                    lambda _s: settings_mame_update_check_changed())
+                grid_tab_Settings.addWidget(self.settings_mame_update_check_checkbox, 28, 0, 1, 2)
 
         # ── CSpect default launch parameters ───────────────────────────────
         # Shown unconditionally (unlike the MAME block above, which is gated on
@@ -22320,14 +22615,14 @@ class MainWindow(QMainWindow):
             "launch. Leave empty to restore the built-in default. Saved to the\n"
             "configuration file."
         )
-        grid_tab_Settings.addWidget(cspect_params_lbl, 28, 0)
+        grid_tab_Settings.addWidget(cspect_params_lbl, 29, 0)
 
         self.settings_cspect_params_edit = QLineEdit()
         self.settings_cspect_params_edit.setText(
             configuration_dictionary.get(SETTING_CUSTOM, CSPECT_DEFAULT_LAUNCH_PARAMETERS))
         self.settings_cspect_params_edit.setToolTip(cspect_params_lbl.toolTip())
         self.settings_cspect_params_edit.editingFinished.connect(settings_cspect_params_changed)
-        grid_tab_Settings.addWidget(self.settings_cspect_params_edit, 28, 1)
+        grid_tab_Settings.addWidget(self.settings_cspect_params_edit, 29, 1)
 
         # ── Unite! pygame background animation toggle ──────────────────────
         def _settings_pygame_anim_changed():
@@ -22356,7 +22651,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_pygame_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 30, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 31, 0, 1, 2)
 
         # ── NextSync retro-log starfield animation toggle ──────────────────
         def _settings_nextsync_anim_changed():
@@ -22388,7 +22683,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_nextsync_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_nextsync_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 33, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 34, 0, 1, 2)
 
         # ── Alien Floyd's: optional pygame-ce animated background everywhere ──
         # A Pink Floyd homage. When on, a pygame-ce "Alien Floyd's" animation
@@ -22443,7 +22738,7 @@ class MainWindow(QMainWindow):
             "file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_bg_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_bg_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 31, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 32, 0, 1, 2)
 
         # ── Alien Floyd's: optional dedicated full-window tab ────────────────
         self._alien_floyd_tab_widget = None
@@ -22515,7 +22810,7 @@ class MainWindow(QMainWindow):
             "configuration file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 32, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 33, 0, 1, 2)
 
         # ── itch.io: optional online tab (driven by the 'itch-dl' package) ───
         def _itchio_tab_set_visible(on):
@@ -22558,7 +22853,7 @@ class MainWindow(QMainWindow):
                 "configuration file. Requires the optional 'itch-dl' package.")
         self.settings_show_itchio_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_itchio_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 34, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 35, 0, 1, 2)
 
         # ── CSpect: check itch.io for a newer version at startup (default on) ──
         def settings_cspect_update_check_changed():
@@ -22581,7 +22876,7 @@ class MainWindow(QMainWindow):
         self.settings_cspect_update_check_checkbox.stateChanged.connect(
             lambda _s: settings_cspect_update_check_changed())
         grid_tab_Settings.addWidget(
-            self.settings_cspect_update_check_checkbox, 29, 0, 1, 2)
+            self.settings_cspect_update_check_checkbox, 30, 0, 1, 2)
 
         # ── NextSync: what to do when a received file/dir already exists locally ──
         def _settings_nextsync_send_conflict_changed():
@@ -22654,7 +22949,7 @@ class MainWindow(QMainWindow):
         # width rather than stretching across both columns.
         self.button_open_config_file = QPushButton("Open config file", self)
         self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
-        grid_tab_Settings.addWidget(self.button_open_config_file, 35, 0, 1, 2, Qt.AlignLeft)
+        grid_tab_Settings.addWidget(self.button_open_config_file, 36, 0, 1, 2, Qt.AlignLeft)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
