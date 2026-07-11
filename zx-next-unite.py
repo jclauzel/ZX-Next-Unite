@@ -3465,6 +3465,27 @@ class MainWindow(QMainWindow):
                     self.mame_joystick.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MAME_JOYSTICK]))
                     self.mame_esc.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_MAME_ESC]))
 
+                # Flatpak launch toggle + rom path (Linux-only widgets). The
+                # Settings tab was built from the seeded defaults *before* this
+                # load ran, so re-apply the saved values here — otherwise the
+                # checkbox would always come up unchecked after a restart even
+                # though the cfg has it on. An empty saved rom path falls back to
+                # the per-user default. Finally re-affirm the SD Card MAME group
+                # so a saved "on" reveals the Launch button with no restart.
+                if not (configuration_dictionary.get(SETTING_MAME_FLATPAK_ROMPATH, "") or "").strip():
+                    configuration_dictionary[SETTING_MAME_FLATPAK_ROMPATH] = default_mame_flatpak_rompath()
+                if hasattr(self, "settings_mame_flatpak_checkbox"):
+                    _fp_on = str(configuration_dictionary.get(
+                        SETTING_MAME_FLATPAK, "")).strip().lower() in ("true", "1", "yes", "on")
+                    self.settings_mame_flatpak_checkbox.blockSignals(True)
+                    self.settings_mame_flatpak_checkbox.setChecked(_fp_on)
+                    self.settings_mame_flatpak_checkbox.blockSignals(False)
+                    self.settings_mame_flatpak_rompath_edit.setText(
+                        configuration_dictionary[SETTING_MAME_FLATPAK_ROMPATH])
+                    self.settings_mame_flatpak_rompath_row.setVisible(_fp_on)
+                    if hasattr(self, "_refresh_mame_launch_ui"):
+                        self._refresh_mame_launch_ui()
+
                 if configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING]== "":
                     # First run (no previously saved tab): default to the
                     # AllInOne ("Unite!") tab so the user lands on the
@@ -22439,7 +22460,12 @@ class MainWindow(QMainWindow):
                 configuration_dictionary[SETTING_MAME_FLATPAK] = "true" if on else "false"
                 save_configuration_file()
                 self.settings_mame_flatpak_rompath_row.setVisible(on)
+                # Re-run MAME discovery so the change takes effect without a
+                # restart: refresh the SD Card tab's Launch button / relabel /
+                # group visibility, then re-report emulator availability (open
+                # gallery viewers pick the new state up when next opened).
                 self._refresh_mame_launch_ui()
+                self._show_emulator_detection_toast()
 
             _flatpak_box = QWidget()
             _flatpak_layout = QVBoxLayout(_flatpak_box)
