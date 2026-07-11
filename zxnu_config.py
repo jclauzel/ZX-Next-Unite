@@ -130,7 +130,7 @@ SETTING_MAME_MOUSE                   = "mame_mouse"                # combo index
 SETTING_MAME_JOYSTICK                = "mame_joystick"             # combo index into MAME_JOYSTICK (joystick input on/off)
 SETTING_MAME_ESC                     = "mame_esc"                  # combo index into MAME_ESC (ESC-exit disable on/off; default 1 = on, passes -confirm_quit)
 SETTING_MAME_FLATPAK                 = "mame_flatpak"              # bool (Linux): launch MAME via `flatpak run org.mamedev.MAME` instead of a local binary (default off)
-SETTING_MAME_FLATPAK_ROMPATH         = "mame_flatpak_rompath"      # rom directory passed as `--rompath` when launching MAME via Flatpak (default ~/roms)
+SETTING_MAME_FLATPAK_ROMPATH         = "mame_flatpak_rompath"      # rom directory passed as `-rompath` when launching MAME via Flatpak (default ~/roms)
 SETTING_DISABLE_NO_EMULATOR_TOAST  = "disable_no_emulator_toast"   # bool (default False)
 SETTING_NEXTSYNC_EXPLORERPATH = "nextsync_explorerpath"
 SETTING_NEXTSYNC_SYNCONCE = "nextsync_synconce"
@@ -845,7 +845,7 @@ MAME_INSTALL_WIKI_URL = "https://wiki.specnext.dev/MAME:Installing"
 # Flatpak launch support (Linux). When the user enables "Launch Mame with
 # Flatpak" (SETTING_MAME_FLATPAK), MAME is started via the Flatpak CLI instead of
 # a local binary — handy on distros where MAME is only available from Flathub
-# (org.mamedev.MAME). The user-provided rom directory is appended as `--rompath`.
+# (org.mamedev.MAME). The user-provided rom directory is appended as `-rompath`.
 MAME_FLATPAK_APP_ID = "org.mamedev.MAME"
 MAME_FLATPAK_COMMAND = ("flatpak", "run", MAME_FLATPAK_APP_ID)
 
@@ -857,7 +857,7 @@ def mame_flatpak_supported():
 
 
 def default_mame_flatpak_rompath():
-    """Default ``--rompath`` for a Flatpak MAME launch: a ``roms`` folder in the
+    """Default ``-rompath`` for a Flatpak MAME launch: a ``roms`` folder in the
     user's home directory (e.g. ``/home/<user>/roms``). Flatpak MAME is
     sandboxed, so the user points it at a directory they control that holds the
     boot ROM (tbblue.zip) and any others."""
