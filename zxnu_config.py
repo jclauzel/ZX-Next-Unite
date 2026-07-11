@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "8.7.2"
+ZX_NEXT_UNITE_VERSION = "8.7.3"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -881,6 +881,34 @@ def mame_windows_asset_arch():
     return None
 
 
+def mame_linux_asset_supported():
+    """True when the official mamedev/mame GitHub release ships a precompiled
+    Linux build usable on this machine — i.e. Linux on x86_64/amd64.
+
+    MAME publishes a single 64-bit Linux SDL build per release, named
+    ``mame<ver>lx.zip`` (``lx`` = Linux x86_64). There is no official arm64 or
+    32-bit Linux binary, so those hosts return ``False`` and the in-app installer
+    is not offered there (they must build from source or use a distro package).
+    macOS also returns ``False`` — MAME publishes no official macOS binary, so
+    the "Install Mame compiled binaries" button is Linux-only."""
+    if platform.system() != "Linux":
+        return False
+    machine = (platform.machine() or "").lower()
+    return machine in ("x86_64", "amd64", "x64")
+
+
+def mame_auto_install_supported():
+    """True on platforms where the app can download/update a precompiled MAME
+    build itself: 64-bit Windows (the ``…b_<arch>.exe`` self-extractors) or
+    x86_64 Linux (the official ``mame<ver>lx.zip``).
+
+    ``False`` on macOS — MAME publishes no official macOS binary, so there the
+    app only *detects* an existing MAME (``downloads/mame`` first, then PATH; see
+    :func:`resolve_mame_executable`) and shows the MAME group + Launch button, but
+    never offers an install or a startup update check."""
+    return mame_windows_asset_arch() is not None or mame_linux_asset_supported()
+
+
 def parse_mame_version_number(text):
     """Extract MAME's integer minor version from *text*, or ``None``.
 
@@ -924,6 +952,31 @@ def select_mame_release_asset(release, arch):
         name = asset.get("name") or ""
         url = asset.get("browser_download_url") or ""
         if url and name.lower().endswith(suffix):
+            try:
+                size = int(asset.get("size") or 0)
+            except (TypeError, ValueError):
+                size = 0
+            return (tag, name, url, size)
+    return None
+
+
+def select_mame_linux_release_asset(release):
+    """Pick the official Linux (x86_64) binaries zip out of a parsed GitHub
+    "latest release" object.
+
+    *release* is the decoded JSON dict from ``MAME_GITHUB_LATEST_RELEASE_API``.
+    MAME names the Linux build ``mame<ver>lx.zip`` — a *plain*, unencrypted zip
+    (unlike the Windows ``…b_<arch>.exe`` self-extractors), so match that name.
+    Returns ``(tag_name, asset_name, download_url, size_bytes)`` for the first
+    match, or ``None`` when the release carries no Linux build.
+    """
+    if not isinstance(release, dict):
+        return None
+    tag = release.get("tag_name") or ""
+    for asset in release.get("assets") or []:
+        name = asset.get("name") or ""
+        url = asset.get("browser_download_url") or ""
+        if url and re.match(r"mame0*\d+lx\.zip$", name, re.IGNORECASE):
             try:
                 size = int(asset.get("size") or 0)
             except (TypeError, ValueError):
@@ -1417,6 +1470,61 @@ def find_mame_in_downloads(base_dir):
         if exe in filenames:
             return os.path.join(dirpath, exe)
     return None
+
+
+def resolve_mame_executable(base_dir):
+    """Return the MAME executable path the app should launch, applying the
+    platform's search precedence, or ``None`` when MAME is not installed.
+
+    On Windows the PATH copy is preferred (a user who installed MAME system-wide
+    expects that build), falling back to an app-managed download under
+    ``downloads/mame``. On Linux/macOS the precedence is *reversed*: an
+    app-managed ``downloads/mame`` build wins over whatever ``mame`` is on PATH,
+    because the distro/PATH copy is frequently an older MAME that predates the ZX
+    Spectrum Next (tbblue) driver — the freshly downloaded precompiled build is
+    the one we want to launch. Combines the two independent lookups the startup
+    detection used to run inline, with the Linux/macOS ordering flipped."""
+    on_path = find_mame_executable()
+    in_downloads = find_mame_in_downloads(base_dir) if base_dir else None
+    if platform.system() == "Windows":
+        return on_path or in_downloads
+    return in_downloads or on_path
+
+
+def extract_mame_linux_zip(zip_path, dest_root):
+    """Extract the official MAME Linux (x86_64) binaries zip into *dest_root*
+    (``downloads/mame``) and return the full path to the extracted ``mame``
+    executable, or ``None`` when it can't be located afterwards.
+
+    ``mame<ver>lx.zip`` is a plain, unencrypted zip whose ``mame`` binary and
+    support tree sit at the archive root, so Python's stdlib ``zipfile`` unpacks
+    it with no external tool (the Windows path instead needs the SFX's silent
+    ``-o<dir> -y`` extraction). ``ZipFile.extractall`` does not restore the Unix
+    executable bit, so the freshly written binary is ``chmod +x``'d — it lives in
+    the user's own downloads folder, so no elevation is needed. Propagates
+    ``zipfile``/OS errors for the caller to report."""
+    os.makedirs(dest_root, exist_ok=True)
+    with zipfile.ZipFile(zip_path) as zf:
+        zf.extractall(dest_root)
+    # Locate the extracted binary (root first, then a bounded walk in case a
+    # future layout nests it) and mark it executable.
+    exe_name = MAME_EXECUTABLE_NAME  # 'mame' — this path runs on Linux/macOS only
+    found = None
+    direct = os.path.join(dest_root, exe_name)
+    if os.path.isfile(direct):
+        found = direct
+    else:
+        for dirpath, _dirnames, filenames in os.walk(dest_root):
+            if exe_name in filenames:
+                found = os.path.join(dirpath, exe_name)
+                break
+    if found:
+        try:
+            mode = os.stat(found).st_mode
+            os.chmod(found, mode | 0o111)
+        except OSError:
+            pass
+    return found
 
 
 def extract_hdfmonkey_from_jjjs_zip(outer_zip_path, dest_root,
