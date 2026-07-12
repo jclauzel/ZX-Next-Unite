@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "8.7.3"
+ZX_NEXT_UNITE_VERSION = "8.7.4"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -177,6 +177,7 @@ SETTING_ALLINONE_PYGAME_MODE   = "allinone_pygame_mode"    # "true" => pygame vi
 SETTING_NEXTSYNC_PYGAME_MODE   = "nextsync_pygame_mode"    # "true" => retro 8-bit pygame log window on the NextSync tab, else classic list
 SETTING_SDCARD_PYGAME_LOG      = "sdcard_pygame_log"       # "true" => retro 8-bit pygame log window on the SD Card utility tab, else classic list
 SETTING_HELP_PYGAME_LOG        = "help_pygame_log"         # "true" => retro 8-bit pygame console on the "?" Help tab, else classic list
+SETTING_RETRO_LOG_FONT_SIZE    = "retro_log_font_size"    # int point size for the retro 8-bit log windows (SD Card + NextSync)
 SETTING_ITCHIO_API_KEY         = "itchio_api_key"          # str: personal itch.io API key (https://itch.io/user/settings/api-keys)
 SETTING_SHOW_ITCHIO_TAB        = "show_itchio_tab"         # "false" => hide the itch.io tab (default shown when itch-dl is installed)
 SETTING_ITCHIO_VIEW_MODE       = "itchio_view_mode"        # "gallery" (default) or "table"
@@ -343,6 +344,11 @@ DEFAULT_GALLERY_IMG_SIZE       = "medium"
 # item viewer (Qt + pygame) and the ZXDB / zxArt detail slideshows.
 DEFAULT_GALLERY_SLIDESHOW_SECS = 5
 GALLERY_SLIDESHOW_SECS_CHOICES = (5, 10, 15, 30, 60)
+# Retro 8-bit log window (SD Card + NextSync) Consolas font size, in points.
+# The default matches the original hardcoded size in
+# zxnu_pygame.RetroLogWidget so existing configs render identically.
+DEFAULT_RETRO_LOG_FONT_SIZE    = 13
+RETRO_LOG_FONT_SIZE_CHOICES    = (9, 10, 11, 12, 13, 14, 16, 18, 20, 24)
 # The live slideshow pause time (seconds) is kept in a module-level global so
 # every viewer shares one user-configurable cadence without threading a getter
 # through each constructor. MainWindow calls set_gallery_slideshow_secs() on
@@ -555,7 +561,10 @@ NEXTSYNC_UI_HEIGTH_MULTIPLIER = 1
 NEXTSYNC_UI_HEIGTH = 300 * ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER
 IGNOREFILE_DEFAULT_CONTENT = (("syncignore.txt"), ("syncpoint.dat"), ("zx-next-unite.png"),("*.bak"), ("*.py"), ("*.pyproj"), ("*.pyproj"), ("hdfmonkey.exe"), ("hdfg.cfg"))
 
-INIT_LOG = (("NextSync - by Jari Komppa and Julien Clauzel"), ("MAME - ZX Spectrum Next support by Holub https://wiki.specnext.dev/MAME:Installing"), ("HDF Monkey - by Matt Westcott"), ("CSpect - by Mike Dailly http://cspect.org"), ("Inspired by HDFM-GOOEY - by em00k"), ("zx-next-unite - by Julien Clauzel 2024"))
+# Shared welcome banner, shown as the first line of both the SD Card and the
+# NextSync log windows at startup.
+WELCOME_BANNER = f"Welcome to ZX Next Unite {ZX_NEXT_UNITE_VERSION}"
+INIT_LOG = ((WELCOME_BANNER), ("NextSync - by Jari Komppa and Julien Clauzel"), ("MAME - ZX Spectrum Next support by Holub https://wiki.specnext.dev/MAME:Installing"), ("HDF Monkey - by Matt Westcott"), ("CSpect - by Mike Dailly http://cspect.org"), ("Inspired by HDFM-GOOEY - by em00k"), ("zx-next-unite - by Julien Clauzel 2024"))
 INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              (""),
              ("Introduction:"),
@@ -721,7 +730,7 @@ SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, S
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
-SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_SDCARD_PYGAME_LOG, SETTING_HELP_PYGAME_LOG,
+SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_SDCARD_PYGAME_LOG, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO)
 

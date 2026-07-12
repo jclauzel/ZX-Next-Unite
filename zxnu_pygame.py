@@ -34,8 +34,8 @@ import threading as _threading
 import time as _time
 
 from PySide6.QtCore import Qt, QPoint, QTimer
-from PySide6.QtGui import QColor, QImage, QPainter
-from PySide6.QtWidgets import QWidget, QScrollBar
+from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter
+from PySide6.QtWidgets import QWidget, QMenu, QScrollBar
 
 from zxnu_media import zxfmt_url_is_displayable_image
 
@@ -4673,8 +4673,14 @@ class RetroLogWidget(QWidget):
     _C_LOG = (120, 255, 140)        # phosphor green for the log text
 
     def __init__(self, parent=None, fps=30, max_lines=600, scrollable=False,
-                 follow_tail=False):
+                 follow_tail=False, context_copy=False, font_px=13):
         super().__init__(parent)
+        # Opt-in right-click "Copy all text" menu (SD Card / NextSync logs).
+        self._context_copy = bool(context_copy)
+        # Consolas point size for the log text (before DPI scaling). Adjustable
+        # at runtime via set_font_size(); the default matches the original
+        # hardcoded size (see zxnu_config.DEFAULT_RETRO_LOG_FONT_SIZE).
+        self._font_px = max(6, int(font_px))
         # pygame is imported lazily off the UI thread (see AlienFloydWidget).
         prewarm_async()
         self._surface = None
@@ -4745,6 +4751,17 @@ class RetroLogWidget(QWidget):
         self._bg_anim = bool(flag)
         self.update()
 
+    def set_font_size(self, px):
+        """Change the log's Consolas point size and repaint immediately.
+        Invalidates the wrap cache (glyph widths changed) so scrollable panes
+        re-wrap their text to the new size on the next frame."""
+        px = max(6, int(px))
+        if px == self._font_px:
+            return
+        self._font_px = px
+        self._content_ver += 1      # force _wrapped_all() to rebuild
+        self.update()
+
     # -- lifecycle ---------------------------------------------------------
     def start(self):
         if self._alive and not self._timer.isActive():
@@ -4806,6 +4823,20 @@ class RetroLogWidget(QWidget):
             return
         super().wheelEvent(ev)
 
+    def contextMenuEvent(self, ev):
+        """Right-click → offer to copy the whole log to the clipboard. Enabled
+        only on panes that opt in via *context_copy* (the SD Card and NextSync
+        retro logs); other panes keep the default (no) context menu."""
+        if not self._context_copy:
+            super().contextMenuEvent(ev)
+            return
+        menu = QMenu(self)
+        act_copy = menu.addAction("Copy all text")
+        act_copy.setEnabled(bool(self._lines))
+        act_copy.triggered.connect(
+            lambda: QGuiApplication.clipboard().setText("\n".join(self._lines)))
+        menu.exec(ev.globalPos())
+
     def _on_scroll(self, _v):
         # In a live log, remember whether the user is parked at the bottom so we
         # keep auto-following the newest line (and stop following once they
@@ -4864,7 +4895,7 @@ class RetroLogWidget(QWidget):
         _blit_veil(surface, _VEIL_RGB, 150)
         w, h = surface.get_size()
         pad = self.s(8)
-        font = _font(self.s(13), bold=False)   # Consolas (see _UI_FONT_NAMES)
+        font = _font(self.s(self._font_px), bold=False)   # Consolas (see _UI_FONT_NAMES)
         lh = font.get_height() + self.s(2)
         self._line_h = lh
         if self._scrollable:
