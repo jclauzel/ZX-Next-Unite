@@ -3756,6 +3756,26 @@ class MainWindow(QMainWindow):
                                     _sscb.setCurrentIndex(_i)
                                     break
 
+                # Retro log (SD Card + NextSync) font size, in points.
+                if SETTING_RETRO_LOG_FONT_SIZE in configuration_dictionary and configuration_dictionary[SETTING_RETRO_LOG_FONT_SIZE] != "":
+                    try:
+                        _rlf = int(configuration_dictionary[SETTING_RETRO_LOG_FONT_SIZE])
+                    except (TypeError, ValueError):
+                        _rlf = DEFAULT_RETRO_LOG_FONT_SIZE
+                    if _rlf in RETRO_LOG_FONT_SIZE_CHOICES:
+                        self._retro_log_font_size = _rlf
+                        _rlcb = getattr(self, "settings_retro_log_font_combo", None)
+                        if _rlcb is not None:
+                            _rlcb.blockSignals(True)
+                            for _i in range(_rlcb.count()):
+                                if _rlcb.itemData(_i) == _rlf:
+                                    _rlcb.setCurrentIndex(_i)
+                                    break
+                            _rlcb.blockSignals(False)
+                        # Apply to any retro log widgets already built.
+                        if hasattr(self, "_apply_retro_log_font_size"):
+                            self._apply_retro_log_font_size(_rlf)
+
                 # Per-pane view mode: "table" (default) or "gallery"
                 for _pane_key, _attr in (
                     (SETTING_GETIT_VIEW_MODE, "_getit_view_mode"),
@@ -9972,7 +9992,10 @@ class MainWindow(QMainWindow):
             from zxnu_pygame import RetroLogWidget
             # scrollable live log: auto-follows the newest line, but the user can
             # scroll up (scrollbar / wheel) to read the history.
-            widget = RetroLogWidget(scrollable=True, follow_tail=True)
+            widget = RetroLogWidget(
+                scrollable=True, follow_tail=True, context_copy=True,
+                font_px=getattr(self, "_retro_log_font_size",
+                                DEFAULT_RETRO_LOG_FONT_SIZE))
             widget.setMinimumHeight(120)
             try:
                 widget.enable_background(getattr(self, "_nextsync_pygame_anim", True))
@@ -10706,6 +10729,9 @@ class MainWindow(QMainWindow):
         self.nextsync_log.setMinimumHeight(NEXTSYNC_UI_HEIGTH)
         #self.nextsync_log.setMaximumHeight(NEXTSYNC_UI_HEIGTH)
 
+        # Same welcome banner the SD Card log opens with, as the first line.
+        add_nextsync_log_window(WELCOME_BANNER)
+
         # Classic / Pygame toggle for the log window (mirrors the Unite! tab).
         # Pygame is optional: the button stays disabled with an install hint when
         # pygame-ce is missing. When on, the log becomes a retro 8-bit display —
@@ -10737,7 +10763,10 @@ class MainWindow(QMainWindow):
             from zxnu_pygame import RetroLogWidget
             # scrollable live log: auto-follows the newest line, but the user can
             # scroll up (scrollbar / wheel) to read the history.
-            widget = RetroLogWidget(scrollable=True, follow_tail=True)
+            widget = RetroLogWidget(
+                scrollable=True, follow_tail=True, context_copy=True,
+                font_px=getattr(self, "_retro_log_font_size",
+                                DEFAULT_RETRO_LOG_FONT_SIZE))
             widget.setMinimumHeight(NEXTSYNC_UI_HEIGTH)
             try:
                 widget.enable_background(getattr(self, "_nextsync_pygame_anim", True))
@@ -22101,13 +22130,56 @@ class MainWindow(QMainWindow):
             "automatically; picking a color here switches to the Custom theme.",
             20)
 
+        # ---- Retro log font size (SD Card + NextSync pygame log windows) ----
+        def _apply_retro_log_font_size(px):
+            """Push the point size to whichever retro 8-bit log widgets exist."""
+            for _attr in ("_main_retro_log", "_nextsync_retro_log"):
+                _w = getattr(self, _attr, None)
+                if _w is not None:
+                    try:
+                        _w.set_font_size(px)
+                    except Exception:
+                        pass
+        self._apply_retro_log_font_size = _apply_retro_log_font_size
+
+        def _settings_retro_log_font_changed():
+            try:
+                px = int(self.settings_retro_log_font_combo.currentData())
+            except (TypeError, ValueError):
+                px = DEFAULT_RETRO_LOG_FONT_SIZE
+            self._retro_log_font_size = px
+            _apply_retro_log_font_size(px)
+            configuration_dictionary[SETTING_RETRO_LOG_FONT_SIZE] = str(px)
+            save_configuration_file()
+
+        retro_log_font_lbl = QLabel("Retro log font size:")
+        retro_log_font_lbl.setToolTip(
+            "Consolas text size for the retro 8-bit (pygame) log windows on the\n"
+            "SD Card and NextSync tabs. Applies immediately. Default is 13."
+        )
+        grid_tab_Settings.addWidget(retro_log_font_lbl, 21, 0)
+
+        self.settings_retro_log_font_combo = QComboBox()
+        for _px in RETRO_LOG_FONT_SIZE_CHOICES:
+            _lbl = f"{_px} (default)" if _px == DEFAULT_RETRO_LOG_FONT_SIZE else str(_px)
+            self.settings_retro_log_font_combo.addItem(_lbl, _px)
+        self._retro_log_font_size = DEFAULT_RETRO_LOG_FONT_SIZE
+        _rlf_def_idx = self.settings_retro_log_font_combo.findData(DEFAULT_RETRO_LOG_FONT_SIZE)
+        if _rlf_def_idx >= 0:
+            self.settings_retro_log_font_combo.setCurrentIndex(_rlf_def_idx)
+        self.settings_retro_log_font_combo.setToolTip(retro_log_font_lbl.toolTip())
+        self.settings_retro_log_font_combo.currentIndexChanged.connect(
+            lambda _i: _settings_retro_log_font_changed()
+        )
+        grid_tab_Settings.addWidget(self.settings_retro_log_font_combo, 21, 1)
+
         # ---- Background image opacity ----
         bg_opacity_lbl = QLabel("Background image opacity (%):")
         bg_opacity_lbl.setToolTip(
             "Controls how visible the background image is behind the UI.\n"
             "0 = fully hidden, 100 = fully visible. Default is 5%."
         )
-        grid_tab_Settings.addWidget(bg_opacity_lbl, 21, 0)
+        grid_tab_Settings.addWidget(bg_opacity_lbl, 22, 0)
 
         bg_opacity_row = QWidget()
         bg_opacity_row_layout = QHBoxLayout(bg_opacity_row)
@@ -22238,7 +22310,7 @@ class MainWindow(QMainWindow):
 
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_slider, 1)
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_spinbox, 0)
-        grid_tab_Settings.addWidget(bg_opacity_row, 21, 1)
+        grid_tab_Settings.addWidget(bg_opacity_row, 22, 1)
 
         # ---- Background image selector ----
         bg_image_lbl = QLabel("Background image:")
@@ -22246,7 +22318,7 @@ class MainWindow(QMainWindow):
             "Choose a specific background image or 'Random' to cycle through\n"
             "all images in the script folder every 5 seconds."
         )
-        grid_tab_Settings.addWidget(bg_image_lbl, 22, 0)
+        grid_tab_Settings.addWidget(bg_image_lbl, 23, 0)
 
         bg_image_row = QWidget()
         bg_image_row_layout = QHBoxLayout(bg_image_row)
@@ -22289,7 +22361,7 @@ class MainWindow(QMainWindow):
         self.settings_bg_image_preview.setToolTip("Preview of the selected background image.")
         bg_image_row_layout.addWidget(self.settings_bg_image_preview, 0)
 
-        grid_tab_Settings.addWidget(bg_image_row, 22, 1)
+        grid_tab_Settings.addWidget(bg_image_row, 23, 1)
 
         def _update_bg_image_preview(path: str):
             """Refresh the thumbnail label for the given absolute image path."""
@@ -22350,7 +22422,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_crash_log_enabled_checkbox.stateChanged.connect(
             settings_crash_log_enabled_statechanged)
-        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 23, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 24, 0, 1, 2)
 
         def settings_disable_no_emulator_toast_statechanged():
             configuration_dictionary[SETTING_DISABLE_NO_EMULATOR_TOAST] = "true" if self.settings_disable_no_emulator_toast_checkbox.isChecked() else "false"
@@ -22364,7 +22436,7 @@ class MainWindow(QMainWindow):
             "Check this if you do not use any emulator and do not want the reminder."
         )
         self.settings_disable_no_emulator_toast_checkbox.stateChanged.connect(settings_disable_no_emulator_toast_statechanged)
-        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 24, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 25, 0, 1, 2)
 
         # ── MAME options (shown when MAME is launchable: a detected binary, or
         # on Linux the Flatpak launch option added below) ──
@@ -22379,7 +22451,7 @@ class MainWindow(QMainWindow):
                 "This is inserted right after the MAME executable and is no longer part\n"
                 "of the command-line parameters below."
             )
-            grid_tab_Settings.addWidget(mame_rom_lbl, 25, 0)
+            grid_tab_Settings.addWidget(mame_rom_lbl, 26, 0)
 
             self.settings_mame_rom_combo = QComboBox()
             for _rom_name in MAME_ROM_CHOICE:
@@ -22387,7 +22459,7 @@ class MainWindow(QMainWindow):
             self.settings_mame_rom_combo.setToolTip(mame_rom_lbl.toolTip())
             self.settings_mame_rom_combo.currentIndexChanged.connect(
                 lambda _i: settings_mame_rom_changed())
-            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 25, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 26, 1)
 
             def settings_mame_params_changed():
                 configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = self.settings_mame_params_edit.text()
@@ -22404,7 +22476,7 @@ class MainWindow(QMainWindow):
                 "-mouse/-mouse_device or -joystick/-joystickprovider options typed here\n"
                 "are ignored (the combos take precedence)."
             )
-            grid_tab_Settings.addWidget(mame_params_lbl, 26, 0)
+            grid_tab_Settings.addWidget(mame_params_lbl, 27, 0)
 
             self.settings_mame_params_edit = QLineEdit()
             self.settings_mame_params_edit.setText(
@@ -22412,7 +22484,7 @@ class MainWindow(QMainWindow):
                     SETTING_MAME_COMMAND_LINE_PARAMETERS, MAME_DEFAULT_COMMAND_LINE))
             self.settings_mame_params_edit.setToolTip(mame_params_lbl.toolTip())
             self.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
-            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 26, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 27, 1)
 
             # The startup update check only exists where the app can actually
             # fetch a build (64-bit Windows / x86_64 Linux). On macOS MAME is
@@ -22439,7 +22511,7 @@ class MainWindow(QMainWindow):
                 )
                 self.settings_mame_update_check_checkbox.stateChanged.connect(
                     lambda _s: settings_mame_update_check_changed())
-                grid_tab_Settings.addWidget(self.settings_mame_update_check_checkbox, 27, 0, 1, 2)
+                grid_tab_Settings.addWidget(self.settings_mame_update_check_checkbox, 28, 0, 1, 2)
 
         # ── Launch MAME with Flatpak (Linux) ──────────────────────────────
         # Shown on Linux regardless of whether a MAME binary was detected, so a
@@ -22507,7 +22579,7 @@ class MainWindow(QMainWindow):
             self.settings_mame_flatpak_rompath_row.setVisible(_flatpak_on)
             _flatpak_layout.addWidget(self.settings_mame_flatpak_rompath_row)
 
-            grid_tab_Settings.addWidget(_flatpak_box, 27, 0, 1, 2)
+            grid_tab_Settings.addWidget(_flatpak_box, 28, 0, 1, 2)
 
         # ── CSpect default launch parameters ───────────────────────────────
         # Shown unconditionally (unlike the MAME block above, which is gated on
@@ -22529,14 +22601,14 @@ class MainWindow(QMainWindow):
             "launch. Leave empty to restore the built-in default. Saved to the\n"
             "configuration file."
         )
-        grid_tab_Settings.addWidget(cspect_params_lbl, 28, 0)
+        grid_tab_Settings.addWidget(cspect_params_lbl, 29, 0)
 
         self.settings_cspect_params_edit = QLineEdit()
         self.settings_cspect_params_edit.setText(
             configuration_dictionary.get(SETTING_CUSTOM, CSPECT_DEFAULT_LAUNCH_PARAMETERS))
         self.settings_cspect_params_edit.setToolTip(cspect_params_lbl.toolTip())
         self.settings_cspect_params_edit.editingFinished.connect(settings_cspect_params_changed)
-        grid_tab_Settings.addWidget(self.settings_cspect_params_edit, 28, 1)
+        grid_tab_Settings.addWidget(self.settings_cspect_params_edit, 29, 1)
 
         # ── Unite! pygame background animation toggle ──────────────────────
         def _settings_pygame_anim_changed():
@@ -22565,7 +22637,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_pygame_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 30, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 31, 0, 1, 2)
 
         # ── NextSync retro-log starfield animation toggle ──────────────────
         def _settings_nextsync_anim_changed():
@@ -22597,7 +22669,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_nextsync_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_nextsync_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 33, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 34, 0, 1, 2)
 
         # ── Alien Floyd's: optional pygame-ce animated background everywhere ──
         # A Pink Floyd homage. When on, a pygame-ce "Alien Floyd's" animation
@@ -22652,7 +22724,7 @@ class MainWindow(QMainWindow):
             "file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_bg_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_bg_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 31, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 32, 0, 1, 2)
 
         # ── Alien Floyd's: optional dedicated full-window tab ────────────────
         self._alien_floyd_tab_widget = None
@@ -22724,7 +22796,7 @@ class MainWindow(QMainWindow):
             "configuration file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 32, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 33, 0, 1, 2)
 
         # ── itch.io: optional online tab (driven by the 'itch-dl' package) ───
         def _itchio_tab_set_visible(on):
@@ -22767,7 +22839,7 @@ class MainWindow(QMainWindow):
                 "configuration file. Requires the optional 'itch-dl' package.")
         self.settings_show_itchio_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_itchio_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 34, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 35, 0, 1, 2)
 
         # ── CSpect: check itch.io for a newer version at startup (default on) ──
         def settings_cspect_update_check_changed():
@@ -22790,7 +22862,7 @@ class MainWindow(QMainWindow):
         self.settings_cspect_update_check_checkbox.stateChanged.connect(
             lambda _s: settings_cspect_update_check_changed())
         grid_tab_Settings.addWidget(
-            self.settings_cspect_update_check_checkbox, 29, 0, 1, 2)
+            self.settings_cspect_update_check_checkbox, 30, 0, 1, 2)
 
         # ── NextSync: what to do when a received file/dir already exists locally ──
         def _settings_nextsync_send_conflict_changed():
@@ -22863,7 +22935,7 @@ class MainWindow(QMainWindow):
         # width rather than stretching across both columns.
         self.button_open_config_file = QPushButton("Open config file", self)
         self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
-        grid_tab_Settings.addWidget(self.button_open_config_file, 35, 0, 1, 2, Qt.AlignLeft)
+        grid_tab_Settings.addWidget(self.button_open_config_file, 36, 0, 1, 2, Qt.AlignLeft)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
