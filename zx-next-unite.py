@@ -316,6 +316,7 @@ import rc_backgrounds
 # --- Extracted modules (refactored out of this file) ------------------
 from zxnu_config import *
 from zxnu_workers import *
+from zxnu_remote_explorer import RemoteExplorerWidget
 from zxnu_media import *
 from zxnu_gallery import *
 import zxnu_itchio
@@ -10750,12 +10751,175 @@ class MainWindow(QMainWindow):
             "Requires the optional 'pygame-ce' package.")
         self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_pygame_button)
 
+        # Flip the log window into a dual-pane remote file explorer (local <-> Next)
+        # driven by ".sync4 -listen". Built lazily the first time it is switched on.
+        self.nextsync_remote_button = QPushButton("🗂 Remote Explorer")
+        self.nextsync_remote_button.setCheckable(True)
+        self.nextsync_remote_button.setToolTip(
+            "Turn the log window into a dual-pane file explorer (local <-> Next).\n"
+            "Run '.sync4 -listen' on your Next, then transfer files with ->: / :<-,\n"
+            "drag & drop, or the right-click menu (New Folder / Delete).")
+        self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_remote_button)
+
         # Stack: page 0 = the classic list log, page 1 = the retro pygame log
         # (built lazily the first time the user switches it on).
         self.nextsync_log_stack = QStackedWidget(self)
         self.nextsync_log_stack.setMinimumHeight(NEXTSYNC_UI_HEIGTH)
         self.nextsync_log_stack.addWidget(self.nextsync_log)
         self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_log_stack)
+
+        # --- remote file explorer (dual-pane) ------------------------------
+        self._re_widget = None
+        self._re_thread = None
+        self._re_stop = None
+        self._re_queue = None
+        self._re_sig = None
+        self._re_running = False
+        self._re_pulse_timer = None
+
+        def _re_enqueue(cmd):
+            if self._re_queue is not None:
+                self._re_queue.put(cmd)
+
+        def _nextsync_build_remote_explorer():
+            if self._re_widget is not None:
+                return self._re_widget
+            start_dir = configuration_dictionary.get(SETTING_NEXTSYNC_EXPLORERPATH) or None
+            widget = RemoteExplorerWidget(
+                _re_enqueue, local_start_dir=start_dir,
+                log=lambda s: add_nextsync_log_window(str(s)))
+            self._re_widget = widget
+            self.nextsync_log_stack.addWidget(widget)
+            return widget
+
+        # Soft green "breathing" pulse on the running indicator (same idea as the
+        # SD-card transfer-arrow pulse) so it's obvious the server is live.
+        def _re_start_play_pulse():
+            _re_stop_play_pulse()
+            steps = 22
+            phase = {"n": 0}
+
+            def _tick():
+                phase["n"] = (phase["n"] + 1) % (2 * steps)
+                pos = phase["n"]
+                tri = pos / steps if pos <= steps else (2 * steps - pos) / steps
+                a = int(70 + 150 * tri)
+                try:
+                    self.nextsync_re_play_label.setStyleSheet(
+                        "QLabel { color: #eafff0; font-weight: bold; padding: 4px 10px;"
+                        " border-radius: 6px;"
+                        f" background-color: rgba(46,204,113,{a});"
+                        f" border: 1px solid rgba(46,204,113,{min(a + 60, 255)}); }}")
+                except RuntimeError:
+                    pass
+            timer = QTimer(self)
+            timer.setInterval(55)
+            timer.timeout.connect(_tick)
+            timer.start()
+            self._re_pulse_timer = timer
+
+        def _re_stop_play_pulse():
+            if self._re_pulse_timer is not None:
+                self._re_pulse_timer.stop()
+                self._re_pulse_timer = None
+            try:
+                self.nextsync_re_play_label.setStyleSheet("")
+            except RuntimeError:
+                pass
+
+        def _nextsync_start_listen_server():
+            if self._re_running:
+                return
+            # Can't run the listen server while a normal sync is in progress.
+            t = getattr(self, "_nextsync_thread", None)
+            if t is not None and t.is_alive():
+                add_nextsync_log_window("Stop the running sync before starting the remote server.")
+                return
+            widget = self._re_widget or _nextsync_build_remote_explorer()
+            import queue as _queue_mod
+            self._re_queue = _queue_mod.Queue()
+            self._re_stop = threading.Event()
+            self._re_sig = RemoteExplorerSignals()
+            self._re_sig.connected.connect(widget.on_connected)
+            self._re_sig.disconnected.connect(widget.on_disconnected)
+            self._re_sig.listing.connect(widget.on_listing)
+            self._re_sig.got.connect(widget.on_got)
+            self._re_sig.put_done.connect(widget.on_put_done)
+            self._re_sig.op_done.connect(widget.on_op_done)
+            self._re_sig.log.connect(lambda s: add_nextsync_log_window(str(s)))
+            self._re_sig.error.connect(lambda s: add_nextsync_log_window("Remote explorer: " + str(s)))
+            self._re_thread = threading.Thread(
+                target=run_remote_listen_server,
+                args=(self._re_sig, self._re_queue, self._re_stop),
+                daemon=True)
+            self._re_thread.start()
+            self._re_running = True
+            self.nextsync_re_start_button.setText("⏹ Stop NextSync server")
+            self.nextsync_re_play_label.setText("▶  NextSync server running")
+            self.nextsync_re_play_label.setVisible(True)
+            _re_start_play_pulse()
+            self._show_toast("NextSync server started",
+                             "Start '.sync4 -listen' on your Next to connect!",
+                             variant="green", duration_ms=5000)
+
+        def _nextsync_stop_listen_server():
+            if self._re_queue is not None:
+                try:
+                    self._re_queue.put(("quit",))
+                except Exception:
+                    pass
+            if self._re_stop is not None:
+                self._re_stop.set()
+            t = self._re_thread
+            if t is not None and t.is_alive():
+                t.join(timeout=2.0)
+            self._re_thread = None
+            self._re_stop = None
+            self._re_queue = None
+            self._re_sig = None
+            self._re_running = False
+            _re_stop_play_pulse()
+            try:
+                self.nextsync_re_start_button.setText("▶ Start NextSync server")
+                self.nextsync_re_play_label.setVisible(False)
+            except RuntimeError:
+                pass
+
+        def _nextsync_re_toggle_server():
+            if self._re_running:
+                _nextsync_stop_listen_server()
+            else:
+                _nextsync_start_listen_server()
+        self._nextsync_re_toggle_server = _nextsync_re_toggle_server
+
+        def _nextsync_toggle_remote_explorer(checked):
+            if checked:
+                widget = _nextsync_build_remote_explorer()
+                self.nextsync_log_stack.setCurrentWidget(widget)
+                self.nextsync_remote_button.setText("🗂 Show Log")
+                # Swap the normal sync controls for the dedicated server control.
+                self.nextsync_prepare_server.setVisible(False)
+                self.nextsync_start_server.setVisible(False)
+                self.nextsync_cancel_server.setVisible(False)
+                self.nextsync_sync_mode_group.setVisible(False)
+                self.nextsync_slowtransfer_checkbox.setVisible(False)
+                self.nextsync_re_start_button.setVisible(True)
+                self.nextsync_re_play_label.setVisible(self._re_running)
+                add_nextsync_log_window(
+                    "Remote explorer: click 'Start NextSync server', then run '.sync4 -listen' on your Next.")
+            else:
+                _nextsync_stop_listen_server()
+                self.nextsync_log_stack.setCurrentWidget(self.nextsync_log)
+                self.nextsync_remote_button.setText("🗂 Remote Explorer")
+                self.nextsync_re_start_button.setVisible(False)
+                self.nextsync_re_play_label.setVisible(False)
+                # Restore the normal sync controls.
+                self.nextsync_prepare_server.setVisible(True)
+                self.nextsync_sync_mode_group.setVisible(True)
+                self.nextsync_slowtransfer_checkbox.setVisible(True)
+                nextsync_hide_start_cancel_buttons()
+
+        self.nextsync_remote_button.toggled.connect(_nextsync_toggle_remote_explorer)
 
         def _nextsync_build_retro_log():
             if self._nextsync_retro_log is not None:
@@ -10912,6 +11076,18 @@ class MainWindow(QMainWindow):
 
 
         self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_start_server)
+
+        # Remote-explorer server control (shown only in Remote Explorer mode,
+        # in place of the Prepare/Start buttons and the Sync mode group).
+        self.nextsync_re_start_button = QPushButton("▶ Start NextSync server", self)
+        self.nextsync_re_start_button.setVisible(False)
+        self.nextsync_re_start_button.clicked.connect(self._nextsync_re_toggle_server)
+        self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_re_start_button)
+
+        self.nextsync_re_play_label = QLabel("▶  NextSync server running", self)
+        self.nextsync_re_play_label.setAlignment(Qt.AlignCenter)
+        self.nextsync_re_play_label.setVisible(False)
+        self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_re_play_label)
 
 
 

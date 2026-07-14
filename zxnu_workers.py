@@ -2,7 +2,11 @@
 
 Extracted from zx-next-unite.py."""
 
+import os
+import queue
+import socket
 import threading
+import time
 from PySide6.QtCore import (
     QObject, QPoint, QRect, QRunnable, QSize, QSortFilterProxyModel, QTimer,
     Qt, Signal, Slot,
@@ -159,6 +163,293 @@ class NextSyncSignals(QObject):
     status   = Signal(str)   # single-line status message
     finished = Signal()      # emitted when the job thread exits
     cancelled = Signal()     # emitted when job stopped due to cancel request
+
+
+class RemoteExplorerSignals(QObject):
+    """Signals marshalling results of the NextSync ".sync4 -listen" remote file
+    server back to the UI thread. The session runs in a worker thread; the UI
+    feeds it commands via a queue and receives results through these."""
+    connected    = Signal()               # a Next connected in -listen mode
+    disconnected = Signal()               # the listen session ended
+    # (path, entries) where entries is a list of (is_dir: bool, size: int, name: str)
+    listing      = Signal(str, object)    # result of an "ls"
+    got          = Signal(str, str)       # (remote, local_path) a "get" finished
+    put_done     = Signal(bool, str)      # (ok, remote) a "put" finished
+    op_done      = Signal(bool, str, str) # (ok, op, path) mkdir/rmdir/rm result
+    log          = Signal(str)            # a human-readable log line
+    error        = Signal(str)            # a human-readable error
+
+
+def _re_checksums(payload):
+    c0 = c1 = 0
+    for x in payload:
+        c0 = (c0 ^ x) & 0xff
+        c1 = (c1 + c0) & 0xff
+    return c0, c1
+
+
+def _re_sendpacket(conn, payload, pktno):
+    c0, c1 = _re_checksums(payload)
+    conn.sendall((len(payload) + 5).to_bytes(2, "big") + bytes(payload) +
+                 bytes([c0, c1, pktno & 0xff]))
+
+
+def _re_recv_exact(conn, n):
+    buf = b''
+    while len(buf) < n:
+        chunk = conn.recv(n - len(buf))
+        if not chunk:
+            return None
+        buf += chunk
+    return buf
+
+
+def _re_recv_block(conn):
+    hdr = _re_recv_exact(conn, 2)
+    if hdr is None:
+        return None
+    total = (hdr[0] << 8) | hdr[1]
+    if total < 5 or total > 4096:
+        return None
+    rest = _re_recv_exact(conn, total - 2)
+    if rest is None:
+        return None
+    payload, (cs0, cs1) = rest[:-3], (rest[-3], rest[-2])
+    c0, c1 = _re_checksums(payload)
+    if c0 != cs0 or c1 != cs1:
+        return 'BADCS'
+    return (payload, rest[-1])
+
+
+def _re_recv_reply(conn, handler):
+    """Read the framed blocks the Next pushes in reply to a command, acking each
+    with "Ok". handler(payload) returns True to stop. Returns True on clean
+    completion, False on drop."""
+    expected = 0
+    while True:
+        blk = _re_recv_block(conn)
+        if blk is None:
+            return False
+        if blk == 'BADCS':
+            _re_sendpacket(conn, b"Resend", expected)
+            continue
+        payload, pktno = blk
+        if pktno == ((expected - 1) & 0xff):
+            _re_sendpacket(conn, b"Ok", pktno)
+            continue
+        if pktno != expected:
+            _re_sendpacket(conn, b"Err seq", pktno)
+            return False
+        stop = handler(payload)
+        _re_sendpacket(conn, b"Ok", pktno)
+        expected = (expected + 1) & 0xff
+        if stop:
+            return True
+
+
+def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
+                             max_payload=1024):
+    """Run the NextSync ``.sync4 -listen`` remote file server in a worker thread.
+
+    Waits for a Next running ``.sync4 -listen`` to connect, then drives it from
+    commands pulled off ``cmd_queue`` (a queue.Queue), emitting results through
+    ``sig`` (a RemoteExplorerSignals). Commands are tuples:
+        ("ls",    remote_path)
+        ("get",   remote_path, local_dest_dir)
+        ("put",   local_file,  remote_path)
+        ("mkdir", remote_path)
+        ("rmdir", remote_path)
+        ("rm",    remote_path)
+        ("quit",)
+    ``stop_event`` (threading.Event) ends the session/thread.
+
+    This is the app-side twin of nextsync4.py's listen_session: same wire
+    protocol, but driven by the UI queue and reporting via Qt signals instead of
+    a console CLI. It never touches the Sync3/Sync4 sync paths.
+    """
+    def log(msg):
+        sig.log.emit(msg)
+
+    srv = None
+    try:
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("", port))
+        srv.listen()
+        srv.settimeout(1.0)
+        log(f"Remote explorer: waiting for '.sync4 -listen' on port {port}…")
+
+        conn = None
+        while not stop_event.is_set():
+            try:
+                conn, addr = srv.accept()
+                break
+            except socket.timeout:
+                continue
+        if conn is None:
+            return
+
+        with conn:
+            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            # The Next opens the session with the "Listen" handshake keyword.
+            data = conn.recv(1024)
+            if data != b"Listen":
+                sig.error.emit("Connected client did not request -listen mode.")
+                return
+            _re_sendpacket(conn, b"Listening", 0)
+            log(f"Remote explorer: connected to {addr[0]}")
+            sig.connected.emit()
+
+            put_data = b''
+            put_ofs = 0
+            put_pkt = 0
+            last_packet = b''
+            pending = None   # the command awaiting its pushed reply
+
+            while not stop_event.is_set():
+                try:
+                    conn.settimeout(1.0)
+                    data = conn.recv(1024)
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                if not data:
+                    break
+
+                if data == b"Poll":
+                    try:
+                        cmd = cmd_queue.get_nowait()
+                    except queue.Empty:
+                        _re_sendpacket(conn, b"I", 0)   # idle
+                        continue
+                    op = cmd[0]
+                    if op == "quit":
+                        _re_sendpacket(conn, b"Q", 0)
+                        break
+                    elif op == "ls":
+                        path = cmd[1] or "."
+                        entries = []
+
+                        def _h(payload, _e=entries):
+                            o = payload[0:1]
+                            if o == b'E':
+                                return True
+                            if o == b'D':
+                                i = 1
+                                while i + 6 <= len(payload):
+                                    flags = payload[i]
+                                    size = (payload[i+1] | (payload[i+2] << 8) |
+                                            (payload[i+3] << 16) | (payload[i+4] << 24))
+                                    nl = payload[i+5]
+                                    name = payload[i+6:i+6+nl].decode(errors='replace')
+                                    i += 6 + nl
+                                    _e.append((bool(flags & 1), size, name))
+                            return False
+                        _re_sendpacket(conn, b"L" + path.encode(), 0)
+                        if _re_recv_reply(conn, _h):
+                            entries.sort(key=lambda e: (0 if e[0] else 1, e[2].lower()))
+                            sig.listing.emit(path, entries)
+                        else:
+                            sig.error.emit(f"ls {path}: connection dropped")
+                    elif op == "get":
+                        remote, dest_dir = cmd[1], cmd[2]
+                        os.makedirs(dest_dir, exist_ok=True)
+                        st = {'f': None, 'name': None, 'bytes': 0, 'last': None}
+
+                        def _h(payload, _st=st, _dd=dest_dir):
+                            o = payload[0:1]
+                            if o == b'N':
+                                namelen = payload[5] if len(payload) > 5 else 0
+                                name = payload[6:6+namelen].decode(errors='replace')
+                                safe = os.path.basename(name.replace('\\', '/').rstrip('/')) or "received.bin"
+                                path = os.path.join(_dd, safe)
+                                if _st['f']:
+                                    _st['f'].close()
+                                _st['f'] = open(path, 'wb')
+                                _st['name'] = name
+                                _st['last'] = path
+                                _st['bytes'] = 0
+                            elif o == b'D':
+                                if _st['f']:
+                                    _st['f'].write(payload[1:])
+                                    _st['bytes'] += len(payload) - 1
+                            elif o == b'E':
+                                if _st['f']:
+                                    _st['f'].close()
+                                    _st['f'] = None
+                            elif o == b'B':
+                                if _st['f']:
+                                    _st['f'].close()
+                                    _st['f'] = None
+                                return True
+                            return False
+                        _re_sendpacket(conn, b"G" + remote.encode(), 0)
+                        ok = _re_recv_reply(conn, _h)
+                        if st['f']:
+                            st['f'].close()
+                        if ok and st['last']:
+                            sig.got.emit(remote, st['last'])
+                        else:
+                            sig.error.emit(f"get {remote}: failed")
+                    elif op == "put":
+                        local, remote = cmd[1], cmd[2]
+                        try:
+                            with open(local, 'rb') as fh:
+                                put_data = fh.read()
+                        except OSError as ex:
+                            sig.error.emit(f"put {local}: {ex}")
+                            continue
+                        put_ofs = 0
+                        put_pkt = 0
+                        if remote.endswith('/') or remote.endswith('\\'):
+                            remote = remote + os.path.basename(local)
+                        pending = ("put", remote)
+                        _re_sendpacket(conn, b"P" + remote.encode(), 0)
+                        # the Next now pulls the bytes via "Get" (served below)
+                    elif op in ("mkdir", "rmdir", "rm"):
+                        opc = {"mkdir": b"M", "rmdir": b"R", "rm": b"X"}[op]
+                        path = cmd[1]
+                        res = {'ok': None}
+
+                        def _h(payload, _r=res):
+                            _r['ok'] = (payload[0:1] == b'O')
+                            return True
+                        _re_sendpacket(conn, opc + path.encode(), 0)
+                        if _re_recv_reply(conn, _h):
+                            sig.op_done.emit(bool(res['ok']), op, path)
+                        else:
+                            sig.error.emit(f"{op} {path}: connection dropped")
+
+                elif data == b"Get" or data == b"Gee":
+                    n = min(max_payload, len(put_data) - put_ofs)
+                    last_packet = put_data[put_ofs:put_ofs + n]
+                    _re_sendpacket(conn, last_packet, put_pkt)
+                    put_ofs += n
+                    put_pkt += 1
+                    if put_ofs >= len(put_data) and pending and pending[0] == "put":
+                        sig.put_done.emit(True, pending[1])
+                        pending = None
+                elif data == b"Retry":
+                    _re_sendpacket(conn, last_packet, (put_pkt - 1) & 0xff)
+                elif data == b"Restart":
+                    put_ofs = 0
+                    put_pkt = 0
+                    _re_sendpacket(conn, b"Back", 0)
+                elif data == b"Bye":
+                    _re_sendpacket(conn, b"Later", 0)
+                    break
+                else:
+                    _re_sendpacket(conn, b"I", 0)   # keep the Next polling
+    except OSError as ex:
+        sig.error.emit(f"Remote explorer server error: {ex}")
+    finally:
+        if srv is not None:
+            try:
+                srv.close()
+            except OSError:
+                pass
+        sig.disconnected.emit()
 
 
 class HdfTaskSignals(QObject):

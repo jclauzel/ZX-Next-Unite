@@ -33,13 +33,32 @@ extern unsigned short sync_read(unsigned char handle, void *buf, unsigned short 
 extern void           sync_write(unsigned char handle, void *buf, unsigned short bytes);
 extern unsigned char  sync_readdir(unsigned char handle, void *buf);
 extern unsigned char  sync_mkdir(const char *path);   /* create one directory */
+extern unsigned char  sync_rmdir(const char *path);   /* remove a directory    */
+extern unsigned char  sync_unlink(const char *path);  /* delete a file         */
 
+/* One directory entry with its size, for the -listen "ls" command. Enumerated
+ * with sync_opendir()/sync_readdir_entry()/sync_close(). Short (8.3) names. */
+typedef struct {
+   unsigned char is_dir;   /* 1 = directory, 0 = file            */
+   unsigned long size;     /* file size in bytes (0 for dirs)    */
+   char          name[16]; /* 0-terminated 8.3 name              */
+} sync_dirent_t;
+
+/* Read the next entry from an open directory handle into out.
+ * Returns 1 on success, 0 at end of directory. */
+extern unsigned char  sync_readdir_entry(unsigned char handle, sync_dirent_t *out);
+
+/* These macros collide with the C library's fopen/fread/... and dirent's
+ * readdir, so syncsys.c (which implements the wrappers and includes those
+ * headers) defines SYNCSYS_NO_MACROS to pull in only the types/prototypes. */
+#ifndef SYNCSYS_NO_MACROS
 #define fopen(fn, mode)  sync_open((const char *)(fn), (unsigned char)(mode))
 #define opendir(p)       sync_opendir((const char *)(p))
 #define fclose(h)        sync_close((unsigned char)(h))
 #define fread(h, b, n)   sync_read((unsigned char)(h), (void *)(b), (unsigned short)(n))
 #define fwrite(h, b, n)  sync_write((unsigned char)(h), (void *)(b), (unsigned short)(n))
 #define readdir(h, b)    sync_readdir((unsigned char)(h), (void *)(b))
+#endif
 
 /* --- Next hardware registers ------------------------------------------- */
 extern unsigned char readnextreg(unsigned char reg);

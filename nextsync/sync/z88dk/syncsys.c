@@ -10,6 +10,12 @@
 #include <arch/zxn.h>
 #include <arch/zxn/esxdos.h>
 
+/* Pull in the shared types (sync_dirent_t) and prototypes, but NOT the
+ * fopen/fread/... macros - we implement those wrappers here by their real
+ * names and call the C library / esx_f_* directly. */
+#define SYNCSYS_NO_MACROS
+#include "syncsys.h"
+
 /* --- esxDOS file / directory operations -------------------------------- */
 
 /* esx_f_open returns 0xFF (and sets errno) on error; the NextSync C code was
@@ -55,6 +61,44 @@ unsigned char sync_readdir(unsigned char handle, void *buf)
 unsigned char sync_mkdir(const char *path)
 {
    return esx_f_mkdir(path);
+}
+
+/* rmdir / rm for the -listen commands. esxDOS returns 0xFF (and sets errno) on
+ * error; callers treat "!= 0xFF" as success. */
+unsigned char sync_rmdir(const char *path)
+{
+   return esx_f_rmdir(path);
+}
+
+unsigned char sync_unlink(const char *path)
+{
+   return esx_f_unlink(path);
+}
+
+/* Read one directory entry, exposing its FAT attribute (directory flag) and
+ * size. esx_f_readdir fills a struct esx_dirent (attr, then ASCIIZ name, then
+ * date/time and size); esx_slice_dirent() locates the size that follows the
+ * variable-length name. Returns 1 on success, 0 at end of directory. */
+unsigned char sync_readdir_entry(unsigned char handle, sync_dirent_t *out)
+{
+   struct esx_dirent ent;
+   unsigned char i;
+
+   if (esx_f_readdir(handle, &ent) == 0)
+      return 0;                          /* end of directory */
+
+   out->is_dir = (ent.attr & 0x10) ? 1 : 0;
+
+   for (i = 0; ent.name[i] && i < sizeof(out->name) - 1; i++)
+      out->name[i] = ent.name[i];
+   out->name[i] = 0;
+
+   if (out->is_dir)
+      out->size = 0;
+   else
+      out->size = ((struct esx_dirent_slice *)esx_slice_dirent(&ent))->size;
+
+   return 1;
 }
 
 /* --- Next hardware registers ------------------------------------------- */

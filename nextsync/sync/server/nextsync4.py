@@ -24,6 +24,9 @@ import time
 import glob
 import sys
 import os
+import shlex
+import threading
+import queue
 
 assert sys.version_info >= (3, 6) # We need 3.6 for f"" strings.
 
@@ -44,6 +47,7 @@ MAX_PAYLOAD = 1024
 opt_drive = '/'
 opt_always_sync = False
 opt_sync_once = False
+opt_verbose = False   # -v: per-packet / per-command logging (off by default)
 # How to treat an incoming (-send) file/dir that already exists locally:
 #   "prompt"    - ask at the console (default)
 #   "overwrite" - always overwrite
@@ -131,7 +135,8 @@ def sendpacket(conn, payload, packetno):
         + (checksum1 & 0xff).to_bytes(1, byteorder="big")
         + (packetno & 0xff).to_bytes(1, byteorder="big"))
     conn.sendall(packet)
-    print(f'{timestamp()} | Packet sent: {len(packet)} bytes, payload: {len(payload)} bytes, checksums: {checksum0}, {checksum1}, packetno: {packetno & 0xff}')
+    if opt_verbose:
+        print(f'{timestamp()} | Packet sent: {len(packet)} bytes, payload: {len(payload)} bytes, checksums: {checksum0}, {checksum1}, packetno: {packetno & 0xff}')
 
 # ---- Sync4 upload (Next -> PC) helpers ----------------------------------
 # The Next frames each uploaded block exactly like sendpacket():
@@ -407,6 +412,282 @@ def receive_files(conn, stats):
         update_syncpoint(sp_known)
         print(f'{timestamp()} | Sync point updated with {len(received_paths)} received file(s)')
 
+# ---- Sync4 -listen (remote file server) ---------------------------------
+# COMPATIBILITY: only reached when the Next sends the NEW "Listen" handshake.
+# Every existing Sync3/Sync4/Send/download path and the block framing are
+# untouched, and an un-upgraded dot never emits "Listen".
+#
+# The Next keeps driving (it polls). We queue commands typed at the console and
+# answer each "Poll" with one command frame:
+#     'I'          idle           'M' <path>   mkdir
+#     'L' <path>   ls             'R' <path>   rmdir
+#     'G' <path>   get            'X' <path>   rm
+#     'P' <path>   put            'Q'          quit
+# ls/get/mkdir/rmdir/rm are answered by the Next PUSHING framed blocks back
+# (each acked "Ok"); put is answered by the Next PULLING data with "Get"
+# (served exactly like a normal download). See the protocol summary in the dot
+# source (nextsync/sync/z88dk/nextsync.c).
+
+LISTEN_HELP = """\
+  Remote file-server commands:
+    ls [path]                  list a directory (default: current)
+    get <path> [dest]          fetch a file or whole directory from the Next
+    put <localfile> [remote]   send a PC file to the Next
+    mkdir <path>               create a directory on the Next
+    rmdir <path>               remove a directory on the Next
+    rm <path>                  delete a file on the Next
+    help                       show this help
+    quit                       tell the Next to leave -listen and disconnect
+"""
+
+def _listen_recv_reply(conn, handler):
+    """Read the framed blocks the Next pushes in reply to a command, acking each
+    with "Ok". handler(payload) returns True to stop. Mirrors receive_files'
+    sequence/dedup handling. Returns True on clean completion, False on drop."""
+    expected = 0
+    while True:
+        blk = recv_block(conn)
+        if blk is None:
+            print(f'{timestamp()} | listen: connection closed mid-reply')
+            return False
+        if blk == 'BADCS':
+            sendpacket(conn, b"Resend", expected)
+            continue
+        payload, pktno = blk
+        if pktno == ((expected - 1) & 0xff):
+            sendpacket(conn, b"Ok", pktno)          # duplicate (lost ack)
+            continue
+        if pktno != expected:
+            sendpacket(conn, b"Err seq", pktno)
+            return False
+        stop = handler(payload)
+        sendpacket(conn, b"Ok", pktno)
+        expected = (expected + 1) & 0xff
+        if stop:
+            return True
+
+def _listen_ls(conn):
+    """Receive an 'ls' listing: 'D' blocks of packed [flags][size][namelen][name]
+    entries, ended by 'E'. Prints the result."""
+    entries = []
+    def handle(payload):
+        op = payload[0:1]
+        if op == b'E':
+            return True
+        if op == b'D':
+            i = 1
+            while i + 6 <= len(payload):
+                flags = payload[i]
+                size = (payload[i+1] | (payload[i+2] << 8) |
+                        (payload[i+3] << 16) | (payload[i+4] << 24))
+                nl = payload[i+5]
+                name = payload[i+6:i+6+nl].decode(errors='replace')
+                i += 6 + nl
+                entries.append((flags & 1, size, name))
+        return False
+    if not _listen_recv_reply(conn, handle):
+        return
+    entries.sort(key=lambda e: (0 if e[0] else 1, e[2].lower()))
+    print(f'{timestamp()} | Listing ({len(entries)} entries):')
+    for is_dir, size, name in entries:
+        print(f'   {"<DIR>":>12}  {name}' if is_dir else f'   {size:>12}  {name}')
+
+def _listen_get(conn, dest_root):
+    """Receive a 'get': 'N'/'D'/'E' per file then 'B'. Writes under dest_root."""
+    st = {'f': None, 'name': None, 'bytes': 0}
+    os.makedirs(dest_root, exist_ok=True)
+    def handle(payload):
+        op = payload[0:1]
+        if op == b'N':
+            namelen = payload[5] if len(payload) > 5 else 0
+            name = payload[6:6+namelen].decode(errors='replace')
+            path = sanitize_incoming_path(dest_root, name)
+            if st['f']:
+                st['f'].close()
+            parent = os.path.dirname(path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            st['f'] = open(path, 'wb')
+            st['name'] = name
+            st['bytes'] = 0
+            print(f'{timestamp()} | get: {name} -> {path}')
+        elif op == b'D':
+            if st['f']:
+                st['f'].write(payload[1:])
+                st['bytes'] += len(payload) - 1
+        elif op == b'E':
+            if st['f']:
+                st['f'].close()
+                st['f'] = None
+                print(f'{timestamp()} | get: wrote {st["name"]} ({st["bytes"]} bytes)')
+        elif op == b'B':
+            if st['f']:
+                st['f'].close()
+                st['f'] = None
+            return True
+        return False
+    _listen_get_result = _listen_recv_reply(conn, handle)
+    if st['f']:
+        st['f'].close()
+    return _listen_get_result
+
+def _listen_status(conn, what):
+    """Receive a single status block ('O' ok / 'F' fail) for mkdir/rmdir/rm."""
+    res = {'ok': None}
+    def handle(payload):
+        res['ok'] = (payload[0:1] == b'O')
+        return True
+    if _listen_recv_reply(conn, handle):
+        print(f'{timestamp()} | {what}: ' + ('OK' if res['ok'] else 'FAILED'))
+
+def listen_session(conn, stats, _test_commands=None):
+    """Sync4 -listen: the Next connected as a remote file server we drive from
+    the console. _test_commands (a list of (verb, arg1, arg2) tuples) is only
+    used by the test harness - it feeds the queue instead of the console CLI."""
+    global _in_transfer
+    sendpacket(conn, b"Listening", 0)          # ack the "Listen" handshake
+    stats['packets'] += 1
+
+    cmd_q = queue.Queue()
+
+    if _test_commands is not None:
+        for c in _test_commands:
+            cmd_q.put(c)
+        cmd_q.put(("quit", "", ""))
+    else:
+        print(f'{timestamp()} | The Next is in -listen mode (remote file server).')
+        print(LISTEN_HELP)
+
+    def _cli():
+        while True:
+            try:
+                line = input("listen> ").strip()
+            except EOFError:
+                cmd_q.put(("quit", "", ""))
+                return
+            if not line:
+                continue
+            try:
+                parts = shlex.split(line)
+            except ValueError:
+                print("  (bad quoting)")
+                continue
+            verb = parts[0].lower()
+            a1 = parts[1] if len(parts) > 1 else ""
+            a2 = parts[2] if len(parts) > 2 else ""
+            if verb in ("ls", "dir"):
+                cmd_q.put(("ls", a1, a2))
+            elif verb == "get":
+                cmd_q.put(("get", a1, a2))
+            elif verb == "put":
+                cmd_q.put(("put", a1, a2))
+            elif verb == "mkdir":
+                cmd_q.put(("mkdir", a1, a2))
+            elif verb == "rmdir":
+                cmd_q.put(("rmdir", a1, a2))
+            elif verb in ("rm", "del"):
+                cmd_q.put(("rm", a1, a2))
+            elif verb == "help":
+                print(LISTEN_HELP)
+            elif verb in ("quit", "exit", "bye"):
+                cmd_q.put(("quit", "", ""))
+                return
+            else:
+                print(f"  unknown command: {verb} (try 'help')")
+
+    if _test_commands is None:
+        threading.Thread(target=_cli, daemon=True, name="listen-cli").start()
+
+    put_data = b''
+    put_ofs = 0
+    put_pkt = 0
+    last_packet = b''
+    while True:
+        try:
+            data = conn.recv(1024)
+        except OSError:
+            break
+        if not data:
+            break
+
+        if data == b"Poll":
+            try:
+                op, a1, a2 = cmd_q.get_nowait()
+            except queue.Empty:
+                sendpacket(conn, b"I", 0)          # idle - the Next re-polls
+                continue
+            if op == "quit":
+                sendpacket(conn, b"Q", 0)
+                print(f'{timestamp()} | listen: sent quit')
+                break
+            elif op == "ls":
+                sendpacket(conn, b"L" + (a1 or ".").encode(), 0)
+                _listen_ls(conn)
+            elif op == "get":
+                if not a1:
+                    print("  usage: get <path> [dest]")
+                    continue
+                sendpacket(conn, b"G" + a1.encode(), 0)
+                _in_transfer = True
+                _listen_get(conn, a2 or ".")
+                _in_transfer = False
+            elif op == "put":
+                if not a1 or not os.path.isfile(a1):
+                    print(f"  put: local file not found: {a1}")
+                    continue
+                with open(a1, 'rb') as fh:
+                    put_data = fh.read()
+                put_ofs = 0
+                put_pkt = 0
+                remote = a2 or os.path.basename(a1)
+                # A remote ending in "/" (or "\") means "into that directory" -
+                # keep the local file's name, e.g. put bj.txt /ho/ -> /ho/bj.txt.
+                # (Without this the Next would try to create a file literally
+                # named "/ho/" and nothing would be written.)
+                if remote.endswith('/') or remote.endswith('\\'):
+                    remote = remote + os.path.basename(a1)
+                print(f'{timestamp()} | put: {a1} -> {remote} ({len(put_data)} bytes)')
+                sendpacket(conn, b"P" + remote.encode(), 0)
+                _in_transfer = True
+                # the Next now pulls the bytes with "Get" (served below)
+            elif op == "mkdir":
+                sendpacket(conn, b"M" + a1.encode(), 0)
+                _listen_status(conn, "mkdir")
+            elif op == "rmdir":
+                sendpacket(conn, b"R" + a1.encode(), 0)
+                _listen_status(conn, "rmdir")
+            elif op == "rm":
+                sendpacket(conn, b"X" + a1.encode(), 0)
+                _listen_status(conn, "rm")
+
+        elif data == b"Get" or data == b"Gee":
+            n = MAX_PAYLOAD
+            if n + put_ofs > len(put_data):
+                n = len(put_data) - put_ofs
+            last_packet = put_data[put_ofs:put_ofs + n]
+            sendpacket(conn, last_packet, put_pkt)
+            put_ofs += n
+            put_pkt += 1
+            if put_ofs >= len(put_data):
+                _in_transfer = False               # whole file delivered
+
+        elif data == b"Retry":
+            sendpacket(conn, last_packet, (put_pkt - 1) & 0xff)
+
+        elif data == b"Restart":
+            put_ofs = 0
+            put_pkt = 0
+            sendpacket(conn, b"Back", 0)
+
+        elif data == b"Bye":
+            sendpacket(conn, b"Later", 0)
+            break
+
+        else:
+            sendpacket(conn, b"I", 0)              # keep the Next moving
+
+    print(f'{timestamp()} | listen: session ended')
+
 def warnings():
     print()
     print(f"Note: Using {os.getcwd()} as sync root")
@@ -521,7 +802,8 @@ def main():
                     if not data:
                         break
                     decoded = data.decode(errors='replace')
-                    print(f'{timestamp()} | Data received: "{decoded}", {len(decoded)} bytes')
+                    if opt_verbose:
+                        print(f'{timestamp()} | Data received: "{decoded}", {len(decoded)} bytes')
                     if data == b"Sync3":
                         print(f'{timestamp()} | Using protocol version: {VERSION3}')
                         packet = str.encode(VERSION3)
@@ -541,6 +823,12 @@ def main():
                         # inbound blocks ourselves in receive_files() (the main
                         # recv(1024) loop can't frame length-prefixed data).
                         receive_files(conn, stats)
+                        talking = False
+                    elif data == b"Listen":
+                        # Sync4 -listen: the Next runs as a remote file server we
+                        # drive from the console. New keyword; old dots never send
+                        # it, so nothing else is affected.
+                        listen_session(conn, stats)
                         talking = False
                     elif data == b"Next" or data == b"Neex": # Really common mistransmit. Probably uart-esp..
                         if data == b"Neex":
@@ -588,7 +876,8 @@ def main():
                         if bytecount + fileofs > len(filedata):
                             bytecount = len(filedata) - fileofs
                         packet = filedata[fileofs:fileofs+bytecount]
-                        print(f"{timestamp()} | Sending {bytecount} bytes, offset {fileofs}/{len(filedata)}")
+                        if opt_verbose:
+                            print(f"{timestamp()} | Sending {bytecount} bytes, offset {fileofs}/{len(filedata)}")
                         stats['packets'] += 1
                         sendpacket(conn, packet, packetno)
                         stats['totalbytes'] += len(packet)
@@ -653,6 +942,8 @@ for x in sys.argv[1:]:
         opt_always_sync = True
     elif x == '-o':
         opt_sync_once = True
+    elif x == '-v' or x == '-verbose':
+        opt_verbose = True
     elif x == '-s':
         MAX_PAYLOAD = 256
     elif x == '-u':
@@ -676,6 +967,7 @@ for x in sys.argv[1:]:
         Optional parameters:
         -a  - Always sync, regardless of timestamps (doesn't skip ignore file)
         -o  - Sync once, then quit. Default is to keep the sync loop running.
+        -v  - Verbose: log every packet/command (off by default; noisy in -listen)
         -s  - Use safe payload size (256 bytes). Slower, but more robust.
               Use this if you get a lot of retries.
         -u  - To live on the edge, you can try to use really unsafe payload
@@ -692,4 +984,7 @@ for x in sys.argv[1:]:
         """)
         quit()
 
-main()
+# Guarded so the module can be imported (e.g. by tests) without launching the
+# server. Standalone `python nextsync4.py` behaviour is unchanged.
+if __name__ == "__main__":
+    main()
