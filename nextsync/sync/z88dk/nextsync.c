@@ -46,6 +46,7 @@ __sfr __banked __at 0x153b UART_CTL;
 // exported framecounter/dbg/scr_x/scr_y/osiy - all unused here, so dropped.
 char *cmdline;
 unsigned short corever;
+char g_verbose = 0;   // -v: echo -listen commands/actions on the Next screen
 
 // See calc_prescalar.c for the prescalar calculation code
 static const unsigned short prescalar_values[] = {
@@ -110,6 +111,26 @@ void print(char * t)
 {
     *((unsigned char *)23692) = 255;
     conprint(t);
+    conprint("\r");
+}
+
+extern unsigned char uitoa(unsigned short v, char *b);  // defined in gfx.c
+
+// -v helpers: only emit when g_verbose is set (used to trace -listen on-screen).
+void vprint(char *t)
+{
+    if (g_verbose) print(t);
+}
+
+// Print "<label><number>" on one line (e.g. "wrote 512"), verbose only.
+void vlabelnum(char *label, unsigned short v)
+{
+    char b[8];
+    if (!g_verbose) return;
+    *((unsigned char *)23692) = 255;
+    conprint(label);
+    uitoa(v, b);
+    conprint(b);
     conprint("\r");
 }
 
@@ -319,8 +340,10 @@ unsigned char createfilewithpath(char * fn)
 {
     unsigned char filehandle;
     char * slash;
+    if (g_verbose) { vprint("open:"); vprint(fn); }
     filehandle = fopen(fn, 2 + 0x0c);  // write + create new file, delete existing
-    if (filehandle) return filehandle;
+    if (filehandle) { vprint("open ok"); return filehandle; }
+    vprint("open failed, mkdir path");
     // Okay, couldn't create the file, so let's try to make the path.
     // We need to call makepath for each directory in the tree to build
     // complex paths.
@@ -331,11 +354,14 @@ unsigned char createfilewithpath(char * fn)
         if (*slash == '/')
         {
             *slash = 0;      // esx_f_mkdir wants a 0-terminated path prefix
+            if (g_verbose) { vprint("mkdir:"); vprint(fn); }
             sync_mkdir(fn);  // make this directory level (ignore "exists")
             *slash = '/';
         }
     }
-    return fopen(fn, 2 + 0x0c); // if it still doesn't work, well, it doesn't.
+    filehandle = fopen(fn, 2 + 0x0c); // if it still doesn't work, well, it doesn't.
+    vprint(filehandle ? "open ok (2)" : "open still failed");
+    return filehandle;
 }
 
 char transfer(char *fn, unsigned char *inbuf)
@@ -599,6 +625,89 @@ void parse_speed_switches(char *dst)
     dst[di] = 0;
 }
 
+// ---------------------------------------------------------------------------
+// -listen mode: act as a small remote file server, driven by the PC over the
+// Sync protocol. COMPATIBILITY: this is only ever reached after a NEW handshake
+// keyword ("Listen"); every Sync3/Sync4/-send path and frame is untouched, so
+// old dots and old servers are completely unaffected.
+//
+// The Next keeps driving, as everywhere else: it polls the server for the next
+// command and runs it. All frames use the existing block framing
+// [2B total][payload][cs0][cs1][packetno]:
+//
+//   Next  -> server : "Poll"   (cipxfer)
+//   server-> Next   : one command frame, payload = opcode + optional path:
+//        'I'          idle, nothing queued  -> the Next just re-polls
+//        'L' <path>   ls    : the Next pushes a directory listing back
+//        'G' <path>   get   : the Next pushes the file/dir back (send_file/dir)
+//        'P' <path>   put   : the Next pulls the file from the server (transfer)
+//        'M' <path>   mkdir
+//        'R' <path>   rmdir
+//        'X' <path>   rm (unlink)
+//        'Q'          quit  -> leave listen mode
+//
+// ls/get/mkdir/rmdir/rm answer by PUSHING blocks to the server (each acked with
+// a framed "Ok", exactly like -send):
+//   ls  : 'D' blocks of packed entries, then 'E'.
+//         entry = [1B flags][4B size, little-endian][1B namelen][name],
+//         flags bit0 = directory.
+//   get : send_file / send_dir ('N'/'D'/'E' per file), then a final 'B'.
+//   mkdir/rmdir/rm : one status block, 'O' (ok) or 'F' (fail).
+//   put : reuses transfer() - the Next pulls data with "Get", server serves it.
+// ---------------------------------------------------------------------------
+
+// Push a one-byte status result ('O' ok / 'F' fail) for mkdir/rmdir/rm.
+void listen_status(char ok, unsigned char *inbuf, unsigned char *scratch)
+{
+    g_packetno = 0;
+    scratch[2] = ok ? 'O' : 'F';
+    send_block_rt(scratch, 1, inbuf);
+}
+
+// ls: enumerate 'path' and push the listing to the server as 'D' blocks of
+// packed [flags][size][namelen][name] entries, ended by an 'E' block. Only
+// readdir + network I/O happen while the handle is open (no esxDOS file I/O),
+// so the directory cursor is safe.
+void listen_ls(char *path, unsigned char *inbuf, unsigned char *scratch)
+{
+    unsigned char dh, i, nl;
+    sync_dirent_t ent;
+    unsigned short used = 0;   // entry bytes packed after the opcode (at scratch[3])
+
+    g_packetno = 0;
+
+    dh = opendir((unsigned char *)path);
+    if (dh == 0) { listen_status(0, inbuf, scratch); return; }  // 'F' - can't open
+
+    while (sync_readdir_entry(dh, &ent))
+    {
+        nl = 0;
+        while (ent.name[nl]) nl++;
+        if (used + 6 + nl > 1000)          // flush the current block first
+        {
+            scratch[2] = 'D';
+            send_block_rt(scratch, (unsigned short)(1 + used), inbuf);
+            used = 0;
+        }
+        scratch[3 + used++] = ent.is_dir ? 1 : 0;
+        scratch[3 + used++] = (unsigned char)(ent.size);
+        scratch[3 + used++] = (unsigned char)(ent.size >> 8);
+        scratch[3 + used++] = (unsigned char)(ent.size >> 16);
+        scratch[3 + used++] = (unsigned char)(ent.size >> 24);
+        scratch[3 + used++] = nl;
+        for (i = 0; i < nl; i++) scratch[3 + used++] = ent.name[i];
+    }
+    fclose(dh);
+
+    if (used)                              // flush remaining entries
+    {
+        scratch[2] = 'D';
+        send_block_rt(scratch, (unsigned short)(1 + used), inbuf);
+    }
+    scratch[2] = 'E';
+    send_block_rt(scratch, 1, inbuf);
+}
+
 // Big I/O buffers live in bss (main bank, mmu4/mmu5) rather than on the stack:
 // under the dotN model that keeps the stack small and forces those pages to be
 // allocated and mapped. They are only used from main() and its callees, one
@@ -618,6 +727,7 @@ int main(int arglen, char *rawcmd)
     const char *cipstart_postfix = "\",2048\r\n";
     const char *conffile         = "c:/sys/config/nextsync.cfg";
     char sendmode = 0;
+    char listenmode = 0;   // -listen: run as a remote file server for the PC
     unsigned char fnlen;
     unsigned char *dp;
     unsigned short len = 0;
@@ -681,7 +791,30 @@ int main(int arglen, char *rawcmd)
             sendmode = 1;
     }
 
-    if (!sendmode)
+    // Detect "-listen": run as a remote file server driven by the PC. Like
+    // -send, it connects to the saved server (from the config file).
+    if (!sendmode && len >= 7 &&
+        fn[0] == '-' && fn[1] == 'l' && fn[2] == 'i' && fn[3] == 's' &&
+        fn[4] == 't' && fn[5] == 'e' && fn[6] == 'n' && (fn[7] == 0 || fn[7] == ' '))
+    {
+        listenmode = 1;
+    }
+
+    // Detect "-v" as a standalone token anywhere on the (cleaned) command line:
+    // verbose on-screen trace of -listen commands/actions.
+    {
+        unsigned short vi = 0;
+        while (cmdline[vi])
+        {
+            if (cmdline[vi] == '-' && cmdline[vi + 1] == 'v' &&
+                (cmdline[vi + 2] == 0 || cmdline[vi + 2] == ' ' || cmdline[vi + 2] == 0xd) &&
+                (vi == 0 || cmdline[vi - 1] == ' '))
+                g_verbose = 1;
+            vi++;
+        }
+    }
+
+    if (!sendmode && !listenmode)
     {
         // Only treat the argument as a server name to save when it actually
         // looks like one (starts alphanumeric). Anything else - a flag, a stray
@@ -702,6 +835,7 @@ int main(int arglen, char *rawcmd)
                 ".SYNC [server] : save cfg\r"
                 ".SYNC : sync from PC\r"
                 ".SYNC -send <file|dir>\r"
+                ".SYNC -listen : file server\r"
                 ".SYNC -slow|-default|-fast\r"
                 "See nextsync.txt\r\r");
             goto terminate;
@@ -734,7 +868,7 @@ int main(int arglen, char *rawcmd)
     }
     else
     {
-        // Send mode: load the configured server name to connect to.
+        // Send / listen mode: load the configured server to connect to.
         filehandle = fopen((char*)conffile, 1);
         if (filehandle == 0)
         {
@@ -817,6 +951,78 @@ retryconnect:
     }
         
     retrycount = 0;
+
+    if (listenmode)
+    {
+        // Remote file server. New handshake keyword: only a NEW server answers
+        // "Listening"; an old server replies "Error" and we bail out (Sync3/
+        // Sync4 handshakes are never affected).
+        cipxfer("Listen", 6, inbuf, &len, &dp);
+        if (len < 12 || checksum(dp, len - 3) != 0 || memcmp(dp, "Listening", 9) != 0)
+        {
+            print("Server too old (-listen)");
+            goto closeconn;
+        }
+        print("Listening for commands");
+
+        // Poll the server for the next command and run it, until "Q" (quit).
+        for (;;)
+        {
+            cipxfer("Poll", 4, inbuf, &len, &dp);
+            if (len < 4 || checksum(dp, len - 3) != 0)
+            {
+                flush_uart_hard();          // bad/empty frame - re-poll
+                continue;
+            }
+
+            {
+                unsigned char op = dp[0];
+                unsigned short al = len - 3 - 1;   // path length (payload minus opcode)
+                if (al > 254) al = 254;
+                memcpy(fn, dp + 1, al);
+                fn[al] = 0;
+
+                // -v: echo the command opcode + path we received, e.g. "> P /ho/bj.txt".
+                if (g_verbose && op != 'I')
+                {
+                    char oc[3]; oc[0] = '>'; oc[1] = op; oc[2] = 0;
+                    *((unsigned char *)23692) = 255;
+                    conprint(oc); conprint(" "); conprint(fn); conprint("\r");
+                }
+
+                if (op == 'Q') break;               // quit listen mode
+                else if (op == 'I') { for (len = 0; len < 30000; len++); } // idle: throttle before re-polling
+                else if (op == 'L') listen_ls(fn, inbuf, scratch);
+                else if (op == 'G')
+                {
+                    // get: push the file, or the whole directory tree, then 'B'.
+                    unsigned char fh = fopen((unsigned char *)fn, 1);
+                    g_packetno = 0;
+                    if (fh)
+                    {
+                        fclose(fh);
+                        send_file(fn, fn, inbuf, scratch);
+                    }
+                    else
+                    {
+                        unsigned short plen = 0;
+                        while (fn[plen]) plen++;
+                        if (plen && fn[plen - 1] == '/') { plen--; fn[plen] = 0; }
+                        send_dir(fn, plen, inbuf, scratch, inbuf);
+                    }
+                    scratch[2] = 'B';
+                    send_block_rt(scratch, 1, inbuf);
+                    vprint("sent");
+                }
+                else if (op == 'P') { if (transfer(fn, inbuf)) vprint("put failed"); else vprint("put done"); } // put
+                else if (op == 'M') { unsigned char ok = sync_mkdir(fn)  != 0xFF; vprint(ok ? "mkdir ok" : "mkdir fail"); listen_status(ok, inbuf, scratch); }
+                else if (op == 'R') { unsigned char ok = sync_rmdir(fn)  != 0xFF; vprint(ok ? "rmdir ok" : "rmdir fail"); listen_status(ok, inbuf, scratch); }
+                else if (op == 'X') { unsigned char ok = sync_unlink(fn) != 0xFF; vprint(ok ? "rm ok" : "rm fail"); listen_status(ok, inbuf, scratch); }
+            }
+        }
+        print("Listen ended");
+        goto closeconn;
+    }
 
     if (sendmode)
     {
