@@ -1,0 +1,7 @@
+# z88dk / appmake build outputs
+syncdev
+syncdev_*.bin
+*.map
+*.o
+*.lis
+zcc_opt.def

@@ -32,34 +32,20 @@ static unsigned char g_fast_uart_mode;
 // where b = border color, m is mic, s is speaker
 __sfr __at 0xfe gPort254;
 
-extern unsigned char fopen(unsigned char *fn, unsigned char mode);
-extern void fclose(unsigned char handle);
-extern unsigned short fread(unsigned char handle, unsigned char* buf, unsigned short bytes);
-extern void fwrite(unsigned char handle, unsigned char* buf, unsigned short bytes);
-extern unsigned char opendir(unsigned char *path);
-extern unsigned char readdir(unsigned char handle, unsigned char *buf);
-extern void makepath(char *pathspec); // must be 0xff terminated!
-extern void conprint(char *txt) __z88dk_fastcall;
-
-extern void writenextreg(unsigned char reg, unsigned char val);
-extern unsigned char readnextreg(unsigned char reg);
-extern unsigned char allocpage(void);
-extern void freepage(unsigned char page);
+// esxDOS/nextreg/console/receive/checksum/mulby10 all come from the z88dk shim
+// (syncsys.h); fopen/fread/... are macros onto esx_f_* there. memcpy is libc.
+#include <string.h>
+#include "syncsys.h"
 
 __sfr __banked __at 0x133b UART_TX;
 __sfr __banked __at 0x143b UART_RX;
 __sfr __banked __at 0x153b UART_CTL;
 
-extern unsigned short receive(char *b);
-extern char checksum(char *dp, unsigned short len);
-
-extern void memcpy(char *dest, const char *source, unsigned short count);
-extern unsigned short mulby10(unsigned short input) __z88dk_fastcall;
-
-extern unsigned short framecounter;
-extern char *cmdline;
-extern char dbg;
-extern unsigned short corever;
+// Command line pointer (was a crt0 global). main() points it first at the raw
+// NextZXOS command tail, then at the cleaned private buffer. The old crt0 also
+// exported framecounter/dbg/scr_x/scr_y/osiy - all unused here, so dropped.
+char *cmdline;
+unsigned short corever;
 
 // See calc_prescalar.c for the prescalar calculation code
 static const unsigned short prescalar_values[] = {
@@ -111,27 +97,8 @@ unsigned char parse_cmdline(char *f)
     return i;
 }
 
-char memcmp(char *a, char *b, unsigned short l)
-{
-    unsigned short i = 0;
-    while (i < l)
-    {
-        char v = a[i] - b[i];
-        if (v != 0) return v;            
-        i++;
-    }
-    return 0;
-}
-
-void memset(char *a, char b, unsigned short l)
-{
-    unsigned short i = 0;
-    while (i < l)
-    {
-        a[i] = b;
-        i++;
-    }
-}
+// memcmp comes from libc (<string.h>); the app only uses it for equality tests.
+// The original also carried a private memset, but nothing calls it, so it's gone.
 
 // Print a line via the ROM (conprint), followed by a newline. Strings use '\r'
 // for embedded line breaks (ROM print treats CR as newline).
@@ -357,14 +324,14 @@ unsigned char createfilewithpath(char * fn)
     // Okay, couldn't create the file, so let's try to make the path.
     // We need to call makepath for each directory in the tree to build
     // complex paths.
-    slash = fn;    
-    while (*slash) 
+    slash = fn;
+    while (*slash)
     {
         slash++;
         if (*slash == '/')
         {
-            *slash = 0xff; // makepath wants strings to end with 0xff
-            makepath(fn);    
+            *slash = 0;      // esx_f_mkdir wants a 0-terminated path prefix
+            sync_mkdir(fn);  // make this directory level (ignore "exists")
             *slash = '/';
         }
     }
@@ -632,16 +599,24 @@ void parse_speed_switches(char *dst)
     dst[di] = 0;
 }
 
-void main(void)
+// Big I/O buffers live in bss (main bank, mmu4/mmu5) rather than on the stack:
+// under the dotN model that keeps the stack small and forces those pages to be
+// allocated and mapped. They are only used from main() and its callees, one
+// invocation at a time, so static is safe.
+static char fn[256];
+static char inbuf[2048];
+static char scratch[1280]; // outgoing block: 1024 file bytes + opcode + framing (~1030 max)
+static char sendpath[256];
+static char cleancmd[256]; // command line with speed switches removed (never touch the OS buffer)
+
+// arglen = z88dk's measured command-line length (unused); rawcmd = pointer to
+// the unprocessed NextZXOS command tail (CRT_ENABLE_COMMANDLINE=2), which keeps
+// ':' intact for paths like "c:/foo".
+int main(int arglen, char *rawcmd)
 {                                 //1234567890123456789012
     const char *cipstart_prefix  = "AT+CIPSTART=\"TCP\",\"";
     const char *cipstart_postfix = "\",2048\r\n";
     const char *conffile         = "c:/sys/config/nextsync.cfg";
-    char fn[256];
-    char inbuf[2048];
-    char scratch[1280]; // outgoing block: 1024 file bytes + opcode + framing (~1030 max)
-    char sendpath[256];
-    char cleancmd[256]; // command line with speed switches removed (never touch the OS buffer)
     char sendmode = 0;
     unsigned char fnlen;
     unsigned char *dp;
@@ -657,6 +632,10 @@ void main(void)
     // restored at terminate. Leaving it at 255 would suppress the ROM "scroll?"
     // prompt for the rest of the BASIC session after the dot command exits.
     saved_scr_ct = *((unsigned char *)23692);
+
+    // Point cmdline at the raw NextZXOS command tail handed to us by the crt.
+    (void)arglen;
+    cmdline = rawcmd;
 
     // Strip speed switches into a private buffer (never write the OS cmdline),
     // then point cmdline at it so the normal parser sees the cleaned line.
@@ -766,6 +745,16 @@ void main(void)
         fclose(filehandle);
         fn[len] = 0;
     }
+
+    // Show where and how fast we're about to sync: the server IP (from the
+    // config file, now in fn) and the selected UART speed.
+    conprint("Server: ");
+    conprint(fn);
+    conprint("\rSpeed: ");
+    conprint((g_syncmode == MODE_SLOW)    ? "slow (115200)"     :
+             (g_syncmode == MODE_DEFAULT) ? "default (1152000)" :
+                                            "fast (2000000)");
+    conprint("\r");
 
     nextreg6 = readnextreg(0x06);
     writenextreg(0x06, nextreg6 & 0x7d); // disable turbo key & 50/60 switch (leave other bits alone)
@@ -943,5 +932,5 @@ bailout:
     writenextreg(0x06, nextreg6); // restore turbo key & 50/60 switch
 terminate:
     *((unsigned char *)23692) = saved_scr_ct; // restore ROM scroll counter
-    return;
+    return 0; // clean exit to BASIC (crt returns with carry clear)
 }
