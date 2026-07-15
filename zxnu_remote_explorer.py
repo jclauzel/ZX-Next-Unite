@@ -34,9 +34,12 @@ ARROW_BTN_W = 40
 def _human_size(n):
     if n is None:
         return ""
+    # n is scaled down by 1024 each loop iteration, so once we stop the value is
+    # already in the current unit - format it as-is. (Dividing again here was the
+    # bug that made every file >= 1 KB show as "0K"/"0M".)
     for unit in ("B", "K", "M", "G"):
         if n < 1024 or unit == "G":
-            return f"{n}{unit}" if unit == "B" else f"{n/1024:.0f}{unit}"
+            return f"{n}{unit}" if unit == "B" else f"{n:.0f}{unit}"
         n /= 1024
     return str(n)
 
@@ -105,6 +108,8 @@ class RemoteExplorerWidget(QWidget):
         self.local_view.dragMoveEvent = self._local_drag_enter
         self.local_view.dropEvent = self._local_drop
         self.local_view.keyPressEvent = self._local_key_press
+        self.local_view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.local_view.customContextMenuRequested.connect(self._local_context_menu)
 
         self.local_path_label = QLabel(self)
         self.local_path_label.setToolTip("Local folder (double-click a folder to enter, Up to go back)")
@@ -116,9 +121,14 @@ class RemoteExplorerWidget(QWidget):
         local_up = QPushButton("Up", self)
         local_up.setMaximumWidth(48)
         local_up.clicked.connect(self._local_up)
+        local_refresh = QPushButton("Refresh", self)
+        local_refresh.setMaximumWidth(72)
+        local_refresh.setToolTip("Re-read the current local folder from disk")
+        local_refresh.clicked.connect(self._local_refresh)
         local_bar = QHBoxLayout()
         local_bar.setContentsMargins(0, 0, 0, 0)
         local_bar.addWidget(local_up)
+        local_bar.addWidget(local_refresh)
         local_bar.addWidget(self.local_path_label, 1)
 
         local_box = QVBoxLayout()
@@ -599,7 +609,8 @@ class RemoteExplorerWidget(QWidget):
             dest = self._local_dir()
 
             def go():
-                for path, _is_dir in entries:
+                for path, is_dir in entries:
+                    self._prepare_local_download_dir(dest, path, is_dir)
                     self._enqueue(("get", path, dest))
                 self._log(f"Downloading {len(entries)} item(s) to {dest} …")
             self._run_op("Downloading from the Next…", go)
@@ -646,6 +657,7 @@ class RemoteExplorerWidget(QWidget):
         dest = self._local_dir()
         n = 0
         for path, is_dir in entries:
+            self._prepare_local_download_dir(dest, path, is_dir)
             self._enqueue(("get", path, dest))
             local_copy = (os.path.join(dest, os.path.basename(path.rstrip("/")))
                           if is_dir else None)
@@ -695,6 +707,22 @@ class RemoteExplorerWidget(QWidget):
     # ==================================================================
     #  transfers
     # ==================================================================
+    def _prepare_local_download_dir(self, dest, path, is_dir):
+        """For a folder download, create the destination folder up front.
+
+        The Next only streams the files inside a folder, so without this an
+        *empty* folder would leave no local trace at all ("nothing happens"),
+        and a folder's own entry would only ever appear once a file landed in
+        it. Creating it here makes the folder show immediately.
+        """
+        if not is_dir:
+            return
+        try:
+            os.makedirs(os.path.join(dest, os.path.basename(path.rstrip("/"))),
+                        exist_ok=True)
+        except OSError as ex:
+            self._log(f"Could not create local folder for {path}: {ex}")
+
     def _get_selected(self):
         entries = self._selected_next_entries()
         if not entries:
@@ -702,7 +730,8 @@ class RemoteExplorerWidget(QWidget):
         dest = self._local_dir()
 
         def go():
-            for path, _is_dir in entries:
+            for path, is_dir in entries:
+                self._prepare_local_download_dir(dest, path, is_dir)
                 self._enqueue(("get", path, dest))
             self._log(f"Downloading {len(entries)} item(s) to {dest} …")
         self._run_op("Downloading from the Next…", go)
@@ -790,6 +819,20 @@ class RemoteExplorerWidget(QWidget):
         if parent and os.path.isdir(parent):
             self._set_local_dir(parent)
 
+    def _local_refresh(self):
+        """Force the local pane to re-read the current folder from disk.
+
+        Mirrors the Next pane's Refresh. QFileSystemModel usually auto-updates
+        via its file-system watcher, but bouncing the root path guarantees an
+        immediate rescan (e.g. right after files land from a download).
+        """
+        cur = self._local_dir()
+        self.local_model.setRootPath("")          # bounce so an unchanged path rescans
+        self.local_model.setRootPath(cur or "")
+        if cur and os.path.isdir(cur):
+            self.local_view.setRootIndex(self.local_model.index(cur))
+            self.local_path_label.setText(cur)
+
     def _local_double_clicked(self, index):
         path = self.local_model.filePath(index)
         if os.path.isdir(path):
@@ -823,6 +866,68 @@ class RemoteExplorerWidget(QWidget):
             self._local_rename_selected()
             return
         QTreeView.keyPressEvent(self.local_view, event)
+
+    def _local_context_menu(self, pos):
+        # Right-click menu for the local pane, mirroring the Next pane and the
+        # SD Card tab's local explorer: New Folder / Copy / Cut / Paste / Rename
+        # / Delete / Refresh. Dialogs are shown after menu.exec() returns, so the
+        # menu's modal grab is already released.
+        sel = [p for p in self._selected_local_paths() if p]
+        has_sel = len(sel) > 0
+        menu = QMenu(self)
+        act_new = menu.addAction("New Folder…")
+        menu.addSeparator()
+        act_copy = menu.addAction("Copy")
+        act_cut = menu.addAction("Cut")
+        act_paste = menu.addAction("Paste")
+        menu.addSeparator()
+        act_ren = menu.addAction("Rename…")
+        act_del = menu.addAction("Delete")
+        menu.addSeparator()
+        act_ref = menu.addAction("Refresh")
+        act_copy.setEnabled(has_sel)
+        act_cut.setEnabled(has_sel)
+        act_ren.setEnabled(len(sel) == 1)
+        act_del.setEnabled(has_sel)
+        # Paste here downloads the copied/cut Next items into this local folder.
+        act_paste.setEnabled(bool(self._clip) and self._clip[0] == "next")
+        chosen = menu.exec(self.local_view.viewport().mapToGlobal(pos))
+        if chosen == act_new:
+            self._local_new_folder()
+        elif chosen == act_copy:
+            self._copy_local("copy")
+        elif chosen == act_cut:
+            self._copy_local("cut")
+        elif chosen == act_paste:
+            self._paste_into_local()
+        elif chosen == act_ren:
+            self._local_rename_selected()
+        elif chosen == act_del:
+            self._local_delete_selected()
+        elif chosen == act_ref:
+            self._local_refresh()
+
+    def _local_new_folder(self):
+        base = self._local_dir()
+        if not base or not os.path.isdir(base):
+            return
+        name, ok = QInputDialog.getText(self, "New Folder", f"New folder in {base}:")
+        name = (name or "").strip()
+        if not ok or not name:
+            return
+        if "/" in name or "\\" in name:
+            self._log("New folder: enter a name only, not a path.")
+            return
+        target = os.path.join(base, name)
+        if os.path.exists(target):
+            self._log(f"New folder: '{name}' already exists.")
+            return
+        try:
+            os.makedirs(target)
+            self._log(f"Created folder {target}")
+            self._local_refresh()
+        except OSError as ex:
+            self._log(f"New folder failed: {ex}")
 
     def _local_delete_selected(self):
         paths = [p for p in self._selected_local_paths()
@@ -914,14 +1019,19 @@ class RemoteExplorerWidget(QWidget):
             return
         event.acceptProposedAction()
         dest = self._local_dir()
-        paths = [line.split("\t", 1)[1]
-                 for line in bytes(data).decode(errors="replace").splitlines()
-                 if "\t" in line]
-        if not paths:
+        # Each line is "<D|F>\t<path>"; keep the dir flag so folders (empty ones
+        # in particular) are recreated locally, not silently dropped.
+        entries = []
+        for line in bytes(data).decode(errors="replace").splitlines():
+            if "\t" in line:
+                flag, path = line.split("\t", 1)
+                entries.append((path, flag == "D"))
+        if not entries:
             return
 
         def go():
-            for path in paths:
+            for path, is_dir in entries:
+                self._prepare_local_download_dir(dest, path, is_dir)
                 self._enqueue(("get", path, dest))
-            self._log(f"Downloading {len(paths)} item(s) to {dest} …")
+            self._log(f"Downloading {len(entries)} item(s) to {dest} …")
         self._run_op("Downloading from the Next…", go)

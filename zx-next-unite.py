@@ -3845,6 +3845,20 @@ class MainWindow(QMainWindow):
                     finally:
                         self._nextsync_pygame_restoring = False
 
+                # Restore the Remote Explorer view if it was open last session,
+                # routed through the toggle so all its show/hide + widget-build
+                # side effects run (the listen server itself is NOT auto-started).
+                _re_open_pref = configuration_dictionary.get(
+                    SETTING_NEXTSYNC_REMOTE_EXPLORER, "").strip().lower()
+                if _re_open_pref in ("true", "1", "yes") and \
+                        hasattr(self, "nextsync_remote_button") and \
+                        not self.nextsync_remote_button.isChecked():
+                    self._re_open_restoring = True
+                    try:
+                        self.nextsync_remote_button.setChecked(True)
+                    finally:
+                        self._re_open_restoring = False
+
                 # Restore the SD Card retro 8-bit log mode the same way.
                 _sdcard_pg_pref = configuration_dictionary.get(
                     SETTING_SDCARD_PYGAME_LOG, "").strip().lower()
@@ -10892,16 +10906,26 @@ class MainWindow(QMainWindow):
                              variant="green", duration_ms=5000)
 
         def _nextsync_stop_listen_server():
-            if self._re_queue is not None:
+            # Ask the Next to leave -listen first: the worker delivers "Q" (quit)
+            # on the Next's next poll, so the Next tears down its own connection
+            # and returns to BASIC instead of sitting there waiting on the socket.
+            # Give it a moment to be sent BEFORE forcing the socket shut with the
+            # stop event (which would drop the link without saying goodbye).
+            q = self._re_queue
+            t = self._re_thread
+            if q is not None:
                 try:
-                    self._re_queue.put(("quit",))
+                    q.put(("quit",))
                 except Exception:
                     pass
+            if t is not None and t.is_alive():
+                t.join(timeout=2.0)         # worker sends "Q", then exits cleanly
+            # Fallback: if it didn't exit on its own (e.g. the Next stopped polling
+            # mid-transfer), force the loop to end so the app can shut down.
             if self._re_stop is not None:
                 self._re_stop.set()
-            t = self._re_thread
             if t is not None and t.is_alive():
-                t.join(timeout=2.0)
+                t.join(timeout=1.0)
             self._re_thread = None
             self._re_stop = None
             self._re_queue = None
@@ -10913,6 +10937,9 @@ class MainWindow(QMainWindow):
                 self.nextsync_re_play_label.setVisible(False)
             except RuntimeError:
                 pass
+        # Exposed so app-exit paths (window close / Ctrl-C) can say goodbye to a
+        # connected Next before the process dies. Safe/idempotent to call twice.
+        self._nextsync_stop_listen_server_fn = _nextsync_stop_listen_server
 
         def _nextsync_re_toggle_server():
             if self._re_running:
@@ -10925,7 +10952,7 @@ class MainWindow(QMainWindow):
             if checked:
                 widget = _nextsync_build_remote_explorer()
                 self.nextsync_log_stack.setCurrentWidget(widget)
-                self.nextsync_remote_button.setText("🗂 Show Log")
+                self.nextsync_remote_button.setText("🗂 Return to classic sync")
                 # Swap the normal sync controls for the dedicated server control.
                 self.nextsync_prepare_server.setVisible(False)
                 self.nextsync_start_server.setVisible(False)
@@ -10958,6 +10985,16 @@ class MainWindow(QMainWindow):
                 self.nextsync_filterlabel.setVisible(True)
                 self.nextsync_filtertext.setVisible(True)
                 nextsync_hide_start_cancel_buttons()
+            # Persist the open/closed choice so the NextSync tab reopens in the
+            # same view next launch. Skipped while restoring the saved choice at
+            # startup (and save_configuration_file is a no-op during _initialising).
+            if not getattr(self, "_re_open_restoring", False):
+                try:
+                    configuration_dictionary[SETTING_NEXTSYNC_REMOTE_EXPLORER] = (
+                        "true" if checked else "false")
+                    save_configuration_file()
+                except Exception:
+                    pass
 
         self.nextsync_remote_button.toggled.connect(_nextsync_toggle_remote_explorer)
 
@@ -24295,11 +24332,29 @@ app.setFont(_app_font)
 window = MainWindow()
 window.show()
 
+# On exit — window "X", Ctrl-C, or any other app.quit() — say goodbye to a
+# connected Remote Explorer / NextSync "-listen" Next so it leaves listen mode
+# and closes its own connection instead of sitting there waiting on the network.
+# aboutToQuit is the single choke point for every quit path; the shutdown is
+# idempotent, so calling it more than once is harmless.
+def _graceful_remote_explorer_shutdown():
+    try:
+        fn = getattr(window, "_nextsync_stop_listen_server_fn", None)
+        if callable(fn):
+            fn()
+    except Exception:
+        pass
+
+app.aboutToQuit.connect(_graceful_remote_explorer_shutdown)
+
 # Allow Ctrl-C (SIGINT) to terminate the application cleanly.
 # Qt's event loop blocks Python signal delivery unless we periodically
 # yield back to the Python interpreter via a no-op timer.
 def _handle_sigint(*_args):
     print("\nInterrupted — exiting.", flush=True)
+    # Say goodbye now, before teardown, so "Q" reaches the Next even if the
+    # aboutToQuit slots don't get a chance to run during interpreter shutdown.
+    _graceful_remote_explorer_shutdown()
     app.quit()
 
 signal.signal(signal.SIGINT, _handle_sigint)
