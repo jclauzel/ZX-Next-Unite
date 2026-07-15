@@ -6148,8 +6148,14 @@ class MainWindow(QMainWindow):
             self.treeview.show()
 
         def nextsync_update_root_drive():
-            self.nextsync_treeview.setRootIndex(self.nextsync_model.mapFromSource(self.nextsync_filesystem_model.index(self.nextsync_diskdrive.itemText(0))))
+            drive = self.nextsync_diskdrive.currentText() or self.nextsync_diskdrive.itemText(0)
+            self.nextsync_treeview.setRootIndex(self.nextsync_model.mapFromSource(self.nextsync_filesystem_model.index(drive)))
             self.nextsync_treeview.show()
+            # The drive switcher also drives the Remote Explorer's local pane so
+            # the user can change drive from within it.
+            re_widget = getattr(self, "_re_widget", None)
+            if re_widget is not None:
+                re_widget.set_local_dir(drive)
 
         # ---------------------------------------------------------------
         # Scan helpers: walk an image directory tree and return flat lists
@@ -10787,13 +10793,28 @@ class MainWindow(QMainWindow):
             if self._re_queue is not None:
                 self._re_queue.put(cmd)
 
+        def _re_drain():
+            # Remove every still-queued command (used by the explorer's Cancel to
+            # stop after the in-flight transfer). Returns how many were dropped.
+            n = 0
+            q = self._re_queue
+            if q is not None:
+                while True:
+                    try:
+                        q.get_nowait()
+                        n += 1
+                    except Exception:   # queue.Empty (or anything) -> stop
+                        break
+            return n
+
         def _nextsync_build_remote_explorer():
             if self._re_widget is not None:
                 return self._re_widget
             start_dir = configuration_dictionary.get(SETTING_NEXTSYNC_EXPLORERPATH) or None
             widget = RemoteExplorerWidget(
                 _re_enqueue, local_start_dir=start_dir,
-                log=lambda s: add_nextsync_log_window(str(s)))
+                log=lambda s: add_nextsync_log_window(str(s)),
+                drain=_re_drain)
             self._re_widget = widget
             self.nextsync_log_stack.addWidget(widget)
             return widget
@@ -10852,7 +10873,9 @@ class MainWindow(QMainWindow):
             self._re_sig.got.connect(widget.on_got)
             self._re_sig.put_done.connect(widget.on_put_done)
             self._re_sig.op_done.connect(widget.on_op_done)
+            self._re_sig.marked.connect(widget.on_marked)
             self._re_sig.log.connect(lambda s: add_nextsync_log_window(str(s)))
+            self._re_sig.error.connect(widget.on_error)
             self._re_sig.error.connect(lambda s: add_nextsync_log_window("Remote explorer: " + str(s)))
             self._re_thread = threading.Thread(
                 target=run_remote_listen_server,
@@ -10911,6 +10934,13 @@ class MainWindow(QMainWindow):
                 self.nextsync_slowtransfer_checkbox.setVisible(False)
                 self.nextsync_re_start_button.setVisible(True)
                 self.nextsync_re_play_label.setVisible(self._re_running)
+                # Give the Remote Explorer the full width: hide the local file
+                # explorer column (with its SyncIgnore / SyncPoint buttons) and
+                # the name filter. The drive switcher stays so the Remote
+                # Explorer can still change drive.
+                self.nextsync_fileexplorer_and_buttons_container.setVisible(False)
+                self.nextsync_filterlabel.setVisible(False)
+                self.nextsync_filtertext.setVisible(False)
                 add_nextsync_log_window(
                     "Remote explorer: click 'Start NextSync server', then run '.sync4 -listen' on your Next.")
             else:
@@ -10923,6 +10953,10 @@ class MainWindow(QMainWindow):
                 self.nextsync_prepare_server.setVisible(True)
                 self.nextsync_sync_mode_group.setVisible(True)
                 self.nextsync_slowtransfer_checkbox.setVisible(True)
+                # Restore the local file explorer column and the name filter.
+                self.nextsync_fileexplorer_and_buttons_container.setVisible(True)
+                self.nextsync_filterlabel.setVisible(True)
+                self.nextsync_filtertext.setVisible(True)
                 nextsync_hide_start_cancel_buttons()
 
         self.nextsync_remote_button.toggled.connect(_nextsync_toggle_remote_explorer)
