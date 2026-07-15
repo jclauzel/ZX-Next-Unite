@@ -6652,6 +6652,12 @@ class MainWindow(QMainWindow):
                 nextsync_hide_start_cancel_buttons()
                 t.start()
                 dlg.exec()   # blocks main thread showing the modal dialog
+                # Tear the dialog (and its child spinner QTimer) down on the
+                # event loop now, instead of leaving it in a reference cycle for
+                # Python's GC to collect later — a QTimer firing / a QDialog
+                # being destroyed mid-paint is what triggers the "QBackingStore
+                # ::flush() ... does not have a handle" crash on cancel.
+                dlg.deleteLater()
                 # Ensure pane is in the correct state after dialog closes
                 QTimer.singleShot(0, lambda: (
                     nextsync_hide_start_cancel_buttons(),
