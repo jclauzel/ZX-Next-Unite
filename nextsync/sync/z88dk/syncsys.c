@@ -75,6 +75,14 @@ unsigned char sync_unlink(const char *path)
    return esx_f_unlink(path);
 }
 
+/* rename / move a file or directory (within the same drive). esxDOS returns
+ * 0xFF (and sets errno) on error; callers treat "!= 0xFF" as success, exactly
+ * like sync_rmdir / sync_unlink above. */
+unsigned char sync_rename(const char *oldpath, const char *newpath)
+{
+   return esx_f_rename(oldpath, newpath);
+}
+
 /* Read one directory entry, exposing its FAT attribute (directory flag) and
  * size. esx_f_readdir fills a struct esx_dirent (attr, then ASCIIZ name, then
  * date/time and size); esx_slice_dirent() locates the size that follows the

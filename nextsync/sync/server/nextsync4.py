@@ -423,10 +423,12 @@ def receive_files(conn, stats):
 #     'L' <path>   ls             'R' <path>   rmdir
 #     'G' <path>   get            'X' <path>   rm
 #     'P' <path>   put            'Q'          quit
-# ls/get/mkdir/rmdir/rm are answered by the Next PUSHING framed blocks back
+#                                 'V' <old>\0<new>  ren (rename/move)
+# ls/get/mkdir/rmdir/rm/ren are answered by the Next PUSHING framed blocks back
 # (each acked "Ok"); put is answered by the Next PULLING data with "Get"
-# (served exactly like a normal download). See the protocol summary in the dot
-# source (nextsync/sync/z88dk/nextsync.c).
+# (served exactly like a normal download). 'ren' carries the old and new paths
+# NUL-separated in one frame. See the protocol summary in the dot source
+# (nextsync/sync/z88dk/nextsync.c).
 
 LISTEN_HELP = """\
   Remote file-server commands:
@@ -436,6 +438,7 @@ LISTEN_HELP = """\
     mkdir <path>               create a directory on the Next
     rmdir <path>               remove a directory on the Next
     rm <path>                  delete a file on the Next
+    ren <oldpath> <newpath>    rename/move a file or directory on the Next
     help                       show this help
     quit                       tell the Next to leave -listen and disconnect
 """
@@ -587,6 +590,8 @@ def listen_session(conn, stats, _test_commands=None):
                 cmd_q.put(("rmdir", a1, a2))
             elif verb in ("rm", "del"):
                 cmd_q.put(("rm", a1, a2))
+            elif verb in ("ren", "rename", "mv", "move"):
+                cmd_q.put(("ren", a1, a2))
             elif verb == "help":
                 print(LISTEN_HELP)
             elif verb in ("quit", "exit", "bye"):
@@ -659,6 +664,14 @@ def listen_session(conn, stats, _test_commands=None):
             elif op == "rm":
                 sendpacket(conn, b"X" + a1.encode(), 0)
                 _listen_status(conn, "rm")
+            elif op == "ren":
+                if not a1 or not a2:
+                    print("  usage: ren <oldpath> <newpath>")
+                    continue
+                # Old and new paths travel NUL-separated in a single frame;
+                # the block framing is length-prefixed, so the NUL is safe.
+                sendpacket(conn, b"V" + a1.encode() + b"\x00" + a2.encode(), 0)
+                _listen_status(conn, "ren")
 
         elif data == b"Get" or data == b"Gee":
             n = MAX_PAYLOAD
