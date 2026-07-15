@@ -658,6 +658,18 @@ void parse_speed_switches(char *dst)
 //   put : reuses transfer() - the Next pulls data with "Get", server serves it.
 // ---------------------------------------------------------------------------
 
+// BREAK key detection so a -listen session can be stopped from the Next itself
+// (the Next's equivalent of the PC pressing Ctrl-C). zx_keyrow(high) does
+// IN A,(high*256 + 0xFE) - a pressed key reads as 0 in its bit. BREAK is
+// CAPS SHIFT + SPACE held together: CAPS SHIFT is bit0 of the 0xFEFE half-row,
+// SPACE is bit0 of the 0x7FFE half-row. Both down => BREAK.
+extern unsigned char zx_keyrow(unsigned char highbyte) __z88dk_fastcall;
+
+unsigned char break_pressed(void)
+{
+    return ((zx_keyrow(0xFE) & 1) == 0) && ((zx_keyrow(0x7F) & 1) == 0);
+}
+
 // Map a -listen command opcode to its command name, so the -v trace prints a
 // consistent verb ("ls", "get", "put", "mkdir", ...) for every command instead
 // of the raw single-letter opcode. Returns "?" for anything unexpected.
@@ -775,7 +787,7 @@ int main(int arglen, char *rawcmd)
     cmdline = cleancmd;
     g_fast_uart_mode = (g_syncmode == MODE_FAST) ? 14 : 12;
 
-    print("NextSync 4.3 Clauzel/Komppa");
+    print("NextSync 4.4 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -812,11 +824,13 @@ int main(int arglen, char *rawcmd)
             sendmode = 1;
     }
 
-    // Detect "-listen": run as a remote file server driven by the PC. Like
-    // -send, it connects to the saved server (from the config file).
-    if (!sendmode && len >= 7 &&
-        fn[0] == '-' && fn[1] == 'l' && fn[2] == 'i' && fn[3] == 's' &&
-        fn[4] == 't' && fn[5] == 'e' && fn[6] == 'n' && (fn[7] == 0 || fn[7] == ' '))
+    // Detect "-listen" (or its short alias "-l"): run as a remote file server
+    // driven by the PC. Like -send, it connects to the saved server (from the
+    // config file). "-l" is accepted because "-listen" is a mouthful to type.
+    if (!sendmode &&
+        ((len >= 7 && fn[0] == '-' && fn[1] == 'l' && fn[2] == 'i' && fn[3] == 's' &&
+          fn[4] == 't' && fn[5] == 'e' && fn[6] == 'n' && (fn[7] == 0 || fn[7] == ' ')) ||
+         (len >= 2 && fn[0] == '-' && fn[1] == 'l' && (fn[2] == 0 || fn[2] == ' '))))
     {
         listenmode = 1;
     }
@@ -852,13 +866,14 @@ int main(int arglen, char *rawcmd)
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v4.3 Clauzel/Komppa\r"
+                "SYNC v4.4 Clauzel/Komppa\r"
                 ".SYNC [server] : save cfg\r"
                 ".SYNC : sync files from PC\r"
                 ".SYNC -send <file|dir> : to PC\r"
-                ".SYNC -listen : file server\r"
+                ".SYNC -listen|-l : file server\r"
                 "  PC drives: ls get put\r"
                 "  mkdir rmdir rm ren\r"
+                "  BREAK key stops it (safe)\r"
                 ".SYNC -slow|-default|-fast\r"
                 ".SYNC -v : verbose trace\r"
                 "See nextsync.txt\r\r");
@@ -992,6 +1007,17 @@ retryconnect:
         // Poll the server for the next command and run it, until "Q" (quit).
         for (;;)
         {
+            // BREAK (CAPS SHIFT + SPACE) requests a graceful exit - the Next-side
+            // equivalent of Ctrl-C. Checked ONLY here, at the top of the poll
+            // loop, i.e. strictly BETWEEN commands: every ls/get/put/... runs to
+            // completion inside the loop body before we get back here, so a file
+            // or directory transfer is never interrupted half-way. Leaving the
+            // loop drops into the same clean close path as the server's 'Q'.
+            if (break_pressed())
+            {
+                print("Break - stopping");
+                break;
+            }
             cipxfer("Poll", 4, inbuf, &len, &dp);
             if (len < 4 || checksum(dp, len - 3) != 0)
             {

@@ -543,6 +543,70 @@ def _listen_status(conn, what):
     if _listen_recv_reply(conn, handle):
         print(f'{timestamp()} | {what}: ' + ('OK' if res['ok'] else 'FAILED'))
 
+# --- Persistent console reader for -listen -------------------------------------
+# ONE input() thread for the whole server run, shared across reconnections. A
+# per-session reader leaks: input() blocks and can't be interrupted, so every
+# time the Next disconnects (BREAK / Bye) and reconnects we'd start ANOTHER
+# reader and multiple threads would race for stdin, queueing typed commands onto
+# a dead session. So the reader is created once and reused.
+_listen_cmd_q = None
+_listen_cli_started = False
+
+def _listen_console_reader(cmd_q):
+    """Read commands from the console and queue them for whichever -listen
+    session is currently active. Lives for the whole server run (only EOF /
+    Ctrl-D ends it)."""
+    while True:
+        try:
+            line = input("listen> ").strip()
+        except EOFError:
+            cmd_q.put(("quit", "", ""))
+            return
+        if not line:
+            continue
+        try:
+            parts = shlex.split(line)
+        except ValueError:
+            print("  (bad quoting)")
+            continue
+        verb = parts[0].lower()
+        a1 = parts[1] if len(parts) > 1 else ""
+        a2 = parts[2] if len(parts) > 2 else ""
+        if verb in ("ls", "dir"):
+            cmd_q.put(("ls", a1, a2))
+        elif verb == "get":
+            cmd_q.put(("get", a1, a2))
+        elif verb == "put":
+            cmd_q.put(("put", a1, a2))
+        elif verb == "mkdir":
+            cmd_q.put(("mkdir", a1, a2))
+        elif verb == "rmdir":
+            cmd_q.put(("rmdir", a1, a2))
+        elif verb in ("rm", "del"):
+            cmd_q.put(("rm", a1, a2))
+        elif verb in ("ren", "rename", "mv", "move"):
+            cmd_q.put(("ren", a1, a2))
+        elif verb == "help":
+            print(LISTEN_HELP)
+        elif verb in ("quit", "exit", "bye"):
+            # Ends the CURRENT Next session (sends 'Q'); the server keeps
+            # listening for a reconnection. Ctrl-C stops the server itself.
+            cmd_q.put(("quit", "", ""))
+        else:
+            print(f"  unknown command: {verb} (try 'help')")
+
+def _ensure_listen_console():
+    """Start the single persistent console reader (once) and return its shared
+    command queue."""
+    global _listen_cmd_q, _listen_cli_started
+    if _listen_cmd_q is None:
+        _listen_cmd_q = queue.Queue()
+    if not _listen_cli_started:
+        threading.Thread(target=_listen_console_reader, args=(_listen_cmd_q,),
+                         daemon=True, name="listen-cli").start()
+        _listen_cli_started = True
+    return _listen_cmd_q
+
 def listen_session(conn, stats, _test_commands=None):
     """Sync4 -listen: the Next connected as a remote file server we drive from
     the console. _test_commands (a list of (verb, arg1, arg2) tuples) is only
@@ -551,57 +615,23 @@ def listen_session(conn, stats, _test_commands=None):
     sendpacket(conn, b"Listening", 0)          # ack the "Listen" handshake
     stats['packets'] += 1
 
-    cmd_q = queue.Queue()
-
     if _test_commands is not None:
+        cmd_q = queue.Queue()
         for c in _test_commands:
             cmd_q.put(c)
         cmd_q.put(("quit", "", ""))
     else:
         print(f'{timestamp()} | The Next is in -listen mode (remote file server).')
         print(LISTEN_HELP)
-
-    def _cli():
+        # Reuse the single persistent console reader across reconnections, and
+        # drop anything typed while no Next was connected so a fresh/reconnected
+        # session starts clean.
+        cmd_q = _ensure_listen_console()
         while True:
             try:
-                line = input("listen> ").strip()
-            except EOFError:
-                cmd_q.put(("quit", "", ""))
-                return
-            if not line:
-                continue
-            try:
-                parts = shlex.split(line)
-            except ValueError:
-                print("  (bad quoting)")
-                continue
-            verb = parts[0].lower()
-            a1 = parts[1] if len(parts) > 1 else ""
-            a2 = parts[2] if len(parts) > 2 else ""
-            if verb in ("ls", "dir"):
-                cmd_q.put(("ls", a1, a2))
-            elif verb == "get":
-                cmd_q.put(("get", a1, a2))
-            elif verb == "put":
-                cmd_q.put(("put", a1, a2))
-            elif verb == "mkdir":
-                cmd_q.put(("mkdir", a1, a2))
-            elif verb == "rmdir":
-                cmd_q.put(("rmdir", a1, a2))
-            elif verb in ("rm", "del"):
-                cmd_q.put(("rm", a1, a2))
-            elif verb in ("ren", "rename", "mv", "move"):
-                cmd_q.put(("ren", a1, a2))
-            elif verb == "help":
-                print(LISTEN_HELP)
-            elif verb in ("quit", "exit", "bye"):
-                cmd_q.put(("quit", "", ""))
-                return
-            else:
-                print(f"  unknown command: {verb} (try 'help')")
-
-    if _test_commands is None:
-        threading.Thread(target=_cli, daemon=True, name="listen-cli").start()
+                cmd_q.get_nowait()
+            except queue.Empty:
+                break
 
     put_data = b''
     put_ofs = 0
@@ -699,7 +729,10 @@ def listen_session(conn, stats, _test_commands=None):
         else:
             sendpacket(conn, b"I", 0)              # keep the Next moving
 
-    print(f'{timestamp()} | listen: session ended')
+    # The Next hung up: it pressed BREAK, sent "Bye", or the link dropped (or we
+    # sent it "Q"). The main loop closes this connection and goes back to
+    # accepting, so a restarted '.sync4 -listen' reconnects.
+    print(f'{timestamp()} | listen: the Next disconnected - waiting for a new connection.')
 
 def warnings():
     print()

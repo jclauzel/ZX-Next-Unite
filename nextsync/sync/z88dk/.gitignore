@@ -5,3 +5,9 @@ syncdev_*.bin
 *.o
 *.lis
 zcc_opt.def
+
+# uart.asm and zproject.lst are hand-written BUILD SOURCES, not outputs. The
+# parent nextsync/.gitignore's *.asm / *.lst rules (meant for SDCC-generated
+# files) would otherwise drop them and make the dotN unbuildable from a clone.
+!uart.asm
+!zproject.lst
