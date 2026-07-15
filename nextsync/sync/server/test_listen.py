@@ -108,6 +108,9 @@ def mock_next(sock, fake_entries, fake_file, captured):
                     break
                 buf += data
             captured.setdefault('puts', []).append((arg, buf))
+        elif op == b'V':                            # ren: arg is "old\x00new"
+            captured['ren'] = arg
+            push(b'O', 0)
         elif op in (b'M', b'R', b'X'):              # mkdir/rmdir/rm: status OK
             push(b'O', 0)
 
@@ -140,6 +143,7 @@ def main():
         ("put", putfile, "/ho/"),                   # dir remote -> keep basename
         ("rm", "/games/old.tap", ""),
         ("rmdir", "/games/tmp", ""),
+        ("ren", "/games/a.tap", "/games/b.tap"),
     ]
 
     t = threading.Thread(target=ns.listen_session, args=(srv, stats, cmds), daemon=True)
@@ -169,9 +173,14 @@ def main():
     else:
         got = puts[1][0] if len(puts) == 2 else None
         print(f"FAIL put-dir: expected /ho/upload.bin, got {got!r}"); ok = False
+    # ren: the server should have framed old+new NUL-separated in one command
+    if captured.get('ren') == "/games/a.tap\x00/games/b.tap":
+        print("PASS ren   :", captured['ren'].replace("\x00", " -> "))
+    else:
+        print(f"FAIL ren   : {captured.get('ren')!r}"); ok = False
     # the session must have run to completion (thread ended)
     if not t.is_alive():
-        print("PASS session: ls/mkdir/rmdir/rm framed and completed cleanly")
+        print("PASS session: ls/mkdir/rmdir/rm/ren framed and completed cleanly")
     else:
         print("FAIL session: did not finish"); ok = False
 

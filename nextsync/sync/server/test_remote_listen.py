@@ -64,6 +64,9 @@ def mock_next(sock, entries, filebytes, cap):
                 if not d: break
                 buf += d
             cap['put'] = (arg, buf)
+        elif op == b'V':                     # ren: arg is "old\x00new"
+            cap['ren'] = arg
+            push(b'O', 0)
         elif op in (b'M', b'R', b'X'):
             push(b'O', 0)
 
@@ -88,7 +91,8 @@ def main():
     cmd_q = queue.Queue()
     stop = threading.Event()
     for c in [("mkdir", "/ho"), ("ls", "/"), ("get", "boot.bas", getdir),
-              ("put", putfile, "/ho/"), ("rm", "/x.tap"), ("rmdir", "/y"), ("quit",)]:
+              ("put", putfile, "/ho/"), ("rm", "/x.tap"), ("rmdir", "/y"),
+              ("rename", "/ho/a.txt", "/ho/b.txt"), ("quit",)]:
         cmd_q.put(c)
 
     t = threading.Thread(target=run_remote_listen_server, args=(sig, cmd_q, stop, PORT), daemon=True)
@@ -122,6 +126,10 @@ def main():
         print("PASS ops  :", got['ops'])
     else:
         print("FAIL ops  :", got['ops']); ok = False
+    if cap.get('ren') == "/ho/a.txt\x00/ho/b.txt" and any(o[1] == "rename" for o in got['ops']):
+        print("PASS ren  :", cap['ren'].replace("\x00", " -> "))
+    else:
+        print("FAIL ren  :", cap.get('ren'), got['ops']); ok = False
 
     shutil.rmtree(tmp, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")

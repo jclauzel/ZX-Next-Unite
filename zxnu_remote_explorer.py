@@ -162,14 +162,17 @@ class RemoteExplorerWidget(QWidget):
         next_box.addLayout(next_bar)
         next_box.addWidget(self.next_view)
 
-        # Next-side toolbar: New Folder / Delete
+        # Next-side toolbar: New Folder / Rename / Delete
         self.btn_new_folder = QPushButton("New Folder", self)
         self.btn_new_folder.clicked.connect(self._new_folder)
+        self.btn_rename = QPushButton("Rename", self)
+        self.btn_rename.clicked.connect(self._rename_selected)
         self.btn_delete = QPushButton("Delete", self)
         self.btn_delete.clicked.connect(self._delete_selected)
         next_tools = QHBoxLayout()
         next_tools.setContentsMargins(0, 0, 0, 0)
         next_tools.addWidget(self.btn_new_folder)
+        next_tools.addWidget(self.btn_rename)
         next_tools.addWidget(self.btn_delete)
         next_tools.addStretch(1)
         next_box.addLayout(next_tools)
@@ -194,7 +197,7 @@ class RemoteExplorerWidget(QWidget):
     def _set_connected(self, on):
         self._connected = on
         for w in (self.btn_to_next, self.btn_to_local, self.btn_new_folder,
-                  self.btn_delete, self.next_view):
+                  self.btn_rename, self.btn_delete, self.next_view):
             w.setEnabled(on)
         if not on:
             self.next_model.removeRows(0, self.next_model.rowCount())
@@ -281,13 +284,18 @@ class RemoteExplorerWidget(QWidget):
         menu = QMenu(self)
         act_new = menu.addAction("New Folder…")
         act_get = menu.addAction("Download (:<-)")
+        act_ren = menu.addAction("Rename…")
         act_del = menu.addAction("Delete")
         act_ref = menu.addAction("Refresh")
+        # Rename acts on exactly one item.
+        act_ren.setEnabled(len(self._selected_next_entries()) == 1)
         chosen = menu.exec(self.next_view.viewport().mapToGlobal(pos))
         if chosen == act_new:
             self._new_folder()
         elif chosen == act_get:
             self._get_selected()
+        elif chosen == act_ren:
+            self._rename_selected()
         elif chosen == act_del:
             self._delete_selected()
         elif chosen == act_ref:
@@ -299,6 +307,26 @@ class RemoteExplorerWidget(QWidget):
         name, ok = QInputDialog.getText(self, "New Folder", f"New folder in {self._cwd}:")
         if ok and name.strip():
             self._enqueue(("mkdir", _posix_join(self._cwd, name.strip())))
+
+    def _rename_selected(self):
+        if not self._connected:
+            return
+        entries = self._selected_next_entries()
+        if len(entries) != 1:
+            self._log("Select exactly one Next item to rename.")
+            return
+        path, _is_dir = entries[0]
+        old_name = posixpath.basename(path.rstrip("/")) or path
+        new_name, ok = QInputDialog.getText(
+            self, "Rename", f"Rename '{old_name}' to:", text=old_name)
+        new_name = new_name.strip()
+        if not ok or not new_name or new_name == old_name:
+            return
+        if "/" in new_name or "\\" in new_name:
+            self._log("Rename: enter a name only, not a path.")
+            return
+        parent = posixpath.dirname(path.rstrip("/")) or "/"
+        self._enqueue(("rename", path, _posix_join(parent, new_name)))
 
     def _delete_selected(self):
         entries = self._selected_next_entries()

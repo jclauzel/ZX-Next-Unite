@@ -260,6 +260,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         ("mkdir", remote_path)
         ("rmdir", remote_path)
         ("rm",    remote_path)
+        ("rename", old_path, new_path)
         ("quit",)
     ``stop_event`` (threading.Event) ends the session/thread.
 
@@ -420,6 +421,19 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             sig.op_done.emit(bool(res['ok']), op, path)
                         else:
                             sig.error.emit(f"{op} {path}: connection dropped")
+                    elif op == "rename":
+                        old, new = cmd[1], cmd[2]
+                        res = {'ok': None}
+
+                        def _h(payload, _r=res):
+                            _r['ok'] = (payload[0:1] == b'O')
+                            return True
+                        # 'V' + old + NUL + new, in one length-framed block.
+                        _re_sendpacket(conn, b"V" + old.encode() + b"\x00" + new.encode(), 0)
+                        if _re_recv_reply(conn, _h):
+                            sig.op_done.emit(bool(res['ok']), "rename", old)
+                        else:
+                            sig.error.emit(f"rename {old}: connection dropped")
 
                 elif data == b"Get" or data == b"Gee":
                     n = min(max_payload, len(put_data) - put_ofs)

@@ -644,19 +644,40 @@ void parse_speed_switches(char *dst)
 //        'M' <path>   mkdir
 //        'R' <path>   rmdir
 //        'X' <path>   rm (unlink)
+//        'V' <old>\0<new>  ren : rename/move a file or directory
 //        'Q'          quit  -> leave listen mode
 //
-// ls/get/mkdir/rmdir/rm answer by PUSHING blocks to the server (each acked with
-// a framed "Ok", exactly like -send):
+// ls/get/mkdir/rmdir/rm/ren answer by PUSHING blocks to the server (each acked
+// with a framed "Ok", exactly like -send):
 //   ls  : 'D' blocks of packed entries, then 'E'.
 //         entry = [1B flags][4B size, little-endian][1B namelen][name],
 //         flags bit0 = directory.
 //   get : send_file / send_dir ('N'/'D'/'E' per file), then a final 'B'.
-//   mkdir/rmdir/rm : one status block, 'O' (ok) or 'F' (fail).
+//   mkdir/rmdir/rm/ren : one status block, 'O' (ok) or 'F' (fail). 'ren'
+//         carries two NUL-separated paths in one frame (old then new).
 //   put : reuses transfer() - the Next pulls data with "Get", server serves it.
 // ---------------------------------------------------------------------------
 
-// Push a one-byte status result ('O' ok / 'F' fail) for mkdir/rmdir/rm.
+// Map a -listen command opcode to its command name, so the -v trace prints a
+// consistent verb ("ls", "get", "put", "mkdir", ...) for every command instead
+// of the raw single-letter opcode. Returns "?" for anything unexpected.
+char *listen_cmd_name(unsigned char op)
+{
+    switch (op)
+    {
+        case 'L': return "ls";
+        case 'G': return "get";
+        case 'P': return "put";
+        case 'M': return "mkdir";
+        case 'R': return "rmdir";
+        case 'X': return "rm";
+        case 'V': return "ren";
+        case 'Q': return "quit";
+        default:  return "?";
+    }
+}
+
+// Push a one-byte status result ('O' ok / 'F' fail) for mkdir/rmdir/rm/ren.
 void listen_status(char ok, unsigned char *inbuf, unsigned char *scratch)
 {
     g_packetno = 0;
@@ -754,7 +775,7 @@ int main(int arglen, char *rawcmd)
     cmdline = cleancmd;
     g_fast_uart_mode = (g_syncmode == MODE_FAST) ? 14 : 12;
 
-    print("NextSync 4.2 Clauzel/Komppa");
+    print("NextSync 4.3 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -831,12 +852,15 @@ int main(int arglen, char *rawcmd)
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v4.2 Clauzel/Komppa\r"
+                "SYNC v4.3 Clauzel/Komppa\r"
                 ".SYNC [server] : save cfg\r"
-                ".SYNC : sync from PC\r"
-                ".SYNC -send <file|dir>\r"
+                ".SYNC : sync files from PC\r"
+                ".SYNC -send <file|dir> : to PC\r"
                 ".SYNC -listen : file server\r"
+                "  PC drives: ls get put\r"
+                "  mkdir rmdir rm ren\r"
                 ".SYNC -slow|-default|-fast\r"
+                ".SYNC -v : verbose trace\r"
                 "See nextsync.txt\r\r");
             goto terminate;
         }
@@ -982,17 +1006,19 @@ retryconnect:
                 memcpy(fn, dp + 1, al);
                 fn[al] = 0;
 
-                // -v: echo the command opcode + path we received, e.g. "> P /ho/bj.txt".
+                // -v: echo the command NAME + path we received, e.g. "> put /ho/bj.txt".
+                // Using the full verb keeps the trace consistent with the result
+                // lines below ("put done", "mkdir ok", ...) rather than a raw opcode.
                 if (g_verbose && op != 'I')
                 {
-                    char oc[3]; oc[0] = '>'; oc[1] = op; oc[2] = 0;
                     *((unsigned char *)23692) = 255;
-                    conprint(oc); conprint(" "); conprint(fn); conprint("\r");
+                    conprint("> "); conprint(listen_cmd_name(op));
+                    conprint(" "); conprint(fn); conprint("\r");
                 }
 
                 if (op == 'Q') break;               // quit listen mode
                 else if (op == 'I') { for (len = 0; len < 30000; len++); } // idle: throttle before re-polling
-                else if (op == 'L') listen_ls(fn, inbuf, scratch);
+                else if (op == 'L') { listen_ls(fn, inbuf, scratch); vprint("ls done"); }
                 else if (op == 'G')
                 {
                     // get: push the file, or the whole directory tree, then 'B'.
@@ -1012,12 +1038,27 @@ retryconnect:
                     }
                     scratch[2] = 'B';
                     send_block_rt(scratch, 1, inbuf);
-                    vprint("sent");
+                    vprint("get done");
                 }
                 else if (op == 'P') { if (transfer(fn, inbuf)) vprint("put failed"); else vprint("put done"); } // put
                 else if (op == 'M') { unsigned char ok = sync_mkdir(fn)  != 0xFF; vprint(ok ? "mkdir ok" : "mkdir fail"); listen_status(ok, inbuf, scratch); }
                 else if (op == 'R') { unsigned char ok = sync_rmdir(fn)  != 0xFF; vprint(ok ? "rmdir ok" : "rmdir fail"); listen_status(ok, inbuf, scratch); }
                 else if (op == 'X') { unsigned char ok = sync_unlink(fn) != 0xFF; vprint(ok ? "rm ok" : "rm fail"); listen_status(ok, inbuf, scratch); }
+                else if (op == 'V')
+                {
+                    // ren: the payload is old '\0' new. fn already holds both -
+                    // the embedded NUL terminates 'old', fn[al]=0 terminates
+                    // 'new'. Find the separator within the al payload bytes.
+                    unsigned short sp = 0;
+                    while (sp < al && fn[sp]) sp++;
+                    if (sp < al)   // separator found -> new path starts after it
+                    {
+                        unsigned char ok = sync_rename(fn, fn + sp + 1) != 0xFF;
+                        vprint(ok ? "ren ok" : "ren fail");
+                        listen_status(ok, inbuf, scratch);
+                    }
+                    else { vprint("ren malformed"); listen_status(0, inbuf, scratch); }
+                }
             }
         }
         print("Listen ended");

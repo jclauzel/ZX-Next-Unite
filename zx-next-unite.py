@@ -10758,7 +10758,7 @@ class MainWindow(QMainWindow):
         self.nextsync_remote_button.setToolTip(
             "Turn the log window into a dual-pane file explorer (local <-> Next).\n"
             "Run '.sync4 -listen' on your Next, then transfer files with ->: / :<-,\n"
-            "drag & drop, or the right-click menu (New Folder / Delete).")
+            "drag & drop, or the right-click menu (New Folder / Rename / Delete).")
         self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_remote_button)
 
         # Stack: page 0 = the classic list log, page 1 = the retro pygame log
