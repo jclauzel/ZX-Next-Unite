@@ -176,6 +176,7 @@ class RemoteExplorerSignals(QObject):
     got          = Signal(str, str)       # (remote, local_path) a "get" finished
     put_done     = Signal(bool, str)      # (ok, remote) a "put" finished
     op_done      = Signal(bool, str, str) # (ok, op, path) mkdir/rmdir/rm result
+    marked       = Signal(str)            # a queued ("mark", token) was reached
     log          = Signal(str)            # a human-readable log line
     error        = Signal(str)            # a human-readable error
 
@@ -247,6 +248,29 @@ def _re_recv_reply(conn, handler):
             return True
 
 
+def _re_sanitize_incoming_path(root, name):
+    """Map a filename reported by the Next to a safe path under ``root``.
+
+    A "get" of a directory streams every file back with its path relative to
+    the fetched folder (e.g. ``GAMES/level1/boot.tap``); this preserves that
+    sub-structure locally instead of flattening it to the basename. Strips any
+    drive letter and leading slashes, drops '.'/'..' segments, and guarantees
+    the result stays inside ``root``. Mirrors nextsync4.sanitize_incoming_path.
+    """
+    name = name.replace('\\', '/')
+    if len(name) >= 2 and name[1] == ':':
+        name = name[2:]
+    name = name.lstrip('/')
+    parts = [p for p in name.split('/') if p not in ('', '.', '..')]
+    rel = os.path.join(*parts) if parts else 'received.bin'
+    dest = os.path.normpath(os.path.join(root, rel))
+    root_abs = os.path.abspath(root)
+    if not (os.path.abspath(dest) == root_abs or
+            os.path.abspath(dest).startswith(root_abs + os.sep)):
+        dest = os.path.join(root, os.path.basename(rel) or 'received.bin')
+    return dest
+
+
 def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                              max_payload=1024):
     """Run the NextSync ``.sync4 -listen`` remote file server in a worker thread.
@@ -261,8 +285,15 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         ("rmdir", remote_path)
         ("rm",    remote_path)
         ("rename", old_path, new_path)
+        ("mark",  token)          -> echoes back via sig.marked once reached
         ("quit",)
     ``stop_event`` (threading.Event) ends the session/thread.
+
+    ``mark`` is a client-side barrier: it touches nothing on the Next, it just
+    emits ``marked(token)`` the moment the queue drains down to it. Because the
+    queue is a single-consumer FIFO, everything enqueued before the marker has
+    finished by then -- the UI uses this to know a cut/move's transfer completed
+    before deleting the source.
 
     This is the app-side twin of nextsync4.py's listen_session: same wire
     protocol, but driven by the UI queue and reporting via Qt signals instead of
@@ -328,6 +359,12 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                     if op == "quit":
                         _re_sendpacket(conn, b"Q", 0)
                         break
+                    elif op == "mark":
+                        # Client-side barrier: nothing goes to the Next, we just
+                        # report that the queue reached this point, then idle so
+                        # the Next keeps polling.
+                        sig.marked.emit(str(cmd[1]))
+                        _re_sendpacket(conn, b"I", 0)
                     elif op == "ls":
                         path = cmd[1] or "."
                         entries = []
@@ -354,23 +391,31 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         else:
                             sig.error.emit(f"ls {path}: connection dropped")
                     elif op == "get":
+                        # Works for a single file or a whole directory: the Next
+                        # streams every file back (N/D/E per file, B at the end)
+                        # with a path relative to the fetched item, which we keep
+                        # so sub-folders are recreated locally intact.
                         remote, dest_dir = cmd[1], cmd[2]
                         os.makedirs(dest_dir, exist_ok=True)
-                        st = {'f': None, 'name': None, 'bytes': 0, 'last': None}
+                        st = {'f': None, 'name': None, 'bytes': 0, 'last': None,
+                              'count': 0}
 
                         def _h(payload, _st=st, _dd=dest_dir):
                             o = payload[0:1]
                             if o == b'N':
                                 namelen = payload[5] if len(payload) > 5 else 0
                                 name = payload[6:6+namelen].decode(errors='replace')
-                                safe = os.path.basename(name.replace('\\', '/').rstrip('/')) or "received.bin"
-                                path = os.path.join(_dd, safe)
+                                path = _re_sanitize_incoming_path(_dd, name)
                                 if _st['f']:
                                     _st['f'].close()
+                                parent = os.path.dirname(path)
+                                if parent:
+                                    os.makedirs(parent, exist_ok=True)
                                 _st['f'] = open(path, 'wb')
                                 _st['name'] = name
                                 _st['last'] = path
                                 _st['bytes'] = 0
+                                _st['count'] += 1
                             elif o == b'D':
                                 if _st['f']:
                                     _st['f'].write(payload[1:])
@@ -389,8 +434,8 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         ok = _re_recv_reply(conn, _h)
                         if st['f']:
                             st['f'].close()
-                        if ok and st['last']:
-                            sig.got.emit(remote, st['last'])
+                        if ok:
+                            sig.got.emit(remote, st['last'] or dest_dir)
                         else:
                             sig.error.emit(f"get {remote}: failed")
                     elif op == "put":
