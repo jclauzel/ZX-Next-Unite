@@ -1,4 +1,5 @@
 nextsync.c
 gfx.c
 syncsys.c
+anim.c
 uart.asm

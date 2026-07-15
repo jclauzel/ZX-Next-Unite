@@ -47,6 +47,13 @@ __sfr __banked __at 0x153b UART_CTL;
 char *cmdline;
 unsigned short corever;
 char g_verbose = 0;   // -v: echo -listen commands/actions on the Next screen
+char g_anim = 0;      // -anim/-a: hardware-sprite eye-candy while syncing (opt-in)
+
+// Optional sprite animation (anim.c). The functions self-guard (tick/end do
+// nothing until begin has run), so they're safe to call unconditionally.
+extern void anim_begin(void);
+extern void anim_tick(void);
+extern void anim_end(void);
 
 // See calc_prescalar.c for the prescalar calculation code
 static const unsigned short prescalar_values[] = {
@@ -514,6 +521,7 @@ char send_file(char *fullpath, char *relname, unsigned char *inbuf, unsigned cha
     fh = fopen((unsigned char *)fullpath, 1);
     if (fh == 0) { print("Skip:"); print(relname); return 0; }
     print(relname);
+    anim_tick();   // eye-candy step per file (no-op unless -anim); before I/O
 
     while (relname[namelen] && namelen < 200) namelen++;
     scratch[2] = 'N';
@@ -589,17 +597,26 @@ char send_dir(char *fullpath, unsigned short plen, unsigned char *inbuf, unsigne
 // return 1, else return 0. Matched by first char + length (much cheaper than
 // memcmp on z80): "-fast" (-f, len 5), "-default" (-d, len 8), "-slow" (-s, len
 // 5, with 3rd char 'l' so it isn't confused with "-send").
+//
+// Also consumes the standalone option flags "-v" (verbose), "-a" and "-anim"
+// (sprite eye-candy), setting their globals. Consuming them here means they are
+// dropped from the cleaned command line, so e.g. ".sync4 -anim" still runs a
+// normal PC->Next sync (with anim) instead of being mistaken for a bad argument.
 unsigned char setspeed(char *p, unsigned char n)
 {
     if (*p != '-') return 0;
     if (p[1] == 'f' && n == 5)                  { g_syncmode = MODE_FAST;    return 1; }
     if (p[1] == 'd' && n == 8)                  { g_syncmode = MODE_DEFAULT; return 1; }
     if (p[1] == 's' && n == 5 && p[2] == 'l')   { g_syncmode = MODE_SLOW;    return 1; }
+    if (p[1] == 'v' && n == 2)                  { g_verbose = 1;             return 1; }
+    if (p[1] == 'a' && n == 2)                  { g_anim = 1;                return 1; }
+    if (p[1] == 'a' && n == 5 && p[2] == 'n')   { g_anim = 1;                return 1; }
     return 0;
 }
 
-// Pull -slow/-default/-fast switches out of the command line and copy the
-// remaining tokens into dst. Sets g_syncmode. Works anywhere in the line.
+// Pull the -slow/-default/-fast/-v/-anim/-a switches out of the command line and
+// copy the remaining tokens into dst. Sets g_syncmode/g_verbose/g_anim. Works
+// anywhere in the line.
 //
 // CRITICAL: this only READS cmdline and writes to dst (a private buffer). It
 // must NEVER write into cmdline itself - that buffer belongs to the NextZXOS
@@ -835,19 +852,8 @@ int main(int arglen, char *rawcmd)
         listenmode = 1;
     }
 
-    // Detect "-v" as a standalone token anywhere on the (cleaned) command line:
-    // verbose on-screen trace of -listen commands/actions.
-    {
-        unsigned short vi = 0;
-        while (cmdline[vi])
-        {
-            if (cmdline[vi] == '-' && cmdline[vi + 1] == 'v' &&
-                (cmdline[vi + 2] == 0 || cmdline[vi + 2] == ' ' || cmdline[vi + 2] == 0xd) &&
-                (vi == 0 || cmdline[vi - 1] == ' '))
-                g_verbose = 1;
-            vi++;
-        }
-    }
+    // -v (verbose) and -anim/-a (sprite eye-candy) were already recognised and
+    // stripped by parse_speed_switches() above, so g_verbose/g_anim are set.
 
     if (!sendmode && !listenmode)
     {
@@ -876,6 +882,7 @@ int main(int arglen, char *rawcmd)
                 "  BREAK key stops it (safe)\r"
                 ".SYNC -slow|-default|-fast\r"
                 ".SYNC -v : verbose trace\r"
+                ".SYNC -anim|-a : sprite fun\r"
                 "See nextsync.txt\r\r");
             goto terminate;
         }
@@ -991,6 +998,9 @@ retryconnect:
         
     retrycount = 0;
 
+    // Connected. Start the optional sprite eye-candy (no-op unless -anim/-a).
+    if (g_anim) anim_begin();
+
     if (listenmode)
     {
         // Remote file server. New handshake keyword: only a NEW server answers
@@ -1018,6 +1028,7 @@ retryconnect:
                 print("Break - stopping");
                 break;
             }
+            anim_tick();   // eye-candy step (no-op unless -anim); safe: between commands
             cipxfer("Poll", 4, inbuf, &len, &dp);
             if (len < 4 || checksum(dp, len - 3) != 0)
             {
@@ -1178,6 +1189,7 @@ retrynext:
             if (*fn)
             {
                 print(fn);
+                anim_tick();   // eye-candy step per file (no-op unless -anim)
                 if (transfer(fn, inbuf))
                 {
                     print("Lost connection.");
@@ -1199,6 +1211,7 @@ closeconn:
     cipxfer("Bye", 3, inbuf, &len, &dp);
     atcmd("AT+CIPCLOSE\r\n", "", 0, inbuf);
 bailout:
+    anim_end();   // hide sprites + restore the sprite/layers reg (no-op unless -anim)
     atcmd("AT+UART_CUR=115200,8,1,0,0\r\n", "", 0, inbuf); // restore uart speed
     print("All done");
     writenextreg(0x07, nextreg7); // restore cpu speed
