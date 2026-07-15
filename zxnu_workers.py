@@ -608,6 +608,12 @@ class HdfProgressDialog(QDialog):
 
     @Slot()
     def _tick_spinner(self):
+        # Never repaint once the dialog is hidden: a tick after accept()/hide()
+        # would schedule an update on a top-level window whose native handle is
+        # already gone, which Qt flushes with the fatal "QBackingStore::flush()
+        # called for QWidgetWindow ... which does not have a handle" and crashes.
+        if not self.isVisible():
+            return
         self._spinner_idx = (self._spinner_idx + 1) % len(self._spinner_frames)
         self._spinner_label.setText(self._spinner_frames[self._spinner_idx])
 
@@ -635,6 +641,15 @@ class HdfProgressDialog(QDialog):
         """Called when the worker confirms it stopped early."""
         self._action_label.setText("Cancelled.")
         self._file_label.setText("")
+
+    def done(self, result):
+        # done() is the single funnel for accept()/reject()/close(), whereas
+        # closeEvent() fires only on close() (not on accept()/reject()). This
+        # dialog is normally dismissed with accept(), so stopping the spinner
+        # timer here — not just in closeEvent — guarantees it can never tick
+        # after the window is hidden and loses its native handle.
+        self._anim_timer.stop()
+        super().done(result)
 
     def closeEvent(self, event):
         self._anim_timer.stop()
