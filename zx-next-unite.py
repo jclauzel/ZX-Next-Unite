@@ -10801,7 +10801,8 @@ class MainWindow(QMainWindow):
         self._re_queue = None
         self._re_sig = None
         self._re_running = False
-        self._re_pulse_timer = None
+        self._re_pulse_timer = None            # green "running" pulse (play label)
+        self._re_start_btn_pulse_timer = None  # yellow "start me" pulse (start button)
 
         def _re_enqueue(cmd):
             if self._re_queue is not None:
@@ -10868,6 +10869,74 @@ class MainWindow(QMainWindow):
             except RuntimeError:
                 pass
 
+        # Soft yellow "breathing" pulse on the Start button while the Remote
+        # Explorer is open but the server has not been started yet — the amber
+        # counterpart to the green "running" pulse above, so it's obvious the
+        # next step is to start the server.
+        def _re_start_startbtn_pulse():
+            _re_stop_startbtn_pulse()
+            steps = 22
+            phase = {"n": 0}
+
+            def _tick():
+                phase["n"] = (phase["n"] + 1) % (2 * steps)
+                pos = phase["n"]
+                tri = pos / steps if pos <= steps else (2 * steps - pos) / steps
+                a = int(70 + 150 * tri)
+                try:
+                    self.nextsync_re_start_button.setStyleSheet(
+                        "QPushButton { color: #3a2e00; font-weight: bold;"
+                        " padding: 4px 10px; border-radius: 6px;"
+                        f" background-color: rgba(241,196,15,{a});"
+                        f" border: 1px solid rgba(241,196,15,{min(a + 60, 255)}); }}")
+                except RuntimeError:
+                    pass
+            timer = QTimer(self)
+            timer.setInterval(55)
+            timer.timeout.connect(_tick)
+            timer.start()
+            self._re_start_btn_pulse_timer = timer
+
+        def _re_stop_startbtn_pulse():
+            if self._re_start_btn_pulse_timer is not None:
+                self._re_start_btn_pulse_timer.stop()
+                self._re_start_btn_pulse_timer = None
+            try:
+                self.nextsync_re_start_button.setStyleSheet("")
+            except RuntimeError:
+                pass
+
+        def _nextsync_on_re_disconnected():
+            # The -listen session ended. If _re_running is already False we
+            # stopped it ourselves (the Stop button / closing the view already
+            # reset the state) - nothing to do. Otherwise the Next hung up on its
+            # own: it pressed BREAK / sent "Bye", or the link dropped. The worker
+            # thread has now exited (it emits disconnected from its finally), so
+            # nothing is listening on the socket any more; a restarted
+            # '.sync4 -listen' would just get "connection refused". Reset to the
+            # "not started" state so the user presses Start again to relisten.
+            if not self._re_running:
+                return
+            self._re_thread = None
+            self._re_stop = None
+            self._re_queue = None
+            # Leave self._re_sig alone: we're running inside its own
+            # disconnected() slot, and the next Start reassigns it anyway.
+            self._re_running = False
+            _re_stop_play_pulse()          # green "running" pulse off
+            try:
+                self.nextsync_re_start_button.setText("▶ Start NextSync server")
+                self.nextsync_re_play_label.setVisible(False)
+            except RuntimeError:
+                pass
+            add_nextsync_log_window(
+                "Remote explorer: the Next disconnected (BREAK / Bye). "
+                "Press 'Start NextSync server' to accept a new connection.")
+            # Still viewing the Remote Explorer? Pulse Start yellow again to
+            # prompt starting a fresh server.
+            if self.nextsync_remote_button.isChecked():
+                _re_start_startbtn_pulse()
+
         def _nextsync_start_listen_server():
             if self._re_running:
                 return
@@ -10883,6 +10952,9 @@ class MainWindow(QMainWindow):
             self._re_sig = RemoteExplorerSignals()
             self._re_sig.connected.connect(widget.on_connected)
             self._re_sig.disconnected.connect(widget.on_disconnected)
+            # Reset the pane's server state when the Next hangs up on its own
+            # (BREAK / Bye / dropped link), so the user must press Start again.
+            self._re_sig.disconnected.connect(_nextsync_on_re_disconnected)
             self._re_sig.listing.connect(widget.on_listing)
             self._re_sig.got.connect(widget.on_got)
             self._re_sig.put_done.connect(widget.on_put_done)
@@ -10897,6 +10969,7 @@ class MainWindow(QMainWindow):
                 daemon=True)
             self._re_thread.start()
             self._re_running = True
+            _re_stop_startbtn_pulse()   # started now: drop the yellow "start me" pulse
             self.nextsync_re_start_button.setText("⏹ Stop NextSync server")
             self.nextsync_re_play_label.setText("▶  NextSync server running")
             self.nextsync_re_play_label.setVisible(True)
@@ -10944,6 +11017,9 @@ class MainWindow(QMainWindow):
         def _nextsync_re_toggle_server():
             if self._re_running:
                 _nextsync_stop_listen_server()
+                # Back to "not started" while still in the Remote Explorer view:
+                # pulse the Start button again to prompt starting it.
+                _re_start_startbtn_pulse()
             else:
                 _nextsync_start_listen_server()
         self._nextsync_re_toggle_server = _nextsync_re_toggle_server
@@ -10961,6 +11037,9 @@ class MainWindow(QMainWindow):
                 self.nextsync_slowtransfer_checkbox.setVisible(False)
                 self.nextsync_re_start_button.setVisible(True)
                 self.nextsync_re_play_label.setVisible(self._re_running)
+                # Not started yet -> pulse the Start button yellow to prompt it.
+                if not self._re_running:
+                    _re_start_startbtn_pulse()
                 # Give the Remote Explorer the full width: hide the local file
                 # explorer column (with its SyncIgnore / SyncPoint buttons) and
                 # the name filter. The drive switcher stays so the Remote
@@ -10972,6 +11051,7 @@ class MainWindow(QMainWindow):
                     "Remote explorer: click 'Start NextSync server', then run '.sync4 -listen' on your Next.")
             else:
                 _nextsync_stop_listen_server()
+                _re_stop_startbtn_pulse()   # leaving the RE view: drop the pulse
                 self.nextsync_log_stack.setCurrentWidget(self.nextsync_log)
                 self.nextsync_remote_button.setText("🗂 Remote Explorer")
                 self.nextsync_re_start_button.setVisible(False)
@@ -24301,7 +24381,11 @@ QImageReader.setAllocationLimit(0)
 # "GetApplicationBusAddress" …') printed at startup when the desktop's
 # accessibility bus is incomplete.  Disabling the bridge via QT_ACCESSIBILITY
 # does not reliably stop it on every distro, so it is filtered here too.
-_QT_SUPPRESS_MSGS = ("Point size <= 0", "libpng warning:", "AtSpiAdaptor")
+_QT_SUPPRESS_MSGS = ("Point size <= 0", "libpng warning:", "AtSpiAdaptor",
+                     # "QBasicTimer::start: Timers cannot be started from another
+                     # thread" (and the "QObject::startTimer:" variant) - noise
+                     # from Qt objects whose timers are poked off the GUI thread.
+                     "Timers cannot be started from another thread")
 def _qt_message_handler(msg_type, context, message):
     if any(s in message for s in _QT_SUPPRESS_MSGS):
         return
