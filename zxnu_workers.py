@@ -271,6 +271,30 @@ def _re_sanitize_incoming_path(root, name):
     return dest
 
 
+def _re_relname_under(remote, name):
+    """Return the Next-reported *name* relative to the fetched *remote* item.
+
+    A directory 'get' streams every file with its full Next path (e.g. fetching
+    '/games/lev' yields '/games/lev/boot.tap'). Stripping the *parent* of the
+    fetched item ('/games') leaves 'lev/boot.tap', so the download recreates the
+    fetched file/folder on its own rather than nested under a copy of its whole
+    Next path. A single-file get ('/games/boot.tap') likewise reduces to
+    'boot.tap'. Names with no common parent are returned unchanged.
+    """
+    def _strip(s):
+        s = s.replace('\\', '/')
+        if len(s) >= 2 and s[1] == ':':
+            s = s[2:]
+        return s
+    name = _strip(name).lstrip('/')
+    r = _strip(remote).rstrip('/')
+    slash = r.rfind('/')
+    parent = r[:slash].lstrip('/') if slash > 0 else ''
+    if parent and (name == parent or name.startswith(parent + '/')):
+        return name[len(parent):].lstrip('/')
+    return name
+
+
 def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                              max_payload=1024):
     """Run the NextSync ``.sync4 -listen`` remote file server in a worker thread.
@@ -400,12 +424,14 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         st = {'f': None, 'name': None, 'bytes': 0, 'last': None,
                               'count': 0}
 
-                        def _h(payload, _st=st, _dd=dest_dir):
+                        def _h(payload, _st=st, _dd=dest_dir, _remote=remote):
                             o = payload[0:1]
                             if o == b'N':
                                 namelen = payload[5] if len(payload) > 5 else 0
                                 name = payload[6:6+namelen].decode(errors='replace')
-                                path = _re_sanitize_incoming_path(_dd, name)
+                                rel = (_re_relname_under(_remote, name) or
+                                       os.path.basename(name.replace('\\', '/').rstrip('/')))
+                                path = _re_sanitize_incoming_path(_dd, rel)
                                 if _st['f']:
                                     _st['f'].close()
                                 parent = os.path.dirname(path)

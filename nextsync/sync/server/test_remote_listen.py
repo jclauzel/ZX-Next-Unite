@@ -53,9 +53,20 @@ def mock_next(sock, entries, filebytes, cap):
                 pl += bytes([1 if is_dir else 0]) + int(size).to_bytes(4, "little") + bytes([len(name)]) + name.encode()
             push(pl, 0); push(b'E', 1)
         elif op == b'G':
-            name = os.path.basename(arg) or "f.bin"
-            push(b'N' + len(filebytes).to_bytes(4, "big") + bytes([len(name)]) + name.encode(), 0)
-            push(b'D' + filebytes, 1); push(b'E', 2); push(b'B', 3)
+            # A directory get streams every file with its FULL Next path, exactly
+            # as the dot's send_dir does (e.g. get "/games/lev" -> "/games/lev/..").
+            if arg.rstrip("/").endswith("/lev"):
+                pkt = 0
+                for rel, data in (("/games/lev/a.bin", b"AAAA"),
+                                  ("/games/lev/sub/b.bin", b"BBBBBB")):
+                    push(b'N' + len(data).to_bytes(4, "big") + bytes([len(rel)]) + rel.encode(), pkt); pkt += 1
+                    push(b'D' + data, pkt); pkt += 1
+                    push(b'E', pkt); pkt += 1
+                push(b'B', pkt)
+            else:
+                name = os.path.basename(arg) or "f.bin"
+                push(b'N' + len(filebytes).to_bytes(4, "big") + bytes([len(name)]) + name.encode(), 0)
+                push(b'D' + filebytes, 1); push(b'E', 2); push(b'B', 3)
         elif op == b'P':
             buf = b''
             while True:
@@ -74,23 +85,25 @@ def main():
     app = QCoreApplication(sys.argv)
     tmp = tempfile.mkdtemp(prefix="re_test_")
     getdir = os.path.join(tmp, "dl")
+    foldl = os.path.join(tmp, "foldl")   # destination for a folder get
     putfile = os.path.join(tmp, "up.bin"); put_bytes = bytes(range(256)) * 8
     open(putfile, "wb").write(put_bytes)
 
     entries = [(True, 0, "GAMES"), (False, 1234, "boot.bas")]
     filebytes = b"Hello Next!\r\n" * 5
     cap = {}
-    got = {'listing': None, 'got': None, 'put': None, 'ops': []}
+    got = {'listing': None, 'gets': [], 'put': None, 'ops': []}
 
     sig = RemoteExplorerSignals()
     sig.listing.connect(lambda p, e: got.update(listing=(p, e)), Qt.DirectConnection)
-    sig.got.connect(lambda r, l: got.update(got=(r, l)), Qt.DirectConnection)
+    sig.got.connect(lambda r, l: got['gets'].append((r, l)), Qt.DirectConnection)
     sig.put_done.connect(lambda ok, r: got.update(put=(ok, r)), Qt.DirectConnection)
     sig.op_done.connect(lambda ok, o, p: got['ops'].append((ok, o, p)), Qt.DirectConnection)
 
     cmd_q = queue.Queue()
     stop = threading.Event()
     for c in [("mkdir", "/ho"), ("ls", "/"), ("get", "boot.bas", getdir),
+              ("get", "/games/lev", foldl),
               ("put", putfile, "/ho/"), ("rm", "/x.tap"), ("rmdir", "/y"),
               ("rename", "/ho/a.txt", "/ho/b.txt"), ("quit",)]:
         cmd_q.put(c)
@@ -109,11 +122,23 @@ def main():
         print("PASS ls   :", got['listing'][1])
     else:
         print("FAIL ls   :", got['listing']); ok = False
-    gp = got['got']
+    gp = next((g for g in got['gets'] if g[0] == "boot.bas"), None)
     if gp and os.path.isfile(gp[1]) and open(gp[1], "rb").read() == filebytes:
         print("PASS get  : wrote", gp[1])
     else:
         print("FAIL get  :", gp); ok = False
+    # Folder get: files must be recreated under the fetched folder name only
+    # (dest/lev/…), preserving sub-structure and NOT nesting the whole Next path
+    # (no stray "games" parent).
+    a = os.path.join(foldl, "lev", "a.bin")
+    b = os.path.join(foldl, "lev", "sub", "b.bin")
+    if (os.path.isfile(a) and open(a, "rb").read() == b"AAAA"
+            and os.path.isfile(b) and open(b, "rb").read() == b"BBBBBB"
+            and not os.path.exists(os.path.join(foldl, "games"))):
+        print("PASS getdir: recreated lev/ tree under", foldl)
+    else:
+        print("FAIL getdir: a=", os.path.isfile(a), "b=", os.path.isfile(b),
+              "stray games=", os.path.exists(os.path.join(foldl, "games"))); ok = False
     if cap.get('put') and cap['put'][1] == put_bytes and cap['put'][0] == "/ho/up.bin":
         print("PASS put  : delivered to", cap['put'][0])
     else:
