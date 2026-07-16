@@ -10822,6 +10822,29 @@ class MainWindow(QMainWindow):
                         break
             return n
 
+        def _re_apply_item_colors():
+            # Push the SD Card Utility's live item colours into the Remote
+            # Explorer so its two panes are tinted the same way as the image tree
+            # (dir/file name, type, size, up-dir). Safe to call before the widget
+            # exists (lazy build) — it's a no-op then, and the build applies the
+            # current colours itself.
+            widget = getattr(self, "_re_widget", None)
+            if widget is None:
+                return
+            try:
+                widget.set_item_colors({
+                    "up_directory": self.img_color_up_directory,
+                    "dir_name":     self.img_color_dir_name,
+                    "dir_type":     self.img_color_dir_type,
+                    "file_name":    self.img_color_file_name,
+                    "file_ext":     self.img_color_file_ext,
+                    "file_size":    self.img_color_file_size,
+                    "general_text": self.img_color_general_text,
+                })
+            except Exception:
+                pass
+        self._re_apply_item_colors = _re_apply_item_colors
+
         def _nextsync_build_remote_explorer():
             if self._re_widget is not None:
                 return self._re_widget
@@ -10832,6 +10855,7 @@ class MainWindow(QMainWindow):
                 drain=_re_drain)
             self._re_widget = widget
             self.nextsync_log_stack.addWidget(widget)
+            _re_apply_item_colors()          # tint to the user's configured colours
             return widget
 
         # Soft green "breathing" pulse on the running indicator (same idea as the
@@ -22105,6 +22129,12 @@ class MainWindow(QMainWindow):
                     self._image_recolor_all()
                 except Exception:
                     pass
+            # Mirror the theme's item colours into the Remote Explorer panes.
+            if hasattr(self, "_re_apply_item_colors"):
+                try:
+                    self._re_apply_item_colors()
+                except Exception:
+                    pass
             # Re-apply the general UI text colour to the (always-dark) tab panes.
             if hasattr(self, "_refresh_tab_stylesheet"):
                 try:
@@ -22312,6 +22342,9 @@ class MainWindow(QMainWindow):
                 # change is visible immediately (no async re-listing needed).
                 if hasattr(self, "_image_recolor_all"):
                     self._image_recolor_all()
+                # Mirror the change into the NextSync Remote Explorer's panes.
+                if hasattr(self, "_re_apply_item_colors"):
+                    self._re_apply_item_colors()
                 # If the general UI text colour changed, re-apply it to the panes.
                 if hasattr(self, "_refresh_tab_stylesheet"):
                     self._refresh_tab_stylesheet()

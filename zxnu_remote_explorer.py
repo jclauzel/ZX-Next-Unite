@@ -15,13 +15,20 @@ import posixpath
 import shutil
 
 from PySide6.QtCore import Qt, QDir, QModelIndex, QMimeData, QUrl, QSize, QTimer
-from PySide6.QtGui import QDrag, QKeySequence, QStandardItem, QStandardItemModel
+from PySide6.QtGui import (
+    QColor, QDrag, QKeySequence, QStandardItem, QStandardItemModel,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView, QFileSystemModel, QGridLayout, QHBoxLayout, QInputDialog,
     QLabel, QMenu, QMessageBox, QPushButton, QStyle, QTreeView, QVBoxLayout,
     QWidget,
 )
 
+from zxnu_config import (
+    DEFAULT_COLOR_UP_DIRECTORY, DEFAULT_COLOR_DIR_NAME, DEFAULT_COLOR_DIR_TYPE,
+    DEFAULT_COLOR_FILE_NAME, DEFAULT_COLOR_FILE_EXT, DEFAULT_COLOR_FILE_SIZE,
+    DEFAULT_COLOR_GENERAL_TEXT, hex_to_qcolor,
+)
 from zxnu_workers import HdfProgressDialog
 
 # Roles carrying the remote entry's full posix path and its directory flag.
@@ -29,6 +36,57 @@ RE_PATH_ROLE = Qt.UserRole + 1
 RE_ISDIR_ROLE = Qt.UserRole + 2
 
 ARROW_BTN_W = 40
+
+
+def _default_item_colors():
+    """The SD Card Utility's image-tree item colours as a fresh dict of QColor.
+
+    Keys mirror the SETTING_COLOR_* families used by the SD-card explorer so the
+    host can push its live ``img_color_*`` values straight in (see
+    RemoteExplorerWidget.set_item_colors). Used until the host supplies the
+    user's configured colours.
+    """
+    return {
+        "up_directory": hex_to_qcolor(DEFAULT_COLOR_UP_DIRECTORY),
+        "dir_name":     hex_to_qcolor(DEFAULT_COLOR_DIR_NAME),
+        "dir_type":     hex_to_qcolor(DEFAULT_COLOR_DIR_TYPE),
+        "file_name":    hex_to_qcolor(DEFAULT_COLOR_FILE_NAME),
+        "file_ext":     hex_to_qcolor(DEFAULT_COLOR_FILE_EXT),
+        "file_size":    hex_to_qcolor(DEFAULT_COLOR_FILE_SIZE),
+        "general_text": hex_to_qcolor(DEFAULT_COLOR_GENERAL_TEXT),
+    }
+
+
+class ColoredFileSystemModel(QFileSystemModel):
+    """QFileSystemModel that tints each column with the SD-card explorer's
+    configurable item colours, so the local pane matches the look of the SD Card
+    Utility's image tree.
+
+    ``colours`` is a live dict (see _default_item_colors) shared with the owning
+    widget: it is mutated in place when the user changes the colours in Settings,
+    and a repaint re-queries these values — no re-listing of the folder needed.
+    QFileSystemModel's native column order is 0=Name, 1=Size, 2=Type, so the
+    colour mapping is keyed off that (the view re-orders them visually to
+    Name/Type/Size to mirror the image tree).
+    """
+
+    def __init__(self, colours, parent=None):
+        super().__init__(parent)
+        self._colours = colours
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if role == Qt.ItemDataRole.ForegroundRole and index.isValid():
+            is_dir = self.isDir(index)
+            col = index.column()
+            c = self._colours
+            if col == 0:                       # Name
+                return c["dir_name"] if is_dir else c["file_name"]
+            if col == 2:                       # Type
+                return c["dir_type"] if is_dir else c["file_ext"]
+            if col == 1 and not is_dir:        # Size (blank for folders)
+                return c["file_size"]
+            return None                        # let the view use its default
+        return super().data(index, role)
 
 
 def _human_size(n):
@@ -89,8 +147,14 @@ class RemoteExplorerWidget(QWidget):
         self._op_title = ""
         self._op_dialog = None
 
+        # Per-item font colours, mirroring the SD Card Utility's image tree. The
+        # host pushes the user's configured colours in via set_item_colors(); the
+        # dict is mutated in place so ColoredFileSystemModel (which holds the same
+        # reference) always sees the current values.
+        self._colors = _default_item_colors()
+
         # ---- left: local file explorer ------------------------------------
-        self.local_model = QFileSystemModel(self)
+        self.local_model = ColoredFileSystemModel(self._colors, self)
         self.local_model.setRootPath("")
         self.local_view = QTreeView(self)
         self.local_view.setModel(self.local_model)
@@ -98,8 +162,12 @@ class RemoteExplorerWidget(QWidget):
         self.local_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.local_view.setUniformRowHeights(True)
         self.local_view.setSortingEnabled(True)
-        for col in (1, 2, 3):
-            self.local_view.hideColumn(col)      # keep just the name column
+        # Show Name / Type / Size (hide Date Modified) and, like the SD-card image
+        # tree, order them Name, Type, Size — QFileSystemModel's native order is
+        # Name(0), Size(1), Type(2), so swap the last two visually.
+        self.local_view.hideColumn(3)
+        self.local_view.header().swapSections(1, 2)
+        self.local_view.setColumnWidth(0, 250)
         self.local_view.setDragEnabled(True)
         self.local_view.setAcceptDrops(True)
         self.local_view.setDropIndicatorShown(True)
@@ -162,13 +230,14 @@ class RemoteExplorerWidget(QWidget):
         self._file_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon)
 
         self.next_model = QStandardItemModel(self)
-        self.next_model.setHorizontalHeaderLabels(["Name", "Size"])
+        self.next_model.setHorizontalHeaderLabels(["Name", "Type", "Size"])
         self.next_view = QTreeView(self)
         self.next_view.setModel(self.next_model)
         self.next_view.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.next_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.next_view.setUniformRowHeights(True)
         self.next_view.setRootIsDecorated(False)
+        self.next_view.setColumnWidth(0, 250)
         self.next_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.next_view.customContextMenuRequested.connect(self._next_context_menu)
         self.next_view.doubleClicked.connect(self._next_double_clicked)
@@ -432,8 +501,64 @@ class RemoteExplorerWidget(QWidget):
         name_item = QStandardItem(self._dir_icon if is_dir else self._file_icon, name)
         name_item.setData(".." if is_updir else _posix_join(self._cwd, name), RE_PATH_ROLE)
         name_item.setData(bool(is_dir), RE_ISDIR_ROLE)
-        size_item = QStandardItem("" if is_dir else _human_size(size))
-        self.next_model.appendRow([name_item, size_item])
+        name_item.setEditable(False)
+        if is_updir:
+            type_item = QStandardItem("")
+            size_item = QStandardItem("")
+        elif is_dir:
+            type_item = QStandardItem("DIR")
+            size_item = QStandardItem("")
+        else:
+            # Mirror the SD-card image tree: the "type" is the first extension
+            # segment (guarded by the '.' test, so [1] is always present).
+            type_item = QStandardItem(name.split(".")[1] if "." in name else "")
+            size_item = QStandardItem(_human_size(size))
+        type_item.setEditable(False)
+        size_item.setEditable(False)
+        self.next_model.appendRow([name_item, type_item, size_item])
+        self._color_next_row(name_item, type_item, size_item)
+
+    def _color_next_row(self, name_item, type_item, size_item):
+        """Tint one Next row's items with the configured SD-card item colours."""
+        c = self._colors
+        if name_item.data(RE_PATH_ROLE) == "..":
+            name_item.setForeground(c["up_directory"])
+            return
+        if bool(name_item.data(RE_ISDIR_ROLE)):
+            name_item.setForeground(c["dir_name"])
+            type_item.setForeground(c["dir_type"])
+        else:
+            name_item.setForeground(c["file_name"])
+            type_item.setForeground(c["file_ext"])
+            size_item.setForeground(c["file_size"])
+
+    def _recolor_next(self):
+        """Re-tint every row already shown in the Next pane, in place (used when
+        the user changes the item colours in Settings — no re-listing needed)."""
+        model = self.next_model
+        for r in range(model.rowCount()):
+            name_item = model.item(r, 0)
+            if name_item is None:
+                continue
+            self._color_next_row(name_item, model.item(r, 1), model.item(r, 2))
+
+    def set_item_colors(self, colors):
+        """Push the SD Card Utility's live item colours into both panes.
+
+        ``colors`` maps the keys up_directory/dir_name/dir_type/file_name/
+        file_ext/file_size/general_text to QColor (the host's ``img_color_*``
+        values). Missing keys keep their current value. The shared ``_colors``
+        dict is mutated in place so the local model repaints in the new colours
+        and the Next rows are re-tinted immediately.
+        """
+        if not colors:
+            return
+        for key, value in colors.items():
+            if key in self._colors and value is not None:
+                self._colors[key] = QColor(value)
+        self._recolor_next()
+        # The local model reads _colors live in data(); a repaint re-queries it.
+        self.local_view.viewport().update()
 
     def refresh(self):
         # Suppressed while an operation runs (a single listing happens when it
