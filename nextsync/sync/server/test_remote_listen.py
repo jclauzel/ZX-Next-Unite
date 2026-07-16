@@ -48,6 +48,9 @@ def mock_next(sock, entries, filebytes, cap):
         if op == b'Q': break
         if op == b'I': continue
         if op == b'L':
+            if arg.rstrip("/") == "/gone":
+                push(b'F', 0)            # opendir failed on the Next: folder is gone
+                continue
             pl = b'D'
             for is_dir, size, name in entries:
                 pl += bytes([1 if is_dir else 0]) + int(size).to_bytes(4, "little") + bytes([len(name)]) + name.encode()
@@ -68,6 +71,13 @@ def mock_next(sock, entries, filebytes, cap):
                 push(b'N' + len(filebytes).to_bytes(4, "big") + bytes([len(name)]) + name.encode(), 0)
                 push(b'D' + filebytes, 1); push(b'E', 2); push(b'B', 3)
         elif op == b'P':
+            if arg.startswith("/locked"):
+                # Simulate a put the Next can't create: push an 'F' status block
+                # (like the dotN's listen_status(0)) and expect the server's "Ok".
+                settle(); sock.sendall(frame(b'F', 0))
+                assert rx_payload(sock)[0:1] == b'O'   # server acks the 'F' block
+                cap['put_fail'] = arg
+                continue
             buf = b''
             while True:
                 settle(); sock.sendall(b"Get")
@@ -92,19 +102,26 @@ def main():
     entries = [(True, 0, "GAMES"), (False, 1234, "boot.bas")]
     filebytes = b"Hello Next!\r\n" * 5
     cap = {}
-    got = {'listing': None, 'gets': [], 'put': None, 'ops': []}
+    got = {'listing': None, 'gets': [], 'put': None, 'puts': [], 'ops': [],
+           'ls_failed': []}
 
     sig = RemoteExplorerSignals()
     sig.listing.connect(lambda p, e: got.update(listing=(p, e)), Qt.DirectConnection)
+    sig.ls_failed.connect(lambda p: got['ls_failed'].append(p), Qt.DirectConnection)
     sig.got.connect(lambda r, l: got['gets'].append((r, l)), Qt.DirectConnection)
-    sig.put_done.connect(lambda ok, r: got.update(put=(ok, r)), Qt.DirectConnection)
+    sig.put_done.connect(lambda ok, r: (got.update(put=(ok, r)), got['puts'].append((ok, r))), Qt.DirectConnection)
     sig.op_done.connect(lambda ok, o, p: got['ops'].append((ok, o, p)), Qt.DirectConnection)
 
     cmd_q = queue.Queue()
     stop = threading.Event()
-    for c in [("mkdir", "/ho"), ("ls", "/"), ("get", "boot.bas", getdir),
+    # "ls /gone" sits between real commands on purpose: if the 'F' (opendir-fail)
+    # reply were mishandled it would desync the stream and break everything after.
+    for c in [("mkdir", "/ho"), ("ls", "/"), ("ls", "/gone"),
+              ("get", "boot.bas", getdir),
               ("get", "/games/lev", foldl),
-              ("put", putfile, "/ho/"), ("rm", "/x.tap"), ("rmdir", "/y"),
+              ("put", putfile, "/ho/"),
+              ("put", putfile, "/locked/up.bin"),   # put that fails with 'F'
+              ("rm", "/x.tap"), ("rmdir", "/y"),
               ("rename", "/ho/a.txt", "/ho/b.txt"), ("quit",)]:
         cmd_q.put(c)
 
@@ -143,10 +160,16 @@ def main():
         print("PASS put  : delivered to", cap['put'][0])
     else:
         print("FAIL put  :", cap.get('put', None), "sig:", got['put']); ok = False
-    if got['put'] and got['put'][0] and got['put'][1] == "/ho/up.bin":
-        print("PASS put-sig: put_done", got['put'])
+    if (True, "/ho/up.bin") in got['puts']:
+        print("PASS put-sig: put_done(ok) for /ho/up.bin")
     else:
-        print("FAIL put-sig:", got['put']); ok = False
+        print("FAIL put-sig:", got['puts']); ok = False
+    # A put the Next rejects ('F' status) must surface as put_done(ok=False) and
+    # the server must have acked the block (so cap['put_fail'] was recorded).
+    if (False, "/locked/up.bin") in got['puts'] and cap.get('put_fail') == "/locked/up.bin":
+        print("PASS put-fail: put_done(False) + 'F' acked for /locked/up.bin")
+    else:
+        print("FAIL put-fail:", got['puts'], "cap:", cap.get('put_fail')); ok = False
     if any(o == (True, "mkdir", "/ho") for o in got['ops']) and any(o[1] == "rm" for o in got['ops']):
         print("PASS ops  :", got['ops'])
     else:
@@ -155,6 +178,12 @@ def main():
         print("PASS ren  :", cap['ren'].replace("\x00", " -> "))
     else:
         print("FAIL ren  :", cap.get('ren'), got['ops']); ok = False
+    # A missing folder must raise ls_failed (never a phantom empty listing) and
+    # leave the stream in sync so the later commands above still passed.
+    if got['ls_failed'] == ["/gone"]:
+        print("PASS lsfail:", got['ls_failed'])
+    else:
+        print("FAIL lsfail:", got['ls_failed']); ok = False
 
     shutil.rmtree(tmp, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")

@@ -2313,6 +2313,7 @@ class MainWindow(QMainWindow):
         ``variant`` selects the colour scheme:
           - "green"  : success / informational (default)
           - "yellow" : warning / advisory
+          - "red"    : error / failure
 
         The toast disappears automatically after ``duration_ms`` milliseconds,
         or immediately when the user clicks the OK button. When ``rich`` is True
@@ -2325,6 +2326,8 @@ class MainWindow(QMainWindow):
         # btn_hover).
         if variant == "yellow":
             scheme = ("#2e2a14", "#f0c000", "#f7eec5", "#7d6a2e", "#f0c000", "#8f7c38")
+        elif variant == "red":
+            scheme = ("#2e1a1a", "#e05a4f", "#f7d5d2", "#7d3230", "#e05a4f", "#8f3a38")
         else:
             scheme = ("#1e2a1e", "#4caf50", "#c8f7c5", "#2e7d32", "#4caf50", "#388e3c")
         bg, border, title_fg, btn_bg, btn_border, btn_hover = scheme
@@ -10913,14 +10916,44 @@ class MainWindow(QMainWindow):
                     pass
             _re_update_start_button()
 
+        def _re_on_remote_cwd_changed(path):
+            # The widget reports the Next-side folder it's now showing. Persist it
+            # so the next (re)connect jumps straight back to it (fires only when
+            # the folder actually changes, so this stays cheap).
+            try:
+                configuration_dictionary[SETTING_NEXTSYNC_REMOTE_CWD] = (path or "/")
+                save_configuration_file()
+            except Exception:
+                pass
+
+        def _re_on_sort_changed(which, value):
+            # The widget reports a new column sort ("<key>:<asc|desc>") for one of
+            # its panes; persist it so both panes reopen sorted the same way.
+            key = (SETTING_NEXTSYNC_RE_LOCAL_SORT if which == "local"
+                   else SETTING_NEXTSYNC_RE_NEXT_SORT)
+            try:
+                configuration_dictionary[key] = value
+                save_configuration_file()
+            except Exception:
+                pass
+
         def _nextsync_build_remote_explorer():
             if self._re_widget is not None:
                 return self._re_widget
             start_dir = configuration_dictionary.get(SETTING_NEXTSYNC_EXPLORERPATH) or None
+            remote_cwd = configuration_dictionary.get(SETTING_NEXTSYNC_REMOTE_CWD) or None
+            local_sort = configuration_dictionary.get(SETTING_NEXTSYNC_RE_LOCAL_SORT) or None
+            next_sort = configuration_dictionary.get(SETTING_NEXTSYNC_RE_NEXT_SORT) or None
             widget = RemoteExplorerWidget(
                 _re_enqueue, local_start_dir=start_dir,
                 log=lambda s: add_nextsync_log_window(str(s)),
-                drain=_re_drain, on_sync_root_changed=_re_on_sync_root_changed)
+                drain=_re_drain, on_sync_root_changed=_re_on_sync_root_changed,
+                remote_start_dir=remote_cwd,
+                on_remote_cwd_changed=_re_on_remote_cwd_changed,
+                local_sort=local_sort, next_sort=next_sort,
+                on_sort_changed=_re_on_sort_changed,
+                on_toast=lambda title, msg, variant="red": self._show_toast(
+                    title, msg, variant=variant, duration_ms=9000))
             self._re_widget = widget
             self.nextsync_log_stack.addWidget(widget)
             _re_apply_item_colors()          # tint to the user's configured colours
@@ -11088,6 +11121,7 @@ class MainWindow(QMainWindow):
             # (BREAK / Bye / dropped link), so the user must press Start again.
             self._re_sig.disconnected.connect(_nextsync_on_re_disconnected)
             self._re_sig.listing.connect(widget.on_listing)
+            self._re_sig.ls_failed.connect(widget.on_ls_failed)
             self._re_sig.got.connect(widget.on_got)
             self._re_sig.put_done.connect(widget.on_put_done)
             self._re_sig.op_done.connect(widget.on_op_done)

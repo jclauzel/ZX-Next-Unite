@@ -37,6 +37,35 @@ RE_ISDIR_ROLE = Qt.UserRole + 2
 
 ARROW_BTN_W = 40
 
+# Sort persistence. Each pane's sort is stored as "<key>:<asc|desc>" where key is
+# name/size/type. The two panes place those columns differently, so the key<->
+# visible-column mappings differ: the local (QFileSystemModel) columns are
+# Name(0)/Size(1)/Type(2); the Next (QStandardItemModel) columns are
+# Name(0)/Type(1)/Size(2).
+RE_SORT_KEYS = ("name", "size", "type")
+RE_LOCAL_SORT_COL = {"name": 0, "size": 1, "type": 2}
+RE_LOCAL_SORT_KEY = {v: k for k, v in RE_LOCAL_SORT_COL.items()}
+RE_NEXT_SORT_COL = {"name": 0, "type": 1, "size": 2}
+RE_NEXT_SORT_KEY = {v: k for k, v in RE_NEXT_SORT_COL.items()}
+
+
+def _parse_re_sort(s):
+    """Parse a saved "<key>:<asc|desc>" sort string to (key, Qt.SortOrder).
+
+    Anything unrecognised falls back to the default: Name, ascending (A first).
+    """
+    key, _, order = (s or "").partition(":")
+    key = key.strip().lower()
+    if key not in RE_SORT_KEYS:
+        key = "name"
+    order = (Qt.DescendingOrder if order.strip().lower() == "desc"
+             else Qt.AscendingOrder)
+    return (key, order)
+
+
+def _re_sort_to_str(key, order):
+    return f"{key}:{'desc' if order == Qt.DescendingOrder else 'asc'}"
+
 
 def _default_item_colors():
     """The SD Card Utility's image-tree item colours as a fresh dict of QColor.
@@ -75,10 +104,21 @@ class ColoredFileSystemModel(QFileSystemModel):
         self._colours = colours
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if (role == Qt.ItemDataRole.DisplayRole and index.isValid()
+                and index.column() == 1):
+            # Size column: one unified human-readable unit (blank for folders and
+            # the ".." row), so it matches the Next pane instead of the OS-localised
+            # "octets/Kio". The real byte count is still used for sorting (see
+            # DotDotFirstProxyModel.lessThan).
+            if self.isDir(index) or self.fileName(index) == "..":
+                return ""
+            return _human_size(self.size(index))
         if role == Qt.ItemDataRole.ForegroundRole and index.isValid():
+            c = self._colours
+            if self.fileName(index) == "..":  # the parent ".." up-entry
+                return c["up_directory"]
             is_dir = self.isDir(index)
             col = index.column()
-            c = self._colours
             if col == 0:                       # Name
                 return c["dir_name"] if is_dir else c["file_name"]
             if col == 2:                       # Type
@@ -90,16 +130,23 @@ class ColoredFileSystemModel(QFileSystemModel):
 
 
 def _human_size(n):
+    """One unified, human-readable size string used by BOTH Remote Explorer panes:
+    exact bytes under 1 KiB, then one decimal in K/M/G (e.g. "512 B", "6.8 K",
+    "4.0 M"). Replaces the OS-localised "octets/Kio" text on the local side and the
+    terse "1B/10K" on the Next side. Sorting always uses the real byte count, never
+    this text, so mixed magnitudes still order correctly.
+
+    n is scaled down by 1024 each loop iteration, so once we stop the value is
+    already in the current unit - format it as-is.
+    """
     if n is None:
         return ""
-    # n is scaled down by 1024 each loop iteration, so once we stop the value is
-    # already in the current unit - format it as-is. (Dividing again here was the
-    # bug that made every file >= 1 KB show as "0K"/"0M".)
+    n = float(n)
     for unit in ("B", "K", "M", "G"):
         if n < 1024 or unit == "G":
-            return f"{n}{unit}" if unit == "B" else f"{n:.0f}{unit}"
+            return f"{int(n)} {unit}" if unit == "B" else f"{n:.1f} {unit}"
         n /= 1024
-    return str(n)
+    return f"{n:.1f} G"
 
 
 def _posix_join(base, name):
@@ -107,6 +154,20 @@ def _posix_join(base, name):
     if not base.endswith("/"):
         base += "/"
     return posixpath.normpath(base + name)
+
+
+def _norm_remote_dir(p):
+    """Normalise a saved Next-side folder path to an absolute posix dir.
+
+    Blank/invalid restores to "/". Used when restoring the last-browsed remote
+    folder from the config file (see RemoteExplorerWidget.on_connected).
+    """
+    p = (p or "").replace("\\", "/").strip()
+    if not p:
+        return "/"
+    if not p.startswith("/"):
+        p = "/" + p
+    return posixpath.normpath(p)
 
 
 class RemoteExplorerWidget(QWidget):
@@ -121,12 +182,30 @@ class RemoteExplorerWidget(QWidget):
     """
 
     def __init__(self, enqueue, local_start_dir=None, log=None, parent=None,
-                 drain=None, on_sync_root_changed=None):
+                 drain=None, on_sync_root_changed=None, remote_start_dir=None,
+                 on_remote_cwd_changed=None, local_sort=None, next_sort=None,
+                 on_sort_changed=None, on_toast=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
         self._drain_raw = drain              # host closure: empty the queue, -> count
         self._log = log or (lambda s: None)
         self._on_sync_root_changed = on_sync_root_changed or (lambda p: None)
+        # Surface Next-side failures ('F' replies / abandoned transfers) to the
+        # user: on_toast(title, message, variant) pops a host toast.
+        self._on_toast = on_toast or (lambda title, msg, variant="red": None)
+        # Persist/restore the Next-side folder across (re)connections: on connect
+        # we jump back to the last folder browsed, and every listing reports the
+        # new folder to the host so it can save it (see on_connected/on_listing).
+        self._on_remote_cwd_changed = on_remote_cwd_changed or (lambda p: None)
+        self._remote_start_dir = _norm_remote_dir(remote_start_dir)
+        # Per-pane sort (column + direction), restored from the config and saved
+        # via on_sort_changed(which, "<key>:<asc|desc>") whenever the user clicks
+        # a column header. Defaults to Name ascending in both panes.
+        self._on_sort_changed = on_sort_changed or (lambda which, value: None)
+        self._local_sort = _parse_re_sort(local_sort)
+        self._next_sort = _parse_re_sort(next_sort)
+        self._restoring_sort = False         # guard: don't re-save while restoring
+        self._next_entries = []              # last Next listing, for re-sorting
         self._cwd = "/"                      # current Next directory
         self._connected = False
         # The local folder the Remote Explorer works in. "" until the user picks
@@ -154,6 +233,13 @@ class RemoteExplorerWidget(QWidget):
         self._op_determinate = True   # False -> marquee bar (totals may grow)
         self._op_title = ""
         self._op_dialog = None
+        # Failures ('F' replies / abandoned transfers) seen during the running
+        # operation, toasted as one summary when it ends (so a batch that fails
+        # many items shows a single toast, not a storm). ``_op_toast_mkdir`` lets
+        # a deliberate New Folder report a failed mkdir, while the many mkdirs of a
+        # recursive upload stay quiet (a failed one there just means "exists").
+        self._op_failures = []
+        self._op_toast_mkdir = False
 
         # Per-item font colours, mirroring the SD Card Utility's image tree. The
         # host pushes the user's configured colours in via set_item_colors(); the
@@ -164,6 +250,10 @@ class RemoteExplorerWidget(QWidget):
         # ---- left: local file explorer ------------------------------------
         self.local_model = ColoredFileSystemModel(self._colors, self)
         self.local_model.setRootPath("")
+        # Emit a ".." parent-directory row (like the SD Card tab's local tree and
+        # the Next pane): clear NoDotAndDotDot to show it, keep NoDot to hide ".".
+        # DotDotFirstProxyModel pins that ".." entry to the top of the list.
+        self.local_model.setFilter(~QDir.NoDotAndDotDot | QDir.NoDot)
         # Name-filter proxy, mirroring the classic sync local explorer: it filters
         # by file name and keeps any ".." entry on top. The per-item foreground
         # colours pass straight through to the source model.
@@ -186,6 +276,10 @@ class RemoteExplorerWidget(QWidget):
         self.local_view.hideColumn(3)
         self.local_view.header().swapSections(1, 2)
         self.local_view.setColumnWidth(0, 250)
+        # Persist the chosen sort: react to header clicks, and apply the saved one
+        # now (guarded so applying it doesn't count as a user change).
+        self.local_view.header().sortIndicatorChanged.connect(self._on_local_sort_changed)
+        self._apply_local_sort()
         self.local_view.setDragEnabled(True)
         self.local_view.setAcceptDrops(True)
         self.local_view.setDropIndicatorShown(True)
@@ -278,6 +372,16 @@ class RemoteExplorerWidget(QWidget):
         self.next_view.setUniformRowHeights(True)
         self.next_view.setRootIsDecorated(False)
         self.next_view.setColumnWidth(0, 250)
+        # The Next model is rebuilt on every listing, so instead of Qt's view sort
+        # (which would sort the Size column as text and unpin "..") we sort the
+        # entries ourselves in _rebuild_next_rows and just drive the header: make
+        # the sections clickable and show the indicator. sectionClicked toggles /
+        # switches the sort; the saved one is shown via the indicator.
+        next_header = self.next_view.header()
+        next_header.setSectionsClickable(True)
+        next_header.setSortIndicatorShown(True)
+        next_header.sectionClicked.connect(self._on_next_header_clicked)
+        self._apply_next_sort_indicator()
         self.next_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.next_view.customContextMenuRequested.connect(self._next_context_menu)
         self.next_view.doubleClicked.connect(self._next_double_clicked)
@@ -352,12 +456,13 @@ class RemoteExplorerWidget(QWidget):
     # ==================================================================
     #  operation progress / blocking / cancel
     # ==================================================================
-    def _run_op(self, title, enqueue_fn, determinate=True):
+    def _run_op(self, title, enqueue_fn, determinate=True, toast_mkdir_fail=False):
         """Run a batch of remote commands as a cancellable, blocking operation.
 
         ``enqueue_fn`` queues the commands (via _enqueue). The widget is
         disabled and, after a short delay, a modal progress dialog appears; both
-        are lifted once every queued command has reported back.
+        are lifted once every queued command has reported back. ``toast_mkdir_fail``
+        opts a single deliberate mkdir (New Folder) into failure toasts.
         """
         if self._op_active or not self._connected:
             # Never nest, and never start without a live server: with no queue
@@ -370,6 +475,8 @@ class RemoteExplorerWidget(QWidget):
         self._op_determinate = determinate
         self._op_title = title
         self._op_dialog = None
+        self._op_failures = []
+        self._op_toast_mkdir = toast_mkdir_fail
         self.setEnabled(False)           # make the whole explorer unclickable
         # Delay the dialog so instant operations (a quick mkdir/rename) don't
         # flash a modal box on screen.
@@ -429,8 +536,32 @@ class RemoteExplorerWidget(QWidget):
             self._op_dialog.close()
             self._op_dialog = None
         self.setEnabled(True)
+        # Tell the user about any Next-side failures this operation hit (one toast
+        # for the whole batch). A user cancel is expected, so don't cry failure.
+        fails, self._op_failures = self._op_failures, []
+        if fails and not self._op_cancelled:
+            self._toast_failures(fails)
         # One listing now that the batch is done (suppressed during the op).
         self.refresh()
+
+    # ==================================================================
+    #  failure reporting  (toast the user, with context)
+    # ==================================================================
+    def _record_op_failure(self, desc):
+        """Note one failed command during the running operation (deduped, capped),
+        to be toasted as a summary when the operation ends."""
+        if desc and desc not in self._op_failures and len(self._op_failures) < 100:
+            self._op_failures.append(desc)
+
+    def _toast_failures(self, fails):
+        """Toast a summary of the failures collected during an operation."""
+        shown = fails[:5]
+        body = "\n".join(shown)
+        if len(fails) > len(shown):
+            body += f"\n…and {len(fails) - len(shown)} more"
+        title = ("A Next operation failed" if len(fails) == 1
+                 else f"{len(fails)} Next operations failed")
+        self._on_toast(title, body, "red")
 
     # ==================================================================
     #  connection state
@@ -447,7 +578,9 @@ class RemoteExplorerWidget(QWidget):
     # ---- worker signal slots (UI thread) ------------------------------
     def on_connected(self):
         self._set_connected(True)
-        self._cwd = "/"
+        # Jump straight back to the folder we were last browsing. If it's gone,
+        # the listing fails and on_ls_failed() drops us back to the root.
+        self._cwd = self._remote_start_dir or "/"
         self.refresh()
 
     def on_disconnected(self):
@@ -466,14 +599,107 @@ class RemoteExplorerWidget(QWidget):
     def on_listing(self, path, entries):
         self._cwd = path if path.startswith("/") else "/" + path
         self.next_path_label.setText(f"Next: {self._cwd}")
+        # Remember this (confirmed-good) folder so a later reconnect returns here.
+        self._remember_remote_cwd(self._cwd)
+        # Cache the entries so a later header click can re-sort without a re-listing.
+        self._next_entries = [(bool(is_dir), size, name)
+                              for is_dir, size, name in entries
+                              if name not in (".", "..")]
+        self._rebuild_next_rows()
+
+    def _rebuild_next_rows(self):
+        """(Re)populate the Next pane from the cached listing in the current sort
+        order, always keeping ".." pinned at the top."""
         self.next_model.removeRows(0, self.next_model.rowCount())
         if self._cwd not in ("/", ""):
             self._add_next_row("..", True, None, is_updir=True)
-        for is_dir, size, name in entries:
-            if name in (".", ".."):
-                continue
+        for is_dir, size, name in self._sorted_next_entries():
             self._add_next_row(name, is_dir, size)
         self.next_view.resizeColumnToContents(0)
+
+    def _sorted_next_entries(self):
+        """The cached Next entries ordered by the current sort key/direction.
+
+        Size sorts numerically (not as the "12K"/"1M" display text); Type and
+        Size group folders together (they carry no extension or size)."""
+        key, order = self._next_sort
+        reverse = (order == Qt.DescendingOrder)
+
+        def sort_key(e):
+            is_dir, size, name = e
+            if key == "size":
+                return (0 if is_dir else 1, size or 0, name.lower())
+            if key == "type":
+                return (0 if is_dir else 1, self._next_type_text(name).lower(),
+                        name.lower())
+            return (name.lower(),)      # name: plain alphabetical, A first
+        return sorted(self._next_entries, key=sort_key, reverse=reverse)
+
+    def on_ls_failed(self, path):
+        """A listing could not be opened on the Next: the folder is gone.
+
+        Happens when the folder we tried to restore on reconnect (or navigated
+        into) no longer exists. Drop back to the root so the pane recovers.
+        """
+        if (path or "/") == "/":
+            return                       # root itself failed: nothing better to do
+        self._log(f"{path}: no such folder on the Next — returning to the root.")
+        self._on_toast("Folder unavailable",
+                       f"{path} no longer exists on the Next.\nReturned to the root.",
+                       "yellow")
+        self._cwd = "/"
+        self.refresh()
+
+    def _remember_remote_cwd(self, path):
+        """Record the current Next folder for restore-on-reconnect, notifying the
+        host (which persists it) only when it actually changes."""
+        norm = _norm_remote_dir(path)
+        if norm != self._remote_start_dir:
+            self._remote_start_dir = norm
+            self._on_remote_cwd_changed(norm)
+
+    # ==================================================================
+    #  column sort (persisted per pane; default Name ascending)
+    # ==================================================================
+    def _save_sort(self, which, key, order):
+        self._on_sort_changed(which, _re_sort_to_str(key, order))
+
+    def _apply_local_sort(self):
+        """Apply the restored local-pane sort without it counting as a user edit."""
+        key, order = self._local_sort
+        self._restoring_sort = True
+        try:
+            self.local_view.sortByColumn(RE_LOCAL_SORT_COL.get(key, 0), order)
+        finally:
+            self._restoring_sort = False
+
+    def _on_local_sort_changed(self, column, order):
+        # Fired by the header on every sort change; ignore the programmatic one we
+        # trigger while restoring, persist the rest.
+        if self._restoring_sort:
+            return
+        key = RE_LOCAL_SORT_KEY.get(column, "name")
+        self._local_sort = (key, order)
+        self._save_sort("local", key, order)
+
+    def _apply_next_sort_indicator(self):
+        key, order = self._next_sort
+        self.next_view.header().setSortIndicator(RE_NEXT_SORT_COL.get(key, 0), order)
+
+    def _on_next_header_clicked(self, column):
+        # Clicking the current column flips direction; a different column starts
+        # ascending. We sort the cached listing ourselves and repaint.
+        key = RE_NEXT_SORT_KEY.get(column, "name")
+        cur_key, cur_order = self._next_sort
+        if key == cur_key:
+            order = (Qt.AscendingOrder if cur_order == Qt.DescendingOrder
+                     else Qt.DescendingOrder)
+        else:
+            order = Qt.AscendingOrder
+        self._next_sort = (key, order)
+        self._apply_next_sort_indicator()
+        self._save_sort("next", key, order)
+        self._rebuild_next_rows()
 
     def on_got(self, remote, local_path):
         self._log(f"Downloaded {remote} -> {local_path}")
@@ -484,6 +710,9 @@ class RemoteExplorerWidget(QWidget):
         self._log(f"Uploaded -> {remote}" if ok else f"Upload failed: {remote}")
         if not ok:
             self._cut_fail_head()
+            # The Next abandoned the pull (e.g. locked/read-only destination).
+            self._record_op_failure(
+                f"Upload failed: {posixpath.basename(remote.rstrip('/')) or remote}")
         # Only refresh when the file landed in the folder we're looking at, so a
         # recursive folder upload doesn't fire one listing per file.
         if self._in_cwd(remote):
@@ -492,17 +721,23 @@ class RemoteExplorerWidget(QWidget):
 
     def on_op_done(self, ok, op, path):
         self._log(f"{op} {path}: {'ok' if ok else 'FAILED'}")
-        # A failed mkdir usually just means the folder already exists, which does
-        # not doom a move; only real transfer failures (put/get) count, and those
-        # arrive via put_done(ok=False) / error.
+        # A failed mkdir usually just means the folder already exists, so the many
+        # mkdirs of a recursive upload stay quiet; a deliberate New Folder opts in
+        # via _op_toast_mkdir. rmdir/rm/rename failures are always real.
+        if not ok and (op != "mkdir" or self._op_toast_mkdir):
+            self._record_op_failure(
+                f"{op} failed: {posixpath.basename(path.rstrip('/')) or path}")
         if self._in_cwd(path):
             self.refresh()
         self._op_step_done(f"{op} {posixpath.basename(path.rstrip('/')) or path}")
 
-    def on_error(self, _msg=None):
+    def on_error(self, msg=None):
         # Any error while a move's transfer is draining means we must not delete
-        # its source. It also counts as that command reporting back.
+        # its source. It also counts as that command reporting back, and (during an
+        # operation) is worth surfacing to the user - e.g. a failed/dropped get.
         self._cut_fail_head()
+        if msg and self._op_active:
+            self._record_op_failure(str(msg))
         self._op_step_done()
 
     def on_marked(self, token):
@@ -537,6 +772,12 @@ class RemoteExplorerWidget(QWidget):
     # ==================================================================
     #  Next pane
     # ==================================================================
+    @staticmethod
+    def _next_type_text(name):
+        # Mirror the SD-card image tree: the "type" is the first extension segment
+        # (guarded by the '.' test, so [1] is always present).
+        return name.split(".")[1] if "." in name else ""
+
     def _add_next_row(self, name, is_dir, size, is_updir=False):
         name_item = QStandardItem(self._dir_icon if is_dir else self._file_icon, name)
         name_item.setData(".." if is_updir else _posix_join(self._cwd, name), RE_PATH_ROLE)
@@ -549,9 +790,7 @@ class RemoteExplorerWidget(QWidget):
             type_item = QStandardItem("DIR")
             size_item = QStandardItem("")
         else:
-            # Mirror the SD-card image tree: the "type" is the first extension
-            # segment (guarded by the '.' test, so [1] is always present).
-            type_item = QStandardItem(name.split(".")[1] if "." in name else "")
+            type_item = QStandardItem(self._next_type_text(name))
             size_item = QStandardItem(_human_size(size))
         type_item.setEditable(False)
         size_item.setEditable(False)
@@ -664,7 +903,8 @@ class RemoteExplorerWidget(QWidget):
         if ok and name.strip():
             target = _posix_join(self._cwd, name.strip())
             self._run_op("Creating folder on the Next…",
-                         lambda: self._enqueue(("mkdir", target)))
+                         lambda: self._enqueue(("mkdir", target)),
+                         toast_mkdir_fail=True)
 
     def _rename_selected(self):
         if not self._connected:
@@ -982,6 +1222,11 @@ class RemoteExplorerWidget(QWidget):
     def _path_of(self, view_ix):
         return self.local_model.filePath(self.local_proxy.mapToSource(view_ix))
 
+    def _is_local_updir(self, view_ix):
+        """True if the view index is the ".." parent-directory row."""
+        return self.local_model.fileName(
+            self.local_proxy.mapToSource(view_ix)) == ".."
+
     def _browse_dir(self):
         """The folder the tree is rooted at (used by Up / Refresh / New Folder)."""
         return self._browse_root or QDir.homePath()
@@ -1044,6 +1289,8 @@ class RemoteExplorerWidget(QWidget):
         """Single-click picks a sync root, like the classic sync explorer: a
         folder selects itself, a file selects its parent folder. Changing the
         tree root (browsing) still happens on double-click / Up."""
+        if self._is_local_updir(index):
+            return                       # ".." only navigates on double-click / Up
         path = self._path_of(index)
         if not path:
             return
@@ -1052,6 +1299,9 @@ class RemoteExplorerWidget(QWidget):
             self._commit_sync_root(folder)
 
     def _local_double_clicked(self, index):
+        if self._is_local_updir(index):
+            self._local_up()             # ".." goes one level up
+            return
         path = self._path_of(index)
         if os.path.isdir(path):
             self._set_local_dir(path, commit=True)
@@ -1059,6 +1309,8 @@ class RemoteExplorerWidget(QWidget):
     def _selected_local_paths(self):
         out = []
         for ix in self.local_view.selectionModel().selectedRows(0):
+            if self._is_local_updir(ix):     # never act on the ".." up-entry
+                continue
             p = self._path_of(ix)
             if p:
                 out.append(p)
