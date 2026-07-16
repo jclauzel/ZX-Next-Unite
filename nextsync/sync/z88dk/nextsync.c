@@ -385,7 +385,7 @@ restart:
     if (filehandle == 0)
     {
         print("Unable to open file");
-        return 0;
+        return 2;   // distinct: could not create the destination (not a link loss)
     }
 
     do
@@ -681,6 +681,9 @@ void parse_speed_switches(char *dst)
 //   mkdir/rmdir/rm/ren : one status block, 'O' (ok) or 'F' (fail). 'ren'
 //         carries two NUL-separated paths in one frame (old then new).
 //   put : reuses transfer() - the Next pulls data with "Get", server serves it.
+//         On success the server has counted every byte, so nothing more is sent;
+//         on failure (couldn't create the file, or the transfer gave up) the Next
+//         pushes an 'F' status block so the server can report the error.
 // ---------------------------------------------------------------------------
 
 // BREAK key detection so a -listen session can be stopped from the Next itself
@@ -1106,7 +1109,15 @@ retryconnect:
                     send_block_rt(scratch, 1, inbuf);
                     vprint("get done");
                 }
-                else if (op == 'P') { if (transfer(fn, inbuf)) vprint("put failed"); else vprint("put done"); } // put
+                else if (op == 'P')
+                {
+                    // put: the Next pulls the file from the server. On failure -
+                    // couldn't create the file (2) or the transfer gave up (1) -
+                    // push an 'F' status so the server knows and can report it; on
+                    // success the server already counted every byte, so send none.
+                    if (transfer(fn, inbuf)) { vprint("put failed"); listen_status(0, inbuf, scratch); }
+                    else vprint("put done");
+                }
                 else if (op == 'M') { unsigned char ok = sync_mkdir(fn)  != 0xFF; vprint(ok ? "mkdir ok" : "mkdir fail"); listen_status(ok, inbuf, scratch); }
                 else if (op == 'R') { unsigned char ok = sync_rmdir(fn)  != 0xFF; vprint(ok ? "rmdir ok" : "rmdir fail"); listen_status(ok, inbuf, scratch); }
                 else if (op == 'X') { unsigned char ok = sync_unlink(fn) != 0xFF; vprint(ok ? "rm ok" : "rm fail"); listen_status(ok, inbuf, scratch); }
@@ -1219,7 +1230,9 @@ retrynext:
             {
                 print(fn);
                 anim_tick();   // eye-candy step per file (no-op unless -anim)
-                if (transfer(fn, inbuf))
+                // 1 = link loss (fatal here); 2 = couldn't open this file, so skip
+                // it and keep syncing the rest (mirrors the old return-0 behaviour).
+                if (transfer(fn, inbuf) == 1)
                 {
                     print("Lost connection.");
                     goto closeconn;

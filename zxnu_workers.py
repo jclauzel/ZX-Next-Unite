@@ -14,7 +14,8 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QFontInfo
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QLayout, QProgressBar, QPushButton, QVBoxLayout,
+    QDialog, QFileSystemModel, QHBoxLayout, QLabel, QLayout, QProgressBar,
+    QPushButton, QVBoxLayout,
 )
 
 
@@ -168,12 +169,19 @@ def bind_listen_socket(port):
 class DotDotFirstProxyModel(QSortFilterProxyModel):
     """Proxy model that always keeps the '..' parent directory entry at the top."""
     def lessThan(self, left, right):
-        left_name = self.sourceModel().fileName(left)
-        right_name = self.sourceModel().fileName(right)
+        source_model = self.sourceModel()
+        left_name = source_model.fileName(left)
+        right_name = source_model.fileName(right)
         if left_name == "..":
             return True
         if right_name == "..":
             return False
+        # The Size column's display text is human-readable ("512 B", "2.0 K"), so
+        # the default DisplayRole comparison would sort it as a string ("2.0 K"
+        # before "512 B"). Compare the real byte count instead. QFileSystemModel's
+        # Size is logical column 1.
+        if isinstance(source_model, QFileSystemModel) and left.column() == 1:
+            return source_model.size(left) < source_model.size(right)
         return super().lessThan(left, right)
 
     def filterAcceptsRow(self, source_row, source_parent):
@@ -213,6 +221,7 @@ class RemoteExplorerSignals(QObject):
     disconnected = Signal()               # the listen session ended
     # (path, entries) where entries is a list of (is_dir: bool, size: int, name: str)
     listing      = Signal(str, object)    # result of an "ls"
+    ls_failed    = Signal(str)            # an "ls" path could not be opened on the Next (gone)
     got          = Signal(str, str)       # (remote, local_path) a "get" finished
     put_done     = Signal(bool, str)      # (ok, remote) a "put" finished
     op_done      = Signal(bool, str, str) # (ok, op, path) mkdir/rmdir/rm result
@@ -228,6 +237,20 @@ def _re_checksums(payload):
         c0 = (c0 ^ x) & 0xff
         c1 = (c1 + c0) & 0xff
     return c0, c1
+
+
+def _re_is_fail_block(data):
+    """True if ``data`` is the framed 1-byte 'F' status block a dotN pushes when a
+    put fails (couldn't create the file, or the transfer gave up).
+
+    Framing is [0x00 0x06]['F'][cs0][cs1][pktno]; the checksum of 'F' is 0x46/0x46.
+    Older dots don't send this - they just stop pulling - so callers keep the
+    "abandoned upload" fallback as well.
+    """
+    if len(data) < 6 or data[0] != 0x00 or data[1] != 0x06 or data[2:3] != b'F':
+        return False
+    c0, c1 = _re_checksums(b'F')
+    return data[3] == c0 and data[4] == c1
 
 
 def _re_sendpacket(conn, payload, pktno):
@@ -424,12 +447,25 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                     break
 
                 # A put in flight is served by the Next pulling the bytes with
-                # "Get"/"Gee" (or asking to resend with "Retry"/"Restart"). If it
-                # sends anything else - it goes back to "Poll" because it could not
-                # open the destination file (e.g. locked/read-only on the Next) -
-                # the upload was abandoned. Report it failed and drop the pending
-                # state, so the UI operation completes and its transfer dialog
-                # closes instead of waiting forever for a "Get" that never comes.
+                # "Get"/"Gee" (or asking to resend with "Retry"/"Restart"). A newer
+                # dotN instead pushes an explicit 'F' status block when the put
+                # fails (couldn't create the file, or the transfer gave up); ack it
+                # so the dot's send_block_rt doesn't burn its retries, and report
+                # the failure. Ack even with no pending put (a rare late 'F' after
+                # the last byte already counted) so the dot isn't left retrying.
+                if _re_is_fail_block(data):
+                    _re_sendpacket(conn, b"Ok", 0)
+                    if pending and pending[0] == "put":
+                        sig.put_done.emit(False, pending[1])
+                        pending = None
+                        put_data = b''
+                        put_ofs = 0
+                        put_pkt = 0
+                    continue
+                # Older dots don't send 'F'; they just stop pulling and go back to
+                # "Poll". Treat any other non-pull frame during a pending put as an
+                # abandoned upload so the UI operation still completes and its
+                # transfer dialog closes instead of waiting forever for a "Get".
                 if (pending and pending[0] == "put" and
                         data not in (b"Get", b"Gee", b"Retry", b"Restart")):
                     sig.put_done.emit(False, pending[1])
@@ -457,10 +493,19 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                     elif op == "ls":
                         path = cmd[1] or "."
                         entries = []
+                        # The Next answers a listing with 'D' blocks then 'E', or a
+                        # single 'F' status block if opendir failed (the folder is
+                        # gone). Track which so a missing folder isn't mistaken for
+                        # an empty one - and so the 'F' block is consumed instead of
+                        # desyncing the stream.
+                        st = {'failed': False}
 
-                        def _h(payload, _e=entries):
+                        def _h(payload, _e=entries, _st=st):
                             o = payload[0:1]
                             if o == b'E':
+                                return True
+                            if o == b'F':
+                                _st['failed'] = True
                                 return True
                             if o == b'D':
                                 i = 1
@@ -475,8 +520,11 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             return False
                         _re_sendpacket(conn, b"L" + path.encode(), 0)
                         if _re_recv_reply(conn, _h):
-                            entries.sort(key=lambda e: (0 if e[0] else 1, e[2].lower()))
-                            sig.listing.emit(path, entries)
+                            if st['failed']:
+                                sig.ls_failed.emit(path)
+                            else:
+                                entries.sort(key=lambda e: (0 if e[0] else 1, e[2].lower()))
+                                sig.listing.emit(path, entries)
                         else:
                             sig.error.emit(f"ls {path}: connection dropped")
                     elif op == "get":

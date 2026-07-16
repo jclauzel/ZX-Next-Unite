@@ -5,7 +5,7 @@ Next on the other end that implements the dot's half of the protocol, exactly
 as nextsync/sync/z88dk/nextsync.c does. Validates ls / get / put / mkdir /
 rmdir / rm framing without any hardware.
 """
-import os, sys, socket, threading, tempfile, shutil, time
+import os, sys, socket, threading, tempfile, shutil, time, io, contextlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nextsync4 as ns
@@ -83,6 +83,9 @@ def mock_next(sock, fake_entries, fake_file, captured):
         if op == b'I':
             continue
         if op == b'L':                              # ls: push entries then 'E'
+            if arg.rstrip("/") == "/gone":          # missing folder: single 'F' block
+                push(b'F', 0)
+                continue
             pkt = 0
             payload = b'D'
             for is_dir, size, name in fake_entries:
@@ -99,6 +102,10 @@ def mock_next(sock, fake_entries, fake_file, captured):
             push(b'E', pkt); pkt += 1
             push(b'B', pkt)
         elif op == b'P':                            # put: pull the file the server sends
+            if arg.startswith("/locked"):           # simulate a put the Next rejects
+                push(b'F', 0)                        # 'F' status; server must ack 'O'
+                captured['put_fail'] = arg
+                continue
             buf = b''
             while True:
                 _settle()
@@ -111,8 +118,9 @@ def mock_next(sock, fake_entries, fake_file, captured):
         elif op == b'V':                            # ren: arg is "old\x00new"
             captured['ren'] = arg
             push(b'O', 0)
-        elif op in (b'M', b'R', b'X'):              # mkdir/rmdir/rm: status OK
-            push(b'O', 0)
+        elif op in (b'M', b'R', b'X'):              # mkdir/rmdir/rm: status
+            # "/locked" fails ('F') so the FAILED-status path is exercised too.
+            push(b'F' if arg.rstrip("/") == "/locked" else b'O', 0)
 
 
 def main():
@@ -137,22 +145,31 @@ def main():
 
     cmds = [
         ("mkdir", "/games/new", ""),
+        ("mkdir", "/locked", ""),                   # status 'F' -> FAILED reported
         ("ls", "/", ""),
+        ("ls", "/gone", ""),                        # missing folder -> 'F' reply
         ("get", "boot.bas", getdest),
         ("put", putfile, "c:/uploads/upload.bin"),  # explicit remote name
         ("put", putfile, "/ho/"),                   # dir remote -> keep basename
+        ("put", putfile, "/locked/up.bin"),         # put that fails with 'F'
         ("rm", "/games/old.tap", ""),
         ("rmdir", "/games/tmp", ""),
         ("ren", "/games/a.tap", "/games/b.tap"),
     ]
 
     t = threading.Thread(target=ns.listen_session, args=(srv, stats, cmds), daemon=True)
-    t.start()
-    try:
-        mock_next(nxt, fake_entries, fake_file, captured)
-    finally:
-        t.join(timeout=5)
-        srv.close(); nxt.close()
+    # Capture the server's stdout so we can assert the missing-folder message; it
+    # is echoed back afterwards so the run stays visible.
+    srv_log = io.StringIO()
+    with contextlib.redirect_stdout(srv_log):
+        t.start()
+        try:
+            mock_next(nxt, fake_entries, fake_file, captured)
+        finally:
+            t.join(timeout=5)
+            srv.close(); nxt.close()
+    server_out = srv_log.getvalue()
+    print(server_out, end="")
 
     ok = True
     # get: the fake file should have been written under getdest
@@ -178,6 +195,24 @@ def main():
         print("PASS ren   :", captured['ren'].replace("\x00", " -> "))
     else:
         print(f"FAIL ren   : {captured.get('ren')!r}"); ok = False
+    # a missing folder must be reported (the 'F' reply), not silently swallowed;
+    # that it landed mid-stream and every later command still passed proves the
+    # 'F' block was consumed without desyncing the session.
+    if "ls /gone: no such directory" in server_out:
+        print("PASS lsfail: missing folder reported, stream stayed in sync")
+    else:
+        print("FAIL lsfail: 'F' reply not handled"); ok = False
+    # A failing status command ('F') must be called out with its path context.
+    if "mkdir /locked: FAILED" in server_out:
+        print("PASS statusF: mkdir 'F' reported with context")
+    else:
+        print("FAIL statusF: status 'F' not reported"); ok = False
+    # A put the Next rejects ('F') must be reported (and the block acked, or the
+    # mock's push() assert would have failed and torn the session down).
+    if "put /locked/up.bin: FAILED" in server_out and captured.get('put_fail') == "/locked/up.bin":
+        print("PASS putF   : put 'F' reported + acked")
+    else:
+        print("FAIL putF   :", captured.get('put_fail')); ok = False
     # the session must have run to completion (thread ended)
     if not t.is_alive():
         print("PASS session: ls/mkdir/rmdir/rm/ren framed and completed cleanly")

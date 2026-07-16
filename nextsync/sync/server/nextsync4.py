@@ -186,6 +186,13 @@ def recv_block(conn):
         return 'BADCS'
     return (payload, pktno)
 
+def is_fail_block(data):
+    """True if data is the framed 1-byte 'F' status block a dotN pushes when a put
+    fails (couldn't create the file, or the transfer gave up):
+    [0x00 0x06]['F'][0x46][0x46][pktno] (0x46/0x46 is the checksum of 'F')."""
+    return (len(data) >= 6 and data[0] == 0x00 and data[1] == 0x06
+            and data[2:3] == b'F' and data[3] == 0x46 and data[4] == 0x46)
+
 def sanitize_incoming_path(root, name):
     """Map a filename reported by the Next to a safe path under root.
 
@@ -469,13 +476,22 @@ def _listen_recv_reply(conn, handler):
         if stop:
             return True
 
-def _listen_ls(conn):
+def _listen_ls(conn, path="."):
     """Receive an 'ls' listing: 'D' blocks of packed [flags][size][namelen][name]
-    entries, ended by 'E'. Prints the result."""
+    entries, ended by 'E' - or a single 'F' status block if the Next could not
+    open the folder (it's gone). Prints the result.
+
+    Handling 'F' matters for correctness, not just messaging: without it the
+    reply reader keeps waiting for more blocks the Next never sends and then
+    misreads its next "Poll" as a frame, desyncing the whole session."""
     entries = []
+    st = {'failed': False}
     def handle(payload):
         op = payload[0:1]
         if op == b'E':
+            return True
+        if op == b'F':                      # opendir failed on the Next: folder gone
+            st['failed'] = True
             return True
         if op == b'D':
             i = 1
@@ -489,6 +505,9 @@ def _listen_ls(conn):
                 entries.append((flags & 1, size, name))
         return False
     if not _listen_recv_reply(conn, handle):
+        return
+    if st['failed']:
+        print(f'{timestamp()} | ls {path}: no such directory on the Next')
         return
     entries.sort(key=lambda e: (0 if e[0] else 1, e[2].lower()))
     print(f'{timestamp()} | Listing ({len(entries)} entries):')
@@ -535,13 +554,20 @@ def _listen_get(conn, dest_root):
     return _listen_get_result
 
 def _listen_status(conn, what):
-    """Receive a single status block ('O' ok / 'F' fail) for mkdir/rmdir/rm."""
+    """Receive a single status block ('O' ok / 'F' fail) for mkdir/rmdir/rm/ren.
+
+    A failure ('F') is called out prominently so it is not lost in the log -
+    ``what`` should carry the command and its path for context."""
     res = {'ok': None}
     def handle(payload):
         res['ok'] = (payload[0:1] == b'O')
         return True
-    if _listen_recv_reply(conn, handle):
-        print(f'{timestamp()} | {what}: ' + ('OK' if res['ok'] else 'FAILED'))
+    if not _listen_recv_reply(conn, handle):
+        return
+    if res['ok']:
+        print(f'{timestamp()} | {what}: OK')
+    else:
+        print(f'{timestamp()} | *** {what}: FAILED on the Next ***')
 
 # --- Persistent console reader for -listen -------------------------------------
 # ONE input() thread for the whole server run, shared across reconnections. A
@@ -637,6 +663,7 @@ def listen_session(conn, stats, _test_commands=None):
     put_ofs = 0
     put_pkt = 0
     last_packet = b''
+    pending_put = None      # remote path of an in-flight put (for pass/fail report)
     while True:
         try:
             data = conn.recv(1024)
@@ -645,7 +672,26 @@ def listen_session(conn, stats, _test_commands=None):
         if not data:
             break
 
+        # A newer dotN pushes an explicit 'F' status block when a put fails; ack it
+        # (so its send_block_rt doesn't burn retries) and report the failure. Older
+        # dots just stop pulling and go back to "Poll" (handled in that branch).
+        if is_fail_block(data):
+            sendpacket(conn, b"Ok", 0)
+            if pending_put is not None:
+                print(f'{timestamp()} | *** put {pending_put}: FAILED on the Next ***')
+                pending_put = None
+                _in_transfer = False
+                put_data = b''; put_ofs = 0; put_pkt = 0
+            continue
+
         if data == b"Poll":
+            # An old dot with a still-pending put abandoned the upload (it couldn't
+            # open the file) rather than sending 'F'; report it, then handle poll.
+            if pending_put is not None:
+                print(f'{timestamp()} | *** put {pending_put}: FAILED on the Next ***')
+                pending_put = None
+                _in_transfer = False
+                put_data = b''; put_ofs = 0; put_pkt = 0
             try:
                 op, a1, a2 = cmd_q.get_nowait()
             except queue.Empty:
@@ -657,7 +703,7 @@ def listen_session(conn, stats, _test_commands=None):
                 break
             elif op == "ls":
                 sendpacket(conn, b"L" + (a1 or ".").encode(), 0)
-                _listen_ls(conn)
+                _listen_ls(conn, a1 or ".")
             elif op == "get":
                 if not a1:
                     print("  usage: get <path> [dest]")
@@ -684,16 +730,18 @@ def listen_session(conn, stats, _test_commands=None):
                 print(f'{timestamp()} | put: {a1} -> {remote} ({len(put_data)} bytes)')
                 sendpacket(conn, b"P" + remote.encode(), 0)
                 _in_transfer = True
-                # the Next now pulls the bytes with "Get" (served below)
+                pending_put = remote
+                # the Next now pulls the bytes with "Get" (served below); success
+                # is confirmed when all bytes are served, failure via an 'F' block.
             elif op == "mkdir":
                 sendpacket(conn, b"M" + a1.encode(), 0)
-                _listen_status(conn, "mkdir")
+                _listen_status(conn, f"mkdir {a1}")
             elif op == "rmdir":
                 sendpacket(conn, b"R" + a1.encode(), 0)
-                _listen_status(conn, "rmdir")
+                _listen_status(conn, f"rmdir {a1}")
             elif op == "rm":
                 sendpacket(conn, b"X" + a1.encode(), 0)
-                _listen_status(conn, "rm")
+                _listen_status(conn, f"rm {a1}")
             elif op == "ren":
                 if not a1 or not a2:
                     print("  usage: ren <oldpath> <newpath>")
@@ -701,7 +749,7 @@ def listen_session(conn, stats, _test_commands=None):
                 # Old and new paths travel NUL-separated in a single frame;
                 # the block framing is length-prefixed, so the NUL is safe.
                 sendpacket(conn, b"V" + a1.encode() + b"\x00" + a2.encode(), 0)
-                _listen_status(conn, "ren")
+                _listen_status(conn, f"ren {a1} -> {a2}")
 
         elif data == b"Get" or data == b"Gee":
             n = MAX_PAYLOAD
@@ -713,6 +761,9 @@ def listen_session(conn, stats, _test_commands=None):
             put_pkt += 1
             if put_ofs >= len(put_data):
                 _in_transfer = False               # whole file delivered
+                if pending_put is not None:        # every byte served -> success
+                    print(f'{timestamp()} | put {pending_put}: OK')
+                    pending_put = None
 
         elif data == b"Retry":
             sendpacket(conn, last_packet, (put_pkt - 1) & 0xff)
