@@ -798,7 +798,9 @@ int main(int arglen, char *rawcmd)
     char filehandle = 0; // init to silence "used before init" (the read is guarded, but be safe)
     char retrycount;
     unsigned char saved_scr_ct;
-    unsigned char saved_attr_p, saved_attr_t;
+    // init to silence "used before init" (reads are guarded by the same
+    // if (g_dark) as the writes, but SDCC's flow analysis can't see that)
+    unsigned char saved_attr_p = 0, saved_attr_t = 0;
 
     // Save SCR_CT (23692) before print() starts forcing it to 255, so it can be
     // restored at terminate. Leaving it at 255 would suppress the ROM "scroll?"

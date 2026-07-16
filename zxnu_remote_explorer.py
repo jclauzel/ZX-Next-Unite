@@ -113,6 +113,15 @@ class ColoredFileSystemModel(QFileSystemModel):
             if self.isDir(index) or self.fileName(index) == "..":
                 return ""
             return _human_size(self.size(index))
+        if (role == Qt.ItemDataRole.DisplayRole and index.isValid()
+                and index.column() == 2):
+            # Type column: mirror the Next pane / SD-card image tree ("DIR" for
+            # folders and the ".." row, the file's extension otherwise) instead
+            # of the OS-localised description ("File folder", "Compressed
+            # archived file", "text/plain", ...).
+            if self.isDir(index) or self.fileName(index) == "..":
+                return "DIR"
+            return _ext_type_text(self.fileName(index))
         if role == Qt.ItemDataRole.ForegroundRole and index.isValid():
             c = self._colours
             if self.fileName(index) == "..":  # the parent ".." up-entry
@@ -147,6 +156,13 @@ def _human_size(n):
             return f"{int(n)} {unit}" if unit == "B" else f"{n:.1f} {unit}"
         n /= 1024
     return f"{n:.1f} G"
+
+
+def _ext_type_text(name):
+    """Type text for a file entry, used by BOTH Remote Explorer panes: the first
+    extension segment, exactly as the SD-card image tree shows it (guarded by
+    the '.' test, so [1] is always present)."""
+    return name.split(".")[1] if "." in name else ""
 
 
 def _posix_join(base, name):
@@ -774,9 +790,9 @@ class RemoteExplorerWidget(QWidget):
     # ==================================================================
     @staticmethod
     def _next_type_text(name):
-        # Mirror the SD-card image tree: the "type" is the first extension segment
-        # (guarded by the '.' test, so [1] is always present).
-        return name.split(".")[1] if "." in name else ""
+        # Mirror the SD-card image tree: the "type" is the first extension
+        # segment (shared with the local pane's Type column).
+        return _ext_type_text(name)
 
     def _add_next_row(self, name, is_dir, size, is_updir=False):
         name_item = QStandardItem(self._dir_icon if is_dir else self._file_icon, name)
