@@ -27,9 +27,12 @@ unsigned char sync_open(const char *fn, unsigned char mode)
    return (h == 0xFF) ? 0 : h;
 }
 
+/* Open with ESX_DIR_USE_LFN so readdir returns long filenames instead of the
+ * 8.3 short forms (DYNAMI~1.ZIP etc). NextZXOS falls back to short names when
+ * the filesystem has no LFN for an entry, so this is safe everywhere. */
 unsigned char sync_opendir(const char *path)
 {
-   unsigned char h = esx_f_opendir(path);
+   unsigned char h = esx_f_opendir_ex(path, ESX_DIR_USE_LFN);
    return (h == 0xFF) ? 0 : h;
 }
 
@@ -48,9 +51,12 @@ void sync_write(unsigned char handle, void *buf, unsigned short bytes)
    esx_f_write(handle, buf, bytes);
 }
 
-/* esx_f_readdir writes a struct esx_dirent: byte 0 = FAT attribute, byte 1..
- * = ASCIIZ name. That is exactly the layout the callers parse (entry[0] & 0x10
- * for "is directory", name = entry + 1). Returns entries read (0 = end). */
+/* esx_f_readdir writes a dirent: byte 0 = FAT attribute, byte 1.. = ASCIIZ
+ * name. That is exactly the layout the callers parse (entry[0] & 0x10 for "is
+ * directory", name = entry + 1). Returns entries read (0 = end). The handle
+ * comes from sync_opendir (LFN mode), so the name is the LONG filename and an
+ * entry can be ~270 bytes - the caller's buf must be that big (send_dir passes
+ * inbuf, 2 KB). */
 unsigned char sync_readdir(unsigned char handle, void *buf)
 {
    return esx_f_readdir(handle, buf);
@@ -84,28 +90,35 @@ unsigned char sync_rename(const char *oldpath, const char *newpath)
    return esx_f_rename(oldpath, newpath);
 }
 
-/* Read one directory entry, exposing its FAT attribute (directory flag) and
- * size. esx_f_readdir fills a struct esx_dirent (attr, then ASCIIZ name, then
+/* One static long-filename dirent, reused by every sync_readdir_entry() call.
+ * A struct esx_dirent_lfn is ~270 bytes: far too big for the tight main-bank
+ * stack (REGISTER_SP = $BF00 sits just above the BSS buffers - a stack
+ * collision there is exactly what broke -listen once before), so it lives in
+ * BSS where the map can verify its placement. */
+static struct esx_dirent_lfn dir_ent;
+
+/* Read one directory entry, exposing its FAT attribute (directory flag), size
+ * and LONG filename. esx_f_readdir fills dir_ent (attr, then ASCIIZ name, then
  * date/time and size); esx_slice_dirent() locates the size that follows the
- * variable-length name. Returns 1 on success, 0 at end of directory. */
+ * variable-length name. out->name points INTO dir_ent, so it is only valid
+ * until the next call. Returns 1 on success, 0 at end of directory. */
 unsigned char sync_readdir_entry(unsigned char handle, sync_dirent_t *out)
 {
-   struct esx_dirent ent;
-   unsigned char i;
-
-   if (esx_f_readdir(handle, &ent) == 0)
+   if (esx_f_readdir(handle, &dir_ent) == 0)
       return 0;                          /* end of directory */
 
-   out->is_dir = (ent.attr & 0x10) ? 1 : 0;
-
-   for (i = 0; ent.name[i] && i < sizeof(out->name) - 1; i++)
-      out->name[i] = ent.name[i];
-   out->name[i] = 0;
+   out->is_dir = (dir_ent.attr & 0x10) ? 1 : 0;
 
    if (out->is_dir)
       out->size = 0;
    else
-      out->size = ((struct esx_dirent_slice *)esx_slice_dirent(&ent))->size;
+      out->size = ((struct esx_dirent_slice *)esx_slice_dirent(&dir_ent))->size;
+
+   /* Cap the name at 255 chars AFTER slicing the size out (the slice walks the
+    * original terminator): the wire protocol's name-length field is one byte.
+    * Real FAT long names are <= 255 chars, so this only guards corrupt input. */
+   dir_ent.name[255] = 0;
+   out->name = (char *)dir_ent.name;
 
    return 1;
 }

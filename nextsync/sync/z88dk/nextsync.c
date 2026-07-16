@@ -832,7 +832,7 @@ int main(int arglen, char *rawcmd)
         con_cls();                                        // paint the whole screen black + home
     }
 
-    print("NextSync 4.7 Clauzel/Komppa");
+    print("NextSync 4.8 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -900,7 +900,7 @@ int main(int arglen, char *rawcmd)
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v4.7 Clauzel/Komppa\r"
+                "SYNC v4.8 Clauzel/Komppa\r"
                 ".SYNC [server] : save cfg\r"
                 ".SYNC : sync files from PC\r"
                 ".SYNC -send <file|dir> : to PC\r"
