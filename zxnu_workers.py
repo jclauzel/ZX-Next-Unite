@@ -423,6 +423,21 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                 if not data:
                     break
 
+                # A put in flight is served by the Next pulling the bytes with
+                # "Get"/"Gee" (or asking to resend with "Retry"/"Restart"). If it
+                # sends anything else - it goes back to "Poll" because it could not
+                # open the destination file (e.g. locked/read-only on the Next) -
+                # the upload was abandoned. Report it failed and drop the pending
+                # state, so the UI operation completes and its transfer dialog
+                # closes instead of waiting forever for a "Get" that never comes.
+                if (pending and pending[0] == "put" and
+                        data not in (b"Get", b"Gee", b"Retry", b"Restart")):
+                    sig.put_done.emit(False, pending[1])
+                    pending = None
+                    put_data = b''
+                    put_ofs = 0
+                    put_pkt = 0
+
                 if data == b"Poll":
                     try:
                         cmd = cmd_queue.get_nowait()

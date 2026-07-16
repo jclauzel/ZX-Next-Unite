@@ -38,11 +38,14 @@ extern unsigned char  sync_unlink(const char *path);  /* delete a file         *
 extern unsigned char  sync_rename(const char *oldpath, const char *newpath); /* rename/move a file or dir */
 
 /* One directory entry with its size, for the -listen "ls" command. Enumerated
- * with sync_opendir()/sync_readdir_entry()/sync_close(). Short (8.3) names. */
+ * with sync_opendir()/sync_readdir_entry()/sync_close(). Long filenames: the
+ * handle is opened with ESX_DIR_USE_LFN, and `name` points into a static
+ * dirent buffer inside syncsys.c that the NEXT sync_readdir_entry() call
+ * overwrites - consume it before reading the next entry. */
 typedef struct {
-   unsigned char is_dir;   /* 1 = directory, 0 = file            */
-   unsigned long size;     /* file size in bytes (0 for dirs)    */
-   char          name[16]; /* 0-terminated 8.3 name              */
+   unsigned char is_dir;   /* 1 = directory, 0 = file                  */
+   unsigned long size;     /* file size in bytes (0 for dirs)          */
+   char         *name;     /* 0-terminated long name (max 255 chars)   */
 } sync_dirent_t;
 
 /* Read the next entry from an open directory handle into out.
