@@ -17,6 +17,11 @@ Co-developed with the assistance of **Claude** (Anthropic's AI).
   lines to remember.
 - **NextSync tab** — push files over Wi-Fi from your PC to a real Spectrum Next
   (KS1/KS2 or clones with an ESP module) using the `.sync4` dot command.
+- ⭐ **Remote Explorer** — a two-pane file manager for your Next's **real
+  filesystem over Wi-Fi**: browse, drag & drop, upload/download and manage files
+  (new folder, delete) directly — no SD-card swapping. Run `.sync4 -listen` on
+  the Next to connect. See the
+  [Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki#remote-file-explorer).
 - **Online libraries** — search and download from GetIt, ZXDB/ZXInfo, zxArt and
   (optionally) itch.io.
 
