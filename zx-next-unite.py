@@ -2849,6 +2849,20 @@ class MainWindow(QMainWindow):
         def nextsync_server_exception_occured(ex):
             add_nextsync_log_window ("NextSync exception occured while syncing: " + str(ex))
 
+        def _nextsync_on_port_in_use(port):
+            # A port clash (WinError 10048 / EADDRINUSE) almost always means a
+            # NextSync server is already listening - typically another running
+            # copy of this app. Warn with a yellow toast so the user knows to
+            # close the other instance. Runs on the UI thread (queued signal).
+            add_nextsync_log_window(
+                f"NextSync: port {port} is already in use — is another "
+                "ZX-Next-Unite (or NextSync server) already running?")
+            self._show_toast(
+                "NextSync server not started",
+                f"Port {port} is already in use.\nIs another ZX-Next-Unite "
+                "instance (or a standalone NextSync server) already running?",
+                variant="yellow", duration_ms=12000)
+
         def nextsync_hide_start_cancel_buttons():
             self.nextsync_start_server.setVisible(False)
             self.nextsync_cancel_server.setVisible(False)
@@ -6626,6 +6640,8 @@ class MainWindow(QMainWindow):
                 # their real size instead of a stale 0 KB.
                 sig.finished.connect(nextsync_refresh_explorer)
                 sig.cancelled.connect(dlg.mark_cancelled)
+                # Port already taken (another instance?) -> yellow toast on the UI thread.
+                sig.port_in_use.connect(_nextsync_on_port_in_use)
                 dlg.cancel_requested.connect(lambda: cancel_flag.set())
 
                 # "Send via NextSync" (an explicit serve_folder, e.g. from a
@@ -6661,7 +6677,12 @@ class MainWindow(QMainWindow):
                         )
                     except Exception as ex:
                         logging.error(f"NextSync thread error: {ex}", exc_info=True)
-                        nextsync_server_exception_occured(ex)
+                        # A port clash is reported via its own signal (-> yellow
+                        # toast on the UI thread); everything else logs as before.
+                        if is_address_in_use(ex):
+                            sig.port_in_use.emit(PORT)
+                        else:
+                            nextsync_server_exception_occured(ex)
                     finally:
                         if cancel_flag.is_set():
                             sig.cancelled.emit()
@@ -9026,6 +9047,10 @@ class MainWindow(QMainWindow):
                 restarts = 0
                 gee = 0
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    # bind() raises OSError (WinError 10048) if the port is already
+                    # taken - typically another running instance. _run turns that
+                    # into the "another instance?" yellow toast via
+                    # nextsync_server_exception_occured.
                     s.bind(("", PORT))
                     s.listen()
                     # Poll for cancel every second while waiting for connection
@@ -11012,6 +11037,32 @@ class MainWindow(QMainWindow):
             # sync root is set) so the user can accept a fresh connection.
             _re_update_start_button()
 
+        def _nextsync_on_re_port_in_use(port):
+            # The listen server could not bind: the port is already held, almost
+            # always by another running ZX-Next-Unite (or a standalone NextSync
+            # server). Reset to "not started" and warn with a yellow toast.
+            # Clearing _re_running here also makes the disconnected() slot that
+            # follows (emitted from the worker's finally) skip its misleading
+            # "the Next disconnected" message.
+            self._re_thread = None
+            self._re_stop = None
+            self._re_queue = None
+            self._re_running = False
+            _re_stop_play_pulse()
+            try:
+                self.nextsync_re_play_label.setVisible(False)
+            except RuntimeError:
+                pass
+            add_nextsync_log_window(
+                f"Remote explorer: port {port} is already in use — is another "
+                "ZX-Next-Unite (or NextSync server) already running?")
+            self._show_toast(
+                "NextSync server not started",
+                f"Port {port} is already in use.\nIs another ZX-Next-Unite "
+                "instance (or a standalone NextSync server) already running?",
+                variant="yellow", duration_ms=12000)
+            _re_update_start_button()
+
         def _nextsync_start_listen_server():
             if self._re_running:
                 return
@@ -11044,6 +11095,7 @@ class MainWindow(QMainWindow):
             self._re_sig.log.connect(lambda s: add_nextsync_log_window(str(s)))
             self._re_sig.error.connect(widget.on_error)
             self._re_sig.error.connect(lambda s: add_nextsync_log_window("Remote explorer: " + str(s)))
+            self._re_sig.port_in_use.connect(_nextsync_on_re_port_in_use)
             self._re_thread = threading.Thread(
                 target=run_remote_listen_server,
                 args=(self._re_sig, self._re_queue, self._re_stop),

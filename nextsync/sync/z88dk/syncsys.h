@@ -67,6 +67,8 @@ extern void          writenextreg(unsigned char reg, unsigned char val);
 
 /* --- console output (ROM print via z88dk's RST 16 stdout driver) ------- */
 extern void conprint(char *txt);
+/* Clear the screen to black paper / green ink and home the cursor. */
+extern void con_cls(void);
 
 /* --- timing-critical UART receive loop (uart.asm) ---------------------- */
 extern unsigned short receive(char *b) __z88dk_fastcall;

@@ -48,6 +48,7 @@ char *cmdline;
 unsigned short corever;
 char g_verbose = 0;   // -v: echo -listen commands/actions on the Next screen
 char g_anim = 0;      // -anim/-a: hardware-sprite eye-candy while syncing (opt-in)
+char g_dark = 0;      // -dark/-d: retro green-on-black look + custom font (opt-in)
 
 // Optional sprite animation (anim.c). The functions self-guard (tick/end do
 // nothing until begin has run), so they're safe to call unconditionally.
@@ -593,10 +594,16 @@ char send_dir(char *fullpath, unsigned short plen, unsigned char *inbuf, unsigne
     }
 }
 
-// Set g_syncmode if the n-char token at p is a -slow/-default/-fast switch and
+// Set g_syncmode (or a flag) if the n-char token at p is one of our switches and
 // return 1, else return 0. Matched by first char + length (much cheaper than
-// memcmp on z80): "-fast" (-f, len 5), "-default" (-d, len 8), "-slow" (-s, len
-// 5, with 3rd char 'l' so it isn't confused with "-send").
+// memcmp on z80):
+//   "-fast"    / "-f"      (len 5 / 2)   speed: fastest
+//   "-default"            (len 8)        speed: middle
+//   "-slow"    / "-s"      (len 5 w/ 3rd char 'l' so it isn't "-send" / len 2)
+//   "-dark"    / "-d"      (len 5 w/ 3rd char 'a' / len 2)  retro green-on-black
+//                                        look with the custom font (OFF by
+//                                        default; opt-in because it repaints the
+//                                        screen and is not wanted in every mode)
 //
 // Also consumes the standalone option flags "-v" (verbose), "-a" and "-anim"
 // (sprite eye-candy), setting their globals. Consuming them here means they are
@@ -605,12 +612,13 @@ char send_dir(char *fullpath, unsigned short plen, unsigned char *inbuf, unsigne
 unsigned char setspeed(char *p, unsigned char n)
 {
     if (*p != '-') return 0;
-    if (p[1] == 'f' && n == 5)                  { g_syncmode = MODE_FAST;    return 1; }
-    if (p[1] == 'd' && n == 8)                  { g_syncmode = MODE_DEFAULT; return 1; }
-    if (p[1] == 's' && n == 5 && p[2] == 'l')   { g_syncmode = MODE_SLOW;    return 1; }
-    if (p[1] == 'v' && n == 2)                  { g_verbose = 1;             return 1; }
-    if (p[1] == 'a' && n == 2)                  { g_anim = 1;                return 1; }
-    if (p[1] == 'a' && n == 5 && p[2] == 'n')   { g_anim = 1;                return 1; }
+    if (p[1] == 'f' && (n == 5 || n == 2))              { g_syncmode = MODE_FAST;    return 1; }
+    if (p[1] == 'd' && n == 8)                          { g_syncmode = MODE_DEFAULT; return 1; }
+    if (p[1] == 'd' && (n == 2 || (n == 5 && p[2] == 'a'))) { g_dark = 1;            return 1; }
+    if (p[1] == 's' && (n == 2 || (n == 5 && p[2] == 'l'))) { g_syncmode = MODE_SLOW; return 1; }
+    if (p[1] == 'v' && n == 2)                          { g_verbose = 1;             return 1; }
+    if (p[1] == 'a' && n == 2)                          { g_anim = 1;                return 1; }
+    if (p[1] == 'a' && n == 5 && p[2] == 'n')           { g_anim = 1;                return 1; }
     return 0;
 }
 
@@ -787,6 +795,7 @@ int main(int arglen, char *rawcmd)
     char filehandle = 0; // init to silence "used before init" (the read is guarded, but be safe)
     char retrycount;
     unsigned char saved_scr_ct;
+    unsigned char saved_attr_p, saved_attr_t;
 
     // Save SCR_CT (23692) before print() starts forcing it to 255, so it can be
     // restored at terminate. Leaving it at 255 would suppress the ROM "scroll?"
@@ -797,14 +806,33 @@ int main(int arglen, char *rawcmd)
     (void)arglen;
     cmdline = rawcmd;
 
-    // Strip speed switches into a private buffer (never write the OS cmdline),
-    // then point cmdline at it so the normal parser sees the cleaned line.
+    // Strip speed/option switches into a private buffer (never write the OS
+    // cmdline), then point cmdline at it so the normal parser sees the cleaned
+    // line. This sets g_dark (from -dark/-d) before we decide on the look below.
     g_syncmode = MODE_FAST; // default when no -slow/-default/-fast is given
     parse_speed_switches(cleancmd);
     cmdline = cleancmd;
     g_fast_uart_mode = (g_syncmode == MODE_FAST) ? 14 : 12;
 
-    print("NextSync 4.4 Clauzel/Komppa");
+    // Optional retro look (-dark/-d), restored at terminate: green ink (4) on
+    // black paper (0). We poke the ZX attribute sysvars (ATTR_P permanent 23693,
+    // ATTR_T temporary 23695; value = paper*8 + ink) so every ROM-printed line
+    // comes out green-on-black, then con_cls() paints the whole screen black.
+    // OFF by default so it never disturbs the plain sync / -listen paths (the
+    // screen repaint was found to interfere with -listen). A bundled custom font
+    // was tried too but dropped: its 1 KB pushed the big I/O buffers past the top
+    // of the main bank ($BFFF) into the stack / NextZXOS, which corrupted
+    // -listen. We use the ROM font instead.
+    if (g_dark)
+    {
+        saved_attr_p = *((unsigned char *)23693);
+        saved_attr_t = *((unsigned char *)23695);
+        *((unsigned char *)23693) = 0x04;                 // paper 0 (black), ink 4 (green)
+        *((unsigned char *)23695) = 0x04;
+        con_cls();                                        // paint the whole screen black + home
+    }
+
+    print("NextSync 4.7 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -872,7 +900,7 @@ int main(int arglen, char *rawcmd)
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v4.4 Clauzel/Komppa\r"
+                "SYNC v4.7 Clauzel/Komppa\r"
                 ".SYNC [server] : save cfg\r"
                 ".SYNC : sync files from PC\r"
                 ".SYNC -send <file|dir> : to PC\r"
@@ -881,6 +909,7 @@ int main(int arglen, char *rawcmd)
                 "  mkdir rmdir rm ren\r"
                 "  BREAK key stops it (safe)\r"
                 ".SYNC -slow|-default|-fast\r"
+                ".SYNC -dark|-d : retro look\r"
                 ".SYNC -v : verbose trace\r"
                 ".SYNC -anim|-a : sprite fun\r"
                 "See nextsync.txt\r\r");
@@ -1217,6 +1246,11 @@ bailout:
     writenextreg(0x07, nextreg7); // restore cpu speed
     writenextreg(0x06, nextreg6); // restore turbo key & 50/60 switch
 terminate:
-    *((unsigned char *)23692) = saved_scr_ct; // restore ROM scroll counter
+    *((unsigned char  *)23692) = saved_scr_ct;  // restore ROM scroll counter
+    if (g_dark)                                  // undo the -dark look
+    {
+        *((unsigned char *)23693) = saved_attr_p;   // restore colours (back to black ink)
+        *((unsigned char *)23695) = saved_attr_t;
+    }
     return 0; // clean exit to BASIC (crt returns with carry clear)
 }
