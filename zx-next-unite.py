@@ -10803,6 +10803,11 @@ class MainWindow(QMainWindow):
         self._re_running = False
         self._re_pulse_timer = None            # green "running" pulse (play label)
         self._re_start_btn_pulse_timer = None  # yellow "start me" pulse (start button)
+        # The Remote Explorer's chosen local "sync root". "" until the user picks
+        # a folder in its left file explorer; the 'Start NextSync server' button
+        # stays disabled (with a prompt) until then. Mirrored from the widget via
+        # _re_on_sync_root_changed.
+        self._re_sync_root = ""
 
         def _re_enqueue(cmd):
             if self._re_queue is not None:
@@ -10845,6 +10850,44 @@ class MainWindow(QMainWindow):
                 pass
         self._re_apply_item_colors = _re_apply_item_colors
 
+        # 'Start NextSync server' button text shown once a sync root is chosen.
+        _RE_START_TEXT = "▶ Start NextSync server"
+        _RE_NO_ROOT_TEXT = "Please select a sync root folder on the left local file explorer"
+
+        def _re_update_start_button():
+            # Reflect the current state on the Remote Explorer's server button
+            # (pulses only run while the Remote Explorer view is in front):
+            #   running        -> "Stop", clickable, no pulse
+            #   sync root set  -> "Start", clickable, yellow "start me" pulse
+            #   no sync root   -> prompt text, disabled, green "pick one" pulse
+            btn = self.nextsync_re_start_button
+            if self._re_running:
+                _re_stop_startbtn_pulse()
+                btn.setEnabled(True)
+                btn.setText("⏹ Stop NextSync server")
+                return
+            in_view = self.nextsync_remote_button.isChecked()
+            if getattr(self, "_re_sync_root", ""):
+                btn.setEnabled(True)
+                btn.setText(_RE_START_TEXT)
+                _re_start_startbtn_pulse("yellow") if in_view else _re_stop_startbtn_pulse()
+            else:
+                btn.setEnabled(False)
+                btn.setText(_RE_NO_ROOT_TEXT)
+                _re_start_startbtn_pulse("green") if in_view else _re_stop_startbtn_pulse()
+        self._re_update_start_button = _re_update_start_button
+
+        def _re_on_sync_root_changed(root):
+            # The widget reports the user picked (or changed) the local sync root.
+            self._re_sync_root = (root or "").strip()
+            if self._re_sync_root:
+                try:
+                    configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH] = self._re_sync_root
+                    save_configuration_file()
+                except Exception:
+                    pass
+            _re_update_start_button()
+
         def _nextsync_build_remote_explorer():
             if self._re_widget is not None:
                 return self._re_widget
@@ -10852,10 +10895,14 @@ class MainWindow(QMainWindow):
             widget = RemoteExplorerWidget(
                 _re_enqueue, local_start_dir=start_dir,
                 log=lambda s: add_nextsync_log_window(str(s)),
-                drain=_re_drain)
+                drain=_re_drain, on_sync_root_changed=_re_on_sync_root_changed)
             self._re_widget = widget
             self.nextsync_log_stack.addWidget(widget)
             _re_apply_item_colors()          # tint to the user's configured colours
+            # Sync the cached sync root with whatever the widget restored (a saved
+            # path enables Start; first run leaves it disabled).
+            self._re_sync_root = widget.sync_root() or ""
+            _re_update_start_button()
             return widget
 
         # Soft green "breathing" pulse on the running indicator (same idea as the
@@ -10897,10 +10944,15 @@ class MainWindow(QMainWindow):
         # Explorer is open but the server has not been started yet — the amber
         # counterpart to the green "running" pulse above, so it's obvious the
         # next step is to start the server.
-        def _re_start_startbtn_pulse():
+        def _re_start_startbtn_pulse(color="yellow"):
             _re_stop_startbtn_pulse()
             steps = 22
             phase = {"n": 0}
+            # Pulse colour encodes what the button is asking for:
+            #   green  -> no sync root yet, prompting the user to pick a folder
+            #   yellow -> sync root chosen, server not started ("start me")
+            (r, g, b), fg = ((46, 204, 113), "#eafff0") if color == "green" \
+                else ((241, 196, 15), "#3a2e00")
 
             def _tick():
                 phase["n"] = (phase["n"] + 1) % (2 * steps)
@@ -10909,10 +10961,11 @@ class MainWindow(QMainWindow):
                 a = int(70 + 150 * tri)
                 try:
                     self.nextsync_re_start_button.setStyleSheet(
-                        "QPushButton { color: #3a2e00; font-weight: bold;"
+                        "QPushButton { color: %s; font-weight: bold;"
                         " padding: 4px 10px; border-radius: 6px;"
-                        f" background-color: rgba(241,196,15,{a});"
-                        f" border: 1px solid rgba(241,196,15,{min(a + 60, 255)}); }}")
+                        " background-color: rgba(%d,%d,%d,%d);"
+                        " border: 1px solid rgba(%d,%d,%d,%d); }" % (
+                            fg, r, g, b, a, r, g, b, min(a + 60, 255)))
                 except RuntimeError:
                     pass
             timer = QTimer(self)
@@ -10949,20 +11002,24 @@ class MainWindow(QMainWindow):
             self._re_running = False
             _re_stop_play_pulse()          # green "running" pulse off
             try:
-                self.nextsync_re_start_button.setText("▶ Start NextSync server")
                 self.nextsync_re_play_label.setVisible(False)
             except RuntimeError:
                 pass
             add_nextsync_log_window(
                 "Remote explorer: the Next disconnected (BREAK / Bye). "
                 "Press 'Start NextSync server' to accept a new connection.")
-            # Still viewing the Remote Explorer? Pulse Start yellow again to
-            # prompt starting a fresh server.
-            if self.nextsync_remote_button.isChecked():
-                _re_start_startbtn_pulse()
+            # Restore the button to "Start" (and pulse it, if still in view and a
+            # sync root is set) so the user can accept a fresh connection.
+            _re_update_start_button()
 
         def _nextsync_start_listen_server():
             if self._re_running:
+                return
+            # A sync root must be chosen first (the button is normally disabled
+            # without one; this guards direct/programmatic calls).
+            if not getattr(self, "_re_sync_root", ""):
+                add_nextsync_log_window(
+                    "Select a sync root folder in the left local file explorer first.")
                 return
             # Can't run the listen server while a normal sync is in progress.
             t = getattr(self, "_nextsync_thread", None)
@@ -11030,10 +11087,12 @@ class MainWindow(QMainWindow):
             self._re_running = False
             _re_stop_play_pulse()
             try:
-                self.nextsync_re_start_button.setText("▶ Start NextSync server")
                 self.nextsync_re_play_label.setVisible(False)
             except RuntimeError:
                 pass
+            # Back to "not started": restore the button (Start + pulse if a sync
+            # root is set and we're still in view, else the disabled prompt).
+            _re_update_start_button()
         # Exposed so app-exit paths (window close / Ctrl-C) can say goodbye to a
         # connected Next before the process dies. Safe/idempotent to call twice.
         self._nextsync_stop_listen_server_fn = _nextsync_stop_listen_server
@@ -11041,9 +11100,6 @@ class MainWindow(QMainWindow):
         def _nextsync_re_toggle_server():
             if self._re_running:
                 _nextsync_stop_listen_server()
-                # Back to "not started" while still in the Remote Explorer view:
-                # pulse the Start button again to prompt starting it.
-                _re_start_startbtn_pulse()
             else:
                 _nextsync_start_listen_server()
         self._nextsync_re_toggle_server = _nextsync_re_toggle_server
@@ -11061,9 +11117,9 @@ class MainWindow(QMainWindow):
                 self.nextsync_slowtransfer_checkbox.setVisible(False)
                 self.nextsync_re_start_button.setVisible(True)
                 self.nextsync_re_play_label.setVisible(self._re_running)
-                # Not started yet -> pulse the Start button yellow to prompt it.
-                if not self._re_running:
-                    _re_start_startbtn_pulse()
+                # Set the button state: disabled with a "pick a sync root" prompt
+                # until the user selects one, then "Start" (pulsing yellow).
+                _re_update_start_button()
                 # Give the Remote Explorer the full width: hide the local file
                 # explorer column (with its SyncIgnore / SyncPoint buttons) and
                 # the name filter. The drive switcher stays so the Remote
@@ -11072,7 +11128,8 @@ class MainWindow(QMainWindow):
                 self.nextsync_filterlabel.setVisible(False)
                 self.nextsync_filtertext.setVisible(False)
                 add_nextsync_log_window(
-                    "Remote explorer: click 'Start NextSync server', then run '.sync4 -listen' on your Next.")
+                    "Remote explorer: pick a sync root folder in the left file explorer, "
+                    "click 'Start NextSync server', then run '.sync4 -listen' on your Next.")
             else:
                 _nextsync_stop_listen_server()
                 _re_stop_startbtn_pulse()   # leaving the RE view: drop the pulse

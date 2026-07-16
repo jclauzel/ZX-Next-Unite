@@ -20,8 +20,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QAbstractItemView, QFileSystemModel, QGridLayout, QHBoxLayout, QInputDialog,
-    QLabel, QMenu, QMessageBox, QPushButton, QStyle, QTreeView, QVBoxLayout,
-    QWidget,
+    QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QStyle, QTreeView,
+    QVBoxLayout, QWidget,
 )
 
 from zxnu_config import (
@@ -29,7 +29,7 @@ from zxnu_config import (
     DEFAULT_COLOR_FILE_NAME, DEFAULT_COLOR_FILE_EXT, DEFAULT_COLOR_FILE_SIZE,
     DEFAULT_COLOR_GENERAL_TEXT, hex_to_qcolor,
 )
-from zxnu_workers import HdfProgressDialog
+from zxnu_workers import DotDotFirstProxyModel, HdfProgressDialog
 
 # Roles carrying the remote entry's full posix path and its directory flag.
 RE_PATH_ROLE = Qt.UserRole + 1
@@ -115,16 +115,24 @@ class RemoteExplorerWidget(QWidget):
     enqueue(cmd_tuple) is the single channel to the listen worker; the host wires
     the worker's signals to on_connected/on_disconnected/on_listing/on_got/
     on_put_done/on_op_done.  `log` is an optional callable(str) for status lines.
+    `on_sync_root_changed` is an optional callable(str) fired whenever the user
+    picks (or clears) the local "sync root" folder, so the host can enable/disable
+    the 'Start NextSync server' button.
     """
 
     def __init__(self, enqueue, local_start_dir=None, log=None, parent=None,
-                 drain=None):
+                 drain=None, on_sync_root_changed=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
         self._drain_raw = drain              # host closure: empty the queue, -> count
         self._log = log or (lambda s: None)
+        self._on_sync_root_changed = on_sync_root_changed or (lambda p: None)
         self._cwd = "/"                      # current Next directory
         self._connected = False
+        # The local folder the Remote Explorer works in. "" until the user picks
+        # one (first run); a folder must be chosen before the server can start.
+        self._sync_root = ""
+        self._browse_root = ""               # folder the local tree is rooted at
         # Internal copy/paste buffer shared between the two panes, as
         # (kind, items, mode) where kind is "local"/"next", mode is "copy"/"cut"
         # and items is [local_path, …] or [(remote_path, is_dir), …].
@@ -156,8 +164,18 @@ class RemoteExplorerWidget(QWidget):
         # ---- left: local file explorer ------------------------------------
         self.local_model = ColoredFileSystemModel(self._colors, self)
         self.local_model.setRootPath("")
+        # Name-filter proxy, mirroring the classic sync local explorer: it filters
+        # by file name and keeps any ".." entry on top. The per-item foreground
+        # colours pass straight through to the source model.
+        self.local_proxy = DotDotFirstProxyModel(
+            recursiveFilteringEnabled=True,
+            filterRole=QFileSystemModel.FileNameRole)
+        self.local_proxy.setSourceModel(self.local_model)
+        self.local_proxy.setSortCaseSensitivity(Qt.CaseInsensitive)
+        self.local_proxy.setDynamicSortFilter(True)
+
         self.local_view = QTreeView(self)
-        self.local_view.setModel(self.local_model)
+        self.local_view.setModel(self.local_proxy)
         self.local_view.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.local_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.local_view.setUniformRowHeights(True)
@@ -171,6 +189,7 @@ class RemoteExplorerWidget(QWidget):
         self.local_view.setDragEnabled(True)
         self.local_view.setAcceptDrops(True)
         self.local_view.setDropIndicatorShown(True)
+        self.local_view.clicked.connect(self._local_clicked)
         self.local_view.doubleClicked.connect(self._local_double_clicked)
         self.local_view.dragEnterEvent = self._local_drag_enter
         self.local_view.dragMoveEvent = self._local_drag_enter
@@ -179,13 +198,8 @@ class RemoteExplorerWidget(QWidget):
         self.local_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.local_view.customContextMenuRequested.connect(self._local_context_menu)
 
-        self.local_path_label = QLabel(self)
-        self.local_path_label.setToolTip("Local folder (double-click a folder to enter, Up to go back)")
-
-        start = local_start_dir if (local_start_dir and os.path.isdir(local_start_dir)) \
-            else QDir.homePath()
-        self._set_local_dir(start)
-
+        # Top bar: Up / Refresh + the name filter ("Search: … Filter by name…"),
+        # mirroring the classic sync local explorer.
         local_up = QPushButton("Up", self)
         local_up.setMaximumWidth(48)
         local_up.clicked.connect(self._local_up)
@@ -193,19 +207,45 @@ class RemoteExplorerWidget(QWidget):
         local_refresh.setMaximumWidth(72)
         local_refresh.setToolTip("Re-read the current local folder from disk")
         local_refresh.clicked.connect(self._local_refresh)
+        self.local_filter_label = QLabel("Search: ", self)
+        self.local_filter_edit = QLineEdit(self)
+        self.local_filter_edit.setPlaceholderText("Filter by name...")
+        self.local_filter_edit.setClearButtonEnabled(True)
+        self.local_filter_edit.textChanged.connect(self._local_filter_changed)
         local_bar = QHBoxLayout()
         local_bar.setContentsMargins(0, 0, 0, 0)
         local_bar.addWidget(local_up)
         local_bar.addWidget(local_refresh)
-        local_bar.addWidget(self.local_path_label, 1)
+        local_bar.addWidget(self.local_filter_label)
+        local_bar.addWidget(self.local_filter_edit, 1)
+
+        # Under the tree: the sync-root path box (same idea as classic sync's
+        # "Path…" field). Shows the chosen sync root; typing a folder path and
+        # pressing Enter jumps there and selects it.
+        self.local_path_edit = QLineEdit(self)
+        self.local_path_edit.setPlaceholderText("Select a sync root folder above...")
+        self.local_path_edit.setToolTip(
+            "Sync root: the local folder the Remote Explorer works in. Click a "
+            "folder above to choose it, or type a path here and press Enter.")
+        self.local_path_edit.editingFinished.connect(self._on_path_edit)
 
         local_box = QVBoxLayout()
         local_box.setContentsMargins(0, 0, 0, 0)
         local_box.setSpacing(2)
         local_box.addLayout(local_bar)
         local_box.addWidget(self.local_view)
+        local_box.addWidget(self.local_path_edit)
         local_container = QWidget(self)
         local_container.setLayout(local_box)
+
+        # First run has no sync root: browse from home but leave the sync root
+        # unset, so the host keeps the Start button disabled until the user picks
+        # a folder. A saved path (SETTING_NEXTSYNC_EXPLORERPATH) is restored as
+        # the sync root and enables Start straight away.
+        if local_start_dir and os.path.isdir(local_start_dir):
+            self._set_local_dir(local_start_dir, commit=True)
+        else:
+            self._set_local_dir(QDir.homePath(), commit=False)
 
         # ---- centre: transfer buttons -------------------------------------
         self.btn_to_next = QPushButton("->:", self)
@@ -922,27 +962,70 @@ class RemoteExplorerWidget(QWidget):
     # ==================================================================
     #  local pane
     # ==================================================================
-    def set_local_dir(self, path):
-        """Public: point the local pane at `path` (e.g. a drive root).
+    def sync_root(self):
+        """The chosen sync-root folder ("" until the user picks one). The host
+        gates the 'Start NextSync server' button on this."""
+        return self._sync_root
 
-        Used by the host's drive switcher so the Remote Explorer can change
-        drive too. Ignored if `path` isn't an existing directory.
+    def set_local_dir(self, path):
+        """Public: point the local pane's browse root at `path` (e.g. a drive
+        root from the host's drive switcher). Leaves the sync root unchanged.
+        Ignored if `path` isn't an existing directory.
         """
         if path and os.path.isdir(path):
-            self._set_local_dir(path)
+            self._set_local_dir(path, commit=False)
 
-    def _set_local_dir(self, path):
-        self.local_view.setRootIndex(self.local_model.index(path))
-        self.local_path_label.setText(path)
+    # -- index mapping between the filter proxy (the view) and the file model --
+    def _view_ix(self, path):
+        return self.local_proxy.mapFromSource(self.local_model.index(path))
+
+    def _path_of(self, view_ix):
+        return self.local_model.filePath(self.local_proxy.mapToSource(view_ix))
+
+    def _browse_dir(self):
+        """The folder the tree is rooted at (used by Up / Refresh / New Folder)."""
+        return self._browse_root or QDir.homePath()
 
     def _local_dir(self):
-        return self.local_model.filePath(self.local_view.rootIndex()) or QDir.homePath()
+        """Where downloads land: the sync root once chosen, else the browse root."""
+        return self._sync_root or self._browse_dir()
+
+    def _set_local_dir(self, path, commit=True):
+        """Point the browse root at `path`. When `commit`, also make it the sync
+        root (navigating into a folder means you want to work there)."""
+        path = path.replace("\\", "/") if path else path
+        self.local_view.setRootIndex(self._view_ix(path))
+        self._browse_root = path
+        if commit:
+            self._commit_sync_root(path)
+
+    def _commit_sync_root(self, path):
+        """Record `path` as the sync root, show it in the path box, and notify the
+        host (which enables the Start button)."""
+        norm = (path or "").replace("\\", "/").rstrip("/")
+        if not norm or not os.path.isdir(norm):
+            return
+        self._sync_root = norm
+        if self.local_path_edit.text() != norm:
+            self.local_path_edit.setText(norm)
+        self._on_sync_root_changed(norm)
+
+    def _local_filter_changed(self, text):
+        self.local_proxy.setFilterFixedString((text or "").strip())
+
+    def _on_path_edit(self):
+        new = self.local_path_edit.text().strip()
+        if new and os.path.isdir(new):
+            self._set_local_dir(new, commit=True)
+        else:
+            # Restore the last valid sync root (empty falls back to placeholder).
+            self.local_path_edit.setText(self._sync_root)
 
     def _local_up(self):
-        cur = self._local_dir()
+        cur = self._browse_dir()
         parent = os.path.dirname(cur.rstrip("/\\"))
         if parent and os.path.isdir(parent):
-            self._set_local_dir(parent)
+            self._set_local_dir(parent, commit=True)
 
     def _local_refresh(self):
         """Force the local pane to re-read the current folder from disk.
@@ -951,22 +1034,32 @@ class RemoteExplorerWidget(QWidget):
         via its file-system watcher, but bouncing the root path guarantees an
         immediate rescan (e.g. right after files land from a download).
         """
-        cur = self._local_dir()
+        cur = self._browse_dir()
         self.local_model.setRootPath("")          # bounce so an unchanged path rescans
         self.local_model.setRootPath(cur or "")
         if cur and os.path.isdir(cur):
-            self.local_view.setRootIndex(self.local_model.index(cur))
-            self.local_path_label.setText(cur)
+            self.local_view.setRootIndex(self._view_ix(cur))
+
+    def _local_clicked(self, index):
+        """Single-click picks a sync root, like the classic sync explorer: a
+        folder selects itself, a file selects its parent folder. Changing the
+        tree root (browsing) still happens on double-click / Up."""
+        path = self._path_of(index)
+        if not path:
+            return
+        folder = path if os.path.isdir(path) else os.path.dirname(path)
+        if folder and os.path.isdir(folder):
+            self._commit_sync_root(folder)
 
     def _local_double_clicked(self, index):
-        path = self.local_model.filePath(index)
+        path = self._path_of(index)
         if os.path.isdir(path):
-            self._set_local_dir(path)
+            self._set_local_dir(path, commit=True)
 
     def _selected_local_paths(self):
         out = []
         for ix in self.local_view.selectionModel().selectedRows(0):
-            p = self.local_model.filePath(ix)
+            p = self._path_of(ix)
             if p:
                 out.append(p)
         return out
@@ -1033,7 +1126,7 @@ class RemoteExplorerWidget(QWidget):
             self._local_refresh()
 
     def _local_new_folder(self):
-        base = self._local_dir()
+        base = self._browse_dir()
         if not base or not os.path.isdir(base):
             return
         name, ok = QInputDialog.getText(self, "New Folder", f"New folder in {base}:")
