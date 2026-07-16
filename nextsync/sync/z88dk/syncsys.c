@@ -7,6 +7,7 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 #include <arch/zxn.h>
 #include <arch/zxn/esxdos.h>
 
@@ -134,6 +135,34 @@ void conprint(char *txt)
    char c;
    while ((c = *txt++) != 0)
       fputc((c == '\r') ? '\n' : c, stdout);
+}
+
+/* Clear the whole ULA screen to the classic NextSync look - black paper, green
+ * ink - and home the print cursor, matching the original .sync startup (which
+ * did the same two memsets + a home). Without this only the cells the ROM prints
+ * to turn black; the rest of the screen keeps its previous (usually white)
+ * paper. The display file is at $4000 (6144 pixel bytes) / $5800 (768 attribute
+ * bytes) under NextZXOS, and stays mapped there while the dot runs. */
+void con_cls(void)
+{
+   /* CRITICAL ORDERING: z88dk's terminal stdout driver runs a one-time init the
+    * first time it emits output, and that init clears the whole attribute file
+    * to its default (white) paper. It does NOT touch ATTR_T/ATTR_P or CHARS,
+    * which is why the printed cells come out green-on-black (ATTR_T) with the
+    * custom font while the rest of the screen stays white. So we must let that
+    * init happen FIRST (send one newline to trigger it) and paint the screen
+    * black AFTER, otherwise the init wipes our fill. */
+   fputc('\n', stdout);                  /* force the driver's init (clears attrs to white) */
+   memset((void *)0x4000, 0x00, 6144);   /* pixels -> all black          */
+   memset((void *)0x5800, 0x04, 768);    /* attrs  -> paper 0, ink 4      */
+   /* Home the ROM print position to the top-left of the upper screen so the log
+    * starts at the top of the cleared page (the original .sync did SETXY(0,0)).
+    * We set the sysvars directly rather than sending the AT control code, which
+    * the terminal driver could intercept: S_POSN counts the column/line DOWN
+    * from 33/24, and DF_CC is the display-file address of that cell. */
+   *((unsigned char  *)23688) = 33;      /* S_POSN column (33 = left edge) */
+   *((unsigned char  *)23689) = 24;      /* S_POSN line   (24 = top)       */
+   *((unsigned short *)23684) = 0x4000;  /* DF_CC = address of top-left cell */
 }
 
 /* --- rolling packet checksum ------------------------------------------- */

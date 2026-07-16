@@ -2,6 +2,7 @@
 
 Extracted from zx-next-unite.py."""
 
+import errno
 import os
 import queue
 import socket
@@ -126,6 +127,44 @@ class FlowLayout(QLayout):
         return y - rect.y() + m.bottom()
 
 
+def is_address_in_use(ex):
+    """True when an OSError from ``bind()`` means the TCP port is already taken.
+
+    Covers Windows (WSAEADDRINUSE 10048, and WSAEACCES 10013 which is what an
+    exclusive-use bind raises against a port another socket already holds) and
+    POSIX (EADDRINUSE / EACCES). Used to turn a NextSync-server port clash into a
+    friendly "another instance is probably running" warning instead of a crash.
+    """
+    if not isinstance(ex, OSError):
+        return False
+    if getattr(ex, "winerror", None) in (10048, 10013):
+        return True
+    return ex.errno in (errno.EADDRINUSE, errno.EACCES)
+
+
+def bind_listen_socket(port):
+    """Create a listening TCP socket on ``port`` (all interfaces).
+
+    Uses SO_EXCLUSIVEADDRUSE on Windows so a second bind fails cleanly instead of
+    silently "stealing" the port from another instance (SO_REUSEADDR has that
+    surprising behaviour on Windows); on POSIX it uses SO_REUSEADDR so the server
+    can be restarted without waiting out TIME_WAIT. Raises OSError on failure
+    (``is_address_in_use`` classifies a port clash).
+    """
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):        # Windows
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        else:                                             # POSIX
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("", port))
+        srv.listen()
+    except OSError:
+        srv.close()
+        raise
+    return srv
+
+
 class DotDotFirstProxyModel(QSortFilterProxyModel):
     """Proxy model that always keeps the '..' parent directory entry at the top."""
     def lessThan(self, left, right):
@@ -163,6 +202,7 @@ class NextSyncSignals(QObject):
     status   = Signal(str)   # single-line status message
     finished = Signal()      # emitted when the job thread exits
     cancelled = Signal()     # emitted when job stopped due to cancel request
+    port_in_use = Signal(int)  # bind failed: the port is already taken
 
 
 class RemoteExplorerSignals(QObject):
@@ -179,6 +219,7 @@ class RemoteExplorerSignals(QObject):
     marked       = Signal(str)            # a queued ("mark", token) was reached
     log          = Signal(str)            # a human-readable log line
     error        = Signal(str)            # a human-readable error
+    port_in_use  = Signal(int)            # bind failed: the port is already taken
 
 
 def _re_checksums(payload):
@@ -328,10 +369,19 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
 
     srv = None
     try:
-        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        srv.bind(("", port))
-        srv.listen()
+        try:
+            srv = bind_listen_socket(port)
+        except OSError as ex:
+            # Port already taken - almost always another ZX-Next-Unite (or a
+            # standalone NextSync server) already listening on it. Signal the UI
+            # to warn (yellow toast) instead of failing with a cryptic error, and
+            # bail cleanly so the Next just sees "no server" rather than us
+            # half-starting.
+            if is_address_in_use(ex):
+                sig.port_in_use.emit(port)
+            else:
+                sig.error.emit(f"Remote explorer server error: {ex}")
+            return
         srv.settimeout(1.0)
         log(f"Remote explorer: waiting for '.sync4 -listen' on port {port}…")
 
