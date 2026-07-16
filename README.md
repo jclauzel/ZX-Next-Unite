@@ -27,7 +27,7 @@ Co-developed with the assistance of **Claude** (Anthropic's AI).
 
 ## Quick start
 
-**Windows:** download the latest `ZX-Next-Unite-v8.x` executable from the
+**Windows:** download the latest `ZX-Next-Unite-v9.x` executable from the
 [Releases](https://github.com/jclauzel/ZX-Next-Unite/releases) page — no Python needed.
 
 **From source (any platform):**
