@@ -35,12 +35,36 @@ def rx_payload(s):
 def settle():
     time.sleep(0.003)
 
-def mock_next(sock, entries, filebytes, cap):
+def fs_node(fs, path):
+    """Walk the mock filesystem dict to ``path``; None if missing. Dirs are
+    dicts, files are bytes."""
+    node = fs
+    for part in [p for p in path.split("/") if p]:
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+    return node
+
+def fs_parent(fs, path):
+    """(parent dict, leaf name) for ``path``, or (None, None) if unreachable."""
+    parts = [p for p in path.split("/") if p]
+    if not parts:
+        return None, None
+    node = fs
+    for part in parts[:-1]:
+        if not isinstance(node, dict) or part not in node:
+            return None, None
+        node = node[part]
+    return (node, parts[-1]) if isinstance(node, dict) else (None, None)
+
+def mock_next(sock, entries, filebytes, cap, fs):
     sock.sendall(b"Listen")
     assert rx_payload(sock) == b"Listening"
     def push(payload, pkt):
         settle(); sock.sendall(frame(payload, pkt))
         assert rx_payload(sock)[0:1] == b'O'
+    def push_status(ok):
+        push(b'O' if ok else b'F', 0)
     while True:
         settle(); sock.sendall(b"Poll")
         cmd = rx_payload(sock)
@@ -50,6 +74,21 @@ def mock_next(sock, entries, filebytes, cap):
         if op == b'L':
             if arg.rstrip("/") == "/gone":
                 push(b'F', 0)            # opendir failed on the Next: folder is gone
+                continue
+            if arg.rstrip("/").startswith("/del"):
+                # rmtree playground: list from the mock fs, dirs first, with the
+                # "." / ".." entries a real readdir yields (the walker must skip
+                # them or it would recurse forever).
+                node = fs_node(fs, arg)
+                if not isinstance(node, dict):
+                    push(b'F', 0)
+                    continue
+                pl = b'D'
+                for name, child in [(".", {}), ("..", {})] + sorted(node.items()):
+                    is_dir = isinstance(child, dict)
+                    size = 0 if is_dir else len(child)
+                    pl += bytes([1 if is_dir else 0]) + int(size).to_bytes(4, "little") + bytes([len(name)]) + name.encode()
+                push(pl, 0); push(b'E', 1)
                 continue
             pl = b'D'
             for is_dir, size, name in entries:
@@ -88,7 +127,33 @@ def mock_next(sock, entries, filebytes, cap):
         elif op == b'V':                     # ren: arg is "old\x00new"
             cap['ren'] = arg
             push(b'O', 0)
-        elif op in (b'M', b'R', b'X'):
+        elif op == b'X':
+            if arg.startswith("/del"):
+                # rm against the mock fs; "locked.txt" simulates an esxDOS
+                # delete failure (read-only/open file).
+                parent, name = fs_parent(fs, arg)
+                if (parent is not None and name != "locked.txt"
+                        and not isinstance(parent.get(name), dict)
+                        and name in parent):
+                    del parent[name]
+                    push_status(1)
+                else:
+                    push_status(0)
+            else:
+                push(b'O', 0)
+        elif op == b'R':
+            if arg.startswith("/del"):
+                # esxDOS semantics: rmdir only removes an EMPTY directory.
+                parent, name = fs_parent(fs, arg)
+                node = parent.get(name) if parent is not None else None
+                if isinstance(node, dict) and len(node) == 0:
+                    del parent[name]
+                    push_status(1)
+                else:
+                    push_status(0)
+            else:
+                push(b'O', 0)
+        elif op == b'M':
             push(b'O', 0)
 
 def main():
@@ -101,6 +166,10 @@ def main():
 
     entries = [(True, 0, "GAMES"), (False, 1234, "boot.bas")]
     filebytes = b"Hello Next!\r\n" * 5
+    # Mock Next-side filesystem for the rmtree tests: /del is a healthy nested
+    # tree (with an empty folder); /del2 holds a file the Next refuses to rm.
+    fs = {"del": {"a.txt": b"AA", "sub": {"b.txt": b"BB", "empty": {}}},
+          "del2": {"locked.txt": b"LL"}}
     cap = {}
     got = {'listing': None, 'gets': [], 'put': None, 'puts': [], 'ops': [],
            'ls_failed': []}
@@ -122,6 +191,8 @@ def main():
               ("put", putfile, "/ho/"),
               ("put", putfile, "/locked/up.bin"),   # put that fails with 'F'
               ("rm", "/x.tap"), ("rmdir", "/y"),
+              ("rmtree", "/del"),                   # recursive delete, must empty the tree
+              ("rmtree", "/del2"),                  # contains an undeletable file -> ok=False
               ("rename", "/ho/a.txt", "/ho/b.txt"), ("quit",)]:
         cmd_q.put(c)
 
@@ -130,7 +201,7 @@ def main():
     time.sleep(0.3)  # let it bind/accept
     s = socket.create_connection(("127.0.0.1", PORT), timeout=5)
     try:
-        mock_next(s, entries, filebytes, cap)
+        mock_next(s, entries, filebytes, cap, fs)
     finally:
         stop.set(); t.join(timeout=5); s.close()
 
@@ -178,6 +249,21 @@ def main():
         print("PASS ren  :", cap['ren'].replace("\x00", " -> "))
     else:
         print("FAIL ren  :", cap.get('ren'), got['ops']); ok = False
+    # rmtree must have deleted the whole /del tree (files first, folders
+    # bottom-up: esxDOS rmdir only removes empty folders, and the mock enforces
+    # that) and reported ONE op_done(True, "delete", "/del").
+    if "del" not in fs and (True, "delete", "/del") in got['ops']:
+        print("PASS rmtree: /del fully removed, one delete op reported")
+    else:
+        print("FAIL rmtree: fs=", fs, "ops:", got['ops']); ok = False
+    # /del2 holds an undeletable file: the tree must survive and the job must
+    # report ok=False (exactly once) without desyncing later commands (ren above).
+    if (fs.get("del2") == {"locked.txt": b"LL"}
+            and (False, "delete", "/del2") in got['ops']
+            and sum(1 for o in got['ops'] if o[1] == "delete") == 2):
+        print("PASS rmtree-fail: /del2 kept, delete reported failed")
+    else:
+        print("FAIL rmtree-fail: fs=", fs.get("del2"), "ops:", got['ops']); ok = False
     # A missing folder must raise ls_failed (never a phantom empty listing) and
     # leave the stream in sync so the later commands above still passed.
     if got['ls_failed'] == ["/gone"]:

@@ -299,6 +299,10 @@ class RemoteExplorerWidget(QWidget):
         self.local_view.setDragEnabled(True)
         self.local_view.setAcceptDrops(True)
         self.local_view.setDropIndicatorShown(True)
+        # A drag within the local pane proposes a COPY (we perform the copy
+        # ourselves in _local_drop); without this Qt would propose an internal
+        # move for same-view drags.
+        self.local_view.setDefaultDropAction(Qt.CopyAction)
         self.local_view.clicked.connect(self._local_clicked)
         self.local_view.doubleClicked.connect(self._local_double_clicked)
         self.local_view.dragEnterEvent = self._local_drag_enter
@@ -965,12 +969,18 @@ class RemoteExplorerWidget(QWidget):
         if not entries:
             return
         names = "\n".join(p for p, _ in entries)
-        if QMessageBox.question(self, "Delete", f"Delete on the Next?\n\n{names}") != QMessageBox.Yes:
+        if QMessageBox.question(
+                self, "Delete",
+                "Delete on the Next? Folders are deleted with everything "
+                f"inside them.\n\n{names}") != QMessageBox.Yes:
             return
 
+        # Folders go through the worker's recursive rmtree walk: esxDOS rmdir
+        # only removes *empty* folders, so a bare rmdir on a folder with content
+        # fails and deletes nothing.
         def go():
             for path, is_dir in entries:
-                self._enqueue(("rmdir" if is_dir else "rm", path))
+                self._enqueue(("rmtree" if is_dir else "rm", path))
         self._run_op("Deleting on the Next…", go)
 
     def _next_key_press(self, event):
@@ -1012,7 +1022,9 @@ class RemoteExplorerWidget(QWidget):
             self._clip = ("local", paths, mode)
             verb = "Cut" if mode == "cut" else "Copied"
             self._log(f"{verb} {len(paths)} local item(s). Paste in the Next "
-                      "pane to " + ("move" if mode == "cut" else "upload") + ".")
+                      "pane to " + ("move" if mode == "cut" else "upload")
+                      + ", or in a local folder to "
+                      + ("move" if mode == "cut" else "copy") + " it there.")
 
     def _paste_into_next(self):
         # Paste local clipboard items into the current Next directory: copy =
@@ -1031,9 +1043,18 @@ class RemoteExplorerWidget(QWidget):
                          lambda: self._put_paths(paths))
 
     def _paste_into_local(self):
-        # Paste Next clipboard items into the current local directory: copy =
-        # download, cut = download then delete the Next source once confirmed.
-        if not self._clip or self._clip[0] != "next":
+        # Paste the clipboard into the current local directory. Next items:
+        # copy = download, cut = download then delete the Next source once
+        # confirmed. Local items: copy = duplicate here, cut = move here.
+        if not self._clip:
+            return
+        if self._clip[0] == "local":
+            _kind, paths, mode = self._clip
+            paths = [p for p in paths if os.path.exists(p)]
+            if mode == "cut":
+                self._clip = None            # a cut is consumed by its paste
+            self._copy_paths_into_local(paths, self._local_dir(),
+                                        move=(mode == "cut"), dup_in_place=True)
             return
         _kind, entries, mode = self._clip
         entries = list(entries)
@@ -1376,9 +1397,9 @@ class RemoteExplorerWidget(QWidget):
         return out
 
     def _local_key_press(self, event):
-        # Ctrl+C / Ctrl+X copy or cut the local selection; Ctrl+V pastes Next
-        # clipboard items here (download). Delete / F2 act on the local pane,
-        # mirroring the Next pane. (QFileSystemModel refreshes on change.)
+        # Ctrl+C / Ctrl+X copy or cut the local selection; Ctrl+V pastes the
+        # clipboard here (Next items download, local items copy/move). Delete /
+        # F2 act on the local pane, mirroring the Next pane.
         if event.matches(QKeySequence.StandardKey.Copy):
             self._copy_local("copy")
             return
@@ -1418,8 +1439,9 @@ class RemoteExplorerWidget(QWidget):
         act_cut.setEnabled(has_sel)
         act_ren.setEnabled(len(sel) == 1)
         act_del.setEnabled(has_sel)
-        # Paste here downloads the copied/cut Next items into this local folder.
-        act_paste.setEnabled(bool(self._clip) and self._clip[0] == "next")
+        # Paste here downloads copied/cut Next items into this local folder, or
+        # copies/moves copied/cut LOCAL items into it.
+        act_paste.setEnabled(bool(self._clip))
         chosen = menu.exec(self.local_view.viewport().mapToGlobal(pos))
         if chosen == act_new:
             self._local_new_folder()
@@ -1476,6 +1498,71 @@ class RemoteExplorerWidget(QWidget):
                 self._log(f"Deleted {p}")
             except OSError as ex:
                 self._log(f"Delete failed: {p}: {ex}")
+
+    @staticmethod
+    def _unique_copy_target(dest, name):
+        """A free path for ``name`` inside ``dest``: the name itself if unused,
+        else "name - Copy", "name - Copy (2)", … (Explorer-style), so a paste
+        into the source's own folder duplicates instead of overwriting."""
+        target = os.path.join(dest, name)
+        if not os.path.exists(target):
+            return target
+        stem, ext = os.path.splitext(name)
+        n = 1
+        while True:
+            suffix = " - Copy" if n == 1 else f" - Copy ({n})"
+            target = os.path.join(dest, stem + suffix + ext)
+            if not os.path.exists(target):
+                return target
+            n += 1
+
+    def _copy_paths_into_local(self, paths, dest, move=False, dup_in_place=False):
+        """Copy (or move) local files/folders into the local folder ``dest``.
+
+        Backs both a drag-drop onto a folder and a local Copy/Cut -> Paste.
+        Copies colliding with an existing name get an Explorer-style
+        " - Copy" name; a same-folder copy only does that when
+        ``dup_in_place`` (deliberate paste), a drag there is a no-op. Moves
+        never overwrite and a same-folder move is always a no-op. Failures are
+        logged and summarised in one toast.
+        """
+        fails = []
+        done = 0
+        dest_abs = os.path.normcase(os.path.abspath(dest))
+        for src in paths:
+            name = os.path.basename(src.rstrip("/\\")) or src
+            src_abs = os.path.normcase(os.path.abspath(src))
+            src_is_dir = os.path.isdir(src) and not os.path.islink(src)
+            if src_is_dir and (dest_abs == src_abs
+                               or dest_abs.startswith(src_abs + os.sep)):
+                self._log(f"Skipped {name}: cannot copy a folder into itself.")
+                fails.append(f"{name}: cannot copy a folder into itself")
+                continue
+            same_folder = os.path.normcase(
+                os.path.dirname(src_abs.rstrip("\\/"))) == dest_abs
+            if same_folder and (move or not dup_in_place):
+                continue                     # already here: nothing to do
+            target = self._unique_copy_target(dest, name)
+            if move and os.path.basename(target) != name:
+                self._log(f"Skipped {name}: already exists in {dest}.")
+                fails.append(f"{name}: already exists")
+                continue
+            try:
+                if move:
+                    shutil.move(src, target)
+                elif src_is_dir:
+                    shutil.copytree(src, target, symlinks=True)
+                else:
+                    shutil.copy2(src, target)
+                done += 1
+                self._log(f"{'Moved' if move else 'Copied'} {src} -> {target}")
+            except (OSError, shutil.Error) as ex:
+                self._log(f"{'Move' if move else 'Copy'} failed: {src}: {ex}")
+                fails.append(f"{name}: {ex}")
+        if done:
+            self._local_refresh()
+        if fails:
+            self._toast_failures(fails)
 
     def _local_rename_selected(self):
         paths = self._selected_local_paths()
@@ -1536,15 +1623,37 @@ class RemoteExplorerWidget(QWidget):
         drag.exec(Qt.CopyAction)
 
     def _local_drag_enter(self, event):
-        if event.mimeData().hasFormat("application/x-zxnu-next-entries"):
+        # Next-pane entries (download here) or file URLs -- from the local pane
+        # itself or the OS file manager (copy into the folder dropped on).
+        if (event.mimeData().hasFormat("application/x-zxnu-next-entries")
+                or event.mimeData().hasUrls()):
             event.acceptProposedAction()
         else:
             event.ignore()
 
+    def _local_drop_dir(self, event):
+        """The local folder a drop lands in: the folder row under the cursor,
+        else the pane's current folder (the ".." row counts as current too)."""
+        ix = self.local_view.indexAt(event.position().toPoint())
+        if ix.isValid() and not self._is_local_updir(ix):
+            p = self._path_of(ix)
+            if p and os.path.isdir(p):
+                return p
+        return self._local_dir()
+
     def _local_drop(self, event):
         data = event.mimeData().data("application/x-zxnu-next-entries")
         if not data:
-            event.ignore()
+            # Local/OS file drag: copy the dropped items into the folder they
+            # were dropped on (a drop back into their own folder is a no-op).
+            paths = [u.toLocalFile() for u in event.mimeData().urls()
+                     if u.isLocalFile() and os.path.exists(u.toLocalFile())]
+            if not paths:
+                event.ignore()
+                return
+            event.setDropAction(Qt.CopyAction)
+            event.accept()
+            self._copy_paths_into_local(paths, self._local_drop_dir(event))
             return
         event.acceptProposedAction()
         dest = self._local_dir()
