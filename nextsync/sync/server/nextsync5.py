@@ -5,11 +5,11 @@
 # released under the unlicense, see http://unlicense.org
 # (practically public domain)
 #
-# nextsync4.py - NextSync server with the "Sync4" protocol backported from
+# nextsync5.py - NextSync server with the "Sync4" protocol backported from
 # the ZX-Next-Unite application. In addition to the original "Sync3" behaviour
 # (PC -> Next: the Next pulls files with ".sync"), this server understands the
 # bidirectional "Sync4" handshake so the Next can ALSO push files and whole
-# directories *back* to the PC with ".sync4 -send <file|dir>".
+# directories *back* to the PC with ".sync5 -send <file|dir>".
 #
 # Legacy "Sync3" dots keep working unchanged (PC -> Next only).
 
@@ -782,7 +782,7 @@ def listen_session(conn, stats, _test_commands=None):
 
     # The Next hung up: it pressed BREAK, sent "Bye", or the link dropped (or we
     # sent it "Q"). The main loop closes this connection and goes back to
-    # accepting, so a restarted '.sync4 -listen' reconnects.
+    # accepting, so a restarted '.sync5 -listen' reconnects.
     print(f'{timestamp()} | listen: the Next disconnected - waiting for a new connection.')
 
 def warnings():
@@ -842,9 +842,9 @@ def main():
     while working:
         print(f"{timestamp()} | NextSync listening to port {PORT}")
         print(f"{timestamp()} | Now run one of these commands on your Next:")
-        print(f"{timestamp()} |   PC  -> Next : .sync4   (or .syncfast)")
-        print(f"{timestamp()} |   Next -> PC  : .sync4 -send <file or directory>")
-        print(f"{timestamp()} | .sync4  now supports -slow -default -fast additional command option to specify network speed transfer rate")
+        print(f"{timestamp()} |   PC  -> Next : .sync5   (or .syncfast)")
+        print(f"{timestamp()} |   Next -> PC  : .sync5 -send <file or directory>")
+        print(f"{timestamp()} | .sync5  now supports -slow -default -fast additional command option to specify network speed transfer rate")
         print(f"{timestamp()} | Press Ctrl-C to exit.")
         # Stats for this connection. Held in a dict so receive_files() can
         # update the upload counters in place.
@@ -1058,7 +1058,7 @@ for x in sys.argv[1:]:
         Run without parameters for normal action. See nextsync.txt for details.
 
         This is the Sync4 (bidirectional) server. It serves files to the Next
-        with ".sync4" (Sync3, unchanged) AND receives files/directories pushed
+        with ".sync5" (Sync3, unchanged) AND receives files/directories pushed
         from the Next with ".sync -send <file|dir>" (Sync4).
 
         Optional parameters:
@@ -1073,7 +1073,7 @@ for x in sys.argv[1:]:
         -d  - Prefix filenames with d: (i.e, /dot/foo becomes d:/dot/foo)
         -e  - Prefix filenames wieh e: (i.e, /dot/foo becomes e:/dot/foo)
 
-        Sync4 receive (.sync4 -send) options - how to handle an incoming file
+        Sync4 receive (.sync5 -send) options - how to handle an incoming file
         or directory that already exists locally:
         -pr - Prompt at the console for each conflict (default)
         -ow - Always overwrite existing files
@@ -1082,6 +1082,6 @@ for x in sys.argv[1:]:
         quit()
 
 # Guarded so the module can be imported (e.g. by tests) without launching the
-# server. Standalone `python nextsync4.py` behaviour is unchanged.
+# server. Standalone `python nextsync5.py` behaviour is unchanged.
 if __name__ == "__main__":
     main()
