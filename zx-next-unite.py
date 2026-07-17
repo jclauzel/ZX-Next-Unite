@@ -2372,14 +2372,13 @@ class MainWindow(QMainWindow):
 
             toast.adjustSize()
 
-            # Position in the bottom-right corner of the main window.
-            try:
-                geo = self.frameGeometry()
-                x = geo.right() - toast.width() - 24
-                y = geo.bottom() - toast.height() - 24
-                toast.move(max(geo.left() + 8, x), max(geo.top() + 8, y))
-            except Exception:
-                pass
+            # Position in the bottom-right corner of the main window, and
+            # remember the toast so moveEvent/resizeEvent keep it anchored
+            # there while it is up (dead entries are pruned on reposition).
+            self._position_toast(toast)
+            if not hasattr(self, "_live_toasts"):
+                self._live_toasts = []
+            self._live_toasts.append(toast)
 
             timer = QTimer(toast)
             timer.setSingleShot(True)
@@ -2403,6 +2402,30 @@ class MainWindow(QMainWindow):
             timer.start()
         except Exception:
             pass
+
+    def _position_toast(self, toast):
+        """Anchor *toast* to the bottom-right corner of the main window."""
+        try:
+            geo = self.frameGeometry()
+            x = geo.right() - toast.width() - 24
+            y = geo.bottom() - toast.height() - 24
+            toast.move(max(geo.left() + 8, x), max(geo.top() + 8, y))
+        except Exception:
+            pass
+
+    def _reposition_toasts(self):
+        """Re-anchor every live toast after the main window moved or resized.
+        Toasts delete themselves on close (WA_DeleteOnClose), so entries whose
+        C++ widget is already gone are pruned here."""
+        alive = []
+        for t in getattr(self, "_live_toasts", []):
+            try:
+                if t.isVisible():
+                    self._position_toast(t)
+                    alive.append(t)
+            except RuntimeError:
+                pass
+        self._live_toasts = alive
 
     def _show_emulator_detection_toast(self):
         """Show a startup toast reporting which emulators (CSpect / MAME) were
@@ -2578,7 +2601,7 @@ class MainWindow(QMainWindow):
         configuration_dictionary[SETTING_ALIEN_FLOYD_TAB] = ""
         configuration_dictionary[SETTING_ALIEN_FLOYD_HISCORE] = "0"
         configuration_dictionary[SETTING_ALIEN_FLOYD_HISCORES] = ""
-        # How to treat a file/dir received via ".sync4 -send" that already exists
+        # How to treat a file/dir received via ".sync5 -send" that already exists
         # locally: "prompt" (ask, default), "overwrite" (always), "ignore" (never
         # touch). Seeded so a first-run cfg persists a value.
         configuration_dictionary[SETTING_NEXTSYNC_SEND_CONFLICT] = DEFAULT_NEXTSYNC_SEND_CONFLICT
@@ -5470,6 +5493,30 @@ class MainWindow(QMainWindow):
             except RuntimeError:
                 pass
 
+        def _maybe_show_no_image_toast():
+            """One-shot (per session) yellow advisory pointing at the image
+            picker. Shown ONLY when at least one emulator (CSpect or MAME) is
+            actually installed — with none installed the detection toast's
+            "install one" advice is the right message instead — and only while
+            no disk image is selected. Called from load_image's no-image branch
+            and from the emulator scan (an emulator found *after* the startup
+            load still deserves the hint). Deferred so it positions against the
+            shown window at startup; 30 s so it survives a look around the UI,
+            OK to dismiss."""
+            if getattr(self, "_no_image_toast_shown", False):
+                return
+            if (self.imageinput.currentText() or "").strip().strip('"'):
+                return
+            _cspect_found = getattr(self, "_cspect_executable_path", None) is not None
+            if not (_cspect_found or self._mame_usable()):
+                return
+            self._no_image_toast_shown = True
+            QTimer.singleShot(800, lambda: self._show_toast(
+                "⚠  No disk image selected/found for your emulator",
+                "To start an emulator please select first a disk image "
+                "at the top of the screen on the SD Card Utility tab.",
+                variant="yellow", duration_ms=30000))
+
         def load_image(on_done=None):
             """Select and load the disk image named in the image-path combo.
 
@@ -5538,21 +5585,9 @@ class MainWindow(QMainWindow):
             add_main_log_window(
                 "No SD-card disk image selected — pick or create a .img/.hdf "
                 "at the top of this tab to unlock the emulator Launch buttons.")
-            # Same hint as a yellow advisory toast, but only when there is an
-            # emulator installed to launch (otherwise the detection toast's
-            # "install one" advice is the right message) and only once per
-            # session so clearing the image box later doesn't nag. Deferred so
-            # it positions against the shown window at startup, and long-lived
-            # (60 s, OK to dismiss) since it is the one actionable step.
-            _cspect_found = getattr(self, "_cspect_executable_path", None) is not None
-            if not getattr(self, "_no_image_toast_shown", False) \
-                    and (_cspect_found or self._mame_usable()):
-                self._no_image_toast_shown = True
-                QTimer.singleShot(800, lambda: self._show_toast(
-                    "⚠  No disk image selected",
-                    "To start an emulator please select first a disk image "
-                    "at the top of the screen.",
-                    variant="yellow", duration_ms=60000))
+            # Same hint as a yellow advisory toast (see the helper for the
+            # emulator-installed gating).
+            _maybe_show_no_image_toast()
 
             if on_done is not None:
                 on_done(False)
@@ -6674,7 +6709,7 @@ class MainWindow(QMainWindow):
         def nextsync_refresh_explorer():
             """Force the NextSync left explorer to re-stat the displayed folder.
 
-            Files just written by the upload (.sync4 -send) thread otherwise keep
+            Files just written by the upload (.sync5 -send) thread otherwise keep
             showing their initial 0 KB size: QFileSystemModel caches the size from
             when the file was first created (empty) and doesn't reliably re-stat
             it. Toggling the model's root path makes it rescan. Runs on the UI
@@ -6697,7 +6732,7 @@ class MainWindow(QMainWindow):
 
         def nextsync_start_server(serve_folder=None):
             # A gallery "Send via NextSync" (explicit serve_folder) is routed
-            # through the Remote Explorer's '.sync4 -listen' session when that
+            # through the Remote Explorer's '.sync5 -listen' session when that
             # server is running: the item is pushed with mkdir/put over the
             # live link instead of starting the classic one-shot sync server
             # (which couldn't bind anyway — the listen server holds port 2048).
@@ -6723,16 +6758,23 @@ class MainWindow(QMainWindow):
             try:
                 # --- progress dialog ---
                 dlg = HdfProgressDialog("NextSync — sending to ZX Spectrum Next", parent=self, cancel_label="Stop")
-                dlg.set_status("Waiting for ZX Next to connect…\nRun .sync4 (or .sync4 -fast) on your Next")
+                dlg.set_status("Waiting for ZX Next to connect…\nRun .sync5 (or .sync5 -fast) on your Next")
                 dlg.set_progress(-1)   # indeterminate spinner until first file
 
                 sig = NextSyncSignals()
                 cancel_flag = threading.Event()
+                # Exposed for the app-exit path: _graceful_nextsync_shutdown
+                # sets it so a sync in flight when the window closes / Ctrl-C
+                # arrives ends at a safe file boundary (current file finished,
+                # sync point persisted) instead of dying mid-transfer with the
+                # process. Stale after the sync ends — always gated on
+                # _nextsync_thread.is_alive().
+                self._nextsync_cancel_flag = cancel_flag
 
                 sig.progress.connect(dlg.set_progress)
                 sig.status.connect(dlg.set_status)
                 sig.finished.connect(lambda: QTimer.singleShot(800, dlg.accept))
-                # Refresh the left explorer so files received via .sync4 -send show
+                # Refresh the left explorer so files received via .sync5 -send show
                 # their real size instead of a stale 0 KB.
                 sig.finished.connect(nextsync_refresh_explorer)
                 sig.cancelled.connect(dlg.mark_cancelled)
@@ -6780,6 +6822,10 @@ class MainWindow(QMainWindow):
                         else:
                             nextsync_server_exception_occured(ex)
                     finally:
+                        # A session aborted by an exception would otherwise
+                        # leave the transfer flag stuck on (see the sidebar
+                        # sync-icon animation).
+                        self._nextsync_transfer_active = False
                         if cancel_flag.is_set():
                             sig.cancelled.emit()
                         sig.finished.emit()
@@ -9131,8 +9177,8 @@ class MainWindow(QMainWindow):
                     break
                 add_nextsync_log_window (f"{timestamp()} | NextSync listening to port {PORT}")
                 add_nextsync_log_window (f"{timestamp()} | Now run one of these commands on your Next:" )
-                add_nextsync_log_window (f"{timestamp()} |   PC  -> Next : .sync4   (or .sync4 -fast)")
-                add_nextsync_log_window (f"{timestamp()} |   Next -> PC  : .sync4 -send <file or directory>")
+                add_nextsync_log_window (f"{timestamp()} |   PC  -> Next : .sync5   (or .sync5 -fast)")
+                add_nextsync_log_window (f"{timestamp()} |   Next -> PC  : .sync5 -send <file or directory>")
                 if selected_nextsync_explorer_sync_root_directory:
                     add_nextsync_log_window (f"{timestamp()} |   (-send saves received files under: {selected_nextsync_explorer_sync_root_directory})")
                 totalbytes = 0
@@ -9180,6 +9226,11 @@ class MainWindow(QMainWindow):
                     endtime = starttime
                     with conn:
                         add_nextsync_log_window (f'{timestamp()} | Connected by {addr[0]} port {addr[1]}')
+                        # A client session is live: the sidebar's NextSync icon
+                        # accelerates its packet animation while this is set
+                        # (cleared when the session ends, and defensively in
+                        # the server thread's finally).
+                        self._nextsync_transfer_active = True
                         talking = True
                         while talking:
                             data = conn.recv(1024)
@@ -9470,6 +9521,7 @@ class MainWindow(QMainWindow):
                                 add_nextsync_log_window (f"{timestamp()} | Unknown command")
                                 sendpacket(conn, str.encode("Error"), 0)
                         endtime = time.time()
+                self._nextsync_transfer_active = False
                 deltatime = endtime - starttime
                 add_nextsync_log_window (f"{timestamp()} | {totalbytes/1024:.2f} kilobytes transferred in {deltatime:.2f} seconds, {(totalbytes/deltatime)/1024:.2f} kBps")
                 add_nextsync_log_window (f"{timestamp()} | {payloadbytes/1024:.2f} kilobytes payload, {(payloadbytes/deltatime)/1024:.2f} kBps effective speed")
@@ -10468,6 +10520,29 @@ class MainWindow(QMainWindow):
         grid_inner.addWidget(wid_inner.tab, 0, 1)
         grid_inner.setColumnStretch(1, 1)
 
+        # Feed the sidebar's NextSync icon its activity state: (running,
+        # transferring). Running — either server, classic or Remote Explorer —
+        # makes the icon's arrows carry travelling packet pixels so a live
+        # server stays visible from any tab; an ongoing transfer (a classic
+        # client session, or a Remote Explorer batch operation) accelerates
+        # them. Polled from the sidebar's animation timer, so it needs no
+        # start/stop wiring here.
+        def _sidebar_sync_activity():
+            try:
+                t = getattr(self, "_nextsync_thread", None)
+                classic = t is not None and t.is_alive()
+            except Exception:
+                classic = False
+            running = classic or bool(getattr(self, "_re_running", False))
+            if not running:
+                return (False, False)
+            transferring = bool(getattr(self, "_nextsync_transfer_active", False))
+            _rew = getattr(self, "_re_widget", None)
+            if _rew is not None and getattr(_rew, "_op_active", False):
+                transferring = True
+            return (True, transferring)
+        self._tab_sidebar.set_sync_activity_getter(_sidebar_sync_activity)
+
         # ---- Initialize AllInOne tab color cycling timer early ----
         _ALLINONE_COLORS = [QColor('red'), QColor('#FFD700'),
                             QColor('green'), QColor('blue')]  # Red, Yellow, Green, Blue
@@ -10899,12 +10974,12 @@ class MainWindow(QMainWindow):
         self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_pygame_button)
 
         # Flip the log window into a dual-pane remote file explorer (local <-> Next)
-        # driven by ".sync4 -listen". Built lazily the first time it is switched on.
+        # driven by ".sync5 -listen". Built lazily the first time it is switched on.
         self.nextsync_remote_button = QPushButton("🗂 Remote Explorer")
         self.nextsync_remote_button.setCheckable(True)
         self.nextsync_remote_button.setToolTip(
             "Turn the log window into a dual-pane file explorer (local <-> Next).\n"
-            "Run '.sync4 -listen' on your Next, then transfer files with ->: / :<-,\n"
+            "Run '.sync5 -listen' on your Next, then transfer files with ->: / :<-,\n"
             "drag & drop, or the right-click menu (New Folder / Rename / Delete).")
         self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_remote_button)
 
@@ -11136,6 +11211,19 @@ class MainWindow(QMainWindow):
             except RuntimeError:
                 pass
 
+        def _re_auto_relisten():
+            """Deferred restart of the listen server after the Next hung up
+            (see _nextsync_on_re_disconnected). Skipped if the user restarted
+            it themselves or left Remote Explorer mode in the meantime."""
+            if self._re_running:
+                return
+            try:
+                if not self.nextsync_remote_button.isChecked():
+                    return
+            except RuntimeError:
+                return
+            _nextsync_start_listen_server()
+
         def _nextsync_on_re_disconnected():
             # The -listen session ended. If _re_running is already False we
             # stopped it ourselves (the Stop button / closing the view already
@@ -11143,8 +11231,7 @@ class MainWindow(QMainWindow):
             # own: it pressed BREAK / sent "Bye", or the link dropped. The worker
             # thread has now exited (it emits disconnected from its finally), so
             # nothing is listening on the socket any more; a restarted
-            # '.sync4 -listen' would just get "connection refused". Reset to the
-            # "not started" state so the user presses Start again to relisten.
+            # '.sync5 -listen' would just get "connection refused".
             if not self._re_running:
                 return
             self._re_thread = None
@@ -11158,6 +11245,20 @@ class MainWindow(QMainWindow):
                 self.nextsync_re_play_label.setVisible(False)
             except RuntimeError:
                 pass
+            if getattr(self, "_re_had_connection", False):
+                # A Next was connected and hung up on its own: relisten
+                # automatically so the next '.sync5 -listen' just works — no
+                # button press needed. Deferred so this slot (owned by the old
+                # session's signals) unwinds first; the old worker closed its
+                # socket before emitting disconnected, so the port is free.
+                # Gated on a real prior connection so a session that never got
+                # one (e.g. a failing bind emitting disconnected) can't loop.
+                add_nextsync_log_window(
+                    "Remote explorer: the Next disconnected (BREAK / Bye) — "
+                    "restarting the listen server; run '.sync5 -listen' on "
+                    "your Next to reconnect.")
+                QTimer.singleShot(250, _re_auto_relisten)
+                return
             add_nextsync_log_window(
                 "Remote explorer: the Next disconnected (BREAK / Bye). "
                 "Press 'Start Remote Explorer NextSync server' to accept a new connection.")
@@ -11216,6 +11317,12 @@ class MainWindow(QMainWindow):
             self._re_queue = _queue_mod.Queue()
             self._re_stop = threading.Event()
             self._re_sig = RemoteExplorerSignals()
+            # Whether this session ever saw a Next connect — the automatic
+            # relisten on disconnect is gated on it (see
+            # _nextsync_on_re_disconnected).
+            self._re_had_connection = False
+            self._re_sig.connected.connect(
+                lambda: setattr(self, "_re_had_connection", True))
             self._re_sig.connected.connect(widget.on_connected)
             self._re_sig.disconnected.connect(widget.on_disconnected)
             # Reset the pane's server state when the Next hangs up on its own
@@ -11243,7 +11350,7 @@ class MainWindow(QMainWindow):
             self.nextsync_re_play_label.setVisible(True)
             _re_start_play_pulse()
             self._show_toast("NextSync server started",
-                             "Start '.sync4 -listen' on your Next to connect!",
+                             "Start '.sync5 -listen' on your Next to connect!",
                              variant="green", duration_ms=5000)
 
         def _nextsync_stop_listen_server():
@@ -11256,11 +11363,21 @@ class MainWindow(QMainWindow):
             t = self._re_thread
             if q is not None:
                 try:
+                    # Drop everything still queued first: the transfer currently
+                    # in flight (if any) completes untouched, and "quit" becomes
+                    # the very next command the Next polls — so it leaves listen
+                    # mode at a clean file boundary instead of the stop event
+                    # below forcing the socket shut mid-batch (a half-written
+                    # file on the Next).
+                    _re_drain()
                     q.put(("quit",))
                 except Exception:
                     pass
             if t is not None and t.is_alive():
-                t.join(timeout=2.0)         # worker sends "Q", then exits cleanly
+                # Generous bound: the in-flight file must finish before the Next
+                # polls again and receives the "Q" (slow Wi-Fi links move tens
+                # of KB/s). Only after this do we force the socket shut.
+                t.join(timeout=10.0)        # worker sends "Q", then exits cleanly
             # Fallback: if it didn't exit on its own (e.g. the Next stopped polling
             # mid-transfer), force the loop to end so the app can shut down.
             if self._re_stop is not None:
@@ -11286,7 +11403,7 @@ class MainWindow(QMainWindow):
 
         def _re_try_send_folder(folder):
             """Route a gallery-pane "Send via NextSync" through the live Remote
-            Explorer '.sync4 -listen' session instead of the classic one-shot
+            Explorer '.sync5 -listen' session instead of the classic one-shot
             sync server.
 
             Handles the send only when the Remote Explorer server is running —
@@ -11311,7 +11428,7 @@ class MainWindow(QMainWindow):
                 # proceed. 30 s so it survives the walk to the Next.
                 self._show_toast(
                     "You have started a Remote Explorer nextsync server already",
-                    "Start '.sync4 -listen' on your Next and retry again "
+                    "Start '.sync5 -listen' on your Next and retry again "
                     "(canceling the upload / send process for now).",
                     variant="yellow", duration_ms=30000)
                 return True
@@ -11397,7 +11514,7 @@ class MainWindow(QMainWindow):
                 self.nextsync_filtertext.setVisible(False)
                 add_nextsync_log_window(
                     "Remote explorer: pick a sync root folder in the left file explorer, "
-                    "click 'Start Remote Explorer NextSync server', then run '.sync4 -listen' on your Next.")
+                    "click 'Start Remote Explorer NextSync server', then run '.sync5 -listen' on your Next.")
             else:
                 _nextsync_stop_listen_server()
                 _re_stop_startbtn_pulse()   # leaving the RE view: drop the pulse
@@ -23566,7 +23683,7 @@ class MainWindow(QMainWindow):
         nextsync_send_conflict_lbl = QLabel("NextSync — when a sent file or directory exists locally:")
         nextsync_send_conflict_lbl.setToolTip(
             "Controls what happens when the Next pushes a file/folder via\n"
-            "'.sync4 -send <file|dir>' and it already exists on the PC under the\n"
+            "'.sync5 -send <file|dir>' and it already exists on the PC under the\n"
             "sync root.\n"
             "  • Prompt (default): ask each time, with one-time / always options.\n"
             "  • Overwrite: always replace the local file.\n"
@@ -24289,6 +24406,48 @@ class MainWindow(QMainWindow):
             if success and self.settings_warn_image_nearly_full_checkbox.isChecked():
                 _warn_if_image_nearly_full(self.right_disk_image_path)
 
+        # Log the MAME discovery like the CSpect/hdfmonkey finds below — the
+        # detection itself ran during construction (resolve_mame_executable),
+        # before the log window existed, so nothing was printed for it. The
+        # full path is logged now; the self-reported version follows once the
+        # (blocking) 'mame -version' probe returns on a worker thread.
+        _mame_found_path = getattr(self, "_mame_executable_path", None)
+        if _mame_found_path:
+            add_main_log_window(f"Using MAME under: {_mame_found_path}")
+
+            def _mame_version_probe(progress_callback=None, _p=_mame_found_path):
+                # First non-empty line of 'mame -version' output, e.g.
+                # "0.278 (mame0278)". Older builds that don't know the option
+                # print their usage banner instead, which also carries the
+                # version — either way the first line is the informative one.
+                try:
+                    proc = subprocess.run(
+                        [_p, "-version"],
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        cwd=os.path.dirname(_p) or None,
+                        text=True, timeout=20,
+                        **subprocess_no_window_kwargs())
+                    for _line in (proc.stdout or "").splitlines():
+                        if _line.strip():
+                            return _line.strip()
+                except Exception as exc:
+                    logging.info(f"MAME version probe failed: {exc}")
+                return ""
+
+            def _mame_version_log(line):
+                if line:
+                    add_main_log_window(f"MAME version: {line}")
+
+            _mame_ver_worker = self._Worker(_mame_version_probe)
+            _mame_ver_worker.signals.result.connect(_mame_version_log)
+            _mame_ver_worker.signals.finished.connect(
+                lambda: setattr(self, "_mame_version_probe_worker", None))
+            # Keep a strong reference until the probe returns, else Qt drops
+            # the queued result when the unparented signals object is collected
+            # (same pattern as the emulator scan worker below).
+            self._mame_version_probe_worker = _mame_ver_worker
+            self.threadpool.start(_mame_ver_worker)
+
         # Quiet probe: a bundled itch.io CSpect hdfmonkey isn't discovered until
         # the downloads/cspect scan below, so don't log a misleading "hdfmonkey
         # not found" error here when that scan may still turn one up.
@@ -24420,6 +24579,9 @@ class MainWindow(QMainWindow):
             # startup load already happened) — load_image is what refreshes them
             # otherwise.
             _update_cspect_controls()
+            # An emulator found only now (after the startup load already ran
+            # with no image) still deserves the "select a disk image" advisory.
+            _maybe_show_no_image_toast()
             self._show_emulator_detection_toast()
 
         def _finalize_hdfmonkey_button():
@@ -24645,20 +24807,23 @@ def _mainwindow_reposition_ac_popups(self):
 
 # moveEvent is defined here (outside __init__) so it is a real class method
 def _mainwindow_move_event(self, event):
-    """Keep visible autocomplete popups anchored to their input when the
-    main window is dragged across the screen."""
+    """Keep visible autocomplete popups anchored to their input, and live
+    toasts anchored to the bottom-right corner, when the main window is
+    dragged across the screen."""
     super(MainWindow, self).moveEvent(event)
     _mainwindow_reposition_ac_popups(self)
+    self._reposition_toasts()
 
 MainWindow.moveEvent = _mainwindow_move_event
 
 
 # resizeEvent is defined here (outside __init__) so it is a real class method
 def _mainwindow_resize_event(self, event):
-    """Re-anchor visible autocomplete popups when the window is resized, as
-    that also shifts the search input's screen position."""
+    """Re-anchor visible autocomplete popups and live toasts when the window
+    is resized, as that also shifts their anchor positions."""
     super(MainWindow, self).resizeEvent(event)
     _mainwindow_reposition_ac_popups(self)
+    self._reposition_toasts()
 
 MainWindow.resizeEvent = _mainwindow_resize_event
 
@@ -24781,12 +24946,27 @@ app.setFont(_app_font)
 window = MainWindow()
 window.show()
 
-# On exit — window "X", Ctrl-C, or any other app.quit() — say goodbye to a
-# connected Remote Explorer / NextSync "-listen" Next so it leaves listen mode
-# and closes its own connection instead of sitting there waiting on the network.
+# On exit — window "X", Ctrl-C, or any other app.quit() — wind both NextSync
+# servers down softly so no half-written file is left on the Next:
+#   * classic sync server: request the graceful cancel (the server finishes
+#     the file currently in flight, tells the Next there is nothing more to
+#     sync and persists the sync point) and give it a bounded wait to get
+#     there — the daemon thread would otherwise die abruptly mid-transfer
+#     with the process;
+#   * Remote Explorer "-listen" session: drop queued commands, let the
+#     in-flight transfer finish, then deliver "Q" so the Next leaves listen
+#     mode and closes its own connection instead of sitting on the socket.
 # aboutToQuit is the single choke point for every quit path; the shutdown is
 # idempotent, so calling it more than once is harmless.
-def _graceful_remote_explorer_shutdown():
+def _graceful_nextsync_shutdown():
+    try:
+        t = getattr(window, "_nextsync_thread", None)
+        flag = getattr(window, "_nextsync_cancel_flag", None)
+        if t is not None and t.is_alive() and flag is not None:
+            flag.set()
+            t.join(timeout=10.0)
+    except Exception:
+        pass
     try:
         fn = getattr(window, "_nextsync_stop_listen_server_fn", None)
         if callable(fn):
@@ -24794,16 +24974,30 @@ def _graceful_remote_explorer_shutdown():
     except Exception:
         pass
 
-app.aboutToQuit.connect(_graceful_remote_explorer_shutdown)
+app.aboutToQuit.connect(_graceful_nextsync_shutdown)
 
 # Allow Ctrl-C (SIGINT) to terminate the application cleanly.
 # Qt's event loop blocks Python signal delivery unless we periodically
 # yield back to the Python interpreter via a no-op timer.
 def _handle_sigint(*_args):
     print("\nInterrupted — exiting.", flush=True)
-    # Say goodbye now, before teardown, so "Q" reaches the Next even if the
-    # aboutToQuit slots don't get a chance to run during interpreter shutdown.
-    _graceful_remote_explorer_shutdown()
+    # Wind the sync servers down now, before teardown, so the goodbye reaches
+    # the Next even if the aboutToQuit slots don't get a chance to run during
+    # interpreter shutdown.
+    _graceful_nextsync_shutdown()
+    # Close the window the way the "X" button would BEFORE quitting: the
+    # animation timers keep queueing repaints (and the shutdown joins above
+    # block the loop, letting them pile up), and flushing those against the
+    # window during interpreter teardown — after its native handle is gone —
+    # is what intermittently printed "QBackingStore::flush() called for
+    # QWidgetWindow ... which does not have a handle" on Ctrl-C. Closing hides
+    # the window (pending paints are discarded while the handle still exists)
+    # and runs closeEvent, so a Ctrl-C exit also saves the configuration like
+    # a normal close.
+    try:
+        window.close()
+    except Exception:
+        pass
     app.quit()
 
 signal.signal(signal.SIGINT, _handle_sigint)

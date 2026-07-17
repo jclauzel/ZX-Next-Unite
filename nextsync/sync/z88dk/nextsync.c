@@ -46,9 +46,12 @@ __sfr __banked __at 0x153b UART_CTL;
 // exported framecounter/dbg/scr_x/scr_y/osiy - all unused here, so dropped.
 char *cmdline;
 unsigned short corever;
-char g_verbose = 0;   // -v: echo -listen commands/actions on the Next screen
-char g_anim = 0;      // -anim/-a: hardware-sprite eye-candy while syncing (opt-in)
-char g_dark = 0;      // -dark/-d: retro green-on-black look + custom font (opt-in)
+// The three cosmetic/trace options default ON (v5.0); each has an -n? switch
+// to turn it off. The old opt-in flags (-v / -anim|-a / -dark|-d) are still
+// accepted as harmless no-ops so existing habits and scripts keep working.
+char g_verbose = 1;   // echo -listen commands/actions on screen; -nv disables
+char g_anim = 1;      // hardware-sprite eye-candy while syncing; -na disables
+char g_dark = 1;      // retro green-on-black look + custom font; -nr disables
 
 // Optional sprite animation (anim.c). The functions self-guard (tick/end do
 // nothing until begin has run), so they're safe to call unconditionally.
@@ -601,14 +604,19 @@ char send_dir(char *fullpath, unsigned short plen, unsigned char *inbuf, unsigne
 //   "-default"            (len 8)        speed: middle
 //   "-slow"    / "-s"      (len 5 w/ 3rd char 'l' so it isn't "-send" / len 2)
 //   "-dark"    / "-d"      (len 5 w/ 3rd char 'a' / len 2)  retro green-on-black
-//                                        look with the custom font (OFF by
-//                                        default; opt-in because it repaints the
-//                                        screen and is not wanted in every mode)
+//                                        look with the custom font
+//   "-na" "-nv" "-nr"      (len 3)       v5.0: anim, verbose trace and the
+//                                        retro look are ON by default; these
+//                                        switch each one off (no anim / no
+//                                        verbose / no retro)
 //
 // Also consumes the standalone option flags "-v" (verbose), "-a" and "-anim"
-// (sprite eye-candy), setting their globals. Consuming them here means they are
-// dropped from the cleaned command line, so e.g. ".sync4 -anim" still runs a
-// normal PC->Next sync (with anim) instead of being mistaken for a bad argument.
+// (sprite eye-candy) - now-default no-ops kept for old habits and scripts.
+// Consuming them here means they are dropped from the cleaned command line, so
+// e.g. ".sync5 -na" still runs a normal PC->Next sync (without anim) instead
+// of being mistaken for a bad argument. "-h"/"--h"/"-help" are deliberately
+// NOT matched here: they stay in the cleaned line, whose leading '-' routes
+// main() to the help screen.
 unsigned char setspeed(char *p, unsigned char n)
 {
     if (*p != '-') return 0;
@@ -619,12 +627,18 @@ unsigned char setspeed(char *p, unsigned char n)
     if (p[1] == 'v' && n == 2)                          { g_verbose = 1;             return 1; }
     if (p[1] == 'a' && n == 2)                          { g_anim = 1;                return 1; }
     if (p[1] == 'a' && n == 5 && p[2] == 'n')           { g_anim = 1;                return 1; }
+    if (p[1] == 'n' && n == 3)
+    {
+        if (p[2] == 'a') { g_anim = 0;    return 1; }
+        if (p[2] == 'v') { g_verbose = 0; return 1; }
+        if (p[2] == 'r') { g_dark = 0;    return 1; }
+    }
     return 0;
 }
 
-// Pull the -slow/-default/-fast/-v/-anim/-a switches out of the command line and
-// copy the remaining tokens into dst. Sets g_syncmode/g_verbose/g_anim. Works
-// anywhere in the line.
+// Pull the -slow/-default/-fast/-v/-anim/-a/-dark/-d/-na/-nv/-nr switches out
+// of the command line and copy the remaining tokens into dst. Sets
+// g_syncmode/g_verbose/g_anim/g_dark. Works anywhere in the line.
 //
 // CRITICAL: this only READS cmdline and writes to dst (a private buffer). It
 // must NEVER write into cmdline itself - that buffer belongs to the NextZXOS
@@ -837,7 +851,7 @@ int main(int arglen, char *rawcmd)
         con_cls();                                        // paint the whole screen black + home
     }
 
-    print("NextSync 4.8 Clauzel/Komppa");
+    print("NextSync 5.0 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -905,7 +919,7 @@ int main(int arglen, char *rawcmd)
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v4.8 Clauzel/Komppa\r"
+                "SYNC v5.0 Clauzel/Komppa\r"
                 ".SYNC [server] : save cfg\r"
                 ".SYNC : sync files from PC\r"
                 ".SYNC -send <file|dir> : to PC\r"
@@ -914,9 +928,10 @@ int main(int arglen, char *rawcmd)
                 "  mkdir rmdir rm ren\r"
                 "  BREAK key stops it (safe)\r"
                 ".SYNC -slow|-default|-fast\r"
-                ".SYNC -dark|-d : retro look\r"
-                ".SYNC -v : verbose trace\r"
-                ".SYNC -anim|-a : sprite fun\r"
+                "Anim, verbose trace and retro\r"
+                "look are ON; to disable:\r"
+                ".SYNC -na|-nv|-nr\r"
+                ".SYNC -help|-h : this help\r"
                 "See nextsync.txt\r\r");
             goto terminate;
         }

@@ -41,8 +41,32 @@ Write-Host "z88dk: $Z88dkDir"
 
 # --- clean previous outputs --------------------------------------------------
 Get-ChildItem -File -ErrorAction SilentlyContinue `
-    syncdev, syncdev_*.bin, *.o, *.map, *.lis, zcc_opt.def |
+    syncdev, syncdev_*.bin, *.o, *.map, *.lis, zcc_opt.def,
+    anim_head, anim_head.asm |
     Remove-Item -Force -ErrorAction SilentlyContinue
+
+# --- anim.c -> primary dot page ----------------------------------------------
+# The main bank's free space doubles as the C stack (~0.5 KB left below
+# REGISTER_SP), while the primary 8 KB dot page has ~5 KB unused after the
+# crt+clib. zsdcc offers no per-file section control (#pragma codeseg and
+# --codeseg are silently ignored), so: compile anim.c to asm, retarget its
+# code/const sections at code_dot / rodata_dot — the dotn memory model's
+# head-page sections reserved for user dot-resident content, placed AFTER the
+# crt+clib chains (crt_memory_model_dotn.inc) — and let the link assemble the
+# patched anim_head.asm instead of the C file (zproject.lst references it).
+# NEVER retarget at CODE itself: that appends into the middle of the crt's
+# startup fall-through chain (CODE -> code_crt_main -> ...) and crashes the
+# Next the moment the dot starts. The sprite-state bss/data bytes stay in the
+# main bank.
+Write-Host "Generating anim_head.asm (anim.c code+consts -> primary dot page)..."
+& $zcc +zxn -startup=30 -clib=sdcc_iy -SO3 --max-allocs-per-node200000 `
+    --opt-code-size -pragma-include:zpragma.inc -a anim.c -o anim_head
+if ($LASTEXITCODE -ne 0) { throw "anim.c asm generation failed (exit $LASTEXITCODE)." }
+(Get-Content anim_head) `
+    -replace '^\s*SECTION\s+code_compiler\s*$', "`tSECTION code_dot" `
+    -replace '^\s*SECTION\s+rodata_compiler\s*$', "`tSECTION rodata_dot" |
+    Set-Content anim_head.asm
+Remove-Item anim_head -Force
 
 # --- build -------------------------------------------------------------------
 # Flags follow the z88dk dot-command examples (ls/dzx7):
@@ -70,6 +94,7 @@ Write-Host "No 8 KB limit: appmake pages the overflow into mmu4/mmu5 at run time
 Write-Host "Deployed to ..\server\dot\syncdev"
 
 if (-not $Keep) {
-    Get-ChildItem -File -ErrorAction SilentlyContinue *.o, zcc_opt.def, syncdev_*.bin |
+    Get-ChildItem -File -ErrorAction SilentlyContinue `
+        *.o, zcc_opt.def, syncdev_*.bin, anim_head.asm |
         Remove-Item -Force -ErrorAction SilentlyContinue
 }

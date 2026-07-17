@@ -214,7 +214,7 @@ class NextSyncSignals(QObject):
 
 
 class RemoteExplorerSignals(QObject):
-    """Signals marshalling results of the NextSync ".sync4 -listen" remote file
+    """Signals marshalling results of the NextSync ".sync5 -listen" remote file
     server back to the UI thread. The session runs in a worker thread; the UI
     feeds it commands via a queue and receives results through these."""
     connected    = Signal()               # a Next connected in -listen mode
@@ -319,7 +319,7 @@ def _re_sanitize_incoming_path(root, name):
     the fetched folder (e.g. ``GAMES/level1/boot.tap``); this preserves that
     sub-structure locally instead of flattening it to the basename. Strips any
     drive letter and leading slashes, drops '.'/'..' segments, and guarantees
-    the result stays inside ``root``. Mirrors nextsync4.sanitize_incoming_path.
+    the result stays inside ``root``. Mirrors nextsync5.sanitize_incoming_path.
     """
     name = name.replace('\\', '/')
     if len(name) >= 2 and name[1] == ':':
@@ -361,9 +361,9 @@ def _re_relname_under(remote, name):
 
 def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                              max_payload=1024):
-    """Run the NextSync ``.sync4 -listen`` remote file server in a worker thread.
+    """Run the NextSync ``.sync5 -listen`` remote file server in a worker thread.
 
-    Waits for a Next running ``.sync4 -listen`` to connect, then drives it from
+    Waits for a Next running ``.sync5 -listen`` to connect, then drives it from
     commands pulled off ``cmd_queue`` (a queue.Queue), emitting results through
     ``sig`` (a RemoteExplorerSignals). Commands are tuples:
         ("ls",    remote_path)
@@ -383,7 +383,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
     finished by then -- the UI uses this to know a cut/move's transfer completed
     before deleting the source.
 
-    This is the app-side twin of nextsync4.py's listen_session: same wire
+    This is the app-side twin of nextsync5.py's listen_session: same wire
     protocol, but driven by the UI queue and reporting via Qt signals instead of
     a console CLI. It never touches the Sync3/Sync4 sync paths.
     """
@@ -406,7 +406,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                 sig.error.emit(f"Remote explorer server error: {ex}")
             return
         srv.settimeout(1.0)
-        log(f"Remote explorer: waiting for '.sync4 -listen' on port {port}…")
+        log(f"Remote explorer: waiting for '.sync5 -listen' on port {port}…")
 
         conn = None
         while not stop_event.is_set():

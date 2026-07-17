@@ -59,8 +59,17 @@ $C000–$FFFF   (mmu6/7)              : NextZXOS (saved/restored by the crt)
 
 `CRT_ORG_MAIN=0x8000`, `REGISTER_SP=0xBF00`. The large buffers (`inbuf`,
 `scratch`, …) are file-scope statics so they land in the main bank and keep the
-stack small. Current layout: main-bank content ends at `~0xB39A`, leaving
-~2.9 KB of stack below `0xBF00`. This mirrors z88dk's own `ls`/`dzx7` dotN
+stack small. Current layout: main-bank content ends at `~0xBA21`, leaving
+~1.2 KB of stack below `0xBF00`. To protect that headroom, `anim.c`'s code and
+sprite art live in the free space of the primary 8 KB dot page instead:
+`build_dotn.ps1` compiles `anim.c` to asm, retargets its sections at
+`code_dot`/`rodata_dot` — the dotn memory model's head-page sections reserved
+for user dot content, placed *after* the crt+clib chains — and links the
+patched `anim_head.asm` (zsdcc itself has no per-file section control —
+`#pragma codeseg` and `--codeseg` are silently ignored). Retargeting at `CODE`
+itself must be avoided: that appends into the crt's startup fall-through chain
+and crashes on launch. Only the few bytes of sprite state stay in main-bank
+bss. This mirrors z88dk's own `ls`/`dzx7` dotN
 examples (same `0xf0` allocation mask): the crt saves NextZXOS's bank/MMU state
 on entry and restores it on exit, and esxDOS file/dir calls work through divMMC
 regardless of what is paged at mmu6/7.
@@ -77,16 +86,19 @@ only newlines on `\n`; the app uses `\r` throughout, so `conprint()` translates
 
 ## `-listen` — remote file server
 
-`.sync4 -listen` connects to the saved server and then acts as a small remote
+`.sync5 -listen` connects to the saved server and then acts as a small remote
 file server the PC drives. **Fully backward compatible:** it is only entered
 after a *new* handshake keyword `"Listen"`; every Sync3/Sync4/`-send` path and
 the block framing are untouched, and an un-upgraded dot never sends `"Listen"`
 (an old server just replies `"Error"` and the dot exits).
 
-Add `-v` (e.g. `.sync4 -listen -v`) to echo each received command and action on
-the Next screen (`> P /ho/bj.txt`, `open:`/`mkdir:`/`open ok`, `wrote N`,
-`put done`, `mkdir ok`, …) — handy for diagnosing a transfer on the hardware.
-On the PC side, `nextsync4.py -v` logs every packet.
+The on-screen trace of each received command and action (`> P /ho/bj.txt`,
+`open:`/`mkdir:`/`open ok`, `wrote N`, `put done`, `mkdir ok`, …) is ON by
+default since v5.0 — handy for diagnosing a transfer on the hardware. Disable
+it with `-nv` (likewise `-na` disables the sprite animation and `-nr` the
+retro green-on-black look, both also on by default; the old opt-in flags
+`-v`/`-anim`/`-a`/`-dark`/`-d` are still accepted as no-ops). `-help`/`-h`
+show the help screen. On the PC side, `nextsync5.py -v` logs every packet.
 
 The Next keeps driving — it *polls* the server for the next command and runs it.
 All frames use the existing `[2B total][payload][cs0][cs1][packetno]` framing:
@@ -109,7 +121,7 @@ final `'B'`); the status ops send one `'O'`/`'F'` block. `put` reuses `transfer(
 — the Next pulls with `"Get"` and the server serves the bytes, exactly like a
 normal download.
 
-Server side: `nextsync4.py` gains a `listen_session()` (triggered by `"Listen"`)
+Server side: `nextsync5.py` gains a `listen_session()` (triggered by `"Listen"`)
 with a console CLI (`ls`/`get`/`put`/`mkdir`/`rmdir`/`rm`/`quit`). The whole wire
 protocol is covered by `server/test_listen.py`, which drives `listen_session()`
 over a socketpair with a mock Next — run it with `python test_listen.py`.
@@ -126,7 +138,7 @@ over a socketpair with a mock Next — run it with `python test_listen.py`.
   CSpect but no bootable NextZXOS system SD image, so a load test could not be
   performed here. To smoke-test: copy `syncdev` to your card's `C:/DOT/` folder
   and run `.syncdev` from NextZXOS BASIC — it should print
-  `NextSync 4.8 Clauzel/Komppa` and return cleanly. Then exercise a real sync
+  `NextSync 5.0 Clauzel/Komppa` and return cleanly. Then exercise a real sync
   against the ZX-Next-Unite server as usual.
 - The UART `receive` timing was preserved but should be re-verified at 2 Mbaud
   on real hardware.

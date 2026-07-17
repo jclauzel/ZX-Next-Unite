@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.0.1"
+ZX_NEXT_UNITE_VERSION = "9.0.2"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -581,7 +581,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("The point of using Python that would also provide MacOS and Linux portability."),
              ("Later down the line I then extended the NextSync functionality from Sync3 to Sync4."),
              ("The new .snyc4 command for the Next can send Sync4 that therefore alow to send files and directories using -send command line option."),
-             ("There is as well a new nextsync4.py command line located in nextsync\\sync\\server that support the new Sync4 protocol."),
+             ("There is as well a new nextsync5.py command line located in nextsync\\sync\\server that support the new Sync4 protocol."),
              ("Here we are now you have it!"),
              (""),
              (""),
