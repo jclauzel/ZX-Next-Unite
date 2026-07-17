@@ -1,7 +1,7 @@
 """Remote file-explorer widget for the NextSync tab.
 
 A dual-pane file manager modelled on the SD Card Utility tab, but the right
-("Next") pane is driven by the NextSync ``.sync4 -listen`` protocol
+("Next") pane is driven by the NextSync ``.sync5 -listen`` protocol
 (zxnu_workers.run_remote_listen_server) instead of hdfmonkey:
 
     [ local file explorer ] [ ->:  :<- ] [ Next file explorer ]
@@ -605,7 +605,7 @@ class RemoteExplorerWidget(QWidget):
             w.setEnabled(on)
         if not on:
             self.next_model.removeRows(0, self.next_model.rowCount())
-            self.next_path_label.setText("Next: (waiting for .sync4 -listen …)")
+            self.next_path_label.setText("Next: (waiting for .sync5 -listen …)")
 
     # ---- worker signal slots (UI thread) ------------------------------
     def on_connected(self):
@@ -1234,7 +1234,7 @@ class RemoteExplorerWidget(QWidget):
     def send_local_paths(self, paths, title="Sending to the Next…", on_done=None):
         """Public: upload local files/folders into the current Next directory as
         one tracked, cancellable operation — the host's gallery panes use this
-        to route 'Send via NextSync' through a live '.sync4 -listen' session.
+        to route 'Send via NextSync' through a live '.sync5 -listen' session.
 
         Folders are recreated top-down (mkdir before the puts into it), same as
         a drag-and-drop upload. Returns "queued" once the batch is enqueued,

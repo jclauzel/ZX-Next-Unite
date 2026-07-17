@@ -1,6 +1,6 @@
 """Localhost end-to-end test for the Sync4 -listen protocol.
 
-Drives nextsync4.listen_session() (the server) over a socketpair with a mock
+Drives nextsync5.listen_session() (the server) over a socketpair with a mock
 Next on the other end that implements the dot's half of the protocol, exactly
 as nextsync/sync/z88dk/nextsync.c does. Validates ls / get / put / mkdir /
 rmdir / rm framing without any hardware.
@@ -8,7 +8,7 @@ rmdir / rm framing without any hardware.
 import os, sys, socket, threading, tempfile, shutil, time, io, contextlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import nextsync4 as ns
+import nextsync5 as ns
 
 if os.environ.get("TL_DEBUG"):
     _orig_sp = ns.sendpacket

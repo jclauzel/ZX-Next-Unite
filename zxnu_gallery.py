@@ -3110,17 +3110,22 @@ class TabSpriteSidebar(QWidget):
             ".bbbbbbbb..",
             "...........",
         ], {"b": (35, 60, 120), "B": (85, 135, 220), "y": (245, 205, 80)}),
+        # Two horizontal arrows: green PC -> Next (top, pointing right) and
+        # cyan Next -> PC (bottom, pointing left). While a NextSync server is
+        # running, _draw_sync_packets overlays "packet" pixels travelling
+        # along the two shaft rows (rows 2 and 8 — keep in sync with
+        # _SYNC_SHAFT_ROWS below).
         "sync": ([
             "...........",
-            "..g........",
-            ".ggg.......",
-            "ggggg......",
-            "..g.....c..",
-            "..g.....c..",
-            "..g.....c..",
-            "......ccccc",
-            ".......ccc.",
-            "........c..",
+            "........g..",
+            "ggggggggggg",
+            "........g..",
+            "...........",
+            "...........",
+            "...........",
+            "..c........",
+            "ccccccccccc",
+            "..c........",
             "...........",
         ], {"g": (80, 210, 110), "c": (110, 210, 235)}),
         "getit": ([
@@ -3262,6 +3267,12 @@ class TabSpriteSidebar(QWidget):
         ], {"g": (120, 120, 140), "G": (180, 185, 205)}),
     }
 
+    # Shaft rows of the "sync" sprite the packet pixels travel along, and the
+    # phase advance per animation frame (idle server vs. active transfer).
+    _SYNC_SHAFT_ROWS = (2, 8)
+    _PKT_STEP_IDLE = 1.0
+    _PKT_STEP_TRANSFER = 3.0
+
     def __init__(self, tab_widget, parent=None):
         super().__init__(parent)
         self._tab = tab_widget
@@ -3270,6 +3281,12 @@ class TabSpriteSidebar(QWidget):
         self._frame = 0
         self._hover = -1
         self._hover_start = 0    # frame at which the current hover began
+        # NextSync activity shown on the "sync" icon: a host-supplied getter
+        # (set_sync_activity_getter) polled each tick for (running,
+        # transferring); _pkt_phase drives the travelling packet pixels.
+        self._sync_state_getter = None
+        self._sync_activity = (False, False)
+        self._pkt_phase = 0.0
         self.setFixedWidth(self._BAR_W)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self.setMouseTracking(True)
@@ -3318,8 +3335,26 @@ class TabSpriteSidebar(QWidget):
         self.updateGeometry()
         self.update()
 
+    def set_sync_activity_getter(self, fn):
+        """Wire a callable returning (running, transferring) for the NextSync
+        servers. While *running* the sync icon's arrows carry travelling
+        "packet" pixels (so a live server is visible from any tab); while
+        *transferring* the packets speed up for the duration of the transfer."""
+        self._sync_state_getter = fn
+
     def _tick(self):
         self._frame += 1
+        fn = self._sync_state_getter
+        if fn is not None:
+            try:
+                running, transferring = fn()
+            except Exception:
+                running = transferring = False
+            self._sync_activity = (bool(running), bool(transferring))
+            if running:
+                self._pkt_phase = (self._pkt_phase + (
+                    self._PKT_STEP_TRANSFER if transferring
+                    else self._PKT_STEP_IDLE)) % self._GRID
         sig = tuple(self._compute_cells())
         if sig != self._signature:
             self._rebuild()
@@ -3386,6 +3421,26 @@ class TabSpriteSidebar(QWidget):
         return super().event(ev)
 
     # ---- painting -------------------------------------------------------
+    def _draw_sync_packets(self, p, ox, oy, px):
+        """Overlay the travelling "packet" pixels on the sync icon's two
+        horizontal arrow shafts while a NextSync server is running: a bright
+        head with a fading tail, left-to-right on the green PC -> Next shaft
+        and right-to-left on the cyan Next -> PC one."""
+        g = self._GRID
+        top_row, bottom_row = self._SYNC_SHAFT_ROWS
+        pos = int(self._pkt_phase) % g
+        p.fillRect(ox + pos * px, oy + top_row * px, px, px,
+                   QColor(255, 255, 255))
+        if pos > 0:
+            p.fillRect(ox + (pos - 1) * px, oy + top_row * px, px, px,
+                       QColor(190, 255, 205))
+        cpos = g - 1 - pos
+        p.fillRect(ox + cpos * px, oy + bottom_row * px, px, px,
+                   QColor(255, 255, 255))
+        if cpos < g - 1:
+            p.fillRect(ox + (cpos + 1) * px, oy + bottom_row * px, px, px,
+                       QColor(200, 245, 255))
+
     @staticmethod
     def _draw_sprite(p, rows, palette, ox, oy, px, bright):
         for r, line in enumerate(rows):
@@ -3442,6 +3497,10 @@ class TabSpriteSidebar(QWidget):
                 bright = base + 0.14 * math.sin(self._frame * 0.16 + slot * 0.5)
             ox = rect.x() + (rect.width() - sw) // 2
             oy = rect.y() + (rect.height() - sh) // 2 + bob
+            # Packet pixels ride the sync icon whenever a NextSync server is
+            # running (drawn inside the hover flip transform too, so they stay
+            # on the arrows mid-spin).
+            packets_on = (key == "sync" and self._sync_activity[0])
             if hovered:
                 # Spin the icon about its vertical centre line (a 3D-style flip):
                 # a horizontal scale of cos(angle) squashes it toward an edge and,
@@ -3458,9 +3517,13 @@ class TabSpriteSidebar(QWidget):
                 p.scale(sx, 1.0)
                 p.translate(-cx, -cy)
                 self._draw_sprite(p, rows, palette, ox, oy, px, bright)
+                if packets_on:
+                    self._draw_sync_packets(p, ox, oy, px)
                 p.restore()
             else:
                 self._draw_sprite(p, rows, palette, ox, oy, px, bright)
+                if packets_on:
+                    self._draw_sync_packets(p, ox, oy, px)
         p.end()
 
 
