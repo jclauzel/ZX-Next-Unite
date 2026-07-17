@@ -472,13 +472,16 @@ class RemoteExplorerWidget(QWidget):
     # ==================================================================
     #  operation progress / blocking / cancel
     # ==================================================================
-    def _run_op(self, title, enqueue_fn, determinate=True, toast_mkdir_fail=False):
+    def _run_op(self, title, enqueue_fn, determinate=True, toast_mkdir_fail=False,
+                on_done=None):
         """Run a batch of remote commands as a cancellable, blocking operation.
 
         ``enqueue_fn`` queues the commands (via _enqueue). The widget is
         disabled and, after a short delay, a modal progress dialog appears; both
         are lifted once every queued command has reported back. ``toast_mkdir_fail``
         opts a single deliberate mkdir (New Folder) into failure toasts.
+        ``on_done`` (optional) is called on the UI thread when the operation
+        ends, as ``on_done(ok, failures)`` — see _end_operation.
         """
         if self._op_active or not self._connected:
             # Never nest, and never start without a live server: with no queue
@@ -493,6 +496,7 @@ class RemoteExplorerWidget(QWidget):
         self._op_dialog = None
         self._op_failures = []
         self._op_toast_mkdir = toast_mkdir_fail
+        self._op_on_done = on_done
         self.setEnabled(False)           # make the whole explorer unclickable
         # Delay the dialog so instant operations (a quick mkdir/rename) don't
         # flash a modal box on screen.
@@ -557,6 +561,18 @@ class RemoteExplorerWidget(QWidget):
         fails, self._op_failures = self._op_failures, []
         if fails and not self._op_cancelled:
             self._toast_failures(fails)
+        # Report the batch outcome to an interested caller (see send_local_paths).
+        # ok requires every queued command to have reported back with no failure
+        # and no cancel; a mid-batch disconnect ends the op early with
+        # _connected already False, so it can never masquerade as success.
+        cb, self._op_on_done = getattr(self, "_op_on_done", None), None
+        if cb is not None:
+            ok = (self._connected and not self._op_cancelled and not fails
+                  and self._op_completed >= self._op_total)
+            try:
+                cb(ok, fails)
+            except Exception:
+                pass
         # One listing now that the batch is done (suppressed during the op).
         self.refresh()
 
@@ -1214,6 +1230,33 @@ class RemoteExplorerWidget(QWidget):
     # Back-compat alias: earlier code/tests referenced _put_files.
     def _put_files(self, files):
         self._put_paths(files)
+
+    def send_local_paths(self, paths, title="Sending to the Next…", on_done=None):
+        """Public: upload local files/folders into the current Next directory as
+        one tracked, cancellable operation — the host's gallery panes use this
+        to route 'Send via NextSync' through a live '.sync4 -listen' session.
+
+        Folders are recreated top-down (mkdir before the puts into it), same as
+        a drag-and-drop upload. Returns "queued" once the batch is enqueued,
+        "busy" while another operation is still running, "offline" when no Next
+        is connected, or "empty" when nothing in *paths* exists. *on_done*
+        (optional) fires on the UI thread when the batch ends, as
+        ``on_done(ok, failures)``; failures have already been red-toasted by
+        the widget, so callers typically only act on ok."""
+        if not self._connected:
+            return "offline"
+        if self._op_active:
+            return "busy"
+        paths = [p for p in (paths or []) if p and os.path.exists(p)]
+        if not paths:
+            return "empty"
+        self._run_op(title, lambda: self._put_paths(paths), on_done=on_done)
+        return "queued"
+
+    def remote_cwd(self):
+        """The Next directory currently shown ("/" until a listing arrived).
+        Gallery sends land here, so the host reports it in logs/toasts."""
+        return self._cwd or "/"
 
     # ==================================================================
     #  local pane
