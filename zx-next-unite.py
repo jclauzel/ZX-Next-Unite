@@ -2983,9 +2983,11 @@ class MainWindow(QMainWindow):
             _update_mame_launch_tooltip()
 
         def _update_mame_controls():
-            """Enable the 'Launch Mame' button *and* the MAME option combos
-            together whenever MAME is available and a real disk-image file is
-            selected — independent of hdfmonkey.
+            """Enable the 'Launch Mame' button whenever MAME is available and a
+            real disk-image file is selected — independent of hdfmonkey. The
+            option combos only need MAME itself: they are persisted launch
+            settings, not image operations, so they unlock as soon as a MAME
+            build is available even with no image selected yet.
 
             Launching MAME boots the Next with the selected HDF as its hard disk
             and never calls hdfmonkey (the SD-card file-explorer tool). So a
@@ -2993,12 +2995,11 @@ class MainWindow(QMainWindow):
             set_all_buttons_enabled() (which re-enables the group) only ever runs
             after a successful image *listing*, which needs hdfmonkey — so with
             hdfmonkey absent the MAME group stayed disabled even though MAME was
-            installed and ready. Mirrors the CSpect group: with no image ready
-            the whole MAME group is greyed out and the launch button shows a
-            'select an image first' hint (see _update_mame_launch_tooltip). The
-            controls are still hidden outright when MAME isn't installed
-            (setVisible(_mame_available)) and still hard-disabled during
-            transfers/loads via set_all_buttons_disabled()."""
+            installed and ready. With no image ready only the launch button is
+            greyed out, showing a 'select an image first' hint (see
+            _update_mame_launch_tooltip). The controls are still hidden outright
+            when MAME isn't installed (setVisible(_mame_available)) and still
+            hard-disabled during transfers/loads via set_all_buttons_disabled()."""
             try:
                 available = self._mame_usable()
                 img = (self.imageinput.currentText() or "").strip().strip('"')
@@ -3010,8 +3011,30 @@ class MainWindow(QMainWindow):
                                     getattr(self, "mame_joystick", None),
                                     getattr(self, "mame_esc", None)):
                     if _mame_combo is not None:
-                        _mame_combo.setEnabled(ready)
+                        _mame_combo.setEnabled(available)
                 _update_mame_launch_tooltip()
+            except (RuntimeError, AttributeError):
+                pass
+
+        def _update_cspect_controls():
+            """Mirror _update_mame_controls for the CSpect group: the option
+            combos (screen size, sound, vsync, …) are persisted launch settings,
+            so they unlock as soon as a CSpect build is available — even before
+            any disk image is selected. Only the Launch button needs the mounted
+            image (its -mmc= argument requires the hdfmonkey listing), so it
+            alone stays gated on right_disk_image_explorer_content, with the
+            'load an image first' hint tooltip. Busy states still hard-disable
+            everything via set_all_buttons_disabled()."""
+            try:
+                available = getattr(self, "_cspect_executable_path", None) is not None
+                self.button_start_cspect.setEnabled(
+                    available and bool(right_disk_image_explorer_content))
+                for _cspect_combo in (self.cspect_screensize, self.cspect_sound,
+                                      self.cspect_vsync, self.cspect_joystick,
+                                      self.cspect_mouse, self.cspect_frequency,
+                                      self.cspect_esc):
+                    _cspect_combo.setEnabled(available)
+                _update_cspect_launch_tooltip()
             except (RuntimeError, AttributeError):
                 pass
 
@@ -3048,6 +3071,10 @@ class MainWindow(QMainWindow):
             # is unavailable (e.g. hdfmonkey missing or a failed load). Keeps
             # 'Launch Mame' and its option combos usable without hdfmonkey.
             _update_mame_controls()
+            # Likewise re-enable the CSpect option combos (launch stays gated on
+            # a mounted image) so a found emulator isn't left fully greyed out
+            # just because no image is selected yet.
+            _update_cspect_controls()
 
         def disable_image_selection():
             self.imageinput.setDisabled(True)
@@ -3367,8 +3394,11 @@ class MainWindow(QMainWindow):
             # hdfmonkey is confirmed missing here, so the file explorer stays
             # disabled — but MAME doesn't need hdfmonkey, so make sure its launch
             # button and option combos reflect (MAME present + a valid image)
-            # rather than staying stuck disabled.
+            # rather than staying stuck disabled. The CSpect option combos don't
+            # need hdfmonkey either (only Launch does, via the mounted image),
+            # so refresh them too when a CSpect build is present.
             _update_mame_controls()
+            _update_cspect_controls()
 
         def _hdfmonkey_binary_found():
             """True if the hdfmonkey executable can be located (PATH, current
@@ -5221,19 +5251,41 @@ class MainWindow(QMainWindow):
             default (always allowed). MAME counts as launchable when a binary was
             detected or the Flatpak launch option is on, and its label/tooltip
             reflect the Flatpak mode — evaluated per call, so a viewer opened
-            after toggling Flatpak picks up the current state."""
+            after toggling Flatpak picks up the current state.
+
+            A shown button is *enabled* only when the emulator can actually
+            start right now, mirroring the SD Card tab gating: CSpect needs the
+            mounted image (its -mmc= comes from the hdfmonkey listing), MAME
+            needs a valid image *file* selected (it boots the image directly).
+            With no image ready the buttons stay visible but greyed out, with a
+            'load an image first' tooltip — in both the Qt (Classic) and pygame
+            (Retro) viewers, which share this set_emulator_actions API."""
             cspect_ok = bool(allow) and getattr(self, "_cspect_executable_path", None) is not None
             mame_ok   = bool(allow) and self._mame_usable()
             _flatpak  = self._mame_flatpak_enabled()
+            _img_mounted = bool(right_disk_image_explorer_content)
+            try:
+                _img = (self.imageinput.currentText() or "").strip().strip('"')
+                _img_file = bool(_img) and os.path.isfile(_img)
+            except (RuntimeError, AttributeError):
+                _img_file = False
             viewer.set_emulator_actions(
                 cspect_cb=(self._launch_cspect_fn if cspect_ok else None),
                 mame_cb=(self._launch_mame_fn if mame_ok else None),
-                cspect_enabled=cspect_ok,
-                mame_enabled=mame_ok,
-                cspect_tooltip="🕹  Launch CSpect with the loaded SD card image",
-                mame_tooltip=("🕹  Launch MAME (via Flatpak) with the loaded image"
-                              if _flatpak
-                              else "🕹  Launch MAME with the loaded image"),
+                cspect_enabled=cspect_ok and _img_mounted,
+                mame_enabled=mame_ok and _img_file,
+                cspect_tooltip=("🕹  Launch CSpect with the loaded SD card image"
+                                if _img_mounted else
+                                "Load a ZX Spectrum Next disk image first (SD Card "
+                                "tab) — then CSpect can boot it from the mounted "
+                                "SD card."),
+                mame_tooltip=((("🕹  Launch MAME (via Flatpak) with the loaded image"
+                                if _flatpak
+                                else "🕹  Launch MAME with the loaded image"))
+                              if _img_file else
+                              "Select a ZX Spectrum Next disk image (.img/.hdf) "
+                              "first (SD Card tab) — then MAME can boot it as "
+                              "the Next's hard disk."),
                 mame_label=self._mame_launch_label(),
             )
         self._wire_viewer_emulators = _wire_viewer_emulators
@@ -5479,6 +5531,28 @@ class MainWindow(QMainWindow):
             set_all_buttons_disabled()
             enable_image_selection()
             _update_image_usage_gauge("")
+            # Make the launch-button gating discoverable: with no image selected
+            # the Launch buttons stay greyed out (CSpect needs the mounted image
+            # for -mmc=, MAME boots the image file directly), and the only other
+            # hint is a hover tooltip on the disabled buttons.
+            add_main_log_window(
+                "No SD-card disk image selected — pick or create a .img/.hdf "
+                "at the top of this tab to unlock the emulator Launch buttons.")
+            # Same hint as a yellow advisory toast, but only when there is an
+            # emulator installed to launch (otherwise the detection toast's
+            # "install one" advice is the right message) and only once per
+            # session so clearing the image box later doesn't nag. Deferred so
+            # it positions against the shown window at startup, and long-lived
+            # (60 s, OK to dismiss) since it is the one actionable step.
+            _cspect_found = getattr(self, "_cspect_executable_path", None) is not None
+            if not getattr(self, "_no_image_toast_shown", False) \
+                    and (_cspect_found or self._mame_usable()):
+                self._no_image_toast_shown = True
+                QTimer.singleShot(800, lambda: self._show_toast(
+                    "⚠  No disk image selected",
+                    "To start an emulator please select first a disk image "
+                    "at the top of the screen.",
+                    variant="yellow", duration_ms=60000))
 
             if on_done is not None:
                 on_done(False)
@@ -6622,6 +6696,25 @@ class MainWindow(QMainWindow):
                 logging.error(f"NextSync explorer refresh failed: {e}", exc_info=True)
 
         def nextsync_start_server(serve_folder=None):
+            # A gallery "Send via NextSync" (explicit serve_folder) is routed
+            # through the Remote Explorer's '.sync4 -listen' session when that
+            # server is running: the item is pushed with mkdir/put over the
+            # live link instead of starting the classic one-shot sync server
+            # (which couldn't bind anyway — the listen server holds port 2048).
+            # _re_try_send_folder is defined later in __init__, which is fine:
+            # this closure resolves it at call time, always after construction.
+            if serve_folder and _re_try_send_folder(serve_folder):
+                return
+            # Starting the classic server while the Remote Explorer listen
+            # server is live can only fail — both need port 2048 — so cancel
+            # here with a clear advisory instead of a cryptic bind error.
+            if getattr(self, "_re_running", False):
+                self._show_toast(
+                    "Classic NextSync server not started",
+                    "You have already started a Remote Explorer nextsync "
+                    "server, please stop it first.",
+                    variant="yellow", duration_ms=10000)
+                return
             # Guard: don't start a second sync while one is already running
             t = getattr(self, "_nextsync_thread", None)
             if t is not None and t.is_alive():
@@ -8874,7 +8967,7 @@ class MainWindow(QMainWindow):
 
             if not (selected_nextsync_explorer_sync_root_directory and os.path.isdir(selected_nextsync_explorer_sync_root_directory)):
                 add_nextsync_log_window ("")
-                add_nextsync_log_window ("Select a folder in the left local file explorer to choose a sync root folder and then press the 'Start NextSync Server button.")
+                add_nextsync_log_window ("Select a folder in the left local file explorer to choose a sync root folder and then press the 'Start Classic NextSync server' button.")
                 add_nextsync_log_window ("")
                 return
 
@@ -10832,7 +10925,8 @@ class MainWindow(QMainWindow):
         self._re_pulse_timer = None            # green "running" pulse (play label)
         self._re_start_btn_pulse_timer = None  # yellow "start me" pulse (start button)
         # The Remote Explorer's chosen local "sync root". "" until the user picks
-        # a folder in its left file explorer; the 'Start NextSync server' button
+        # a folder in its left file explorer; the 'Start Remote Explorer
+        # NextSync server' button
         # stays disabled (with a prompt) until then. Mirrored from the widget via
         # _re_on_sync_root_changed.
         self._re_sync_root = ""
@@ -10878,8 +10972,9 @@ class MainWindow(QMainWindow):
                 pass
         self._re_apply_item_colors = _re_apply_item_colors
 
-        # 'Start NextSync server' button text shown once a sync root is chosen.
-        _RE_START_TEXT = "▶ Start NextSync server"
+        # 'Start Remote Explorer NextSync server' button text shown once a sync
+        # root is chosen.
+        _RE_START_TEXT = "▶ Start Remote Explorer NextSync server"
         _RE_NO_ROOT_TEXT = "Please select a sync root folder on the left local file explorer"
 
         def _re_update_start_button():
@@ -10892,7 +10987,7 @@ class MainWindow(QMainWindow):
             if self._re_running:
                 _re_stop_startbtn_pulse()
                 btn.setEnabled(True)
-                btn.setText("⏹ Stop NextSync server")
+                btn.setText("⏹ Stop Remote Explorer NextSync server")
                 return
             in_view = self.nextsync_remote_button.isChecked()
             if getattr(self, "_re_sync_root", ""):
@@ -11065,7 +11160,7 @@ class MainWindow(QMainWindow):
                 pass
             add_nextsync_log_window(
                 "Remote explorer: the Next disconnected (BREAK / Bye). "
-                "Press 'Start NextSync server' to accept a new connection.")
+                "Press 'Start Remote Explorer NextSync server' to accept a new connection.")
             # Restore the button to "Start" (and pulse it, if still in view and a
             # sync root is set) so the user can accept a fresh connection.
             _re_update_start_button()
@@ -11105,10 +11200,16 @@ class MainWindow(QMainWindow):
                 add_nextsync_log_window(
                     "Select a sync root folder in the left local file explorer first.")
                 return
-            # Can't run the listen server while a normal sync is in progress.
+            # Can't run the listen server while a normal sync is in progress —
+            # both servers bind port 2048. Cancel with a clear advisory.
             t = getattr(self, "_nextsync_thread", None)
             if t is not None and t.is_alive():
                 add_nextsync_log_window("Stop the running sync before starting the remote server.")
+                self._show_toast(
+                    "Remote Explorer NextSync server not started",
+                    "You have already started a Classic nextsync server, "
+                    "please stop it first.",
+                    variant="yellow", duration_ms=10000)
                 return
             widget = self._re_widget or _nextsync_build_remote_explorer()
             import queue as _queue_mod
@@ -11137,8 +11238,8 @@ class MainWindow(QMainWindow):
             self._re_thread.start()
             self._re_running = True
             _re_stop_startbtn_pulse()   # started now: drop the yellow "start me" pulse
-            self.nextsync_re_start_button.setText("⏹ Stop NextSync server")
-            self.nextsync_re_play_label.setText("▶  NextSync server running")
+            self.nextsync_re_start_button.setText("⏹ Stop Remote Explorer NextSync server")
+            self.nextsync_re_play_label.setText("▶  Remote Explorer NextSync server running")
             self.nextsync_re_play_label.setVisible(True)
             _re_start_play_pulse()
             self._show_toast("NextSync server started",
@@ -11183,6 +11284,87 @@ class MainWindow(QMainWindow):
         # connected Next before the process dies. Safe/idempotent to call twice.
         self._nextsync_stop_listen_server_fn = _nextsync_stop_listen_server
 
+        def _re_try_send_folder(folder):
+            """Route a gallery-pane "Send via NextSync" through the live Remote
+            Explorer '.sync4 -listen' session instead of the classic one-shot
+            sync server.
+
+            Handles the send only when the Remote Explorer server is running —
+            the classic server could never even bind then, the listen session
+            already holds port 2048. With a Next connected, *folder* (the
+            downloaded per-item folder / itch.io install dir) is recreated
+            under the Remote Explorer's current Next directory: each
+            sub-directory is made with "mkdir" before its files are "put", so
+            the item lands with the same relative layout a classic sync of that
+            folder's parent would create. A green toast confirms success; Next-
+            side failures are red-toasted (with descriptions) by the widget's
+            operation tracker. Returns True when the send was handled here
+            (including the advisory cases), False -> caller runs classic sync."""
+            if not getattr(self, "_re_running", False):
+                return False
+            widget = getattr(self, "_re_widget", None)
+            if widget is None:
+                return False
+            if not getattr(widget, "_connected", False):
+                # Server up but no Next yet: cancel the send (a classic sync
+                # would just die on the taken port) and tell the user how to
+                # proceed. 30 s so it survives the walk to the Next.
+                self._show_toast(
+                    "You have started a Remote Explorer nextsync server already",
+                    "Start '.sync4 -listen' on your Next and retry again "
+                    "(canceling the upload / send process for now).",
+                    variant="yellow", duration_ms=30000)
+                return True
+            if not (folder and os.path.isdir(folder)):
+                return False
+            # The remote paths the widget's folder upload will create (kept in
+            # step with RemoteExplorerWidget._enqueue_dir_upload), for the log
+            # line and the success toast.
+            cwd = widget.remote_cwd()
+            base = cwd if cwd.endswith("/") else cwd + "/"
+            top = os.path.basename(os.path.normpath(folder).rstrip("/\\")) or "dir"
+            sent = []
+            for _root, _dirs, _files in os.walk(folder):
+                _dirs.sort()
+                rel = os.path.relpath(_root, folder).replace(os.sep, "/")
+                rdir = base + top if rel in (".", "") else base + top + "/" + rel
+                for _name in sorted(_files):
+                    sent.append(rdir + "/" + _name)
+            if not sent:
+                add_nextsync_log_window(
+                    f"Send via NextSync: nothing to send in {folder}.")
+                return True
+
+            def _done(ok, fails):
+                if not ok:
+                    # Failures were already red-toasted (with the per-file
+                    # descriptions) by the Remote Explorer; a user cancel or a
+                    # disconnect needs no success banner either way.
+                    return
+                if len(sent) == 1:
+                    body = f"file {sent[0]}"
+                else:
+                    body = f"{len(sent)} files:\n" + "\n".join(sent[:5])
+                    if len(sent) > 5:
+                        body += f"\n…and {len(sent) - 5} more"
+                self._show_toast("✅  Sent via Remote Explorer", body,
+                                 variant="green", duration_ms=8000)
+
+            state = widget.send_local_paths(
+                [folder], title="Sending via Remote Explorer…", on_done=_done)
+            if state == "busy":
+                self._show_toast(
+                    "Remote Explorer is busy",
+                    "Another transfer is still running — wait for it to "
+                    "finish, then try again.",
+                    variant="yellow", duration_ms=8000)
+                return True
+            if state != "queued":
+                return False
+            add_nextsync_log_window(
+                f"Sending {folder} via Remote Explorer (-listen) → {cwd} …")
+            return True
+
         def _nextsync_re_toggle_server():
             if self._re_running:
                 _nextsync_stop_listen_server()
@@ -11215,7 +11397,7 @@ class MainWindow(QMainWindow):
                 self.nextsync_filtertext.setVisible(False)
                 add_nextsync_log_window(
                     "Remote explorer: pick a sync root folder in the left file explorer, "
-                    "click 'Start NextSync server', then run '.sync4 -listen' on your Next.")
+                    "click 'Start Remote Explorer NextSync server', then run '.sync4 -listen' on your Next.")
             else:
                 _nextsync_stop_listen_server()
                 _re_stop_startbtn_pulse()   # leaving the RE view: drop the pulse
@@ -11379,15 +11561,15 @@ class MainWindow(QMainWindow):
 
 
         self.nextsync_prepare_server = QPushButton("Prepare Server", self)
-        self.nextsync_prepare_server.setText("Prepare NextSync network server")
+        self.nextsync_prepare_server.setText("Prepare Classic NextSync server")
         self.nextsync_prepare_server.clicked.connect(nextsync_perform_checks_and_prepare_server_start)
 
         self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_prepare_server)
 
 
 
-        self.nextsync_start_server = QPushButton("Start NextSync Server", self)
-        self.nextsync_start_server.setText("Start NextSync Server")
+        self.nextsync_start_server = QPushButton("▶ Start Classic NextSync server", self)
+        self.nextsync_start_server.setText("▶ Start Classic NextSync server")
         self.nextsync_start_server.clicked.connect(nextsync_start_server)
 
         # Cancel button is kept as a hidden widget (so the existing show/hide and
@@ -11403,12 +11585,12 @@ class MainWindow(QMainWindow):
 
         # Remote-explorer server control (shown only in Remote Explorer mode,
         # in place of the Prepare/Start buttons and the Sync mode group).
-        self.nextsync_re_start_button = QPushButton("▶ Start NextSync server", self)
+        self.nextsync_re_start_button = QPushButton("▶ Start Remote Explorer NextSync server", self)
         self.nextsync_re_start_button.setVisible(False)
         self.nextsync_re_start_button.clicked.connect(self._nextsync_re_toggle_server)
         self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_re_start_button)
 
-        self.nextsync_re_play_label = QLabel("▶  NextSync server running", self)
+        self.nextsync_re_play_label = QLabel("▶  Remote Explorer NextSync server running", self)
         self.nextsync_re_play_label.setAlignment(Qt.AlignCenter)
         self.nextsync_re_play_label.setVisible(False)
         self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_re_play_label)
@@ -19961,8 +20143,10 @@ class MainWindow(QMainWindow):
                 _fav_entry_itchio = {**entry, "_fav_source": "itchio"}
                 viewer.set_favorite_hooks(_fav_entry_itchio, self._fav_is, self._fav_toggle)
                 viewer.set_open_web_url(entry.get("url", ""), "itch.io")
-                viewer._itchio_busy = False   # True while an install runs
-
+                # "Launch CSpect" / "Launch Mame" under "Send to SD card",
+                # matching the GetIt/ZXDB/ZxArt viewers (shown when the emulator
+                # exists, greyed out until a disk image is ready).
+                self._wire_viewer_emulators(viewer)
                 viewer._itchio_busy = False   # True while an install runs
 
                 # itch.io items are game uploads (zip/exe), not standalone text
@@ -23927,7 +24111,7 @@ class MainWindow(QMainWindow):
                 _show_content_disclaimer()
             elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC):
                 # Auto-run the "Prepare" step on entering the tab so the
-                # "Start NextSync Server" button is ready without an extra
+                # "Start Classic NextSync server" button is ready without an extra
                 # click. Guard on the prepare button still being visible so we
                 # don't re-scan/re-log on every revisit or after a sync is set up.
                 if self.nextsync_prepare_server.isVisible():
@@ -24231,6 +24415,11 @@ class MainWindow(QMainWindow):
                 if not _startup_load_started:
                     load_image(_warn_after_startup_load)
 
+            # A CSpect adopted from the scan must unlock its option combos even
+            # when no load_image() runs here (e.g. no bundled hdfmonkey, or the
+            # startup load already happened) — load_image is what refreshes them
+            # otherwise.
+            _update_cspect_controls()
             self._show_emulator_detection_toast()
 
         def _finalize_hdfmonkey_button():
