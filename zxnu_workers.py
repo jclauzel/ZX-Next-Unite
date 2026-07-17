@@ -8,6 +8,7 @@ import queue
 import socket
 import threading
 import time
+from collections import deque
 from PySide6.QtCore import (
     QObject, QPoint, QRect, QRunnable, QSize, QSortFilterProxyModel, QTimer,
     Qt, Signal, Slot,
@@ -372,6 +373,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         ("mkdir", remote_path)
         ("rmdir", remote_path)
         ("rm",    remote_path)
+        ("rmtree", remote_path)   -> recursive folder delete (see below)
         ("rename", old_path, new_path)
         ("mark",  token)          -> echoes back via sig.marked once reached
         ("quit",)
@@ -382,6 +384,16 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
     queue is a single-consumer FIFO, everything enqueued before the marker has
     finished by then -- the UI uses this to know a cut/move's transfer completed
     before deleting the source.
+
+    ``rmtree`` deletes a whole folder on the Next: esxDOS rmdir only removes
+    *empty* directories, so the worker walks the tree itself over the ordinary
+    protocol -- ls each directory, rm its files, recurse into its sub-folders,
+    then rmdir it once empty (bottom-up). The walk runs as internally queued
+    sub-commands served one per "Poll", exactly like user commands, and reports
+    a single op_done(ok, "delete", root) when the root folder is gone (ok only
+    if every file and folder inside deleted cleanly). A user cancel drains the
+    host queue only, so an rmtree already underway finishes on its own -- same
+    "stop after the current item" semantics as a cancelled transfer.
 
     This is the app-side twin of nextsync5.py's listen_session: same wire
     protocol, but driven by the UI queue and reporting via Qt signals instead of
@@ -434,6 +446,12 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             put_pkt = 0
             last_packet = b''
             pending = None   # the command awaiting its pushed reply
+            # rmtree walk state: sub-commands the worker generates for itself
+            # (rmtree_ls/rmtree_rm/rmtree_rmdir) are served before the host
+            # queue, so a recursive delete runs as one contiguous batch.
+            local_cmds = deque()
+            rmtree_jobs = {}   # job id -> {'root': path, 'fails': 0}
+            rmtree_seq = 0
 
             while not stop_event.is_set():
                 try:
@@ -475,12 +493,22 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                     put_pkt = 0
 
                 if data == b"Poll":
-                    try:
-                        cmd = cmd_queue.get_nowait()
-                    except queue.Empty:
-                        _re_sendpacket(conn, b"I", 0)   # idle
-                        continue
+                    if local_cmds:
+                        cmd = local_cmds.popleft()
+                    else:
+                        try:
+                            cmd = cmd_queue.get_nowait()
+                        except queue.Empty:
+                            _re_sendpacket(conn, b"I", 0)   # idle
+                            continue
                     op = cmd[0]
+                    if op == "rmtree":
+                        # Recursive folder delete: open a walk job and start with
+                        # the root's listing (handled below, on this same poll).
+                        rmtree_seq += 1
+                        rmtree_jobs[rmtree_seq] = {'root': cmd[1], 'fails': 0}
+                        cmd = ("rmtree_ls", rmtree_seq, cmd[1])
+                        op = cmd[0]
                     if op == "quit":
                         _re_sendpacket(conn, b"Q", 0)
                         break
@@ -605,6 +633,75 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             sig.op_done.emit(bool(res['ok']), op, path)
                         else:
                             sig.error.emit(f"{op} {path}: connection dropped")
+                    elif op == "rmtree_ls":
+                        # rmtree step 1: list one folder of the walk, then queue
+                        # deleting its files, walking its sub-folders and finally
+                        # removing the (now empty) folder itself, ahead of
+                        # anything else -- so the tree comes down bottom-up.
+                        jid, path = cmd[1], cmd[2]
+                        entries = []
+                        st = {'failed': False}
+
+                        def _h(payload, _e=entries, _st=st):
+                            o = payload[0:1]
+                            if o == b'E':
+                                return True
+                            if o == b'F':
+                                _st['failed'] = True
+                                return True
+                            if o == b'D':
+                                i = 1
+                                while i + 6 <= len(payload):
+                                    flags = payload[i]
+                                    nl = payload[i+5]
+                                    name = payload[i+6:i+6+nl].decode(errors='replace')
+                                    i += 6 + nl
+                                    _e.append((bool(flags & 1), name))
+                            return False
+                        _re_sendpacket(conn, b"L" + path.encode(), 0)
+                        if _re_recv_reply(conn, _h):
+                            subs = []
+                            if not st['failed']:
+                                base = path.rstrip("/")
+                                for is_dir, name in entries:
+                                    if name in (".", ".."):
+                                        continue
+                                    child = base + "/" + name
+                                    subs.append(("rmtree_ls", jid, child) if is_dir
+                                                else ("rmtree_rm", jid, child))
+                            # On a failed listing (gone, or not a folder) still try
+                            # the rmdir: it reports the failure if the folder is
+                            # really stuck, instead of stalling the job.
+                            subs.append(("rmtree_rmdir", jid, path))
+                            local_cmds.extendleft(reversed(subs))
+                        else:
+                            rmtree_jobs.pop(jid, None)
+                            sig.error.emit(f"delete {path}: connection dropped")
+                    elif op in ("rmtree_rm", "rmtree_rmdir"):
+                        # rmtree steps 2/3: delete one file / one emptied folder.
+                        # Only the root folder's rmdir reports back to the UI --
+                        # one op_done for the whole job, matching the single
+                        # command the UI enqueued.
+                        jid, path = cmd[1], cmd[2]
+                        opc = b"X" if op == "rmtree_rm" else b"R"
+                        res = {'ok': None}
+
+                        def _h(payload, _r=res):
+                            _r['ok'] = (payload[0:1] == b'O')
+                            return True
+                        _re_sendpacket(conn, opc + path.encode(), 0)
+                        if _re_recv_reply(conn, _h):
+                            job = rmtree_jobs.get(jid)
+                            if job is not None:
+                                if not res['ok']:
+                                    job['fails'] += 1
+                                    log(f"delete: could not remove {path}")
+                                if op == "rmtree_rmdir" and path == job['root']:
+                                    rmtree_jobs.pop(jid, None)
+                                    sig.op_done.emit(job['fails'] == 0, "delete", path)
+                        else:
+                            rmtree_jobs.pop(jid, None)
+                            sig.error.emit(f"delete {path}: connection dropped")
                     elif op == "rename":
                         old, new = cmd[1], cmd[2]
                         res = {'ok': None}
