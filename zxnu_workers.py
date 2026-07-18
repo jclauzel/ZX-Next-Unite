@@ -226,6 +226,9 @@ class RemoteExplorerSignals(QObject):
     got          = Signal(str, str)       # (remote, local_path) a "get" finished
     put_done     = Signal(bool, str)      # (ok, remote) a "put" finished
     op_done      = Signal(bool, str, str) # (ok, op, path) mkdir/rmdir/rm result
+    # (current, letters): the Next's default drive + every mounted drive letter,
+    # e.g. ("C", ["C", "M"]). ("", []) when the dot predates the 'W' command.
+    drives       = Signal(str, object)
     marked       = Signal(str)            # a queued ("mark", token) was reached
     log          = Signal(str)            # a human-readable log line
     error        = Signal(str)            # a human-readable error
@@ -374,6 +377,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         ("rmdir", remote_path)
         ("rm",    remote_path)
         ("rmtree", remote_path)   -> recursive folder delete (see below)
+        ("drives",)               -> query mounted drives (see below)
         ("rename", old_path, new_path)
         ("mark",  token)          -> echoes back via sig.marked once reached
         ("quit",)
@@ -394,6 +398,15 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
     if every file and folder inside deleted cleanly). A user cancel drains the
     host queue only, so an rmtree already underway finishes on its own -- same
     "stop after the current item" semantics as a cancelled transfer.
+
+    ``drives`` sends the 'W' (getdrives) command; the Next replies with one
+    status block 'O' + <current drive letter> + <mounted letters>, emitted as
+    ``drives(current, [letters])``. Every remote path in the other commands may
+    carry a drive prefix ("M:/games"); a path without one lands on the dot's
+    current drive, so nothing changes for pre-drive-aware flows. A dot older
+    than v5.1 ignores the unknown 'W' and just re-polls: its raw "Poll" fails
+    the block parse, ``drives("", [])`` is emitted as the fallback, and the
+    stray bytes are re-synced by the outer loop's catch-all idle reply.
 
     This is the app-side twin of nextsync5.py's listen_session: same wire
     protocol, but driven by the UI queue and reporting via Qt signals instead of
@@ -702,6 +715,34 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         else:
                             rmtree_jobs.pop(jid, None)
                             sig.error.emit(f"delete {path}: connection dropped")
+                    elif op == "drives":
+                        # getdrives: one pushed status block, 'O' + current
+                        # drive letter + one letter per mounted drive. An old
+                        # dot (pre v5.1) ignores 'W' and re-polls; its raw
+                        # "Poll" fails the block parse below, which lands in
+                        # the ("", []) fallback -- the widget then offers no
+                        # drive switching, exactly the pre-drives behaviour.
+                        res = {'cur': "", 'letters': []}
+
+                        def _h(payload, _r=res):
+                            if payload[0:1] == b'O' and len(payload) >= 2:
+                                _r['cur'] = chr(payload[1])
+                                _r['letters'] = [chr(b) for b in payload[2:]]
+                            return True
+                        _re_sendpacket(conn, b"W", 0)
+                        # A timeout here (old dot slow to re-poll) must not
+                        # kill the session like other commands' drops would:
+                        # drives is an optional nicety, so degrade instead.
+                        try:
+                            got_reply = _re_recv_reply(conn, _h)
+                        except socket.timeout:
+                            got_reply = False
+                        if got_reply and res['cur']:
+                            sig.drives.emit(res['cur'], res['letters'])
+                        else:
+                            log("This .sync dot does not report drives "
+                                "(pre v5.1); staying on the default drive.")
+                            sig.drives.emit("", [])
                     elif op == "rename":
                         old, new = cmd[1], cmd[2]
                         res = {'ok': None}

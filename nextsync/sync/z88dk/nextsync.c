@@ -55,9 +55,23 @@ char g_dark = 1;      // retro green-on-black look + custom font; -nr disables
 
 // Optional sprite animation (anim.c). The functions self-guard (tick/end do
 // nothing until begin has run), so they're safe to call unconditionally.
+// The Sir Clive walk animation (anim.c, section-retargeted into the head
+// page by build_dotn.ps1). ANIM_ENABLED 0 compiles it out entirely (the call
+// sites become preprocessor no-ops and anim_head.asm must be dropped from
+// zproject.lst + build_dotn.ps1) - used during the v5.1 drives bring-up to
+// rule the head page out; the animation was innocent.
+#define ANIM_ENABLED 1
+#if ANIM_ENABLED
 extern void anim_begin(void);
 extern void anim_tick(void);
 extern void anim_end(void);
+#else
+// Preprocessor no-ops (not stub functions): the call sites vanish entirely,
+// so no code is generated and nothing links against the removed anim.c.
+#define anim_begin()
+#define anim_tick()
+#define anim_end()
+#endif
 
 // See calc_prescalar.c for the prescalar calculation code
 static const unsigned short prescalar_values[] = {
@@ -684,7 +698,12 @@ void parse_speed_switches(char *dst)
 //        'R' <path>   rmdir
 //        'X' <path>   rm (unlink)
 //        'V' <old>\0<new>  ren : rename/move a file or directory
+//        'W'          getdrives : the Next pushes the mounted drive letters
 //        'Q'          quit  -> leave listen mode
+//
+// Every <path> may carry an optional drive prefix ("m:/games"); esxDOS
+// resolves it directly, and a path without one lands on the dot's current
+// drive exactly as before -- so pre-'W' servers keep working unchanged.
 //
 // ls/get/mkdir/rmdir/rm/ren answer by PUSHING blocks to the server (each acked
 // with a framed "Ok", exactly like -send):
@@ -694,6 +713,10 @@ void parse_speed_switches(char *dst)
 //   get : send_file / send_dir ('N'/'D'/'E' per file), then a final 'B'.
 //   mkdir/rmdir/rm/ren : one status block, 'O' (ok) or 'F' (fail). 'ren'
 //         carries two NUL-separated paths in one frame (old then new).
+//   getdrives : one status block, 'O' + <current drive letter> + <drive
+//         letters> (e.g. "O" "C" "CM"). The list is {C, M, current}: C and M
+//         are guaranteed by NextZXOS, the current drive is mounted by
+//         definition. Never probed - file calls on unmounted drives crash.
 //   put : reuses transfer() - the Next pulls data with "Get", server serves it.
 //         On success the server has counted every byte, so nothing more is sent;
 //         on failure (couldn't create the file, or the transfer gave up) the Next
@@ -726,6 +749,7 @@ char *listen_cmd_name(unsigned char op)
         case 'R': return "rmdir";
         case 'X': return "rm";
         case 'V': return "ren";
+        case 'W': return "drives";
         case 'Q': return "quit";
         default:  return "?";
     }
@@ -781,6 +805,38 @@ void listen_ls(char *path, unsigned char *inbuf, unsigned char *scratch)
     }
     scratch[2] = 'E';
     send_block_rt(scratch, 1, inbuf);
+}
+
+// getdrives: report the drives the PC may target, as one status block:
+// 'O' + <current drive letter> + <drive letters>.
+//
+// NO PROBING - the list is exactly {C, M, current}. Three real-hardware
+// crashes taught us every path-touching probe is fatal in a dotN:
+//  * esx_dos_get_drive/M_P3DOS: +3DOS remaps $8000-$BFFF (our code+stack);
+//  * any path on A:/B:, the +3DOS floppy drives: same remap via the floppy
+//    driver;
+//  * opendir on an UNMOUNTED letter (e.g. "D:/" with no D: partition):
+//    NextZXOS's drive resolution for a missing drive dies the same way -
+//    only MOUNTED drives answer file calls safely, so "probe to see what is
+//    mounted" is a contradiction.
+// What IS safe: M_GETDRV (sync_getdrive, divMMC hook - proven on hardware),
+// and NextZXOS guarantees C: (boot SD) and M: (RAM disk) always exist. The
+// current drive is mounted by definition, so launching the dot from another
+// partition (e.g. D:) still exposes it to the PC.
+void listen_drives(unsigned char *inbuf, unsigned char *scratch)
+{
+    unsigned char n = 0, cur;
+
+    g_packetno = 0;
+    cur = sync_getdrive();
+    if (!cur) cur = 'C';
+    scratch[2] = 'O';
+    scratch[3] = cur;
+    scratch[4 + n++] = 'C';
+    if (cur != 'C' && cur != 'M')
+        scratch[4 + n++] = cur;
+    scratch[4 + n++] = 'M';
+    send_block_rt(scratch, (unsigned short)(2 + n), inbuf);
 }
 
 // Big I/O buffers live in bss (main bank, mmu4/mmu5) rather than on the stack:
@@ -851,7 +907,7 @@ int main(int arglen, char *rawcmd)
         con_cls();                                        // paint the whole screen black + home
     }
 
-    print("NextSync 5.0 Clauzel/Komppa");
+    print("NextSync 5.1 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -919,7 +975,7 @@ int main(int arglen, char *rawcmd)
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v5.0 Clauzel/Komppa\r"
+                "SYNC v5.1 Clauzel/Komppa\r"
                 ".SYNC [server] : save cfg\r"
                 ".SYNC : sync files from PC\r"
                 ".SYNC -send <file|dir> : to PC\r"
@@ -1135,6 +1191,7 @@ retryconnect:
                     if (transfer(fn, inbuf)) { vprint("put failed"); listen_status(0, inbuf, scratch); }
                     else vprint("put done");
                 }
+                else if (op == 'W') { listen_drives(inbuf, scratch); vprint("drives done"); }
                 else if (op == 'M') { unsigned char ok = sync_mkdir(fn)  != 0xFF; vprint(ok ? "mkdir ok" : "mkdir fail"); listen_status(ok, inbuf, scratch); }
                 else if (op == 'R') { unsigned char ok = sync_rmdir(fn)  != 0xFF; vprint(ok ? "rmdir ok" : "rmdir fail"); listen_status(ok, inbuf, scratch); }
                 else if (op == 'X') { unsigned char ok = sync_unlink(fn) != 0xFF; vprint(ok ? "rm ok" : "rm fail"); listen_status(ok, inbuf, scratch); }

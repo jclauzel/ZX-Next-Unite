@@ -19,9 +19,9 @@ from PySide6.QtGui import (
     QColor, QDrag, QKeySequence, QStandardItem, QStandardItemModel,
 )
 from PySide6.QtWidgets import (
-    QAbstractItemView, QFileSystemModel, QGridLayout, QHBoxLayout, QInputDialog,
-    QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QStyle, QTreeView,
-    QVBoxLayout, QWidget,
+    QAbstractItemView, QComboBox, QFileSystemModel, QGridLayout, QHBoxLayout,
+    QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QStyle,
+    QTreeView, QVBoxLayout, QWidget,
 )
 
 from zxnu_config import (
@@ -172,15 +172,44 @@ def _posix_join(base, name):
     return posixpath.normpath(base + name)
 
 
+def _re_drive_of(path):
+    """Drive letter of a remote path ("M:/games" -> "M"), "" when unprefixed.
+
+    An unprefixed path ("/games") lands on the dot's current drive, exactly as
+    it always did; a prefixed one targets that drive explicitly (esxDOS
+    resolves "m:/..." natively, so the dot needs no translation)."""
+    p = path or ""
+    return p[0].upper() if len(p) >= 2 and p[1] == ":" and p[0].isalpha() else ""
+
+
+def _re_norm_dir(p):
+    """Normalise a remote directory path: a bare drive ("M:", as
+    posixpath.dirname yields for "M:/x") becomes that drive's root ("M:/"),
+    and empty becomes "/"."""
+    if not p:
+        return "/"
+    if _re_drive_of(p) and len(p) == 2:
+        return p + "/"
+    return p
+
+
 def _norm_remote_dir(p):
     """Normalise a saved Next-side folder path to an absolute posix dir.
 
-    Blank/invalid restores to "/". Used when restoring the last-browsed remote
-    folder from the config file (see RemoteExplorerWidget.on_connected).
+    Blank/invalid restores to "/". Keeps an optional drive prefix ("M:/games")
+    so a session on a secondary drive restores to that drive. Used when
+    restoring the last-browsed remote folder from the config file (see
+    RemoteExplorerWidget.on_connected).
     """
     p = (p or "").replace("\\", "/").strip()
     if not p:
         return "/"
+    drive = _re_drive_of(p)
+    if drive:
+        rest = p[2:]
+        if not rest.startswith("/"):
+            rest = "/" + rest
+        return drive + ":" + posixpath.normpath(rest)
     if not p.startswith("/"):
         p = "/" + p
     return posixpath.normpath(p)
@@ -200,7 +229,8 @@ class RemoteExplorerWidget(QWidget):
     def __init__(self, enqueue, local_start_dir=None, log=None, parent=None,
                  drain=None, on_sync_root_changed=None, remote_start_dir=None,
                  on_remote_cwd_changed=None, local_sort=None, next_sort=None,
-                 on_sort_changed=None, on_toast=None):
+                 on_sort_changed=None, on_toast=None, extra_drives=None,
+                 on_extra_drives_changed=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
         self._drain_raw = drain              # host closure: empty the queue, -> count
@@ -224,6 +254,20 @@ class RemoteExplorerWidget(QWidget):
         self._next_entries = []              # last Next listing, for re-sorting
         self._cwd = "/"                      # current Next directory
         self._connected = False
+        # Drives on the Next, from the dot's getdrives ('W') reply: the dot
+        # reports {C, M, current} only - it can never PROBE other letters
+        # (any file call on an unmounted drive crashes a dotN, learned on real
+        # hardware). Empty until known (or when the dot predates v5.1, in
+        # which case everything stays on the dot's current drive as before).
+        self._drives = []
+        self._default_drive = ""             # the dot's current drive letter
+        self._drive_combo_guard = False      # ignore programmatic combo changes
+        # Extra drive letters the USER declared (additional SD readers /
+        # partitions the dot cannot discover), persisted by the host via
+        # on_extra_drives_changed (SETTING_NEXTSYNC_EXTRA_DRIVES, e.g. "DE").
+        self._on_extra_drives_changed = on_extra_drives_changed or (lambda s: None)
+        self._extra_drives = sorted({c.upper() for c in (extra_drives or "")
+                                     if c.upper() in "CDEFGHIJKLMNOP"})
         # The local folder the Remote Explorer works in. "" until the user picks
         # one (first run); a folder must be chosen before the server can start.
         self._sync_root = ""
@@ -421,10 +465,34 @@ class RemoteExplorerWidget(QWidget):
         refresh = QPushButton("Refresh", self)
         refresh.setMaximumWidth(72)
         refresh.clicked.connect(self.refresh)
+        # Drive switcher: populated from the dot's getdrives reply on connect
+        # (e.g. C and M). Disabled until the drives are known; stays a single
+        # "C" with an explanatory tooltip when the dot predates getdrives.
+        self.next_drive_combo = QComboBox(self)
+        self.next_drive_combo.setToolTip(
+            "Next drive to browse (from '.sync5 -listen'). Switching drives "
+            "jumps to that drive's root; all transfers and file operations "
+            "then target it. The Next reports C, M and its current drive; "
+            "use + to add drives from extra SD readers/partitions.")
+        self.next_drive_combo.setEnabled(False)
+        self.next_drive_combo.currentTextChanged.connect(self._on_drive_changed)
+        # "+": declare an extra drive letter the dot cannot discover on its
+        # own (additional SD card readers / partitions). Only ever probed by
+        # the USER switching to it - see _add_drive_clicked.
+        self.next_drive_add = QPushButton("+ Drive", self)
+        self.next_drive_add.setMaximumWidth(64)
+        self.next_drive_add.setToolTip(
+            "Add a Next drive letter (D..P) for an additional SD card "
+            "reader/partition the Next cannot report by itself. The drive is "
+            "remembered and offered automatically next time.")
+        self.next_drive_add.setEnabled(False)
+        self.next_drive_add.clicked.connect(self._add_drive_clicked)
         next_bar = QHBoxLayout()
         next_bar.setContentsMargins(0, 0, 0, 0)
         next_bar.addWidget(next_up)
         next_bar.addWidget(refresh)
+        next_bar.addWidget(self.next_drive_combo)
+        next_bar.addWidget(self.next_drive_add)
         next_bar.addWidget(self.next_path_label, 1)
 
         next_box = QVBoxLayout()
@@ -610,6 +678,15 @@ class RemoteExplorerWidget(QWidget):
         if not on:
             self.next_model.removeRows(0, self.next_model.rowCount())
             self.next_path_label.setText("Next: (waiting for .sync5 -listen …)")
+            self._drives = []
+            self._default_drive = ""
+            self.next_drive_add.setEnabled(False)
+            self._drive_combo_guard = True
+            try:
+                self.next_drive_combo.clear()
+                self.next_drive_combo.setEnabled(False)
+            finally:
+                self._drive_combo_guard = False
 
     # ---- worker signal slots (UI thread) ------------------------------
     def on_connected(self):
@@ -617,6 +694,9 @@ class RemoteExplorerWidget(QWidget):
         # Jump straight back to the folder we were last browsing. If it's gone,
         # the listing fails and on_ls_failed() drops us back to the root.
         self._cwd = self._remote_start_dir or "/"
+        # Ask which drives are mounted (dot v5.1+) before the first listing so
+        # the drive switcher fills in as the pane appears.
+        self._enqueue(("drives",))
         self.refresh()
 
     def on_disconnected(self):
@@ -632,9 +712,136 @@ class RemoteExplorerWidget(QWidget):
             self._log("Connection ended; stopped the running operation.")
             self._end_operation()
 
+    def on_drives(self, current, letters):
+        """getdrives result: ``current`` is the dot's default drive letter and
+        ``letters`` the drives it vouches for — always {C, M, current}; the
+        dot can never PROBE other letters (a file call on an unmounted drive
+        crashes a dotN). Both empty when the dot predates the command (pre
+        v5.1) — then the switcher shows a lone entry for the drive in use and
+        stays disabled, and every path keeps riding the dot's current drive
+        exactly as before. User-declared extra drives (additional SD readers)
+        are merged in from the saved config."""
+        self._default_drive = (current or "").strip().upper()[:1]
+        self._drives = sorted({(l or "").strip().upper()[:1]
+                               for l in (letters or []) if (l or "").strip()})
+        if self._drives and self._default_drive not in self._drives:
+            # Distrust a current-drive letter that isn't in the reported list
+            # (a mis-decoded M_GETDRV byte must not become a bogus combo entry).
+            self._default_drive = "C" if "C" in self._drives else self._drives[0]
+        if self._drives:
+            self._log("Next drives: " + " ".join(self._known_drives())
+                      + (f" (current: {self._default_drive})"
+                         if self._default_drive else "")
+                      + " — use '+ Drive' to add extra SD reader/partition "
+                        "letters (they are remembered).")
+        self._rebuild_drive_combo()
+
+    def _known_drives(self):
+        """Every drive the combo offers: the dot-reported set plus the
+        user-declared extras (only once the dot reported anything — an old
+        dot gives us no safe way to know extras will even parse)."""
+        if not self._drives:
+            return []
+        return sorted(set(self._drives) | set(self._extra_drives))
+
+    def _rebuild_drive_combo(self):
+        """(Re)fill the drive switcher from _known_drives(), keeping the
+        current selection pointed at the cwd's drive."""
+        known = self._known_drives()
+        self._drive_combo_guard = True
+        try:
+            self.next_drive_combo.clear()
+            if known:
+                self.next_drive_combo.addItems(known)
+                self.next_drive_combo.setEnabled(len(known) > 1)
+            else:
+                # Old dot: show the one drive we're implicitly on.
+                self.next_drive_combo.addItem(self._cwd_drive())
+                self.next_drive_combo.setEnabled(False)
+        finally:
+            self._drive_combo_guard = False
+        self.next_drive_add.setEnabled(self._connected and bool(self._drives))
+        self._sync_drive_combo()
+
+    def _add_drive_clicked(self):
+        """Declare an extra drive letter (additional SD reader/partition).
+
+        The Next cannot discover these itself — and it must never guess:
+        merely opening a path on an unmounted drive crashes the dot, which is
+        why adding one is an explicit, warned, user decision."""
+        letter, ok = QInputDialog.getText(
+            self, "Add Next drive",
+            "Drive letter of the additional SD reader/partition (D..P):")
+        letter = (letter or "").strip().rstrip(":").upper()
+        if not ok or not letter:
+            return
+        if len(letter) != 1 or letter not in "CDEFGHIJKLMNOP":
+            self._log("Add drive: enter a single letter C..P (A/B are the "
+                      "floppy drives and cannot be used).")
+            return
+        if letter in self._known_drives():
+            self._select_drive(letter)
+            return
+        if QMessageBox.warning(
+                self, "Add Next drive",
+                f"Add drive {letter}: to the list?\n\n"
+                "Only add a drive that really exists on your Next (an extra "
+                "SD card reader or partition). Selecting a drive that is not "
+                "mounted CRASHES the Next.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No) != QMessageBox.Yes:
+            return
+        self._add_drive_letter(letter)
+
+    def _add_drive_letter(self, letter):
+        """Add a confirmed extra drive, persist it, and switch to it."""
+        if letter not in self._extra_drives:
+            self._extra_drives = sorted(set(self._extra_drives) | {letter})
+            self._on_extra_drives_changed("".join(self._extra_drives))
+        self._rebuild_drive_combo()
+        self._select_drive(letter)
+
+    def _select_drive(self, letter):
+        """Point the combo at ``letter`` as a user action (switches drive)."""
+        ix = self.next_drive_combo.findText(letter)
+        if ix >= 0:
+            self.next_drive_combo.setCurrentIndex(ix)
+
+    def _cwd_drive(self):
+        """The drive the pane is effectively on: the cwd's prefix if it has
+        one, else the dot's reported current drive, else "C"."""
+        return _re_drive_of(self._cwd) or self._default_drive or "C"
+
+    def _sync_drive_combo(self):
+        """Point the drive switcher at the drive the cwd is on (guarded, so it
+        never fires _on_drive_changed)."""
+        want = self._cwd_drive()
+        ix = self.next_drive_combo.findText(want)
+        if ix >= 0 and self.next_drive_combo.currentIndex() != ix:
+            self._drive_combo_guard = True
+            try:
+                self.next_drive_combo.setCurrentIndex(ix)
+            finally:
+                self._drive_combo_guard = False
+
+    def _on_drive_changed(self, text):
+        """User picked a drive: jump to that drive's root and list it. Every
+        later command (ls/get/put/mkdir/rm/rmdir/rename/rmtree, drag-drops
+        included) builds its paths from the cwd, so the drive prefix rides
+        along automatically."""
+        if self._drive_combo_guard or not self._connected:
+            return
+        drive = (text or "").strip().upper()[:1]
+        if not drive or drive == _re_drive_of(self._cwd):
+            return
+        self._cwd = f"{drive}:/"
+        self.refresh()
+
     def on_listing(self, path, entries):
-        self._cwd = path if path.startswith("/") else "/" + path
+        self._cwd = (path if (path.startswith("/") or _re_drive_of(path))
+                     else "/" + path)
         self.next_path_label.setText(f"Next: {self._cwd}")
+        self._sync_drive_combo()
         # Remember this (confirmed-good) folder so a later reconnect returns here.
         self._remember_remote_cwd(self._cwd)
         # Cache the entries so a later header click can re-sort without a re-listing.
@@ -647,7 +854,7 @@ class RemoteExplorerWidget(QWidget):
         """(Re)populate the Next pane from the cached listing in the current sort
         order, always keeping ".." pinned at the top."""
         self.next_model.removeRows(0, self.next_model.rowCount())
-        if self._cwd not in ("/", ""):
+        if not self._at_drive_root():
             self._add_next_row("..", True, None, is_updir=True)
         for is_dir, size, name in self._sorted_next_entries():
             self._add_next_row(name, is_dir, size)
@@ -675,15 +882,20 @@ class RemoteExplorerWidget(QWidget):
         """A listing could not be opened on the Next: the folder is gone.
 
         Happens when the folder we tried to restore on reconnect (or navigated
-        into) no longer exists. Drop back to the root so the pane recovers.
+        into) no longer exists. Drop back to the root of the same drive so the
+        pane recovers (and a missing drive root falls back to the default "/").
         """
-        if (path or "/") == "/":
-            return                       # root itself failed: nothing better to do
-        self._log(f"{path}: no such folder on the Next — returning to the root.")
+        drive = _re_drive_of(path)
+        root = f"{drive}:/" if drive else "/"
+        if (path or "/") in ("/", root):
+            if (path or "/") == "/" or not drive:
+                return               # root itself failed: nothing better to do
+            root = "/"               # a drive root failed: back to the default
+        self._log(f"{path}: no such folder on the Next — returning to {root}.")
         self._on_toast("Folder unavailable",
-                       f"{path} no longer exists on the Next.\nReturned to the root.",
+                       f"{path} no longer exists on the Next.\nReturned to {root}.",
                        "yellow")
-        self._cwd = "/"
+        self._cwd = root
         self.refresh()
 
     def _remember_remote_cwd(self, path):
@@ -800,10 +1012,15 @@ class RemoteExplorerWidget(QWidget):
         self._op_step_done()
 
     def _in_cwd(self, path):
-        """True if ``path``'s parent is the directory currently shown."""
-        parent = posixpath.dirname(path.rstrip("/")) or "/"
-        cwd = (self._cwd if self._cwd.startswith("/") else "/" + self._cwd)
-        return parent == (cwd.rstrip("/") or "/")
+        """True if ``path``'s parent is the directory currently shown.
+
+        Drive-aware on both sides: dirname("M:/x") yields the bare "M:", which
+        _re_norm_dir turns back into the "M:/" root form the cwd uses."""
+        parent = _re_norm_dir(posixpath.dirname(path.rstrip("/")) or "/")
+        cwd = self._cwd
+        if not (cwd.startswith("/") or _re_drive_of(cwd)):
+            cwd = "/" + cwd
+        return parent == _re_norm_dir(cwd.rstrip("/") or "/")
 
     # ==================================================================
     #  Next pane
@@ -881,9 +1098,15 @@ class RemoteExplorerWidget(QWidget):
         if self._connected and not self._op_active:
             self._enqueue(("ls", self._cwd))
 
+    def _at_drive_root(self):
+        """True when the cwd is a root ("/" or "X:/") — nowhere further up."""
+        rest = self._cwd[2:] if _re_drive_of(self._cwd) else self._cwd
+        return rest in ("/", "")
+
     def _next_up(self):
-        if self._cwd not in ("/", ""):
-            self._cwd = posixpath.dirname(self._cwd.rstrip("/")) or "/"
+        if not self._at_drive_root():
+            self._cwd = _re_norm_dir(
+                posixpath.dirname(self._cwd.rstrip("/")) or "/")
             self.refresh()
 
     def _next_double_clicked(self, index):
@@ -959,7 +1182,7 @@ class RemoteExplorerWidget(QWidget):
         if "/" in new_name or "\\" in new_name:
             self._log("Rename: enter a name only, not a path.")
             return
-        parent = posixpath.dirname(path.rstrip("/")) or "/"
+        parent = _re_norm_dir(posixpath.dirname(path.rstrip("/")) or "/")
         target = _posix_join(parent, new_name)
         self._run_op("Renaming on the Next…",
                      lambda: self._enqueue(("rename", path, target)))

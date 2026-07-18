@@ -430,11 +430,14 @@ def receive_files(conn, stats):
 #     'L' <path>   ls             'R' <path>   rmdir
 #     'G' <path>   get            'X' <path>   rm
 #     'P' <path>   put            'Q'          quit
-#                                 'V' <old>\0<new>  ren (rename/move)
+#     'W'          getdrives      'V' <old>\0<new>  ren (rename/move)
 # ls/get/mkdir/rmdir/rm/ren are answered by the Next PUSHING framed blocks back
 # (each acked "Ok"); put is answered by the Next PULLING data with "Get"
 # (served exactly like a normal download). 'ren' carries the old and new paths
-# NUL-separated in one frame. See the protocol summary in the dot source
+# NUL-separated in one frame. 'W' (dot v5.1+) is answered with one status
+# block: 'O' + <current drive letter> + <one letter per mounted drive>. Any
+# <path> may carry a drive prefix ("m:/games"); without one it lands on the
+# dot's current drive. See the protocol summary in the dot source
 # (nextsync/sync/z88dk/nextsync.c).
 
 LISTEN_HELP = """\
@@ -446,6 +449,7 @@ LISTEN_HELP = """\
     rmdir <path>               remove a directory on the Next
     rm <path>                  delete a file on the Next
     ren <oldpath> <newpath>    rename/move a file or directory on the Next
+    drives                     list the mounted drives on the Next (dot v5.1+)
     help                       show this help
     quit                       tell the Next to leave -listen and disconnect
 """
@@ -612,6 +616,8 @@ def _listen_console_reader(cmd_q):
             cmd_q.put(("rm", a1, a2))
         elif verb in ("ren", "rename", "mv", "move"):
             cmd_q.put(("ren", a1, a2))
+        elif verb == "drives":
+            cmd_q.put(("drives", "", ""))
         elif verb == "help":
             print(LISTEN_HELP)
         elif verb in ("quit", "exit", "bye"):
@@ -750,6 +756,24 @@ def listen_session(conn, stats, _test_commands=None):
                 # the block framing is length-prefixed, so the NUL is safe.
                 sendpacket(conn, b"V" + a1.encode() + b"\x00" + a2.encode(), 0)
                 _listen_status(conn, f"ren {a1} -> {a2}")
+            elif op == "drives":
+                # getdrives (dot v5.1+): one status block, 'O' + current drive
+                # letter + one letter per mounted drive. An older dot ignores
+                # the unknown 'W' and just re-polls, which fails the block
+                # parse below - report that instead of listing drives.
+                res = {'cur': "", 'letters': ""}
+                def _handle_drives(payload, _r=res):
+                    if payload[0:1] == b'O' and len(payload) >= 2:
+                        _r['cur'] = chr(payload[1])
+                        _r['letters'] = payload[2:].decode(errors='replace')
+                    return True
+                sendpacket(conn, b"W", 0)
+                if _listen_recv_reply(conn, _handle_drives) and res['cur']:
+                    print(f'{timestamp()} | drives: {" ".join(res["letters"])} '
+                          f'(current: {res["cur"]})')
+                else:
+                    print(f'{timestamp()} | drives: not supported by this dot '
+                          '(needs .sync v5.1+)')
 
         elif data == b"Get" or data == b"Gee":
             n = MAX_PAYLOAD
