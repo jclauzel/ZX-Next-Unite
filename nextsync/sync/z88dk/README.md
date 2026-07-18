@@ -42,6 +42,7 @@ zcc +zxn -startup=30 -clib=sdcc_iy -SO3 --max-allocs-per-node200000 \
 |---|---|
 | `nextsync.c` | The port. Same protocol logic as `../nextsync.c`; the SDCC externs are replaced by `#include "syncsys.h"`, buffers moved to bss, `main()` takes the raw command line, `createfilewithpath` uses `esx_f_mkdir`. |
 | `gfx.c` | Unchanged copy of `../gfx.c` (pure C helpers). |
+| `drives.c` | The `-listen` getdrives (`'W'`) probe loop; section-retargeted into the primary dot page like `anim.c` so it costs no main-bank stack headroom. |
 | `syncsys.h` | Shim the app compiles against: `fopen/fread/...` become macros onto `esx_f_*`; `readnextreg/writenextreg`, `conprint`, `receive`, `checksum`, `mulby10`. |
 | `syncsys.c` | Shim implementations over z88dk's esxDOS/nextreg/stdout. `checksum` is now C (was asm). |
 | `uart.asm` | z80asm port of the timing-critical `receive()` loop (the only piece kept in assembly). |
@@ -59,10 +60,11 @@ $C000–$FFFF   (mmu6/7)              : NextZXOS (saved/restored by the crt)
 
 `CRT_ORG_MAIN=0x8000`, `REGISTER_SP=0xBF00`. The large buffers (`inbuf`,
 `scratch`, …) are file-scope statics so they land in the main bank and keep the
-stack small. Current layout: main-bank content ends at `~0xBA21`, leaving
-~1.2 KB of stack below `0xBF00`. To protect that headroom, `anim.c`'s code and
-sprite art live in the free space of the primary 8 KB dot page instead:
-`build_dotn.ps1` compiles `anim.c` to asm, retargets its sections at
+stack small. Current layout: main-bank content ends at `~0xBB10`, leaving
+~1 KB of stack below `0xBF00`. To protect that headroom, `anim.c`'s code and
+sprite art (and `drives.c`'s getdrives probe) live in the free space of the
+primary 8 KB dot page instead:
+`build_dotn.ps1` compiles `anim.c` (and `drives.c`) to asm, retargets their sections at
 `code_dot`/`rodata_dot` — the dotn memory model's head-page sections reserved
 for user dot content, placed *after* the crt+clib chains — and links the
 patched `anim_head.asm` (zsdcc itself has no per-file section control —
@@ -111,6 +113,7 @@ server-> Next   : one command frame, payload = opcode + optional path:
      'G' <path>   get   : the Next pushes the file / whole dir back
      'P' <path>   put   : the Next pulls the file from the server
      'M' <path>   mkdir      'R' <path>  rmdir      'X' <path>  rm
+     'W'          getdrives : the Next pushes the mounted drive letters
      'Q'          quit  -> leave listen mode
 ```
 
@@ -119,7 +122,14 @@ server-> Next   : one command frame, payload = opcode + optional path:
 entries then `'E'`; `get` reuses `send_file`/`send_dir` (`'N'`/`'D'`/`'E'` then a
 final `'B'`); the status ops send one `'O'`/`'F'` block. `put` reuses `transfer()`
 — the Next pulls with `"Get"` and the server serves the bytes, exactly like a
-normal download.
+normal download. `getdrives` (v5.1+) sends one `'O'` block carrying the current
+drive letter (M_GETDRV) then the letters `{C, M, current}` — C and M are
+guaranteed by NextZXOS and the current drive is mounted by definition. Drives
+are **never probed**: any file call on an unmounted letter (and any touch of
+the A:/B: floppy letters, and any M_P3DOS-routed call) remaps `$8000-$BFFF`
+mid-call and crashes the dotN — three separate real-hardware crashes confirmed
+this. Every `<path>` may carry an optional drive prefix (`m:/games`), and one
+without lands on the dot's current drive as before.
 
 Server side: `nextsync5.py` gains a `listen_session()` (triggered by `"Listen"`)
 with a console CLI (`ls`/`get`/`put`/`mkdir`/`rmdir`/`rm`/`quit`). The whole wire

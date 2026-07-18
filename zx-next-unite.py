@@ -11107,6 +11107,15 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+        def _re_on_extra_drives_changed(letters):
+            # The widget reports the user-declared extra Next drives (e.g. "DE"
+            # for additional SD readers); persist so they reappear next session.
+            try:
+                configuration_dictionary[SETTING_NEXTSYNC_EXTRA_DRIVES] = letters or ""
+                save_configuration_file()
+            except Exception:
+                pass
+
         def _nextsync_build_remote_explorer():
             if self._re_widget is not None:
                 return self._re_widget
@@ -11114,6 +11123,7 @@ class MainWindow(QMainWindow):
             remote_cwd = configuration_dictionary.get(SETTING_NEXTSYNC_REMOTE_CWD) or None
             local_sort = configuration_dictionary.get(SETTING_NEXTSYNC_RE_LOCAL_SORT) or None
             next_sort = configuration_dictionary.get(SETTING_NEXTSYNC_RE_NEXT_SORT) or None
+            extra_drives = configuration_dictionary.get(SETTING_NEXTSYNC_EXTRA_DRIVES) or ""
             widget = RemoteExplorerWidget(
                 _re_enqueue, local_start_dir=start_dir,
                 log=lambda s: add_nextsync_log_window(str(s)),
@@ -11122,6 +11132,8 @@ class MainWindow(QMainWindow):
                 on_remote_cwd_changed=_re_on_remote_cwd_changed,
                 local_sort=local_sort, next_sort=next_sort,
                 on_sort_changed=_re_on_sort_changed,
+                extra_drives=extra_drives,
+                on_extra_drives_changed=_re_on_extra_drives_changed,
                 on_toast=lambda title, msg, variant="red": self._show_toast(
                     title, msg, variant=variant, duration_ms=9000))
             self._re_widget = widget
@@ -11333,6 +11345,7 @@ class MainWindow(QMainWindow):
             self._re_sig.got.connect(widget.on_got)
             self._re_sig.put_done.connect(widget.on_put_done)
             self._re_sig.op_done.connect(widget.on_op_done)
+            self._re_sig.drives.connect(widget.on_drives)
             self._re_sig.marked.connect(widget.on_marked)
             self._re_sig.log.connect(lambda s: add_nextsync_log_window(str(s)))
             self._re_sig.error.connect(widget.on_error)

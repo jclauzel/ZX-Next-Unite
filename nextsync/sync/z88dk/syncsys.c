@@ -90,6 +90,22 @@ unsigned char sync_rename(const char *oldpath, const char *newpath)
    return esx_f_rename(oldpath, newpath);
 }
 
+/* Current drive for the -listen "getdrives" command, as a LETTER 'A'..'P'
+ * (0 if unknown, so the caller can fall back to 'C').
+ *
+ * MUST use M_GETDRV (esxDOS API $89, a divMMC hook: esx_m_getdrv), which
+ * returns the default drive encoded as 8*(letter-'A') + partition. Do NOT
+ * use esx_dos_get_drive() (IDE_GET_DRIVE via M_P3DOS): +3DOS calls remap
+ * $8000-$BFFF to bank 2 for the call, pulling this dotN's main-bank code AND
+ * stack out from under it mid-call - on real hardware the dot died on the
+ * first getdrives and NextZXOS reported "Statement lost" on return. */
+unsigned char sync_getdrive(void)
+{
+   unsigned char d = esx_m_getdrv();
+   d = 'A' + (d >> 3);
+   return (d >= 'A' && d <= 'P') ? d : 0;
+}
+
 /* One static long-filename dirent, reused by every sync_readdir_entry() call.
  * A struct esx_dirent_lfn is ~270 bytes: far too big for the tight main-bank
  * stack (REGISTER_SP = $BF00 sits just above the BSS buffers - a stack

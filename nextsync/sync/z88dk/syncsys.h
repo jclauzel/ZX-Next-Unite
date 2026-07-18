@@ -36,6 +36,7 @@ extern unsigned char  sync_mkdir(const char *path);   /* create one directory */
 extern unsigned char  sync_rmdir(const char *path);   /* remove a directory    */
 extern unsigned char  sync_unlink(const char *path);  /* delete a file         */
 extern unsigned char  sync_rename(const char *oldpath, const char *newpath); /* rename/move a file or dir */
+extern unsigned char  sync_getdrive(void);             /* current drive letter 'A'..'P', 0 if unknown */
 
 /* One directory entry with its size, for the -listen "ls" command. Enumerated
  * with sync_opendir()/sync_readdir_entry()/sync_close(). Long filenames: the

@@ -69,17 +69,20 @@ def mock_next(sock, entries, filebytes, cap, fs):
         settle(); sock.sendall(b"Poll")
         cmd = rx_payload(sock)
         op, arg = cmd[0:1], cmd[1:].decode()
+        # esxDOS accepts an optional drive prefix ("m:/games") on every path;
+        # the mock fs is drive-less, so strip it exactly like esxDOS resolves it.
+        arg_np = arg[2:] if (len(arg) >= 2 and arg[1] == ":") else arg
         if op == b'Q': break
         if op == b'I': continue
         if op == b'L':
-            if arg.rstrip("/") == "/gone":
+            if arg_np.rstrip("/") == "/gone":
                 push(b'F', 0)            # opendir failed on the Next: folder is gone
                 continue
-            if arg.rstrip("/").startswith("/del"):
+            if arg_np.rstrip("/").startswith("/del"):
                 # rmtree playground: list from the mock fs, dirs first, with the
                 # "." / ".." entries a real readdir yields (the walker must skip
                 # them or it would recurse forever).
-                node = fs_node(fs, arg)
+                node = fs_node(fs, arg_np)
                 if not isinstance(node, dict):
                     push(b'F', 0)
                     continue
@@ -128,10 +131,10 @@ def mock_next(sock, entries, filebytes, cap, fs):
             cap['ren'] = arg
             push(b'O', 0)
         elif op == b'X':
-            if arg.startswith("/del"):
+            if arg_np.startswith("/del"):
                 # rm against the mock fs; "locked.txt" simulates an esxDOS
                 # delete failure (read-only/open file).
-                parent, name = fs_parent(fs, arg)
+                parent, name = fs_parent(fs, arg_np)
                 if (parent is not None and name != "locked.txt"
                         and not isinstance(parent.get(name), dict)
                         and name in parent):
@@ -142,9 +145,9 @@ def mock_next(sock, entries, filebytes, cap, fs):
             else:
                 push(b'O', 0)
         elif op == b'R':
-            if arg.startswith("/del"):
+            if arg_np.startswith("/del"):
                 # esxDOS semantics: rmdir only removes an EMPTY directory.
-                parent, name = fs_parent(fs, arg)
+                parent, name = fs_parent(fs, arg_np)
                 node = parent.get(name) if parent is not None else None
                 if isinstance(node, dict) and len(node) == 0:
                     del parent[name]
@@ -155,6 +158,9 @@ def mock_next(sock, entries, filebytes, cap, fs):
                 push(b'O', 0)
         elif op == b'M':
             push(b'O', 0)
+        elif op == b'W':
+            # getdrives (dot v5.1+): 'O' + current drive letter + mounted letters.
+            push(b'OC' + b"CM", 0)
 
 def main():
     app = QCoreApplication(sys.argv)
@@ -169,10 +175,11 @@ def main():
     # Mock Next-side filesystem for the rmtree tests: /del is a healthy nested
     # tree (with an empty folder); /del2 holds a file the Next refuses to rm.
     fs = {"del": {"a.txt": b"AA", "sub": {"b.txt": b"BB", "empty": {}}},
-          "del2": {"locked.txt": b"LL"}}
+          "del2": {"locked.txt": b"LL"},
+          "del3": {"m1.txt": b"M1", "msub": {"m2.txt": b"M2"}}}
     cap = {}
     got = {'listing': None, 'gets': [], 'put': None, 'puts': [], 'ops': [],
-           'ls_failed': []}
+           'ls_failed': [], 'drives': None}
 
     sig = RemoteExplorerSignals()
     sig.listing.connect(lambda p, e: got.update(listing=(p, e)), Qt.DirectConnection)
@@ -180,6 +187,7 @@ def main():
     sig.got.connect(lambda r, l: got['gets'].append((r, l)), Qt.DirectConnection)
     sig.put_done.connect(lambda ok, r: (got.update(put=(ok, r)), got['puts'].append((ok, r))), Qt.DirectConnection)
     sig.op_done.connect(lambda ok, o, p: got['ops'].append((ok, o, p)), Qt.DirectConnection)
+    sig.drives.connect(lambda cur, ls: got.update(drives=(cur, list(ls))), Qt.DirectConnection)
 
     cmd_q = queue.Queue()
     stop = threading.Event()
@@ -193,6 +201,8 @@ def main():
               ("rm", "/x.tap"), ("rmdir", "/y"),
               ("rmtree", "/del"),                   # recursive delete, must empty the tree
               ("rmtree", "/del2"),                  # contains an undeletable file -> ok=False
+              ("drives",),                          # getdrives: 'O' + current + letters
+              ("rmtree", "M:/del3"),                # drive-prefixed recursive delete
               ("rename", "/ho/a.txt", "/ho/b.txt"), ("quit",)]:
         cmd_q.put(c)
 
@@ -260,10 +270,21 @@ def main():
     # report ok=False (exactly once) without desyncing later commands (ren above).
     if (fs.get("del2") == {"locked.txt": b"LL"}
             and (False, "delete", "/del2") in got['ops']
-            and sum(1 for o in got['ops'] if o[1] == "delete") == 2):
+            and sum(1 for o in got['ops'] if o[1] == "delete") == 3):
         print("PASS rmtree-fail: /del2 kept, delete reported failed")
     else:
         print("FAIL rmtree-fail: fs=", fs.get("del2"), "ops:", got['ops']); ok = False
+    # getdrives: the mock reports current C with C and M mounted.
+    if got['drives'] == ("C", ["C", "M"]):
+        print("PASS drives: ", got['drives'])
+    else:
+        print("FAIL drives: ", got['drives']); ok = False
+    # A drive-prefixed rmtree must walk and delete exactly like a bare one
+    # (the worker builds every child path off the "M:/del3" base).
+    if "del3" not in fs and (True, "delete", "M:/del3") in got['ops']:
+        print("PASS rmtree-drive: M:/del3 fully removed")
+    else:
+        print("FAIL rmtree-drive: fs=", fs.get("del3"), "ops:", got['ops']); ok = False
     # A missing folder must raise ls_failed (never a phantom empty listing) and
     # leave the stream in sync so the later commands above still passed.
     if got['ls_failed'] == ["/gone"]:
