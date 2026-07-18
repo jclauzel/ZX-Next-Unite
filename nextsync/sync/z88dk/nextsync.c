@@ -147,21 +147,21 @@ void vprint(char *t)
     if (g_verbose) print(t);
 }
 
-// Print "<label><number>" on one line (e.g. "wrote 512"), verbose only.
-void vlabelnum(char *label, unsigned short v)
+// Print "<prefix><name>" on one line, verbose only - the rcpy per-item
+// trace ("f-> x", "d-> y", "/!\ error -> z").
+void vprint2(char *a, char *b)
 {
-    char b[8];
     if (!g_verbose) return;
     *((unsigned char *)23692) = 255;
-    conprint(label);
-    uitoa(v, b);
+    conprint(a);
     conprint(b);
     conprint("\r");
 }
 
-extern unsigned char uitoa(unsigned short v, char *b);
+// (vlabelnum and printnum were dead code - removed in v5.2 to buy main-bank
+// stack headroom back.)
 
-void printnum(unsigned short v);
+extern unsigned char uitoa(unsigned short v, char *b);
 
 // Just flush as much as is in the queue right now.
 void flush_uart(void)
@@ -462,7 +462,8 @@ failure:
 // (resend). Kept deliberately compact - a .dot command must fit in 8KB.
 // ----------------------------------------------------------------------------
 
-static unsigned char g_packetno;
+// Not static: also reset by the head-page listen_free (free.c).
+unsigned char g_packetno;
 
 // send() takes an unsigned char count (max 255); send an arbitrary length.
 void send_long(const char *b, unsigned short len)
@@ -699,6 +700,9 @@ void parse_speed_switches(char *dst)
 //        'X' <path>   rm (unlink)
 //        'V' <old>\0<new>  ren : rename/move a file or directory
 //        'W'          getdrives : the Next pushes the mounted drive letters
+//        'Z' [drive]  free  : free space on a partition (psize/pfull, v5.2+)
+//        'C' <src>\0<dst>  rcpy : copy a file/dir LOCALLY on the Next (v5.2+)
+//        'S' <path>   rfsize : total size of a file / directory tree (v5.2+)
 //        'Q'          quit  -> leave listen mode
 //
 // Every <path> may carry an optional drive prefix ("m:/games"); esxDOS
@@ -717,6 +721,31 @@ void parse_speed_switches(char *dst)
 //         letters> (e.g. "O" "C" "CM"). The list is {C, M, current}: C and M
 //         are guaranteed by NextZXOS, the current drive is mounted by
 //         definition. Never probed - file calls on unmounted drives crash.
+//   rcpy : the whole copy runs ON the Next - no data crosses the wire, and
+//         because every esxDOS call takes drive-prefixed paths it works
+//         across partitions (c:/x -> m:/y) with no drive switching. The
+//         Next pushes 'D' progress blocks (one per file with the dest path,
+//         plus an empty keepalive every 64KB inside big files) and ends
+//         with 'O' (all copied) or 'F' (failed; already-copied files stay,
+//         like an interrupted cp). Directory copies re-enumerate with the
+//         send_dir safe walk (no file I/O while a readdir handle is open).
+//         The destination-inside-source trap is guarded PC-side.
+//   rfsize : rcpy's companion ("will the copy fit?"): measures a file or a
+//         whole directory tree. 'D' progress blocks (one per directory with
+//         its path + empty keepalives every 256 entries), then one terminal
+//         'O' + [4B files][4B dirs][4B size_lo][2B size_hi] (all LE; total
+//         bytes = size_hi*2^32 + size_lo - a tree can exceed 32 bits), or
+//         'F'. Sizes come from the dirents, so each dir is swept O(n) with
+//         the handle open (the listen_ls-proven pattern); only sub-dir
+//         recursion uses the re-open/skip/close dance.
+//   free : one status block, 'O' + 4 bytes little-endian = free 512-byte
+//         blocks on the partition (F_GETFREE), or 'F' on failure. The
+//         optional argument is a drive letter ('C', 'M', ...); without one
+//         the dot's current drive is measured. This is the only storage
+//         metric NextZXOS exposes through the dotN-safe divMMC API - total
+//         partition size would need +3DOS/IDEDOS via M_P3DOS, which is fatal
+//         here (see listen_drives below) - so the PC's psize/pfull commands
+//         both present this same free-space figure.
 //   put : reuses transfer() - the Next pulls data with "Get", server serves it.
 //         On success the server has counted every byte, so nothing more is sent;
 //         on failure (couldn't create the file, or the transfer gave up) the Next
@@ -750,6 +779,9 @@ char *listen_cmd_name(unsigned char op)
         case 'X': return "rm";
         case 'V': return "ren";
         case 'W': return "drives";
+        case 'Z': return "free";
+        case 'C': return "rcpy";
+        case 'S': return "rfsize";
         case 'Q': return "quit";
         default:  return "?";
     }
@@ -766,46 +798,9 @@ void listen_status(char ok, unsigned char *inbuf, unsigned char *scratch)
 // ls: enumerate 'path' and push the listing to the server as 'D' blocks of
 // packed [flags][size][namelen][name] entries, ended by an 'E' block. Only
 // readdir + network I/O happen while the handle is open (no esxDOS file I/O),
-// so the directory cursor is safe.
-void listen_ls(char *path, unsigned char *inbuf, unsigned char *scratch)
-{
-    unsigned char dh, i, nl;
-    sync_dirent_t ent;
-    unsigned short used = 0;   // entry bytes packed after the opcode (at scratch[3])
-
-    g_packetno = 0;
-
-    dh = opendir((unsigned char *)path);
-    if (dh == 0) { listen_status(0, inbuf, scratch); return; }  // 'F' - can't open
-
-    while (sync_readdir_entry(dh, &ent))
-    {
-        nl = 0;
-        while (ent.name[nl]) nl++;
-        if (used + 6 + nl > 1000)          // flush the current block first
-        {
-            scratch[2] = 'D';
-            send_block_rt(scratch, (unsigned short)(1 + used), inbuf);
-            used = 0;
-        }
-        scratch[3 + used++] = ent.is_dir ? 1 : 0;
-        scratch[3 + used++] = (unsigned char)(ent.size);
-        scratch[3 + used++] = (unsigned char)(ent.size >> 8);
-        scratch[3 + used++] = (unsigned char)(ent.size >> 16);
-        scratch[3 + used++] = (unsigned char)(ent.size >> 24);
-        scratch[3 + used++] = nl;
-        for (i = 0; i < nl; i++) scratch[3 + used++] = ent.name[i];
-    }
-    fclose(dh);
-
-    if (used)                              // flush remaining entries
-    {
-        scratch[2] = 'D';
-        send_block_rt(scratch, (unsigned short)(1 + used), inbuf);
-    }
-    scratch[2] = 'E';
-    send_block_rt(scratch, 1, inbuf);
-}
+// so the directory cursor is safe. Print-free, so it lives in the HEAD PAGE
+// (free.c) - moved there in v5.2 to reclaim main-bank stack headroom.
+extern void listen_ls(char *path, unsigned char *inbuf, unsigned char *scratch);
 
 // getdrives: report the drives the PC may target, as one status block:
 // 'O' + <current drive letter> + <drive letters>.
@@ -838,6 +833,126 @@ void listen_drives(unsigned char *inbuf, unsigned char *scratch)
     scratch[4 + n++] = 'M';
     send_block_rt(scratch, (unsigned short)(2 + n), inbuf);
 }
+
+// psize/pfull ('Z'): free space on a partition, as one status block:
+// 'O' + 4 bytes little-endian free 512-byte block count, or 'F' when the
+// drive can't be measured. arg = optional drive letter (empty string = the
+// dot's current drive). Implemented in free.c, which - like anim.c - is
+// section-retargeted into the head page by build_dotn.ps1 so its 32-bit
+// arithmetic doesn't eat main-bank stack headroom (it follows the head-page
+// rules: no printing, esxDOS calls only).
+extern void listen_free(char *arg, unsigned char *inbuf, unsigned char *scratch);
+
+// ---------------------------------------------------------------------------
+// rcpy ('C'): copy a file or whole directory locally on the Next; pushes 'D'
+// progress blocks then a final 'O'/'F'. All the machinery is head-page
+// resident and print-free (rcpy.c): the single-file primitives plus an
+// ITERATIVE walk (rcpy_walk_init/rcpy_step - explicit level stack in the
+// scratch tail, ONE stack frame at any depth). Only the entry point below
+// stays in the main bank: it drives the walk one item per step and traces
+// each completed item on screen ("f-> file", "d-> dir", "/!\ error -> item")
+// BETWEEN steps - head-page code must never print, not even via a main-bank
+// helper reached from a head-page frame (hardware-proven), and the stepper
+// design means no head-page frame is on the stack when the trace happens.
+// Paths at scratch+512/+768, walk state at scratch+1024: zero bss.
+// ---------------------------------------------------------------------------
+extern unsigned char rcpy_hb(char *name, unsigned char *inbuf, unsigned char *scratch);
+extern unsigned char rcpy_file(char *src, char *dst, unsigned char *inbuf, unsigned char *scratch);
+extern unsigned char rcpy_step(unsigned char *inbuf, unsigned char *scratch);
+
+// 32-bit little-endian store, used by the head-page listen_rfsize to build
+// its totals reply (lives here so those few bytes don't crowd the nearly
+// full head page).
+void put32le(unsigned char *p, unsigned long v)
+{
+    p[0] = (unsigned char)v;
+    p[1] = (unsigned char)(v >> 8);
+    p[2] = (unsigned char)(v >> 16);
+    p[3] = (unsigned char)(v >> 24);
+}
+
+// rcpy entry point: copies the two NUL-separated paths out of fn[] into the
+// scratch-tail buffers (fn is too small to grow two paths), decides file vs
+// directory, runs the copy and sends the terminal status: 'O' = everything
+// copied, 'F' = anything failed or the link died (already-copied files
+// stay, like an interrupted cp). The terminal block must CONTINUE the 'D'
+// sequence, so it is sent directly (listen_status would reset g_packetno).
+void listen_rcpy(char *src0, char *dst0, unsigned char *inbuf, unsigned char *scratch)
+{
+    char *src = (char *)scratch + 512;
+    char *dst = (char *)scratch + 768;
+    unsigned short sl = 0, dl = 0, fails = 0;
+    unsigned char fh, r = 0;
+
+    g_packetno = 0;
+
+    while (src0[sl] && sl < 255) { src[sl] = src0[sl]; sl++; }
+    src[sl] = 0;
+    while (dst0[dl] && dl < 255) { dst[dl] = dst0[dl]; dl++; }
+    dst[dl] = 0;
+    // Trailing slashes off (keep a drive root's, "c:/" - "c:" would mean
+    // c:'s CURRENT dir, not its root).
+    while (sl > 1 && src[sl - 1] == '/' && src[sl - 2] != ':') src[--sl] = 0;
+    while (dl > 1 && dst[dl - 1] == '/' && dst[dl - 2] != ':') dst[--dl] = 0;
+
+    if (sl == 0 || dl == 0)
+        fails = 1;
+    else
+    {
+        fh = fopen((unsigned char *)src, 1);   // readable file?
+        if (fh)
+        {
+            fclose(fh);
+            r = rcpy_file(src, dst, inbuf, scratch);
+            if (r == 0) vprint2("f-> ", dst);
+            else if (r == 1) { vprint2("/!\\ error -> ", src); fails = 1; }
+        }
+        else
+        {
+            // Not a file: only a directory copy if it really opens as one
+            // (probing FIRST avoids leaving a junk empty destination dir
+            // behind for a typo'd source).
+            fh = opendir((unsigned char *)src);
+            if (fh == 0) { vprint2("/!\\ error -> ", src); fails = 1; }
+            else
+            {
+                fclose(fh);
+                sync_mkdir(dst);               // create the root (exists=merge)
+                vprint2("d-> ", dst);
+                // Drive the head-page iterative walk one item at a time,
+                // tracing each completed item HERE - between steps, so no
+                // head-page frame is ever on the stack while printing. The
+                // walk state (rcpy_state_t, syncsys.h) is armed directly.
+                {
+                    rcpy_state_t *st = (rcpy_state_t *)(scratch + 1024);
+                    st->sp = 0;
+                    st->ended = 0;
+                    st->cur[0] = 0;
+                    st->sl[0] = sl;
+                    st->dl[0] = dl;
+                }
+                for (;;)
+                {
+                    r = rcpy_step(inbuf, scratch);
+                    if (r == 0) break;                                   // done
+                    else if (r == 1) vprint2("f-> ", dst);               // file copied
+                    else if (r == 2) vprint2("d-> ", dst);               // dir created
+                    else if (r == 3) { vprint2("/!\\ error -> ", src); fails++; }
+                    else break;                                          // 4: link dead
+                }
+            }
+        }
+    }
+
+    scratch[2] = (fails || r == 2 || r == 4) ? 'F' : 'O';
+    send_block_rt(scratch, 1, inbuf);
+}
+
+// rfsize ('S'): total size of a file or directory tree, as 'D' progress
+// blocks then 'O' + [files][dirs][size_lo][size_hi] or 'F'. Head-page
+// resident (rfsize.c); reuses syncsys.c's static LFN dirent and the scratch
+// tail for its path, so it too adds (almost) zero main-bank bss.
+extern void listen_rfsize(char *arg, unsigned char *inbuf, unsigned char *scratch);
 
 // Big I/O buffers live in bss (main bank, mmu4/mmu5) rather than on the stack:
 // under the dotN model that keeps the stack small and forces those pages to be
@@ -907,7 +1022,7 @@ int main(int arglen, char *rawcmd)
         con_cls();                                        // paint the whole screen black + home
     }
 
-    print("NextSync 5.1 Clauzel/Komppa");
+    print("NextSync 5.2 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -975,13 +1090,13 @@ int main(int arglen, char *rawcmd)
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v5.1 Clauzel/Komppa\r"
+                "SYNC v5.2 Clauzel/Komppa\r"
                 ".SYNC [server] : save cfg\r"
                 ".SYNC : sync files from PC\r"
                 ".SYNC -send <file|dir> : to PC\r"
                 ".SYNC -listen|-l : file server\r"
-                "  PC drives: ls get put\r"
-                "  mkdir rmdir rm ren\r"
+                "  PC drives: ls get put mkdir\r"
+                "  rmdir rm ren free rcpy rfsize\r"
                 "  BREAK key stops it (safe)\r"
                 ".SYNC -slow|-default|-fast\r"
                 "Anim, verbose trace and retro\r"
@@ -1192,6 +1307,17 @@ retryconnect:
                     else vprint("put done");
                 }
                 else if (op == 'W') { listen_drives(inbuf, scratch); vprint("drives done"); }
+                else if (op == 'Z') { listen_free(fn, inbuf, scratch); vprint("free done"); }
+                else if (op == 'C')
+                {
+                    // rcpy: the payload is src '\0' dst, exactly like ren -
+                    // the embedded NUL terminates src, fn[al]=0 terminates dst.
+                    unsigned short sp = 0;
+                    while (sp < al && fn[sp]) sp++;
+                    if (sp < al) { listen_rcpy(fn, fn + sp + 1, inbuf, scratch); vprint("rcpy done"); }
+                    else { vprint("rcpy malformed"); listen_status(0, inbuf, scratch); }
+                }
+                else if (op == 'S') { listen_rfsize(fn, inbuf, scratch); vprint("rfsize done"); }
                 else if (op == 'M') { unsigned char ok = sync_mkdir(fn)  != 0xFF; vprint(ok ? "mkdir ok" : "mkdir fail"); listen_status(ok, inbuf, scratch); }
                 else if (op == 'R') { unsigned char ok = sync_rmdir(fn)  != 0xFF; vprint(ok ? "rmdir ok" : "rmdir fail"); listen_status(ok, inbuf, scratch); }
                 else if (op == 'X') { unsigned char ok = sync_unlink(fn) != 0xFF; vprint(ok ? "rm ok" : "rm fail"); listen_status(ok, inbuf, scratch); }

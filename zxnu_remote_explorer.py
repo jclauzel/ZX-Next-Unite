@@ -262,6 +262,12 @@ class RemoteExplorerWidget(QWidget):
         self._drives = []
         self._default_drive = ""             # the dot's current drive letter
         self._drive_combo_guard = False      # ignore programmatic combo changes
+        # Free space per drive letter, from the dot's 'Z' reply (v5.2+):
+        # letter -> free bytes (int), or None when the query failed / the dot
+        # predates 'Z'. Free space is the ONLY storage metric a dotN can
+        # obtain safely (total partition size needs +3DOS/IDEDOS calls that
+        # crash a dotN), so the pane shows "free" alone, never a percentage.
+        self._free_space = {}
         # Extra drive letters the USER declared (additional SD readers /
         # partitions the dot cannot discover), persisted by the host via
         # on_extra_drives_changed (SETTING_NEXTSYNC_EXTRA_DRIVES, e.g. "DE").
@@ -647,6 +653,9 @@ class RemoteExplorerWidget(QWidget):
                 pass
         # One listing now that the batch is done (suppressed during the op).
         self.refresh()
+        # Transfers/deletes changed the drive's fill level: re-read it so the
+        # free-space figure in the path label stays honest.
+        self._query_free()
 
     # ==================================================================
     #  failure reporting  (toast the user, with context)
@@ -678,6 +687,8 @@ class RemoteExplorerWidget(QWidget):
         if not on:
             self.next_model.removeRows(0, self.next_model.rowCount())
             self.next_path_label.setText("Next: (waiting for .sync5 -listen …)")
+            self.next_path_label.setToolTip("")
+            self._free_space.clear()   # a reconnect re-reads it
             self._drives = []
             self._default_drive = ""
             self.next_drive_add.setEnabled(False)
@@ -735,6 +746,55 @@ class RemoteExplorerWidget(QWidget):
                       + " — use '+ Drive' to add extra SD reader/partition "
                         "letters (they are remembered).")
         self._rebuild_drive_combo()
+        # Ask for the current drive's free space (dot v5.2+; older dots
+        # degrade with a log line, exactly like getdrives itself).
+        self._query_free()
+
+    # ---- free space (psize/pfull, dot v5.2+) --------------------------
+    @staticmethod
+    def _fmt_free(nbytes):
+        """Human-readable free space (the pfull view): 512 -> '512 bytes',
+        1572864 -> '1.5 MB'."""
+        if nbytes < 1024:
+            return f"{nbytes} bytes"
+        v = float(nbytes)
+        for unit in ("KB", "MB", "GB", "TB"):
+            v /= 1024.0
+            if v < 1024.0 or unit == "TB":
+                return f"{v:.1f} {unit}"
+
+    def _query_free(self, drive=""):
+        """Ask the Next for a drive's free space ('Z', dot v5.2+). Read-only
+        and tiny, so it rides _enqueue_raw: it must never count toward a
+        running operation's progress (its reply emits no op_done)."""
+        if self._connected:
+            self._enqueue_raw(("free", drive or self._cwd_drive()))
+
+    def on_free_space(self, drive, nbytes):
+        """'Z' result: cache it and refresh the path label. ``nbytes`` is None
+        when the query failed on the Next ('F') or the dot predates v5.2 (the
+        worker's log line says which); then any stale figure is dropped so the
+        label never shows a wrong number."""
+        drive = (drive or "").strip().upper()[:1] or self._cwd_drive()
+        self._free_space[drive] = nbytes
+        if nbytes is not None:
+            self._log(f"Drive {drive}: {self._fmt_free(nbytes)} free "
+                      f"({nbytes} bytes)")
+        self._update_next_path_label()
+
+    def _update_next_path_label(self):
+        """Path label = cwd + the cached free space of its drive (if known)."""
+        text = f"Next: {self._cwd}"
+        free = self._free_space.get(self._cwd_drive())
+        if free is not None:
+            text += f"  —  {self._fmt_free(free)} free"
+            self.next_path_label.setToolTip(
+                f"Free space on drive {self._cwd_drive()}: {free} bytes "
+                "(reported by the Next via F_GETFREE; NextZXOS exposes no "
+                "safe way for a dot command to read the total partition size)")
+        else:
+            self.next_path_label.setToolTip("")
+        self.next_path_label.setText(text)
 
     def _known_drives(self):
         """Every drive the combo offers: the dot-reported set plus the
@@ -836,11 +896,12 @@ class RemoteExplorerWidget(QWidget):
             return
         self._cwd = f"{drive}:/"
         self.refresh()
+        self._query_free(drive)   # free space of the newly selected drive
 
     def on_listing(self, path, entries):
         self._cwd = (path if (path.startswith("/") or _re_drive_of(path))
                      else "/" + path)
-        self.next_path_label.setText(f"Next: {self._cwd}")
+        self._update_next_path_label()
         self._sync_drive_combo()
         # Remember this (confirmed-good) folder so a later reconnect returns here.
         self._remember_remote_cwd(self._cwd)
@@ -1138,16 +1199,35 @@ class RemoteExplorerWidget(QWidget):
         menu = QMenu(self)
         act_new = menu.addAction("New Folder…")
         act_get = menu.addAction("Download (:<-)")
+        act_size = menu.addAction("Get size")
+        act_copy = menu.addAction("Copy")
+        act_cut = menu.addAction("Cut")
+        act_paste = menu.addAction("Paste")
         act_ren = menu.addAction("Rename…")
         act_del = menu.addAction("Delete")
         act_ref = menu.addAction("Refresh")
-        # Rename acts on exactly one item.
-        act_ren.setEnabled(len(self._selected_next_entries()) == 1)
+        sel = self._selected_next_entries()
+        # Rename and Get size act on exactly one item.
+        act_ren.setEnabled(len(sel) == 1)
+        act_size.setEnabled(len(sel) == 1)
+        act_copy.setEnabled(bool(sel))
+        act_cut.setEnabled(bool(sel))
+        # Paste: a local clipboard uploads here; a copied Next clipboard is
+        # duplicated ON the Next itself via the dot's rcpy (v5.2+).
+        act_paste.setEnabled(bool(self._clip))
         chosen = menu.exec(self.next_view.viewport().mapToGlobal(pos))
         if chosen == act_new:
             self._new_folder()
         elif chosen == act_get:
             self._get_selected()
+        elif chosen == act_size:
+            self._get_size_selected()
+        elif chosen == act_copy:
+            self._copy_next("copy")
+        elif chosen == act_cut:
+            self._copy_next("cut")
+        elif chosen == act_paste:
+            self._paste_into_next()
         elif chosen == act_ren:
             self._rename_selected()
         elif chosen == act_del:
@@ -1186,6 +1266,37 @@ class RemoteExplorerWidget(QWidget):
         target = _posix_join(parent, new_name)
         self._run_op("Renaming on the Next…",
                      lambda: self._enqueue(("rename", path, target)))
+
+    def _get_size_selected(self):
+        """rfsize: measure the selected file or whole folder ON the Next
+        ('S', dot v5.2+) - rcpy's "will the copy fit" companion. Runs as an
+        indeterminate operation so the busy animation shows while the Next
+        walks the tree (that can take a while on big folders); the worker's
+        op_done closes the op, then on_fsize pops the result dialog."""
+        if not self._connected:
+            return
+        entries = self._selected_next_entries()
+        if len(entries) != 1:
+            self._log("Select exactly one Next item to measure.")
+            return
+        path, _is_dir = entries[0]
+        self._run_op("Measuring size on the Next…",
+                     lambda: self._enqueue(("fsize", path)),
+                     determinate=False)
+
+    def on_fsize(self, path, data):
+        """rfsize result. data = {'files','dirs','bytes'} or None on failure
+        (the op_done(False, "size", path) that preceded it already raised the
+        standard failure toast, so None needs no second report here)."""
+        if data is None:
+            return
+        n = int(data.get("bytes", 0))
+        QMessageBox.information(
+            self, "Size on the Next",
+            f"{path}\n\n"
+            f"Files:  {int(data.get('files', 0)):,}\n"
+            f"Folders:  {int(data.get('dirs', 0)):,}\n"
+            f"Total size:  {n:,} bytes  ({self._fmt_free(n)})")
 
     def _delete_selected(self):
         entries = self._selected_next_entries()
@@ -1236,8 +1347,14 @@ class RemoteExplorerWidget(QWidget):
         if entries:
             self._clip = ("next", entries, mode)
             verb = "Cut" if mode == "cut" else "Copied"
-            self._log(f"{verb} {len(entries)} Next item(s). Paste in the local "
-                      "pane to " + ("move" if mode == "cut" else "download") + ".")
+            if mode == "cut":
+                self._log(f"{verb} {len(entries)} Next item(s). Paste in the "
+                          "local pane to move them to the PC.")
+            else:
+                self._log(f"{verb} {len(entries)} Next item(s). Paste in the "
+                          "local pane to download, or in a Next folder to "
+                          "duplicate them ON the Next (dot v5.2+, works "
+                          "across partitions).")
 
     def _copy_local(self, mode="copy"):
         paths = [p for p in self._selected_local_paths() if os.path.exists(p)]
@@ -1250,9 +1367,46 @@ class RemoteExplorerWidget(QWidget):
                       + ("move" if mode == "cut" else "copy") + " it there.")
 
     def _paste_into_next(self):
-        # Paste local clipboard items into the current Next directory: copy =
+        # Paste into the current Next directory. Local clipboard: copy =
         # upload, cut = upload then delete the local source once confirmed.
-        if not self._connected or not self._clip or self._clip[0] != "local":
+        # NEXT clipboard (copy): duplicate the items ON the Next itself via
+        # the dot's rcpy command (v5.2+) - no data crosses the wire, and it
+        # works across partitions (paste under a different drive's cwd).
+        if not self._connected or not self._clip:
+            return
+        if self._clip[0] == "next":
+            _kind, entries, mode = self._clip
+            if mode == "cut":
+                # A within-Next move isn't offered: cut Next items paste into
+                # the LOCAL pane (move to the PC); same-drive moves are what
+                # Rename is for.
+                self._log("Cut Next items paste into the local pane (move to "
+                          "the PC). To duplicate on the Next use Copy; to "
+                          "move/rename use Rename.")
+                return
+            base = self._cwd
+            jobs = []
+            for path, _is_dir in entries:
+                name = posixpath.basename(path.rstrip("/")) or path
+                dst = _posix_join(base, name)
+                # Guard rcpy's infinite trap (folder into itself: the Next-side
+                # walk would re-read its own growing output forever) and the
+                # pointless self-overwrite. FAT is case-insensitive -> lower().
+                s = path.rstrip("/").lower()
+                d = dst.rstrip("/").lower()
+                if d == s or d.startswith(s + "/"):
+                    self._log(f"copy: skipped {path} (destination equals or "
+                              "is inside the source)")
+                    continue
+                jobs.append((path, dst))
+            if not jobs:
+                return
+
+            def go():
+                for path, dst in jobs:
+                    self._enqueue(("rcpy", path, dst))
+                self._log(f"Copying {len(jobs)} item(s) on the Next …")
+            self._run_op("Copying on the Next…", go)
             return
         _kind, paths, mode = self._clip
         paths = list(paths)

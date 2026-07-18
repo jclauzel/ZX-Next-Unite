@@ -229,6 +229,18 @@ class RemoteExplorerSignals(QObject):
     # (current, letters): the Next's default drive + every mounted drive letter,
     # e.g. ("C", ["C", "M"]). ("", []) when the dot predates the 'W' command.
     drives       = Signal(str, object)
+    # (drive, free_bytes): result of a ("free", drive) query ('Z', dot v5.2+).
+    # free_bytes is an int, or None when the query failed on the Next ('F') or
+    # the dot predates 'Z' -- the log line says which. Free space is the ONLY
+    # storage metric a dotN can obtain safely (total partition size needs
+    # +3DOS/IDEDOS calls that crash a dotN), so psize/pfull both present it.
+    free_space   = Signal(str, object)
+    # (path, data): result of a ("fsize", path) query ('S', rfsize, dot
+    # v5.2+). data is {'files': int, 'dirs': int, 'bytes': int}, or None on
+    # failure / pre-v5.2 dots. Emitted AFTER the matching op_done(ok, "size",
+    # path), so a modal progress op has closed by the time the UI shows the
+    # result dialog.
+    fsize        = Signal(str, object)
     marked       = Signal(str)            # a queued ("mark", token) was reached
     log          = Signal(str)            # a human-readable log line
     error        = Signal(str)            # a human-readable error
@@ -378,6 +390,9 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         ("rm",    remote_path)
         ("rmtree", remote_path)   -> recursive folder delete (see below)
         ("drives",)               -> query mounted drives (see below)
+        ("free",  drive_letter)   -> query a partition's free space (see below)
+        ("rcpy",  src, dst)       -> copy locally ON the Next (see below)
+        ("fsize", remote_path)    -> total size of a file/tree (see below)
         ("rename", old_path, new_path)
         ("mark",  token)          -> echoes back via sig.marked once reached
         ("quit",)
@@ -407,6 +422,29 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
     than v5.1 ignores the unknown 'W' and just re-polls: its raw "Poll" fails
     the block parse, ``drives("", [])`` is emitted as the fallback, and the
     stray bytes are re-synced by the outer loop's catch-all idle reply.
+
+    ``free`` sends the 'Z' command (dot v5.2+) with an optional drive letter
+    ("" = the dot's current drive); the Next replies with one status block
+    'O' + 4 bytes little-endian = free 512-byte blocks (F_GETFREE), or 'F'
+    when the drive can't be measured, emitted as ``free_space(drive, bytes)``
+    (bytes None on failure / pre-v5.2 dots, which degrade exactly like
+    ``drives``).
+
+    ``rcpy`` sends the 'C' command (dot v5.2+) with the source and destination
+    paths NUL-separated (like ``rename``); the whole copy - a file or a
+    recursive directory tree, across partitions too - runs ON the Next, no
+    data through the PC. The Next pushes 'D' progress blocks (a named one per
+    file, empty keepalives every 64KB inside big files) and ends with one
+    'O'/'F', reported as ``op_done(ok, "copy", src)``. The reply socket
+    timeout is temporarily widened: SD-card copies are slow and the
+    keepalives only bound the gaps to ~64KB of local I/O.
+
+    ``fsize`` sends the 'S' command (rfsize, dot v5.2+): the Next measures a
+    file or a whole directory tree (rcpy's "will it fit" companion), pushing
+    'D' progress blocks (one per directory + keepalives) and a terminal
+    'O' + [4B files][4B dirs][4B size_lo][2B size_hi] or 'F'. Reported as
+    ``op_done(ok, "size", path)`` followed by ``fsize(path, data)`` (data
+    None on failure). Socket timeout widened like ``rcpy``.
 
     This is the app-side twin of nextsync5.py's listen_session: same wire
     protocol, but driven by the UI queue and reporting via Qt signals instead of
@@ -743,6 +781,110 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             log("This .sync dot does not report drives "
                                 "(pre v5.1); staying on the default drive.")
                             sig.drives.emit("", [])
+                    elif op == "free":
+                        # free space ('Z', dot v5.2+): optional drive letter,
+                        # answered with one status block 'O' + 4 bytes
+                        # little-endian = free 512-byte blocks (F_GETFREE), or
+                        # 'F' when the drive can't be measured. Free space is
+                        # the only storage metric the dotN can obtain safely
+                        # (total size needs +3DOS calls that crash a dotN).
+                        # Optional nicety like drives: an old dot ignores 'Z'
+                        # and re-polls, so degrade instead of dropping.
+                        drv = ((cmd[1] or "").strip().rstrip(':').upper()
+                               if len(cmd) > 1 else "")
+                        res = {'blocks': None, 'fail': False}
+
+                        def _h(payload, _r=res):
+                            if payload[0:1] == b'F':
+                                _r['fail'] = True
+                            elif payload[0:1] == b'O' and len(payload) >= 5:
+                                _r['blocks'] = int.from_bytes(payload[1:5], 'little')
+                            return True
+                        _re_sendpacket(conn, b"Z" + drv.encode(), 0)
+                        try:
+                            got_reply = _re_recv_reply(conn, _h)
+                        except socket.timeout:
+                            got_reply = False
+                        if got_reply and res['blocks'] is not None:
+                            sig.free_space.emit(drv, res['blocks'] * 512)
+                        else:
+                            if res['fail']:
+                                log(f"free space {drv or '(current drive)'}: "
+                                    "FAILED on the Next")
+                            else:
+                                log("This .sync dot does not report free space "
+                                    "(pre v5.2).")
+                            sig.free_space.emit(drv, None)
+                    elif op == "rcpy":
+                        # Local copy ON the Next ('C', dot v5.2+): src and dst
+                        # travel NUL-separated like rename's paths. The Next
+                        # answers with 'D' progress blocks then one 'O'/'F'.
+                        # Widen the socket timeout for the reply: the copy is
+                        # local SD I/O and the keepalives only bound the
+                        # silent gaps (per file / per 64KB). Always emit an
+                        # op_done - the UI counts one per queued command, so
+                        # even the old-dot fallback must complete the op.
+                        src, dst = cmd[1], cmd[2]
+                        res = {'ok': None}
+
+                        def _h(payload, _r=res):
+                            if payload[0:1] == b'D':
+                                return False    # progress/keepalive
+                            _r['ok'] = (payload[0:1] == b'O')
+                            return True
+                        _re_sendpacket(conn, b"C" + src.encode() + b"\x00" +
+                                       dst.encode(), 0)
+                        try:
+                            conn.settimeout(60.0)
+                            got_reply = _re_recv_reply(conn, _h)
+                        except socket.timeout:
+                            got_reply = False
+                        finally:
+                            try:
+                                conn.settimeout(1.0)
+                            except OSError:
+                                pass
+                        if got_reply and res['ok'] is not None:
+                            sig.op_done.emit(bool(res['ok']), "copy", src)
+                        else:
+                            log("rcpy needs .sync v5.2+ (or the link dropped).")
+                            sig.op_done.emit(False, "copy", src)
+                    elif op == "fsize":
+                        # Tree/file size ON the Next ('S', rfsize, dot v5.2+).
+                        # 'D' blocks are progress (named per directory) and
+                        # keepalives; the terminal 'O' carries the totals.
+                        # Emit op_done FIRST (closes the UI's progress op),
+                        # THEN fsize with the data for the result dialog.
+                        path = cmd[1]
+                        res = {'data': None}
+
+                        def _h(payload, _r=res):
+                            o = payload[0:1]
+                            if o == b'D':
+                                return False    # progress/keepalive
+                            if o == b'O' and len(payload) >= 15:
+                                _r['data'] = {
+                                    'files': int.from_bytes(payload[1:5], 'little'),
+                                    'dirs': int.from_bytes(payload[5:9], 'little'),
+                                    'bytes': (int.from_bytes(payload[13:15], 'little') << 32)
+                                             | int.from_bytes(payload[9:13], 'little'),
+                                }
+                            return True         # 'O' or 'F' both end the reply
+                        _re_sendpacket(conn, b"S" + path.encode(), 0)
+                        try:
+                            conn.settimeout(60.0)
+                            got_reply = _re_recv_reply(conn, _h)
+                        except socket.timeout:
+                            got_reply = False
+                        finally:
+                            try:
+                                conn.settimeout(1.0)
+                            except OSError:
+                                pass
+                        if not got_reply:
+                            log("rfsize needs .sync v5.2+ (or the link dropped).")
+                        sig.op_done.emit(res['data'] is not None, "size", path)
+                        sig.fsize.emit(path, res['data'])
                     elif op == "rename":
                         old, new = cmd[1], cmd[2]
                         res = {'ok': None}

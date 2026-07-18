@@ -38,6 +38,15 @@ extern unsigned char  sync_unlink(const char *path);  /* delete a file         *
 extern unsigned char  sync_rename(const char *oldpath, const char *newpath); /* rename/move a file or dir */
 extern unsigned char  sync_getdrive(void);             /* current drive letter 'A'..'P', 0 if unknown */
 
+/* Free space on a drive for the -listen "psize"/"pfull" commands, counted in
+ * 512-byte blocks. letter = 0 queries the current drive; 'C'..'P' (either
+ * case) temporarily switches the default drive to measure another partition.
+ * Returns 0xFFFFFFFF on any failure ('A'/'B' are rejected outright: they are
+ * NextZXOS's +3DOS floppy drives, and merely touching them from a dotN remaps
+ * $8000-$BFFF over our code+stack - see sync_getdrive's note).
+ * Implemented in free.c, which is HEAD-PAGE resident (like anim.c). */
+extern unsigned long  sync_getfree(unsigned char letter);
+
 /* One directory entry with its size, for the -listen "ls" command. Enumerated
  * with sync_opendir()/sync_readdir_entry()/sync_close(). Long filenames: the
  * handle is opened with ESX_DIR_USE_LFN, and `name` points into a static
@@ -64,6 +73,21 @@ extern unsigned char  sync_readdir_entry(unsigned char handle, sync_dirent_t *ou
 #define fwrite(h, b, n)  sync_write((unsigned char)(h), (void *)(b), (unsigned short)(n))
 #define readdir(h, b)    sync_readdir((unsigned char)(h), (void *)(b))
 #endif
+
+/* --- rcpy walk state (shared between nextsync.c and rcpy.c) ------------ */
+/* The iterative rcpy walk keeps its explicit level stack in the scratch
+ * tail at +1024 (the paths sit at +512/+768). The struct is defined here so
+ * the main-bank entry point (listen_rcpy, nextsync.c) can ARM it directly -
+ * a separate head-page init function cost 57 bytes of the nearly-full head
+ * page for three assignments. rcpy_step (rcpy.c) is its only other user. */
+#define RCPY_MAX_DEPTH 12
+typedef struct {                     /* 2 + 3*13*2 = 80 bytes               */
+   unsigned char sp;                 /* current level                       */
+   unsigned char ended;              /* walk finished / root failed         */
+   unsigned short cur[RCPY_MAX_DEPTH + 1];   /* next entry # per level      */
+   unsigned short sl[RCPY_MAX_DEPTH + 1];    /* src path length per level   */
+   unsigned short dl[RCPY_MAX_DEPTH + 1];    /* dst path length per level   */
+} rcpy_state_t;
 
 /* --- Next hardware registers ------------------------------------------- */
 extern unsigned char readnextreg(unsigned char reg);

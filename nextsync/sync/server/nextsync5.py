@@ -431,11 +431,27 @@ def receive_files(conn, stats):
 #     'G' <path>   get            'X' <path>   rm
 #     'P' <path>   put            'Q'          quit
 #     'W'          getdrives      'V' <old>\0<new>  ren (rename/move)
+#     'Z' [drive]  free space (psize/pfull)
+#     'C' <src>\0<dst>  rcpy: copy a file/dir LOCALLY on the Next
+#     'S' <path>   rfsize: total size of a file / directory tree
 # ls/get/mkdir/rmdir/rm/ren are answered by the Next PUSHING framed blocks back
 # (each acked "Ok"); put is answered by the Next PULLING data with "Get"
 # (served exactly like a normal download). 'ren' carries the old and new paths
 # NUL-separated in one frame. 'W' (dot v5.1+) is answered with one status
-# block: 'O' + <current drive letter> + <one letter per mounted drive>. Any
+# block: 'O' + <current drive letter> + <one letter per mounted drive>. 'Z'
+# (dot v5.2+) carries an optional drive letter and is answered with one status
+# block: 'O' + 4 bytes little-endian = free 512-byte blocks on the partition
+# (F_GETFREE), or 'F' on failure. Free space is the ONLY storage metric the
+# dotN can obtain safely (total partition size needs +3DOS/IDEDOS calls that
+# crash a dotN), so psize and pfull both present this same figure. 'C'
+# (rcpy, dot v5.2+) copies src -> dst entirely ON the Next (across
+# partitions too - no data crosses the wire): the Next pushes 'D' progress
+# blocks (one per file with the dest path, plus empty keepalives every 64KB
+# inside big files) and ends with 'O' (all copied) or 'F' (failed). 'S'
+# (rfsize, dot v5.2+) measures a file or whole directory tree - rcpy's
+# "will it fit" companion: 'D' progress blocks (one per directory + empty
+# keepalives), then 'O' + [4B files][4B dirs][4B size_lo][2B size_hi] (LE;
+# total bytes = size_hi*2^32 + size_lo) or 'F'. Any
 # <path> may carry a drive prefix ("m:/games"); without one it lands on the
 # dot's current drive. See the protocol summary in the dot source
 # (nextsync/sync/z88dk/nextsync.c).
@@ -449,7 +465,14 @@ LISTEN_HELP = """\
     rmdir <path>               remove a directory on the Next
     rm <path>                  delete a file on the Next
     ren <oldpath> <newpath>    rename/move a file or directory on the Next
+    rcpy <src> <dst>           copy a file/dir locally ON the Next, incl.
+                               across partitions (dot v5.2+); a <dst>
+                               ending in / keeps the source name
+    rfsize <path>              total size of a file or whole directory
+                               tree on the Next (dot v5.2+)
     drives                     list the mounted drives on the Next (dot v5.1+)
+    psize [drive]              free space on a partition, in bytes (dot v5.2+)
+    pfull [drive]              free space on a partition, human-readable (dot v5.2+)
     help                       show this help
     quit                       tell the Next to leave -listen and disconnect
 """
@@ -557,6 +580,16 @@ def _listen_get(conn, dest_root):
         st['f'].close()
     return _listen_get_result
 
+def _fmt_size(nbytes):
+    """Human-readable size for pfull: 512 -> '512 bytes', 1536000 -> '1.5 MB'."""
+    if nbytes < 1024:
+        return f'{nbytes} bytes'
+    v = float(nbytes)
+    for unit in ("KB", "MB", "GB", "TB"):
+        v /= 1024.0
+        if v < 1024.0 or unit == "TB":
+            return f'{v:.1f} {unit}'
+
 def _listen_status(conn, what):
     """Receive a single status block ('O' ok / 'F' fail) for mkdir/rmdir/rm/ren.
 
@@ -616,8 +649,14 @@ def _listen_console_reader(cmd_q):
             cmd_q.put(("rm", a1, a2))
         elif verb in ("ren", "rename", "mv", "move"):
             cmd_q.put(("ren", a1, a2))
+        elif verb in ("rcpy", "cp"):
+            cmd_q.put(("rcpy", a1, a2))
+        elif verb in ("rfsize", "du"):
+            cmd_q.put(("rfsize", a1, ""))
         elif verb == "drives":
             cmd_q.put(("drives", "", ""))
+        elif verb in ("psize", "pfull"):
+            cmd_q.put((verb, a1, ""))
         elif verb == "help":
             print(LISTEN_HELP)
         elif verb in ("quit", "exit", "bye"):
@@ -774,6 +813,121 @@ def listen_session(conn, stats, _test_commands=None):
                 else:
                     print(f'{timestamp()} | drives: not supported by this dot '
                           '(needs .sync v5.1+)')
+            elif op in ("psize", "pfull"):
+                # free space (dot v5.2+): 'Z' + optional drive letter. One
+                # status block back: 'O' + 4 bytes little-endian free 512-byte
+                # blocks (F_GETFREE), or 'F' if the drive can't be measured.
+                # Free space is the only storage metric the dotN can obtain
+                # safely (total size needs +3DOS calls that crash a dotN), so
+                # psize (exact bytes) and pfull (human-readable) both present
+                # it. An older dot ignores the unknown 'Z' and just re-polls,
+                # which fails the block parse - report that as unsupported.
+                drv = (a1 or "").strip().rstrip(':').upper()
+                if drv and (len(drv) != 1 or not ('C' <= drv <= 'P')):
+                    print(f"  {op}: bad drive '{a1}' (want a letter C..P, e.g. C or m:)")
+                    continue
+                what = f'{op} {drv or "current drive"}'
+                res = {'blocks': None, 'fail': False}
+                def _handle_free(payload, _r=res):
+                    if payload[0:1] == b'F':
+                        _r['fail'] = True
+                    elif payload[0:1] == b'O' and len(payload) >= 5:
+                        _r['blocks'] = int.from_bytes(payload[1:5], 'little')
+                    return True
+                sendpacket(conn, b"Z" + drv.encode(), 0)
+                replied = _listen_recv_reply(conn, _handle_free)
+                if res['fail']:
+                    print(f'{timestamp()} | *** {what}: FAILED on the Next ***')
+                elif replied and res['blocks'] is not None:
+                    free_bytes = res['blocks'] * 512
+                    if op == "psize":
+                        print(f'{timestamp()} | {what}: {free_bytes} bytes free')
+                    else:
+                        print(f'{timestamp()} | {what}: {_fmt_size(free_bytes)} free')
+                else:
+                    print(f'{timestamp()} | {what}: not supported by this dot '
+                          '(needs .sync v5.2+)')
+            elif op == "rcpy":
+                # rcpy (dot v5.2+): copy src -> dst entirely ON the Next, same
+                # partition or across partitions - no data crosses the wire.
+                # The Next pushes 'D' progress blocks (a named one per file,
+                # empty keepalives inside big files) and ends with 'O'/'F'.
+                if not a1 or not a2:
+                    print("  usage: rcpy <src> <dst>")
+                    continue
+                src, dst = a1, a2
+                # A dst ending in "/" means "into that directory": keep the
+                # source's name, like put does (rcpy /a/f.bin m:/bk/ ->
+                # m:/bk/f.bin).
+                if dst.endswith('/') or dst.endswith('\\'):
+                    dst = dst + (src.rstrip('/\\').rsplit('/', 1)[-1] or src)
+                # Guard the infinite trap: copying a folder into itself makes
+                # the Next-side walk re-read its own growing output forever.
+                s = src.rstrip('/').lower()
+                d = dst.rstrip('/').lower()
+                if d == s or d.startswith(s + '/'):
+                    print("  rcpy: destination equals or is inside the source")
+                    continue
+                what = f'rcpy {src} -> {dst}'
+                res = {'ok': None, 'files': 0}
+                def _handle_rcpy(payload, _r=res):
+                    o = payload[0:1]
+                    if o == b'D':
+                        if len(payload) > 1:      # named block = one file begun
+                            _r['files'] += 1
+                            print(f'  copying {payload[1:].decode(errors="replace")}')
+                        return False              # empty 'D' = keepalive
+                    _r['ok'] = (o == b'O')
+                    return True
+                sendpacket(conn, b"C" + src.encode() + b"\x00" + dst.encode(), 0)
+                replied = _listen_recv_reply(conn, _handle_rcpy)
+                if replied and res['ok']:
+                    print(f'{timestamp()} | {what}: OK ({res["files"]} file(s))')
+                elif replied and res['ok'] is False:
+                    print(f'{timestamp()} | *** {what}: FAILED on the Next '
+                          f'(after {res["files"]} file(s); copied files stay) ***')
+                else:
+                    print(f'{timestamp()} | {what}: not supported by this dot '
+                          '(needs .sync v5.2+)')
+            elif op == "rfsize":
+                # rfsize (dot v5.2+): total size of a file or whole directory
+                # tree ON the Next - rcpy's "will it fit" companion. The Next
+                # pushes 'D' progress blocks (one per directory scanned) and
+                # ends with 'O' + [4B files][4B dirs][4B size_lo][2B size_hi]
+                # (LE; bytes = size_hi*2^32 + size_lo) or 'F'.
+                if not a1:
+                    print("  usage: rfsize <path>")
+                    continue
+                what = f'rfsize {a1}'
+                res = {'data': None, 'fail': False}
+                def _handle_rfsize(payload, _r=res):
+                    o = payload[0:1]
+                    if o == b'D':
+                        if len(payload) > 1:      # named block = one directory
+                            print(f'  scanning {payload[1:].decode(errors="replace")}')
+                        return False              # empty 'D' = keepalive
+                    if o == b'O' and len(payload) >= 15:
+                        _r['data'] = {
+                            'files': int.from_bytes(payload[1:5], 'little'),
+                            'dirs': int.from_bytes(payload[5:9], 'little'),
+                            'bytes': (int.from_bytes(payload[13:15], 'little') << 32)
+                                     | int.from_bytes(payload[9:13], 'little'),
+                        }
+                    else:
+                        _r['fail'] = True
+                    return True
+                sendpacket(conn, b"S" + a1.encode(), 0)
+                replied = _listen_recv_reply(conn, _handle_rfsize)
+                if replied and res['data'] is not None:
+                    d = res['data']
+                    print(f'{timestamp()} | {what}: {d["files"]} file(s), '
+                          f'{d["dirs"]} folder(s), {d["bytes"]:,} bytes '
+                          f'({_fmt_size(d["bytes"])})')
+                elif replied and res['fail']:
+                    print(f'{timestamp()} | *** {what}: FAILED on the Next ***')
+                else:
+                    print(f'{timestamp()} | {what}: not supported by this dot '
+                          '(needs .sync v5.2+)')
 
         elif data == b"Get" or data == b"Gee":
             n = MAX_PAYLOAD

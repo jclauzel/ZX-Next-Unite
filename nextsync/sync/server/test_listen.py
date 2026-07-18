@@ -121,6 +121,37 @@ def mock_next(sock, fake_entries, fake_file, captured):
         elif op in (b'M', b'R', b'X'):              # mkdir/rmdir/rm: status
             # "/locked" fails ('F') so the FAILED-status path is exercised too.
             push(b'F' if arg.rstrip("/") == "/locked" else b'O', 0)
+        elif op == b'C':                            # rcpy: local copy on the Next
+            # arg is "src\x00dst". Mock the dot's reply: a named 'D' progress
+            # block per "file", an empty keepalive, then 'O' - or 'F' when the
+            # source is the unreadable "/locked" tree.
+            captured['rcpy'] = arg
+            csrc, cdst = arg.split("\x00", 1)
+            if csrc.startswith("/locked"):
+                push(b'F', 0)
+            else:
+                push(b'D' + cdst.encode(), 0)       # per-file progress
+                push(b'D', 1)                       # keepalive (no name)
+                push(b'O', 2)
+        elif op == b'S':                            # rfsize: tree/file size
+            # Named 'D' per directory + empty keepalive, then 'O' +
+            # [4B files][4B dirs][4B size_lo][2B size_hi] - or 'F' for the
+            # unreadable "/gone".
+            if arg.rstrip("/") == "/gone":
+                push(b'F', 0)
+            else:
+                push(b'D' + arg.encode(), 0)
+                push(b'D', 1)
+                push(b'O' + (3).to_bytes(4, "little") + (2).to_bytes(4, "little")
+                     + (2097152).to_bytes(4, "little") + (0).to_bytes(2, "little"), 2)
+        elif op == b'Z':                            # psize/pfull: free space
+            # 'O' + 4B little-endian free 512-byte blocks, or 'F' when the
+            # drive can't be measured (the dot's sync_getfree failing);
+            # "E" plays the unmeasurable drive.
+            if arg == "E":
+                push(b'F', 0)
+            else:
+                push(b'O' + (4096).to_bytes(4, "little"), 0)   # 4096 blocks = 2 MB
 
 
 def main():
@@ -154,6 +185,13 @@ def main():
         ("put", putfile, "/locked/up.bin"),         # put that fails with 'F'
         ("rm", "/games/old.tap", ""),
         ("rmdir", "/games/tmp", ""),
+        ("psize", "m:", ""),                        # free space, exact bytes
+        ("pfull", "", ""),                          # free space, human-readable
+        ("psize", "E", ""),                         # unmeasurable drive -> 'F'
+        ("rcpy", "/games/a.tap", "m:/backup/"),     # local copy; dst dir keeps name
+        ("rcpy", "/locked/tree", "/copy2"),         # unreadable source -> 'F'
+        ("rfsize", "/games", ""),                   # tree size: files/dirs/bytes
+        ("rfsize", "/gone", ""),                    # missing path -> 'F'
         ("ren", "/games/a.tap", "/games/b.tap"),
     ]
 
@@ -207,6 +245,47 @@ def main():
         print("PASS statusF: mkdir 'F' reported with context")
     else:
         print("FAIL statusF: status 'F' not reported"); ok = False
+    # psize/pfull ('Z'): "m:" must normalise to M and report exact bytes
+    # (4096 blocks * 512 = 2097152); pfull shows the same figure human-readable
+    # for the current drive; the unmeasurable "E" answers 'F' and must be
+    # called out FAILED (and consumed - ren after it still passed).
+    if "psize M: 2097152 bytes free" in server_out:
+        print("PASS psize : exact free bytes reported for M")
+    else:
+        print("FAIL psize : missing/wrong psize output"); ok = False
+    if "pfull current drive: 2.0 MB free" in server_out:
+        print("PASS pfull : human-readable free space for current drive")
+    else:
+        print("FAIL pfull : missing/wrong pfull output"); ok = False
+    if "psize E: FAILED on the Next" in server_out:
+        print("PASS psizeF: 'F' reply reported as FAILED")
+    else:
+        print("FAIL psizeF: 'F' reply not reported"); ok = False
+    # rcpy ('C'): the trailing-slash dst must have kept the source name, the
+    # progress 'D' must be echoed, and the whole run reported OK with a count.
+    if (captured.get('rcpy') == "/locked/tree\x00/copy2"
+            and "copying m:/backup/a.tap" in server_out
+            and "rcpy /games/a.tap -> m:/backup/a.tap: OK (1 file(s))" in server_out):
+        print("PASS rcpy  : dst-name kept, progress echoed, OK reported")
+    else:
+        print("FAIL rcpy  :", captured.get('rcpy')); ok = False
+    # rcpy of an unreadable source answers 'F' and must be called out FAILED
+    # (and consumed - the ren after it still passed).
+    if "rcpy /locked/tree -> /copy2: FAILED on the Next" in server_out:
+        print("PASS rcpyF : 'F' reply reported as FAILED")
+    else:
+        print("FAIL rcpyF : 'F' reply not reported"); ok = False
+    # rfsize ('S'): the terminal totals must decode (incl. the 48-bit split)
+    # and the per-directory progress must be echoed.
+    if ("scanning /games" in server_out
+            and "rfsize /games: 3 file(s), 2 folder(s), 2,097,152 bytes (2.0 MB)" in server_out):
+        print("PASS rfsize: totals decoded, progress echoed")
+    else:
+        print("FAIL rfsize: missing/wrong rfsize output"); ok = False
+    if "rfsize /gone: FAILED on the Next" in server_out:
+        print("PASS rfsizeF: 'F' reply reported as FAILED")
+    else:
+        print("FAIL rfsizeF: 'F' reply not reported"); ok = False
     # A put the Next rejects ('F') must be reported (and the block acked, or the
     # mock's push() assert would have failed and torn the session down).
     if "put /locked/up.bin: FAILED" in server_out and captured.get('put_fail') == "/locked/up.bin":
