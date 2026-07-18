@@ -106,6 +106,11 @@ unsigned char sync_getdrive(void)
    return (d >= 'A' && d <= 'P') ? d : 0;
 }
 
+/* sync_getfree (the -listen "psize"/"pfull" free-space query) does NOT live
+ * here: it is head-page resident, in free.c, so its ~250 bytes of 32-bit
+ * arithmetic don't eat main-bank stack headroom. See free.c for the F_GETFREE
+ * / M_GETSETDRV details and the A:/B: floppy guard. */
+
 /* One static long-filename dirent, reused by every sync_readdir_entry() call.
  * A struct esx_dirent_lfn is ~270 bytes: far too big for the tight main-bank
  * stack (REGISTER_SP = $BF00 sits just above the BSS buffers - a stack

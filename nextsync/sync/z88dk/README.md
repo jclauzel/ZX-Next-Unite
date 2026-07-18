@@ -42,7 +42,9 @@ zcc +zxn -startup=30 -clib=sdcc_iy -SO3 --max-allocs-per-node200000 \
 |---|---|
 | `nextsync.c` | The port. Same protocol logic as `../nextsync.c`; the SDCC externs are replaced by `#include "syncsys.h"`, buffers moved to bss, `main()` takes the raw command line, `createfilewithpath` uses `esx_f_mkdir`. |
 | `gfx.c` | Unchanged copy of `../gfx.c` (pure C helpers). |
-| `drives.c` | The `-listen` getdrives (`'W'`) probe loop; section-retargeted into the primary dot page like `anim.c` so it costs no main-bank stack headroom. |
+| `free.c` | Head-page `-listen` helpers: the free-space query (`'Z'`, psize/pfull, v5.2+; `sync_getfree` = F_GETFREE with a temporary M_GETSETDRV drive switch) plus the print-free `listen_ls` replier, moved here from `nextsync.c` to reclaim main-bank stack headroom. |
+| `rcpy.c` | The `-listen` local-copy command (`'C'`, rcpy, v5.2+): file & recursive directory copy entirely on the Next, across partitions too, with `'D'` progress/keepalive blocks. Head-page resident like `free.c`; its two growing path buffers live in the tail of `scratch` (+512/+768), so it adds zero main-bank bss. |
+| `rfsize.c` | The `-listen` tree-size command (`'S'`, rfsize, v5.2+): total size + file/folder counts of a file or whole directory tree — rcpy's "will it fit" companion. Head-page resident; O(n) per-directory sweep with the handle open (the `listen_ls`-proven pattern), 48-bit byte total, depth-capped recursion. |
 | `syncsys.h` | Shim the app compiles against: `fopen/fread/...` become macros onto `esx_f_*`; `readnextreg/writenextreg`, `conprint`, `receive`, `checksum`, `mulby10`. |
 | `syncsys.c` | Shim implementations over z88dk's esxDOS/nextreg/stdout. `checksum` is now C (was asm). |
 | `uart.asm` | z80asm port of the timing-critical `receive()` loop (the only piece kept in assembly). |
@@ -60,14 +62,15 @@ $C000–$FFFF   (mmu6/7)              : NextZXOS (saved/restored by the crt)
 
 `CRT_ORG_MAIN=0x8000`, `REGISTER_SP=0xBF00`. The large buffers (`inbuf`,
 `scratch`, …) are file-scope statics so they land in the main bank and keep the
-stack small. Current layout: main-bank content ends at `~0xBB10`, leaving
-~1 KB of stack below `0xBF00`. To protect that headroom, `anim.c`'s code and
-sprite art (and `drives.c`'s getdrives probe) live in the free space of the
+stack small. Current layout: main-bank content ends at `~0xBB7F`
+(`__BSS_END_tail` in `syncdev.map`), leaving ~0.9 KB of stack below `0xBF00`.
+To protect that headroom, `anim.c`'s code and
+sprite art (and `free.c`'s free-space query) live in the free space of the
 primary 8 KB dot page instead:
-`build_dotn.ps1` compiles `anim.c` (and `drives.c`) to asm, retargets their sections at
+`build_dotn.ps1` compiles `anim.c` (and `free.c`) to asm, retargets their sections at
 `code_dot`/`rodata_dot` — the dotn memory model's head-page sections reserved
 for user dot content, placed *after* the crt+clib chains — and links the
-patched `anim_head.asm` (zsdcc itself has no per-file section control —
+patched `anim_head.asm`/`free_head.asm` (zsdcc itself has no per-file section control —
 `#pragma codeseg` and `--codeseg` are silently ignored). Retargeting at `CODE`
 itself must be avoided: that appends into the crt's startup fall-through chain
 and crashes on launch. Only the few bytes of sprite state stay in main-bank
@@ -114,6 +117,9 @@ server-> Next   : one command frame, payload = opcode + optional path:
      'P' <path>   put   : the Next pulls the file from the server
      'M' <path>   mkdir      'R' <path>  rmdir      'X' <path>  rm
      'W'          getdrives : the Next pushes the mounted drive letters
+     'Z' [drive]  free  : free space on a partition (psize/pfull, v5.2+)
+     'C' <src>\0<dst>  rcpy : copy a file/dir LOCALLY on the Next (v5.2+)
+     'S' <path>   rfsize : total size of a file / directory tree (v5.2+)
      'Q'          quit  -> leave listen mode
 ```
 
@@ -131,10 +137,63 @@ mid-call and crashes the dotN — three separate real-hardware crashes confirmed
 this. Every `<path>` may carry an optional drive prefix (`m:/games`), and one
 without lands on the dot's current drive as before.
 
+`rcpy` (`'C'`, v5.2+) copies a file or a whole directory tree **entirely on
+the Next** — no data crosses the wire, and because every esxDOS call takes
+drive-prefixed paths it works across partitions (`c:/x` → `m:/y`) with no
+drive switching. The paths travel NUL-separated like `ren`'s. The Next pushes
+`'D'` progress blocks (one per file carrying the destination path, plus
+empty keepalives every 64 KB inside big files **and every 256 entries inside
+the directory skip-loops** — on a large directory the quadratic skip
+otherwise left the link silent long enough for the PC to give up mid-copy,
+the field-reported "hang") and ends with `'O'` (all copied) or `'F'`
+(something failed). The walk is **skip-and-continue**: an item that cannot
+be copied (strange name, unreadable, destination full, too deep) is counted
+and skipped, the rest keeps copying — and with `-v` (on by default) the Next
+traces every completed item on screen: `f-> <file>`, `d-> <dir>`, and
+`/!\ error -> <source item>` for the skipped ones, ending with `rcpy done`.
+The walk itself is **iterative** (explicit level stack in the scratch tail,
+one C-stack frame at any depth — the main bank is too tight for recursion)
+and lives in the head page, print-free; the main-bank entry point drives it
+one item per step and prints between steps. A mid-file read error can no
+longer pass as success (the copy is checked against the source's stat size).
+Same safe-walk core as `send_dir` (never file I/O with a readdir handle
+open); the destination-inside-source infinite trap is guarded on the PC
+side. In the app, Copy → Paste inside the Remote Explorer's Next pane rides
+this command.
+
+`rfsize` (`'S'`, v5.2+) measures a file or a whole directory tree on the Next
+— the natural check before an `rcpy` ("will it fit?", together with `free`).
+It pushes `'D'` progress blocks (one per directory entered, carrying its
+path, plus empty keepalives every 256 enumerated entries) and ends with
+`'O'` + `[4B files][4B dirs][4B size_lo][2B size_hi]` (all little-endian;
+total bytes = `size_hi·2³² + size_lo` — a tree can exceed 32 bits) or `'F'`.
+Counting needs **no file I/O** (sizes come from the dirents), so each
+directory is swept in one O(n) pass with the handle held open — the exact
+readdir+network-only pattern `listen_ls` proved on hardware; descending into
+sub-directories uses the re-open/skip/close dance, and like `rcpy` the walk
+is **iterative** (explicit level stack, no recursion) with a clean `'F'`
+beyond the depth cap. In the app, right-click → "Get size" in the Remote
+Explorer's Next pane rides this command.
+
+`free` (`'Z'`, v5.2+) answers with one `'O'` block carrying 4 bytes
+little-endian = the partition's free 512-byte blocks, or `'F'` on failure —
+this backs the PC's `psize` (exact bytes) and `pfull` (human-readable)
+commands. It uses `F_GETFREE` (`$b1`), the **only** storage metric NextZXOS
+exposes through the dotN-safe divMMC API — total partition size would need
++3DOS/IDEDOS calls via M_P3DOS, which is fatal here (above), so free space is
+deliberately all these commands report. `F_GETFREE` only accepts `'*'`
+(default drive), so another partition is measured by temporarily re-pointing
+the default drive with `M_GETSETDRV` and always switching back; `'A'`/`'B'`
+are rejected outright (the floppy trap), and unmounted letters remain the
+user's responsibility exactly as for every other drive-prefixed command.
+
 Server side: `nextsync5.py` gains a `listen_session()` (triggered by `"Listen"`)
-with a console CLI (`ls`/`get`/`put`/`mkdir`/`rmdir`/`rm`/`quit`). The whole wire
+with a console CLI (`ls`/`get`/`put`/`mkdir`/`rmdir`/`rm`/`ren`/`drives`/
+`psize`/`pfull`/`rcpy`/`rfsize`/`quit`). The whole wire
 protocol is covered by `server/test_listen.py`, which drives `listen_session()`
 over a socketpair with a mock Next — run it with `python test_listen.py`.
+(The app-side twin, `zxnu_workers.run_remote_listen_server`, is covered by
+`server/test_remote_listen.py`.)
 
 ## Status / testing
 
@@ -148,7 +207,7 @@ over a socketpair with a mock Next — run it with `python test_listen.py`.
   CSpect but no bootable NextZXOS system SD image, so a load test could not be
   performed here. To smoke-test: copy `syncdev` to your card's `C:/DOT/` folder
   and run `.syncdev` from NextZXOS BASIC — it should print
-  `NextSync 5.0 Clauzel/Komppa` and return cleanly. Then exercise a real sync
+  `NextSync 5.2 Clauzel/Komppa` and return cleanly. Then exercise a real sync
   against the ZX-Next-Unite server as usual.
 - The UART `receive` timing was preserved but should be re-verified at 2 Mbaud
   on real hardware.

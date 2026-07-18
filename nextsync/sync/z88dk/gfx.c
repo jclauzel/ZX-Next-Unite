@@ -2,8 +2,7 @@
 // Text output helpers. The original on-screen font / positioned-counter UI was
 // removed so the bidirectional (Sync4 send) build fits within the 8KB .dot
 // limit; all output now goes through the ROM print routine via print()/conprint().
-
-extern void print(char * t);
+// (printnum was dead code - removed in v5.2 to buy stack headroom back.)
 
 // 16-bit unsigned -> decimal string. Kept 16-bit (no 32-bit math, no division)
 // to save code space; the dot only ever prints values that fit in 16 bits.
@@ -20,13 +19,6 @@ unsigned char uitoa(unsigned short v, char *b)
     }
     b[p] = 0;
     return p;
-}
-
-void printnum(unsigned short v)
-{
-    char temp[8];
-    uitoa(v, temp);
-    print(temp);
 }
 
 unsigned char strinstr(char *a, char *b, unsigned short len, char blen)

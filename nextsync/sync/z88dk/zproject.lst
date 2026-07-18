@@ -2,4 +2,7 @@ nextsync.c
 gfx.c
 syncsys.c
 anim_head.asm
+free_head.asm
+rcpy_head.asm
+rfsize_head.asm
 uart.asm

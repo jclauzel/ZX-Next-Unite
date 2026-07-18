@@ -161,6 +161,37 @@ def mock_next(sock, entries, filebytes, cap, fs):
         elif op == b'W':
             # getdrives (dot v5.1+): 'O' + current drive letter + mounted letters.
             push(b'OC' + b"CM", 0)
+        elif op == b'Z':
+            # free space (dot v5.2+): 'O' + 4B little-endian free 512-byte
+            # blocks, or 'F' when the drive can't be measured (like the dot's
+            # sync_getfree failing). "E" plays the unmeasurable drive.
+            if arg == "E":
+                push(b'F', 0)
+            else:
+                push(b'O' + (2048).to_bytes(4, "little"), 0)   # 2048 blocks = 1 MB
+        elif op == b'S':
+            # rfsize (dot v5.2+): 'D' per directory + keepalive, then 'O' +
+            # [4B files][4B dirs][4B size_lo][2B size_hi]; hi=1 exercises the
+            # 48-bit reassembly (1*2^32 + lo). 'F' for the missing "/gone".
+            if arg.rstrip("/") == "/gone":
+                push(b'F', 0)
+            else:
+                push(b'D' + arg.encode(), 0)
+                push(b'D', 1)
+                push(b'O' + (7).to_bytes(4, "little") + (3).to_bytes(4, "little")
+                     + (512).to_bytes(4, "little") + (1).to_bytes(2, "little"), 2)
+        elif op == b'C':
+            # rcpy (dot v5.2+): local copy on the Next. arg is "src\x00dst";
+            # reply = named 'D' per file + empty keepalive + terminal 'O', or
+            # 'F' for the unreadable "/locked" source.
+            cap.setdefault('rcpy', []).append(arg)
+            csrc, cdst = arg.split("\x00", 1)
+            if csrc.startswith("/locked"):
+                push(b'F', 0)
+            else:
+                push(b'D' + cdst.encode(), 0)
+                push(b'D', 1)
+                push(b'O', 2)
 
 def main():
     app = QCoreApplication(sys.argv)
@@ -179,7 +210,7 @@ def main():
           "del3": {"m1.txt": b"M1", "msub": {"m2.txt": b"M2"}}}
     cap = {}
     got = {'listing': None, 'gets': [], 'put': None, 'puts': [], 'ops': [],
-           'ls_failed': [], 'drives': None}
+           'ls_failed': [], 'drives': None, 'free': [], 'fsize': []}
 
     sig = RemoteExplorerSignals()
     sig.listing.connect(lambda p, e: got.update(listing=(p, e)), Qt.DirectConnection)
@@ -188,6 +219,8 @@ def main():
     sig.put_done.connect(lambda ok, r: (got.update(put=(ok, r)), got['puts'].append((ok, r))), Qt.DirectConnection)
     sig.op_done.connect(lambda ok, o, p: got['ops'].append((ok, o, p)), Qt.DirectConnection)
     sig.drives.connect(lambda cur, ls: got.update(drives=(cur, list(ls))), Qt.DirectConnection)
+    sig.free_space.connect(lambda d, n: got['free'].append((d, n)), Qt.DirectConnection)
+    sig.fsize.connect(lambda p, d: got['fsize'].append((p, d)), Qt.DirectConnection)
 
     cmd_q = queue.Queue()
     stop = threading.Event()
@@ -202,6 +235,12 @@ def main():
               ("rmtree", "/del"),                   # recursive delete, must empty the tree
               ("rmtree", "/del2"),                  # contains an undeletable file -> ok=False
               ("drives",),                          # getdrives: 'O' + current + letters
+              ("free", "m:"),                       # free space: 'O' + 4B LE blocks
+              ("free", "E"),                        # unmeasurable drive -> 'F' -> None
+              ("rcpy", "/games/lev", "M:/bk/lev"),  # local Next-side copy -> ok
+              ("rcpy", "/locked/t", "/t2"),         # unreadable source -> 'F'
+              ("fsize", "/games/lev"),              # tree size incl. 48-bit hi
+              ("fsize", "/gone"),                   # missing path -> 'F' -> None
               ("rmtree", "M:/del3"),                # drive-prefixed recursive delete
               ("rename", "/ho/a.txt", "/ho/b.txt"), ("quit",)]:
         cmd_q.put(c)
@@ -279,6 +318,33 @@ def main():
         print("PASS drives: ", got['drives'])
     else:
         print("FAIL drives: ", got['drives']); ok = False
+    # free space: "m:" must normalise to drive M and report 2048 blocks * 512 =
+    # 1 MB; the unmeasurable "E" answers 'F' and must surface as None (and must
+    # not desync the commands that follow - rmtree-drive below still passes).
+    if got['free'] == [("M", 2048 * 512), ("E", None)]:
+        print("PASS free : ", got['free'])
+    else:
+        print("FAIL free : ", got['free']); ok = False
+    # rcpy: the worker frames src\0dst like rename, reads the 'D' progress +
+    # terminal status, and reports op_done(ok, "copy", src) both ways; the 'F'
+    # must not desync what follows (rmtree-drive below still passes).
+    if (cap.get('rcpy') == ["/games/lev\x00M:/bk/lev", "/locked/t\x00/t2"]
+            and (True, "copy", "/games/lev") in got['ops']
+            and (False, "copy", "/locked/t") in got['ops']):
+        print("PASS rcpy : ", cap['rcpy'])
+    else:
+        print("FAIL rcpy : ", cap.get('rcpy'), got['ops']); ok = False
+    # rfsize ('S'): the totals must decode - bytes = size_hi*2^32 + size_lo =
+    # 1*4294967296 + 512 (the 48-bit path) - and both signals must fire:
+    # op_done(ok, "size", path) then fsize(path, data|None). The 'F' must
+    # not desync what follows.
+    want = {'files': 7, 'dirs': 3, 'bytes': (1 << 32) + 512}
+    if (got['fsize'] == [("/games/lev", want), ("/gone", None)]
+            and (True, "size", "/games/lev") in got['ops']
+            and (False, "size", "/gone") in got['ops']):
+        print("PASS fsize: ", got['fsize'])
+    else:
+        print("FAIL fsize: ", got['fsize'], got['ops']); ok = False
     # A drive-prefixed rmtree must walk and delete exactly like a bare one
     # (the worker builds every child path off the "M:/del3" base).
     if "del3" not in fs and (True, "delete", "M:/del3") in got['ops']:
