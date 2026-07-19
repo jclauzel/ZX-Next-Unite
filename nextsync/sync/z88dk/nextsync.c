@@ -65,13 +65,41 @@ char g_dark = 1;      // retro green-on-black look + custom font; -nr disables
 extern void anim_begin(void);
 extern void anim_tick(void);
 extern void anim_end(void);
+// The -v busy cursor (also anim.c, head page): a | / - \ glyph drawn by
+// direct pixel writes into the screen cell at the ROM print position -
+// never through the print driver, so it is safe anywhere. spin(1) advances
+// one pose (self-limited to one per frame, no-op without -v); spin(0)
+// blanks the cell again.
+extern void spin(unsigned char go);
+// The spinner's pose art, read by spin() (anim.c, head page). It lives HERE
+// so it lands in main-bank rodata - the head page is packed to the byte, and
+// head-page code reads main-bank data freely (both stay mapped). 6 rows per
+// pose; the blank top/bottom rows are written by spin() itself.
+const unsigned char spin_glyphs[30] = {
+    0x10,0x10,0x10,0x10,0x10,0x10,   // |
+    0x02,0x04,0x08,0x10,0x20,0x40,   // /
+    0x00,0x00,0x7E,0x00,0x00,0x00,   // -
+    0x40,0x20,0x10,0x08,0x04,0x02,   // \ (backslash)
+    0x00,0x00,0x00,0x00,0x00,0x00    // blank (spin(0) erases with it)
+};
 #else
 // Preprocessor no-ops (not stub functions): the call sites vanish entirely,
 // so no code is generated and nothing links against the removed anim.c.
 #define anim_begin()
 #define anim_tick()
 #define anim_end()
+#define spin(go)
 #endif
+
+// Liveness shim for head-page loops: rcpy_hb (rcpy.c) calls this on every
+// progress/keepalive block, which keeps the flock moving through directory
+// skip-loops and rfsize sweeps. One main-bank hop so the head page never
+// references the anim symbols directly and the ANIM_ENABLED knob above still
+// compiles the whole animation out (this body then becomes empty).
+void live_tick(void)
+{
+    anim_tick();
+}
 
 // See calc_prescalar.c for the prescalar calculation code
 static const unsigned short prescalar_values[] = {
@@ -147,15 +175,23 @@ void vprint(char *t)
     if (g_verbose) print(t);
 }
 
-// Print "<prefix><name>" on one line, verbose only - the rcpy per-item
-// trace ("f-> x", "d-> y", "/!\ error -> z").
-void vprint2(char *a, char *b)
+// Print "<prefix><name>" verbose-only and leave the line OPEN (no newline):
+// the per-file trace prints this BEFORE a copy starts, and the spinner then
+// twirls in the cell right after the name until the file completes.
+void vbegin2(char *a, char *b)
 {
     if (!g_verbose) return;
     *((unsigned char *)23692) = 255;
     conprint(a);
     conprint(b);
-    conprint("\r");
+}
+
+// Print "<prefix><name>" on one line, verbose only - the rcpy per-item
+// trace ("d-> y", "/!\ error -> z").
+void vprint2(char *a, char *b)
+{
+    vbegin2(a, b);
+    if (g_verbose) conprint("\r");
 }
 
 // (vlabelnum and printnum were dead code - removed in v5.2 to buy main-bank
@@ -431,9 +467,15 @@ retry:
             fwrite(filehandle, dp, len);
             packetno++;
             failcount = 0;
+            // Between packets the link is idle (the next "Get" has not been
+            // sent), so a sprite step + a spinner pose cost nothing and keep
+            // a multi-MB download visibly alive. Both self-limit to one step
+            // per frame.
+            anim_tick();
+            spin(1);
         }
         else
-        {                
+        {
 doretry:
             failcount++;
             if (failcount > 5) goto failure;
@@ -441,12 +483,14 @@ doretry:
             cipxfer("Retry", 5, inbuf, &len, &dp);
             goto retry;
         }
-    } 
+    }
     while (len != 0);
 
+    spin(0);
     fclose(filehandle);
     return 0;
 failure:
+    spin(0);
     fclose(filehandle);
     return 1;
 }
@@ -555,6 +599,7 @@ char send_file(char *fullpath, char *relname, unsigned char *inbuf, unsigned cha
         {
             scratch[2] = 'D';
             if (send_block_rt(scratch, (unsigned short)(n + 1), inbuf)) { fclose(fh); return 1; }
+            anim_tick();   // between acked blocks: link idle, safe (1 step/frame)
         }
     } while (n);
 
@@ -846,19 +891,53 @@ extern void listen_free(char *arg, unsigned char *inbuf, unsigned char *scratch)
 // ---------------------------------------------------------------------------
 // rcpy ('C'): copy a file or whole directory locally on the Next; pushes 'D'
 // progress blocks then a final 'O'/'F'. All the machinery is head-page
-// resident and print-free (rcpy.c): the single-file primitives plus an
-// ITERATIVE walk (rcpy_walk_init/rcpy_step - explicit level stack in the
-// scratch tail, ONE stack frame at any depth). Only the entry point below
-// stays in the main bank: it drives the walk one item per step and traces
-// each completed item on screen ("f-> file", "d-> dir", "/!\ error -> item")
-// BETWEEN steps - head-page code must never print, not even via a main-bank
-// helper reached from a head-page frame (hardware-proven), and the stepper
-// design means no head-page frame is on the stack when the trace happens.
-// Paths at scratch+512/+768, walk state at scratch+1024: zero bss.
+// resident and print-free (rcpy.c): the chunk-stepped one-file copy
+// (rcpy_fbegin arms it, rcpy_fchunk moves one 2 KB chunk per call) plus an
+// ITERATIVE walk (rcpy_step - explicit level stack in the scratch tail, ONE
+// stack frame at any depth). Only the code below stays in the main bank: it
+// drives the walk one item per step, announces each file BEFORE its bytes
+// move ("f-> file" - a large file used to leave the screen silent until
+// done), pumps the chunks with the spinner twirling at the line's end, and
+// prints "d-> dir" / "/!\ error -> item" between steps - head-page code
+// must never print, not even via a main-bank helper reached from a
+// head-page frame (hardware-proven), and the stepper design means no
+// head-page frame is on the stack when the trace or the spinner happens.
+// Paths at scratch+512/+768, walk state at scratch+1024; the only bss is
+// the 11-byte in-flight copy state (a static inside rcpy.c).
 // ---------------------------------------------------------------------------
 extern unsigned char rcpy_hb(char *name, unsigned char *inbuf, unsigned char *scratch);
-extern unsigned char rcpy_file(char *src, char *dst, unsigned char *inbuf, unsigned char *scratch);
+extern unsigned char rcpy_fbegin(char *src, char *dst, unsigned char *inbuf, unsigned char *scratch);
+extern unsigned char rcpy_fchunk(unsigned char *inbuf, unsigned char *scratch);
 extern unsigned char rcpy_step(unsigned char *inbuf, unsigned char *scratch);
+
+// rcpy's failed-item count for the terminal 'O'/'F' status. A static, not a
+// listen_rcpy local threaded through rcpy_run: pointer plumbing costs more
+// code than these 2 bytes of bss, and bytes here are stack headroom.
+static unsigned short rcpy_fails;
+
+// Run one armed file copy (rcpy_fbegin returned 0) to completion: announce
+// "f-> dst" with the line left open, pump rcpy_fchunk stepping the animation
+// and the -v spinner between 2 KB chunks - all from the main bank, with no
+// head-page frame on the stack while anything is drawn - then close the
+// line, tracing (and counting) a per-file failure. The dst/src paths are
+// where listen_rcpy/rcpy_step keep them: scratch +768/+512.
+// Returns rcpy_fchunk's terminal code: 1 copied, 2 failed, 3 link dead.
+unsigned char rcpy_run(unsigned char *inbuf, unsigned char *scratch)
+{
+    unsigned char r;
+    vbegin2("f-> ", (char *)scratch + 768);
+    for (;;)
+    {
+        anim_tick();
+        r = rcpy_fchunk(inbuf, scratch);
+        if (r) break;
+        spin(1);
+    }
+    spin(0);
+    if (g_verbose) conprint("\r");
+    if (r == 2) { vprint2("/!\\ error -> ", (char *)scratch + 512); rcpy_fails++; }
+    return r;
+}
 
 // 32-bit little-endian store, used by the head-page listen_rfsize to build
 // its totals reply (lives here so those few bytes don't crowd the nearly
@@ -881,10 +960,11 @@ void listen_rcpy(char *src0, char *dst0, unsigned char *inbuf, unsigned char *sc
 {
     char *src = (char *)scratch + 512;
     char *dst = (char *)scratch + 768;
-    unsigned short sl = 0, dl = 0, fails = 0;
+    unsigned short sl = 0, dl = 0;
     unsigned char fh, r = 0;
 
     g_packetno = 0;
+    rcpy_fails = 0;
 
     while (src0[sl] && sl < 255) { src[sl] = src0[sl]; sl++; }
     src[sl] = 0;
@@ -896,16 +976,26 @@ void listen_rcpy(char *src0, char *dst0, unsigned char *inbuf, unsigned char *sc
     while (dl > 1 && dst[dl - 1] == '/' && dst[dl - 2] != ':') dst[--dl] = 0;
 
     if (sl == 0 || dl == 0)
-        fails = 1;
+        rcpy_fails = 1;
     else
     {
         fh = fopen((unsigned char *)src, 1);   // readable file?
         if (fh)
         {
             fclose(fh);
-            r = rcpy_file(src, dst, inbuf, scratch);
-            if (r == 0) vprint2("f-> ", dst);
-            else if (r == 1) { vprint2("/!\\ error -> ", src); fails = 1; }
+            // Single file: rcpy_run announces it BEFORE the bytes move and
+            // twirls the spinner after the name while they do.
+            r = rcpy_fbegin(src, dst, inbuf, scratch);
+            if (r == 0)
+                r = rcpy_run(inbuf, scratch);
+            else if (r == 1)
+            {
+                vprint2("/!\\ error -> ", src);   // unreadable/uncreatable
+                rcpy_fails = 1;
+                r = 2;
+            }
+            else
+                r = 3;                            // the link died in fbegin
         }
         else
         {
@@ -913,7 +1003,7 @@ void listen_rcpy(char *src0, char *dst0, unsigned char *inbuf, unsigned char *sc
             // (probing FIRST avoids leaving a junk empty destination dir
             // behind for a typo'd source).
             fh = opendir((unsigned char *)src);
-            if (fh == 0) { vprint2("/!\\ error -> ", src); fails = 1; }
+            if (fh == 0) { vprint2("/!\\ error -> ", src); rcpy_fails = 1; }
             else
             {
                 fclose(fh);
@@ -935,16 +1025,23 @@ void listen_rcpy(char *src0, char *dst0, unsigned char *inbuf, unsigned char *sc
                 {
                     r = rcpy_step(inbuf, scratch);
                     if (r == 0) break;                                   // done
-                    else if (r == 1) vprint2("f-> ", dst);               // file copied
+                    else if (r == 5)
+                    {
+                        // A file copy just armed: announce + pump + trace.
+                        r = rcpy_run(inbuf, scratch);
+                        if (r == 3) { r = 4; break; }                    // link dead
+                    }
                     else if (r == 2) vprint2("d-> ", dst);               // dir created
-                    else if (r == 3) { vprint2("/!\\ error -> ", src); fails++; }
+                    else if (r == 3) { vprint2("/!\\ error -> ", src); rcpy_fails++; }
                     else break;                                          // 4: link dead
                 }
             }
         }
     }
 
-    scratch[2] = (fails || r == 2 || r == 4) ? 'F' : 'O';
+    // r: single file 1 ok / 2 failed (rcpy_fails set) / 3 link dead;
+    // directory walk 0 done / 4 link dead; other failures already counted.
+    scratch[2] = (rcpy_fails || r == 3 || r == 4) ? 'F' : 'O';
     send_block_rt(scratch, 1, inbuf);
 }
 
@@ -1022,7 +1119,7 @@ int main(int arglen, char *rawcmd)
         con_cls();                                        // paint the whole screen black + home
     }
 
-    print("NextSync 5.2 Clauzel/Komppa");
+    print("NextSync 5.3 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -1090,7 +1187,7 @@ int main(int arglen, char *rawcmd)
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v5.2 Clauzel/Komppa\r"
+                "SYNC v5.3 Clauzel/Komppa\r"
                 ".SYNC [server] : save cfg\r"
                 ".SYNC : sync files from PC\r"
                 ".SYNC -send <file|dir> : to PC\r"
@@ -1274,7 +1371,10 @@ retryconnect:
                 }
 
                 if (op == 'Q') break;               // quit listen mode
-                else if (op == 'I') { for (len = 0; len < 30000; len++); } // idle: throttle before re-polling
+                // idle: throttle before re-polling, animating meanwhile (the
+                // tick self-limits to one step per frame, so the sprites
+                // glide instead of stuttering once per poll).
+                else if (op == 'I') { for (len = 0; len < 30000; len++) anim_tick(); }
                 else if (op == 'L') { listen_ls(fn, inbuf, scratch); vprint("ls done"); }
                 else if (op == 'G')
                 {

@@ -89,6 +89,19 @@ typedef struct {                     /* 2 + 3*13*2 = 80 bytes               */
    unsigned short dl[RCPY_MAX_DEPTH + 1];    /* dst path length per level   */
 } rcpy_state_t;
 
+/* One in-flight file copy, armed by rcpy_fbegin and drained one 2 KB chunk
+ * per rcpy_fchunk call (a static inside rcpy.c: 7 bytes of main-bank bss,
+ * bought so the head-page code can use absolute addressing). The copy is
+ * chunk-stepped so the MAIN BANK can print the file's name BEFORE any byte
+ * moves and twirl the -v spinner between chunks: no head-page frame is
+ * ever on the stack when anything is drawn (rcpy.c/nextsync.c). */
+typedef struct {
+   unsigned char sfh;                /* source file handle                  */
+   unsigned char dfh;                /* destination file handle             */
+   unsigned char hb;                 /* chunks since the last keepalive     */
+   unsigned long want;               /* stat size (0xFFFFFFFF = unknown)    */
+} rcpy_fst_t;
+
 /* --- Next hardware registers ------------------------------------------- */
 extern unsigned char readnextreg(unsigned char reg);
 extern void          writenextreg(unsigned char reg, unsigned char val);
