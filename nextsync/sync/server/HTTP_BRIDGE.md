@@ -21,15 +21,29 @@ bridge in the middle.
 
 ## Enabling the bridge
 
+Flask is **optional**: install it with `python -m pip install flask` (it is
+listed in `REQUIREMENTS.txt`). Neither host ever errors at startup without
+it — the app greys the Settings toggle out (with an install hint in its
+tooltip), and `nextsync5.py -w` prints *"please install flask first
+(currently disabled)"*.
+
 * **ZX-Next-Unite app** — Settings tab → *"Enable NextSync HTTP bridge (web
   server for the Next's .http command)"*. Off by default; the choice is saved
   in `hdfg.cfg` (`nextsync_http_bridge`) and the server then starts
   automatically with the app. The port defaults to **80**; set
-  `nextsync_http_port = 8080` in `hdfg.cfg` to change it. The bridge drives
-  the Next connected to the **Remote Explorer**'s listen server.
-* **Standalone server** — `python nextsync5.py -http` (or `-http=8080`).
-  Requires `pip install flask` and `zxnu_http_bridge.py` (from the repo root;
-  a copy next to `nextsync5.py` also works).
+  `nextsync_http_port=8080` in `hdfg.cfg` to change it (strict `key=value`,
+  no spaces). The bridge drives the Next connected to the **Remote
+  Explorer**'s listen server.
+* **Standalone server** — `python nextsync5.py -w` (port 80) or
+  `-http=8080` for a custom port. `nextsync5.py` lives at the repo root,
+  next to `zxnu_http_bridge.py`. Add `-v` to log every HTTP request, its
+  payload and the response on the console for troubleshooting.
+
+If something already listens on the chosen port (IIS and Skype love port
+80), nothing crashes: the app raises a red toast — *"You have specified to
+start the flask integration server but port 80 is already in use, the web
+server has not been started."* — and `nextsync5.py` prints the equivalent
+console error. Stop the other program or pick another port.
 
 Every route answers **plain text** (easy to show or parse on a Next); append
 `&json=1` (or send `Accept: application/json`) for JSON. Failures use real
@@ -230,4 +244,6 @@ curl "http://192.168.1.10/rfsize?path=/games&json=1"
   15 minutes; quick verbs time out after 45 s (`504`).
 * Wire protocol: unchanged. The bridge simply queues the same commands the
   Remote Explorer / `listen>` console would.
+* Troubleshooting: `nextsync5.py -w -v` logs every request and response
+  (`HTTP > GET /ls?path=/ …` / `HTTP < 200 GET /ls OK 2 entries…`).
 * Covered end-to-end by `test_http_bridge.py` (mock Next, both hosts).

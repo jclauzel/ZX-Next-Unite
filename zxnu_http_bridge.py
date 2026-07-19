@@ -46,14 +46,26 @@ Executor reply shapes (both hosts emit these):
     rfsize  {'ok': True, 'files': n, 'dirs': n, 'bytes': n} | error
 """
 
+import importlib.util
 import json
 import os
 import queue
 import shutil
+import socket
 import tempfile
 import threading
 
 DEFAULT_PORT = 80          # .http's default; HTTP only (no TLS on the Next)
+
+
+def flask_available():
+    """True when the optional Flask package is installed. Cheap (no import
+    happens), so hosts can gate their UI / -w flag on it without ever
+    triggering an ImportError at startup."""
+    try:
+        return importlib.util.find_spec("flask") is not None
+    except (ImportError, ValueError):
+        return False
 DEFAULT_TIMEOUT = 45.0     # quick verbs: one poll round-trip + margin
 LONG_TIMEOUT = 900.0       # get/put/rcpy/rfsize/rmtree can move real data
 _LONG_OPS = ("get", "put", "rcpy", "rfsize", "rmtree")
@@ -187,13 +199,22 @@ class NextSyncHttpBridge:
         "  GET  /rfsize?path=/games         total size of a file / tree\n")
 
     def __init__(self, host_adapter, listen_host="0.0.0.0", port=DEFAULT_PORT,
-                 log=None):
+                 log=None, verbose=False):
         self._adapter = host_adapter
         self._listen_host = listen_host
         self._port = int(port)
         self._log = log or (lambda s: None)
+        # verbose: log every HTTP request (method, path, query, payload) and
+        # its response (status, body) through self._log — the troubleshooting
+        # view behind nextsync5.py's -v.
+        self._verbose = bool(verbose)
         self._server = None
         self._thread = None
+        # Set by a failed start() when the OS refused the port because
+        # something else already holds it (WinError 10048 / EADDRINUSE — and
+        # WinError 10013, which Windows raises when http.sys/IIS owns port
+        # 80). Hosts use it to show a targeted "port already in use" error.
+        self.port_in_use = False
         # Drive letters cached per connection (invalidated when the Next
         # disconnects), so /status can report partition counts without a
         # round-trip on every poll.
@@ -214,12 +235,12 @@ class NextSyncHttpBridge:
         occupied port must be a friendly message, not a crash."""
         if self._server is not None:
             return True, ""
-        try:
-            from flask import Flask
-            from werkzeug.serving import make_server
-        except ImportError:
+        self.port_in_use = False
+        if not flask_available():
             return False, ("Flask is not installed - install it with: "
                            "pip install flask")
+        from flask import Flask
+        from werkzeug.serving import make_server
         # Detach werkzeug's per-request logging (and Flask's error logger)
         # from the host's root logging handlers. Besides being console noise,
         # this is a DEADLOCK guard: those log calls run on the serving
@@ -234,12 +255,50 @@ class NextSyncHttpBridge:
             lg.propagate = False
         app = Flask("zxnu_http_bridge")
         self._install_routes(app)
+        # Pre-flight probe: werkzeug binds with SO_REUSEADDR, which on
+        # Windows silently SUCCEEDS even when another program already owns
+        # the port (the classic WinError 10048 only surfaces for exclusive
+        # listeners such as IIS). Probing with SO_EXCLUSIVEADDRUSE first
+        # turns "port already in use" into a reliable, friendly error on
+        # every platform instead of a half-working server.
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):       # Windows
+                probe.setsockopt(socket.SOL_SOCKET,
+                                 socket.SO_EXCLUSIVEADDRUSE, 1)
+            probe.bind((self._listen_host, self._port))
+        except OSError as ex:
+            # WinError 10048 (WSAEADDRINUSE) / errno 98 (Linux) / 48 (macOS):
+            # something already listens on the port. WinError 10013
+            # (WSAEACCES) usually means the same on Windows when http.sys
+            # (IIS/W3SVC) owns port 80; errno 13 (EACCES) on Linux is a
+            # privileged-port refusal and gets the generic message instead.
+            if getattr(ex, "winerror", None) in (10048, 10013) or \
+                    getattr(ex, "errno", None) in (98, 48):
+                self.port_in_use = True
+                return False, (f"port {self._port} is already in use by "
+                               "another program (a web server such as IIS, "
+                               "or another bridge?) - the web server has "
+                               "not been started")
+            return False, (f"could not bind {self._listen_host}:{self._port} "
+                           f"({ex}) - the web server has not been started")
+        finally:
+            try:
+                probe.close()
+            except OSError:
+                pass
         try:
             server = make_server(self._listen_host, self._port, app,
                                  threaded=True)
         except OSError as ex:
+            if getattr(ex, "winerror", None) in (10048, 10013) or \
+                    getattr(ex, "errno", None) in (98, 48):
+                self.port_in_use = True
+                return False, (f"port {self._port} is already in use by "
+                               "another program - the web server has not "
+                               "been started")
             return False, (f"could not bind {self._listen_host}:{self._port} "
-                           f"({ex}) - is another web server using the port?")
+                           f"({ex}) - the web server has not been started")
         self._server = server
         self._thread = threading.Thread(target=server.serve_forever,
                                         daemon=True, name="zxnu-http-bridge")
@@ -258,8 +317,44 @@ class NextSyncHttpBridge:
         self._thread = None
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _peek(data, limit=256):
+        """Loggable preview of a request/response body: printable text is
+        shown as-is (truncated), binary as a hex prefix + size."""
+        if not data:
+            return "(empty)"
+        try:
+            text = data.decode("utf-8")
+            if all(32 <= ord(c) or c in "\r\n\t" for c in text):
+                text = text.replace("\r", "\\r").replace("\n", "\\n")
+                return (text[:limit] + f"… ({len(data)} bytes)"
+                        if len(text) > limit else text)
+        except UnicodeDecodeError:
+            pass
+        return f"<binary {len(data)} bytes: {data[:24].hex()}…>"
+
     def _install_routes(self, app):
         from flask import request, Response
+
+        if self._verbose:
+            # -v troubleshooting: one log line per request with its payload,
+            # and one per response with status + body preview.
+            @app.before_request
+            def _trace_request():          # noqa: ANN202
+                body = request.get_data(cache=True)
+                line = f"HTTP > {request.method} {request.full_path.rstrip('?')}"
+                if body:
+                    line += f" payload: {self._peek(body)}"
+                self._log(line)
+
+            @app.after_request
+            def _trace_response(resp):     # noqa: ANN202
+                preview = "(streamed)"
+                if not resp.direct_passthrough:
+                    preview = self._peek(resp.get_data())
+                self._log(f"HTTP < {resp.status_code} "
+                          f"{request.method} {request.path} {preview}")
+                return resp
 
         def wants_json():
             return (request.args.get("json") in ("1", "true", "yes")

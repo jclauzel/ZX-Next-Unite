@@ -319,9 +319,10 @@ from zxnu_workers import *
 from zxnu_remote_explorer import RemoteExplorerWidget
 # NextSync HTTP bridge: a self-hosted Flask web server republishing the Remote
 # Explorer's -listen session as HTTP routes (for the Next's .http dot command).
-# Importing is always safe — Flask itself is only imported when the server is
-# started (Settings → "Enable NextSync HTTP bridge").
-from zxnu_http_bridge import NextSyncHttpBridge, QueueBridgeHost
+# Importing is always safe — Flask itself is optional and only imported when
+# the server is started (Settings → "Enable NextSync HTTP bridge");
+# flask_available() gates the Settings checkbox without importing anything.
+from zxnu_http_bridge import NextSyncHttpBridge, QueueBridgeHost, flask_available
 from zxnu_media import *
 from zxnu_gallery import *
 import zxnu_itchio
@@ -3675,8 +3676,16 @@ class MainWindow(QMainWindow):
                 self.settings_http_bridge_checkbox.blockSignals(True)
                 self.settings_http_bridge_checkbox.setChecked(_http_bridge_on)
                 self.settings_http_bridge_checkbox.blockSignals(False)
-                if _http_bridge_on:
+                if _http_bridge_on and flask_available():
                     QTimer.singleShot(0, self._nextsync_http_bridge_start)
+                elif _http_bridge_on:
+                    # Enabled in the config but Flask is gone (uninstalled /
+                    # different environment): keep the choice, skip the start,
+                    # say why — never an error at startup.
+                    add_nextsync_log_window(
+                        "NextSync HTTP bridge is enabled in the settings but "
+                        "the 'flask' package is not installed - install it "
+                        "with: python -m pip install flask")
 
                 # MAME ROM/system choice (combo) and command-line parameters
                 # (editable text). Both only exist as widgets when MAME was
@@ -11117,6 +11126,18 @@ class MainWindow(QMainWindow):
                     f"Serving on port {port}. A Next with the .http dot "
                     "command (or curl) can now drive the Next connected in "
                     "'.sync5 -listen'.", variant="green", duration_ms=6000)
+            elif self._re_bridge.port_in_use:
+                # Something (IIS? another server instance?) already owns the
+                # port: a targeted red error, exactly what happened and that
+                # nothing was started.
+                self._re_bridge = None
+                add_nextsync_log_window(f"NextSync HTTP bridge NOT started: {err}")
+                self._show_toast(
+                    "NextSync HTTP bridge not started",
+                    "You have specified to start the flask integration "
+                    f"server but port {port} is already in use, the web "
+                    "server has not been started.",
+                    variant="red", duration_ms=12000)
             else:
                 self._re_bridge = None
                 add_nextsync_log_window(f"NextSync HTTP bridge NOT started: {err}")
@@ -23397,17 +23418,28 @@ class MainWindow(QMainWindow):
         self.settings_http_bridge_checkbox = QCheckBox(
             "Enable NextSync HTTP bridge (web server for the Next's .http command)")
         self.settings_http_bridge_checkbox.setChecked(False)
-        self.settings_http_bridge_checkbox.setToolTip(
-            "Starts a small self-hosted web server (Flask, port 80 by default —\n"
-            "set nextsync_http_port in hdfg.cfg to change it) that republishes\n"
-            "the Remote Explorer's '.sync5 -listen' session as HTTP routes:\n"
-            "/status /ls /get /put /mkdir /rmdir /rmtree /rm /ren /rcpy /rfsize\n"
-            "/free /drives. A Spectrum Next running the built-in .http dot\n"
-            "command (HTTP only, no TLS) — or curl, or a browser — can then\n"
-            "drive the file system of the Next connected in -listen mode.\n"
-            "The server starts automatically with the app while this is enabled\n"
-            "(off by default). Requires the 'flask' Python package."
-        )
+        if flask_available():
+            self.settings_http_bridge_checkbox.setToolTip(
+                "Starts a small self-hosted web server (Flask, port 80 by default —\n"
+                "set nextsync_http_port in hdfg.cfg to change it) that republishes\n"
+                "the Remote Explorer's '.sync5 -listen' session as HTTP routes:\n"
+                "/status /ls /get /put /mkdir /rmdir /rmtree /rm /ren /rcpy /rfsize\n"
+                "/free /drives. A Spectrum Next running the built-in .http dot\n"
+                "command (HTTP only, no TLS) — or curl, or a browser — can then\n"
+                "drive the file system of the Next connected in -listen mode.\n"
+                "The server starts automatically with the app while this is enabled\n"
+                "(off by default)."
+            )
+        else:
+            # Flask is optional: without it the toggle is greyed out instead
+            # of failing later, and the tooltip says how to enable it.
+            self.settings_http_bridge_checkbox.setEnabled(False)
+            self.settings_http_bridge_checkbox.setToolTip(
+                "The NextSync HTTP bridge needs the optional 'flask' Python\n"
+                "package, which is not installed. Install it with:\n"
+                "    python -m pip install flask\n"
+                "then restart ZX-Next-Unite to enable this option."
+            )
         self.settings_http_bridge_checkbox.stateChanged.connect(
             settings_http_bridge_statechanged)
         grid_tab_Settings.addWidget(self.settings_http_bridge_checkbox, 36, 0, 1, 2)

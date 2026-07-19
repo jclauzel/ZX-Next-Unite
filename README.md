@@ -37,8 +37,10 @@ Co-developed with the assistance of **Claude** (Anthropic's AI).
     python -m pip install -r REQUIREMENTS.txt
     python zx-next-unite.py
 
-Use `python3` on Linux/macOS. Only **PySide6** is required; `pygame-ce` and
-`itch-dl` are optional.
+Use `python3` on Linux/macOS. Only **PySide6** is required; `pygame-ce`,
+`itch-dl` and `flask` are optional (`flask` powers the NextSync HTTP bridge —
+the web server that lets a Next drive another Next's SD card via the `.http`
+dot command; without it the Settings toggle is simply greyed out).
 
 ## Documentation
 

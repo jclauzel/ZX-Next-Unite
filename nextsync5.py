@@ -1075,22 +1075,24 @@ def _listen_session_inner(conn, stats, _test_commands=None):
     print(f'{timestamp()} | listen: the Next disconnected - waiting for a new connection.')
 
 def _start_http_bridge(port):
-    """-http: start the NextSync HTTP bridge (zxnu_http_bridge, Flask) so any
-    HTTP client — a Next running the .http dot command, curl, a browser — can
-    drive the Next connected in -listen mode through web routes. The module
-    lives at the repo root; a copy next to this script works too (standalone
-    distribution)."""
+    """-w / -http: start the NextSync HTTP bridge (zxnu_http_bridge, Flask)
+    so any HTTP client — a Next running the .http dot command, curl, a
+    browser — can drive the Next connected in -listen mode through web
+    routes. zxnu_http_bridge.py lives next to this script (repo root) and
+    imports only the stdlib; Flask itself is optional and only loaded when
+    the server actually starts, so a missing Flask can never break normal
+    nextsync5.py startup."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     try:
         import zxnu_http_bridge as _zb
     except ImportError:
-        sys.path.insert(0, os.path.abspath(os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")))
-        try:
-            import zxnu_http_bridge as _zb
-        except ImportError:
-            print(f"{timestamp()} | -http: zxnu_http_bridge.py not found "
-                  "(copy it next to nextsync5.py, or run from the repo).")
-            return None
+        print(f"{timestamp()} | HTTP bridge: zxnu_http_bridge.py not found "
+              "(keep it next to nextsync5.py).")
+        return None
+    if not _zb.flask_available():
+        print(f"{timestamp()} | HTTP bridge: please install flask first "
+              "(currently disabled):  python -m pip install flask")
+        return None
 
     def make_cmd(op, a1, a2, reply):
         # Canonical bridge op -> this server's (verb, a1, a2, reply) tuples.
@@ -1116,11 +1118,21 @@ def _start_http_bridge(port):
 
     bridge = _zb.NextSyncHttpBridge(
         _zb.QueueBridgeHost(enqueue, make_cmd, state), port=port,
-        log=lambda s: print(f"{timestamp()} | {s}"))
+        log=lambda s: print(f"{timestamp()} | {s}"),
+        verbose=opt_verbose)   # -v: log every HTTP request/payload/response
     ok, err = bridge.start()
     if ok:
         print(f"{timestamp()} | HTTP bridge on port {port}: /status /ls /get "
               "/put /mkdir /rmdir /rm /ren /rcpy /rfsize /free /drives")
+        if opt_verbose:
+            print(f"{timestamp()} | HTTP bridge: -v request/response logging "
+                  "is ON")
+    elif bridge.port_in_use:
+        print(f"{timestamp()} | *** HTTP bridge: port {port} is already in "
+              "use - the web server has NOT been started. ***")
+        print(f"{timestamp()} |     Stop the program listening there (IIS? "
+              "another server?) or pick another port with -http=<port>.")
+        return None
     else:
         print(f"{timestamp()} | HTTP bridge NOT started: {err}")
         return None
@@ -1386,14 +1398,16 @@ for x in sys.argv[1:]:
         opt_sync_once = True
     elif x == '-v' or x == '-verbose':
         opt_verbose = True
-    elif x == '-http' or x.startswith('-http='):
+    elif x == '-w' or x == '-http' or x.startswith('-http='):
         # NextSync HTTP bridge: expose the -listen session as web routes for
-        # the Next's .http dot command / curl. Default port 80 (.http's own
-        # default; HTTP only — the Next has no TLS).
+        # the Next's .http dot command / curl. -w starts it on the default
+        # port 80 (.http's own default; HTTP only — the Next has no TLS);
+        # -http=<port> picks another port. Needs the optional Flask package
+        # ("please install flask first" is printed when it is missing).
         try:
             opt_http_port = int(x.split('=', 1)[1]) if '=' in x else 80
         except ValueError:
-            print(f"Bad -http port in '{x}' (want -http or -http=8080)")
+            print(f"Bad -http port in '{x}' (want -w, -http or -http=8080)")
             quit()
     elif x == '-s':
         MAX_PAYLOAD = 256
@@ -1419,13 +1433,20 @@ for x in sys.argv[1:]:
         -a  - Always sync, regardless of timestamps (doesn't skip ignore file)
         -o  - Sync once, then quit. Default is to keep the sync loop running.
         -v  - Verbose: log every packet/command (off by default; noisy in -listen)
-        -http / -http=8080
-            - Start the NextSync HTTP bridge: a small web server (Flask)
-              republishing the -listen session as HTTP routes (/status /ls
+        -w  - Start the NextSync HTTP bridge web server (Flask) on port 80:
+              it republishes the -listen session as HTTP routes (/status /ls
               /get /put /mkdir /rmdir /rm /ren /rcpy /rfsize /free /drives),
               so a Next running the built-in .http dot command - or curl -
-              can drive the connected Next's file system. Port 80 by default
-              (.http's own default; plain HTTP, the Next has no TLS).
+              can drive the connected Next's file system. Port 80 is .http's
+              own default (plain HTTP, the Next has no TLS). Requires the
+              optional Flask package ("please install flask first" is shown
+              when missing:  python -m pip install flask). If something is
+              already listening on the port, a clear "port already in use -
+              the web server has NOT been started" error is shown instead.
+        -http / -http=8080
+            - Same as -w, with an optional custom port.
+              Combine with -v to log every HTTP request, its payload and
+              the response on the console for troubleshooting.
         -s  - Use safe payload size (256 bytes). Slower, but more robust.
               Use this if you get a lot of retries.
         -u  - To live on the edge, you can try to use really unsafe payload
