@@ -69,7 +69,8 @@ pyside6-rcc rc_backgrounds.qrc -o rc_backgrounds.py
 |---|---|
 | `zx-next-unite.py` | Entry point; contains the single `MainWindow(QMainWindow)` class and all tab/pane UI logic |
 | `zxnu_config.py` | Constants, `SETTING_*` keys, API base URLs, UI string tables, color defaults, and pure helpers (`resource_path`, `qcolor_to_hex`, etc.) |
-| `zxnu_workers.py` | Background threading primitives: `WorkerSignals`, `NextSyncSignals`, `HdfTaskSignals`, `HdfTaskWorker`, `HdfProgressDialog`, `DotDotFirstProxyModel` |
+| `zxnu_workers.py` | Background threading primitives: `WorkerSignals`, `NextSyncSignals`, `HdfTaskSignals`, `HdfTaskWorker`, `HdfProgressDialog`, `DotDotFirstProxyModel`; also the NextSync `-listen` worker (`run_remote_listen_server` + `RemoteExplorerSignals`) behind the Remote Explorer |
+| `zxnu_remote_explorer.py` | `RemoteExplorerWidget`: the dual-pane local ⇄ Next file manager of the NextSync tab (drives the `-listen` worker via a command queue; covered headlessly by `nextsync/sync/server/test_remote_listen.py` for the worker side) |
 | `zxnu_media.py` | ZX Spectrum `SCREEN$` decoder (`ZxSpectrumScreen`), placeholder-pixmap rendering, file-format tag helpers, and the shared pixmap cache |
 | `zxnu_gallery.py` | Reusable gallery widgets: `GalleryCell`, the scrollable grid view, and the `AnimatedBackground` widget |
 | `zxnu_itchio.py` | Optional itch.io integration: `itch-dl` detection, itch.io API access (collections/owned/search via the user's API key) and install-via-`itch-dl`. Drives the optional itch.io tab |

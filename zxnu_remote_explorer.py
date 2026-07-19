@@ -14,7 +14,9 @@ import os
 import posixpath
 import shutil
 
-from PySide6.QtCore import Qt, QDir, QModelIndex, QMimeData, QUrl, QSize, QTimer
+from PySide6.QtCore import (
+    Qt, QDir, QEvent, QModelIndex, QMimeData, QUrl, QSize, QTimer,
+)
 from PySide6.QtGui import (
     QColor, QDrag, QKeySequence, QStandardItem, QStandardItemModel,
 )
@@ -306,6 +308,29 @@ class RemoteExplorerWidget(QWidget):
         # recursive upload stay quiet (a failed one there just means "exists").
         self._op_failures = []
         self._op_toast_mkdir = False
+        # Heartbeat-driven progress (rcpy): the Next pushes a named 'D' block
+        # as each file copy starts and an empty one per 64 KB inside big
+        # files. Against the totals measured by the paste's rfsize precheck
+        # these drive a real percentage (max of the byte estimate, the file
+        # count and the command count - whichever profile fits the tree).
+        self._op_bytes_total = 0      # precheck total bytes (0 = untracked)
+        self._op_files_total = 0      # precheck total files (0 = untracked)
+        self._op_bytes_est = 0        # 64 KB per empty keepalive seen
+        self._op_files_seen = 0       # named 'D' blocks seen
+        self._op_last_name = ""       # last item name the Next reported
+        # "Close this window and continue in the background": the label the
+        # op's dialog button carries instead of "Cancel" (rcpy can't stop an
+        # in-flight Next-side copy), and whether the user pressed it. While
+        # backgrounded only the NEXT pane is blocked (with an overlay); the
+        # local pane stays usable and the outcome arrives as a toast.
+        self._op_background_label = None
+        self._op_background = False
+        self._op_quiet_failures = False
+        self._next_overlay = None     # the "copy in progress" overlay QLabel
+        # Free-space precheck state for a Next->Next paste (rfsize each source
+        # + a fresh free-space read of the destination drive BEFORE the rcpy
+        # is allowed to start). None when no precheck is pending.
+        self._precheck = None
 
         # Per-item font colours, mirroring the SD Card Utility's image tree. The
         # host pushes the user's configured colours in via set_item_colors(); the
@@ -523,6 +548,10 @@ class RemoteExplorerWidget(QWidget):
         next_box.addLayout(next_tools)
         next_container = QWidget(self)
         next_container.setLayout(next_box)
+        # Kept for the background-copy overlay: while an rcpy continues in the
+        # background the whole right pane is disabled and covered by a label.
+        self.next_container = next_container
+        next_container.installEventFilter(self)   # keep the overlay sized
 
         # ---- assemble the 3-column grid -----------------------------------
         grid = QGridLayout(self)
@@ -551,7 +580,8 @@ class RemoteExplorerWidget(QWidget):
     #  operation progress / blocking / cancel
     # ==================================================================
     def _run_op(self, title, enqueue_fn, determinate=True, toast_mkdir_fail=False,
-                on_done=None):
+                on_done=None, background_label=None, quiet_failures=False,
+                bytes_total=0, files_total=0):
         """Run a batch of remote commands as a cancellable, blocking operation.
 
         ``enqueue_fn`` queues the commands (via _enqueue). The widget is
@@ -560,10 +590,23 @@ class RemoteExplorerWidget(QWidget):
         opts a single deliberate mkdir (New Folder) into failure toasts.
         ``on_done`` (optional) is called on the UI thread when the operation
         ends, as ``on_done(ok, failures)`` — see _end_operation.
+
+        ``background_label`` replaces the dialog's Cancel button: pressing it
+        does NOT cancel — it closes the dialog and lets the operation finish in
+        the background with only the Next pane blocked (used by rcpy, whose
+        in-flight Next-side copy cannot be stopped). ``quiet_failures`` keeps
+        failures out of the end-of-op toast (the paste precheck treats a failed
+        rfsize as "size unknown", not something to alarm about).
+        ``bytes_total``/``files_total`` (from that precheck) arm the
+        heartbeat-driven progress percentage — see on_op_progress.
         """
-        if self._op_active or not self._connected:
-            # Never nest, and never start without a live server: with no queue
-            # the commands would silently vanish and the op could never end.
+        if self._op_active or not self._connected or self._precheck is not None:
+            # Never nest, never start without a live server (with no queue the
+            # commands would silently vanish and the op could never end), and
+            # never start while a paste precheck is still waiting for its
+            # free-space reply — its evaluation launches the rcpy op itself.
+            # (The precheck's own stage-1 op sets _precheck inside enqueue_fn,
+            # after this guard has passed.)
             return
         self._op_active = True
         self._op_total = 0
@@ -575,6 +618,14 @@ class RemoteExplorerWidget(QWidget):
         self._op_failures = []
         self._op_toast_mkdir = toast_mkdir_fail
         self._op_on_done = on_done
+        self._op_background_label = background_label
+        self._op_background = False
+        self._op_quiet_failures = quiet_failures
+        self._op_bytes_total = int(bytes_total or 0)
+        self._op_files_total = int(files_total or 0)
+        self._op_bytes_est = 0
+        self._op_files_seen = 0
+        self._op_last_name = ""
         self.setEnabled(False)           # make the whole explorer unclickable
         # Delay the dialog so instant operations (a quick mkdir/rename) don't
         # flash a modal box on screen.
@@ -584,10 +635,11 @@ class RemoteExplorerWidget(QWidget):
             self._end_operation()
 
     def _show_op_dialog_if_running(self):
-        if not self._op_active or self._op_dialog is not None:
+        if not self._op_active or self._op_dialog is not None or self._op_background:
             return
-        dlg = HdfProgressDialog(self._op_title, self.window(), cancel_label="Cancel")
-        dlg.cancel_requested.connect(self._on_op_cancel)
+        dlg = HdfProgressDialog(self._op_title, self.window(),
+                                cancel_label=(self._op_background_label or "Cancel"))
+        dlg.cancel_requested.connect(self._on_op_cancel_clicked)
         dlg.set_progress(0 if self._op_determinate else -1)
         dlg.set_status("Transfer/Operation in progress…")
         self._op_dialog = dlg
@@ -605,12 +657,61 @@ class RemoteExplorerWidget(QWidget):
         if self._op_completed >= self._op_total:
             self._end_operation()
 
+    def _op_hb_percent(self):
+        """Heartbeat-driven percentage, or None when the op isn't armed with
+        precheck totals. The max of three estimators — 64 KB per in-file
+        keepalive vs total bytes (right for a few big files), files started vs
+        total files (right for many small files), commands completed vs queued
+        (a coarse floor) — capped at 99 until the op really ends."""
+        if not (self._op_bytes_total or self._op_files_total):
+            return None
+        bp = (100 * self._op_bytes_est // self._op_bytes_total) \
+            if self._op_bytes_total else 0
+        fp = (100 * self._op_files_seen // self._op_files_total) \
+            if self._op_files_total else 0
+        cp = (100 * self._op_completed // self._op_total) if self._op_total else 0
+        return min(99, max(bp, fp, cp))
+
+    def on_op_progress(self, op, name):
+        """A 'D' heartbeat arrived while a long command runs (rcpy: named =
+        one file copy starting, empty = 64 KB copied inside the current file;
+        rfsize: named = the directory now being scanned). Drives the progress
+        dialog — and the background overlay — instead of leaving the bar at 0%
+        for the whole copy."""
+        if not self._op_active:
+            return
+        if name:
+            self._op_files_seen += 1
+            self._op_last_name = name
+            if self._op_dialog is not None:
+                self._op_dialog.set_status(f"{self._op_title}\n{name}")
+        else:
+            self._op_bytes_est += 65536
+        self._update_op_progress()
+
     def _update_op_progress(self):
-        if self._op_dialog is None or not self._op_determinate:
+        if self._op_background:
+            self._update_next_overlay_text()
+            return
+        if self._op_dialog is None:
+            return
+        pct = self._op_hb_percent()
+        if pct is not None:
+            self._op_dialog.set_progress(pct)
+            return
+        if not self._op_determinate:
             return
         if self._op_total > 0:
             self._op_dialog.set_progress(
                 int(100 * self._op_completed / self._op_total))
+
+    def _on_op_cancel_clicked(self):
+        # The dialog's single button: a real Cancel for most operations, or
+        # "Close this window and continue in the background" for rcpy.
+        if self._op_background_label:
+            self._op_background_now()
+        else:
+            self._on_op_cancel()
 
     def _on_op_cancel(self):
         # Stop after the current file: drop everything still queued (the in-flight
@@ -628,17 +729,92 @@ class RemoteExplorerWidget(QWidget):
         if self._op_completed >= self._op_total:
             self._end_operation()
 
-    def _end_operation(self):
-        self._op_active = False
+    # ---- background mode: dialog closed, only the Next pane blocked ----
+    def _op_background_now(self):
+        """Close the progress dialog and let the operation finish in the
+        background: the local pane becomes usable again, the Next pane is
+        covered by a "copy in progress" overlay until the op ends (a Next-side
+        rcpy cannot actually be interrupted, so this is the honest offer)."""
+        if not self._op_active or self._op_background:
+            return
+        self._op_background = True
         if self._op_dialog is not None:
             self._op_dialog.close()
             self._op_dialog = None
         self.setEnabled(True)
+        self._update_next_overlay_text()
+        self._log("Remote copy continues in the background; the Next pane "
+                  "unlocks when it completes.")
+
+    def _update_next_overlay_text(self):
+        pct = self._op_hb_percent()
+        text = "Remote copy in progress…"
+        if pct is not None:
+            text += f"  {pct}%"
+        text += "\nplease wait"
+        if self._op_last_name:
+            text += "\n\n" + self._op_last_name
+        self._set_next_overlay(text)
+
+    def _set_next_overlay(self, text):
+        """Cover (text) or free (None) the whole Next pane. The overlay both
+        says what is going on and swallows interaction; the pane's widgets are
+        disabled underneath it for good measure."""
+        if text is None:
+            if self._next_overlay is not None:
+                self._next_overlay.deleteLater()
+                self._next_overlay = None
+                self.next_container.setEnabled(True)
+            return
+        self.next_container.setEnabled(False)
+        if self._next_overlay is None:
+            lbl = QLabel(self.next_container)
+            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setWordWrap(True)
+            lbl.setStyleSheet(
+                "QLabel { background-color: rgba(15, 15, 15, 175);"
+                " color: #ffd54a; font-weight: bold; font-size: 13pt;"
+                " border-radius: 8px; }")
+            lbl.setGeometry(self.next_container.rect())
+            lbl.show()
+            self._next_overlay = lbl
+        self._next_overlay.setText(text)
+
+    def eventFilter(self, obj, event):
+        # Keep the background-copy overlay covering the Next pane through
+        # resizes / splitter drags.
+        if (obj is getattr(self, "next_container", None)
+                and self._next_overlay is not None
+                and event.type() == QEvent.Type.Resize):
+            self._next_overlay.setGeometry(self.next_container.rect())
+        return super().eventFilter(obj, event)
+
+    def _end_operation(self):
+        was_bg = self._op_background
+        self._op_background = False
+        self._op_background_label = None
+        self._op_active = False
+        if self._op_dialog is not None:
+            self._op_dialog.close()
+            self._op_dialog = None
+        self._set_next_overlay(None)
+        self.setEnabled(True)
         # Tell the user about any Next-side failures this operation hit (one toast
         # for the whole batch). A user cancel is expected, so don't cry failure.
         fails, self._op_failures = self._op_failures, []
-        if fails and not self._op_cancelled:
+        if fails and not self._op_cancelled and not self._op_quiet_failures:
             self._toast_failures(fails)
+        # A backgrounded operation has no dialog left to announce its end, so
+        # the outcome arrives as a toast (failures already toasted red above).
+        if was_bg and not self._op_cancelled:
+            if not self._connected:
+                self._on_toast("⚠  Remote copy interrupted",
+                               "The connection to the Next ended before the "
+                               "copy finished; its state is unknown.", "red")
+            elif not fails:
+                n = self._op_completed
+                self._on_toast("✅  Remote copy complete",
+                               f"Copied {n} item(s) on the Next.", "green")
         # Report the batch outcome to an interested caller (see send_local_paths).
         # ok requires every queued command to have reported back with no failure
         # and no cancel; a mid-batch disconnect ends the op early with
@@ -712,6 +888,8 @@ class RemoteExplorerWidget(QWidget):
 
     def on_disconnected(self):
         self._set_connected(False)
+        # A pending paste precheck can never complete now.
+        self._precheck = None
         # Abandon any in-flight moves: their transfers can't complete, so their
         # sources must stay put.
         if self._cut_jobs:
@@ -774,13 +952,20 @@ class RemoteExplorerWidget(QWidget):
         """'Z' result: cache it and refresh the path label. ``nbytes`` is None
         when the query failed on the Next ('F') or the dot predates v5.2 (the
         worker's log line says which); then any stale figure is dropped so the
-        label never shows a wrong number."""
+        label never shows a wrong number. Also feeds a pending paste precheck
+        waiting on the destination drive's fresh figure."""
         drive = (drive or "").strip().upper()[:1] or self._cwd_drive()
         self._free_space[drive] = nbytes
         if nbytes is not None:
             self._log(f"Drive {drive}: {self._fmt_free(nbytes)} free "
                       f"({nbytes} bytes)")
         self._update_next_path_label()
+        pc = self._precheck
+        if pc is not None and not pc["free_seen"] and drive == pc["drive"]:
+            pc["free_seen"] = True
+            pc["free"] = nbytes
+            if pc["sizes_done"]:
+                self._precheck_evaluate()
 
     def _update_next_path_label(self):
         """Path label = cwd + the cached free space of its drive (if known)."""
@@ -1285,9 +1470,19 @@ class RemoteExplorerWidget(QWidget):
                      determinate=False)
 
     def on_fsize(self, path, data):
-        """rfsize result. data = {'files','dirs','bytes'} or None on failure
-        (the op_done(False, "size", path) that preceded it already raised the
-        standard failure toast, so None needs no second report here)."""
+        """rfsize result. A pending paste precheck consumes its own paths
+        silently (a failed measure there just means "size unknown"). Otherwise
+        it is the user's Get Size: pop the result dialog (data = None needs no
+        second report — the op_done(False, "size", path) that preceded it
+        already raised the standard failure toast)."""
+        pc = self._precheck
+        if pc is not None and path in pc["paths"]:
+            if data is None:
+                pc["unknown"] = True
+            else:
+                pc["bytes"] += int(data.get("bytes", 0))
+                pc["files"] += int(data.get("files", 0))
+            return
         if data is None:
             return
         n = int(data.get("bytes", 0))
@@ -1401,12 +1596,12 @@ class RemoteExplorerWidget(QWidget):
                 jobs.append((path, dst))
             if not jobs:
                 return
-
-            def go():
-                for path, dst in jobs:
-                    self._enqueue(("rcpy", path, dst))
-                self._log(f"Copying {len(jobs)} item(s) on the Next …")
-            self._run_op("Copying on the Next…", go)
+            # Will it fit? Measure every source (rfsize) and re-read the
+            # destination drive's free space BEFORE any rcpy is allowed to
+            # start; _precheck_evaluate then blocks the copy with a clear
+            # message when it cannot fit, or launches it (with the measured
+            # totals driving the progress bar).
+            self._start_rcpy_precheck(jobs)
             return
         _kind, paths, mode = self._clip
         paths = list(paths)
@@ -1418,6 +1613,106 @@ class RemoteExplorerWidget(QWidget):
         else:
             self._run_op("Uploading to the Next…",
                          lambda: self._put_paths(paths))
+
+    # ==================================================================
+    #  Next -> Next paste: free-space precheck, then the rcpy itself
+    # ==================================================================
+    def _start_rcpy_precheck(self, jobs):
+        """Stage 1 of a Next->Next paste: rfsize every source, then re-read
+        the DESTINATION drive's free space (queued after the sizes, so it is
+        the freshest figure the Next can give). on_fsize/on_free_space feed
+        the results in; _precheck_evaluate decides."""
+        pc = {
+            "jobs": jobs,
+            "paths": {p for p, _ in jobs},
+            "bytes": 0, "files": 0,
+            "unknown": False,       # any rfsize failed -> sizes unreliable
+            "free": None, "free_seen": False,
+            "sizes_done": False,
+            "drive": self._cwd_drive(),
+        }
+
+        def go():
+            # Set inside the op (i.e. after _run_op's guards passed): a
+            # pending precheck blocks _run_op, so it must never be armed for
+            # an op that was refused.
+            self._precheck = pc
+            for path, _ in jobs:
+                self._enqueue(("fsize", path))
+            # The free-space query rides _enqueue_raw (its reply emits no
+            # op_done, so it must not count toward the op) and is queued
+            # AFTER the sizes: the worker answers in order, so the figure
+            # arrives last — a true last-moment reading.
+            self._enqueue_raw(("free", pc["drive"]))
+        self._run_op("Checking space on the Next…", go, determinate=False,
+                     quiet_failures=True, on_done=self._precheck_sizes_done)
+
+    def _precheck_sizes_done(self, _ok, _fails):
+        """Stage 1's operation ended (every rfsize replied). The free-space
+        figure normally arrives just after (queued behind the sizes); a guard
+        timer makes sure a lost reply can't strand the paste silently."""
+        pc = self._precheck
+        if pc is None:
+            return
+        if not self._connected:
+            self._precheck = None
+            return
+        pc["sizes_done"] = True
+        if pc["free_seen"]:
+            self._precheck_evaluate()
+        else:
+            QTimer.singleShot(20000, lambda pc=pc: self._precheck_free_timeout(pc))
+
+    def _precheck_free_timeout(self, pc):
+        if self._precheck is pc and not pc["free_seen"]:
+            self._log("Free-space reply never arrived; copying without the "
+                      "space check.")
+            pc["free_seen"] = True          # proceed with free unknown (None)
+            self._precheck_evaluate()
+
+    def _precheck_evaluate(self):
+        """Stage 2: sizes and free space are in. Refuse the paste outright when
+        the copy cannot fit; otherwise launch the rcpy operation, armed with
+        the measured totals so its progress bar tracks the heartbeats."""
+        pc, self._precheck = self._precheck, None
+        if pc is None or not self._connected:
+            return
+        total, files, free = pc["bytes"], pc["files"], pc["free"]
+        drive = pc["drive"]
+        if free is not None and not pc["unknown"] and total > free:
+            over = total - free
+            self._log(f"rcpy refused: needs {total:,} bytes but drive {drive} "
+                      f"has only {free:,} free ({over:,} bytes short).")
+            QMessageBox.critical(
+                self, "Not enough space on the Next",
+                f"This copy needs {total:,} bytes ({self._fmt_free(total)}), "
+                f"but drive {drive}: only has {free:,} bytes "
+                f"({self._fmt_free(free)}) free.\n\n"
+                f"It exceeds the available remote space by {over:,} bytes "
+                f"({self._fmt_free(over)}).\n\nThe copy was not started.",
+                QMessageBox.StandardButton.Close)
+            return
+        if pc["unknown"] or free is None:
+            self._log("Could not verify the copy's size against the free "
+                      "space; copying anyway.")
+            total = files = 0               # no totals -> marquee progress
+        self._start_rcpy(pc["jobs"], total, files)
+
+    def _start_rcpy(self, jobs, bytes_total, files_total):
+        """The rcpy operation proper. With totals from the precheck the
+        progress bar is driven by the Next's 'D' heartbeats (see
+        on_op_progress); without them it shows the busy marquee. Its dialog
+        button doesn't Cancel — a Next-side copy can't be interrupted — it
+        closes the window and lets the copy finish in the background."""
+        def go():
+            for path, dst in jobs:
+                self._enqueue(("rcpy", path, dst))
+            self._log(f"Copying {len(jobs)} item(s) on the Next …")
+        self._run_op(
+            "Copying on the Next…", go,
+            determinate=bool(bytes_total or files_total),
+            background_label="Close this window and continue in the background",
+            bytes_total=bytes_total, files_total=files_total)
 
     def _paste_into_local(self):
         # Paste the clipboard into the current local directory. Next items:

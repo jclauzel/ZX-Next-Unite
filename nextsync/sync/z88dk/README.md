@@ -190,7 +190,13 @@ longer pass as success (the copy is checked against the source's stat size).
 Same safe-walk core as `send_dir` (never file I/O with a readdir handle
 open); the destination-inside-source infinite trap is guarded on the PC
 side. In the app, Copy → Paste inside the Remote Explorer's Next pane rides
-this command.
+this command — and first runs an `rfsize` + fresh `free` **precheck**: a
+copy that cannot fit is refused up front with the exact shortfall, and when
+it fits the measured totals drive the progress dialog off the `'D'`
+heartbeats (named = a file starting, empty = 64 KB copied). The dialog's
+button doesn't cancel (a Next-side copy can't be interrupted): it closes
+the window and the copy finishes in the background behind a "Remote copy in
+progress" overlay on the Next pane, ending in a success/failure toast.
 
 `rfsize` (`'S'`, v5.2+) measures a file or a whole directory tree on the Next
 — the natural check before an `rcpy` ("will it fit?", together with `free`).
