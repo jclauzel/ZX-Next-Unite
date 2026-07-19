@@ -48,6 +48,7 @@ opt_drive = '/'
 opt_always_sync = False
 opt_sync_once = False
 opt_verbose = False   # -v: per-packet / per-command logging (off by default)
+opt_http_port = 0     # -http[=port]: NextSync HTTP bridge (0 = off)
 # How to treat an incoming (-send) file/dir that already exists locally:
 #   "prompt"    - ask at the console (default)
 #   "overwrite" - always overwrite
@@ -532,18 +533,23 @@ def _listen_ls(conn, path="."):
                 entries.append((flags & 1, size, name))
         return False
     if not _listen_recv_reply(conn, handle):
-        return
+        return (False, False, [])
     if st['failed']:
         print(f'{timestamp()} | ls {path}: no such directory on the Next')
-        return
+        return (True, True, [])
     entries.sort(key=lambda e: (0 if e[0] else 1, e[2].lower()))
     print(f'{timestamp()} | Listing ({len(entries)} entries):')
     for is_dir, size, name in entries:
         print(f'   {"<DIR>":>12}  {name}' if is_dir else f'   {size:>12}  {name}')
+    # (replied?, opendir-failed?, entries) - consumed by the HTTP bridge; the
+    # console path ignores it.
+    return (True, False, entries)
 
 def _listen_get(conn, dest_root):
-    """Receive a 'get': 'N'/'D'/'E' per file then 'B'. Writes under dest_root."""
-    st = {'f': None, 'name': None, 'bytes': 0}
+    """Receive a 'get': 'N'/'D'/'E' per file then 'B'. Writes under dest_root.
+    Returns (replied?, files_written, last_local_path) - the HTTP bridge needs
+    the written-file count/path; the console path ignores it."""
+    st = {'f': None, 'name': None, 'bytes': 0, 'count': 0, 'last': None}
     os.makedirs(dest_root, exist_ok=True)
     def handle(payload):
         op = payload[0:1]
@@ -559,6 +565,8 @@ def _listen_get(conn, dest_root):
             st['f'] = open(path, 'wb')
             st['name'] = name
             st['bytes'] = 0
+            st['count'] += 1
+            st['last'] = path
             print(f'{timestamp()} | get: {name} -> {path}')
         elif op == b'D':
             if st['f']:
@@ -578,7 +586,7 @@ def _listen_get(conn, dest_root):
     _listen_get_result = _listen_recv_reply(conn, handle)
     if st['f']:
         st['f'].close()
-    return _listen_get_result
+    return (_listen_get_result, st['count'], st['last'])
 
 def _fmt_size(nbytes):
     """Human-readable size for pfull: 512 -> '512 bytes', 1536000 -> '1.5 MB'."""
@@ -600,11 +608,13 @@ def _listen_status(conn, what):
         res['ok'] = (payload[0:1] == b'O')
         return True
     if not _listen_recv_reply(conn, handle):
-        return
+        return None
     if res['ok']:
         print(f'{timestamp()} | {what}: OK')
     else:
         print(f'{timestamp()} | *** {what}: FAILED on the Next ***')
+    # True/False = the Next's verdict, None = link dropped (for the bridge).
+    return res['ok']
 
 # --- Persistent console reader for -listen -------------------------------------
 # ONE input() thread for the whole server run, shared across reconnections. A
@@ -614,6 +624,27 @@ def _listen_status(conn, what):
 # a dead session. So the reader is created once and reused.
 _listen_cmd_q = None
 _listen_cli_started = False
+
+# Live -listen session state for the HTTP bridge's /status route (see -http):
+# 'active' flips with the session, 'current'/'drives' cache the last getdrives
+# reply of this session.
+_listen_state = {'active': False, 'current': '', 'drives': None}
+
+def _listen_queue():
+    """The shared -listen command queue (created on first use). Both the
+    console reader and the HTTP bridge push (verb, a1, a2[, reply]) tuples
+    onto it; a tuple's 4th element is a zxnu_http_bridge.BridgeReply the
+    session fills with the command's result (and such bridge commands print
+    nothing beyond the normal session log)."""
+    global _listen_cmd_q
+    if _listen_cmd_q is None:
+        _listen_cmd_q = queue.Queue()
+    return _listen_cmd_q
+
+def _reply_fill(reply, result):
+    """Fill a bridge command's reply sink, if it carries one."""
+    if reply is not None:
+        reply.put(result)
 
 def _listen_console_reader(cmd_q):
     """Read commands from the console and queue them for whichever -listen
@@ -669,19 +700,30 @@ def _listen_console_reader(cmd_q):
 def _ensure_listen_console():
     """Start the single persistent console reader (once) and return its shared
     command queue."""
-    global _listen_cmd_q, _listen_cli_started
-    if _listen_cmd_q is None:
-        _listen_cmd_q = queue.Queue()
+    global _listen_cli_started
+    q = _listen_queue()
     if not _listen_cli_started:
-        threading.Thread(target=_listen_console_reader, args=(_listen_cmd_q,),
+        threading.Thread(target=_listen_console_reader, args=(q,),
                          daemon=True, name="listen-cli").start()
         _listen_cli_started = True
-    return _listen_cmd_q
+    return q
 
 def listen_session(conn, stats, _test_commands=None):
     """Sync4 -listen: the Next connected as a remote file server we drive from
-    the console. _test_commands (a list of (verb, arg1, arg2) tuples) is only
-    used by the test harness - it feeds the queue instead of the console CLI."""
+    the console (and, with -http, from the web bridge). _test_commands (a list
+    of (verb, arg1, arg2) tuples) is only used by the test harness - it feeds
+    the queue instead of the console CLI."""
+    # Keep the bridge's /status truthful whatever ends the session - a clean
+    # quit, the Next hanging up, or a socket error unwinding through us.
+    _listen_state['active'] = True
+    try:
+        _listen_session_inner(conn, stats, _test_commands)
+    finally:
+        _listen_state['active'] = False
+        _listen_state['current'] = ''
+        _listen_state['drives'] = None
+
+def _listen_session_inner(conn, stats, _test_commands=None):
     global _in_transfer
     sendpacket(conn, b"Listening", 0)          # ack the "Listen" handshake
     stats['packets'] += 1
@@ -696,13 +738,18 @@ def listen_session(conn, stats, _test_commands=None):
         print(LISTEN_HELP)
         # Reuse the single persistent console reader across reconnections, and
         # drop anything typed while no Next was connected so a fresh/reconnected
-        # session starts clean.
+        # session starts clean. A dropped bridge command gets its reply filled
+        # so its HTTP request fails fast instead of timing out.
         cmd_q = _ensure_listen_console()
         while True:
             try:
-                cmd_q.get_nowait()
+                stale = cmd_q.get_nowait()
             except queue.Empty:
                 break
+            if len(stale) > 3 and stale[3] is not None:
+                _reply_fill(stale[3], {'ok': False,
+                                       'error': 'dropped: queued before the '
+                                                'session (re)started'})
 
     put_data = b''
     put_ofs = 0
@@ -723,7 +770,9 @@ def listen_session(conn, stats, _test_commands=None):
         if is_fail_block(data):
             sendpacket(conn, b"Ok", 0)
             if pending_put is not None:
-                print(f'{timestamp()} | *** put {pending_put}: FAILED on the Next ***')
+                print(f'{timestamp()} | *** put {pending_put[0]}: FAILED on the Next ***')
+                _reply_fill(pending_put[1], {'ok': False,
+                                             'error': 'put failed on the Next'})
                 pending_put = None
                 _in_transfer = False
                 put_data = b''; put_ofs = 0; put_pkt = 0
@@ -733,33 +782,53 @@ def listen_session(conn, stats, _test_commands=None):
             # An old dot with a still-pending put abandoned the upload (it couldn't
             # open the file) rather than sending 'F'; report it, then handle poll.
             if pending_put is not None:
-                print(f'{timestamp()} | *** put {pending_put}: FAILED on the Next ***')
+                print(f'{timestamp()} | *** put {pending_put[0]}: FAILED on the Next ***')
+                _reply_fill(pending_put[1], {'ok': False,
+                                             'error': 'put abandoned by the Next'})
                 pending_put = None
                 _in_transfer = False
                 put_data = b''; put_ofs = 0; put_pkt = 0
             try:
-                op, a1, a2 = cmd_q.get_nowait()
+                item = cmd_q.get_nowait()
             except queue.Empty:
                 sendpacket(conn, b"I", 0)          # idle - the Next re-polls
                 continue
+            op, a1, a2 = item[0], item[1], item[2]
+            # A 4th element is the HTTP bridge's result sink (BridgeReply):
+            # fill it with the command's outcome so the web caller gets a
+            # real answer, not just console prints.
+            reply = item[3] if len(item) > 3 else None
             if op == "quit":
                 sendpacket(conn, b"Q", 0)
                 print(f'{timestamp()} | listen: sent quit')
+                _reply_fill(reply, {'ok': True})
                 break
             elif op == "ls":
                 sendpacket(conn, b"L" + (a1 or ".").encode(), 0)
-                _listen_ls(conn, a1 or ".")
+                replied, gone, entries = _listen_ls(conn, a1 or ".")
+                _reply_fill(reply,
+                            {'ok': True, 'entries': entries} if replied and not gone
+                            else {'ok': False,
+                                  'error': 'no such directory on the Next'
+                                           if replied else 'connection dropped'})
             elif op == "get":
                 if not a1:
                     print("  usage: get <path> [dest]")
+                    _reply_fill(reply, {'ok': False, 'error': 'missing path'})
                     continue
                 sendpacket(conn, b"G" + a1.encode(), 0)
                 _in_transfer = True
-                _listen_get(conn, a2 or ".")
+                got_ok, got_count, got_last = _listen_get(conn, a2 or ".")
                 _in_transfer = False
+                _reply_fill(reply,
+                            {'ok': True, 'count': got_count, 'last': got_last}
+                            if got_ok else
+                            {'ok': False, 'error': 'get failed'})
             elif op == "put":
                 if not a1 or not os.path.isfile(a1):
                     print(f"  put: local file not found: {a1}")
+                    _reply_fill(reply, {'ok': False,
+                                        'error': f'local file not found: {a1}'})
                     continue
                 with open(a1, 'rb') as fh:
                     put_data = fh.read()
@@ -775,26 +844,31 @@ def listen_session(conn, stats, _test_commands=None):
                 print(f'{timestamp()} | put: {a1} -> {remote} ({len(put_data)} bytes)')
                 sendpacket(conn, b"P" + remote.encode(), 0)
                 _in_transfer = True
-                pending_put = remote
+                pending_put = (remote, reply)
                 # the Next now pulls the bytes with "Get" (served below); success
                 # is confirmed when all bytes are served, failure via an 'F' block.
             elif op == "mkdir":
                 sendpacket(conn, b"M" + a1.encode(), 0)
-                _listen_status(conn, f"mkdir {a1}")
+                ok = _listen_status(conn, f"mkdir {a1}")
+                _reply_fill(reply, {'ok': bool(ok)})
             elif op == "rmdir":
                 sendpacket(conn, b"R" + a1.encode(), 0)
-                _listen_status(conn, f"rmdir {a1}")
+                ok = _listen_status(conn, f"rmdir {a1}")
+                _reply_fill(reply, {'ok': bool(ok)})
             elif op == "rm":
                 sendpacket(conn, b"X" + a1.encode(), 0)
-                _listen_status(conn, f"rm {a1}")
+                ok = _listen_status(conn, f"rm {a1}")
+                _reply_fill(reply, {'ok': bool(ok)})
             elif op == "ren":
                 if not a1 or not a2:
                     print("  usage: ren <oldpath> <newpath>")
+                    _reply_fill(reply, {'ok': False, 'error': 'missing path'})
                     continue
                 # Old and new paths travel NUL-separated in a single frame;
                 # the block framing is length-prefixed, so the NUL is safe.
                 sendpacket(conn, b"V" + a1.encode() + b"\x00" + a2.encode(), 0)
-                _listen_status(conn, f"ren {a1} -> {a2}")
+                ok = _listen_status(conn, f"ren {a1} -> {a2}")
+                _reply_fill(reply, {'ok': bool(ok)})
             elif op == "drives":
                 # getdrives (dot v5.1+): one status block, 'O' + current drive
                 # letter + one letter per mounted drive. An older dot ignores
@@ -810,9 +884,17 @@ def listen_session(conn, stats, _test_commands=None):
                 if _listen_recv_reply(conn, _handle_drives) and res['cur']:
                     print(f'{timestamp()} | drives: {" ".join(res["letters"])} '
                           f'(current: {res["cur"]})')
+                    # Cache for the HTTP bridge's /status partition count.
+                    _listen_state['current'] = res['cur']
+                    _listen_state['drives'] = list(res['letters'])
+                    _reply_fill(reply, {'ok': True, 'current': res['cur'],
+                                        'letters': list(res['letters'])})
                 else:
                     print(f'{timestamp()} | drives: not supported by this dot '
                           '(needs .sync v5.1+)')
+                    _reply_fill(reply, {'ok': False,
+                                        'error': 'drives not supported '
+                                                 '(needs .sync v5.1+)'})
             elif op in ("psize", "pfull"):
                 # free space (dot v5.2+): 'Z' + optional drive letter. One
                 # status block back: 'O' + 4 bytes little-endian free 512-byte
@@ -825,6 +907,9 @@ def listen_session(conn, stats, _test_commands=None):
                 drv = (a1 or "").strip().rstrip(':').upper()
                 if drv and (len(drv) != 1 or not ('C' <= drv <= 'P')):
                     print(f"  {op}: bad drive '{a1}' (want a letter C..P, e.g. C or m:)")
+                    _reply_fill(reply, {'ok': False,
+                                        'error': f"bad drive '{a1}' "
+                                                 "(want a letter C..P)"})
                     continue
                 what = f'{op} {drv or "current drive"}'
                 res = {'blocks': None, 'fail': False}
@@ -838,15 +923,22 @@ def listen_session(conn, stats, _test_commands=None):
                 replied = _listen_recv_reply(conn, _handle_free)
                 if res['fail']:
                     print(f'{timestamp()} | *** {what}: FAILED on the Next ***')
+                    _reply_fill(reply, {'ok': False,
+                                        'error': f'{what} FAILED on the Next'})
                 elif replied and res['blocks'] is not None:
                     free_bytes = res['blocks'] * 512
                     if op == "psize":
                         print(f'{timestamp()} | {what}: {free_bytes} bytes free')
                     else:
                         print(f'{timestamp()} | {what}: {_fmt_size(free_bytes)} free')
+                    _reply_fill(reply, {'ok': True, 'drive': drv,
+                                        'free': free_bytes})
                 else:
                     print(f'{timestamp()} | {what}: not supported by this dot '
                           '(needs .sync v5.2+)')
+                    _reply_fill(reply, {'ok': False,
+                                        'error': 'free space not supported '
+                                                 '(needs .sync v5.2+)'})
             elif op == "rcpy":
                 # rcpy (dot v5.2+): copy src -> dst entirely ON the Next, same
                 # partition or across partitions - no data crosses the wire.
@@ -854,6 +946,7 @@ def listen_session(conn, stats, _test_commands=None):
                 # empty keepalives inside big files) and ends with 'O'/'F'.
                 if not a1 or not a2:
                     print("  usage: rcpy <src> <dst>")
+                    _reply_fill(reply, {'ok': False, 'error': 'missing path'})
                     continue
                 src, dst = a1, a2
                 # A dst ending in "/" means "into that directory": keep the
@@ -867,6 +960,9 @@ def listen_session(conn, stats, _test_commands=None):
                 d = dst.rstrip('/').lower()
                 if d == s or d.startswith(s + '/'):
                     print("  rcpy: destination equals or is inside the source")
+                    _reply_fill(reply, {'ok': False,
+                                        'error': 'destination equals or is '
+                                                 'inside the source'})
                     continue
                 what = f'rcpy {src} -> {dst}'
                 res = {'ok': None, 'files': 0}
@@ -883,12 +979,19 @@ def listen_session(conn, stats, _test_commands=None):
                 replied = _listen_recv_reply(conn, _handle_rcpy)
                 if replied and res['ok']:
                     print(f'{timestamp()} | {what}: OK ({res["files"]} file(s))')
+                    _reply_fill(reply, {'ok': True, 'files': res['files']})
                 elif replied and res['ok'] is False:
                     print(f'{timestamp()} | *** {what}: FAILED on the Next '
                           f'(after {res["files"]} file(s); copied files stay) ***')
+                    _reply_fill(reply, {'ok': False, 'files': res['files'],
+                                        'error': 'rcpy FAILED on the Next '
+                                                 '(copied files stay)'})
                 else:
                     print(f'{timestamp()} | {what}: not supported by this dot '
                           '(needs .sync v5.2+)')
+                    _reply_fill(reply, {'ok': False,
+                                        'error': 'rcpy not supported '
+                                                 '(needs .sync v5.2+)'})
             elif op == "rfsize":
                 # rfsize (dot v5.2+): total size of a file or whole directory
                 # tree ON the Next - rcpy's "will it fit" companion. The Next
@@ -897,6 +1000,7 @@ def listen_session(conn, stats, _test_commands=None):
                 # (LE; bytes = size_hi*2^32 + size_lo) or 'F'.
                 if not a1:
                     print("  usage: rfsize <path>")
+                    _reply_fill(reply, {'ok': False, 'error': 'missing path'})
                     continue
                 what = f'rfsize {a1}'
                 res = {'data': None, 'fail': False}
@@ -923,11 +1027,17 @@ def listen_session(conn, stats, _test_commands=None):
                     print(f'{timestamp()} | {what}: {d["files"]} file(s), '
                           f'{d["dirs"]} folder(s), {d["bytes"]:,} bytes '
                           f'({_fmt_size(d["bytes"])})')
+                    _reply_fill(reply, {'ok': True, **d})
                 elif replied and res['fail']:
                     print(f'{timestamp()} | *** {what}: FAILED on the Next ***')
+                    _reply_fill(reply, {'ok': False,
+                                        'error': f'{what} FAILED on the Next'})
                 else:
                     print(f'{timestamp()} | {what}: not supported by this dot '
                           '(needs .sync v5.2+)')
+                    _reply_fill(reply, {'ok': False,
+                                        'error': 'rfsize not supported '
+                                                 '(needs .sync v5.2+)'})
 
         elif data == b"Get" or data == b"Gee":
             n = MAX_PAYLOAD
@@ -940,7 +1050,8 @@ def listen_session(conn, stats, _test_commands=None):
             if put_ofs >= len(put_data):
                 _in_transfer = False               # whole file delivered
                 if pending_put is not None:        # every byte served -> success
-                    print(f'{timestamp()} | put {pending_put}: OK')
+                    print(f'{timestamp()} | put {pending_put[0]}: OK')
+                    _reply_fill(pending_put[1], {'ok': True})
                     pending_put = None
 
         elif data == b"Retry":
@@ -962,6 +1073,71 @@ def listen_session(conn, stats, _test_commands=None):
     # sent it "Q"). The main loop closes this connection and goes back to
     # accepting, so a restarted '.sync5 -listen' reconnects.
     print(f'{timestamp()} | listen: the Next disconnected - waiting for a new connection.')
+
+def _start_http_bridge(port):
+    """-w / -http: start the NextSync HTTP bridge (zxnu_http_bridge, Flask)
+    so any HTTP client — a Next running the .http dot command, curl, a
+    browser — can drive the Next connected in -listen mode through web
+    routes. zxnu_http_bridge.py lives next to this script (repo root) and
+    imports only the stdlib; Flask itself is optional and only loaded when
+    the server actually starts, so a missing Flask can never break normal
+    nextsync5.py startup."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import zxnu_http_bridge as _zb
+    except ImportError:
+        print(f"{timestamp()} | HTTP bridge: zxnu_http_bridge.py not found "
+              "(keep it next to nextsync5.py).")
+        return None
+    if not _zb.flask_available():
+        print(f"{timestamp()} | HTTP bridge: please install flask first "
+              "(currently disabled):  python -m pip install flask")
+        return None
+
+    def make_cmd(op, a1, a2, reply):
+        # Canonical bridge op -> this server's (verb, a1, a2, reply) tuples.
+        verbs = {"ls": "ls", "get": "get", "mkdir": "mkdir", "rmdir": "rmdir",
+                 "rm": "rm", "ren": "ren", "rcpy": "rcpy", "rfsize": "rfsize",
+                 "free": "psize", "drives": "drives"}
+        if op == "put":
+            return ("put", a2, a1, reply)   # session order: (local, remote)
+        if op in verbs:
+            return (verbs[op], a1, a2, reply)
+        return None                          # e.g. rmtree -> HTTP 501
+
+    def enqueue(cmd):
+        if not _listen_state['active']:
+            return False
+        _listen_queue().put(cmd)
+        return True
+
+    def state():
+        return {'listening': True, 'connected': _listen_state['active'],
+                'current': _listen_state['current'],
+                'drives': _listen_state['drives']}
+
+    bridge = _zb.NextSyncHttpBridge(
+        _zb.QueueBridgeHost(enqueue, make_cmd, state), port=port,
+        log=lambda s: print(f"{timestamp()} | {s}"),
+        verbose=opt_verbose)   # -v: log every HTTP request/payload/response
+    ok, err = bridge.start()
+    if ok:
+        print(f"{timestamp()} | HTTP bridge on port {port}: /status /ls /get "
+              "/put /mkdir /rmdir /rm /ren /rcpy /rfsize /free /drives")
+        if opt_verbose:
+            print(f"{timestamp()} | HTTP bridge: -v request/response logging "
+                  "is ON")
+    elif bridge.port_in_use:
+        print(f"{timestamp()} | *** HTTP bridge: port {port} is already in "
+              "use - the web server has NOT been started. ***")
+        print(f"{timestamp()} |     Stop the program listening there (IIS? "
+              "another server?) or pick another port with -http=<port>.")
+        return None
+    else:
+        print(f"{timestamp()} | HTTP bridge NOT started: {err}")
+        return None
+    return bridge
+
 
 def warnings():
     print()
@@ -1015,6 +1191,9 @@ def main():
 
 
     warnings()
+
+    if opt_http_port:
+        _start_http_bridge(opt_http_port)
 
     working = True
     while working:
@@ -1219,6 +1398,17 @@ for x in sys.argv[1:]:
         opt_sync_once = True
     elif x == '-v' or x == '-verbose':
         opt_verbose = True
+    elif x == '-w' or x == '-http' or x.startswith('-http='):
+        # NextSync HTTP bridge: expose the -listen session as web routes for
+        # the Next's .http dot command / curl. -w starts it on the default
+        # port 80 (.http's own default; HTTP only — the Next has no TLS);
+        # -http=<port> picks another port. Needs the optional Flask package
+        # ("please install flask first" is printed when it is missing).
+        try:
+            opt_http_port = int(x.split('=', 1)[1]) if '=' in x else 80
+        except ValueError:
+            print(f"Bad -http port in '{x}' (want -w, -http or -http=8080)")
+            quit()
     elif x == '-s':
         MAX_PAYLOAD = 256
     elif x == '-u':
@@ -1243,6 +1433,20 @@ for x in sys.argv[1:]:
         -a  - Always sync, regardless of timestamps (doesn't skip ignore file)
         -o  - Sync once, then quit. Default is to keep the sync loop running.
         -v  - Verbose: log every packet/command (off by default; noisy in -listen)
+        -w  - Start the NextSync HTTP bridge web server (Flask) on port 80:
+              it republishes the -listen session as HTTP routes (/status /ls
+              /get /put /mkdir /rmdir /rm /ren /rcpy /rfsize /free /drives),
+              so a Next running the built-in .http dot command - or curl -
+              can drive the connected Next's file system. Port 80 is .http's
+              own default (plain HTTP, the Next has no TLS). Requires the
+              optional Flask package ("please install flask first" is shown
+              when missing:  python -m pip install flask). If something is
+              already listening on the port, a clear "port already in use -
+              the web server has NOT been started" error is shown instead.
+        -http / -http=8080
+            - Same as -w, with an optional custom port.
+              Combine with -v to log every HTTP request, its payload and
+              the response on the console for troubleshooting.
         -s  - Use safe payload size (256 bytes). Slower, but more robust.
               Use this if you get a lot of retries.
         -u  - To live on the edge, you can try to use really unsafe payload

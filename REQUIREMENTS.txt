@@ -11,3 +11,10 @@ pygame-ce>=2.5.0
 # Optional — enables the itch.io tab (browse/install your itch.io
 # collections). The tab is only shown when this package is installed.
 itch-dl
+
+# Optional — enables the NextSync HTTP bridge: a small self-hosted web
+# server (Settings toggle in the app, or "nextsync5.py -w") that lets a
+# Spectrum Next running the built-in .http dot command (or curl) drive the
+# file system of the Next connected in '.sync5 -listen' mode. The Settings
+# toggle is greyed out until this package is installed.
+flask
