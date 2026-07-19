@@ -238,7 +238,7 @@ over a socketpair with a mock Next — run it with `python test_listen.py`.
   CSpect but no bootable NextZXOS system SD image, so a load test could not be
   performed here. To smoke-test: copy `syncdev` to your card's `C:/DOT/` folder
   and run `.syncdev` from NextZXOS BASIC — it should print
-  `NextSync 5.2 Clauzel/Komppa` and return cleanly. Then exercise a real sync
+  `NextSync 5.3 Clauzel/Komppa` and return cleanly. Then exercise a real sync
   against the ZX-Next-Unite server as usual.
 - The UART `receive` timing was preserved but should be re-verified at 2 Mbaud
   on real hardware.
