@@ -210,7 +210,7 @@ def main():
           "del3": {"m1.txt": b"M1", "msub": {"m2.txt": b"M2"}}}
     cap = {}
     got = {'listing': None, 'gets': [], 'put': None, 'puts': [], 'ops': [],
-           'ls_failed': [], 'drives': None, 'free': [], 'fsize': []}
+           'ls_failed': [], 'drives': None, 'free': [], 'fsize': [], 'hb': []}
 
     sig = RemoteExplorerSignals()
     sig.listing.connect(lambda p, e: got.update(listing=(p, e)), Qt.DirectConnection)
@@ -221,6 +221,7 @@ def main():
     sig.drives.connect(lambda cur, ls: got.update(drives=(cur, list(ls))), Qt.DirectConnection)
     sig.free_space.connect(lambda d, n: got['free'].append((d, n)), Qt.DirectConnection)
     sig.fsize.connect(lambda p, d: got['fsize'].append((p, d)), Qt.DirectConnection)
+    sig.op_progress.connect(lambda o, n: got['hb'].append((o, n)), Qt.DirectConnection)
 
     cmd_q = queue.Queue()
     stop = threading.Event()
@@ -345,6 +346,15 @@ def main():
         print("PASS fsize: ", got['fsize'])
     else:
         print("FAIL fsize: ", got['fsize'], got['ops']); ok = False
+    # op_progress heartbeats: every 'D' block of the successful rcpy and
+    # rfsize must surface as (op, name) - the NAMED one carries the item the
+    # Next reported, the EMPTY one is the keepalive that pulses the UI's byte
+    # estimate. The failed rcpy/rfsize send no 'D' at all.
+    if got['hb'] == [("copy", "M:/bk/lev"), ("copy", ""),
+                     ("size", "/games/lev"), ("size", "")]:
+        print("PASS hb   : ", got['hb'])
+    else:
+        print("FAIL hb   : ", got['hb']); ok = False
     # A drive-prefixed rmtree must walk and delete exactly like a bare one
     # (the worker builds every child path off the "M:/del3" base).
     if "del3" not in fs and (True, "delete", "M:/del3") in got['ops']:

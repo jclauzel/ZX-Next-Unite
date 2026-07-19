@@ -241,6 +241,14 @@ class RemoteExplorerSignals(QObject):
     # path), so a modal progress op has closed by the time the UI shows the
     # result dialog.
     fsize        = Signal(str, object)
+    # (op, name): one 'D' progress block arrived while a long command runs.
+    # op is "copy" (rcpy) or "size" (rfsize). name is the item the Next just
+    # reported - the destination path of the file now being copied / the
+    # directory now being scanned - or "" for an empty keepalive (rcpy sends
+    # one per 64 KB inside a big file, so these pulse a byte estimate). The
+    # UI uses them to drive the progress dialog instead of leaving the bar
+    # parked at 0% for the whole copy.
+    op_progress  = Signal(str, str)
     marked       = Signal(str)            # a queued ("mark", token) was reached
     log          = Signal(str)            # a human-readable log line
     error        = Signal(str)            # a human-readable error
@@ -829,7 +837,12 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
 
                         def _h(payload, _r=res):
                             if payload[0:1] == b'D':
-                                return False    # progress/keepalive
+                                # Progress: named = a file copy just started
+                                # (the name is its destination path), empty =
+                                # the per-64KB / per-256-entries keepalive.
+                                sig.op_progress.emit(
+                                    "copy", payload[1:].decode(errors='replace'))
+                                return False
                             _r['ok'] = (payload[0:1] == b'O')
                             return True
                         _re_sendpacket(conn, b"C" + src.encode() + b"\x00" +
@@ -861,7 +874,10 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         def _h(payload, _r=res):
                             o = payload[0:1]
                             if o == b'D':
-                                return False    # progress/keepalive
+                                # Named = the directory the walk just entered.
+                                sig.op_progress.emit(
+                                    "size", payload[1:].decode(errors='replace'))
+                                return False
                             if o == b'O' and len(payload) >= 15:
                                 _r['data'] = {
                                     'files': int.from_bytes(payload[1:5], 'little'),
@@ -1047,7 +1063,9 @@ class HdfProgressDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         self._cancel_btn = QPushButton(cancel_label)
-        self._cancel_btn.setFixedWidth(90)
+        # Minimum, not fixed: the Remote Explorer's background-copy dialog uses
+        # a long label ("Close this window and continue in the background").
+        self._cancel_btn.setMinimumWidth(90)
         self._cancel_btn.clicked.connect(self._on_cancel_clicked)
         btn_row.addWidget(self._cancel_btn)
         layout.addLayout(btn_row)

@@ -11348,6 +11348,7 @@ class MainWindow(QMainWindow):
             self._re_sig.drives.connect(widget.on_drives)
             self._re_sig.free_space.connect(widget.on_free_space)
             self._re_sig.fsize.connect(widget.on_fsize)
+            self._re_sig.op_progress.connect(widget.on_op_progress)
             self._re_sig.marked.connect(widget.on_marked)
             self._re_sig.log.connect(lambda s: add_nextsync_log_window(str(s)))
             self._re_sig.error.connect(widget.on_error)
