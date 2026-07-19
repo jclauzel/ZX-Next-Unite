@@ -1,2 +1,25 @@
-# Created by venv; see https://docs.python.org/3/library/venv.html
-#*
+# Python virtual environments created in-place (python -m venv .)
+Lib/
+Scripts/
+Include/
+env/
+pyvenv.cfg
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# IDE / tooling state
+.vs/
+*.pyproj.user
+
+# PyInstaller build outputs (see CLAUDE.md "Packaging (optional)")
+build/
+dist/
+zx-next-unite.spec
+
+# Files the app / NextSync server create at runtime next to themselves
+hdfg.cfg
+syncpoint.dat
+downloads/
+zx-next-unite-crash.log
