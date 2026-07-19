@@ -1215,8 +1215,32 @@ def main():
         }
         starttime = 0
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("", PORT))
-            s.listen()
+            try:
+                s.bind(("", PORT))
+                s.listen()
+            except OSError as ex:
+                # WinError 10048 / errno 98 (Linux) / 48 (macOS): the NextSync
+                # port is already taken - almost always another NextSync
+                # server: a second nextsync5.py, or ZX-Next-Unite with its
+                # classic sync or Remote Explorer listen server running.
+                # Exit cleanly with an explanation instead of a traceback.
+                if getattr(ex, "winerror", None) in (10048, 10013) or \
+                        getattr(ex, "errno", None) in (98, 48):
+                    print()
+                    print(f"{timestamp()} | *** Another process is already "
+                          f"listening on the NextSync port {PORT}. ***")
+                    print(f"{timestamp()} | It is most likely another NextSync "
+                          "server: a second nextsync5.py, or ZX-Next-Unite "
+                          "with its classic sync or Remote Explorer server "
+                          "started.")
+                    print(f"{timestamp()} | Please close/stop that other "
+                          "server first, then start nextsync5.py again.")
+                else:
+                    print()
+                    print(f"{timestamp()} | *** Could not open the NextSync "
+                          f"port {PORT}: {ex} ***")
+                print(f"{timestamp()} | Sync server stopped. Bye!")
+                return
             # Poll accept() with a short timeout so a Ctrl-C pressed while we're
             # idle (no client connected) is noticed promptly - no transfer is in
             # progress, so it's safe to stop right away.
