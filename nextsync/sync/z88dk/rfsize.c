@@ -60,7 +60,9 @@ typedef struct {
     unsigned char bad;        /* any failure / dead link -> terminal 'F' */
 } rfsize_tot_t;
 
-static unsigned char rfsize_isdots(char *n)
+/* "." / ".." test, shared with rcpy_step (rcpy.c) - both walks skip the dot
+ * entries, and the head page is too full to carry the test twice. */
+unsigned char walk_isdots(char *n)
 {
     return n[0] == '.' && (n[1] == 0 || (n[1] == '.' && n[2] == 0));
 }
@@ -109,7 +111,7 @@ static void rfsize_walk(char *path, unsigned short plen0, rfsize_tot_t *t,
                 }
                 if (rfsize_ent.is_dir)
                 {
-                    if (!rfsize_isdots(rfsize_ent.name))
+                    if (!walk_isdots(rfsize_ent.name))
                         t->dirs++;
                 }
                 else
@@ -162,7 +164,7 @@ static void rfsize_walk(char *path, unsigned short plen0, rfsize_tot_t *t,
             continue;
         }
         cur[sp]++;
-        if (!rfsize_ent.is_dir || rfsize_isdots(rfsize_ent.name))
+        if (!rfsize_ent.is_dir || walk_isdots(rfsize_ent.name))
             continue;
 
         nl = 0;

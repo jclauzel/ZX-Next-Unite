@@ -17,9 +17,15 @@
 // Main bank starts at mmu4; code + statics grow up from here.
 #pragma output CRT_ORG_MAIN = 0x8000
 
-// Stack sits near the top of mmu5 and grows down toward the statics. There is
-// ~16 KB between $8000 and here; content is well under that.
-#pragma output REGISTER_SP = 0xbf00
+// Stack starts at the very top of mmu5 and grows down toward the statics
+// (z80 push pre-decrements, so the first push lands at $BFFE - still inside
+// our allocated page; $C000 itself is mmu6 = NextZXOS and is never written).
+// v5.2 used $BF00, wasting the top 256 bytes: nothing in the dotn crt or the
+// clib touches $BF00-$BFFF (verified against the crt source and the map),
+// and after v5.3's spinner/chunked-rcpy additions the stack headroom
+// (__BSS_END_tail vs here - THE budget to check after every build) needed
+// that quarter-KB back.
+#pragma output REGISTER_SP = 0xc000
 
 // Hand main() the unprocessed command line (len in 1st arg, pointer in 2nd) so
 // the app can do its own parsing and keep ':' in paths like "c:/foo".

@@ -60,21 +60,30 @@ $8000–$BFFF   "main bank" (mmu4/5)  : our C code, rodata, data, bss buffers, s
 $C000–$FFFF   (mmu6/7)              : NextZXOS (saved/restored by the crt)
 ```
 
-`CRT_ORG_MAIN=0x8000`, `REGISTER_SP=0xBF00`. The large buffers (`inbuf`,
+`CRT_ORG_MAIN=0x8000`, `REGISTER_SP=0xC000` (v5.3 — the stack starts at the
+very top of mmu5; v5.2's `0xBF00` wasted the last 256 bytes, which nothing in
+the dotn crt or clib touches). The large buffers (`inbuf`,
 `scratch`, …) are file-scope statics so they land in the main bank and keep the
-stack small. Current layout: main-bank content ends at `~0xBB7F`
-(`__BSS_END_tail` in `syncdev.map`), leaving ~0.9 KB of stack below `0xBF00`.
-To protect that headroom, `anim.c`'s code and
-sprite art (and `free.c`'s free-space query) live in the free space of the
-primary 8 KB dot page instead:
-`build_dotn.ps1` compiles `anim.c` (and `free.c`) to asm, retargets their sections at
+stack small. Current layout: main-bank content ends at `0xBDDC`
+(`__BSS_END_tail` in `syncdev.map`), leaving ~548 bytes of stack below `0xC000`;
+the primary dot page ends at `0x3EE8` (`__CODE_END_tail`), 24 bytes below the
+hard `0x3F00` line — content past it triggers appmake's "may overlap stack
+area" warning and sits where the dotn loader's own startup/exit stack (SP =
+`0x4000`) and its 128-byte exit-message buffer (`0x3F76+`) can scribble.
+**Both pools are tight — check those two numbers after any change, and treat
+that appmake warning as an error.**
+To protect the stack headroom, the code and const data of `anim.c` (sprites +
+the `-v` spinner), `free.c`, `rcpy.c` and `rfsize.c` live in the free space of
+the primary 8 KB dot page instead:
+`build_dotn.ps1` compiles each to asm, retargets their sections at
 `code_dot`/`rodata_dot` — the dotn memory model's head-page sections reserved
 for user dot content, placed *after* the crt+clib chains — and links the
-patched `anim_head.asm`/`free_head.asm` (zsdcc itself has no per-file section control —
+patched `*_head.asm` (zsdcc itself has no per-file section control —
 `#pragma codeseg` and `--codeseg` are silently ignored). Retargeting at `CODE`
 itself must be avoided: that appends into the crt's startup fall-through chain
-and crashes on launch. Only the few bytes of sprite state stay in main-bank
-bss. This mirrors z88dk's own `ls`/`dzx7` dotN
+and crashes on launch. Only bss (sprite state, rcpy's 11-byte in-flight copy
+state) stays in the main bank — bss is never retargeted. This mirrors z88dk's
+own `ls`/`dzx7` dotN
 examples (same `0xf0` allocation mask): the crt saves NextZXOS's bank/MMU state
 on entry and restores it on exit, and esxDOS file/dir calls work through divMMC
 regardless of what is paged at mmu6/7.
@@ -104,6 +113,21 @@ it with `-nv` (likewise `-na` disables the sprite animation and `-nr` the
 retro green-on-black look, both also on by default; the old opt-in flags
 `-v`/`-anim`/`-a`/`-dark`/`-d` are still accepted as no-ops). `-help`/`-h`
 show the help screen. On the PC side, `nextsync5.py -v` logs every packet.
+
+Long operations stay visibly alive: a `| / - \` **spinner** twirls at the end
+of the open trace line while a file downloads (`put`, plain sync) or copies
+(`rcpy`), and the sprite animation now also ticks *during* transfers — at
+every **link-idle safe point** (between acked packets, between 2 KB copy
+chunks, on every keepalive, and through the idle-poll throttle), self-limited
+to one step per video frame via the ROM's 50 Hz `FRAMES` counter, so movement
+is wall-clock smooth at the default/fast UART rates and never touches a byte
+in flight. An interrupt-driven animation was considered and rejected: an IM2
+vector table + ISR must live in memory that is mapped at *every* instant an
+interrupt can fire, and neither dot home qualifies — the head page is paged
+away by every esxDOS call and by the print driver, and the main bank would
+have to donate its last few hundred bytes of stack headroom (and take ISR
+pushes on whatever stack is live inside esxDOS). The frame-locked safe-point
+ticks give the same visual result with none of that crash surface.
 
 The Next keeps driving — it *polls* the server for the next command and runs it.
 All frames use the existing `[2B total][payload][cs0][cs1][packetno]` framing:
@@ -149,12 +173,19 @@ the field-reported "hang") and ends with `'O'` (all copied) or `'F'`
 (something failed). The walk is **skip-and-continue**: an item that cannot
 be copied (strange name, unreadable, destination full, too deep) is counted
 and skipped, the rest keeps copying — and with `-v` (on by default) the Next
-traces every completed item on screen: `f-> <file>`, `d-> <dir>`, and
+traces every item on screen: `f-> <file>` printed **before** the bytes move
+with a `| / - \` spinner twirling at the end of the line while they do (so a
+multi-MB file no longer freezes the screen until done), `d-> <dir>`, and
 `/!\ error -> <source item>` for the skipped ones, ending with `rcpy done`.
 The walk itself is **iterative** (explicit level stack in the scratch tail,
 one C-stack frame at any depth — the main bank is too tight for recursion)
 and lives in the head page, print-free; the main-bank entry point drives it
-one item per step and prints between steps. A mid-file read error can no
+one item per step, and each file copy is **chunk-stepped** too
+(`rcpy_fbegin`/`rcpy_fchunk`, one 2 KB chunk per call), so every trace line
+and spinner pose is drawn with no head-page frame on the stack. The spinner
+itself never touches the print driver: it writes its 8 pixel bytes straight
+into the display-file cell at the ROM print position (DF_CC), which is also
+why it is safe. A mid-file read error can no
 longer pass as success (the copy is checked against the source's stat size).
 Same safe-walk core as `send_dir` (never file I/O with a readdir handle
 open); the destination-inside-source infinite trap is guarded on the PC

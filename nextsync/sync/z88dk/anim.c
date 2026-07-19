@@ -6,8 +6,17 @@
 // I/O ports (0x303B / 0x005B / 0x0057), completely independent of the CPU
 // memory map - so nothing here can disturb the dot's own memory or corrupt the
 // timing-critical UART transfer. It only ever runs when -anim/-a is passed, and
-// nextsync.c only ticks it at *safe points* (between files / commands), never
-// mid-packet.
+// nextsync.c only ticks it at *safe points* - between commands, between the
+// acked packets of a transfer, between the 2 KB chunks of an rcpy - never
+// mid-packet (the link is idle at every one of those moments, so a ~100 us
+// sprite update cannot lose UART bytes). anim_tick self-limits to one step
+// per video frame via the ROM's 50 Hz FRAMES counter, so the busiest loop
+// pays a ~microsecond early-out and the flock still moves at wall-clock
+// speed. (A real IM2 interrupt was considered and rejected: the vector table
+// + ISR would have to live in memory that stays mapped at every instant an
+// interrupt can fire, and both dot homes fail that - the head page is paged
+// away by every esxDOS call and by the print driver, and the main bank has
+// only a few hundred bytes of stack headroom to donate.)
 //
 // Layer 2 colour-scroll was deliberately left out of this first cut: writing
 // Layer 2 pixels needs careful MMU bank juggling (the dot keeps live data in
@@ -161,8 +170,14 @@ static unsigned char  spd[N_SPR];   // horizontal speed
 static unsigned char  sdir[N_SPR];  // 0 = moving right, 1 = left
 static unsigned char  sturn[3];     // birds only: >0 = turn tween countdown
 static unsigned char  g_frame;
+static unsigned char  last_frame;   // FRAMES value of the last real tick
 static unsigned char  saved_r15;
 static unsigned char  g_anim_on = 0;
+
+// FRAMES (sysvar 23672): incremented at 50 Hz by the ROM's IM1 interrupt
+// handler, which keeps running the whole time the dot works - a plain RAM
+// read at $5C78 (bank 5, always mapped), safe from anywhere.
+#define FRAMES_LO  (*((unsigned char *)23672))
 
 // Expand a 16x16 mask into the current sprite pattern slot (256 bytes). Rows
 // 0-3 use colour2 (dome / wingtip), the rest colour1 (body).
@@ -185,7 +200,8 @@ static void upload_pattern(unsigned char slot, const unsigned short *mask,
 
 // Write the 4 attribute bytes for sprite i: X, Y, (X msb / palette / mirror),
 // (visible + pattern). Selecting the slot first resets the attribute index.
-// *mirror* sets the attribute-2 X-mirror bit, used for the leftward heading.
+// *mirror* (always 0 or 1, from sdir) sets the attribute-2 X-mirror bit,
+// used for the leftward heading.
 static void put_sprite(unsigned char i, unsigned short x, unsigned char y,
                        unsigned char pattern, unsigned char mirror)
 {
@@ -193,9 +209,28 @@ static void put_sprite(unsigned char i, unsigned short x, unsigned char y,
     IO_SPRITE_ATTRIBUTE = (unsigned char)(x & 0xFF);      // attr0: X lsb
     IO_SPRITE_ATTRIBUTE = y;                              // attr1: Y
     IO_SPRITE_ATTRIBUTE = (unsigned char)(((x >> 8) & 1)  // attr2: X msb, pal 0
-                          | (mirror ? 0x08 : 0));         //        + X mirror
+                          | (unsigned char)(mirror << 3));//        + X mirror
     IO_SPRITE_ATTRIBUTE = (unsigned char)(0x80 | pattern);// attr3: visible+pattern
 }
+
+// Pattern-slot uploads and per-sprite start states, table-driven: the six
+// explicit upload_pattern calls + the init arithmetic cost ~90 more bytes of
+// the (packed-full) head page than these rows. Values are identical to the
+// old computed ones.
+static const unsigned short *const pat_mask[6] = {
+    gull_up, gull_level, gull_down,   // gull wing poses -> slots 0/1/2
+    ufo_mask,                         // saucer -> slot 3 (cyan dome, grey body)
+    gull_bank, gull_edge              // turn tween -> slots 4/5
+};
+static const unsigned char spr_init[N_SPR][4] = {
+    // x/8   y  speed dir      (x stored /8 so it fits a byte; old formulas:
+    {   0,  40,   1,   0 },   // x = i*48, y = 40+i*22, spd = 1+(i&3);
+    {   6,  62,   2,   1 },   // dir: bird 1 and saucer 4 start leftward so
+    {  12,  84,   3,   0 },   // the flock/fleet moves both ways from the
+    {  18, 106,   4,   0 },   // start; everyone flips later too (anim_tick)
+    {  24, 128,   1,   1 },   // - birds with the turn tween, saucers by
+    {  30, 150,   2,   0 }    // darting back.)
+};
 
 void anim_begin(void)
 {
@@ -206,25 +241,19 @@ void anim_begin(void)
                   (unsigned char)(saved_r15 | RSLS_SPRITES_VISIBLE
                                             | RSLS_SPRITES_OVER_BORDER));
 
-    upload_pattern(0, gull_up,    PINK, PINK);   // gull wing poses -> slots 0/1/2
-    upload_pattern(1, gull_level, PINK, PINK);
-    upload_pattern(2, gull_down,  PINK, PINK);
-    upload_pattern(3, ufo_mask,   GREY, CYAN);   // saucer: cyan dome, grey body
-    upload_pattern(4, gull_bank,  PINK, PINK);   // turn tween: banked
-    upload_pattern(5, gull_edge,  PINK, PINK);   // turn tween: edge-on
+    for (i = 0; i < 6; i++)
+        upload_pattern(i, pat_mask[i],
+                       (unsigned char)(i == 3 ? GREY : PINK),
+                       (unsigned char)(i == 3 ? CYAN : PINK));
 
     g_frame = 0;
+    sturn[0] = sturn[1] = sturn[2] = 0;
     for (i = 0; i < N_SPR; i++)
     {
-        spx[i] = (unsigned short)(i * 48u);
-        spy[i] = (unsigned char)(40 + i * 22);
-        spd[i] = (unsigned char)(1 + (i & 3));
-        // Mixed initial headings so the flock/fleet moves both ways from the
-        // start (bird 1 and saucer 4 go left); everyone flips later too
-        // (anim_tick) - birds with the turn tween, saucers by darting back.
-        sdir[i] = (unsigned char)(i == 1 || i == 4);
-        if (i < 3)
-            sturn[i] = 0;
+        spx[i] = (unsigned short)((unsigned short)spr_init[i][0] << 3);
+        spy[i] = spr_init[i][1];
+        spd[i] = spr_init[i][2];
+        sdir[i] = spr_init[i][3];
         put_sprite(i, spx[i], spy[i], (unsigned char)(i < 3 ? 0 : 3), sdir[i]);
     }
     g_anim_on = 1;
@@ -232,9 +261,9 @@ void anim_begin(void)
 
 void anim_tick(void)
 {
-    // Wing flap cycle: up -> level -> down -> level -> (repeat). Advancing every
-    // 2 ticks (g_frame >> 1) keeps it from blurring during rapid idle polling;
-    // the per-bird phase offset stops them flapping in lockstep. Tune the >>1
+    // Wing flap cycle: up -> level -> down -> level -> (repeat). Ticks are
+    // frame-locked (below), so the >>1 makes the wings flap at 25 Hz; the
+    // per-bird phase offset stops them flapping in lockstep. Tune the >>1
     // and/or the phase if it looks too fast or slow on your Next.
     static const unsigned char flap_frame[4] = { 0, 1, 2, 1 };
     // Turn tween, indexed by the sturn countdown after decrement (7..0): two
@@ -242,11 +271,24 @@ void anim_tick(void)
     // hardware-mirrored), wings level - then normal flight resumes. The
     // heading itself flips at the edge-on midpoint (countdown == 3).
     static const unsigned char turn_pat[8] = { 1, 1, 4, 4, 5, 5, 4, 4 };
-    unsigned char i;
-    if (!g_anim_on) return;
+    unsigned char i, phf, ph85, ph5;
+    unsigned char fr = FRAMES_LO;
+    // Rate limit: at most one animation step per video frame, however often
+    // the safe points come round. Call sites can therefore sit in per-chunk /
+    // per-packet loops for free - a repeat call inside the same frame is a
+    // ~microsecond early-out, and the movement speed is wall-clock stable
+    // whether ticks arrive at 60/s or 6000/s.
+    if (!g_anim_on || fr == last_frame) return;
+    last_frame = fr;
 
     g_frame++;
-    for (i = 0; i < N_SPR; i++)
+    // Per-sprite phase offsets as running sums ((g_frame >> 1) + i for the
+    // flap, g_frame + i*85 and + i*5 for turns/bob): zsdcc's multiplies and
+    // repeated index math cost more head-page bytes than three adds.
+    phf = (unsigned char)(g_frame >> 1);
+    ph85 = g_frame;
+    ph5 = g_frame;
+    for (i = 0; i < N_SPR; i++, phf++, ph85 += 85, ph5 += 5)
     {
         unsigned short x = spx[i];
         unsigned char ph, y, pat, mir;
@@ -264,11 +306,13 @@ void anim_tick(void)
         }
         else
         {
+            // Move, wrapping at the screen edges: x lives in [0,319], so a
+            // leftward underflow shows up as x >= 320 too (16-bit wrap) and
+            // +320 lands exactly on the old (x + 320 - spd) value.
             if (sdir[i])
             {
-                // Leftward travel (wraps at the left edge).
-                x = (x < spd[i]) ? (unsigned short)(x + 320u - spd[i])
-                                 : (unsigned short)(x - spd[i]);
+                x = (unsigned short)(x - spd[i]);
+                if (x >= 320) x = (unsigned short)(x + 320);
             }
             else
             {
@@ -279,7 +323,7 @@ void anim_tick(void)
             if (i < 3)
             {
                 // birds flap through slots 0/1/2, mirrored when flying left
-                pat = flap_frame[((g_frame >> 1) + i) & 3];
+                pat = flap_frame[phf & 3];
                 mir = sdir[i];
             }
             else
@@ -288,7 +332,7 @@ void anim_tick(void)
             // offset) so nobody turns in lockstep. Birds bank through the
             // 4-pose turn tween; saucers just dart back the way they came
             // (they're symmetric - an instant reverse reads as UFO-like).
-            if (((unsigned char)(g_frame + i * 85u) & 127) == 0)
+            if ((ph85 & 127) == 0)
             {
                 if (i < 3)
                     sturn[i] = 8;
@@ -297,7 +341,7 @@ void anim_tick(void)
             }
         }
         // gentle vertical bob, triangle wave in [-8,+7] (no trig, no tables)
-        ph = (unsigned char)((g_frame + i * 5) & 31);
+        ph = (unsigned char)(ph5 & 31);
         bob = (ph < 16) ? (signed char)(ph - 8) : (signed char)(23 - ph);
         y = (unsigned char)(spy[i] + bob);
         put_sprite(i, x, y, pat, mir);
@@ -306,7 +350,7 @@ void anim_tick(void)
 
 void anim_end(void)
 {
-    unsigned char i;
+    unsigned char i, j;
     if (!g_anim_on) return;
 
     // Hide our sprites (visible bit cleared) so nothing lingers, then restore
@@ -314,11 +358,74 @@ void anim_end(void)
     for (i = 0; i < N_SPR; i++)
     {
         IO_SPRITE_SLOT = i;
-        IO_SPRITE_ATTRIBUTE = 0;
-        IO_SPRITE_ATTRIBUTE = 0;
-        IO_SPRITE_ATTRIBUTE = 0;
-        IO_SPRITE_ATTRIBUTE = 0;   // attr3 bit7 = 0 -> not visible
+        for (j = 0; j < 4; j++)
+            IO_SPRITE_ATTRIBUTE = 0;   // attr3 bit7 = 0 -> not visible
     }
     ZXN_WRITE_REG(REG_SPRITE_LAYER_SYSTEM, saved_r15);
     g_anim_on = 0;
+}
+
+// --- console spinner: the -v trace's busy cursor (v5.3) ---------------------
+//
+// While a long copy/transfer runs chunk by chunk, its trace line stays open
+// ("f-> name") and the main bank calls spin(1) between chunks to twirl a
+// | / - \ glyph in the character cell AT the ROM print position. This is the
+// one kind of "output" the head page CAN host, because it never goes near the
+// print driver (which pages the ROM over this very page): it writes the 8
+// pixel bytes straight into the ULA display file at DF_CC (sysvar 23684, the
+// print position's screen address, maintained by the driver), which lives at
+// $4000-$57FF and is always mapped. The glyphs are private 8x8 art: the ROM
+// font under CHARS (23606) is NOT readable from a dot - it points into
+// $3C00-$3FFF, which is this dot page itself while we run. Attributes are
+// left alone (the cell keeps the line's paper/ink). spin(0) blanks the
+// cell; both ways are -v gated like the trace they decorate, re-read DF_CC
+// every call (so they follow the cursor wherever the last print left it),
+// and the twirl is frame-locked so a fast SD card doesn't blur it.
+
+extern char g_verbose;   // the -v flag (nextsync.c); spinner is part of -v
+
+// The pose art (6 rows per pose; the blank top/bottom rows are written by
+// spin() itself) lives in nextsync.c so it lands in MAIN-BANK rodata: the
+// head page is packed to the byte, and reading main-bank data from head-page
+// code is always safe - both stay mapped while the dot runs.
+extern const unsigned char spin_glyphs[30];
+
+static unsigned char spin_phase;   // BYTE OFFSET of the pose on screen (0/6/12/18)
+static unsigned char spin_frame;   // FRAMES value of the last pose change
+
+// spin(1): advance one pose (frame-locked); spin(0): blank the cell.
+// One function, not three - every head-page byte is precious here.
+void spin(unsigned char go)
+{
+    unsigned char *cell = *(unsigned char **)23684;   // DF_CC
+    const unsigned char *g;
+    unsigned char i;
+
+    if (!g_verbose) return;
+    if (go)
+    {
+        unsigned char fr = FRAMES_LO;
+        if (fr == spin_frame) return;              // one pose per frame
+        spin_frame = fr;
+        spin_phase += 6;                           // next pose (offsets 0/6/12/18)
+        if (spin_phase >= 24) spin_phase = 0;
+        g = spin_glyphs + spin_phase;
+    }
+    else
+        g = spin_glyphs + 24;                      // the blank pose
+    // Only draw when DF_CC really is the top row of a display-file cell
+    // (bits 8-10 clear, below the attribute file at $5800). At the exact
+    // moment a print ends on the screen's last cell the ROM can leave DF_CC
+    // just past the display file, and +256 row strides from there would hit
+    // the attribute file and then sysvars - skip the pose instead.
+    if (((unsigned short)cell & 0x0700) || (unsigned short)cell >= 0x5800)
+        return;
+    *cell = 0;                                     // blank top row
+    for (i = 0; i < 6; i++)
+    {
+        cell += 0x100;                             // rows sit 256 bytes apart
+        *cell = g[i];
+    }
+    cell += 0x100;
+    *cell = 0;                                     // blank bottom row
 }
