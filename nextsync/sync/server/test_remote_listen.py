@@ -57,8 +57,12 @@ def fs_parent(fs, path):
         node = node[part]
     return (node, parts[-1]) if isinstance(node, dict) else (None, None)
 
-def mock_next(sock, entries, filebytes, cap, fs):
-    sock.sendall(b"Listen")
+def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
+    # send_listen=False: play the dot for nextsync5's listen_session, which
+    # is entered AFTER its main loop already consumed the "Listen" handshake
+    # (used by test_http_bridge.py; the app worker consumes it itself).
+    if send_listen:
+        sock.sendall(b"Listen")
     assert rx_payload(sock) == b"Listening"
     def push(payload, pkt):
         settle(); sock.sendall(frame(payload, pkt))

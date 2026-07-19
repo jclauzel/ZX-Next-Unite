@@ -214,6 +214,14 @@ class NextSyncSignals(QObject):
     port_in_use = Signal(int)  # bind failed: the port is already taken
 
 
+# The HTTP bridge's result sink: a command tuple whose LAST element is a
+# BridgeReply is a "bridge command" — the worker fills the reply with a result
+# dict INSTEAD of emitting its usual signals, so bridge traffic can never
+# hijack the Remote Explorer pane (its on_listing adopts any path it is
+# handed). zxnu_http_bridge imports only the stdlib at module level.
+from zxnu_http_bridge import BridgeReply
+
+
 class RemoteExplorerSignals(QObject):
     """Signals marshalling results of the NextSync ".sync5 -listen" remote file
     server back to the UI thread. The session runs in a worker thread; the UI
@@ -504,7 +512,17 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             put_ofs = 0
             put_pkt = 0
             last_packet = b''
-            pending = None   # the command awaiting its pushed reply
+            pending = None   # ("put", remote, bridge_reply|None) awaiting completion
+
+            def _put_finish(ok):
+                # Resolve the pending put: to its bridge reply when it has
+                # one, to the UI signal otherwise (reads `pending` live).
+                if pending[2] is not None:
+                    pending[2].put({'ok': bool(ok)} if ok else
+                                   {'ok': False,
+                                    'error': 'put failed on the Next'})
+                else:
+                    sig.put_done.emit(bool(ok), pending[1])
             # rmtree walk state: sub-commands the worker generates for itself
             # (rmtree_ls/rmtree_rm/rmtree_rmdir) are served before the host
             # queue, so a recursive delete runs as one contiguous batch.
@@ -533,7 +551,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                 if _re_is_fail_block(data):
                     _re_sendpacket(conn, b"Ok", 0)
                     if pending and pending[0] == "put":
-                        sig.put_done.emit(False, pending[1])
+                        _put_finish(False)
                         pending = None
                         put_data = b''
                         put_ofs = 0
@@ -545,7 +563,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                 # transfer dialog closes instead of waiting forever for a "Get".
                 if (pending and pending[0] == "put" and
                         data not in (b"Get", b"Gee", b"Retry", b"Restart")):
-                    sig.put_done.emit(False, pending[1])
+                    _put_finish(False)
                     pending = None
                     put_data = b''
                     put_ofs = 0
@@ -561,13 +579,19 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             _re_sendpacket(conn, b"I", 0)   # idle
                             continue
                     op = cmd[0]
+                    # A command from the HTTP bridge carries its result sink as
+                    # the last element: fill that instead of emitting signals
+                    # (bridge traffic must be silent to the Remote Explorer UI).
+                    reply = cmd[-1] if isinstance(cmd[-1], BridgeReply) else None
                     if op == "rmtree":
                         # Recursive folder delete: open a walk job and start with
                         # the root's listing (handled below, on this same poll).
                         rmtree_seq += 1
-                        rmtree_jobs[rmtree_seq] = {'root': cmd[1], 'fails': 0}
+                        rmtree_jobs[rmtree_seq] = {'root': cmd[1], 'fails': 0,
+                                                   'reply': reply}
                         cmd = ("rmtree_ls", rmtree_seq, cmd[1])
                         op = cmd[0]
+                        reply = None
                     if op == "quit":
                         _re_sendpacket(conn, b"Q", 0)
                         break
@@ -608,10 +632,20 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         _re_sendpacket(conn, b"L" + path.encode(), 0)
                         if _re_recv_reply(conn, _h):
                             if st['failed']:
-                                sig.ls_failed.emit(path)
+                                if reply:
+                                    reply.put({'ok': False,
+                                               'error': f"ls {path} failed "
+                                                        "(missing folder?)"})
+                                else:
+                                    sig.ls_failed.emit(path)
                             else:
                                 entries.sort(key=lambda e: (0 if e[0] else 1, e[2].lower()))
-                                sig.listing.emit(path, entries)
+                                if reply:
+                                    reply.put({'ok': True, 'entries': entries})
+                                else:
+                                    sig.listing.emit(path, entries)
+                        elif reply:
+                            reply.put({'ok': False, 'error': 'connection dropped'})
                         else:
                             sig.error.emit(f"ls {path}: connection dropped")
                     elif op == "get":
@@ -660,7 +694,11 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         ok = _re_recv_reply(conn, _h)
                         if st['f']:
                             st['f'].close()
-                        if ok:
+                        if reply:
+                            reply.put({'ok': bool(ok), 'count': st['count'],
+                                       'last': st['last']}
+                                      if ok else {'ok': False, 'error': 'get failed'})
+                        elif ok:
                             sig.got.emit(remote, st['last'] or dest_dir)
                         else:
                             sig.error.emit(f"get {remote}: failed")
@@ -670,13 +708,16 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             with open(local, 'rb') as fh:
                                 put_data = fh.read()
                         except OSError as ex:
-                            sig.error.emit(f"put {local}: {ex}")
+                            if reply:
+                                reply.put({'ok': False, 'error': str(ex)})
+                            else:
+                                sig.error.emit(f"put {local}: {ex}")
                             continue
                         put_ofs = 0
                         put_pkt = 0
                         if remote.endswith('/') or remote.endswith('\\'):
                             remote = remote + os.path.basename(local)
-                        pending = ("put", remote)
+                        pending = ("put", remote, reply)
                         _re_sendpacket(conn, b"P" + remote.encode(), 0)
                         # the Next now pulls the bytes via "Get" (served below)
                     elif op in ("mkdir", "rmdir", "rm"):
@@ -689,7 +730,12 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             return True
                         _re_sendpacket(conn, opc + path.encode(), 0)
                         if _re_recv_reply(conn, _h):
-                            sig.op_done.emit(bool(res['ok']), op, path)
+                            if reply:
+                                reply.put({'ok': bool(res['ok'])})
+                            else:
+                                sig.op_done.emit(bool(res['ok']), op, path)
+                        elif reply:
+                            reply.put({'ok': False, 'error': 'connection dropped'})
                         else:
                             sig.error.emit(f"{op} {path}: connection dropped")
                     elif op == "rmtree_ls":
@@ -734,8 +780,12 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             subs.append(("rmtree_rmdir", jid, path))
                             local_cmds.extendleft(reversed(subs))
                         else:
-                            rmtree_jobs.pop(jid, None)
-                            sig.error.emit(f"delete {path}: connection dropped")
+                            job = rmtree_jobs.pop(jid, None)
+                            if job is not None and job.get('reply'):
+                                job['reply'].put({'ok': False,
+                                                  'error': 'connection dropped'})
+                            else:
+                                sig.error.emit(f"delete {path}: connection dropped")
                     elif op in ("rmtree_rm", "rmtree_rmdir"):
                         # rmtree steps 2/3: delete one file / one emptied folder.
                         # Only the root folder's rmdir reports back to the UI --
@@ -757,10 +807,17 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                                     log(f"delete: could not remove {path}")
                                 if op == "rmtree_rmdir" and path == job['root']:
                                     rmtree_jobs.pop(jid, None)
-                                    sig.op_done.emit(job['fails'] == 0, "delete", path)
+                                    if job.get('reply'):
+                                        job['reply'].put({'ok': job['fails'] == 0})
+                                    else:
+                                        sig.op_done.emit(job['fails'] == 0, "delete", path)
                         else:
-                            rmtree_jobs.pop(jid, None)
-                            sig.error.emit(f"delete {path}: connection dropped")
+                            job = rmtree_jobs.pop(jid, None)
+                            if job is not None and job.get('reply'):
+                                job['reply'].put({'ok': False,
+                                                  'error': 'connection dropped'})
+                            else:
+                                sig.error.emit(f"delete {path}: connection dropped")
                     elif op == "drives":
                         # getdrives: one pushed status block, 'O' + current
                         # drive letter + one letter per mounted drive. An old
@@ -784,7 +841,15 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         except socket.timeout:
                             got_reply = False
                         if got_reply and res['cur']:
-                            sig.drives.emit(res['cur'], res['letters'])
+                            if reply:
+                                reply.put({'ok': True, 'current': res['cur'],
+                                           'letters': res['letters']})
+                            else:
+                                sig.drives.emit(res['cur'], res['letters'])
+                        elif reply:
+                            reply.put({'ok': False,
+                                       'error': 'drives not supported '
+                                                '(needs .sync v5.1+)'})
                         else:
                             log("This .sync dot does not report drives "
                                 "(pre v5.1); staying on the default drive.")
@@ -814,15 +879,20 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         except socket.timeout:
                             got_reply = False
                         if got_reply and res['blocks'] is not None:
-                            sig.free_space.emit(drv, res['blocks'] * 512)
-                        else:
-                            if res['fail']:
-                                log(f"free space {drv or '(current drive)'}: "
-                                    "FAILED on the Next")
+                            if reply:
+                                reply.put({'ok': True, 'drive': drv,
+                                           'free': res['blocks'] * 512})
                             else:
-                                log("This .sync dot does not report free space "
-                                    "(pre v5.2).")
-                            sig.free_space.emit(drv, None)
+                                sig.free_space.emit(drv, res['blocks'] * 512)
+                        else:
+                            err = (f"free space {drv or '(current drive)'}: "
+                                   "FAILED on the Next" if res['fail'] else
+                                   "free space not supported (needs .sync v5.2+)")
+                            if reply:
+                                reply.put({'ok': False, 'error': err})
+                            else:
+                                log(err)
+                                sig.free_space.emit(drv, None)
                     elif op == "rcpy":
                         # Local copy ON the Next ('C', dot v5.2+): src and dst
                         # travel NUL-separated like rename's paths. The Next
@@ -833,13 +903,15 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         # op_done - the UI counts one per queued command, so
                         # even the old-dot fallback must complete the op.
                         src, dst = cmd[1], cmd[2]
-                        res = {'ok': None}
+                        res = {'ok': None, 'files': 0}
 
                         def _h(payload, _r=res):
                             if payload[0:1] == b'D':
                                 # Progress: named = a file copy just started
                                 # (the name is its destination path), empty =
                                 # the per-64KB / per-256-entries keepalive.
+                                if len(payload) > 1:
+                                    _r['files'] += 1
                                 sig.op_progress.emit(
                                     "copy", payload[1:].decode(errors='replace'))
                                 return False
@@ -858,7 +930,18 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             except OSError:
                                 pass
                         if got_reply and res['ok'] is not None:
-                            sig.op_done.emit(bool(res['ok']), "copy", src)
+                            if reply:
+                                reply.put({'ok': bool(res['ok']),
+                                           'files': res['files']} if res['ok'] else
+                                          {'ok': False, 'files': res['files'],
+                                           'error': 'rcpy FAILED on the Next '
+                                                    '(copied files stay)'})
+                            else:
+                                sig.op_done.emit(bool(res['ok']), "copy", src)
+                        elif reply:
+                            reply.put({'ok': False,
+                                       'error': 'rcpy needs .sync v5.2+ '
+                                                '(or the link dropped)'})
                         else:
                             log("rcpy needs .sync v5.2+ (or the link dropped).")
                             sig.op_done.emit(False, "copy", src)
@@ -897,10 +980,19 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                                 conn.settimeout(1.0)
                             except OSError:
                                 pass
-                        if not got_reply:
-                            log("rfsize needs .sync v5.2+ (or the link dropped).")
-                        sig.op_done.emit(res['data'] is not None, "size", path)
-                        sig.fsize.emit(path, res['data'])
+                        if reply:
+                            if res['data'] is not None:
+                                reply.put({'ok': True, **res['data']})
+                            else:
+                                reply.put({'ok': False,
+                                           'error': 'rfsize failed (missing '
+                                                    'path, or needs .sync '
+                                                    'v5.2+)'})
+                        else:
+                            if not got_reply:
+                                log("rfsize needs .sync v5.2+ (or the link dropped).")
+                            sig.op_done.emit(res['data'] is not None, "size", path)
+                            sig.fsize.emit(path, res['data'])
                     elif op == "rename":
                         old, new = cmd[1], cmd[2]
                         res = {'ok': None}
@@ -911,7 +1003,12 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         # 'V' + old + NUL + new, in one length-framed block.
                         _re_sendpacket(conn, b"V" + old.encode() + b"\x00" + new.encode(), 0)
                         if _re_recv_reply(conn, _h):
-                            sig.op_done.emit(bool(res['ok']), "rename", old)
+                            if reply:
+                                reply.put({'ok': bool(res['ok'])})
+                            else:
+                                sig.op_done.emit(bool(res['ok']), "rename", old)
+                        elif reply:
+                            reply.put({'ok': False, 'error': 'connection dropped'})
                         else:
                             sig.error.emit(f"rename {old}: connection dropped")
 
@@ -922,7 +1019,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                     put_ofs += n
                     put_pkt += 1
                     if put_ofs >= len(put_data) and pending and pending[0] == "put":
-                        sig.put_done.emit(True, pending[1])
+                        _put_finish(True)
                         pending = None
                 elif data == b"Retry":
                     _re_sendpacket(conn, last_packet, (put_pkt - 1) & 0xff)

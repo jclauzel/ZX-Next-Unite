@@ -317,6 +317,11 @@ import rc_backgrounds
 from zxnu_config import *
 from zxnu_workers import *
 from zxnu_remote_explorer import RemoteExplorerWidget
+# NextSync HTTP bridge: a self-hosted Flask web server republishing the Remote
+# Explorer's -listen session as HTTP routes (for the Next's .http dot command).
+# Importing is always safe — Flask itself is only imported when the server is
+# started (Settings → "Enable NextSync HTTP bridge").
+from zxnu_http_bridge import NextSyncHttpBridge, QueueBridgeHost
 from zxnu_media import *
 from zxnu_gallery import *
 import zxnu_itchio
@@ -3658,6 +3663,20 @@ class MainWindow(QMainWindow):
                 else:
                     _no_toast = False
                 self.settings_disable_no_emulator_toast_checkbox.setChecked(_no_toast)
+
+                # NextSync HTTP bridge defaults to False; when enabled it also
+                # auto-starts the web server with the app. The start is
+                # deferred to the event loop so the whole window (log pane,
+                # toasts, the bridge closures) exists by then.
+                if SETTING_NEXTSYNC_HTTP_BRIDGE in configuration_dictionary and configuration_dictionary[SETTING_NEXTSYNC_HTTP_BRIDGE] != "":
+                    _http_bridge_on = configuration_dictionary[SETTING_NEXTSYNC_HTTP_BRIDGE].lower() in ("true", "1", "yes", "on")
+                else:
+                    _http_bridge_on = False
+                self.settings_http_bridge_checkbox.blockSignals(True)
+                self.settings_http_bridge_checkbox.setChecked(_http_bridge_on)
+                self.settings_http_bridge_checkbox.blockSignals(False)
+                if _http_bridge_on:
+                    QTimer.singleShot(0, self._nextsync_http_bridge_start)
 
                 # MAME ROM/system choice (combo) and command-line parameters
                 # (editable text). Both only exist as widgets when MAME was
@@ -11024,6 +11043,94 @@ class MainWindow(QMainWindow):
                         break
             return n
 
+        # ---- NextSync HTTP bridge (Settings → "Enable NextSync HTTP bridge").
+        # A Flask web server (zxnu_http_bridge) that republishes the -listen
+        # session as HTTP routes, so a Next running the .http dot command (or
+        # curl / a browser) can drive the connected Next's file system. The
+        # bridge's commands ride the same worker queue as the Remote Explorer,
+        # carrying a BridgeReply the worker fills INSTEAD of emitting signals —
+        # so bridge traffic never touches the Remote Explorer panes.
+        self._re_bridge = None
+        # Live session state for the bridge's /status route, maintained from
+        # the worker's signals with DirectConnection (plain field writes from
+        # the worker thread — no Qt event loop involvement needed).
+        self._re_bridge_state = {"connected": False, "current": "", "drives": None}
+
+        def _re_bridge_make_cmd(op, a1, a2, reply):
+            # Canonical bridge op -> the worker's command-tuple dialect, with
+            # the reply sink riding as the LAST element.
+            if op == "ls":
+                return ("ls", a1, reply)
+            if op == "get":
+                return ("get", a1, a2, reply)          # a2 = bridge temp dir
+            if op == "put":
+                return ("put", a2, a1, reply)          # worker: (local, remote)
+            if op in ("mkdir", "rmdir", "rm", "rmtree"):
+                return (op, a1, reply)
+            if op == "ren":
+                return ("rename", a1, a2, reply)
+            if op == "rcpy":
+                return ("rcpy", a1, a2, reply)
+            if op == "rfsize":
+                return ("fsize", a1, reply)
+            if op == "free":
+                return ("free", a1, reply)
+            if op == "drives":
+                return ("drives", reply)
+            return None
+
+        def _re_bridge_enqueue(cmd):
+            q = self._re_queue
+            if q is None or not self._re_running:
+                return False
+            q.put(cmd)
+            return True
+
+        def _re_bridge_session_state():
+            st = self._re_bridge_state
+            return {"listening": bool(self._re_running),
+                    "connected": bool(st["connected"]),
+                    "current": st["current"] or "",
+                    "drives": list(st["drives"]) if st["drives"] else None}
+
+        def _nextsync_http_bridge_start():
+            if self._re_bridge is not None and self._re_bridge.running:
+                return
+            try:
+                port = int(configuration_dictionary.get(
+                    SETTING_NEXTSYNC_HTTP_PORT) or 80)
+            except (TypeError, ValueError):
+                port = 80
+            self._re_bridge = NextSyncHttpBridge(
+                QueueBridgeHost(_re_bridge_enqueue, _re_bridge_make_cmd,
+                                _re_bridge_session_state),
+                port=port,
+                log=lambda s: add_nextsync_log_window(str(s)))
+            ok, err = self._re_bridge.start()
+            if ok:
+                add_nextsync_log_window(
+                    f"NextSync HTTP bridge listening on port {port} "
+                    "(routes: /status /ls /get /put /mkdir /rmdir /rmtree "
+                    "/rm /ren /rcpy /rfsize /free /drives)")
+                self._show_toast(
+                    "NextSync HTTP bridge started",
+                    f"Serving on port {port}. A Next with the .http dot "
+                    "command (or curl) can now drive the Next connected in "
+                    "'.sync5 -listen'.", variant="green", duration_ms=6000)
+            else:
+                self._re_bridge = None
+                add_nextsync_log_window(f"NextSync HTTP bridge NOT started: {err}")
+                self._show_toast("NextSync HTTP bridge not started", err,
+                                 variant="yellow", duration_ms=12000)
+
+        def _nextsync_http_bridge_stop():
+            bridge, self._re_bridge = self._re_bridge, None
+            if bridge is not None:
+                bridge.stop()
+                add_nextsync_log_window("NextSync HTTP bridge stopped.")
+        self._nextsync_http_bridge_start = _nextsync_http_bridge_start
+        self._nextsync_http_bridge_stop = _nextsync_http_bridge_stop
+
         def _re_apply_item_colors():
             # Push the SD Card Utility's live item colours into the Remote
             # Explorer so its two panes are tinted the same way as the image tree
@@ -11349,6 +11456,19 @@ class MainWindow(QMainWindow):
             self._re_sig.free_space.connect(widget.on_free_space)
             self._re_sig.fsize.connect(widget.on_fsize)
             self._re_sig.op_progress.connect(widget.on_op_progress)
+            # Keep the HTTP bridge's /status state fresh. DirectConnection:
+            # these run on the worker thread and only write plain fields, so
+            # the bridge (its own threads) sees them without any event loop.
+            _bst = self._re_bridge_state
+            self._re_sig.connected.connect(
+                lambda: _bst.update(connected=True), Qt.DirectConnection)
+            self._re_sig.disconnected.connect(
+                lambda: _bst.update(connected=False, current="", drives=None),
+                Qt.DirectConnection)
+            self._re_sig.drives.connect(
+                lambda cur, ls: _bst.update(current=cur or "",
+                                            drives=list(ls) if ls else None),
+                Qt.DirectConnection)
             self._re_sig.marked.connect(widget.on_marked)
             self._re_sig.log.connect(lambda s: add_nextsync_log_window(str(s)))
             self._re_sig.error.connect(widget.on_error)
@@ -23264,6 +23384,34 @@ class MainWindow(QMainWindow):
         self.settings_disable_no_emulator_toast_checkbox.stateChanged.connect(settings_disable_no_emulator_toast_statechanged)
         grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 25, 0, 1, 2)
 
+        # ── NextSync HTTP bridge toggle ─────────────────────────────────
+        def settings_http_bridge_statechanged():
+            enabled = self.settings_http_bridge_checkbox.isChecked()
+            configuration_dictionary[SETTING_NEXTSYNC_HTTP_BRIDGE] = "true" if enabled else "false"
+            save_configuration_file()
+            if enabled:
+                self._nextsync_http_bridge_start()
+            else:
+                self._nextsync_http_bridge_stop()
+
+        self.settings_http_bridge_checkbox = QCheckBox(
+            "Enable NextSync HTTP bridge (web server for the Next's .http command)")
+        self.settings_http_bridge_checkbox.setChecked(False)
+        self.settings_http_bridge_checkbox.setToolTip(
+            "Starts a small self-hosted web server (Flask, port 80 by default —\n"
+            "set nextsync_http_port in hdfg.cfg to change it) that republishes\n"
+            "the Remote Explorer's '.sync5 -listen' session as HTTP routes:\n"
+            "/status /ls /get /put /mkdir /rmdir /rmtree /rm /ren /rcpy /rfsize\n"
+            "/free /drives. A Spectrum Next running the built-in .http dot\n"
+            "command (HTTP only, no TLS) — or curl, or a browser — can then\n"
+            "drive the file system of the Next connected in -listen mode.\n"
+            "The server starts automatically with the app while this is enabled\n"
+            "(off by default). Requires the 'flask' Python package."
+        )
+        self.settings_http_bridge_checkbox.stateChanged.connect(
+            settings_http_bridge_statechanged)
+        grid_tab_Settings.addWidget(self.settings_http_bridge_checkbox, 36, 0, 1, 2)
+
         # ── MAME options (shown when MAME is launchable: a detected binary, or
         # on Linux the Flatpak launch option added below) ──
         if self._mame_usable():
@@ -23761,7 +23909,7 @@ class MainWindow(QMainWindow):
         # width rather than stretching across both columns.
         self.button_open_config_file = QPushButton("Open config file", self)
         self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
-        grid_tab_Settings.addWidget(self.button_open_config_file, 36, 0, 1, 2, Qt.AlignLeft)
+        grid_tab_Settings.addWidget(self.button_open_config_file, 37, 0, 1, 2, Qt.AlignLeft)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
