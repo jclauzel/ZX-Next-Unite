@@ -23,8 +23,8 @@ Wire-up contract (all a host must provide — see :class:`QueueBridgeHost`):
 * ``enqueue(cmd) -> bool``   put one command tuple on the live -listen
   session's queue (False when no session is running);
 * ``make_cmd(op, a1, a2, reply) -> tuple | None``   translate a canonical
-  bridge op (ls/get/put/mkdir/rmdir/rmtree/rm/ren/rcpy/rfsize/free/drives)
-  into the host's own command-tuple dialect, with ``reply`` (a
+  bridge op (ls/get/put/mkdir/rmdir/rmtree/rm/ren/rcpy/rfsize/free/drives/
+  forceexit) into the host's own command-tuple dialect, with ``reply`` (a
   :class:`BridgeReply`) riding along as the LAST element (None = the host
   doesn't support that op → HTTP 501);
 * ``state() -> dict``   {'listening': bool, 'connected': bool,
@@ -44,6 +44,7 @@ Executor reply shapes (both hosts emit these):
     free    {'ok': True, 'free': bytes} | error
     rcpy    {'ok': bool, 'files': n, 'error'?}
     rfsize  {'ok': True, 'files': n, 'dirs': n, 'bytes': n} | error
+    forceexit   {'ok': True}   (the Next then closes the link and exits)
 """
 
 import importlib.util
@@ -196,7 +197,8 @@ class NextSyncHttpBridge:
         "  GET  /rm?path=/old.tap           delete a file\n"
         "  GET  /ren?from=/a&to=/b          rename / move\n"
         "  GET  /rcpy?src=/a&dst=m:/b       copy ON the Next (across drives)\n"
-        "  GET  /rfsize?path=/games         total size of a file / tree\n")
+        "  GET  /rfsize?path=/games         total size of a file / tree\n"
+        "  GET  /forceexit                  make the Next leave -listen and exit\n")
 
     def __init__(self, host_adapter, listen_host="0.0.0.0", port=DEFAULT_PORT,
                  log=None, verbose=False):
@@ -593,3 +595,16 @@ class NextSyncHttpBridge:
                  "bytes": nbytes, "human": fmt_size(nbytes)},
                 ["OK", f"files: {files}", f"folders: {dirs}",
                  f"bytes: {nbytes} ({fmt_size(nbytes)})"])
+
+        # ---- session control -----------------------------------------
+        @app.route("/forceexit")
+        def _forceexit():
+            # Tell the connected Next to leave -listen mode: the dot's next
+            # poll is answered with the protocol's 'Q', on which it closes
+            # the connection and exits cleanly to BASIC. The -listen server
+            # keeps running, so a fresh '.sync5 -listen' can reconnect.
+            res = run("forceexit")
+            if not res.get("ok"):
+                return fail(res, "forceexit")
+            return answer({"ok": True},
+                          ["OK forceexit - the Next is disconnecting"])

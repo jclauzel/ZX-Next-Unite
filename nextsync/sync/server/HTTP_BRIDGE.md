@@ -217,6 +217,34 @@ bytes: 1234567 (1.2 MB)
 ```
 The natural "will it fit" companion of `/rcpy` (check `/free` too).
 
+### `GET /forceexit` — tell the Next to leave `-listen` and exit
+
+```
+curl "http://192.168.1.10/forceexit"
+.http -h 192.168.1.10 -u /forceexit -f ok.txt
+```
+```
+OK forceexit - the Next is disconnecting
+```
+The dot answers its next poll with the protocol's `Q` (quit) opcode: it
+closes the connection and exits **gracefully** to BASIC (the same clean
+path as `quit` in the `listen>` console or pressing BREAK on the Next —
+UART speed, CPU speed and turbo/50-60 settings are all restored). The
+`-listen` server keeps running, so a fresh `.sync5 -listen` reconnects at
+any time. With no Next connected the route answers `503`.
+
+Also callable straight from the command line, without writing a curl line —
+`nextsync5.py -forceexit` calls the route on `127.0.0.1:80` (stdlib only, no
+Flask needed on the calling side), `-forceexit=host[:port]` on any other
+running bridge:
+
+```
+python nextsync5.py -forceexit=192.168.1.10:8080
+```
+
+(In PowerShell, quote the dotted form — `"-forceexit=192.168.1.10:8080"` —
+or PowerShell itself splits the argument at the dots.)
+
 ### `GET /` or `GET /help` — the route list
 
 ```
