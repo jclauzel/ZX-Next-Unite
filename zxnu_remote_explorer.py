@@ -10,9 +10,11 @@ Commands are pushed onto a queue.Queue the listen worker drains; results arrive
 through RemoteExplorerSignals and are applied here on the UI thread.
 """
 
+import html
 import os
 import posixpath
 import shutil
+import tempfile
 
 from PySide6.QtCore import (
     Qt, QDir, QEvent, QModelIndex, QMimeData, QUrl, QSize, QTimer,
@@ -31,7 +33,10 @@ from zxnu_config import (
     DEFAULT_COLOR_FILE_NAME, DEFAULT_COLOR_FILE_EXT, DEFAULT_COLOR_FILE_SIZE,
     DEFAULT_COLOR_GENERAL_TEXT, hex_to_qcolor,
 )
-from zxnu_workers import DotDotFirstProxyModel, HdfProgressDialog
+from zxnu_workers import (
+    DotDotFirstProxyModel, HdfProgressDialog, zip_create_with_dialog,
+    zip_extract_with_dialog, zip_unique_name,
+)
 
 # Roles carrying the remote entry's full posix path and its directory flag.
 RE_PATH_ROLE = Qt.UserRole + 1
@@ -967,19 +972,41 @@ class RemoteExplorerWidget(QWidget):
             if pc["sizes_done"]:
                 self._precheck_evaluate()
 
+    @staticmethod
+    def _free_color(nbytes):
+        """Traffic-light colour for the free-space figure: green above
+        200 MB, yellow between 100 and 200 MB, red below 100 MB. Shades
+        picked to stay readable on both light and dark backgrounds."""
+        mb = nbytes / (1024.0 * 1024.0)
+        if mb > 200:
+            return "#2fb344"       # green: comfortable
+        if mb >= 100:
+            return "#dd9c07"       # yellow/amber: getting tight
+        return "#e03131"           # red: nearly full
+
     def _update_next_path_label(self):
-        """Path label = cwd + the cached free space of its drive (if known)."""
-        text = f"Next: {self._cwd}"
+        """Path label = cwd + the cached free space of its drive (if known).
+        The free-space figure is bold and traffic-light coloured (see
+        _free_color) so a filling-up card is visible at a glance."""
         free = self._free_space.get(self._cwd_drive())
         if free is not None:
-            text += f"  —  {self._fmt_free(free)} free"
+            # Rich text so only the free-space part is coloured; the label
+            # auto-detects HTML. &nbsp; keeps the double-space look that the
+            # plain-text form used (rich text collapses runs of spaces).
+            self.next_path_label.setText(
+                f"Next: {html.escape(self._cwd)}&nbsp;&nbsp;—&nbsp;&nbsp;"
+                f"<b><span style=\"color: {self._free_color(free)};\">"
+                f"{html.escape(self._fmt_free(free))} free</span></b>")
             self.next_path_label.setToolTip(
                 f"Free space on drive {self._cwd_drive()}: {free} bytes "
                 "(reported by the Next via F_GETFREE; NextZXOS exposes no "
-                "safe way for a dot command to read the total partition size)")
+                "safe way for a dot command to read the total partition "
+                "size).\nGreen: more than 200 MB free · yellow: 100–200 MB "
+                "· red: below 100 MB.\nRe-read after every transfer, "
+                "delete, rename or copy, so the figure tracks the card.")
         else:
+            self.next_path_label.setText(f"Next: {self._cwd}")
             self.next_path_label.setToolTip("")
-        self.next_path_label.setText(text)
 
     def _known_drives(self):
         """Every drive the combo offers: the dot-reported set plus the
@@ -1385,6 +1412,8 @@ class RemoteExplorerWidget(QWidget):
         act_new = menu.addAction("New Folder…")
         act_get = menu.addAction("Download (:<-)")
         act_size = menu.addAction("Get size")
+        act_unzip = menu.addAction("Remote Unzip file")
+        act_rzip = menu.addAction("Remote Zip")
         act_copy = menu.addAction("Copy")
         act_cut = menu.addAction("Cut")
         act_paste = menu.addAction("Paste")
@@ -1395,6 +1424,13 @@ class RemoteExplorerWidget(QWidget):
         # Rename and Get size act on exactly one item.
         act_ren.setEnabled(len(sel) == 1)
         act_size.setEnabled(len(sel) == 1)
+        # "Remote Unzip file" only appears for a single selected .zip FILE;
+        # "Remote Zip" whenever something is selected. Both work PC-side
+        # (download -> unzip/zip -> upload): the dot cannot run .unzip
+        # itself while .sync occupies the dot page.
+        act_unzip.setVisible(len(sel) == 1 and not sel[0][1]
+                             and sel[0][0].lower().endswith(".zip"))
+        act_rzip.setVisible(bool(sel))
         act_copy.setEnabled(bool(sel))
         act_cut.setEnabled(bool(sel))
         # Paste: a local clipboard uploads here; a copied Next clipboard is
@@ -1407,6 +1443,10 @@ class RemoteExplorerWidget(QWidget):
             self._get_selected()
         elif chosen == act_size:
             self._get_size_selected()
+        elif chosen == act_unzip:
+            self._remote_unzip(sel[0][0])
+        elif chosen == act_rzip:
+            self._remote_zip(sel)
         elif chosen == act_copy:
             self._copy_next("copy")
         elif chosen == act_cut:
@@ -1952,6 +1992,200 @@ class RemoteExplorerWidget(QWidget):
         return self._cwd or "/"
 
     # ==================================================================
+    #  remote zip / unzip  (PC-side: the Next only moves the bytes)
+    # ==================================================================
+    # A dot command cannot run another dot (.unzip would be loaded over the
+    # running .sync's own $2000 page, and the launch call itself is the
+    # M_P3DOS crash trap), so both actions do the zip work ON THE PC with
+    # the existing protocol verbs: download -> zipfile -> upload. The wire
+    # carries the data twice; the dotN needs zero new bytes.
+
+    def _next_listing_names(self):
+        """Lower-cased entry names currently listed in the Next pane (to pick
+        a zip name that doesn't collide with an existing one)."""
+        names = set()
+        for row in range(self.next_model.rowCount()):
+            item = self.next_model.item(row, 0)
+            p = item.data(RE_PATH_ROLE) if item is not None else None
+            if p and p != "..":
+                names.add((posixpath.basename(p.rstrip("/")) or "").lower())
+        return names
+
+    def _cwd_base(self):
+        return self._cwd if self._cwd.endswith("/") else self._cwd + "/"
+
+    # ---- Remote Unzip file -------------------------------------------
+    def _remote_unzip(self, zip_path):
+        """Context menu 'Remote Unzip file' (a single selected remote .zip):
+        stage 1 downloads the zip to a temp dir (normal cancellable op),
+        stage 2 extracts it locally (own progress dialog + Cancel), stage 3
+        uploads the extracted tree back into the zip's folder. Every abort
+        path removes the temp dir and leaves the Next untouched."""
+        if not self._connected or self._op_active:
+            return
+        tmp = tempfile.mkdtemp(prefix="zxnu_runzip_")
+        name = posixpath.basename(zip_path.rstrip("/"))
+        self._log(f"Remote unzip: fetching {zip_path} …")
+
+        def stage2(ok, _fails):
+            # Deferred so _end_operation fully unwinds before the next stage.
+            QTimer.singleShot(0, lambda: self._remote_unzip_extract(
+                ok, tmp, os.path.join(tmp, name), name))
+
+        self._run_op("Remote Unzip: downloading the zip…",
+                     lambda: self._enqueue(("get", zip_path, tmp)),
+                     on_done=stage2)
+
+    def _remote_unzip_extract(self, ok, tmp, local_zip, name):
+        if not ok or not os.path.isfile(local_zip):
+            shutil.rmtree(tmp, ignore_errors=True)
+            self._log("Remote unzip: download failed or was cancelled — "
+                      "nothing changed on the Next.")
+            return
+        extract_dir = os.path.join(tmp, "_extracted")
+        os.makedirs(extract_dir, exist_ok=True)
+        res = zip_extract_with_dialog(self.window(), local_zip, extract_dir,
+                                      log=self._log)
+        files, skipped = res["files"], res["skipped"]
+        total_bytes = res["bytes"]
+        if not res["ok"] or files == 0:
+            shutil.rmtree(tmp, ignore_errors=True)
+            if res["cancelled"]:
+                self._log("Remote unzip: cancelled — nothing changed on "
+                          "the Next.")
+            elif res["error"]:
+                self._on_toast("Remote unzip failed",
+                               f"Could not extract {name}: {res['error']}",
+                               "red")
+            else:
+                self._on_toast("Remote unzip", f"{name} contains no "
+                               "extractable files.", "yellow")
+            return
+        # Will-it-fit guard against the freshest cached free-space figure
+        # (re-read at the end of the download op just before this).
+        free = self._free_space.get(self._cwd_drive())
+        if free is not None and total_bytes > free:
+            shutil.rmtree(tmp, ignore_errors=True)
+            self._on_toast(
+                "Remote unzip refused",
+                f"Unzipping needs {self._fmt_free(total_bytes)}, but drive "
+                f"{self._cwd_drive()}: only has {self._fmt_free(free)} free.",
+                "red")
+            return
+        base = self._cwd_base()
+
+        def go():
+            for entry in sorted(os.listdir(extract_dir)):
+                full = os.path.join(extract_dir, entry)
+                if os.path.isdir(full):
+                    self._enqueue_dir_upload(full, base)
+                else:
+                    self._enqueue(("put", full, base))
+
+        def done(ok2, _fails2):
+            shutil.rmtree(tmp, ignore_errors=True)
+            if ok2:
+                extra = (f" ({skipped} unsafe "
+                         f"{'entry' if skipped == 1 else 'entries'} skipped)"
+                         if skipped else "")
+                self._on_toast("✅  Remote unzip complete",
+                               f"Extracted {files} file(s) from {name} "
+                               f"into {self._cwd}.{extra}", "green")
+
+        self._log(f"Remote unzip: uploading {files} file(s) to {self._cwd} …")
+        if not self._connected or self._op_active:
+            shutil.rmtree(tmp, ignore_errors=True)
+            self._log("Remote unzip: connection lost before the upload — "
+                      "nothing changed on the Next.")
+            return
+        self._run_op("Remote Unzip: uploading to the Next…", go, on_done=done)
+
+    # ---- Remote Zip ---------------------------------------------------
+    def _remote_zip(self, entries):
+        """Context menu 'Remote Zip': download the selected remote files /
+        folders, zip them on the PC, and upload the zip back into the current
+        Next folder. The zip is named after the FIRST selected item + '.zip'
+        (single or multiple selection alike), uniquified against the current
+        listing so nothing is overwritten."""
+        if not self._connected or self._op_active or not entries:
+            return
+        first = posixpath.basename(entries[0][0].rstrip("/")) or "archive"
+        zip_name = zip_unique_name(first, self._next_listing_names())
+        tmp = tempfile.mkdtemp(prefix="zxnu_rzip_")
+        dl = os.path.join(tmp, "dl")
+        os.makedirs(dl, exist_ok=True)
+
+        def go():
+            for path, is_dir in entries:
+                self._prepare_local_download_dir(dl, path, is_dir)
+                self._enqueue(("get", path, dl))
+
+        def stage2(ok, _fails):
+            QTimer.singleShot(0, lambda: self._remote_zip_pack(
+                ok, tmp, dl, zip_name))
+
+        self._log(f"Remote zip: fetching {len(entries)} item(s) for "
+                  f"{zip_name} …")
+        self._run_op("Remote Zip: downloading from the Next…", go,
+                     on_done=stage2)
+
+    def _remote_zip_pack(self, ok, tmp, dl, zip_name):
+        if not ok:
+            shutil.rmtree(tmp, ignore_errors=True)
+            self._log("Remote zip: download failed or was cancelled — "
+                      "no zip was created.")
+            return
+        # Everything under dl/ mirrors the selection; zip its top-level
+        # entries so the archive holds the items by name (folders recursed).
+        src_paths = [os.path.join(dl, e) for e in sorted(os.listdir(dl))]
+        zip_local = os.path.join(tmp, zip_name)
+        res = zip_create_with_dialog(self.window(), src_paths, zip_local,
+                                     log=self._log)
+        if not res["ok"]:
+            shutil.rmtree(tmp, ignore_errors=True)
+            if res["cancelled"]:
+                self._log("Remote zip: cancelled — no zip was uploaded.")
+            elif res["error"] == "nothing to zip":
+                self._on_toast("Remote zip", "Nothing was downloaded — no "
+                               "zip was created.", "yellow")
+            else:
+                self._on_toast("Remote zip failed",
+                               f"Could not build {zip_name}: {res['error']}",
+                               "red")
+            return
+        files = res["files"]
+        size = os.path.getsize(zip_local)
+        free = self._free_space.get(self._cwd_drive())
+        if free is not None and size > free:
+            shutil.rmtree(tmp, ignore_errors=True)
+            self._on_toast(
+                "Remote zip refused",
+                f"{zip_name} is {self._fmt_free(size)}, but drive "
+                f"{self._cwd_drive()}: only has {self._fmt_free(free)} free.",
+                "red")
+            return
+        base = self._cwd_base()
+
+        def done(ok2, _fails2):
+            shutil.rmtree(tmp, ignore_errors=True)
+            if ok2:
+                self._on_toast("✅  Remote zip complete",
+                               f"Created {zip_name} in {self._cwd} "
+                               f"({files} file(s), {self._fmt_free(size)}).",
+                               "green")
+
+        self._log(f"Remote zip: uploading {zip_name} "
+                  f"({self._fmt_free(size)}) to {self._cwd} …")
+        if not self._connected or self._op_active:
+            shutil.rmtree(tmp, ignore_errors=True)
+            self._log("Remote zip: connection lost before the upload — "
+                      "no zip was created on the Next.")
+            return
+        self._run_op("Remote Zip: uploading the zip…",
+                     lambda: self._enqueue(("put", zip_local, base)),
+                     on_done=done)
+
+    # ==================================================================
     #  local pane
     # ==================================================================
     def sync_root(self):
@@ -2098,6 +2332,8 @@ class RemoteExplorerWidget(QWidget):
         has_sel = len(sel) > 0
         menu = QMenu(self)
         act_new = menu.addAction("New Folder…")
+        act_unzip = menu.addAction("Unzip file")
+        act_zip = menu.addAction("Zip")
         menu.addSeparator()
         act_copy = menu.addAction("Copy")
         act_cut = menu.addAction("Cut")
@@ -2111,12 +2347,21 @@ class RemoteExplorerWidget(QWidget):
         act_cut.setEnabled(has_sel)
         act_ren.setEnabled(len(sel) == 1)
         act_del.setEnabled(has_sel)
+        # Local zip actions mirror the Next pane's Remote Zip/Unzip: "Unzip
+        # file" only for a single selected local .zip, "Zip" for any selection.
+        act_unzip.setVisible(len(sel) == 1 and os.path.isfile(sel[0])
+                             and sel[0].lower().endswith(".zip"))
+        act_zip.setVisible(has_sel)
         # Paste here downloads copied/cut Next items into this local folder, or
         # copies/moves copied/cut LOCAL items into it.
         act_paste.setEnabled(bool(self._clip))
         chosen = menu.exec(self.local_view.viewport().mapToGlobal(pos))
         if chosen == act_new:
             self._local_new_folder()
+        elif chosen == act_unzip:
+            self._local_unzip(sel[0])
+        elif chosen == act_zip:
+            self._local_zip(sel)
         elif chosen == act_copy:
             self._copy_local("copy")
         elif chosen == act_cut:
@@ -2129,6 +2374,59 @@ class RemoteExplorerWidget(QWidget):
             self._local_delete_selected()
         elif chosen == act_ref:
             self._local_refresh()
+
+    def _local_unzip(self, zip_path):
+        """Local pane 'Unzip file': extract a local .zip into its own folder
+        (cancellable, per-file progress; unsafe entries skipped). A cancel
+        keeps what was already extracted."""
+        name = os.path.basename(zip_path)
+        dest = os.path.dirname(zip_path) or "."
+        res = zip_extract_with_dialog(self.window(), zip_path, dest,
+                                      log=self._log)
+        if res["cancelled"]:
+            self._log(f"Unzip of {name} cancelled — already-extracted "
+                      "files remain.")
+        elif res["error"]:
+            self._on_toast("Unzip failed",
+                           f"Could not extract {name}: {res['error']}", "red")
+        else:
+            skipped = res["skipped"]
+            extra = (f" ({skipped} unsafe "
+                     f"{'entry' if skipped == 1 else 'entries'} skipped)"
+                     if skipped else "")
+            self._on_toast("✅  Unzip complete",
+                           f"Extracted {res['files']} file(s) from {name} "
+                           f"into {dest}.{extra}", "green")
+        self._local_refresh()
+
+    def _local_zip(self, paths):
+        """Local pane 'Zip': zip the selection into <first item's name>.zip
+        next to it (uniquified against the folder), cancellable with per-file
+        progress."""
+        paths = [p for p in paths if p and os.path.exists(p)]
+        if not paths:
+            return
+        first = os.path.basename(paths[0].rstrip("/\\")) or "archive"
+        dest = os.path.dirname(os.path.abspath(paths[0].rstrip("/\\"))) or "."
+        try:
+            taken = {n.lower() for n in os.listdir(dest)}
+        except OSError:
+            taken = set()
+        zip_name = zip_unique_name(first, taken)
+        zip_local = os.path.join(dest, zip_name)
+        res = zip_create_with_dialog(self.window(), paths, zip_local,
+                                     log=self._log)
+        if res["cancelled"]:
+            self._log(f"Zip cancelled — {zip_name} was not created.")
+        elif res["error"]:
+            self._on_toast("Zip failed",
+                           f"Could not create {zip_name}: {res['error']}",
+                           "red")
+        else:
+            self._on_toast("✅  Zip complete",
+                           f"Created {zip_name} in {dest} "
+                           f"({res['files']} file(s)).", "green")
+        self._local_refresh()
 
     def _local_new_folder(self):
         base = self._browse_dir()

@@ -594,6 +594,10 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         reply = None
                     if op == "quit":
                         _re_sendpacket(conn, b"Q", 0)
+                        # A bridge-driven quit (/forceexit) must fill its reply
+                        # BEFORE we break: the HTTP thread is blocked on it.
+                        if reply is not None:
+                            reply.put({'ok': True})
                         break
                     elif op == "mark":
                         # Client-side barrier: nothing goes to the Next, we just
@@ -1233,6 +1237,147 @@ class HdfProgressDialog(QDialog):
     def closeEvent(self, event):
         self._anim_timer.stop()
         super().closeEvent(event)
+
+
+# ----------------------------------------------------------------------
+#  Local zip helpers — shared by the Remote Explorer (local pane AND the
+#  Next-side Remote Zip/Unzip staging) and the SD Card tab (local explorer
+#  and the image explorer's Remote Zip/Unzip). Both run ON THE UI THREAD
+#  over local files only: they show a cancellable HdfProgressDialog naming
+#  every file, pumping the event loop per entry (local zip work is fast;
+#  the surrounding transfers have their own progress machinery).
+# ----------------------------------------------------------------------
+
+def _zip_dialog(parent, title):
+    from PySide6.QtWidgets import QApplication
+    dlg = HdfProgressDialog(title, parent)
+    state = {"cancel": False}
+    dlg.cancel_requested.connect(lambda: state.__setitem__("cancel", True))
+    dlg.set_progress(0)
+    dlg.show()
+    QApplication.processEvents()
+    return dlg, state
+
+
+def zip_extract_with_dialog(parent, zip_path, dest_dir, log=None):
+    """Extract *zip_path* into *dest_dir* with a cancellable progress dialog
+    that names every file as it comes out. Zip-slip entries ('..' segments,
+    absolute or drive-prefixed paths) are skipped and logged, not extracted.
+    Returns {'ok', 'files', 'skipped', 'bytes', 'cancelled', 'error'};
+    'ok' is True only when the archive extracted without cancel or error
+    (skipped entries alone don't clear it), 'bytes' totals the uncompressed
+    sizes. RuntimeError from zipfile = encrypted members."""
+    import shutil
+    import zipfile
+    from PySide6.QtWidgets import QApplication
+    log = log or (lambda s: None)
+    res = {"ok": False, "files": 0, "skipped": 0, "bytes": 0,
+           "cancelled": False, "error": None}
+    dlg, state = _zip_dialog(parent, "Unzip: extracting…")
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            members = zf.infolist()
+            for i, m in enumerate(members):
+                if state["cancel"]:
+                    res["cancelled"] = True
+                    return res
+                mname = m.filename.replace("\\", "/")
+                parts = [p for p in mname.split("/") if p not in ("", ".")]
+                if (not parts or any(p == ".." for p in parts)
+                        or ":" in parts[0]):
+                    res["skipped"] += 1
+                    log(f"Unzip: skipped unsafe entry {m.filename!r}")
+                    continue
+                dlg.set_status(f"Extracting…\n{mname}")
+                dlg.set_progress(int(100 * (i + 1) / max(len(members), 1)))
+                QApplication.processEvents()
+                target = os.path.join(dest_dir, *parts)
+                if m.is_dir():
+                    os.makedirs(target, exist_ok=True)
+                    continue
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                with zf.open(m) as src, open(target, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                res["files"] += 1
+                res["bytes"] += m.file_size
+        res["ok"] = True
+    except (zipfile.BadZipFile, RuntimeError, OSError) as ex:
+        res["error"] = str(ex)
+    finally:
+        dlg.close()
+    return res
+
+
+def zip_create_with_dialog(parent, src_paths, zip_local, log=None):
+    """Build *zip_local* (deflated) from the local files/folders *src_paths*,
+    each archived under its base name (folders recursively, empty folders
+    preserved), with a cancellable per-file progress dialog. Returns
+    {'ok', 'files', 'cancelled', 'error'}; on cancel or error the
+    half-written zip is removed."""
+    import zipfile
+    from PySide6.QtWidgets import QApplication
+    log = log or (lambda s: None)
+    res = {"ok": False, "files": 0, "cancelled": False, "error": None}
+    # Flatten the work list first so the progress bar can be determinate.
+    todo = []          # (full_local_path, arcname, is_dir_entry)
+    for src in src_paths:
+        base = os.path.basename(src.rstrip("/\\"))
+        if not base:
+            continue
+        if os.path.isdir(src):
+            for root, dirs, fnames in os.walk(src):
+                dirs.sort()
+                rel = os.path.relpath(root, src)
+                arc_root = base if rel in (".", "") else \
+                    base + "/" + rel.replace(os.sep, "/")
+                if not dirs and not fnames:
+                    todo.append((root, arc_root + "/", True))
+                for fn in sorted(fnames):
+                    todo.append((os.path.join(root, fn),
+                                 arc_root + "/" + fn, False))
+        elif os.path.isfile(src):
+            todo.append((src, base, False))
+    if not todo:
+        res["error"] = "nothing to zip"
+        return res
+    dlg, state = _zip_dialog(parent, "Zip: compressing…")
+    try:
+        with zipfile.ZipFile(zip_local, "w", zipfile.ZIP_DEFLATED) as zf:
+            for i, (full, arc, is_dir) in enumerate(todo):
+                if state["cancel"]:
+                    res["cancelled"] = True
+                    break
+                dlg.set_status(f"Compressing…\n{arc}")
+                dlg.set_progress(int(100 * (i + 1) / len(todo)))
+                QApplication.processEvents()
+                if is_dir:
+                    zf.writestr(zipfile.ZipInfo(arc), b"")   # empty folder
+                else:
+                    zf.write(full, arc)
+                    res["files"] += 1
+        res["ok"] = not res["cancelled"]
+    except OSError as ex:
+        res["error"] = str(ex)
+    finally:
+        dlg.close()
+    if not res["ok"]:
+        try:
+            os.remove(zip_local)
+        except OSError:
+            pass
+    return res
+
+
+def zip_unique_name(first_name, taken_lower):
+    """The zip name for a selection: the FIRST item's name + '.zip',
+    uniquified Explorer-style against *taken_lower* (a lower-cased set of
+    existing names): 'name.zip', 'name (2).zip', …"""
+    name = first_name + ".zip"
+    n = 1
+    while name.lower() in taken_lower:
+        n += 1
+        name = f"{first_name} ({n}).zip"
+    return name
 
 
 # Export every public/private module-level name (including the

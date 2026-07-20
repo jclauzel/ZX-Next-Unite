@@ -5244,7 +5244,9 @@ class MainWindow(QMainWindow):
                 info = zxnu_itchio.latest_cspect_upload(api_key)
                 if not info:
                     return {"skip": "itch.io lists no CSpect download for this "
-                                    "account (not owned, or no download key)"}
+                                    "account (not owned, no download key, or "
+                                    "only BETA builds — betas are never "
+                                    "offered as updates)"}
                 info = dict(info)
                 info["installed_name"] = installed_name
                 info["installed_exe"] = installed_exe
@@ -6993,14 +6995,37 @@ class MainWindow(QMainWindow):
                     new_dir_target, local_explorer_refresh, add_main_log_window)))
             action_rename.triggered.connect(
                 lambda: QTimer.singleShot(0, lambda: local_explorer_rename_item(file_path, name, is_dir)))
+            # Delete acts on the selection (or the clicked item); the Del key
+            # runs the same handler. Deferred like the other dialog-openers.
+            action_delete = QAction("Delete", self.treeview)
+            action_delete.triggered.connect(
+                lambda: QTimer.singleShot(0, local_explorer_delete_selection))
+            # Zip actions (mirroring the Remote Explorer's local pane): "Unzip
+            # file" only on a .zip file, "Zip" archives the selection (or the
+            # clicked item) into <first item>.zip next to it. Deferred like the
+            # other dialog-openers so the menu's grab is released first.
+            action_unzip = QAction("Unzip file", self.treeview)
+            action_unzip.triggered.connect(
+                lambda: QTimer.singleShot(0, lambda: _local_unzip_file(
+                    file_path, local_explorer_refresh, add_main_log_window)))
+            action_zip = QAction("Zip", self.treeview)
+            action_zip.triggered.connect(
+                lambda: QTimer.singleShot(0, lambda: _local_zip_selection(
+                    _local_explorer_selected_paths_or(file_path),
+                    local_explorer_refresh, add_main_log_window)))
             menu.addAction(action_copy_text)
             menu.addAction(action_copy_path)
+            menu.addSeparator()
+            if not is_dir and name.lower().endswith(".zip"):
+                menu.addAction(action_unzip)
+            menu.addAction(action_zip)
             menu.addSeparator()
             menu.addAction(action_copy)
             menu.addAction(action_cut)
             menu.addAction(action_paste)
             menu.addAction(action_newdir)
             menu.addAction(action_rename)
+            menu.addAction(action_delete)
             menu.exec(self.treeview.viewport().mapToGlobal(pos))
 
         def local_explorer_refresh():
@@ -7083,6 +7108,127 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Rename failed", f"Could not rename:\n{file_path}\n\n{e}")
             finally:
                 local_explorer_refresh()
+
+        def local_explorer_delete_selection():
+            """Delete the SD-card local explorer's selected files/folders
+            (Del key / context menu). Honours the "Do not prompt for
+            confirmation on deletion" setting like the NextSync explorer's
+            delete; otherwise asks first — folders warn that all their
+            contents go too, multi-selections are confirmed as one batch."""
+            fallback = ""
+            cur = self.treeview.currentIndex()
+            if cur.isValid():
+                src = self.proxy_model.mapToSource(cur)
+                if self.model.fileName(src) != "..":
+                    fallback = self.model.filePath(src)
+            paths = [p for p in _local_explorer_selected_paths_or(fallback)
+                     if p and os.path.exists(p)]
+            if not paths:
+                return
+            items = [(p, os.path.isdir(p)) for p in paths]
+            if not self.settings_no_prompt_on_deletion_checkbox.isChecked():
+                if len(items) == 1:
+                    p, is_dir = items[0]
+                    name = os.path.basename(p.rstrip("/\\")) or p
+                    msg = (f'Delete the folder "{name}" and all of its '
+                           f'contents?\n\n{p}' if is_dir
+                           else f'Delete the file "{name}"?\n\n{p}')
+                else:
+                    listing = "\n".join(p for p, _d in items[:15])
+                    if len(items) > 15:
+                        listing += f"\n… and {len(items) - 15} more"
+                    msg = (f"Delete these {len(items)} items? Folders are "
+                           f"deleted with all of their contents.\n\n{listing}")
+                msg += "\n\nThis cannot be undone."
+                if QMessageBox.question(
+                        self, "Confirm deletion", msg,
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No) != QMessageBox.Yes:
+                    return
+
+            def _force_remove(func, path, exc_info):
+                # shutil.rmtree onerror: clear a Windows read-only attribute
+                # and retry, so the delete proceeds instead of erroring out.
+                try:
+                    os.chmod(path, stat.S_IWRITE)
+                    func(path)
+                except OSError:
+                    pass
+
+            for p, is_dir in items:
+                try:
+                    if is_dir and not os.path.islink(p):
+                        shutil.rmtree(p, onerror=_force_remove)
+                    else:
+                        os.remove(p)
+                    add_main_log_window(f"Deleted: {p}")
+                except OSError as e:
+                    logging.error(f"Failed to delete {p}: {e}", exc_info=True)
+                    add_main_log_window(f"Failed to delete {p}: {e}")
+                    QMessageBox.critical(self, "Delete failed",
+                                         f"Could not delete:\n{p}\n\n{e}")
+            # Both local explorers browse the same filesystem: refresh both.
+            local_explorer_refresh()
+            nextsync_refresh_explorer()
+
+        def _local_unzip_file(zip_path, refresh_fn, log_fn):
+            """'Unzip file' on a local explorer's .zip: extract it into its
+            own folder (cancellable per-file progress dialog; zip-slip entries
+            skipped). Shared by the SD-card local explorer; a cancel keeps
+            what was already extracted."""
+            name = os.path.basename(zip_path)
+            dest = os.path.dirname(zip_path) or "."
+            res = zip_extract_with_dialog(self, zip_path, dest, log=log_fn)
+            if res["cancelled"]:
+                log_fn(f"Unzip of {name} cancelled — already-extracted files remain.")
+            elif res["error"]:
+                log_fn(f"ERROR: could not extract {name}: {res['error']}")
+                QMessageBox.critical(self, "Unzip failed",
+                                     f"Could not extract {name}:\n{res['error']}")
+            else:
+                skipped = res["skipped"]
+                extra = (f" ({skipped} unsafe "
+                         f"{'entry' if skipped == 1 else 'entries'} skipped)"
+                         if skipped else "")
+                log_fn(f"Extracted {res['files']} file(s) from {name} into {dest}.{extra}")
+            refresh_fn()
+
+        def _local_zip_selection(paths, refresh_fn, log_fn):
+            """'Zip' on a local explorer selection: build <first item>.zip next
+            to it (name uniquified against the folder), cancellable with
+            per-file progress."""
+            paths = [p for p in paths if p and os.path.exists(p)]
+            if not paths:
+                return
+            first = os.path.basename(paths[0].rstrip("/\\")) or "archive"
+            dest = os.path.dirname(os.path.abspath(paths[0].rstrip("/\\"))) or "."
+            try:
+                taken = {n.lower() for n in os.listdir(dest)}
+            except OSError:
+                taken = set()
+            zip_name = zip_unique_name(first, taken)
+            zip_local = os.path.join(dest, zip_name)
+            res = zip_create_with_dialog(self, paths, zip_local, log=log_fn)
+            if res["cancelled"]:
+                log_fn(f"Zip cancelled — {zip_name} was not created.")
+            elif res["error"]:
+                log_fn(f"ERROR: could not create {zip_name}: {res['error']}")
+                QMessageBox.critical(self, "Zip failed",
+                                     f"Could not create {zip_name}:\n{res['error']}")
+            else:
+                log_fn(f"Created {zip_name} in {dest} ({res['files']} file(s)).")
+            refresh_fn()
+
+        def _local_explorer_selected_paths_or(fallback_path):
+            """The SD-card local tree's multi-selection paths (minus '..'), or
+            the given fallback when nothing is selected."""
+            paths = []
+            for ix in self.treeview.selectionModel().selectedRows(0):
+                src = self.proxy_model.mapToSource(ix)
+                if self.model.fileName(src) == "..":
+                    continue
+                paths.append(self.model.filePath(src))
+            return paths or [fallback_path]
 
         def local_explorer_import_external_paths(paths, dest_dir, refresh_fn=None,
                                                  on_complete=None):
@@ -8832,6 +8978,141 @@ class MainWindow(QMainWindow):
             # argument is no longer needed (the tree re-lists itself).
             image_reload_dir(image_dest_dir())
 
+        # ── Remote Zip / Unzip on the SD-card image (hdfmonkey-staged) ──────
+        # hdfmonkey cannot zip, so both actions stage through the PC exactly
+        # like the Remote Explorer's Next-side versions: download (progress +
+        # Cancel) -> zip/unzip locally (per-file progress + Cancel) -> upload
+        # back into the image. Chained stages are deferred with a 0-timer so
+        # each modal transfer dialog fully unwinds before the next opens.
+        def _image_remote_unzip(zip_path):
+            """'Remote Unzip file' on a .zip inside the image: get it to a
+            temp dir, extract on the PC, upload the tree back into the zip's
+            image folder. The image is only touched by the final upload."""
+            if not right_disk_image_explorer_content:
+                return
+            img_err = _check_image_writable(self.right_disk_image_path)
+            if img_err:
+                add_main_log_window(f"ERROR: {img_err}")
+                QMessageBox.critical(self, "Image not writable", img_err)
+                return
+            name = zip_path.rstrip("/").rsplit("/", 1)[-1]
+            dest_dir = zip_path.rstrip("/").rsplit("/", 1)[0] or "/"
+            tmp = tempfile.mkdtemp(prefix="zxnu_imgunzip_")
+
+            def _go(success):
+                local_zip = os.path.join(tmp, name)
+                if not success or not os.path.isfile(local_zip):
+                    shutil.rmtree(tmp, ignore_errors=True)
+                    add_main_log_window("Remote unzip: download from the image "
+                                        "failed or was cancelled — the image "
+                                        "is unchanged.")
+                    return
+                extract_dir = os.path.join(tmp, "_extracted")
+                os.makedirs(extract_dir, exist_ok=True)
+                res = zip_extract_with_dialog(self, local_zip, extract_dir,
+                                              log=add_main_log_window)
+                if not res["ok"] or res["files"] == 0:
+                    shutil.rmtree(tmp, ignore_errors=True)
+                    if res["cancelled"]:
+                        add_main_log_window("Remote unzip cancelled — the "
+                                            "image is unchanged.")
+                    elif res["error"]:
+                        add_main_log_window(f"ERROR: could not extract {name}: "
+                                            f"{res['error']}")
+                        QMessageBox.critical(
+                            self, "Remote unzip failed",
+                            f"Could not extract {name}:\n{res['error']}")
+                    else:
+                        add_main_log_window(f"{name} contains no extractable "
+                                            "files.")
+                    return
+                tops = [os.path.join(extract_dir, e)
+                        for e in sorted(os.listdir(extract_dir))]
+
+                def _done(up_ok):
+                    shutil.rmtree(tmp, ignore_errors=True)
+                    if up_ok:
+                        skipped = res["skipped"]
+                        extra = (f" ({skipped} unsafe "
+                                 f"{'entry' if skipped == 1 else 'entries'} "
+                                 "skipped)" if skipped else "")
+                        add_main_log_window(
+                            f"Extracted {res['files']} file(s) from {name} "
+                            f"into {dest_dir} on the image.{extra}")
+                    else:
+                        add_main_log_window("Remote unzip: upload into the "
+                                            "image failed or was cancelled.")
+                image_upload_external_paths(tops, dest_dir, on_complete=_done)
+
+            add_main_log_window(f"Remote unzip: fetching {zip_path} from "
+                                "the image …")
+            image_get_paths_to_local(
+                [(zip_path, False)], tmp, refresh_fn=lambda: None,
+                on_complete=lambda okd: QTimer.singleShot(0, lambda: _go(okd)))
+
+        def _image_remote_zip(items):
+            """'Remote Zip' on the image selection: get the items to a temp
+            dir, zip them on the PC, upload <first item>.zip back into the
+            first item's image folder (name uniquified via hdfmonkey ls)."""
+            if not right_disk_image_explorer_content or not items:
+                return
+            img_err = _check_image_writable(self.right_disk_image_path)
+            if img_err:
+                add_main_log_window(f"ERROR: {img_err}")
+                QMessageBox.critical(self, "Image not writable", img_err)
+                return
+            first = items[0][0].rstrip("/").rsplit("/", 1)[-1] or "archive"
+            dest_dir = items[0][0].rstrip("/").rsplit("/", 1)[0] or "/"
+            taken = set()
+            res_ls = execute_hdf_monkey("ls", self.right_disk_image_path,
+                                        extra_argv=[dest_dir], silent=True)
+            if res_ls.returncode == 0:
+                taken = {n.lower() for n, _d, _s in image_parse_ls(res_ls.stdout)}
+            zip_name = zip_unique_name(first, taken)
+            tmp = tempfile.mkdtemp(prefix="zxnu_imgzip_")
+            dl = os.path.join(tmp, "dl")
+            os.makedirs(dl, exist_ok=True)
+
+            def _go(success):
+                if not success:
+                    shutil.rmtree(tmp, ignore_errors=True)
+                    add_main_log_window("Remote zip: download from the image "
+                                        "failed or was cancelled — no zip was "
+                                        "created.")
+                    return
+                src_paths = [os.path.join(dl, e) for e in sorted(os.listdir(dl))]
+                zip_local = os.path.join(tmp, zip_name)
+                res = zip_create_with_dialog(self, src_paths, zip_local,
+                                             log=add_main_log_window)
+                if not res["ok"]:
+                    shutil.rmtree(tmp, ignore_errors=True)
+                    if res["cancelled"]:
+                        add_main_log_window("Remote zip cancelled — no zip "
+                                            "was created.")
+                    else:
+                        add_main_log_window(f"ERROR: could not build "
+                                            f"{zip_name}: {res['error']}")
+                    return
+                size = os.path.getsize(zip_local)
+
+                def _done(up_ok):
+                    shutil.rmtree(tmp, ignore_errors=True)
+                    if up_ok:
+                        add_main_log_window(
+                            f"Created {zip_name} in {dest_dir} on the image "
+                            f"({res['files']} file(s), {size:,} bytes).")
+                    else:
+                        add_main_log_window("Remote zip: upload into the "
+                                            "image failed or was cancelled.")
+                image_upload_external_paths([zip_local], dest_dir,
+                                            on_complete=_done)
+
+            add_main_log_window(f"Remote zip: fetching {len(items)} item(s) "
+                                "from the image …")
+            image_get_paths_to_local(
+                items, dl, refresh_fn=lambda: None,
+                on_complete=lambda okd: QTimer.singleShot(0, lambda: _go(okd)))
+
         def image_tree_context_menu(pos):
             # Right-click menu on the image explorer tree, mirroring the
             # "New Folder" and "Delete Files or Folder" buttons below it.
@@ -8870,6 +9151,26 @@ class MainWindow(QMainWindow):
                                    lambda: QTimer.singleShot(0, image_rename_dialog))
                 delete_label = f"Delete {selected_count} items" if selected_count > 1 else "Delete"
                 menu.addAction(delete_label, delete_files_button_show_confirmation_buttons)
+                # Remote Zip/Unzip (PC-staged via hdfmonkey): "Remote Unzip
+                # file" only on a lone .zip file, "Remote Zip" on any selection.
+                item_path = (name_item.data(IMG_PATH_ROLE) or "") \
+                    if name_item is not None else ""
+                menu.addSeparator()
+                if (selected_count <= 1 and not is_dir
+                        and item_path.lower().endswith(".zip")):
+                    menu.addAction(
+                        "Remote Unzip file",
+                        lambda p=item_path: QTimer.singleShot(
+                            0, lambda: _image_remote_unzip(p)))
+                sel_items = (list(self.image_selected_paths)
+                             or ([(item_path, is_dir)] if item_path else []))
+                if sel_items:
+                    zip_label = (f"Remote Zip {selected_count} items"
+                                 if selected_count > 1 else "Remote Zip")
+                    menu.addAction(
+                        zip_label,
+                        lambda it=sel_items: QTimer.singleShot(
+                            0, lambda: _image_remote_zip(it)))
             else:
                 # Empty area: clear the selection so a new folder lands at the root.
                 self.image_treeview.clearSelection()
@@ -9788,6 +10089,11 @@ class MainWindow(QMainWindow):
             if event.matches(QKeySequence.StandardKey.Paste):
                 _explorer_paste_into_local(_local_explorer_paste_target_dir(),
                                            local_explorer_refresh, add_main_log_window)
+                return
+            # Delete mirrors the context-menu "Delete": prompt (honouring the
+            # "no prompt on deletion" setting), then remove the selection.
+            if event.key() == Qt.Key.Key_Delete:
+                local_explorer_delete_selection()
                 return
             # F2 mirrors the context-menu "Rename" action on the selected entry.
             if event.key() == Qt.Key.Key_F2:
@@ -11086,6 +11392,8 @@ class MainWindow(QMainWindow):
                 return ("free", a1, reply)
             if op == "drives":
                 return ("drives", reply)
+            if op == "forceexit":
+                return ("quit", reply)     # the dot leaves -listen and exits
             return None
 
         def _re_bridge_enqueue(cmd):
@@ -23423,7 +23731,7 @@ class MainWindow(QMainWindow):
                 "Starts a small self-hosted web server (Flask, port 80 by default —\n"
                 "set nextsync_http_port in hdfg.cfg to change it) that republishes\n"
                 "the Remote Explorer's '.sync5 -listen' session as HTTP routes:\n"
-                "/status /ls /get /put /mkdir /rmdir /rmtree /rm /ren /rcpy /rfsize\n"
+                "/status /ls /get /put /mkdir /rmdir /rmtree /rm /ren /rcpy /rfsize /forceexit\n"
                 "/free /drives. A Spectrum Next running the built-in .http dot\n"
                 "command (HTTP only, no TLS) — or curl, or a browser — can then\n"
                 "drive the file system of the Next connected in -listen mode.\n"

@@ -723,20 +723,33 @@ def latest_cspect_upload(api_key, game=None):
     Builds a minimal game dict from :data:`CSPECT_ITCH_URL` (unless *game* is
     supplied) and reuses :func:`list_owned_uploads` — CSpect exposes several
     builds at once, so this walks the full version list and reports the newest
-    (index 0). Returns a dict describing the newest upload plus the whole list::
+    (index 0). **BETA builds are invisible to the updater**: any upload with
+    "beta" (case-insensitive) in its file or version name is dropped before
+    the newest is picked, so a pre-release is never offered as an update —
+    while a stable build listed alongside it still is. Returns a dict
+    describing the newest non-beta upload plus the (beta-free) list::
 
         {"game", "game_id", "key_id", "uploads",
          "filename", "version_name", "version_key"}
 
     or ``None`` when the account doesn't own CSpect / has no download key / the
-    API lists no uploads (the caller then skips the update check quietly). Raises
-    on a network/API error so the caller can log the reason. Runs synchronously —
-    call from a worker thread."""
+    API lists no (non-beta) uploads (the caller then skips the update check
+    quietly). Raises on a network/API error so the caller can log the reason.
+    Runs synchronously — call from a worker thread."""
     game = game or {"url": CSPECT_ITCH_URL, "title": "CSpect"}
     listed = list_owned_uploads(game, api_key)
     if listed is None:
         return None  # not owned / no download key / no uploads
     game_id, key_id, uploads = listed
+    # The install path downloads uploads[0] (exactly what the prompt named),
+    # so the betas must be filtered OUT OF THE LIST, not merely skipped over
+    # when choosing "newest" — otherwise the prompt and the download could
+    # disagree about which build is meant.
+    uploads = [u for u in uploads
+               if "beta" not in (u.get("filename") or "").lower()
+               and "beta" not in (u.get("version_name") or "").lower()]
+    if not uploads:
+        return None  # only BETA builds listed — nothing the updater may offer
     newest = uploads[0]
     return {
         "game": game,

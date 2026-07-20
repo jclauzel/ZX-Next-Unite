@@ -49,6 +49,7 @@ opt_always_sync = False
 opt_sync_once = False
 opt_verbose = False   # -v: per-packet / per-command logging (off by default)
 opt_http_port = 0     # -http[=port]: NextSync HTTP bridge (0 = off)
+opt_forceexit = ''    # -forceexit[=host[:port]]: call a bridge's /forceexit and exit
 # How to treat an incoming (-send) file/dir that already exists locally:
 #   "prompt"    - ask at the console (default)
 #   "overwrite" - always overwrite
@@ -475,7 +476,7 @@ LISTEN_HELP = """\
     psize [drive]              free space on a partition, in bytes (dot v5.2+)
     pfull [drive]              free space on a partition, human-readable (dot v5.2+)
     help                       show this help
-    quit                       tell the Next to leave -listen and disconnect
+    quit | forceexit           tell the Next to leave -listen and disconnect
 """
 
 def _listen_recv_reply(conn, handler):
@@ -690,9 +691,10 @@ def _listen_console_reader(cmd_q):
             cmd_q.put((verb, a1, ""))
         elif verb == "help":
             print(LISTEN_HELP)
-        elif verb in ("quit", "exit", "bye"):
+        elif verb in ("quit", "exit", "bye", "forceexit"):
             # Ends the CURRENT Next session (sends 'Q'); the server keeps
             # listening for a reconnection. Ctrl-C stops the server itself.
+            # "forceexit" is the same thing under the HTTP bridge's name.
             cmd_q.put(("quit", "", ""))
         else:
             print(f"  unknown command: {verb} (try 'help')")
@@ -1074,6 +1076,38 @@ def _listen_session_inner(conn, stats, _test_commands=None):
     # accepting, so a restarted '.sync5 -listen' reconnects.
     print(f'{timestamp()} | listen: the Next disconnected - waiting for a new connection.')
 
+def _cli_forceexit(target):
+    """-forceexit[=host[:port]]: act as a plain HTTP client against an
+    already-RUNNING NextSync HTTP bridge (this server started with -w/-http,
+    or the ZX-Next-Unite app's) and call its /forceexit route — telling the
+    Next connected there in '.sync5 -listen' to close the connection and
+    exit gracefully to BASIC. Stdlib only (no Flask needed on this side).
+    Returns the process exit code: 0 = the Next was told to exit."""
+    import urllib.request
+    import urllib.error
+    if '://' not in target:
+        target = 'http://' + target
+    url = target.rstrip('/') + '/forceexit'
+    try:
+        # The route waits for the Next's next poll (bridge timeout 45 s);
+        # give the client a little more than that.
+        with urllib.request.urlopen(url, timeout=60) as r:
+            print(r.read().decode(errors='replace').strip())
+            return 0
+    except urllib.error.HTTPError as e:
+        # Real bridge answer with an error status (503 = no Next connected,
+        # 504 = the Next never polled): show its own message.
+        body = e.read().decode(errors='replace').strip()
+        print(body or f"HTTP {e.code}")
+        return 1
+    except OSError as ex:
+        print(f"Could not reach {url}: {ex}")
+        print("Is the HTTP bridge running there? Start it with "
+              "'nextsync5.py -w' / '-http=<port>' or the app's Settings "
+              "toggle, or point at it with -forceexit=<host[:port]>.")
+        return 1
+
+
 def _start_http_bridge(port):
     """-w / -http: start the NextSync HTTP bridge (zxnu_http_bridge, Flask)
     so any HTTP client — a Next running the .http dot command, curl, a
@@ -1098,7 +1132,8 @@ def _start_http_bridge(port):
         # Canonical bridge op -> this server's (verb, a1, a2, reply) tuples.
         verbs = {"ls": "ls", "get": "get", "mkdir": "mkdir", "rmdir": "rmdir",
                  "rm": "rm", "ren": "ren", "rcpy": "rcpy", "rfsize": "rfsize",
-                 "free": "psize", "drives": "drives"}
+                 "free": "psize", "drives": "drives",
+                 "forceexit": "quit"}   # /forceexit -> the session's quit ('Q')
         if op == "put":
             return ("put", a2, a1, reply)   # session order: (local, remote)
         if op in verbs:
@@ -1123,7 +1158,8 @@ def _start_http_bridge(port):
     ok, err = bridge.start()
     if ok:
         print(f"{timestamp()} | HTTP bridge on port {port}: /status /ls /get "
-              "/put /mkdir /rmdir /rm /ren /rcpy /rfsize /free /drives")
+              "/put /mkdir /rmdir /rm /ren /rcpy /rfsize /free /drives "
+              "/forceexit")
         if opt_verbose:
             print(f"{timestamp()} | HTTP bridge: -v request/response logging "
                   "is ON")
@@ -1433,6 +1469,16 @@ for x in sys.argv[1:]:
         except ValueError:
             print(f"Bad -http port in '{x}' (want -w, -http or -http=8080)")
             quit()
+    elif x == '-forceexit' or x.startswith('-forceexit='):
+        # One-shot client mode: call /forceexit on a running HTTP bridge
+        # (default 127.0.0.1:80) so the Next connected there in
+        # '.sync5 -listen' closes the connection and exits to BASIC,
+        # then quit — the sync server itself is NOT started.
+        opt_forceexit = x.split('=', 1)[1] if '=' in x else '127.0.0.1:80'
+        if not opt_forceexit:
+            print(f"Bad -forceexit target in '{x}' "
+                  "(want -forceexit or -forceexit=host[:port])")
+            quit()
     elif x == '-s':
         MAX_PAYLOAD = 256
     elif x == '-u':
@@ -1471,6 +1517,15 @@ for x in sys.argv[1:]:
             - Same as -w, with an optional custom port.
               Combine with -v to log every HTTP request, its payload and
               the response on the console for troubleshooting.
+        -forceexit / -forceexit=<host[:port]>
+            - One-shot: tell the Next connected in '.sync5 -listen' to close
+              the connection and exit gracefully to BASIC, by calling the
+              /forceexit route of an already-running HTTP bridge (default
+              127.0.0.1:80 - this server's -w/-http, or the ZX-Next-Unite
+              app's). Prints the bridge's reply and exits; the sync server
+              itself is not started. In PowerShell quote the dotted form:
+              "-forceexit=192.168.1.10:8080" (PowerShell splits it at the
+              dots otherwise).
         -s  - Use safe payload size (256 bytes). Slower, but more robust.
               Use this if you get a lot of retries.
         -u  - To live on the edge, you can try to use really unsafe payload
@@ -1490,4 +1545,6 @@ for x in sys.argv[1:]:
 # Guarded so the module can be imported (e.g. by tests) without launching the
 # server. Standalone `python nextsync5.py` behaviour is unchanged.
 if __name__ == "__main__":
+    if opt_forceexit:
+        sys.exit(_cli_forceexit(opt_forceexit))
     main()

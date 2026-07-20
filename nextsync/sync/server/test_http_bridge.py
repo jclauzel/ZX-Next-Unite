@@ -104,6 +104,8 @@ def phase_a():
             return ("free", a1, reply)
         if op == "drives":
             return ("drives", reply)
+        if op == "forceexit":
+            return ("quit", reply)
         return None
 
     def enqueue(cmd):
@@ -193,13 +195,17 @@ def phase_a():
     check("A /drives", st == 200 and b"partitions: 2" in body, body)
 
     st, body = http(HTTP_A, "/help")
-    check("A /help lists routes", st == 200 and b"/rcpy" in body and b"/status" in body)
+    check("A /help lists routes", st == 200 and b"/rcpy" in body
+          and b"/status" in body and b"/forceexit" in body)
 
     st, body = http(HTTP_A, "/ls")   # defaults to "/"
     check("A /ls default path", st == 200, body)
 
-    # End the session: the mock leaves on 'Q', the worker then disconnects.
-    cmd_q.put(("quit",))
+    # End the session over HTTP: /forceexit sends 'Q', the mock leaves, the
+    # worker fills the bridge reply and disconnects.
+    st, body = http(HTTP_A, "/forceexit?json=1")
+    j = json.loads(body)
+    check("A /forceexit", st == 200 and j["ok"], j)
     check("A disconnected", wait_until(lambda: not state["connected"]))
     st, body = http(HTTP_A, "/status?json=1")
     j = json.loads(body)
@@ -233,6 +239,8 @@ def phase_b():
     check("B /status before session", st == 200 and not j["connected"], j)
     st, body = http(HTTP_B, "/mkdir?path=/x")
     check("B command without session -> 503", st == 503, body)
+    st, body = http(HTTP_B, "/forceexit")
+    check("B /forceexit without session -> 503", st == 503, body)
 
     entries = [(True, 0, "GAMES"), (False, 1234, "boot.bas")]
     filebytes = b"Hi from nextsync5\r\n" * 3
@@ -281,9 +289,14 @@ def phase_b():
     st, body = http(HTTP_B, "/rmtree?path=/del")
     check("B /rmtree unsupported -> 501", st == 501, body)
 
-    nextsync5._listen_queue().put(("quit", "", ""))
+    # End the session through the CLI client (-forceexit): same /forceexit
+    # route, driven by nextsync5's own stdlib HTTP caller.
+    rc = nextsync5._cli_forceexit(f"127.0.0.1:{HTTP_B}")
+    check("B -forceexit CLI", rc == 0, rc)
     check("B session ended",
           wait_until(lambda: not nextsync5._listen_state['active']))
+    rc = nextsync5._cli_forceexit("127.0.0.1:1")   # nothing listens there
+    check("B -forceexit unreachable -> 1", rc == 1, rc)
     st, body = http(HTTP_B, "/status?json=1")
     j = json.loads(body)
     check("B /status after quit", st == 200 and not j["connected"], j)
