@@ -299,6 +299,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QSpinBox,
+    QSplitter,
     QStackedWidget,
     QStyle,
     QTableWidget,
@@ -3497,10 +3498,22 @@ class MainWindow(QMainWindow):
                 # Load configuration dictionary
                 pass
 
-                with open(ZX_NEXT_UNITE_CONFIG_FILE_NAME, "r") as config_file:
-                    for line in config_file:
-                        config_setting_name, config_setting_value = line.strip().split('=', 1)
-                        configuration_dictionary[config_setting_name] = config_setting_value
+                # The cfg is written as UTF-8 (see save_configuration_file);
+                # decode it explicitly instead of trusting the Windows locale
+                # code page. Files written by older versions used that locale
+                # encoding, so fall back to cp1252 when strict UTF-8 fails —
+                # otherwise one accented character would abort the whole load.
+                with open(ZX_NEXT_UNITE_CONFIG_FILE_NAME, "rb") as config_file:
+                    _cfg_bytes = config_file.read()
+                try:
+                    _cfg_text = _cfg_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    _cfg_text = _cfg_bytes.decode("cp1252", errors="replace")
+                for line in _cfg_text.splitlines():
+                    if not line.strip():
+                        continue
+                    config_setting_name, config_setting_value = line.strip().split('=', 1)
+                    configuration_dictionary[config_setting_name] = config_setting_value
 
 
                 #  Now set the settings back to the application SETTING_SCREENSIZE and others
@@ -3957,6 +3970,27 @@ class MainWindow(QMainWindow):
                     finally:
                         self._re_open_restoring = False
 
+                # Restore the saved splitter positions (SD Card explorers ⇄
+                # log, GetIt results ⇄ MOTD). The window is not shown yet, so
+                # QSplitter re-applies the sizes on first layout; the stretch
+                # factors (top pane 1, bottom pane 0) absorb any difference
+                # between the saved and actual window height, keeping the
+                # bottom pane at its saved height.
+                for _split_key, _split_attr in (
+                    (SETTING_SDCARD_SPLITTER, "sdcard_splitter"),
+                    (SETTING_GETIT_SPLITTER,  "getit_splitter"),
+                ):
+                    _split_pref = str(configuration_dictionary.get(
+                        _split_key, "")).strip()
+                    _split_widget = getattr(self, _split_attr, None)
+                    if _split_pref and _split_widget is not None:
+                        try:
+                            _top, _bottom = (int(_v) for _v in _split_pref.split(",")[:2])
+                            if _top > 0 and _bottom > 0:
+                                _split_widget.setSizes([_top, _bottom])
+                        except (TypeError, ValueError):
+                            pass
+
                 # Restore the SD Card retro 8-bit log mode the same way.
                 _sdcard_pg_pref = configuration_dictionary.get(
                     SETTING_SDCARD_PYGAME_LOG, "").strip().lower()
@@ -4244,7 +4278,12 @@ class MainWindow(QMainWindow):
             try:
 
                 config_array = []
-                with open(ZX_NEXT_UNITE_CONFIG_FILE_NAME, "w") as config_file:
+                # Explicit UTF-8: settings values include free-form JSON (the
+                # favorites list keeps raw API metadata — Cyrillic titles etc.)
+                # which the Windows locale code page cannot encode; without
+                # this the write raised UnicodeEncodeError and truncated the
+                # cfg, losing the favorites and every setting after them.
+                with open(ZX_NEXT_UNITE_CONFIG_FILE_NAME, "w", encoding="utf-8") as config_file:
                     for cs in CONFIG_FILE_SETTINGS:
                         config_array.append(cs + "=" + str(configuration_dictionary[cs]) + '\n')
 
@@ -9940,8 +9979,8 @@ class MainWindow(QMainWindow):
         self.horizontal1 = QHBoxLayout()
         self.horizontal2 = QHBoxLayout()
         # horizontal3 (explorers) and horizontal4 (Path) are now the
-        # sdcard_explorer_grid built further below.
-        self.horizontal5 = QHBoxLayout()
+        # sdcard_explorer_grid built further below; horizontal5 (the log row)
+        # became the bottom pane of the explorers ⇄ log splitter.
         # (horizontal6 replaced by the MAME / CSpect QGroupBox rows built below.)
 
         # nextsync horizontals
@@ -10392,7 +10431,11 @@ class MainWindow(QMainWindow):
         self.sdcard_explorer_grid.setColumnStretch(2, 1)
         self.sdcard_explorer_grid.setRowStretch(0, 1)
 
-        self.zx_next_unite_form.addRow(self.sdcard_explorer_grid)
+        # The grid lives in a plain container widget so it can form the top
+        # pane of the explorers ⇄ log splitter; the splitter (and with it this
+        # whole area) is added to the form once the log window exists below.
+        self.sdcard_explorer_container = QWidget()
+        self.sdcard_explorer_container.setLayout(self.sdcard_explorer_grid)
 
         self.listWidgetLog = QListWidget(self)
 
@@ -10405,8 +10448,9 @@ class MainWindow(QMainWindow):
             add_help_content(l, False)
 
 
-        self.listWidgetLog.setMinimumHeight(120)
-        self.listWidgetLog.setMaximumHeight(160)
+        # Height is governed by the explorers ⇄ log splitter (built below);
+        # only keep a small floor so the log can never be dragged away entirely.
+        self.listWidgetLog.setMinimumHeight(60)
         # self.listWidgetLog.setMinimumWidth(410)
         # self.listWidgetLog.setMaximumWidth(410)
 
@@ -10509,8 +10553,7 @@ class MainWindow(QMainWindow):
             "Requires the optional 'pygame-ce' package.")
 
         self.main_log_stack = QStackedWidget(self)
-        self.main_log_stack.setMinimumHeight(120)
-        self.main_log_stack.setMaximumHeight(160)
+        self.main_log_stack.setMinimumHeight(60)
         self.main_log_stack.addWidget(self.listWidgetLog)
 
         self.main_log_container = QWidget(self)
@@ -10530,7 +10573,9 @@ class MainWindow(QMainWindow):
                 scrollable=True, follow_tail=True, context_copy=True,
                 font_px=getattr(self, "_retro_log_font_size",
                                 DEFAULT_RETRO_LOG_FONT_SIZE))
-            widget.setMinimumHeight(120)
+            # Same floor as the classic log so the splitter can shrink either
+            # log mode equally.
+            widget.setMinimumHeight(60)
             try:
                 widget.enable_background(getattr(self, "_nextsync_pygame_anim", True))
             except Exception:
@@ -10598,11 +10643,38 @@ class MainWindow(QMainWindow):
 
         self.main_pygame_button.toggled.connect(_main_on_pygame_toggled)
 
-        # Log window occupies the full row width now that the New Folder /
-        # Delete buttons have moved up under the disk image explorer.
-        self.horizontal5.addWidget(self.main_log_container)
+        # Explorers ⇄ log splitter: a draggable horizontal grabber between the
+        # explorer area (ending with its Path box) and the Retro/Classic log
+        # window, so the explorers can be made taller at the log's expense and
+        # vice versa. Extra space from resizing the window still goes to the
+        # explorers (stretch factor 1 vs 0); neither pane can be collapsed to
+        # nothing, and the log opens at its usual ~160 px height.
+        self.sdcard_splitter = QSplitter(Qt.Vertical)
+        self.sdcard_splitter.addWidget(self.sdcard_explorer_container)
+        self.sdcard_splitter.addWidget(self.main_log_container)
+        self.sdcard_splitter.setChildrenCollapsible(False)
+        self.sdcard_splitter.setStretchFactor(0, 1)
+        self.sdcard_splitter.setStretchFactor(1, 0)
+        self.sdcard_splitter.setHandleWidth(8)
+        self.sdcard_splitter.setSizes([500, 160])
+        self.sdcard_splitter.handle(1).setToolTip(
+            "Drag to resize the file explorers / log window split.")
 
-        self.zx_next_unite_form.addRow(self.horizontal5)
+        def _splitter_persist_on_move(splitter, setting_key):
+            """Persist *splitter*'s pane sizes under *setting_key* on every
+            user drag. splitterMoved only fires for real drags (never for
+            programmatic setSizes, including the restore in
+            load_configuration_file), so a restore can't echo back into the
+            file; save_configuration_file is a no-op while _initialising."""
+            def _on_moved(_pos, _index):
+                configuration_dictionary[setting_key] = ",".join(
+                    str(_s) for _s in splitter.sizes())
+                save_configuration_file()
+            splitter.splitterMoved.connect(_on_moved)
+
+        _splitter_persist_on_move(self.sdcard_splitter, SETTING_SDCARD_SPLITTER)
+
+        self.zx_next_unite_form.addRow(self.sdcard_splitter)
 
         # Add action buttons at the bottom, split into two titled groups so the
         # MAME and CSpect controls read as separate emulators rather than one
@@ -12508,7 +12580,8 @@ class MainWindow(QMainWindow):
         getit_table_row.addWidget(getit_right_widget)
         getit_table_container = QWidget()
         getit_table_container.setLayout(getit_table_row)
-        self.getit_form.addRow(getit_table_container)
+        # Not added to the form directly: this container becomes the top pane
+        # of the results ⇄ MOTD splitter assembled below the detail panel.
 
         # --- Detail panel ---
         getit_detail_outer = QHBoxLayout()
@@ -12539,16 +12612,54 @@ class MainWindow(QMainWindow):
 
         getit_detail_container = QWidget()
         getit_detail_container.setLayout(getit_detail_outer)
-        self.getit_form.addRow(getit_detail_container)
 
-
+        # Top pane of the results ⇄ MOTD splitter: the results area plus the
+        # (currently empty) detail panel, so the grab handle sits directly
+        # above the MOTD text.
+        getit_top_pane = QWidget()
+        _getit_top_v = QVBoxLayout(getit_top_pane)
+        _getit_top_v.setContentsMargins(0, 0, 0, 0)
+        _getit_top_v.setSpacing(0)
+        _getit_top_v.addWidget(getit_table_container, 1)
+        _getit_top_v.addWidget(getit_detail_container, 0)
 
         # --- MOTD ---
 
         self.getit_motd_text = QLabel("")
         self.getit_motd_text.setWordWrap(True)
         self.getit_motd_text.setStyleSheet("color: #888; font-style: italic;")
-        self.getit_form.addRow(self.getit_motd_text)
+        self.getit_motd_text.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+
+        # The label lives in a frameless transparent scroller so a long MOTD
+        # stays readable (scrolls) when its splitter pane is dragged small.
+        getit_motd_scroll = QScrollArea()
+        getit_motd_scroll.setWidget(self.getit_motd_text)
+        getit_motd_scroll.setWidgetResizable(True)
+        getit_motd_scroll.setFrameShape(QFrame.NoFrame)
+        getit_motd_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        getit_motd_scroll.setAutoFillBackground(False)
+        getit_motd_scroll.setAttribute(Qt.WA_TranslucentBackground)
+        getit_motd_scroll.viewport().setAutoFillBackground(False)
+        getit_motd_scroll.viewport().setAttribute(Qt.WA_TranslucentBackground)
+        getit_motd_scroll.setMinimumHeight(24)
+
+        # Results ⇄ MOTD splitter, mirroring the SD Card tab's explorers ⇄ log
+        # one: drag the horizontal grabber to grow the results/gallery area at
+        # the MOTD's expense or vice versa. The position is persisted to the
+        # cfg on every drag and restored in load_configuration_file.
+        self.getit_splitter = QSplitter(Qt.Vertical)
+        self.getit_splitter.addWidget(getit_top_pane)
+        self.getit_splitter.addWidget(getit_motd_scroll)
+        self.getit_splitter.setChildrenCollapsible(False)
+        self.getit_splitter.setStretchFactor(0, 1)
+        self.getit_splitter.setStretchFactor(1, 0)
+        self.getit_splitter.setHandleWidth(8)
+        self.getit_splitter.setSizes([500, 60])
+        self.getit_splitter.handle(1).setToolTip(
+            "Drag to resize the results / MOTD split.")
+        _splitter_persist_on_move(self.getit_splitter, SETTING_GETIT_SPLITTER)
+
+        self.getit_form.addRow(self.getit_splitter)
 
         # Internal state
         self._getit_current_page = 1

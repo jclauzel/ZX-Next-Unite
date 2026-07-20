@@ -6067,6 +6067,27 @@ class PygameItemViewer(_Scene):
                 self._gif_players[_u] = player
                 player.start()
                 self.redraw()
+                return
+            # Single-frame GIF (zxArt serves many plain screenshots as .gif)
+            # or undecodable data. The static prefetch skipped this URL to
+            # avoid downloading it twice, so decode the bytes we already have
+            # into the shot cache — otherwise the viewer would sit on
+            # "Loading…" forever with no picture ever arriving. A failed
+            # download / decode is dropped from the cycle like any broken
+            # image URL.
+            surf = None
+            if data:
+                try:
+                    img = QImage.fromData(bytes(data))
+                    if not img.isNull():
+                        surf = qimage_to_surface(img)
+                except Exception:
+                    surf = None
+            if surf is not None:
+                self._shot_cache[_u] = surf
+                self.redraw()
+            else:
+                self._drop_url(_u)
 
         try:
             self._gif_fetch(url, _on_bytes)
