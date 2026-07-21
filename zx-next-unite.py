@@ -11576,7 +11576,7 @@ class MainWindow(QMainWindow):
                 add_nextsync_log_window(
                     f"NextSync HTTP bridge listening on port {port} "
                     "(routes: /status /ls /get /put /mkdir /rmdir /rmtree "
-                    "/rm /ren /rcpy /rfsize /free /drives)")
+                    "/rm /ren /rcpy /rfsize /sum /free /drives)")
                 self._show_toast(
                     "NextSync HTTP bridge started",
                     f"Serving on port {port}. A Next with the .http dot "
@@ -23928,8 +23928,8 @@ class MainWindow(QMainWindow):
                 "Starts a small self-hosted web server (Flask, port 80 by default —\n"
                 "change it with the port box on the right) that republishes\n"
                 "the Remote Explorer's '.sync5 -listen' session as HTTP routes:\n"
-                "/status /ls /get /put /mkdir /rmdir /rmtree /rm /ren /rcpy /rfsize /forceexit\n"
-                "/free /drives. A Spectrum Next running the built-in .http dot\n"
+                "/status /ls /get /put /mkdir /rmdir /rmtree /rm /ren /rcpy /rfsize /sum\n"
+                "/forceexit /free /drives. A Spectrum Next running the built-in .http dot\n"
                 "command (HTTP only, no TLS) — or curl, or a browser — can then\n"
                 "drive the file system of the Next connected in -listen mode.\n"
                 "The server starts automatically with the app while this is enabled\n"
@@ -23952,7 +23952,9 @@ class MainWindow(QMainWindow):
         self.settings_http_port_spinbox = QSpinBox()
         self.settings_http_port_spinbox.setRange(1, 65535)
         self.settings_http_port_spinbox.setValue(80)
-        self.settings_http_port_spinbox.setFixedWidth(70)
+        # No fixed pixel width: the spinbox sizes itself to its widest value
+        # ("65535"), which keeps the digits readable at any font size / DPI
+        # scaling (a hard-coded width truncated them on scaled displays).
         _http_port_tip = (
             "TCP port the HTTP bridge listens on (default 80, what the Next's\n"
             ".http dot command talks to by default). Saved to hdfg.cfg\n"
@@ -23989,7 +23991,7 @@ class MainWindow(QMainWindow):
         self.settings_http_conn_spinbox = QSpinBox()
         self.settings_http_conn_spinbox.setRange(1, 32)
         self.settings_http_conn_spinbox.setValue(1)
-        self.settings_http_conn_spinbox.setFixedWidth(55)
+        # Sized to content for the same font-size/DPI reason as the port box.
         _http_conn_tip = (
             "Maximum number of HTTP requests the bridge serves concurrently\n"
             "(default 1). The recommended value is 1 to avoid concurrent\n"

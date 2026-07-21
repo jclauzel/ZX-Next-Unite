@@ -1160,7 +1160,7 @@ def _start_http_bridge(port):
     ok, err = bridge.start()
     if ok:
         print(f"{timestamp()} | HTTP bridge on port {port}: /status /ls /get "
-              "/put /mkdir /rmdir /rm /ren /rcpy /rfsize /free /drives "
+              "/put /mkdir /rmdir /rm /ren /rcpy /rfsize /sum /free /drives "
               "/forceexit")
         if opt_verbose:
             print(f"{timestamp()} | HTTP bridge: -v request/response logging "

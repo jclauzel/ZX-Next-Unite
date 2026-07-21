@@ -23,3 +23,7 @@ hdfg.cfg
 syncpoint.dat
 downloads/
 zx-next-unite-crash.log
+
+# Local CSpect plugin downloads (UART Replacement etc.), kept out of the repo
+CSpectPlugins-*.zip
+CSpectPlugins-*/

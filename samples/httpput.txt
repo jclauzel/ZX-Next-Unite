@@ -1,0 +1,40 @@
+#program httpput
+#autostart 10
+10 REM upload a file to a remote Next through the ZX-Next-Unite
+20 REM HTTP bridge, in 16K bank chunks, then verify its checksum.
+30 REM works on real hardware, CSpect (ascii files - see the docs)
+40 REM and MAME with the jesperl ESP-AT emulator. no -7 needed:
+50 REM every reply used here is plain 7-bit ascii.
+60 RUN AT 3
+70 LET h$="192.168.1.10": REM PC running the bridge
+80 LET f$="sample-4k.txt": REM local file to upload
+90 LET r$="/incoming/sample-4k.txt": REM destination on the remote Next
+100 BANK NEW b: LET b$=STR$ b
+110 OPEN #4,f$
+120 DIM #4 TO t: REM t = local file length in bytes
+130 LET u$="/put?path="+r$+"&append=1&size="+STR$ t
+140 LET c=0: LET o=0
+150 REM ---- send loop: fill the bank, POST it, repeat ----
+160 IF o=t THEN GO TO 250
+170 LET l=t-o: IF l>16384 THEN LET l=16384
+180 FOR i=0 TO l-1
+190 LET d=CODE INKEY$#4
+200 BANK b POKE i,d
+210 LET c=c+d: IF c>=65536 THEN LET c=c-65536
+220 NEXT i
+230 LET l$=STR$ l
+240 .http post -b b$ -l l$ -h h$ -u u$
+245 LET o=o+l: GO TO 160
+250 CLOSE #4
+260 PRINT "sent ";t;" bytes, local checksum ";c
+270 REM ---- fetch the remote file's checksum from the bridge ----
+280 LET u$="/sum?path="+r$+"&bare=1"
+290 .http -h h$ -u u$ -f sum.txt
+300 LET s=0
+310 OPEN #4,"sum.txt"
+320 LET k$=INKEY$#4
+330 IF k$>="0" AND k$<="9" THEN LET s=s*10+CODE k$-48: GO TO 320
+340 CLOSE #4
+350 BANK CLEAR
+360 IF s=c THEN PRINT "checksum OK (";s;") - transfer verified"
+370 IF s<>c THEN PRINT "checksum MISMATCH: local ";c;", remote ";s
