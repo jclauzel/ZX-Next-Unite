@@ -1,0 +1,14 @@
+#program detectenvironnement
+#autostart 10
+10 REM detect run environment: Hardware / CSpect / MAME
+20 REM next reg 0 = machine id (8 emulator, 10 next board)
+30 REM next reg 1+14 = core version: MAME hardcodes 3.02.04
+40 OUT 9275,0: LET m=IN 9531
+50 OUT 9275,1: LET v=IN 9531
+60 OUT 9275,14: LET s=IN 9531
+70 LET e=0: IF v=50 AND s=4 THEN LET e=1: REM 50=0x32 -> core 3.02, sub 04
+80 IF m=250 OR e=1 THEN PRINT "MAME"
+90 IF m=10 AND e=0 THEN PRINT "Hardware"
+100 IF m=8 AND e=0 THEN PRINT "CSpect"
+110 IF m<>10 AND m<>8 AND m<>250 AND e=0 THEN PRINT "Unknown (id ";m;")"
+120 PRINT "id=";m;" core=";INT (v/16);".";v-16*INT (v/16);".";s

@@ -47,6 +47,7 @@ Executor reply shapes (both hosts emit these):
     forceexit   {'ok': True}   (the Next then closes the link and exits)
 """
 
+import base64
 import importlib.util
 import json
 import os
@@ -235,6 +236,8 @@ class NextSyncHttpBridge:
         "  GET  /ren?from=/a&to=/b          rename / move\n"
         "  GET  /rcpy?src=/a&dst=m:/b       copy ON the Next (across drives)\n"
         "  GET  /rfsize?path=/games         total size of a file / tree\n"
+        "  GET  /sum?path=/f                16-bit additive checksum + size\n"
+        "       of one file (&bare=1: just the checksum digits)\n"
         "  GET  /forceexit                  make the Next leave -listen and exit\n")
 
     def __init__(self, host_adapter, listen_host="0.0.0.0", port=DEFAULT_PORT,
@@ -555,8 +558,14 @@ class NextSyncHttpBridge:
             if not res.get("ok"):
                 return fail(res, f"get {v[0]}")
             name = os.path.basename(v[0].rstrip("/"))
+            data = res.get("data") or b""
+            if request.args.get("b64") in ("1", "true", "yes"):
+                # Base64 body: 7-bit-safe for CSpect's emulated ESP, where
+                # the caller adds .http's -7 flag to decode it back.
+                return Response(base64.b64encode(data) + b"\n",
+                                mimetype="text/plain")
             return Response(
-                res.get("data") or b"", mimetype="application/octet-stream",
+                data, mimetype="application/octet-stream",
                 headers={"Content-Disposition":
                          f'attachment; filename="{name}"'})
 
@@ -630,6 +639,30 @@ class NextSyncHttpBridge:
                 return fail(res, f"put {path}")
             return answer({"ok": True, "path": path, "bytes": len(body)},
                           [f"OK put {path} ({len(body)} bytes)"])
+
+        def _sum16(data):
+            return sum(data) & 0xFFFF
+
+        @app.route("/sum")
+        def _sum():
+            """16-bit additive checksum (sum of all bytes mod 65536) + size
+            of one remote file. Cheap for a NextBASIC caller to mirror while
+            it uploads, so a transfer can be verified end-to-end; &bare=1
+            answers just the checksum digits for trivial parsing."""
+            v = need(("path", "file"))
+            if not v:
+                return bad("missing ?path=")
+            res = run("get", v[0])
+            if not res.get("ok"):
+                return fail(res, f"sum {v[0]}")
+            data = res.get("data") or b""
+            csum = _sum16(data)
+            if request.args.get("bare") in ("1", "true", "yes"):
+                return Response(f"{csum}\n", mimetype="text/plain")
+            return answer(
+                {"ok": True, "path": v[0], "bytes": len(data), "sum16": csum},
+                ["OK", f"path: {v[0]}", f"bytes: {len(data)}",
+                 f"sum16: {csum}"])
 
         # ---- single-path verbs ---------------------------------------
         def _path_verb(op, what):

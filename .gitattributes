@@ -1,0 +1,6 @@
+# Byte-exact files: never CRLF-normalise these.
+# The sample upload payloads have documented 16-bit checksums computed over
+# their exact bytes (LF line endings included) - see HTTP_BRIDGE.md - and
+# .bas files are tokenised NextBASIC binaries.
+samples/sample-*.txt -text
+*.bas -text
