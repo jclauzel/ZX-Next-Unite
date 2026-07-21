@@ -176,6 +176,41 @@ class QueueBridgeHost:
                     shutil.rmtree(tmp, ignore_errors=True)
 
 
+class _ConnectionLimitMiddleware:
+    """WSGI wrapper bounding how many HTTP requests are processed at once.
+
+    Excess requests are not rejected — they block until a slot frees. With
+    the default limit of 1 the bridge is strictly serial, which matches the
+    '.sync5 -listen' session it drives (one command at a time) and avoids
+    concurrent access altogether.
+
+    The slot is held while the wrapped app produces the response and the
+    body is fully materialised, then released in this frame's ``finally`` —
+    deliberately NOT via a close() callback on the returned iterable:
+    werkzeug's serving handler drains the socket before calling close(),
+    and a client connection reset during that drain (routine on Windows)
+    skips the close() entirely, which would leak the slot forever.
+    Buffering is free here — every bridge response is small text or file
+    bytes already fully in memory."""
+
+    def __init__(self, wsgi_app, limit):
+        self._wsgi_app = wsgi_app
+        self._sem = threading.BoundedSemaphore(max(1, int(limit)))
+
+    def __call__(self, environ, start_response):
+        self._sem.acquire()
+        try:
+            rv = self._wsgi_app(environ, start_response)
+            try:
+                return list(rv)
+            finally:
+                close = getattr(rv, "close", None)
+                if close is not None:
+                    close()
+        finally:
+            self._sem.release()
+
+
 class NextSyncHttpBridge:
     """The Flask web server. Construct with a :class:`QueueBridgeHost` (or
     anything exposing ``state()`` and ``run()``), then :meth:`start` /
@@ -191,6 +226,8 @@ class NextSyncHttpBridge:
         "  GET  /ls?path=/games             directory listing\n"
         "  GET  /get?path=/games/a.tap      download one file (raw bytes)\n"
         "  POST /put?path=/games/a.tap      upload (request body = the file)\n"
+        "  POST /put?path=/f&append=1&size=N  chunked upload: POST pieces\n"
+        "       until N bytes arrived, then the file is written in one go\n"
         "  GET  /mkdir?path=/newdir         create a directory\n"
         "  GET  /rmdir?path=/olddir         remove an EMPTY directory\n"
         "  GET  /rmtree?path=/olddir        remove a directory recursively\n"
@@ -201,10 +238,14 @@ class NextSyncHttpBridge:
         "  GET  /forceexit                  make the Next leave -listen and exit\n")
 
     def __init__(self, host_adapter, listen_host="0.0.0.0", port=DEFAULT_PORT,
-                 log=None, verbose=False):
+                 log=None, verbose=False, connection_limit=1):
         self._adapter = host_adapter
         self._listen_host = listen_host
         self._port = int(port)
+        # How many HTTP requests may be served concurrently. 1 (the default
+        # and the recommended value) fully serialises the bridge, matching
+        # the serial -listen session behind it.
+        self._connection_limit = max(1, int(connection_limit or 1))
         self._log = log or (lambda s: None)
         # verbose: log every HTTP request (method, path, query, payload) and
         # its response (status, body) through self._log — the troubleshooting
@@ -221,6 +262,17 @@ class NextSyncHttpBridge:
         # disconnects), so /status can report partition counts without a
         # round-trip on every poll.
         self._drives_cache = None
+        # /put?append=1 chunked uploads: per-remote-path spool of the chunks
+        # received so far (the Next's .http can POST at most one 16K bank per
+        # request, so big files arrive in pieces). Guarded by its own lock —
+        # connection_limit may be >1.
+        self._put_spool = {}
+        self._spool_lock = threading.Lock()
+
+    # Hard cap on a single chunked upload's declared size: everything is
+    # assembled in memory before the one-shot push to the Next (just like a
+    # plain /put buffers its whole body), so refuse absurd declarations.
+    MAX_SPOOL = 256 * 1024 * 1024
 
     # ------------------------------------------------------------------
     @property
@@ -257,6 +309,8 @@ class NextSyncHttpBridge:
             lg.propagate = False
         app = Flask("zxnu_http_bridge")
         self._install_routes(app)
+        app.wsgi_app = _ConnectionLimitMiddleware(app.wsgi_app,
+                                                  self._connection_limit)
         # Pre-flight probe: werkzeug binds with SO_REUSEADDR, which on
         # Windows silently SUCCEEDS even when another program already owns
         # the port (the classic WinError 10048 only surfaces for exclusive
@@ -305,7 +359,9 @@ class NextSyncHttpBridge:
         self._thread = threading.Thread(target=server.serve_forever,
                                         daemon=True, name="zxnu-http-bridge")
         self._thread.start()
-        self._log(f"HTTP bridge: serving on port {self._port}")
+        self._log(f"HTTP bridge: serving on port {self._port} "
+                  f"(max {self._connection_limit} concurrent "
+                  f"connection{'s' if self._connection_limit != 1 else ''})")
         return True, ""
 
     def stop(self):
@@ -317,6 +373,8 @@ class NextSyncHttpBridge:
                 pass
             self._log("HTTP bridge: stopped")
         self._thread = None
+        with self._spool_lock:
+            self._put_spool.clear()   # drop any unfinished chunked uploads
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -502,6 +560,52 @@ class NextSyncHttpBridge:
                 headers={"Content-Disposition":
                          f'attachment; filename="{name}"'})
 
+        def _put_append(path, body):
+            """Chunked upload for callers that cannot send a whole file in
+            one request — the Next's .http POSTs at most one 16K bank.
+            Chunks accumulate in a bridge-side spool; when the declared
+            total (&size=) has arrived, the assembled file is pushed to the
+            Next in a single put (the -listen transfer handles any size).
+            Re-declaring a different size for the same path restarts the
+            upload, so a failed transfer can simply be sent again."""
+            try:
+                total = int(request.args.get("size") or "")
+            except ValueError:
+                total = -1
+            if total < 0:
+                return bad("append=1 needs &size=<total file bytes> "
+                           "(read the file's length first)")
+            if total > self.MAX_SPOOL:
+                return bad(f"size {total} exceeds the chunked-upload cap "
+                           f"of {self.MAX_SPOOL} bytes")
+            with self._spool_lock:
+                sp = self._put_spool.get(path)
+                if sp is None or sp["size"] != total:
+                    sp = {"size": total, "data": bytearray(), "chunks": 0}
+                    self._put_spool[path] = sp
+                sp["data"] += body
+                sp["chunks"] += 1
+                got, chunks = len(sp["data"]), sp["chunks"]
+                if got > total:
+                    del self._put_spool[path]
+                    return bad(f"append overflow: got {got} of {total} "
+                               "declared bytes - upload dropped, send it "
+                               "again from the first chunk")
+                if got < total:
+                    return answer(
+                        {"ok": True, "path": path, "done": False,
+                         "bytes": got, "size": total, "chunks": chunks},
+                        [f"OK append {path} ({got}/{total} bytes)"])
+                data = bytes(sp["data"])
+                del self._put_spool[path]
+            res = run("put", path, body=data)
+            if not res.get("ok"):
+                return fail(res, f"put {path}")
+            return answer({"ok": True, "path": path, "done": True,
+                           "bytes": total, "chunks": chunks},
+                          [f"OK put {path} ({total} bytes, "
+                           f"{chunks} chunks)"])
+
         @app.route("/put", methods=["POST", "PUT"])
         def _put():
             v = need(("path", "file"))
@@ -515,6 +619,12 @@ class NextSyncHttpBridge:
                                "or give the full file path")
                 path = path + name
             body = request.get_data() or b""
+            if request.args.get("append") in ("1", "true", "yes"):
+                return _put_append(path, body)
+            with self._spool_lock:
+                # A plain put overwrites: also discard any half-done chunked
+                # upload spooled for the same path.
+                self._put_spool.pop(path, None)
             res = run("put", path, body=body)
             if not res.get("ok"):
                 return fail(res, f"put {path}")

@@ -20,13 +20,16 @@ Co-developed with the assistance of **Claude** (Anthropic's AI).
 - ⭐ **Remote Explorer** — a two-pane file manager for your Next's **real
   filesystem over Wi-Fi**: browse, drag & drop, upload/download and manage files
   (new folder, delete) directly — no SD-card swapping. Run `.sync5 -listen` on
-  the Next to connect. See the
+  the Next to connect, and launch the app with the
+  `-start-remote-explorer-listener` switch to have the listen server running
+  from startup with no clicks. See the
   [Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki#remote-file-explorer).
 - ⭐ **HTTP bridge** — remote access to a Next's file system over plain **HTTP**:
   a built-in web server (Flask) republishes the Remote Explorer's `-listen`
   session as HTTP routes, so you can browse, download, upload and manage the
   Next's SD card from a browser, `curl` — or from **another Next** using the
-  built-in `.http` dot command. See the
+  built-in `.http` dot command. Enable it in the Settings tab (the port —
+  80 by default — is set in the box next to the toggle). See the
   [HTTP bridge documentation](nextsync/sync/server/HTTP_BRIDGE.md).
 - **Online libraries** — search and download from GetIt, ZXDB/ZXInfo, zxArt and
   (optionally) itch.io.
