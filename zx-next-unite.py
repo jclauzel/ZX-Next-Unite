@@ -2714,7 +2714,11 @@ class MainWindow(QMainWindow):
         self._clip_serial_counter = 0
         self._explorer_clip_serial = 0
         self._os_clip_serial = 0
-        self.left_file_nextsync_explorer_selection_file_name = ""
+        # The committed Classic-mode NextSync sync root ("" until chosen; always
+        # a directory). Changed only by the "Set current folder as new sync root
+        # folder" button, a folder path typed into the sync-root box, or the
+        # saved setting restored at startup — never by merely clicking or
+        # navigating in the explorer.
         self.left_file_nextsync_explorer_selection_full_filename_path = ""
         # Monotonic token used to discard stale background "prepare" scans whose
         # sync root changed before the scan finished.
@@ -3596,7 +3600,6 @@ class MainWindow(QMainWindow):
 
                     self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(configuration_dictionary[SETTING_EXPLORERPATH])))
                     self.left_file_explorer_selection_full_filename_path = configuration_dictionary[SETTING_EXPLORERPATH]
-                    self.file_explorer_path.setText(self.left_file_explorer_selection_full_filename_path)
 
                 if configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH] != "":
                     if not os.path.isdir(configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH]):
@@ -3606,6 +3609,10 @@ class MainWindow(QMainWindow):
                     self.nextsync_treeview.setRootIndex(self.nextsync_model.mapFromSource(self.nextsync_filesystem_model.index(configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH])))
                     self.left_file_nextsync_explorer_selection_full_filename_path = configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH]
                     self.nextsync_file_explorer_path.setText(self.left_file_nextsync_explorer_selection_full_filename_path)
+
+                # Restored (or empty) sync root: sync the "Set current folder as
+                # new sync root folder" button visibility with it.
+                _nextsync_update_set_syncroot_button()
 
                 # Select the "Sync mode" radio from the two legacy booleans.
                 # "Sync once" wins if a legacy config somehow had both set; with
@@ -6431,6 +6438,7 @@ class MainWindow(QMainWindow):
             drive = self.nextsync_diskdrive.currentText() or self.nextsync_diskdrive.itemText(0)
             self.nextsync_treeview.setRootIndex(self.nextsync_model.mapFromSource(self.nextsync_filesystem_model.index(drive)))
             self.nextsync_treeview.show()
+            _nextsync_update_set_syncroot_button()
             # The drive switcher also drives the Remote Explorer's local pane so
             # the user can change drive from within it.
             re_widget = getattr(self, "_re_widget", None)
@@ -7014,7 +7022,6 @@ class MainWindow(QMainWindow):
                     if platform.system() != "Windows":
                         self.left_file_explorer_selection_full_filename_path.replace("\\", '/')
 
-                    self.file_explorer_path.setText(self.left_file_explorer_selection_full_filename_path)
                     configuration_dictionary[SETTING_EXPLORERPATH] = self.left_file_explorer_selection_full_filename_path
                     save_configuration_file()
 
@@ -7056,8 +7063,6 @@ class MainWindow(QMainWindow):
             self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(selected_explorer_item_directory_destination, 0)))
             set_treeview_properties()
             self.treeview.show()
-
-            self.file_explorer_path.setText(selected_explorer_item_directory_destination)
 
             configuration_dictionary[SETTING_EXPLORERPATH] = selected_explorer_item_directory_destination
             save_configuration_file()
@@ -7670,39 +7675,19 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Delete failed", f"Could not delete:\n{file_path}\n\n{e}")
             nextsync_refresh_explorer()
 
-        def on_file_explorer_path_edited():
-            new_path = self.file_explorer_path.text().strip()
-            if os.path.exists(new_path):
-                norm = new_path.replace("\\", "/")
-                if not norm.endswith("/"):
-                    norm += "/"
-                self.left_file_explorer_selection_full_filename_path = norm
-                self.left_file_explorer_selection_file_name = ""
-                self.file_explorer_path.setText(norm)
-                self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(norm, 0)))
-                set_treeview_properties()
-                self.treeview.show()
-                configuration_dictionary[SETTING_EXPLORERPATH] = norm
-                save_configuration_file()
-            else:
-                # Restore the previous valid value
-                self.file_explorer_path.setText(self.left_file_explorer_selection_full_filename_path)
-
         def on_nextsync_file_explorer_path_edited():
+            # Typing a folder path into the sync-root box commits it as the new
+            # sync root (and navigates the explorer there). Files are rejected:
+            # the sync root is always a directory.
             new_path = self.nextsync_file_explorer_path.text().strip()
-            if os.path.exists(new_path):
+            if os.path.isdir(new_path):
                 norm = new_path.replace("\\", "/")
                 if not norm.endswith("/"):
                     norm += "/"
-                self.left_file_nextsync_explorer_selection_full_filename_path = norm
-                self.left_file_nextsync_explorer_selection_file_name = ""
-                self.nextsync_file_explorer_path.setText(norm)
                 self.nextsync_treeview.setRootIndex(self.nextsync_model.mapFromSource(self.nextsync_filesystem_model.index(norm, 0)))
                 set_treeview_properties()
                 self.nextsync_treeview.show()
-                configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH] = norm
-                save_configuration_file()
-                nextsync_show_sync_buttons_based_on_fileexplorer_content_selection()
+                _nextsync_commit_sync_root(norm)
             else:
                 # Restore the previous valid value
                 self.nextsync_file_explorer_path.setText(self.left_file_nextsync_explorer_selection_full_filename_path)
@@ -7805,44 +7790,13 @@ class MainWindow(QMainWindow):
 
             save_configuration_file()
 
-        def nextsync_on_treeview_clicked():
-
-            nextsync_hide_start_cancel_buttons()
-            self.nextsync_prepare_server.setVisible(True)
-
-            for ix in self.nextsync_treeview.selectedIndexes():
-                source_ix = self.nextsync_model.mapToSource(ix)
-
-                if self.nextsync_filesystem_model.fileName(source_ix) == "..":
-                    # Don't navigate on single-click; navigation happens on double-click.
-                    self.left_file_nextsync_explorer_selection_file_name = ""
-                    self.left_file_nextsync_explorer_selection_full_filename_path = ""
-                    break
-
-                else:
-
-                    self.left_file_nextsync_explorer_selection_file_name = self.nextsync_filesystem_model.fileName(source_ix)
-                    self.left_file_nextsync_explorer_selection_full_filename_path = self.nextsync_filesystem_model.filePath(source_ix)
-                    if platform.system() != "Windows":
-                        self.left_file_nextsync_explorer_selection_full_filename_path = self.left_file_nextsync_explorer_selection_full_filename_path.replace("\\", '/')
-
-                    self.nextsync_file_explorer_path.setText(self.left_file_nextsync_explorer_selection_full_filename_path)
-                    configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH] = self.left_file_nextsync_explorer_selection_full_filename_path
-                    save_configuration_file()
-
-                    nextsync_show_sync_buttons_based_on_fileexplorer_content_selection()
-                    # Re-run the Prepare scan for the newly selected root so the
-                    # "Ready to sync N files" log stays accurate and Start stays
-                    # available without an extra Prepare click.
-                    nextsync_perform_checks_and_prepare_server_start()
-                    break
-
         def nextsync_on_treeview_double_clicked(ix):
+            # Pure navigation: double-clicking a folder (or "..") only changes
+            # the folder being browsed. The sync root (the box below the
+            # explorer) is only changed via the "Set current folder as new sync
+            # root folder" button or by typing a folder path into the box.
             if not ix.isValid():
                 return
-
-            nextsync_hide_start_cancel_buttons()
-            self.nextsync_prepare_server.setVisible(True)
 
             source_ix = self.nextsync_model.mapToSource(ix)
             file_name = self.nextsync_filesystem_model.fileName(source_ix)
@@ -7864,22 +7818,58 @@ class MainWindow(QMainWindow):
             else:
                 return
 
-            self.left_file_nextsync_explorer_selection_file_name = ""
-            self.left_file_nextsync_explorer_selection_full_filename_path = selected_explorer_item_directory_destination
-
             self.nextsync_treeview.setRootIndex(self.nextsync_model.mapFromSource(self.nextsync_filesystem_model.index(selected_explorer_item_directory_destination, 0)))
             set_treeview_properties()
             self.nextsync_treeview.show()
 
-            self.nextsync_file_explorer_path.setText(selected_explorer_item_directory_destination)
+            _nextsync_update_set_syncroot_button()
 
-            configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH] = selected_explorer_item_directory_destination
+        def _nextsync_current_browse_dir():
+            """The folder the NextSync left explorer is currently showing."""
+            root_src = self.nextsync_model.mapToSource(self.nextsync_treeview.rootIndex())
+            path = self.nextsync_filesystem_model.filePath(root_src)
+            if not path:
+                return ""
+            path = path.replace("\\", "/")
+            if not path.endswith("/"):
+                path += "/"
+            return path
+
+        def _nextsync_commit_sync_root(path):
+            """Record `path` (a directory, forward slashes, trailing "/") as the
+            Classic sync root: shown in the sync-root box, persisted, and picked
+            up by the SyncIgnore/SyncPoint buttons and the prepare scan."""
+            self.left_file_nextsync_explorer_selection_full_filename_path = path
+            self.nextsync_file_explorer_path.setText(path)
+            configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH] = path
             save_configuration_file()
-
             nextsync_show_sync_buttons_based_on_fileexplorer_content_selection()
-            # Navigated into a new folder: re-run the Prepare scan so the file
-            # count log reflects the new root and Start stays available.
+            # Re-run the Prepare scan for the new root so the "Ready to sync N
+            # files" log stays accurate and Start stays available without an
+            # extra Prepare click.
             nextsync_perform_checks_and_prepare_server_start()
+            _nextsync_update_set_syncroot_button()
+
+        def _nextsync_update_set_syncroot_button():
+            """Offer "Set current folder as new sync root folder" only while the
+            browsed folder differs from the sync root shown in the box."""
+            current = _nextsync_current_browse_dir()
+            root = (self.left_file_nextsync_explorer_selection_full_filename_path
+                    or "").replace("\\", "/")
+            same = (current != "" and root != "" and
+                    os.path.normcase(current.rstrip("/")) == os.path.normcase(root.rstrip("/")))
+            self.nextsync_set_syncroot_button.setVisible(current != "" and not same)
+
+        def _nextsync_on_set_syncroot_clicked():
+            folder = _nextsync_current_browse_dir()
+            if not folder:
+                return
+            if QMessageBox.question(
+                    self, "Set sync root",
+                    "Set this folder as the new sync root?\n\n" + folder,
+                    QMessageBox.Yes | QMessageBox.Cancel,
+                    QMessageBox.Yes) == QMessageBox.Yes:
+                _nextsync_commit_sync_root(folder)
 
         def image_explorer_selection_changed(*_):
 
@@ -8787,7 +8777,6 @@ class MainWindow(QMainWindow):
                 self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(display_path, 0)))
                 set_treeview_properties()
                 self.treeview.show()
-                self.file_explorer_path.setText(display_path)
                 # Refresh the image tree asynchronously (the listing runs on a
                 # worker thread, so finishing an upload never blocks the UI).
                 update_disk_manager_widget_table()
@@ -9452,7 +9441,7 @@ class MainWindow(QMainWindow):
 
             if not (selected_nextsync_explorer_sync_root_directory and os.path.isdir(selected_nextsync_explorer_sync_root_directory)):
                 add_nextsync_log_window ("")
-                add_nextsync_log_window ("Select a folder in the left local file explorer to choose a sync root folder and then press the 'Start Classic NextSync server' button.")
+                add_nextsync_log_window ("Navigate to a folder in the left local file explorer, press 'Set current folder as new sync root folder' to choose a sync root and then press the 'Start Classic NextSync server' button.")
                 add_nextsync_log_window ("")
                 return
 
@@ -10596,17 +10585,6 @@ class MainWindow(QMainWindow):
         # image explorer (grid row 1, right column).
         self.sdcard_explorer_grid.addWidget(self.imageexplorerbuttonscontainer, 1, 2)
 
-        # Show Explorer selected Path
-
-        self.file_explorer_path = QLineEdit()
-        self.file_explorer_path.setText("-")
-        self.file_explorer_path.setPlaceholderText("Path...")
-        self.file_explorer_path.editingFinished.connect(on_file_explorer_path_edited)
-
-        # Path box in grid row 2, left column, so it matches the local file
-        # explorer's width instead of spanning the whole window.
-        self.sdcard_explorer_grid.addWidget(self.file_explorer_path, 2, 0)
-
         # Add Log Window
         # Optional retro 8-bit pygame log for the SD Card tab, mirroring the one on
         # the NextSync tab. Pygame is optional: the toggle disables itself with an
@@ -11297,7 +11275,6 @@ class MainWindow(QMainWindow):
         self.nextsync_treeview.show()
         self.nextsync_treeview.setColumnWidth(0, 250)
 
-        self.nextsync_treeview.clicked.connect(nextsync_on_treeview_clicked)
         self.nextsync_treeview.doubleClicked.connect(nextsync_on_treeview_double_clicked)
         self.nextsync_treeview.setContextMenuPolicy(Qt.CustomContextMenu)
         self.nextsync_treeview.customContextMenuRequested.connect(nextsync_on_treeview_context_menu)
@@ -11386,14 +11363,33 @@ class MainWindow(QMainWindow):
 
         self.nextsync_container_fileexplorer_and_buttons_buttons.addWidget(self.nextsync_treeview)
 
-        # Show Explorer selected Path
+        # Sync-root box + "Set current folder as new sync root folder" button.
+        # The box shows the committed Classic sync root; it no longer follows
+        # clicks in the explorer above (navigating and choosing the sync root
+        # are separate actions). The button appears only while browsing a
+        # different folder than the sync root and asks for confirmation before
+        # committing.
 
         self.nextsync_file_explorer_path = QLineEdit()
         self.nextsync_file_explorer_path.setText("-")
-        self.nextsync_file_explorer_path.setPlaceholderText("Path...")
+        self.nextsync_file_explorer_path.setPlaceholderText("Sync root folder...")
+        self.nextsync_file_explorer_path.setToolTip(
+            "Sync root: the folder the Classic NextSync server syncs from.\n"
+            "Type a folder path here, or navigate the explorer above and press\n"
+            "'Set current folder as new sync root folder'.")
         self.nextsync_file_explorer_path.editingFinished.connect(on_nextsync_file_explorer_path_edited)
 
-        self.nextsync_container_fileexplorer_and_buttons_buttons.addWidget(self.nextsync_file_explorer_path)
+        self.nextsync_set_syncroot_button = QPushButton("Set current folder as new sync root folder", self)
+        self.nextsync_set_syncroot_button.setToolTip(
+            "Make the folder currently shown in the explorer above the new sync root.")
+        self.nextsync_set_syncroot_button.clicked.connect(_nextsync_on_set_syncroot_clicked)
+        self.nextsync_set_syncroot_button.setVisible(False)
+
+        self.nextsync_syncroot_row = QHBoxLayout()
+        self.nextsync_syncroot_row.setContentsMargins(0, 0, 0, 0)
+        self.nextsync_syncroot_row.addWidget(self.nextsync_file_explorer_path, 1)
+        self.nextsync_syncroot_row.addWidget(self.nextsync_set_syncroot_button)
+        self.nextsync_container_fileexplorer_and_buttons_buttons.addLayout(self.nextsync_syncroot_row)
 
 
         self.horizontal12.addWidget(self.nextsync_fileexplorer_and_buttons_container)
@@ -11634,7 +11630,7 @@ class MainWindow(QMainWindow):
         # 'Start Remote Explorer NextSync server' button text shown once a sync
         # root is chosen.
         _RE_START_TEXT = "▶ Start Remote Explorer NextSync server"
-        _RE_NO_ROOT_TEXT = "Please select a sync root folder on the left local file explorer"
+        _RE_NO_ROOT_TEXT = "Please set a sync root folder on the left local file explorer"
 
         def _re_update_start_button():
             # Reflect the current state on the Remote Explorer's server button
@@ -11895,7 +11891,9 @@ class MainWindow(QMainWindow):
             # without one; this guards direct/programmatic calls).
             if not getattr(self, "_re_sync_root", ""):
                 add_nextsync_log_window(
-                    "Select a sync root folder in the left local file explorer first.")
+                    "Set a sync root folder first: navigate to the folder in the "
+                    "left local file explorer and press 'Set current folder as "
+                    "new sync root folder'.")
                 return
             # Can't run the listen server while a normal sync is in progress —
             # both servers bind port 2048. Cancel with a clear advisory.
@@ -12126,7 +12124,8 @@ class MainWindow(QMainWindow):
                 self.nextsync_filterlabel.setVisible(False)
                 self.nextsync_filtertext.setVisible(False)
                 add_nextsync_log_window(
-                    "Remote explorer: pick a sync root folder in the left file explorer, "
+                    "Remote explorer: navigate to a folder in the left file explorer, "
+                    "press 'Set current folder as new sync root folder', "
                     "click 'Start Remote Explorer NextSync server', then run '.sync5 -listen' on your Next.")
             else:
                 _nextsync_stop_listen_server()

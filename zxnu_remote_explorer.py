@@ -383,7 +383,6 @@ class RemoteExplorerWidget(QWidget):
         # ourselves in _local_drop); without this Qt would propose an internal
         # move for same-view drags.
         self.local_view.setDefaultDropAction(Qt.CopyAction)
-        self.local_view.clicked.connect(self._local_clicked)
         self.local_view.doubleClicked.connect(self._local_double_clicked)
         self.local_view.dragEnterEvent = self._local_drag_enter
         self.local_view.dragMoveEvent = self._local_drag_enter
@@ -413,22 +412,38 @@ class RemoteExplorerWidget(QWidget):
         local_bar.addWidget(self.local_filter_label)
         local_bar.addWidget(self.local_filter_edit, 1)
 
-        # Under the tree: the sync-root path box (same idea as classic sync's
-        # "Path…" field). Shows the chosen sync root; typing a folder path and
-        # pressing Enter jumps there and selects it.
+        # Under the tree: the sync-root box + "Set current folder as new sync
+        # root folder" button (same idea as classic sync's row). The box shows
+        # the committed sync root; it no longer follows clicks or navigation in
+        # the tree above. The button appears only while browsing a different
+        # folder than the sync root and asks for confirmation before
+        # committing. Typing a folder path and pressing Enter also commits.
         self.local_path_edit = QLineEdit(self)
-        self.local_path_edit.setPlaceholderText("Select a sync root folder above...")
+        self.local_path_edit.setPlaceholderText("Sync root folder...")
         self.local_path_edit.setToolTip(
-            "Sync root: the local folder the Remote Explorer works in. Click a "
-            "folder above to choose it, or type a path here and press Enter.")
+            "Sync root: the local folder the Remote Explorer works in.\n"
+            "Type a folder path here, or navigate the explorer above and press\n"
+            "'Set current folder as new sync root folder'.")
         self.local_path_edit.editingFinished.connect(self._on_path_edit)
+
+        self.local_set_syncroot_button = QPushButton(
+            "Set current folder as new sync root folder", self)
+        self.local_set_syncroot_button.setToolTip(
+            "Make the folder currently shown in the explorer above the new sync root.")
+        self.local_set_syncroot_button.clicked.connect(self._on_set_syncroot_clicked)
+        self.local_set_syncroot_button.setVisible(False)
+
+        local_path_row = QHBoxLayout()
+        local_path_row.setContentsMargins(0, 0, 0, 0)
+        local_path_row.addWidget(self.local_path_edit, 1)
+        local_path_row.addWidget(self.local_set_syncroot_button)
 
         local_box = QVBoxLayout()
         local_box.setContentsMargins(0, 0, 0, 0)
         local_box.setSpacing(2)
         local_box.addLayout(local_bar)
         local_box.addWidget(self.local_view)
-        local_box.addWidget(self.local_path_edit)
+        local_box.addLayout(local_path_row)
         local_container = QWidget(self)
         local_container.setLayout(local_box)
 
@@ -2223,12 +2238,14 @@ class RemoteExplorerWidget(QWidget):
 
     def _set_local_dir(self, path, commit=True):
         """Point the browse root at `path`. When `commit`, also make it the sync
-        root (navigating into a folder means you want to work there)."""
+        root (a typed path or the restored saved path — plain navigation passes
+        commit=False and leaves the sync root alone)."""
         path = path.replace("\\", "/") if path else path
         self.local_view.setRootIndex(self._view_ix(path))
         self._browse_root = path
         if commit:
             self._commit_sync_root(path)
+        self._update_set_syncroot_button()
 
     def _commit_sync_root(self, path):
         """Record `path` as the sync root, show it in the path box, and notify the
@@ -2240,6 +2257,27 @@ class RemoteExplorerWidget(QWidget):
         if self.local_path_edit.text() != norm:
             self.local_path_edit.setText(norm)
         self._on_sync_root_changed(norm)
+        self._update_set_syncroot_button()
+
+    def _update_set_syncroot_button(self):
+        """Offer "Set current folder as new sync root folder" only while the
+        browsed folder differs from the committed sync root."""
+        cur = (self._browse_root or "").replace("\\", "/").rstrip("/")
+        root = (self._sync_root or "").rstrip("/")
+        same = (cur != "" and root != "" and
+                os.path.normcase(cur) == os.path.normcase(root))
+        self.local_set_syncroot_button.setVisible(cur != "" and not same)
+
+    def _on_set_syncroot_clicked(self):
+        folder = self._browse_dir()
+        if not (folder and os.path.isdir(folder)):
+            return
+        if QMessageBox.question(
+                self, "Set sync root",
+                "Set this folder as the new sync root?\n\n" + folder,
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Yes) == QMessageBox.Yes:
+            self._commit_sync_root(folder)
 
     def _local_filter_changed(self, text):
         self.local_proxy.setFilterFixedString((text or "").strip())
@@ -2256,7 +2294,7 @@ class RemoteExplorerWidget(QWidget):
         cur = self._browse_dir()
         parent = os.path.dirname(cur.rstrip("/\\"))
         if parent and os.path.isdir(parent):
-            self._set_local_dir(parent, commit=True)
+            self._set_local_dir(parent, commit=False)
 
     def _local_refresh(self):
         """Force the local pane to re-read the current folder from disk.
@@ -2271,26 +2309,17 @@ class RemoteExplorerWidget(QWidget):
         if cur and os.path.isdir(cur):
             self.local_view.setRootIndex(self._view_ix(cur))
 
-    def _local_clicked(self, index):
-        """Single-click picks a sync root, like the classic sync explorer: a
-        folder selects itself, a file selects its parent folder. Changing the
-        tree root (browsing) still happens on double-click / Up."""
-        if self._is_local_updir(index):
-            return                       # ".." only navigates on double-click / Up
-        path = self._path_of(index)
-        if not path:
-            return
-        folder = path if os.path.isdir(path) else os.path.dirname(path)
-        if folder and os.path.isdir(folder):
-            self._commit_sync_root(folder)
-
     def _local_double_clicked(self, index):
+        # Pure navigation: double-clicking a folder (or "..") only changes the
+        # folder being browsed. The sync root is only changed via the "Set
+        # current folder as new sync root folder" button or by typing a folder
+        # path into the box below.
         if self._is_local_updir(index):
             self._local_up()             # ".." goes one level up
             return
         path = self._path_of(index)
         if os.path.isdir(path):
-            self._set_local_dir(path, commit=True)
+            self._set_local_dir(path, commit=False)
 
     def _selected_local_paths(self):
         out = []
