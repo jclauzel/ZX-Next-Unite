@@ -623,6 +623,10 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              (""),
              ("itch-dl is distributed under the MIT license (Copyright (c) 2022 Dragoon Aethis) and, like Pyside6 and pygame-ce, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The itch.io tab is only shown when itch-dl is installed."),
              (""),
+             ("zx-next-unite optionally uses Flask by the Pallets team to power the NextSync HTTP bridge - the web server behind the Next's .http dot command that lets one Next drive another Next's SD card. Many thanks to its authors - see https://flask.palletsprojects.com and https://github.com/pallets/flask."),
+             (""),
+             ("Flask is distributed under the BSD-3-Clause license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The HTTP bridge toggle in Settings is greyed out until Flask is installed."),
+             (""),
              ("Setup & How to:"),
              ("---------------"),
              ("Checkout main setup & demo video avaible at: https://youtu.be/-gUxV4fM1yo  (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )"),
@@ -951,13 +955,18 @@ def parse_mame_version_number(text):
     the binary (``"0.272"`` / ``"MAME v0.272 (mame0272)"`` → 272), so the same
     helper works for both the latest-release tag and the installed build's
     self-reported version.
+
+    The dotted form must win over the tag form: a custom-patched build reports
+    e.g. ``"0.288 (mame0238-18438-g4d332b6484f)"``, where the parenthesised part
+    is a ``git describe`` of some older base tag — only the leading ``0.288`` is
+    the build's real version.
     """
     if not text:
         return None
     s = str(text).lower()
-    m = re.search(r"mame0*(\d+)", s)      # release-tag form, e.g. mame0272
+    m = re.search(r"0\.(\d+)", s)         # version-string form, e.g. 0.272
     if not m:
-        m = re.search(r"0\.(\d+)", s)     # version-string form, e.g. 0.272
+        m = re.search(r"mame0*(\d+)", s)  # release-tag form, e.g. mame0272
     if not m:
         return None
     try:

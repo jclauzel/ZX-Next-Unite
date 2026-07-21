@@ -22,6 +22,12 @@ Co-developed with the assistance of **Claude** (Anthropic's AI).
   (new folder, delete) directly — no SD-card swapping. Run `.sync5 -listen` on
   the Next to connect. See the
   [Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki#remote-file-explorer).
+- ⭐ **HTTP bridge** — remote access to a Next's file system over plain **HTTP**:
+  a built-in web server (Flask) republishes the Remote Explorer's `-listen`
+  session as HTTP routes, so you can browse, download, upload and manage the
+  Next's SD card from a browser, `curl` — or from **another Next** using the
+  built-in `.http` dot command. See the
+  [HTTP bridge documentation](nextsync/sync/server/HTTP_BRIDGE.md).
 - **Online libraries** — search and download from GetIt, ZXDB/ZXInfo, zxArt and
   (optionally) itch.io.
 
@@ -54,7 +60,9 @@ the **[Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki)**:
 
 Released under the **MIT** license (see [LICENSE](LICENSE)). Built on **PySide6**
 and **pygame-ce** (Qt 6, GPLv2/LGPL) and optionally
-[itch-dl](https://github.com/DragoonAethis/itch-dl) by Dragoon Aethis (MIT).
+[itch-dl](https://github.com/DragoonAethis/itch-dl) by Dragoon Aethis (MIT) and
+[Flask](https://flask.palletsprojects.com/) by the Pallets team (BSD-3-Clause),
+the web server that powers the NextSync HTTP bridge.
 
 ## Legal disclaimer — third-party content
 
