@@ -1,7 +1,9 @@
 # NextSync HTTP bridge — drive a remote Next's file system over HTTP
 
-The HTTP bridge is a small self-hosted web server (Flask) that republishes a
-NextSync **`.sync5 -listen`** session as plain HTTP routes:
+The HTTP bridge is a small self-hosted web server — built on
+[Flask](https://flask.palletsprojects.com/) by the Pallets team
+(BSD-3-Clause) — that republishes a NextSync **`.sync5 -listen`** session as
+plain HTTP routes:
 
 ```
 caller (.http on a Next / curl / browser)
