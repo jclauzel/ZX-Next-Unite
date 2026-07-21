@@ -3700,6 +3700,34 @@ class MainWindow(QMainWindow):
                         "the 'flask' package is not installed - install it "
                         "with: python -m pip install flask")
 
+                # HTTP bridge port (defaults to 80). The deferred bridge start
+                # above reads the port straight from the configuration
+                # dictionary, so only the widget needs syncing here.
+                try:
+                    _http_port = int(configuration_dictionary.get(
+                        SETTING_NEXTSYNC_HTTP_PORT) or 80)
+                except (TypeError, ValueError):
+                    _http_port = 80
+                if not (1 <= _http_port <= 65535):
+                    _http_port = 80
+                self.settings_http_port_spinbox.blockSignals(True)
+                self.settings_http_port_spinbox.setValue(_http_port)
+                self.settings_http_port_spinbox.blockSignals(False)
+
+                # HTTP bridge concurrent-connection limit (defaults to 1 —
+                # the recommended value, matching the serial -listen session).
+                try:
+                    _http_conn = int(configuration_dictionary.get(
+                        SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT) or 1)
+                except (TypeError, ValueError):
+                    _http_conn = 1
+                if _http_conn < 1:
+                    _http_conn = 1
+                self.settings_http_conn_spinbox.blockSignals(True)
+                self.settings_http_conn_spinbox.setValue(_http_conn)
+                self.settings_http_conn_spinbox.blockSignals(False)
+                self._http_port_widgets_set_enabled(_http_bridge_on)
+
                 # MAME ROM/system choice (combo) and command-line parameters
                 # (editable text). Both only exist as widgets when MAME was
                 # detected at startup, so guard with hasattr.
@@ -3969,6 +3997,25 @@ class MainWindow(QMainWindow):
                         self.nextsync_remote_button.setChecked(True)
                     finally:
                         self._re_open_restoring = False
+
+                # -start-remote-explorer-listener: the command-line switch asks
+                # for the '.sync5 -listen' server to be running from startup.
+                # Force the Remote Explorer view open (without persisting it —
+                # this run only, hence the _re_open_restoring guard) and start
+                # the server once the event loop is up, so the toasts, log
+                # pane and server closures it talks to all exist by then.
+                if _ZXNU_START_RE_LISTENER and hasattr(self, "nextsync_remote_button"):
+                    if not self.nextsync_remote_button.isChecked():
+                        self._re_open_restoring = True
+                        try:
+                            self.nextsync_remote_button.setChecked(True)
+                        finally:
+                            self._re_open_restoring = False
+
+                    def _autostart_re_listener():
+                        if not getattr(self, "_re_running", False):
+                            self._nextsync_re_toggle_server()
+                    QTimer.singleShot(0, _autostart_re_listener)
 
                 # Restore the saved splitter positions (SD Card explorers ⇄
                 # log, GetIt results ⇄ MOTD). The window is not shown yet, so
@@ -4976,17 +5023,20 @@ class MainWindow(QMainWindow):
                 return
             _start_mame_install(tag, asset_name, url, size, size_txt)
 
-        def _probe_mame_version_number(mame_path):
-            """Ask an installed MAME binary for its version and return the integer
-            minor version (e.g. 272), or None. Runs on a worker thread (blocking
-            subprocess). Used only when no installed release tag was persisted
-            (MAME was installed manually / before the update-check feature): a
-            copy installed via the app records its tag, so this probe is skipped.
+        def _probe_mame_version_text(mame_path):
+            """Ask an installed MAME binary for its version and return the raw
+            output text (e.g. "0.288 (mame0288)"), or "". Runs on a worker
+            thread (blocking subprocess). Used only when no installed release
+            tag was persisted (MAME was installed manually / before the
+            update-check feature): a copy installed via the app records its
+            tag, so this probe is skipped.
 
             'mame -version' prints the version and exits; on an older build that
             doesn't know the option, MAME still prints its usage banner ("MAME
             v0.NNN …") which carries the version too, so parsing the combined
-            output is robust either way."""
+            output is robust either way. The raw text is returned (not just the
+            parsed number) so the caller can also spot a custom-patched build
+            from the parenthesised git tag."""
             try:
                 proc = subprocess.run(
                     [mame_path, "-version"],
@@ -4994,10 +5044,10 @@ class MainWindow(QMainWindow):
                     cwd=os.path.dirname(mame_path) or None,
                     text=True, timeout=20,
                     **subprocess_no_window_kwargs())
-                return parse_mame_version_number(proc.stdout or "")
+                return proc.stdout or ""
             except Exception as exc:
                 logging.info(f"MAME version probe failed: {exc}")
-                return None
+                return ""
 
         def _prompt_mame_update(info, installed_num):
             """UI-thread dialog offering to update MAME to a newer release found
@@ -5056,23 +5106,35 @@ class MainWindow(QMainWindow):
             def _job():
                 # Prefer the persisted tag of an app-managed install; otherwise
                 # ask the binary itself. Do this first so a probe failure still
-                # lets us fetch the release (and vice-versa).
+                # lets us fetch the release (and vice-versa). An app-managed
+                # install is an official build, so only the probe path can
+                # detect a custom-patched binary.
                 installed_num = parse_mame_version_number(installed_tag)
+                patched = False
                 if installed_num is None:
-                    installed_num = _probe_mame_version_number(mame_path)
+                    raw = _probe_mame_version_text(mame_path)
+                    installed_num = parse_mame_version_number(raw)
+                    patched = mame_version_is_patched(raw)
                 tag, asset_name, url, size = _fetch_latest_mame_asset(arch)
                 return {
                     "installed_num": installed_num,
+                    "patched": patched,
                     "latest_num": parse_mame_version_number(tag),
                     "tag": tag, "asset_name": asset_name,
                     "url": url, "size": size,
                 }
 
             def _on_result(info):
+                # Every branch logs something: the "Checking for a newer MAME
+                # release…" line above must never be the last word, or the
+                # check looks stuck.
                 try:
                     installed_num = info.get("installed_num")
                     latest_num = info.get("latest_num")
                     if latest_num is None:
+                        add_main_log_window(
+                            "MAME update check: could not determine the "
+                            "latest release; skipping.")
                         return
                     if installed_num is None:
                         add_main_log_window(
@@ -5080,9 +5142,15 @@ class MainWindow(QMainWindow):
                             "MAME version; skipping.")
                         return
                     if latest_num <= installed_num:
-                        add_main_log_window(
-                            f"MAME is up to date (installed 0.{installed_num}, "
-                            f"latest 0.{latest_num}).")
+                        if info.get("patched"):
+                            add_main_log_window(
+                                "MAME is up-to-date with a patched version "
+                                f"(installed 0.{installed_num}, "
+                                f"latest 0.{latest_num}).")
+                        else:
+                            add_main_log_window(
+                                f"MAME is up-to-date (installed 0.{installed_num}, "
+                                f"latest 0.{latest_num}).")
                         return
                     _prompt_mame_update(info, installed_num)
                 except Exception as exc:
@@ -5091,6 +5159,9 @@ class MainWindow(QMainWindow):
             def _on_error(err):
                 detail = err[1] if isinstance(err, (tuple, list)) and len(err) > 1 else err
                 logging.info(f"MAME update check skipped: {detail}")
+                add_main_log_window(
+                    "MAME update check: could not reach the release site; "
+                    "skipping.")
 
             add_main_log_window("Checking for a newer MAME release…")
             getit_run_in_thread(_job, _on_result, _on_error)
@@ -11490,10 +11561,15 @@ class MainWindow(QMainWindow):
                     SETTING_NEXTSYNC_HTTP_PORT) or 80)
             except (TypeError, ValueError):
                 port = 80
+            try:
+                conn_limit = int(configuration_dictionary.get(
+                    SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT) or 1)
+            except (TypeError, ValueError):
+                conn_limit = 1
             self._re_bridge = NextSyncHttpBridge(
                 QueueBridgeHost(_re_bridge_enqueue, _re_bridge_make_cmd,
                                 _re_bridge_session_state),
-                port=port,
+                port=port, connection_limit=conn_limit,
                 log=lambda s: add_nextsync_log_window(str(s)))
             ok, err = self._re_bridge.start()
             if ok:
@@ -23824,11 +23900,21 @@ class MainWindow(QMainWindow):
         self.settings_disable_no_emulator_toast_checkbox.stateChanged.connect(settings_disable_no_emulator_toast_statechanged)
         grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 25, 0, 1, 2)
 
-        # ── NextSync HTTP bridge toggle ─────────────────────────────────
+        # ── NextSync HTTP bridge toggle + port ──────────────────────────
+        def _http_port_widgets_set_enabled(on):
+            # The port and connection-limit boxes are only editable while
+            # the bridge itself is enabled (and Flask is present at all).
+            on = bool(on) and flask_available()
+            self.settings_http_port_label.setEnabled(on)
+            self.settings_http_port_spinbox.setEnabled(on)
+            self.settings_http_conn_label.setEnabled(on)
+            self.settings_http_conn_spinbox.setEnabled(on)
+
         def settings_http_bridge_statechanged():
             enabled = self.settings_http_bridge_checkbox.isChecked()
             configuration_dictionary[SETTING_NEXTSYNC_HTTP_BRIDGE] = "true" if enabled else "false"
             save_configuration_file()
+            _http_port_widgets_set_enabled(enabled)
             if enabled:
                 self._nextsync_http_bridge_start()
             else:
@@ -23840,7 +23926,7 @@ class MainWindow(QMainWindow):
         if flask_available():
             self.settings_http_bridge_checkbox.setToolTip(
                 "Starts a small self-hosted web server (Flask, port 80 by default —\n"
-                "set nextsync_http_port in hdfg.cfg to change it) that republishes\n"
+                "change it with the port box on the right) that republishes\n"
                 "the Remote Explorer's '.sync5 -listen' session as HTTP routes:\n"
                 "/status /ls /get /put /mkdir /rmdir /rmtree /rm /ren /rcpy /rfsize /forceexit\n"
                 "/free /drives. A Spectrum Next running the built-in .http dot\n"
@@ -23861,7 +23947,81 @@ class MainWindow(QMainWindow):
             )
         self.settings_http_bridge_checkbox.stateChanged.connect(
             settings_http_bridge_statechanged)
-        grid_tab_Settings.addWidget(self.settings_http_bridge_checkbox, 36, 0, 1, 2)
+
+        self.settings_http_port_label = QLabel("Port:")
+        self.settings_http_port_spinbox = QSpinBox()
+        self.settings_http_port_spinbox.setRange(1, 65535)
+        self.settings_http_port_spinbox.setValue(80)
+        self.settings_http_port_spinbox.setFixedWidth(70)
+        _http_port_tip = (
+            "TCP port the HTTP bridge listens on (default 80, what the Next's\n"
+            ".http dot command talks to by default). Saved to hdfg.cfg\n"
+            f"({SETTING_NEXTSYNC_HTTP_PORT}) and used every time the bridge\n"
+            "starts; a bridge already running is restarted on the new port a\n"
+            "moment after you stop typing.")
+        self.settings_http_port_label.setToolTip(_http_port_tip)
+        self.settings_http_port_spinbox.setToolTip(_http_port_tip)
+        self.settings_http_port_label.setEnabled(False)
+        self.settings_http_port_spinbox.setEnabled(False)
+
+        # Debounce the restart of a running bridge: typing "8080" fires
+        # valueChanged four times, but the server should bounce only once,
+        # on the final value.
+        self._http_port_restart_timer = QTimer(self)
+        self._http_port_restart_timer.setSingleShot(True)
+        self._http_port_restart_timer.setInterval(1500)
+
+        def _http_bridge_apply_new_port():
+            if self.settings_http_bridge_checkbox.isChecked() and \
+                    self._re_bridge is not None and self._re_bridge.running:
+                self._nextsync_http_bridge_stop()
+                self._nextsync_http_bridge_start()
+        self._http_port_restart_timer.timeout.connect(_http_bridge_apply_new_port)
+
+        def settings_http_port_changed(port):
+            configuration_dictionary[SETTING_NEXTSYNC_HTTP_PORT] = str(port)
+            save_configuration_file()
+            self._http_port_restart_timer.start()
+        self.settings_http_port_spinbox.valueChanged.connect(
+            settings_http_port_changed)
+
+        self.settings_http_conn_label = QLabel("Max connections:")
+        self.settings_http_conn_spinbox = QSpinBox()
+        self.settings_http_conn_spinbox.setRange(1, 32)
+        self.settings_http_conn_spinbox.setValue(1)
+        self.settings_http_conn_spinbox.setFixedWidth(55)
+        _http_conn_tip = (
+            "Maximum number of HTTP requests the bridge serves concurrently\n"
+            "(default 1). The recommended value is 1 to avoid concurrent\n"
+            "access: the '.sync5 -listen' session behind the bridge runs one\n"
+            "command at a time anyway, so extra requests are held until a\n"
+            "slot frees rather than rejected. Saved to hdfg.cfg\n"
+            f"({SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT}); a bridge already\n"
+            "running is restarted on the new value a moment after you stop\n"
+            "typing.")
+        self.settings_http_conn_label.setToolTip(_http_conn_tip)
+        self.settings_http_conn_spinbox.setToolTip(_http_conn_tip)
+        self.settings_http_conn_label.setEnabled(False)
+        self.settings_http_conn_spinbox.setEnabled(False)
+
+        def settings_http_conn_changed(limit):
+            configuration_dictionary[SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT] = str(limit)
+            save_configuration_file()
+            self._http_port_restart_timer.start()
+        self.settings_http_conn_spinbox.valueChanged.connect(
+            settings_http_conn_changed)
+
+        _http_bridge_row = QHBoxLayout()
+        _http_bridge_row.addWidget(self.settings_http_bridge_checkbox)
+        _http_bridge_row.addSpacing(12)
+        _http_bridge_row.addWidget(self.settings_http_port_label)
+        _http_bridge_row.addWidget(self.settings_http_port_spinbox)
+        _http_bridge_row.addSpacing(12)
+        _http_bridge_row.addWidget(self.settings_http_conn_label)
+        _http_bridge_row.addWidget(self.settings_http_conn_spinbox)
+        _http_bridge_row.addStretch(1)
+        grid_tab_Settings.addLayout(_http_bridge_row, 36, 0, 1, 2)
+        self._http_port_widgets_set_enabled = _http_port_widgets_set_enabled
 
         # ── MAME options (shown when MAME is launchable: a detected binary, or
         # on Linux the Flatpak launch option added below) ──
@@ -25502,6 +25662,34 @@ def _zxnu_parse_anim_arg():
 
 
 _zxnu_parse_anim_arg()
+
+
+# ── optional -start-remote-explorer-listener switch ──────────────────────────
+# `python zx-next-unite.py -start-remote-explorer-listener` opens the NextSync
+# tab's Remote Explorer view and starts its '.sync5 -listen' server right at
+# startup, using the saved sync root — so a Next can run '.sync5 -listen' and
+# connect without a single click (pairs nicely with the HTTP bridge Settings
+# toggle for a fully remote setup). The view is forced open for this run only;
+# the saved Settings are not modified. Without a saved sync root the server
+# cannot start and the usual "pick a sync root folder first" advisory is
+# logged instead.
+_ZXNU_START_RE_LISTENER = False
+
+
+def _zxnu_parse_start_re_listener_arg():
+    global _ZXNU_START_RE_LISTENER
+    rest = [a for a in sys.argv
+            if a not in ("-start-remote-explorer-listener",
+                         "--start-remote-explorer-listener")]
+    if len(rest) != len(sys.argv):
+        _ZXNU_START_RE_LISTENER = True
+        # Strip our flag so QApplication doesn't try to interpret it.
+        sys.argv[:] = rest
+        print("-start-remote-explorer-listener: starting the Remote Explorer "
+              "'.sync5 -listen' server at startup.")
+
+
+_zxnu_parse_start_re_listener_arg()
 
 app = QApplication(sys.argv)
 

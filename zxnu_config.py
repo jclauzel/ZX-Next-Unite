@@ -167,6 +167,7 @@ SETTING_NEXTSYNC_SEND_CONFLICT = "nextsync_send_conflict"   # "prompt" (default)
 # file system. Off by default; when enabled the server starts with the app.
 SETTING_NEXTSYNC_HTTP_BRIDGE   = "nextsync_http_bridge"     # "true"/"false" (default false)
 SETTING_NEXTSYNC_HTTP_PORT     = "nextsync_http_port"       # int, default 80 (.http's default)
+SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT = "nextsync_http_connection_limit"  # int, default 1 (serial -listen session)
 SETTING_GALLERY_ANIM_MODE      = "gallery_anim_mode"        # "hover" (default), "timer" or "none"
 SETTING_GALLERY_ROWS_PER_PAGE  = "gallery_rows_per_page"    # int 1..10, default 2
 SETTING_GALLERY_COLS           = "gallery_cols"             # int: 2 | 4 (default) | 8
@@ -747,7 +748,7 @@ SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, S
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
-SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE,
+SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO)
 
@@ -973,6 +974,25 @@ def parse_mame_version_number(text):
         return int(m.group(1))
     except ValueError:
         return None
+
+
+def mame_version_is_patched(text):
+    """True when a ``mame -version`` output looks like a custom-patched build.
+
+    An official build reports e.g. ``"0.288 (mame0288)"`` — the parenthesised
+    tag matches the dotted version. A custom build's parenthesised part is a
+    ``git describe`` of whatever base tag it was built from, e.g.
+    ``"0.288 (mame0238-18438-g4d332b6484f)"`` — a different base number
+    and/or a ``-<commits>-g<hash>`` suffix. Either disagreement means
+    "patched"."""
+    if not text:
+        return False
+    s = str(text).lower()
+    dotted = re.search(r"0\.(\d+)", s)
+    tag = re.search(r"mame0*(\d+)(-\S+)?", s)
+    if not dotted or not tag:
+        return False
+    return tag.group(2) is not None or int(tag.group(1)) != int(dotted.group(1))
 
 
 def select_mame_release_asset(release, arch):

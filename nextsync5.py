@@ -49,6 +49,7 @@ opt_always_sync = False
 opt_sync_once = False
 opt_verbose = False   # -v: per-packet / per-command logging (off by default)
 opt_http_port = 0     # -http[=port]: NextSync HTTP bridge (0 = off)
+opt_flask_conn_limit = 1  # -flask-connection-limit:<n>: HTTP bridge concurrency cap (1 recommended)
 opt_forceexit = ''    # -forceexit[=host[:port]]: call a bridge's /forceexit and exit
 # How to treat an incoming (-send) file/dir that already exists locally:
 #   "prompt"    - ask at the console (default)
@@ -1154,7 +1155,8 @@ def _start_http_bridge(port):
     bridge = _zb.NextSyncHttpBridge(
         _zb.QueueBridgeHost(enqueue, make_cmd, state), port=port,
         log=lambda s: print(f"{timestamp()} | {s}"),
-        verbose=opt_verbose)   # -v: log every HTTP request/payload/response
+        verbose=opt_verbose,   # -v: log every HTTP request/payload/response
+        connection_limit=opt_flask_conn_limit)
     ok, err = bridge.start()
     if ok:
         print(f"{timestamp()} | HTTP bridge on port {port}: /status /ls /get "
@@ -1469,6 +1471,20 @@ for x in sys.argv[1:]:
         except ValueError:
             print(f"Bad -http port in '{x}' (want -w, -http or -http=8080)")
             quit()
+    elif x.startswith('-flask-connection-limit:') or \
+            x.startswith('-flask-connection-limit='):
+        # Cap on concurrent HTTP bridge requests (default 1, the recommended
+        # value — the -listen session behind the bridge is serial, so extra
+        # concurrent requests only ever wait on each other). Example:
+        # -flask-connection-limit:5 allows five at once.
+        try:
+            opt_flask_conn_limit = int(x[len('-flask-connection-limit') + 1:])
+            if opt_flask_conn_limit < 1:
+                raise ValueError
+        except ValueError:
+            print(f"Bad -flask-connection-limit in '{x}' "
+                  "(want e.g. -flask-connection-limit:5, minimum 1)")
+            quit()
     elif x == '-forceexit' or x.startswith('-forceexit='):
         # One-shot client mode: call /forceexit on a running HTTP bridge
         # (default 127.0.0.1:80) so the Next connected there in
@@ -1517,6 +1533,13 @@ for x in sys.argv[1:]:
             - Same as -w, with an optional custom port.
               Combine with -v to log every HTTP request, its payload and
               the response on the console for troubleshooting.
+        -flask-connection-limit:<n>
+            - Cap on how many HTTP bridge requests are served concurrently
+              (default 1). The recommended value is 1 to avoid concurrent
+              access — the -listen session behind the bridge runs one
+              command at a time anyway; extra requests wait, they are not
+              rejected. Example: -flask-connection-limit:5 ('=' also
+              accepted).
         -forceexit / -forceexit=<host[:port]>
             - One-shot: tell the Next connected in '.sync5 -listen' to close
               the connection and exit gracefully to BASIC, by calling the
@@ -1524,7 +1547,7 @@ for x in sys.argv[1:]:
               127.0.0.1:80 - this server's -w/-http, or the ZX-Next-Unite
               app's). Prints the bridge's reply and exits; the sync server
               itself is not started. In PowerShell quote the dotted form:
-              "-forceexit=192.168.1.10:8080" (PowerShell splits it at the
+              "-forceexit=192.168.1.10" (PowerShell splits it at the
               dots otherwise).
         -s  - Use safe payload size (256 bytes). Slower, but more robust.
               Use this if you get a lot of retries.

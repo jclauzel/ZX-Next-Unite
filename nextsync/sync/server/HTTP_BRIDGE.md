@@ -32,14 +32,28 @@ tooltip), and `nextsync5.py -w` prints *"please install flask first
 * **ZX-Next-Unite app** — Settings tab → *"Enable NextSync HTTP bridge (web
   server for the Next's .http command)"*. Off by default; the choice is saved
   in `hdfg.cfg` (`nextsync_http_bridge`) and the server then starts
-  automatically with the app. The port defaults to **80**; set
-  `nextsync_http_port=8080` in `hdfg.cfg` to change it (strict `key=value`,
-  no spaces). The bridge drives the Next connected to the **Remote
-  Explorer**'s listen server.
+  automatically with the app. The port defaults to **80** and is set in the
+  **port box next to the toggle** (enabled while the bridge is on); the value
+  is persisted to `hdfg.cfg` (`nextsync_http_port`, strict `key=value`, no
+  spaces) and re-applied at every start — changing it while the bridge runs
+  restarts the server on the new port. The bridge drives the Next connected
+  to the **Remote Explorer**'s listen server; start that listen server
+  automatically too by launching the app with the
+  `-start-remote-explorer-listener` switch, so the whole chain comes up
+  with no clicks.
 * **Standalone server** — `python nextsync5.py -w` (port 80) or
   `-http=8080` for a custom port. `nextsync5.py` lives at the repo root,
   next to `zxnu_http_bridge.py`. Add `-v` to log every HTTP request, its
   payload and the response on the console for troubleshooting.
+
+Both hosts also cap how many HTTP requests the bridge serves **concurrently**
+— **1** by default, which is the recommended value to avoid concurrent
+access: the `-listen` session behind the bridge runs one command at a time
+anyway, so extra simultaneous requests are simply held until a slot frees
+(never rejected). In the app the cap is the **"Max connections" box** next to
+the port (persisted as `nextsync_http_connection_limit` in `hdfg.cfg`); for
+`nextsync5.py` use `-flask-connection-limit:<n>` (`=` also accepted), e.g.
+`-flask-connection-limit:5` to allow five at once.
 
 If something already listens on the chosen port (IIS and Skype love port
 80), nothing crashes: the app raises a red toast — *"You have specified to
@@ -59,14 +73,16 @@ other NextSync command. URL-encode special characters (space = `%20`).
 
 ## Route reference & call samples
 
-The `curl` lines below talk to a bridge at `192.168.1.10`; the `.http` lines
-are what the **calling Next** would run (`-f` saves the reply to a file,
-`-b`/`-l` use a memory bank — see the next-http README).
+The `curl` lines below talk to a bridge running on the **same PC**
+(`localhost`); the `.http` lines are what the **calling Next** would run,
+using the bridge machine's LAN address instead — `192.168.1.10` in the
+samples (`-f` saves the reply to a file, `-b`/`-l` use a memory bank — see
+the next-http README).
 
 ### `GET /status` — is a Next connected, how many partitions?
 
 ```
-curl "http://192.168.1.10/status"
+curl "http://localhost/status"
 .http -h 192.168.1.10 -u /status -f status.txt
 ```
 ```
@@ -82,7 +98,7 @@ in `.sync5 -listen`; `partitions` = number of mounted drives.
 ### `GET /drives` — mounted drive letters
 
 ```
-curl "http://192.168.1.10/drives"
+curl "http://localhost/drives"
 .http -h 192.168.1.10 -u /drives -f drives.txt
 ```
 ```
@@ -95,7 +111,7 @@ partitions: 2
 ### `GET /free?drive=C` — free space on a partition
 
 ```
-curl "http://192.168.1.10/free?drive=m"
+curl "http://localhost/free?drive=m"
 .http -h 192.168.1.10 -u /free?drive=m -f free.txt
 ```
 ```
@@ -109,7 +125,7 @@ metric a dotN can report safely — there is no total-size call.)
 ### `GET /ls?path=/games` — directory listing
 
 ```
-curl "http://192.168.1.10/ls?path=/games"
+curl "http://localhost/ls?path=/games"
 .http -h 192.168.1.10 -u /ls?path=/games -f list.txt
 ```
 ```
@@ -122,7 +138,7 @@ One entry per line: `D`irectory or `F`ile, size in bytes, name (tab-separated).
 ### `GET /get?path=/games/boot.bas` — download one file (raw bytes)
 
 ```
-curl -o boot.bas "http://192.168.1.10/get?path=/games/boot.bas"
+curl -o boot.bas "http://localhost/get?path=/games/boot.bas"
 .http -h 192.168.1.10 -u /get?path=/games/boot.bas -f boot.bas
 .http get -b 20 -h 192.168.1.10 -u /get?path=/games/scr.bin
 ```
@@ -132,7 +148,7 @@ with `/ls` and fetch file by file.
 ### `POST /put?path=/games/new.tap` — upload (request body = the file)
 
 ```
-curl --data-binary @new.tap "http://192.168.1.10/put?path=/games/new.tap"
+curl --data-binary @new.tap "http://localhost/put?path=/games/new.tap"
 .http post -b 22 -l 1024 -h 192.168.1.10 -u /put?path=/games/bank.bin
 ```
 ```
@@ -142,10 +158,89 @@ A `path` ending in `/` needs `&name=<filename>` (the file's name inside that
 folder). On the calling Next, `post -b 22 -l 1024` sends 1024 bytes from
 memory bank 22 — that is how a Next pushes data through the bridge.
 
+**Chunked upload** — add `&append=1&size=<total bytes>` and POST the file in
+pieces: the bridge spools the chunks and, once exactly `size` bytes have
+arrived, writes the whole file to the Next in one go. Intermediate chunks
+answer `OK append <path> (<got>/<size> bytes)`, the final one
+`OK put <path> (<size> bytes, <n> chunks)`. Re-declaring a different `size`
+for the same path (or a plain `/put` to it) discards the half-done spool, so
+a failed upload is retried simply by starting again. This exists because a
+Next's `.http` can POST **at most one 16K bank per request** — see the
+NextBASIC sample below.
+
+```
+curl --data-binary @part1 "http://localhost/put?path=/big.tap&append=1&size=51200"
+OK append /big.tap (16384/51200 bytes)
+```
+
+### Uploading a file bigger than a bank (NextBASIC sample)
+
+The bank limit is real: `.http post` takes its payload from **one memory
+bank** (`-b`, counted in 16K blocks) with `-l` giving the byte count, and
+`-f` (file) only works with `get` — next-http's rolling banks apply to
+downloads, not POSTs. So a single POST can carry at most **16 KB**, and a
+1 MB file must be sent as chunks. The `append=1` mode above reassembles them
+bridge-side.
+
+This NextBASIC program sends a local file of any size: it opens the file as
+a stream, reads its length with `DIM #`, then loops — filling a bank with
+the next chunk and POSTing it with `.http` (which substitutes single-letter
+string variables like `b$`/`l$`/`u$` on its command line):
+
+```
+  10 REM upload a big file through the HTTP bridge in 16K chunks
+  20 BANK NEW b: b$=STR$ b
+  30 h$="192.168.1.10": REM PC running the bridge
+  40 OPEN #4,"c:/downloads/big.tap"
+  50 DIM #4 TO %t: REM %t = file length in bytes
+  60 u$="/put?path=/incoming/big.tap&append=1&size="+STR$ %t
+  70 %o=0
+  80 REPEAT
+  90   %l=%t-%o: IF %l>16384 THEN %l=16384
+ 100   REM copy the next %l file bytes into the bank
+ 110   %i=0
+ 120   REPEAT
+ 130     BANK b POKE %i,CODE INKEY$#4
+ 140     %i=%i+1
+ 150   REPEAT UNTIL %i=%l
+ 160   l$=STR$ %l
+ 170   .http post -b b$ -l l$ -h h$ -u u$
+ 180   %o=%o+%l
+ 190 REPEAT UNTIL %o=%t
+ 200 CLOSE #4
+ 210 BANK CLEAR
+ 220 PRINT "sent ";%t;" bytes"
+```
+
+Notes:
+
+* `DIM #4 TO %t` (stream length) and the byte-wise `INKEY$#4` reads come
+  from the +3e/NextZXOS stream commands — see the *NextBASIC file-related
+  commands* document on the Next's SD card (`docs/nextzxos`).
+* The per-byte copy loop is the simple, portable way to fill the bank; it is
+  not fast (a 1 MB file takes a few minutes at 28 MHz). For fixed offsets
+  known in advance, the NextZXOS `.extract` dot command
+  (`.extract big.tap +49152 16384 -mb 40`) fills a bank much faster, but it
+  does not substitute BASIC variables, so it cannot drive this loop.
+* If the transfer dies midway, just RUN it again — the first chunk of the
+  retry resets the bridge's spool for that path.
+
+### CSpect note — emulated ESP is 7-bit (`-7`)
+
+CSpect's emulated ESP UART (enabled with CSpect's `-esp` option) is
+**7-bit**: binary bytes with the top bit set do not survive the emulated
+link as-is. next-http's `-7` flag makes `.http` **base64-decode responses**,
+so downloads work under CSpect — add `-7` to the `.http` lines when testing
+against the emulator (real hardware does not need it). For *uploads* of
+binary data under CSpect the payload would have to be base64-encoded on the
+Next before POSTing (the bridge stores request bodies verbatim), so test
+binary uploads like the sample above on real hardware. Details:
+[next-http documentation](https://github.com/remy/next-http).
+
 ### `GET /mkdir?path=/backup` — create a directory
 
 ```
-curl "http://192.168.1.10/mkdir?path=/backup"
+curl "http://localhost/mkdir?path=/backup"
 .http -h 192.168.1.10 -u /mkdir?path=/backup -f ok.txt
 ```
 ```
@@ -155,7 +250,7 @@ OK mkdir /backup
 ### `GET /rmdir?path=/backup` — remove an EMPTY directory
 
 ```
-curl "http://192.168.1.10/rmdir?path=/backup"
+curl "http://localhost/rmdir?path=/backup"
 ```
 ```
 OK rmdir /backup
@@ -164,7 +259,7 @@ OK rmdir /backup
 ### `GET /rmtree?path=/backup` — remove a directory recursively
 
 ```
-curl "http://192.168.1.10/rmtree?path=/backup"
+curl "http://localhost/rmtree?path=/backup"
 ```
 ```
 OK rmtree /backup
@@ -175,7 +270,7 @@ Available through the **app**'s bridge; `nextsync5.py` answers `501`.
 ### `GET /rm?path=/old.tap` — delete a file
 
 ```
-curl "http://192.168.1.10/rm?path=/old.tap"
+curl "http://localhost/rm?path=/old.tap"
 ```
 ```
 OK rm /old.tap
@@ -184,7 +279,7 @@ OK rm /old.tap
 ### `GET /ren?from=/a.tap&to=/b.tap` — rename / move
 
 ```
-curl "http://192.168.1.10/ren?from=/games/a.tap&to=/games/b.tap"
+curl "http://localhost/ren?from=/games/a.tap&to=/games/b.tap"
 .http -h 192.168.1.10 -u "/ren?from=/games/a.tap&to=/games/b.tap" -f ok.txt
 ```
 ```
@@ -195,7 +290,7 @@ Same-drive moves too (`from=/x.tap&to=/backup/x.tap`).
 ### `GET /rcpy?src=/games&dst=m:/backup/games` — copy ON the Next
 
 ```
-curl "http://192.168.1.10/rcpy?src=/games&dst=m:/backup/games"
+curl "http://localhost/rcpy?src=/games&dst=m:/backup/games"
 ```
 ```
 OK rcpy /games -> m:/backup/games (42 file(s))
@@ -208,7 +303,7 @@ Copying a folder into itself is refused with `400`.
 ### `GET /rfsize?path=/games` — total size of a file / tree
 
 ```
-curl "http://192.168.1.10/rfsize?path=/games"
+curl "http://localhost/rfsize?path=/games"
 .http -h 192.168.1.10 -u /rfsize?path=/games -f size.txt
 ```
 ```
@@ -222,7 +317,7 @@ The natural "will it fit" companion of `/rcpy` (check `/free` too).
 ### `GET /forceexit` — tell the Next to leave `-listen` and exit
 
 ```
-curl "http://192.168.1.10/forceexit"
+curl "http://localhost/forceexit"
 .http -h 192.168.1.10 -u /forceexit -f ok.txt
 ```
 ```
@@ -241,16 +336,18 @@ Flask needed on the calling side), `-forceexit=host[:port]` on any other
 running bridge:
 
 ```
-python nextsync5.py -forceexit=192.168.1.10:8080
+python nextsync5.py -forceexit=192.168.1.10
 ```
 
-(In PowerShell, quote the dotted form — `"-forceexit=192.168.1.10:8080"` —
-or PowerShell itself splits the argument at the dots.)
+(The port defaults to **80**, like everything else here; append `:port` only
+for a bridge started on a custom port. In PowerShell, quote the dotted form —
+`"-forceexit=192.168.1.10"` — or PowerShell itself splits the argument at
+the dots.)
 
 ### `GET /` or `GET /help` — the route list
 
 ```
-curl "http://192.168.1.10/"
+curl "http://localhost/"
 ```
 Prints the reference above in one screen — handy straight on a Next:
 `.http -h 192.168.1.10 -u /help -f help.txt`
@@ -260,7 +357,7 @@ Prints the reference above in one screen — handy straight on a Next:
 ## JSON example
 
 ```
-curl "http://192.168.1.10/rfsize?path=/games&json=1"
+curl "http://localhost/rfsize?path=/games&json=1"
 {"ok": true, "path": "/games", "files": 42, "dirs": 7, "bytes": 1234567, "human": "1.2 MB"}
 ```
 
