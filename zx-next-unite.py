@@ -2959,6 +2959,10 @@ class MainWindow(QMainWindow):
             self.filterlabel.setDisabled(True)
             self.filtertext.setDisabled(True)
             self.treeview.setDisabled(True)
+            self.local_explorer_up_button.setDisabled(True)
+            self.local_explorer_refresh_button.setDisabled(True)
+            self.image_explorer_up_button.setDisabled(True)
+            self.image_explorer_refresh_button.setDisabled(True)
             self.button_to_disk.setDisabled(True)
             self.button_to_image.setDisabled(True)
             self.image_treeview.setDisabled(True)
@@ -2992,6 +2996,10 @@ class MainWindow(QMainWindow):
             self.filterlabel.setDisabled(False)
             self.filtertext.setDisabled(False)
             self.treeview.setDisabled(False)
+            self.local_explorer_up_button.setDisabled(False)
+            self.local_explorer_refresh_button.setDisabled(False)
+            self.image_explorer_up_button.setDisabled(False)
+            self.image_explorer_refresh_button.setDisabled(False)
             self.button_to_disk.setDisabled(False)
             self.button_to_image.setDisabled(False)
             self.image_treeview.setDisabled(False)
@@ -7176,6 +7184,26 @@ class MainWindow(QMainWindow):
             root_src = self.proxy_model.mapToSource(self.treeview.rootIndex())
             return self.model.filePath(root_src)
 
+        def local_explorer_up():
+            """Navigate the SD-card tab's left local explorer one folder up —
+            the 'Up' button twin of double-clicking its '..' entry (mirrors the
+            Remote Explorer's Up button)."""
+            current_root = local_current_view_dir()
+            parent_path = os.path.dirname((current_root or "").rstrip("/\\"))
+            if not parent_path or not os.path.isdir(parent_path):
+                return
+            dest = parent_path.replace("\\", "/")
+            if not dest.endswith("/"):
+                dest += "/"
+            self.left_file_explorer_selection_file_name = ""
+            self.left_file_explorer_selection_full_filename_path = dest
+            self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(dest, 0)))
+            set_treeview_properties()
+            self.treeview.show()
+            configuration_dictionary[SETTING_EXPLORERPATH] = dest
+            save_configuration_file()
+            local_sync_path_box()
+
         def local_sync_path_box():
             """Reflect the folder currently shown in the left local explorer
             into its path box (above the explorer), and keep the Windows drive
@@ -9223,6 +9251,27 @@ class MainWindow(QMainWindow):
                 return
             image_navigate_to_path(self.diskimageexplorerpathinput.text().strip().strip('"'))
 
+        def image_explorer_up():
+            """'Up' button of the disk image explorer: select the parent of the
+            current target directory (at the top level this clears the
+            selection, so actions target the image root again). Mirrors the
+            Remote Explorer's Up button."""
+            if not right_disk_image_explorer_content:
+                return
+            cur = image_dest_dir().replace("//", "/")
+            if not cur or cur == "/":
+                return
+            parent = cur.rstrip("/").rsplit("/", 1)[0] or "/"
+            image_navigate_to_path(parent)
+
+        def image_explorer_refresh():
+            """'Refresh' button of the disk image explorer: re-list the current
+            target directory via hdfmonkey (full root reload when it isn't
+            materialised in the tree). Mirrors the Remote Explorer's Refresh."""
+            if not right_disk_image_explorer_content:
+                return
+            image_reload_dir(image_dest_dir())
+
         def update_disk_manager_widget_table(command_execution_content=None):
             # Refresh entry point kept under its original name. Callers invoke
             # this right after operating on the current target directory, so it
@@ -10636,6 +10685,46 @@ class MainWindow(QMainWindow):
         )
         self.local_file_explorer_path.editingFinished.connect(on_local_file_explorer_path_edited)
 
+        # Up / Refresh buttons for both explorers, mirroring the Remote
+        # Explorer's top bars (same labels, widths and behavior).
+        self.local_explorer_up_button = QPushButton("Up", self)
+        self.local_explorer_up_button.setMaximumWidth(48)
+        self.local_explorer_up_button.setToolTip(
+            "Go up one folder in the local file explorer\n"
+            "(same as double-clicking its '..' entry).")
+        self.local_explorer_up_button.clicked.connect(local_explorer_up)
+
+        self.local_explorer_refresh_button = QPushButton("Refresh", self)
+        self.local_explorer_refresh_button.setMaximumWidth(72)
+        self.local_explorer_refresh_button.setToolTip(
+            "Re-read the current local folder from disk.")
+        self.local_explorer_refresh_button.clicked.connect(local_explorer_refresh)
+
+        self.localexplorerlabel = QLabel()
+        self.localexplorerlabel.setText("Local path: ")
+
+        self.local_path_row_container = QWidget()
+        _local_path_row = QHBoxLayout(self.local_path_row_container)
+        _local_path_row.setContentsMargins(0, 0, 0, 0)
+        _local_path_row.addWidget(self.local_explorer_up_button)
+        _local_path_row.addWidget(self.local_explorer_refresh_button)
+        _local_path_row.addWidget(self.localexplorerlabel)
+        _local_path_row.addWidget(self.local_file_explorer_path, 1)
+
+        self.image_explorer_up_button = QPushButton("Up", self)
+        self.image_explorer_up_button.setMaximumWidth(48)
+        self.image_explorer_up_button.setToolTip(
+            "Select the parent folder inside the SD card image\n"
+            "(at the top level this returns the target to the image root).")
+        self.image_explorer_up_button.clicked.connect(image_explorer_up)
+
+        self.image_explorer_refresh_button = QPushButton("Refresh", self)
+        self.image_explorer_refresh_button.setMaximumWidth(72)
+        self.image_explorer_refresh_button.setToolTip(
+            "Re-list the current image folder from the SD card image\n"
+            "(runs 'hdfmonkey ls' again).")
+        self.image_explorer_refresh_button.clicked.connect(image_explorer_refresh)
+
         self.diskimageexplorerlabel = QLabel()
         self.diskimageexplorerlabel.setText("Disk Image Explorer: ")
 
@@ -10653,22 +10742,24 @@ class MainWindow(QMainWindow):
         self.image_path_row_container = QWidget()
         _image_path_row = QHBoxLayout(self.image_path_row_container)
         _image_path_row.setContentsMargins(0, 0, 0, 0)
+        _image_path_row.addWidget(self.image_explorer_up_button)
+        _image_path_row.addWidget(self.image_explorer_refresh_button)
         _image_path_row.addWidget(self.diskimageexplorerlabel)
         _image_path_row.addWidget(self.diskimageexplorerpathinput, 1)
 
         # SD Card explorer area, laid out as a 3-column grid so the rows above/
         # below the explorers line up with them:
-        #   row 0: [ local path box ]                           [ image path box ]
+        #   row 0: [ Up|Refresh|local path box ]                [ Up|Refresh|image path box ]
         #   row 1: [ local file explorer ][ ⇄ transfer buttons ][ disk image explorer ]
         #   row 2:                                              [ New Folder / Delete… ]
         # The two explorer columns share the stretch equally (the centre
-        # transfer-button column keeps its natural width), so each path box
+        # transfer-button column keeps its natural width), so each path row
         # matches its explorer's width and the New Folder / Delete buttons sit
         # directly under the disk image explorer. Moving the buttons out of
         # the log-window row (below) lets that log stretch the full width.
         self.sdcard_explorer_grid = QGridLayout()
         self.sdcard_explorer_grid.setContentsMargins(0, 0, 0, 0)
-        self.sdcard_explorer_grid.addWidget(self.local_file_explorer_path, 0, 0)
+        self.sdcard_explorer_grid.addWidget(self.local_path_row_container, 0, 0)
         self.sdcard_explorer_grid.addWidget(self.image_path_row_container, 0, 2)
         self.sdcard_explorer_grid.addWidget(self.treeview, 1, 0)
         self.sdcard_explorer_grid.addWidget(self.centralbuttonscontainer, 1, 1)
