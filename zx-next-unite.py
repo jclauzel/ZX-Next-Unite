@@ -7302,6 +7302,101 @@ class MainWindow(QMainWindow):
             finally:
                 local_explorer_refresh()
 
+        def _suspend_local_fs_watchers(suspend):
+            """Drop (True) / restore (False) the file watchers of every local
+            QFileSystemModel (SD-card tab, NextSync classic tab, and the
+            Remote Explorer's local pane — they all browse the same disk).
+            On Windows, deleting a folder a model has listed (= watches)
+            leaves the watcher's FindFirstChangeNotification handle pointing
+            at a pending-delete directory: Qt's watcher thread then spams
+            'FindNextChangeNotification failed ... (Access is denied.)' and,
+            with enough watched subfolders, that storm freezes the whole UI
+            (the QTBUG-65683 family). Suspending clears every watch handle up
+            front; the post-delete refresh re-lists (and re-watches) whatever
+            is on screen."""
+            models = [self.model, self.nextsync_filesystem_model]
+            re_widget = getattr(self, "_re_widget", None)
+            if re_widget is not None:
+                models.append(re_widget.local_model)
+            for m in models:
+                try:
+                    m.setOption(QFileSystemModel.Option.DontWatchForChanges, suspend)
+                except Exception:
+                    pass
+
+        def _local_delete_paths_async(items, log_fn):
+            """Delete local *items* [(path, is_dir), …] on a worker thread with
+            a progress dialog, with every local file watcher suspended for the
+            duration (see _suspend_local_fs_watchers — deleting watched
+            subfolders used to hang the UI). Shared by the SD-card and NextSync
+            classic explorers' Delete actions. Refreshes both local explorers
+            when done (same filesystem) and shows one summary box if anything
+            could not be deleted."""
+            _suspend_local_fs_watchers(True)
+            holder = {"deleted": [], "failed": []}
+
+            def _task(signals, cancel_event, _items=items, _h=holder):
+                signals.progress.emit(-1)   # marquee: deletion has no total %
+
+                def _force_remove(func, path, exc_info):
+                    # shutil.rmtree onerror: clear a Windows read-only
+                    # attribute and retry, so the delete proceeds instead of
+                    # erroring out.
+                    try:
+                        os.chmod(path, stat.S_IWRITE)
+                        func(path)
+                    except OSError:
+                        pass
+
+                for p, is_dir in _items:
+                    if cancel_event.is_set():
+                        return
+                    signals.status.emit(f"Deleting…\n{p}")
+                    try:
+                        if is_dir and not os.path.islink(p):
+                            shutil.rmtree(p, onerror=_force_remove)
+                            if os.path.exists(p):
+                                # onerror swallowed a real failure and left
+                                # part of the tree behind — surface it instead
+                                # of silently claiming success (the old code's
+                                # failure mode with watched subfolders).
+                                raise OSError("some content could not be removed")
+                        else:
+                            os.remove(p)
+                        _h["deleted"].append(p)
+                    except OSError as e:
+                        logging.error(f"Failed to delete {p}: {e}", exc_info=True)
+                        _h["failed"].append((p, str(e)))
+
+            dlg    = HdfProgressDialog("Deleting…", self)
+            worker = HdfTaskWorker(_task)
+            dlg.cancel_requested.connect(worker.cancel)
+            worker.signals.progress.connect(dlg.set_progress)
+            worker.signals.status.connect(dlg.set_status)
+            worker.signals.error.connect(log_fn)
+            worker.signals.cancelled.connect(dlg.mark_cancelled)
+
+            def _on_delete_finished():
+                dlg.close()
+                _suspend_local_fs_watchers(False)
+                for p in holder["deleted"]:
+                    log_fn(f"Deleted: {p}")
+                for p, err in holder["failed"]:
+                    log_fn(f"Failed to delete {p}: {err}")
+                # Both local explorers browse the same filesystem: refresh both.
+                local_explorer_refresh()
+                nextsync_refresh_explorer()
+                if holder["failed"]:
+                    listing = "\n".join(p for p, _e in holder["failed"][:10])
+                    if len(holder["failed"]) > 10:
+                        listing += f"\n… and {len(holder['failed']) - 10} more"
+                    QMessageBox.critical(self, "Delete failed",
+                                         f"Could not delete:\n{listing}")
+
+            worker.signals.finished.connect(_on_delete_finished)
+            self.threadpool.start(worker)
+            dlg.exec()
+
         def local_explorer_delete_selection():
             """Delete the SD-card local explorer's selected files/folders
             (Del key / context menu). Honours the "Do not prompt for
@@ -7339,30 +7434,7 @@ class MainWindow(QMainWindow):
                         QMessageBox.No) != QMessageBox.Yes:
                     return
 
-            def _force_remove(func, path, exc_info):
-                # shutil.rmtree onerror: clear a Windows read-only attribute
-                # and retry, so the delete proceeds instead of erroring out.
-                try:
-                    os.chmod(path, stat.S_IWRITE)
-                    func(path)
-                except OSError:
-                    pass
-
-            for p, is_dir in items:
-                try:
-                    if is_dir and not os.path.islink(p):
-                        shutil.rmtree(p, onerror=_force_remove)
-                    else:
-                        os.remove(p)
-                    add_main_log_window(f"Deleted: {p}")
-                except OSError as e:
-                    logging.error(f"Failed to delete {p}: {e}", exc_info=True)
-                    add_main_log_window(f"Failed to delete {p}: {e}")
-                    QMessageBox.critical(self, "Delete failed",
-                                         f"Could not delete:\n{p}\n\n{e}")
-            # Both local explorers browse the same filesystem: refresh both.
-            local_explorer_refresh()
-            nextsync_refresh_explorer()
+            _local_delete_paths_async(items, add_main_log_window)
 
         def _local_unzip_file(zip_path, refresh_fn, log_fn):
             """'Unzip file' on a local explorer's .zip: extract it into its
@@ -7731,27 +7803,9 @@ class MainWindow(QMainWindow):
             if not confirmed:
                 return
 
-            def _force_remove(func, path, exc_info):
-                # shutil.rmtree onerror: on Windows a read-only attribute makes
-                # os.remove/os.rmdir raise; clear it and retry so the delete can
-                # proceed instead of bubbling up an error.
-                try:
-                    os.chmod(path, stat.S_IWRITE)
-                    func(path)
-                except OSError:
-                    pass
-
-            try:
-                if is_dir:
-                    shutil.rmtree(file_path, onerror=_force_remove)
-                else:
-                    os.remove(file_path)
-                add_nextsync_log_window(f"{timestamp()} | Deleted: {file_path}")
-            except OSError as e:
-                logging.error(f"Failed to delete {file_path}: {e}", exc_info=True)
-                add_nextsync_log_window(f"{timestamp()} | Failed to delete {file_path}: {e}")
-                QMessageBox.critical(self, "Delete failed", f"Could not delete:\n{file_path}\n\n{e}")
-            nextsync_refresh_explorer()
+            _local_delete_paths_async(
+                [(file_path, is_dir)],
+                lambda m: add_nextsync_log_window(f"{timestamp()} | {m}"))
 
         def on_nextsync_file_explorer_path_edited():
             # Typing a folder path into the sync-root box commits it as the new
@@ -11594,11 +11648,15 @@ class MainWindow(QMainWindow):
 
         self.nextsync_treeview.keyPressEvent = _nextsync_tree_key_press
 
-        # --- Drag & drop from the OS file manager into the NextSync explorer ---
-        # Dropping files/folders from Windows Explorer onto the local file
-        # explorer imports (copies) them into the folder the drop lands on (its
-        # parent if the item is a file), or the current root when dropped on
-        # empty space.
+        # --- Drag & drop into the NextSync (classic) local explorer ---------
+        # Dropping files/folders from the OS file manager onto the explorer
+        # imports (copies) them into the folder the drop lands on (its parent
+        # if the item is a file), or the current root when dropped on empty
+        # space. Dragging WITHIN the explorer works the same way, mirroring
+        # the Remote Explorer's local pane: the dragged file/folder is COPIED
+        # into the folder it is dropped on, and dropping it back into its own
+        # folder is a no-op (a deliberate duplicate is Copy/Paste's job, never
+        # a drag's side effect).
         def _nextsync_drop_target_dir(pos):
             index = self.nextsync_treeview.indexAt(pos)
             if index.isValid():
@@ -11633,12 +11691,28 @@ class MainWindow(QMainWindow):
             if not paths:
                 event.ignore()
                 return
-            event.acceptProposedAction()
             dest_dir = _nextsync_drop_target_dir(event.position().toPoint())
+            if event.source() is self.nextsync_treeview:
+                # Intra-explorer drag: dropping an item into the folder it is
+                # already in is a no-op, not a "-(copy)" duplicate. (Importing
+                # a folder into itself is guarded inside the import helper.)
+                dest_abs = os.path.normcase(os.path.abspath(dest_dir))
+                paths = [p for p in paths
+                         if os.path.normcase(os.path.abspath(
+                             os.path.dirname(p.rstrip("/\\")))) != dest_abs]
+                if not paths:
+                    event.ignore()
+                    return
+            event.acceptProposedAction()
             nextsync_import_external_paths(paths, dest_dir)
 
         self.nextsync_treeview.setAcceptDrops(True)
-        self.nextsync_treeview.setDragDropMode(QAbstractItemView.DropOnly)
+        self.nextsync_treeview.setDragEnabled(True)
+        self.nextsync_treeview.setDragDropMode(QAbstractItemView.DragDrop)
+        # A drag within the explorer proposes a COPY (the copy is performed by
+        # _nextsync_drop); without this Qt would propose an internal move for
+        # same-view drags. Same setup as the Remote Explorer's local pane.
+        self.nextsync_treeview.setDefaultDropAction(Qt.CopyAction)
         self.nextsync_treeview.setDropIndicatorShown(True)
         self.nextsync_treeview.dragEnterEvent = _nextsync_drag_enter
         self.nextsync_treeview.dragMoveEvent = _nextsync_drag_move

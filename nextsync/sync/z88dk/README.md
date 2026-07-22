@@ -255,5 +255,11 @@ over a socketpair with a mock Next — run it with `python test_listen.py`.
   exits with `Connection lost - stopping` after 8 in a row (each one burns the
   full uart timeout, so that is many seconds of true silence); any good frame
   resets the count, so uart noise or a brief wifi hiccup still just re-polls.
+- **Startup connect retries (also v5.4):** when the PC server isn't running
+  yet, the dot retries the connection up to 3 times ~2 s apart — printing
+  `Retrying connection (1/3)...` and so on — before the usual
+  `Unable to connect` failure, giving the user a moment to start the classic
+  sync server or the Remote Explorer. Applies to every mode (classic sync,
+  `-send`, `-listen`); BREAK exits immediately, before or during the pauses.
 - The UART `receive` timing was preserved but should be re-verified at 2 Mbaud
   on real hardware.
