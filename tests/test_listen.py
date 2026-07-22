@@ -9,7 +9,7 @@ import os, sys, socket, threading, tempfile, shutil, time, io, contextlib
 
 # nextsync5.py lives at the repo root (next to zxnu_http_bridge.py, which it
 # imports for the optional -w/-http web server).
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import nextsync5 as ns
 
 if os.environ.get("TL_DEBUG"):

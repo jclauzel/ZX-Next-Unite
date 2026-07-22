@@ -3792,6 +3792,16 @@ class MainWindow(QMainWindow):
                     self.settings_mame_update_check_checkbox.setChecked(_mame_upd_on)
                     self.settings_mame_update_check_checkbox.blockSignals(False)
 
+                # ZX Next Unite "check for updates at startup on Github" toggle
+                # (default on). Always present as a widget.
+                if hasattr(self, "settings_zxnu_update_check_checkbox"):
+                    _zxnu_upd = configuration_dictionary.get(
+                        SETTING_ZXNU_UPDATE_CHECK, "").strip().lower()
+                    _zxnu_upd_on = _zxnu_upd not in ("false", "0", "no")  # default on
+                    self.settings_zxnu_update_check_checkbox.blockSignals(True)
+                    self.settings_zxnu_update_check_checkbox.setChecked(_zxnu_upd_on)
+                    self.settings_zxnu_update_check_checkbox.blockSignals(False)
+
                 # CSpect "check for a newer version on itch.io at startup" toggle
                 # (default on). Always present as a widget (unlike MAME's, which
                 # is gated on detection).
@@ -5193,6 +5203,292 @@ class MainWindow(QMainWindow):
         # Expose so the startup sequence can kick the check once the config
         # (enable flag + installed tag) has been loaded.
         self._check_mame_update_async = _check_mame_update_async
+
+        # ── ZX Next Unite self-update check (GitHub releases) ───────────────
+        # Mirrors the MAME startup check above, but for this app's own
+        # releases: Windows-binary users are offered a download + restart,
+        # source checkouts are advised to 'git pull' instead. Every branch
+        # logs to the SD Card log window so the check never looks stuck.
+
+        def _parse_zxnu_version(text):
+            """'v9.0.8' / '9.0.8' -> (9, 0, 8); None when unparseable."""
+            try:
+                parts = str(text).strip().lstrip("vV").split(".")
+                out = tuple(int(p) for p in parts if p != "")
+                return out or None
+            except (ValueError, AttributeError):
+                return None
+
+        def _fetch_latest_zxnu_release():
+            """Decoded JSON of this app's 'latest release' GitHub API reply
+            (GitHub requires a User-Agent header). Raises on network errors;
+            404 simply means no release has been published yet."""
+            req = urllib.request.Request(
+                ZXNU_GITHUB_LATEST_RELEASE_API,
+                headers={"User-Agent": ZXART_USER_AGENT,
+                         "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                return json.loads(resp.read().decode("utf-8", "replace"))
+
+        def _zxnu_pick_release_exe(release):
+            """(name, url, size) of the Windows app binary attached to
+            *release* (the .exe asset, e.g. zx-next-unite-v9.0.8.exe), or
+            None when the release carries no exe."""
+            for asset in release.get("assets", []) or []:
+                name = str(asset.get("name", ""))
+                if name.lower().endswith(".exe"):
+                    return (name, asset.get("browser_download_url"),
+                            int(asset.get("size") or 0))
+            return None
+
+        def _zxnu_offer_restart(new_path):
+            """Post-download: offer to close the app and start the new binary,
+            naming it clearly so the user knows exactly what to run."""
+            name = os.path.basename(new_path)
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle("Update downloaded")
+            box.setText(
+                "The new version was saved as:\n\n"
+                f"{new_path}\n\n"
+                f"Close ZX Next Unite now and start the new version ({name})?\n"
+                "Your settings (hdfg.cfg) and downloads are picked up as-is —\n"
+                "both versions run from the same folder.")
+            yes = box.addButton(f"Close and start {name}", QMessageBox.AcceptRole)
+            box.addButton("Later", QMessageBox.RejectRole)
+            box.setDefaultButton(yes)
+            box.exec()
+            if box.clickedButton() is not yes:
+                add_main_log_window(
+                    f"ZX Next Unite update: downloaded — start it any time: {new_path}")
+                return
+            add_main_log_window(f"ZX Next Unite update: starting {name} and closing…")
+            try:
+                subprocess.Popen([new_path], cwd=os.path.dirname(new_path) or None)
+            except OSError as exc:
+                add_main_log_window(f"ZX Next Unite update: could not start {name}: {exc}")
+                QMessageBox.critical(self, "Could not start the new version",
+                                     f"{new_path}\n\n{exc}")
+                return
+            self.close()
+
+        def _zxnu_download_update(tag, asset_name, url, size):
+            """Download the release exe next to the current binary on a worker
+            thread (progress dialog, cancellable), then offer the restart.
+            Never overwrites the RUNNING binary: a name collision gets the
+            release tag appended to the filename."""
+            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            dest = os.path.join(app_dir, asset_name)
+            current = os.path.abspath(
+                sys.executable if getattr(sys, "frozen", False) else sys.argv[0])
+            if os.path.normcase(dest) == os.path.normcase(current):
+                stem, ext = os.path.splitext(asset_name)
+                dest = os.path.join(app_dir, f"{stem}-{tag}{ext}")
+            holder = {"ok": False, "error": ""}
+
+            def _task(signals, cancel_event, _url=url, _dest=dest, _size=size,
+                      _h=holder):
+                tmp = _dest + ".part"
+                try:
+                    req = urllib.request.Request(
+                        _url, headers={"User-Agent": ZXART_USER_AGENT})
+                    with urllib.request.urlopen(req, timeout=30) as resp, \
+                            open(tmp, "wb") as out:
+                        total = _size or int(resp.headers.get("Content-Length") or 0)
+                        got = 0
+                        while True:
+                            if cancel_event.is_set():
+                                _h["error"] = "cancelled"
+                                break
+                            chunk = resp.read(65536)
+                            if not chunk:
+                                break
+                            out.write(chunk)
+                            got += len(chunk)
+                            if total:
+                                signals.progress.emit(int(got * 100 / total))
+                            signals.status.emit(
+                                f"Downloading {os.path.basename(_dest)}…\n"
+                                f"{got // 1048576} MB"
+                                + (f" / {total // 1048576} MB" if total else ""))
+                    if not _h["error"]:
+                        os.replace(tmp, _dest)
+                        _h["ok"] = True
+                except Exception as exc:   # network/disk problems must never crash
+                    _h["error"] = str(exc)
+                if not _h["ok"]:
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
+
+            dlg = HdfProgressDialog("Downloading ZX Next Unite update…", self)
+            worker = HdfTaskWorker(_task)
+            dlg.cancel_requested.connect(worker.cancel)
+            worker.signals.progress.connect(dlg.set_progress)
+            worker.signals.status.connect(dlg.set_status)
+            worker.signals.cancelled.connect(dlg.mark_cancelled)
+
+            def _on_zxnu_download_done():
+                dlg.close()
+                if holder["ok"]:
+                    add_main_log_window(
+                        f"ZX Next Unite update: downloaded {os.path.basename(dest)} "
+                        f"to {os.path.dirname(dest)}.")
+                    _zxnu_offer_restart(dest)
+                elif holder["error"] == "cancelled":
+                    add_main_log_window("ZX Next Unite update: download cancelled.")
+                else:
+                    add_main_log_window(
+                        f"ZX Next Unite update: download FAILED: {holder['error']}")
+                    QMessageBox.critical(self, "Update download failed",
+                                         f"Could not download the update:\n{holder['error']}")
+
+            worker.signals.finished.connect(_on_zxnu_download_done)
+            self.threadpool.start(worker)
+            dlg.exec()
+
+        def _prompt_zxnu_update(tag, release):
+            """UI-thread prompt for an available app update. Windows-binary
+            (frozen) users get download + restart; a source checkout (git
+            clone) is advised to 'git pull' instead of fetching the exe."""
+            frozen = bool(getattr(sys, "frozen", False))
+            if not frozen:
+                add_main_log_window(
+                    f"ZX Next Unite {tag} is available — running from source, so "
+                    "update with 'git pull' instead of the Windows binary.")
+                box = QMessageBox(self)
+                box.setIcon(QMessageBox.Information)
+                box.setWindowTitle("ZX Next Unite update available")
+                box.setText(
+                    f"ZX Next Unite {tag} is available "
+                    f"(you are running {ZX_NEXT_UNITE_VERSION}).\n\n"
+                    "You appear to be running from source (git clone), so the\n"
+                    "recommended way to update is:\n\n"
+                    "    git pull\n\n"
+                    "instead of downloading the Windows binary.")
+                openrel = box.addButton("Open the releases page", QMessageBox.AcceptRole)
+                box.addButton("Close", QMessageBox.RejectRole)
+                box.setDefaultButton(openrel)
+                box.exec()
+                if box.clickedButton() is openrel:
+                    webbrowser.open(ZXNU_GITHUB_RELEASES_PAGE)
+                return
+            asset = _zxnu_pick_release_exe(release)
+            if not asset:
+                add_main_log_window(
+                    f"ZX Next Unite {tag} is available, but the release has no "
+                    ".exe asset — opening the releases page instead.")
+                if QMessageBox.question(
+                        self, "ZX Next Unite update available",
+                        f"{tag} is available but carries no Windows binary.\n"
+                        "Open the releases page in your browser?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.Yes) == QMessageBox.Yes:
+                    webbrowser.open(ZXNU_GITHUB_RELEASES_PAGE)
+                return
+            asset_name, url, size = asset
+            size_txt = f"{size / 1048576:.0f} MB" if size else "?"
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle("ZX Next Unite update available")
+            box.setText(
+                f"ZX Next Unite {tag} is available — download?\n\n"
+                f"Installed: {ZX_NEXT_UNITE_VERSION}\n"
+                f"Latest: {tag}\n"
+                f"Package: {asset_name} (~{size_txt})\n\n"
+                "The new version is saved next to the current one — you choose\n"
+                "when to switch (you'll be offered a restart after the download).")
+            dl = box.addButton("Download", QMessageBox.AcceptRole)
+            box.addButton("Cancel", QMessageBox.RejectRole)
+            box.setDefaultButton(dl)
+            box.exec()
+            if box.clickedButton() is dl:
+                add_main_log_window(f"ZX Next Unite update ▸ downloading {asset_name}…")
+                _zxnu_download_update(tag, asset_name, url, size)
+            else:
+                add_main_log_window("ZX Next Unite update ▸ skipped by user.")
+
+        def _check_zxnu_update_async():
+            """At startup, when the Settings toggle is on, look up this app's
+            latest GitHub release (off the UI thread) and offer to update when
+            it is newer. Mirrors the MAME check: every branch logs to the SD
+            Card log window and failures never disrupt startup."""
+            pref = configuration_dictionary.get(
+                SETTING_ZXNU_UPDATE_CHECK, "").strip().lower()
+            if pref in ("false", "0", "no"):
+                return  # user disabled the check
+
+            def _job():
+                return _fetch_latest_zxnu_release()
+
+            def _on_result(release):
+                try:
+                    tag = str(release.get("tag_name", "")).strip()
+                    remote = _parse_zxnu_version(tag)
+                    local = _parse_zxnu_version(ZX_NEXT_UNITE_VERSION)
+                    if not remote or not local:
+                        add_main_log_window(
+                            "ZX Next Unite update check: could not parse the "
+                            f"versions (latest tag {tag!r}); skipping.")
+                        return
+                    if remote <= local:
+                        add_main_log_window(
+                            f"ZX Next Unite is up to date "
+                            f"(installed {ZX_NEXT_UNITE_VERSION}, latest {tag}).")
+                        return
+                    add_main_log_window(
+                        f"ZX Next Unite update available: {tag} "
+                        f"(installed {ZX_NEXT_UNITE_VERSION}).")
+                    _prompt_zxnu_update(tag, release)
+                except Exception as exc:
+                    logging.info(f"ZXNU update check result handling failed: {exc}")
+
+            def _on_error(err):
+                detail = err[1] if isinstance(err, (tuple, list)) and len(err) > 1 else err
+                logging.info(f"ZXNU update check skipped: {detail}")
+                add_main_log_window(
+                    "ZX Next Unite update check: could not reach GitHub "
+                    "(offline, or no release published yet); skipping.")
+
+            add_main_log_window("Checking for a newer ZX Next Unite release on GitHub…")
+            getit_run_in_thread(_job, _on_result, _on_error)
+
+        self._check_zxnu_update_async = _check_zxnu_update_async
+
+        def _check_dotn_version_advisory():
+            """After an app update, warn ONCE when the bundled NextSync .sync5
+            dotN version changed: the dot lives on the Next's SD card, so the
+            app cannot deploy it automatically. First run (no saved value in
+            the cfg) records the current version silently — existing installs
+            aren't nagged retroactively."""
+            saved = configuration_dictionary.get(
+                SETTING_DOTN_LAST_VERSION, "").strip()
+            if saved == ZX_NEXT_UNITE_DOTN_VERSION:
+                return
+            configuration_dictionary[SETTING_DOTN_LAST_VERSION] = \
+                ZX_NEXT_UNITE_DOTN_VERSION
+            save_configuration_file()
+            if not saved:
+                return  # first run with this feature: remember, don't nag
+            add_main_log_window(
+                f"NextSync .sync5 dot command updated: v{saved} -> "
+                f"v{ZX_NEXT_UNITE_DOTN_VERSION} — please copy the new build "
+                "to your Next (it cannot be deployed automatically).")
+            QMessageBox.information(
+                self, ".sync5 needs updating on your Next",
+                "This ZX Next Unite version ships an updated NextSync dot "
+                f"command: .sync5 v{saved} → v{ZX_NEXT_UNITE_DOTN_VERSION}.\n\n"
+                "The dot runs on the Spectrum Next itself, so it cannot be "
+                "updated automatically. Please copy the new build to your "
+                "Next (e.g. into C:/dot as 'sync5'):\n\n"
+                "  • the 'sync5' file attached to the GitHub release, or\n"
+                "  • nextsync/sync/server/dot/syncdev from the repository "
+                "(also push-able via the Remote Explorer while the OLD dot "
+                "is connected).\n\n"
+                "Until then the previous dot keeps working with this app.")
+
+        self._check_dotn_version_advisory = _check_dotn_version_advisory
 
         # ── CSpect update check (itch.io) ──────────────────────────────────
         # Mirrors the MAME startup update check above, but sources the build
@@ -23514,6 +23810,31 @@ class MainWindow(QMainWindow):
         zxnextunite_Settings_tab.setAutoFillBackground(False)
         grid_tab_Settings = QGridLayout(zxnextunite_Settings_tab)
 
+        # ── ZX Next Unite self-update check (very top of the Settings pane) ──
+        # Startup check of the app's own GitHub releases (mirrors the MAME /
+        # CSpect update-check toggles below). Default on; persisted so a saved
+        # "off" survives restarts. The check itself runs in
+        # _check_zxnu_update_async (kicked from the startup sequence).
+        def settings_zxnu_update_check_changed():
+            on = self.settings_zxnu_update_check_checkbox.isChecked()
+            configuration_dictionary[SETTING_ZXNU_UPDATE_CHECK] = (
+                "true" if on else "false")
+            save_configuration_file()
+
+        self.settings_zxnu_update_check_checkbox = QCheckBox(
+            "Check for ZX Next Unite updates at startup on Github")
+        self.settings_zxnu_update_check_checkbox.setChecked(True)  # default on
+        self.settings_zxnu_update_check_checkbox.setToolTip(
+            "At startup, check the ZX Next Unite GitHub releases page for a\n"
+            "newer version and offer to download it (Windows binary users) or\n"
+            "advise a 'git pull' (running from source). The check and its\n"
+            "outcome are logged in the SD Card Utility tab's log window, like\n"
+            "the MAME and CSpect checks. On by default. Saved to the\n"
+            "configuration file.")
+        self.settings_zxnu_update_check_checkbox.stateChanged.connect(
+            lambda _s: settings_zxnu_update_check_changed())
+        grid_tab_Settings.addWidget(self.settings_zxnu_update_check_checkbox, 0, 0, 1, 2)
+
         # ── Desktop theme (top of the Settings pane) ───────────────────────
         # Drives the SD Card explorer font colours. Automatic follows the OS
         # (high-contrast -> all black, dark -> orange/yellow, else -> light
@@ -23636,7 +23957,7 @@ class MainWindow(QMainWindow):
             "  • Custom: keep your hand-picked colours. Changing any colour\n"
             "    below switches to Custom automatically."
         )
-        grid_tab_Settings.addWidget(desktop_theme_lbl, 0, 0)
+        grid_tab_Settings.addWidget(desktop_theme_lbl, 1, 0)
 
         self.settings_desktop_theme_combo = QComboBox()
         self.settings_desktop_theme_combo.addItem("Automatic (default)",   DESKTOP_THEME_AUTOMATIC)
@@ -23649,7 +23970,7 @@ class MainWindow(QMainWindow):
         self.settings_desktop_theme_combo.currentIndexChanged.connect(
             lambda _i: _settings_desktop_theme_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_desktop_theme_combo, 0, 1)
+        grid_tab_Settings.addWidget(self.settings_desktop_theme_combo, 1, 1)
 
         def settings_warn_image_nearly_full_statechanged():
             configuration_dictionary[SETTING_WARN_IMAGE_NEARLY_FULL] = "true" if self.settings_warn_image_nearly_full_checkbox.isChecked() else "false"
@@ -23663,7 +23984,7 @@ class MainWindow(QMainWindow):
             "Uncheck this option to suppress that warning."
         )
         self.settings_warn_image_nearly_full_checkbox.stateChanged.connect(settings_warn_image_nearly_full_statechanged)
-        grid_tab_Settings.addWidget(self.settings_warn_image_nearly_full_checkbox, 1, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_warn_image_nearly_full_checkbox, 2, 0, 1, 2)
 
         def settings_no_prompt_on_deletion_statechanged():
             configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION] = "true" if self.settings_no_prompt_on_deletion_checkbox.isChecked() else "false"
@@ -23677,7 +23998,7 @@ class MainWindow(QMainWindow):
             "Leave unchecked to keep the confirmation prompt (recommended)."
         )
         self.settings_no_prompt_on_deletion_checkbox.stateChanged.connect(settings_no_prompt_on_deletion_statechanged)
-        grid_tab_Settings.addWidget(self.settings_no_prompt_on_deletion_checkbox, 2, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_no_prompt_on_deletion_checkbox, 3, 0, 1, 2)
 
         def settings_avail_check_statechanged():
             configuration_dictionary[SETTING_AVAIL_CHECK] = "true" if self.settings_avail_check_checkbox.isChecked() else "false"
@@ -23694,7 +24015,7 @@ class MainWindow(QMainWindow):
         self.settings_avail_check_checkbox.stateChanged.connect(settings_avail_check_statechanged)
         _avail_check_visible = ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS or ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS
         self.settings_avail_check_checkbox.setVisible(_avail_check_visible)
-        grid_tab_Settings.addWidget(self.settings_avail_check_checkbox, 4, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_avail_check_checkbox, 5, 0, 1, 2)
 
         def settings_multi_search_statechanged():
             configuration_dictionary[SETTING_MULTI_SEARCH] = "true" if self.settings_multi_search_checkbox.isChecked() else "false"
@@ -23708,7 +24029,7 @@ class MainWindow(QMainWindow):
             "with the number of results found, e.g. ZXDB (5)."
         )
         self.settings_multi_search_checkbox.stateChanged.connect(settings_multi_search_statechanged)
-        grid_tab_Settings.addWidget(self.settings_multi_search_checkbox, 5, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_multi_search_checkbox, 6, 0, 1, 2)
 
         def settings_search_autocomplete_statechanged():
             enabled = self.settings_search_autocomplete_checkbox.isChecked()
@@ -23724,7 +24045,7 @@ class MainWindow(QMainWindow):
             "Uncheck to disable autocomplete suggestions on all search inputs."
         )
         self.settings_search_autocomplete_checkbox.stateChanged.connect(settings_search_autocomplete_statechanged)
-        grid_tab_Settings.addWidget(self.settings_search_autocomplete_checkbox, 6, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_search_autocomplete_checkbox, 7, 0, 1, 2)
 
         # ---- Gallery (picture view) settings ----
         def _settings_gallery_anim_changed():
@@ -23741,7 +24062,7 @@ class MainWindow(QMainWindow):
             "  • Timed: cycles continuously while the gallery is visible.\n"
             "  • None: never cycles between images (animated GIFs still play)."
         )
-        grid_tab_Settings.addWidget(gallery_anim_lbl, 7, 0)
+        grid_tab_Settings.addWidget(gallery_anim_lbl, 8, 0)
 
         self.settings_gallery_anim_combo = QComboBox()
         self.settings_gallery_anim_combo.addItem("On hover (default)", "hover")
@@ -23751,7 +24072,7 @@ class MainWindow(QMainWindow):
         self.settings_gallery_anim_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_anim_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_anim_combo, 7, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_anim_combo, 8, 1)
 
         def _settings_gallery_rows_changed(val: int):
             val = max(GALLERY_MIN_ROWS, min(GALLERY_MAX_ROWS, int(val)))
@@ -23764,14 +24085,14 @@ class MainWindow(QMainWindow):
             "Number of thumbnail rows shown per gallery page.\n"
             f"Range {GALLERY_MIN_ROWS}–{GALLERY_MAX_ROWS}. Default {DEFAULT_GALLERY_ROWS_PER_PAGE}."
         )
-        grid_tab_Settings.addWidget(gallery_rows_lbl, 8, 0)
+        grid_tab_Settings.addWidget(gallery_rows_lbl, 9, 0)
 
         self.settings_gallery_rows_spin = QSpinBox()
         self.settings_gallery_rows_spin.setRange(GALLERY_MIN_ROWS, GALLERY_MAX_ROWS)
         self.settings_gallery_rows_spin.setValue(DEFAULT_GALLERY_ROWS_PER_PAGE)
         self.settings_gallery_rows_spin.setToolTip(gallery_rows_lbl.toolTip())
         self.settings_gallery_rows_spin.valueChanged.connect(_settings_gallery_rows_changed)
-        grid_tab_Settings.addWidget(self.settings_gallery_rows_spin, 8, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_rows_spin, 9, 1)
 
         def _make_color_button(setting_key, color_attr, label_text, tooltip_text, grid_row,
                                switch_theme=True, on_change=None):
@@ -23845,7 +24166,7 @@ class MainWindow(QMainWindow):
             "Number of thumbnail columns shown in the gallery grid.\n"
             "Default is 4. Choose 2 for larger tiles or 8 for more items per row."
         )
-        grid_tab_Settings.addWidget(gallery_cols_lbl, 9, 0)
+        grid_tab_Settings.addWidget(gallery_cols_lbl, 10, 0)
 
         self.settings_gallery_cols_combo = QComboBox()
         self.settings_gallery_cols_combo.addItem("2", 2)
@@ -23856,7 +24177,7 @@ class MainWindow(QMainWindow):
         self.settings_gallery_cols_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_cols_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_cols_combo, 9, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_cols_combo, 10, 1)
 
         def _settings_gallery_img_size_changed():
             val = self.settings_gallery_img_size_combo.currentData() or DEFAULT_GALLERY_IMG_SIZE
@@ -23871,7 +24192,7 @@ class MainWindow(QMainWindow):
             "  • Medium (default): standard size\n"
             "  • Large: double the medium height"
         )
-        grid_tab_Settings.addWidget(gallery_img_size_lbl, 10, 0)
+        grid_tab_Settings.addWidget(gallery_img_size_lbl, 11, 0)
 
         self.settings_gallery_img_size_combo = QComboBox()
         self.settings_gallery_img_size_combo.addItem("Small",          "small")
@@ -23882,7 +24203,7 @@ class MainWindow(QMainWindow):
         self.settings_gallery_img_size_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_img_size_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_img_size_combo, 10, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_img_size_combo, 11, 1)
 
         def _settings_gallery_slideshow_changed():
             val = self.settings_gallery_slideshow_combo.currentData()
@@ -23906,7 +24227,7 @@ class MainWindow(QMainWindow):
             "How long each screenshot is shown before the auto-advancing gallery\n"
             "slideshow moves to the next image. Default is 5 seconds."
         )
-        grid_tab_Settings.addWidget(gallery_slideshow_lbl, 11, 0)
+        grid_tab_Settings.addWidget(gallery_slideshow_lbl, 12, 0)
 
         self.settings_gallery_slideshow_combo = QComboBox()
         for _secs in GALLERY_SLIDESHOW_SECS_CHOICES:
@@ -23917,45 +24238,45 @@ class MainWindow(QMainWindow):
         self.settings_gallery_slideshow_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_slideshow_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_slideshow_combo, 11, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_slideshow_combo, 12, 1)
 
         settings_section_lbl = QLabel("Local file explorers & App Text Colors:")
         settings_section_lbl.setToolTip(
             "Customize the foreground color of each item type shown in the SD card\n"
             "image explorer, plus the general app text color (labels, checkboxes,\n"
             "section headers) used across the app in Classic (non-pygame) mode.")
-        grid_tab_Settings.addWidget(settings_section_lbl, 13, 0, 1, 2)
+        grid_tab_Settings.addWidget(settings_section_lbl, 14, 0, 1, 2)
 
         self.settings_btn_color_up_directory = _make_color_button(
             SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory",
             "  Up Directory item",
             "Color used for the '[Up Directory..]' navigation row in the image explorer.",
-            14)
+            15)
         self.settings_btn_color_dir_name = _make_color_button(
             SETTING_COLOR_DIR_NAME, "img_color_dir_name",
             "  Directory name",
             "Color used for directory name entries in the image explorer.",
-            15)
+            16)
         self.settings_btn_color_dir_type = _make_color_button(
             SETTING_COLOR_DIR_TYPE, "img_color_dir_type",
             "  Directory type label",
             "Color used for the 'DIR' type label column of directory entries.",
-            16)
+            17)
         self.settings_btn_color_file_name = _make_color_button(
             SETTING_COLOR_FILE_NAME, "img_color_file_name",
             "  File name",
             "Color used for file name entries in the image explorer.",
-            17)
+            18)
         self.settings_btn_color_file_ext = _make_color_button(
             SETTING_COLOR_FILE_EXT, "img_color_file_ext",
             "  File extension",
             "Color used for the file extension column in the image explorer.",
-            18)
+            19)
         self.settings_btn_color_file_size = _make_color_button(
             SETTING_COLOR_FILE_SIZE, "img_color_file_size",
             "  File size",
             "Color used for the file size column in the image explorer.",
-            19)
+            20)
         self.settings_btn_color_general_text = _make_color_button(
             SETTING_COLOR_GENERAL_TEXT, "img_color_general_text",
             "  General UI text",
@@ -23964,7 +24285,7 @@ class MainWindow(QMainWindow):
             "light desktop/White theme would otherwise make this text black and\n"
             "unreadable. The White/Dark/Automatic/High-contrast themes set this\n"
             "automatically; picking a color here switches to the Custom theme.",
-            20)
+            21)
 
         # ---- Retro log console text color (pygame log windows) ----
         def _apply_retro_log_color(color=None):
@@ -23989,7 +24310,7 @@ class MainWindow(QMainWindow):
             "Font color for the retro 8-bit (pygame) log consoles on the\n"
             "SD Card, NextSync and Help tabs. Applies immediately. Default is\n"
             "the classic phosphor green. Independent of the Desktop Theme.",
-            21, switch_theme=False, on_change=_apply_retro_log_color)
+            22, switch_theme=False, on_change=_apply_retro_log_color)
 
         # ---- Retro log font size (SD Card + NextSync pygame log windows) ----
         def _apply_retro_log_font_size(px):
@@ -24018,7 +24339,7 @@ class MainWindow(QMainWindow):
             "Consolas text size for the retro 8-bit (pygame) log windows on the\n"
             "SD Card and NextSync tabs. Applies immediately. Default is 13."
         )
-        grid_tab_Settings.addWidget(retro_log_font_lbl, 22, 0)
+        grid_tab_Settings.addWidget(retro_log_font_lbl, 23, 0)
 
         self.settings_retro_log_font_combo = QComboBox()
         for _px in RETRO_LOG_FONT_SIZE_CHOICES:
@@ -24032,7 +24353,7 @@ class MainWindow(QMainWindow):
         self.settings_retro_log_font_combo.currentIndexChanged.connect(
             lambda _i: _settings_retro_log_font_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_retro_log_font_combo, 22, 1)
+        grid_tab_Settings.addWidget(self.settings_retro_log_font_combo, 23, 1)
 
         # ---- Background image opacity ----
         bg_opacity_lbl = QLabel("Background image opacity (%):")
@@ -24040,7 +24361,7 @@ class MainWindow(QMainWindow):
             "Controls how visible the background image is behind the UI.\n"
             "0 = fully hidden, 100 = fully visible. Default is 5%."
         )
-        grid_tab_Settings.addWidget(bg_opacity_lbl, 23, 0)
+        grid_tab_Settings.addWidget(bg_opacity_lbl, 24, 0)
 
         bg_opacity_row = QWidget()
         bg_opacity_row_layout = QHBoxLayout(bg_opacity_row)
@@ -24171,7 +24492,7 @@ class MainWindow(QMainWindow):
 
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_slider, 1)
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_spinbox, 0)
-        grid_tab_Settings.addWidget(bg_opacity_row, 23, 1)
+        grid_tab_Settings.addWidget(bg_opacity_row, 24, 1)
 
         # ---- Background image selector ----
         bg_image_lbl = QLabel("Background image:")
@@ -24179,7 +24500,7 @@ class MainWindow(QMainWindow):
             "Choose a specific background image or 'Random' to cycle through\n"
             "all images in the script folder every 5 seconds."
         )
-        grid_tab_Settings.addWidget(bg_image_lbl, 24, 0)
+        grid_tab_Settings.addWidget(bg_image_lbl, 25, 0)
 
         bg_image_row = QWidget()
         bg_image_row_layout = QHBoxLayout(bg_image_row)
@@ -24222,7 +24543,7 @@ class MainWindow(QMainWindow):
         self.settings_bg_image_preview.setToolTip("Preview of the selected background image.")
         bg_image_row_layout.addWidget(self.settings_bg_image_preview, 0)
 
-        grid_tab_Settings.addWidget(bg_image_row, 24, 1)
+        grid_tab_Settings.addWidget(bg_image_row, 25, 1)
 
         def _update_bg_image_preview(path: str):
             """Refresh the thumbnail label for the given absolute image path."""
@@ -24283,7 +24604,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_crash_log_enabled_checkbox.stateChanged.connect(
             settings_crash_log_enabled_statechanged)
-        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 25, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 26, 0, 1, 2)
 
         def settings_disable_no_emulator_toast_statechanged():
             configuration_dictionary[SETTING_DISABLE_NO_EMULATOR_TOAST] = "true" if self.settings_disable_no_emulator_toast_checkbox.isChecked() else "false"
@@ -24297,7 +24618,7 @@ class MainWindow(QMainWindow):
             "Check this if you do not use any emulator and do not want the reminder."
         )
         self.settings_disable_no_emulator_toast_checkbox.stateChanged.connect(settings_disable_no_emulator_toast_statechanged)
-        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 26, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 27, 0, 1, 2)
 
         # ── NextSync HTTP bridge toggle + port ──────────────────────────
         def _http_port_widgets_set_enabled(on):
@@ -24421,7 +24742,7 @@ class MainWindow(QMainWindow):
         _http_bridge_row.addWidget(self.settings_http_conn_label)
         _http_bridge_row.addWidget(self.settings_http_conn_spinbox)
         _http_bridge_row.addStretch(1)
-        grid_tab_Settings.addLayout(_http_bridge_row, 37, 0, 1, 2)
+        grid_tab_Settings.addLayout(_http_bridge_row, 38, 0, 1, 2)
         self._http_port_widgets_set_enabled = _http_port_widgets_set_enabled
 
         # ── MAME options (shown when MAME is launchable: a detected binary, or
@@ -24437,7 +24758,7 @@ class MainWindow(QMainWindow):
                 "This is inserted right after the MAME executable and is no longer part\n"
                 "of the command-line parameters below."
             )
-            grid_tab_Settings.addWidget(mame_rom_lbl, 27, 0)
+            grid_tab_Settings.addWidget(mame_rom_lbl, 28, 0)
 
             self.settings_mame_rom_combo = QComboBox()
             for _rom_name in MAME_ROM_CHOICE:
@@ -24445,7 +24766,7 @@ class MainWindow(QMainWindow):
             self.settings_mame_rom_combo.setToolTip(mame_rom_lbl.toolTip())
             self.settings_mame_rom_combo.currentIndexChanged.connect(
                 lambda _i: settings_mame_rom_changed())
-            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 27, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 28, 1)
 
             def settings_mame_params_changed():
                 configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = self.settings_mame_params_edit.text()
@@ -24462,7 +24783,7 @@ class MainWindow(QMainWindow):
                 "-mouse/-mouse_device or -joystick/-joystickprovider options typed here\n"
                 "are ignored (the combos take precedence)."
             )
-            grid_tab_Settings.addWidget(mame_params_lbl, 28, 0)
+            grid_tab_Settings.addWidget(mame_params_lbl, 29, 0)
 
             self.settings_mame_params_edit = QLineEdit()
             self.settings_mame_params_edit.setText(
@@ -24470,7 +24791,7 @@ class MainWindow(QMainWindow):
                     SETTING_MAME_COMMAND_LINE_PARAMETERS, MAME_DEFAULT_COMMAND_LINE))
             self.settings_mame_params_edit.setToolTip(mame_params_lbl.toolTip())
             self.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
-            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 28, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 29, 1)
 
             # The startup update check only exists where the app can actually
             # fetch a build (64-bit Windows / x86_64 Linux). On macOS MAME is
@@ -24497,7 +24818,7 @@ class MainWindow(QMainWindow):
                 )
                 self.settings_mame_update_check_checkbox.stateChanged.connect(
                     lambda _s: settings_mame_update_check_changed())
-                grid_tab_Settings.addWidget(self.settings_mame_update_check_checkbox, 29, 0, 1, 2)
+                grid_tab_Settings.addWidget(self.settings_mame_update_check_checkbox, 30, 0, 1, 2)
 
         # ── Launch MAME with Flatpak (Linux) ──────────────────────────────
         # Shown on Linux regardless of whether a MAME binary was detected, so a
@@ -24565,7 +24886,7 @@ class MainWindow(QMainWindow):
             self.settings_mame_flatpak_rompath_row.setVisible(_flatpak_on)
             _flatpak_layout.addWidget(self.settings_mame_flatpak_rompath_row)
 
-            grid_tab_Settings.addWidget(_flatpak_box, 29, 0, 1, 2)
+            grid_tab_Settings.addWidget(_flatpak_box, 30, 0, 1, 2)
 
         # ── CSpect default launch parameters ───────────────────────────────
         # Shown unconditionally (unlike the MAME block above, which is gated on
@@ -24587,14 +24908,14 @@ class MainWindow(QMainWindow):
             "launch. Leave empty to restore the built-in default. Saved to the\n"
             "configuration file."
         )
-        grid_tab_Settings.addWidget(cspect_params_lbl, 30, 0)
+        grid_tab_Settings.addWidget(cspect_params_lbl, 31, 0)
 
         self.settings_cspect_params_edit = QLineEdit()
         self.settings_cspect_params_edit.setText(
             configuration_dictionary.get(SETTING_CUSTOM, CSPECT_DEFAULT_LAUNCH_PARAMETERS))
         self.settings_cspect_params_edit.setToolTip(cspect_params_lbl.toolTip())
         self.settings_cspect_params_edit.editingFinished.connect(settings_cspect_params_changed)
-        grid_tab_Settings.addWidget(self.settings_cspect_params_edit, 30, 1)
+        grid_tab_Settings.addWidget(self.settings_cspect_params_edit, 31, 1)
 
         # ── Unite! pygame background animation toggle ──────────────────────
         def _settings_pygame_anim_changed():
@@ -24623,7 +24944,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_pygame_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 32, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 33, 0, 1, 2)
 
         # ── NextSync retro-log starfield animation toggle ──────────────────
         def _settings_nextsync_anim_changed():
@@ -24655,7 +24976,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_nextsync_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_nextsync_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 35, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 36, 0, 1, 2)
 
         # ── Alien Floyd's: optional pygame-ce animated background everywhere ──
         # A Pink Floyd homage. When on, a pygame-ce "Alien Floyd's" animation
@@ -24710,7 +25031,7 @@ class MainWindow(QMainWindow):
             "file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_bg_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_bg_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 33, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 34, 0, 1, 2)
 
         # ── Alien Floyd's: optional dedicated full-window tab ────────────────
         self._alien_floyd_tab_widget = None
@@ -24782,7 +25103,7 @@ class MainWindow(QMainWindow):
             "configuration file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 34, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 35, 0, 1, 2)
 
         # ── itch.io: optional online tab (driven by the 'itch-dl' package) ───
         def _itchio_tab_set_visible(on):
@@ -24825,7 +25146,7 @@ class MainWindow(QMainWindow):
                 "configuration file. Requires the optional 'itch-dl' package.")
         self.settings_show_itchio_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_itchio_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 36, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 37, 0, 1, 2)
 
         # ── CSpect: check itch.io for a newer version at startup (default on) ──
         def settings_cspect_update_check_changed():
@@ -24848,7 +25169,7 @@ class MainWindow(QMainWindow):
         self.settings_cspect_update_check_checkbox.stateChanged.connect(
             lambda _s: settings_cspect_update_check_changed())
         grid_tab_Settings.addWidget(
-            self.settings_cspect_update_check_checkbox, 31, 0, 1, 2)
+            self.settings_cspect_update_check_checkbox, 32, 0, 1, 2)
 
         # ── NextSync: what to do when a received file/dir already exists locally ──
         def _settings_nextsync_send_conflict_changed():
@@ -24865,7 +25186,7 @@ class MainWindow(QMainWindow):
             "  • Overwrite: always replace the local file.\n"
             "  • Ignore: never touch existing local files."
         )
-        grid_tab_Settings.addWidget(nextsync_send_conflict_lbl, 3, 0)
+        grid_tab_Settings.addWidget(nextsync_send_conflict_lbl, 4, 0)
 
         self.settings_nextsync_send_conflict_combo = QComboBox()
         self.settings_nextsync_send_conflict_combo.addItem("Prompt (default)", "prompt")
@@ -24874,7 +25195,7 @@ class MainWindow(QMainWindow):
         self.settings_nextsync_send_conflict_combo.setToolTip(nextsync_send_conflict_lbl.toolTip())
         self.settings_nextsync_send_conflict_combo.currentIndexChanged.connect(
             lambda _i: _settings_nextsync_send_conflict_changed())
-        grid_tab_Settings.addWidget(self.settings_nextsync_send_conflict_combo, 3, 1)
+        grid_tab_Settings.addWidget(self.settings_nextsync_send_conflict_combo, 4, 1)
 
         # ── Unite! search result sort / render preference ──────────────────
         def _settings_search_sort_changed():
@@ -24904,7 +25225,7 @@ class MainWindow(QMainWindow):
             "  • Classic: ZXDB and zxArt items are preferred to the top, with\n"
             "    GetIt content placed at the end."
         )
-        grid_tab_Settings.addWidget(search_sort_lbl, 12, 0)
+        grid_tab_Settings.addWidget(search_sort_lbl, 13, 0)
 
         self.settings_search_sort_combo = QComboBox()
         self.settings_search_sort_combo.addItem("GetIt first class (default)", SEARCH_SORT_GETIT_FIRST)
@@ -24913,7 +25234,7 @@ class MainWindow(QMainWindow):
         self.settings_search_sort_combo.setToolTip(search_sort_lbl.toolTip())
         self.settings_search_sort_combo.currentIndexChanged.connect(
             lambda _i: _settings_search_sort_changed())
-        grid_tab_Settings.addWidget(self.settings_search_sort_combo, 12, 1)
+        grid_tab_Settings.addWidget(self.settings_search_sort_combo, 13, 1)
 
         # "Open config file" — moved here from the SD-card tab. Opens hdfg.cfg in
         # the system text editor so advanced users can hand-edit settings. Placed
@@ -24921,7 +25242,7 @@ class MainWindow(QMainWindow):
         # width rather than stretching across both columns.
         self.button_open_config_file = QPushButton("Open config file", self)
         self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
-        grid_tab_Settings.addWidget(self.button_open_config_file, 38, 0, 1, 2, Qt.AlignLeft)
+        grid_tab_Settings.addWidget(self.button_open_config_file, 39, 0, 1, 2, Qt.AlignLeft)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
@@ -25579,6 +25900,14 @@ class MainWindow(QMainWindow):
         _check_cspect = getattr(self, "_check_cspect_update_async", None)
         if _check_cspect is not None:
             QTimer.singleShot(2600, _check_cspect)
+
+        # The ".sync5 dot was updated" advisory (compares the bundled dotN
+        # version with the one this cfg last saw) runs early — it concerns the
+        # update the user JUST installed — and ZX Next Unite's own release
+        # check runs last, staggered clear of the MAME/CSpect checks so their
+        # prompts and log lines don't collide.
+        QTimer.singleShot(1200, self._check_dotn_version_advisory)
+        QTimer.singleShot(3400, self._check_zxnu_update_async)
 
         # Expose the nested save function so closeEvent (a class method) can call it.
         self._save_configuration_file = save_configuration_file
