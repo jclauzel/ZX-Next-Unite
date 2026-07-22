@@ -4762,6 +4762,25 @@ class RetroLogWidget(QWidget):
         self._content_ver += 1      # force _wrapped_all() to rebuild
         self.update()
 
+    def set_text_color(self, color):
+        """Change the log text color and repaint immediately. *color* is an
+        ``(r, g, b)`` tuple or a ``#rrggbb`` hex string; invalid values fall
+        back to the default phosphor green. Sets an instance attribute that
+        shadows the class default, so each console can be tinted separately."""
+        rgb = None
+        try:
+            if isinstance(color, str):
+                c = color.lstrip("#")
+                rgb = (int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16))
+            elif color is not None:
+                rgb = (max(0, min(255, int(color[0]))),
+                       max(0, min(255, int(color[1]))),
+                       max(0, min(255, int(color[2]))))
+        except (ValueError, IndexError, TypeError):
+            rgb = None
+        self._C_LOG = rgb if rgb is not None else type(self)._C_LOG
+        self.update()
+
     # -- lifecycle ---------------------------------------------------------
     def start(self):
         if self._alive and not self._timer.isActive():

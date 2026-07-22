@@ -2700,6 +2700,8 @@ class MainWindow(QMainWindow):
         self.img_color_file_size    = hex_to_qcolor(DEFAULT_COLOR_FILE_SIZE)
         # App-wide Classic-mode UI text colour (labels/checkboxes on the dark panes).
         self.img_color_general_text = hex_to_qcolor(DEFAULT_COLOR_GENERAL_TEXT)
+        # Retro 8-bit (pygame) log console text colour (overridden on cfg load).
+        self.img_color_retro_log    = hex_to_qcolor(DEFAULT_COLOR_RETRO_LOG)
         # Desktop theme mode driving the colours above (overridden on cfg load).
         self._desktop_theme_mode    = DEFAULT_DESKTOP_THEME
 
@@ -3600,6 +3602,7 @@ class MainWindow(QMainWindow):
 
                     self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(configuration_dictionary[SETTING_EXPLORERPATH])))
                     self.left_file_explorer_selection_full_filename_path = configuration_dictionary[SETTING_EXPLORERPATH]
+                    local_sync_path_box()
 
                 if configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH] != "":
                     if not os.path.isdir(configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH]):
@@ -4215,6 +4218,12 @@ class MainWindow(QMainWindow):
                 _load_color_setting(SETTING_COLOR_FILE_EXT,     DEFAULT_COLOR_FILE_EXT,     "img_color_file_ext",     "settings_btn_color_file_ext")
                 _load_color_setting(SETTING_COLOR_FILE_SIZE,    DEFAULT_COLOR_FILE_SIZE,    "img_color_file_size",    "settings_btn_color_file_size")
                 _load_color_setting(SETTING_COLOR_GENERAL_TEXT, DEFAULT_COLOR_GENERAL_TEXT, "img_color_general_text", "settings_btn_color_general_text")
+                _load_color_setting(SETTING_COLOR_RETRO_LOG,    DEFAULT_COLOR_RETRO_LOG,    "img_color_retro_log",    "settings_btn_color_retro_log")
+                # Push the restored retro-log color to any already-built retro
+                # consoles (normally they are built later, lazily, and seed
+                # themselves from img_color_retro_log at construction).
+                if hasattr(self, "_apply_retro_log_color"):
+                    self._apply_retro_log_color()
 
                 # Desktop theme mode. Automatic re-detects the OS light/dark
                 # theme at every startup and Dark re-applies the dark tweaks
@@ -5700,11 +5709,11 @@ class MainWindow(QMainWindow):
                 # Lock the controls while the image is being read; the load
                 # callback restores them to the right state for success/failure.
                 set_all_buttons_disabled()
-                self.diskimageexplorerlabelpath.setText("Loading image…")
+                self.diskimageexplorerpathinput.setText("Loading image…")
 
                 def _after(success):
                     if success:
-                        self.diskimageexplorerlabelpath.setText(generate_disk_file_path().replace('//', '/'))
+                        self.diskimageexplorerpathinput.setText(generate_disk_file_path().replace('//', '/'))
                         set_all_buttons_enabled()
                         _add_to_image_history(self.right_disk_image_path)
                         # Kick the idle pulse so it's running right after a load,
@@ -6430,9 +6439,11 @@ class MainWindow(QMainWindow):
             return subprocess.run(execution_cmd, shell=False, stdin=None, stdout=None, stderr=None,close_fds=True, start_new_session=True, capture_output=False, timeout=None)
 
         def update_root_drive():
-            self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(self.zx_next_unite_diskdrive.itemText(0))))
+            drive = self.zx_next_unite_diskdrive.currentText() or self.zx_next_unite_diskdrive.itemText(0)
+            self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(drive)))
             set_treeview_properties()
             self.treeview.show()
+            local_sync_path_box()
 
         def nextsync_update_root_drive():
             drive = self.nextsync_diskdrive.currentText() or self.nextsync_diskdrive.itemText(0)
@@ -7066,6 +7077,7 @@ class MainWindow(QMainWindow):
 
             configuration_dictionary[SETTING_EXPLORERPATH] = selected_explorer_item_directory_destination
             save_configuration_file()
+            local_sync_path_box()
 
         def on_treeview_context_menu(pos):
             index = self.treeview.indexAt(pos)
@@ -7163,6 +7175,44 @@ class MainWindow(QMainWindow):
             left local explorer."""
             root_src = self.proxy_model.mapToSource(self.treeview.rootIndex())
             return self.model.filePath(root_src)
+
+        def local_sync_path_box():
+            """Reflect the folder currently shown in the left local explorer
+            into its path box (above the explorer), and keep the Windows drive
+            selector on that folder's drive. Called after every navigation
+            (double-click, drive change, path-box commit, startup restore)."""
+            path = local_current_view_dir() or ""
+            if platform.system() == "Windows" and len(path) >= 2 and path[1] == ":":
+                want = path[0].upper()
+                for i in range(self.zx_next_unite_diskdrive.count()):
+                    if self.zx_next_unite_diskdrive.itemText(i)[:1].upper() == want:
+                        # setCurrentIndex does not emit activated, so this
+                        # cannot re-enter update_root_drive.
+                        if self.zx_next_unite_diskdrive.currentIndex() != i:
+                            self.zx_next_unite_diskdrive.setCurrentIndex(i)
+                        break
+            self.local_file_explorer_path.setText(path)
+
+        def on_local_file_explorer_path_edited():
+            # Typing or pasting a path into the local path box navigates the
+            # left explorer there (a file path lands on its parent folder) and
+            # persists it like a double-click navigation would. Anything that
+            # isn't an existing path restores the box to the current folder.
+            new_path = self.local_file_explorer_path.text().strip().strip('"')
+            if os.path.isfile(new_path):
+                new_path = os.path.dirname(new_path)
+            if new_path and os.path.isdir(new_path):
+                norm = new_path.replace("\\", "/")
+                if not norm.endswith("/"):
+                    norm += "/"
+                self.left_file_explorer_selection_file_name = ""
+                self.left_file_explorer_selection_full_filename_path = norm
+                self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(norm, 0)))
+                set_treeview_properties()
+                self.treeview.show()
+                configuration_dictionary[SETTING_EXPLORERPATH] = norm
+                save_configuration_file()
+            local_sync_path_box()
 
         def _local_make_directory(parent_dir, refresh_fn, log_fn):
             """Prompt for and create a new sub-directory inside *parent_dir* (local
@@ -8777,6 +8827,7 @@ class MainWindow(QMainWindow):
                 self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(display_path, 0)))
                 set_treeview_properties()
                 self.treeview.show()
+                local_sync_path_box()
                 # Refresh the image tree asynchronously (the listing runs on a
                 # worker thread, so finishing an upload never blocks the UI).
                 update_disk_manager_widget_table()
@@ -8812,9 +8863,16 @@ class MainWindow(QMainWindow):
 
         def image_update_path_label():
             if right_disk_image_explorer_content:
-                self.diskimageexplorerlabelpath.setText(image_dest_dir().replace('//', '/'))
+                target = image_dest_dir().replace('//', '/')
+                self.diskimageexplorerpathinput.setText(target)
+                # Persist the in-image target folder so the next startup can
+                # restore the disk image explorer to it (see the restore in
+                # _warn_after_startup_load).
+                if configuration_dictionary.get(SETTING_IMAGE_EXPLORERPATH) != target:
+                    configuration_dictionary[SETTING_IMAGE_EXPLORERPATH] = target
+                    save_configuration_file()
             else:
-                self.diskimageexplorerlabelpath.setText("Please load an image.")
+                self.diskimageexplorerpathinput.setText("Please load an image.")
 
         def image_clear_model():
             # Wipe the tree and re-apply the column headers (clear() drops them).
@@ -9069,6 +9127,101 @@ class MainWindow(QMainWindow):
                 _update_image_usage_gauge(self.right_disk_image_path)
 
             image_populate_item(item, item.data(IMG_PATH_ROLE), _after)
+
+        def image_navigate_to_path(path):
+            """Navigate the disk image explorer to *path* (an in-image path):
+            walk the tree down from the root, listing not-yet-loaded folders on
+            demand (async, one background "hdfmonkey ls" per level), expanding
+            each level and finally selecting the target entry — so uploads /
+            New Folder target it, exactly as if the user had clicked it.
+            "/" (or an empty path) clears the selection back to the image root;
+            a segment that doesn't exist logs an advisory and the path box
+            falls back to the current target directory."""
+            segments = [s for s in path.replace("\\", "/").split("/") if s]
+            if not segments:
+                # Root: clear current + selection so actions target "/" again
+                # (image_explorer_selection_changed refreshes the path box).
+                self.image_treeview.setCurrentIndex(QModelIndex())
+                self.image_treeview.selectionModel().clearSelection()
+                image_update_path_label()
+                return
+            # A listing finishing after the image was reloaded/cleared must not
+            # keep descending into freed items (same guard as image_populate_item).
+            gen = self._image_load_generation
+
+            def _find_child(parent_item, name):
+                # FAT is case-insensitive, so match the segment likewise.
+                parent = parent_item if parent_item is not None else self.image_model.invisibleRootItem()
+                for r in range(parent.rowCount()):
+                    child = parent.child(r, 0)
+                    if child is not None and child.text().lower() == name.lower():
+                        return child
+                return None
+
+            def _descend(parent_item, remaining):
+                if gen != self._image_load_generation:
+                    return
+                child = _find_child(parent_item, remaining[0])
+                if child is None:
+                    add_main_log_window(f"Image path not found: {path}")
+                    image_update_path_label()
+                    return
+                rest = remaining[1:]
+                if not rest:
+                    # Target reached: select it (folder or file). setCurrentIndex
+                    # fires image_explorer_selection_changed, which updates the
+                    # path box to the resulting target directory.
+                    idx = child.index()
+                    self.image_treeview.setCurrentIndex(idx)
+                    self.image_treeview.scrollTo(idx)
+                    if child.data(IMG_ISDIR_ROLE):
+                        # Expanding also lazy-loads the folder via image_on_expanded.
+                        self.image_treeview.expand(idx)
+                    return
+                if not child.data(IMG_ISDIR_ROLE):
+                    add_main_log_window(f"Not a directory in image: {child.data(IMG_PATH_ROLE)}")
+                    image_update_path_label()
+                    return
+                if child.data(IMG_LOADED_ROLE):
+                    self.image_treeview.expand(child.index())
+                    _descend(child, rest)
+                    return
+                if child.data(IMG_LOADING_ROLE):
+                    # A listing for this folder is already in flight (e.g. from
+                    # the expand of a just-finished navigation). Launching a
+                    # second one would race it: whichever "ls" finishes last
+                    # does removeRows() and wipes the winner's rows — and with
+                    # them the selection the walk just made. Wait for the
+                    # in-flight listing instead, then retry this level.
+                    QTimer.singleShot(50, lambda: _descend(parent_item, remaining))
+                    return
+                # Children not listed yet — list them, then continue the walk.
+                # The IMG_LOADING_ROLE guard keeps image_on_expanded from
+                # launching a second listing for the same folder meanwhile.
+                child.setData(True, IMG_LOADING_ROLE)
+
+                def _after(entries, _child=child, _rest=rest):
+                    _child.setData(False, IMG_LOADING_ROLE)
+                    apply_image_filter()
+                    if entries is None or gen != self._image_load_generation:
+                        image_update_path_label()
+                        return
+                    self.image_treeview.expand(_child.index())
+                    _descend(_child, _rest)
+
+                image_populate_item(child, child.data(IMG_PATH_ROLE), _after)
+
+            _descend(None, segments)
+
+        def on_diskimageexplorer_path_edited():
+            # Typing or pasting a path into the disk-image path box navigates
+            # the image explorer there (expand + select), mirroring the local
+            # path box on the left. Without a loaded image the box just falls
+            # back to its "Please load an image." text.
+            if not right_disk_image_explorer_content:
+                image_update_path_label()
+                return
+            image_navigate_to_path(self.diskimageexplorerpathinput.text().strip().strip('"'))
 
         def update_disk_manager_widget_table(command_execution_content=None):
             # Refresh entry point kept under its original name. Callers invoke
@@ -10025,6 +10178,7 @@ class MainWindow(QMainWindow):
         configuration_dictionary[SETTING_COLOR_FILE_EXT]     = DEFAULT_COLOR_FILE_EXT
         configuration_dictionary[SETTING_COLOR_FILE_SIZE]    = DEFAULT_COLOR_FILE_SIZE
         configuration_dictionary[SETTING_COLOR_GENERAL_TEXT] = DEFAULT_COLOR_GENERAL_TEXT
+        configuration_dictionary[SETTING_COLOR_RETRO_LOG]    = DEFAULT_COLOR_RETRO_LOG
         configuration_dictionary[SETTING_DESKTOP_THEME]      = DEFAULT_DESKTOP_THEME
 
         # Init UI forms
@@ -10119,18 +10273,11 @@ class MainWindow(QMainWindow):
 
         self.horizontal2.addWidget(self.filtertext)
 
-        self.diskimageexplorerlabel = QLabel()
-        self.diskimageexplorerlabel.setText("                Disk Image Explorer: ")
-
-        self.horizontal2.addWidget(self.diskimageexplorerlabel)
-
-        self.diskimageexplorerlabelpath = QLabel()
-        self.diskimageexplorerlabelpath.setText("")
-
-        self.diskimageexplorerlabelpath.setMinimumWidth(400)
-        #self.diskimageexplorerlabelpath.setMaximumWidth(400)
-
-        self.horizontal2.addWidget(self.diskimageexplorerlabelpath)
+        # The "Disk Image Explorer:" label and its path moved into the path
+        # row that now sits directly above the explorers (see the
+        # sdcard_explorer_grid below); a stretch keeps the image-explorer
+        # Filter box on the right-hand side, roughly over that explorer.
+        self.horizontal2.addStretch(1)
 
         self.image_filterlabel = QLabel()
         self.image_filterlabel.setText("  Filter: ")
@@ -10472,24 +10619,66 @@ class MainWindow(QMainWindow):
         self.centralbuttons.setAlignment(Qt.AlignCenter)
         self.centralbuttonscontainer.setLayout(self.centralbuttons)
 
-        # SD Card explorer area, laid out as a 3-column grid so the rows below
-        # the explorers line up with them:
-        #   row 0: [ local file explorer ][ ⇄ transfer buttons ][ disk image explorer ]
-        #   row 1:                                              [ New Folder / Delete… ]
-        #   row 2: [ Path box — matches local explorer width ]
+        # Path row above the explorers: on the left an editable box showing
+        # the folder the local file explorer is browsing; on the right the
+        # "Disk Image Explorer:" label plus an editable box showing the
+        # current in-image target folder. Both accept a typed or pasted path
+        # (committed on Enter or focus-out) to navigate the explorer below
+        # them — see on_local_file_explorer_path_edited and
+        # on_diskimageexplorer_path_edited.
+        self.local_file_explorer_path = QLineEdit()
+        self.local_file_explorer_path.setPlaceholderText("Local folder path...")
+        self.local_file_explorer_path.setClearButtonEnabled(True)
+        self.local_file_explorer_path.setToolTip(
+            "Folder currently shown in the local file explorer below.\n"
+            "Type or paste a folder (or file) path and press Enter to navigate there;\n"
+            "the drive selector follows automatically."
+        )
+        self.local_file_explorer_path.editingFinished.connect(on_local_file_explorer_path_edited)
+
+        self.diskimageexplorerlabel = QLabel()
+        self.diskimageexplorerlabel.setText("Disk Image Explorer: ")
+
+        self.diskimageexplorerpathinput = QLineEdit()
+        self.diskimageexplorerpathinput.setPlaceholderText("Path inside the SD card image...")
+        self.diskimageexplorerpathinput.setClearButtonEnabled(True)
+        self.diskimageexplorerpathinput.setToolTip(
+            "Current target folder inside the SD card image (uploads, New Folder\n"
+            "and gallery sends land here). Type or paste an in-image path such as\n"
+            "/games and press Enter to navigate the disk image explorer there;\n"
+            "an empty path or / selects the image root."
+        )
+        self.diskimageexplorerpathinput.editingFinished.connect(on_diskimageexplorer_path_edited)
+
+        self.image_path_row_container = QWidget()
+        _image_path_row = QHBoxLayout(self.image_path_row_container)
+        _image_path_row.setContentsMargins(0, 0, 0, 0)
+        _image_path_row.addWidget(self.diskimageexplorerlabel)
+        _image_path_row.addWidget(self.diskimageexplorerpathinput, 1)
+
+        # SD Card explorer area, laid out as a 3-column grid so the rows above/
+        # below the explorers line up with them:
+        #   row 0: [ local path box ]                           [ image path box ]
+        #   row 1: [ local file explorer ][ ⇄ transfer buttons ][ disk image explorer ]
+        #   row 2:                                              [ New Folder / Delete… ]
         # The two explorer columns share the stretch equally (the centre
-        # transfer-button column keeps its natural width), so the New Folder /
-        # Delete buttons sit directly under the disk image explorer and the Path
-        # box matches the local file explorer's width. Moving the buttons out of
+        # transfer-button column keeps its natural width), so each path box
+        # matches its explorer's width and the New Folder / Delete buttons sit
+        # directly under the disk image explorer. Moving the buttons out of
         # the log-window row (below) lets that log stretch the full width.
         self.sdcard_explorer_grid = QGridLayout()
         self.sdcard_explorer_grid.setContentsMargins(0, 0, 0, 0)
-        self.sdcard_explorer_grid.addWidget(self.treeview, 0, 0)
-        self.sdcard_explorer_grid.addWidget(self.centralbuttonscontainer, 0, 1)
-        self.sdcard_explorer_grid.addWidget(self.image_explorer_container, 0, 2)
+        self.sdcard_explorer_grid.addWidget(self.local_file_explorer_path, 0, 0)
+        self.sdcard_explorer_grid.addWidget(self.image_path_row_container, 0, 2)
+        self.sdcard_explorer_grid.addWidget(self.treeview, 1, 0)
+        self.sdcard_explorer_grid.addWidget(self.centralbuttonscontainer, 1, 1)
+        self.sdcard_explorer_grid.addWidget(self.image_explorer_container, 1, 2)
         self.sdcard_explorer_grid.setColumnStretch(0, 1)
         self.sdcard_explorer_grid.setColumnStretch(2, 1)
-        self.sdcard_explorer_grid.setRowStretch(0, 1)
+        self.sdcard_explorer_grid.setRowStretch(1, 1)
+
+        # Seed the local path box with the folder the explorer starts on.
+        local_sync_path_box()
 
         # The grid lives in a plain container widget so it can form the top
         # pane of the explorers ⇄ log splitter; the splitter (and with it this
@@ -10582,8 +10771,8 @@ class MainWindow(QMainWindow):
         self.imageexplorerbuttonscontainer.setLayout(self.imageexplorerbuttons)
 
         # Place the New Folder / Delete Files buttons directly beneath the disk
-        # image explorer (grid row 1, right column).
-        self.sdcard_explorer_grid.addWidget(self.imageexplorerbuttonscontainer, 1, 2)
+        # image explorer (grid row 2, right column).
+        self.sdcard_explorer_grid.addWidget(self.imageexplorerbuttonscontainer, 2, 2)
 
         # Add Log Window
         # Optional retro 8-bit pygame log for the SD Card tab, mirroring the one on
@@ -10627,6 +10816,11 @@ class MainWindow(QMainWindow):
             widget.setMinimumHeight(60)
             try:
                 widget.enable_background(getattr(self, "_nextsync_pygame_anim", True))
+            except Exception:
+                pass
+            # Seed the user's retro-log text color (Settings color picker).
+            try:
+                widget.set_text_color(qcolor_to_hex(self.img_color_retro_log))
             except Exception:
                 pass
             # Seed it with the existing classic-log contents. The list shows
@@ -12169,6 +12363,11 @@ class MainWindow(QMainWindow):
             widget.setMinimumHeight(NEXTSYNC_UI_HEIGTH)
             try:
                 widget.enable_background(getattr(self, "_nextsync_pygame_anim", True))
+            except Exception:
+                pass
+            # Seed the user's retro-log text color (Settings color picker).
+            try:
+                widget.set_text_color(qcolor_to_hex(self.img_color_retro_log))
             except Exception:
                 pass
             # Seed it with the existing classic-log contents. The list shows
@@ -23409,8 +23608,15 @@ class MainWindow(QMainWindow):
         self.settings_gallery_rows_spin.valueChanged.connect(_settings_gallery_rows_changed)
         grid_tab_Settings.addWidget(self.settings_gallery_rows_spin, 8, 1)
 
-        def _make_color_button(setting_key, color_attr, label_text, tooltip_text, grid_row):
-            """Create a label + color-swatch button at the given grid row."""
+        def _make_color_button(setting_key, color_attr, label_text, tooltip_text, grid_row,
+                               switch_theme=True, on_change=None):
+            """Create a label + color-swatch button at the given grid row.
+
+            switch_theme: hand-picking flips the Desktop Theme to Custom and
+            re-tints the explorer/UI text mirrors — right for the theme-managed
+            colors, wrong for theme-independent ones (retro log console).
+            on_change: optional callback invoked with the picked QColor so the
+            new color can be pushed to live widgets immediately."""
             lbl = QLabel(label_text)
             lbl.setToolTip(tooltip_text)
             grid_tab_Settings.addWidget(lbl, grid_row, 0)
@@ -23426,23 +23632,27 @@ class MainWindow(QMainWindow):
 
             def _apply_color(color: QColor):
                 _update_swatch(color)
-                # Hand-picking a colour switches the Desktop Theme to Custom so
-                # Automatic/Dark no longer overrides the user's choice.
-                self._desktop_theme_mode = DESKTOP_THEME_CUSTOM
-                configuration_dictionary[SETTING_DESKTOP_THEME] = DESKTOP_THEME_CUSTOM
-                if hasattr(self, "_select_desktop_theme_in_combo"):
-                    self._select_desktop_theme_in_combo(DESKTOP_THEME_CUSTOM)
+                if switch_theme:
+                    # Hand-picking a colour switches the Desktop Theme to Custom so
+                    # Automatic/Dark no longer overrides the user's choice.
+                    self._desktop_theme_mode = DESKTOP_THEME_CUSTOM
+                    configuration_dictionary[SETTING_DESKTOP_THEME] = DESKTOP_THEME_CUSTOM
+                    if hasattr(self, "_select_desktop_theme_in_combo"):
+                        self._select_desktop_theme_in_combo(DESKTOP_THEME_CUSTOM)
                 save_configuration_file()
-                # Re-tint the rows already shown in the image explorer so the
-                # change is visible immediately (no async re-listing needed).
-                if hasattr(self, "_image_recolor_all"):
-                    self._image_recolor_all()
-                # Mirror the change into the NextSync Remote Explorer's panes.
-                if hasattr(self, "_re_apply_item_colors"):
-                    self._re_apply_item_colors()
-                # If the general UI text colour changed, re-apply it to the panes.
-                if hasattr(self, "_refresh_tab_stylesheet"):
-                    self._refresh_tab_stylesheet()
+                if switch_theme:
+                    # Re-tint the rows already shown in the image explorer so the
+                    # change is visible immediately (no async re-listing needed).
+                    if hasattr(self, "_image_recolor_all"):
+                        self._image_recolor_all()
+                    # Mirror the change into the NextSync Remote Explorer's panes.
+                    if hasattr(self, "_re_apply_item_colors"):
+                        self._re_apply_item_colors()
+                    # If the general UI text colour changed, re-apply it to the panes.
+                    if hasattr(self, "_refresh_tab_stylesheet"):
+                        self._refresh_tab_stylesheet()
+                if on_change is not None:
+                    on_change(color)
 
             def _on_click():
                 current = getattr(self, color_attr)
@@ -23591,6 +23801,31 @@ class MainWindow(QMainWindow):
             "automatically; picking a color here switches to the Custom theme.",
             20)
 
+        # ---- Retro log console text color (pygame log windows) ----
+        def _apply_retro_log_color(color=None):
+            """Push the retro-log text color to whichever retro 8-bit log
+            widgets exist (SD Card / NextSync / Help consoles). Lazily-built
+            ones pick it up from img_color_retro_log at construction."""
+            c = color if color is not None else getattr(self, "img_color_retro_log", None)
+            if c is None:
+                return
+            for _attr in ("_main_retro_log", "_nextsync_retro_log", "_help_retro_log"):
+                _w = getattr(self, _attr, None)
+                if _w is not None:
+                    try:
+                        _w.set_text_color(qcolor_to_hex(c))
+                    except Exception:
+                        pass
+        self._apply_retro_log_color = _apply_retro_log_color
+
+        self.settings_btn_color_retro_log = _make_color_button(
+            SETTING_COLOR_RETRO_LOG, "img_color_retro_log",
+            "  Retro logs console",
+            "Font color for the retro 8-bit (pygame) log consoles on the\n"
+            "SD Card, NextSync and Help tabs. Applies immediately. Default is\n"
+            "the classic phosphor green. Independent of the Desktop Theme.",
+            21, switch_theme=False, on_change=_apply_retro_log_color)
+
         # ---- Retro log font size (SD Card + NextSync pygame log windows) ----
         def _apply_retro_log_font_size(px):
             """Push the point size to whichever retro 8-bit log widgets exist."""
@@ -23618,7 +23853,7 @@ class MainWindow(QMainWindow):
             "Consolas text size for the retro 8-bit (pygame) log windows on the\n"
             "SD Card and NextSync tabs. Applies immediately. Default is 13."
         )
-        grid_tab_Settings.addWidget(retro_log_font_lbl, 21, 0)
+        grid_tab_Settings.addWidget(retro_log_font_lbl, 22, 0)
 
         self.settings_retro_log_font_combo = QComboBox()
         for _px in RETRO_LOG_FONT_SIZE_CHOICES:
@@ -23632,7 +23867,7 @@ class MainWindow(QMainWindow):
         self.settings_retro_log_font_combo.currentIndexChanged.connect(
             lambda _i: _settings_retro_log_font_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_retro_log_font_combo, 21, 1)
+        grid_tab_Settings.addWidget(self.settings_retro_log_font_combo, 22, 1)
 
         # ---- Background image opacity ----
         bg_opacity_lbl = QLabel("Background image opacity (%):")
@@ -23640,7 +23875,7 @@ class MainWindow(QMainWindow):
             "Controls how visible the background image is behind the UI.\n"
             "0 = fully hidden, 100 = fully visible. Default is 5%."
         )
-        grid_tab_Settings.addWidget(bg_opacity_lbl, 22, 0)
+        grid_tab_Settings.addWidget(bg_opacity_lbl, 23, 0)
 
         bg_opacity_row = QWidget()
         bg_opacity_row_layout = QHBoxLayout(bg_opacity_row)
@@ -23771,7 +24006,7 @@ class MainWindow(QMainWindow):
 
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_slider, 1)
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_spinbox, 0)
-        grid_tab_Settings.addWidget(bg_opacity_row, 22, 1)
+        grid_tab_Settings.addWidget(bg_opacity_row, 23, 1)
 
         # ---- Background image selector ----
         bg_image_lbl = QLabel("Background image:")
@@ -23779,7 +24014,7 @@ class MainWindow(QMainWindow):
             "Choose a specific background image or 'Random' to cycle through\n"
             "all images in the script folder every 5 seconds."
         )
-        grid_tab_Settings.addWidget(bg_image_lbl, 23, 0)
+        grid_tab_Settings.addWidget(bg_image_lbl, 24, 0)
 
         bg_image_row = QWidget()
         bg_image_row_layout = QHBoxLayout(bg_image_row)
@@ -23822,7 +24057,7 @@ class MainWindow(QMainWindow):
         self.settings_bg_image_preview.setToolTip("Preview of the selected background image.")
         bg_image_row_layout.addWidget(self.settings_bg_image_preview, 0)
 
-        grid_tab_Settings.addWidget(bg_image_row, 23, 1)
+        grid_tab_Settings.addWidget(bg_image_row, 24, 1)
 
         def _update_bg_image_preview(path: str):
             """Refresh the thumbnail label for the given absolute image path."""
@@ -23883,7 +24118,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_crash_log_enabled_checkbox.stateChanged.connect(
             settings_crash_log_enabled_statechanged)
-        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 24, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 25, 0, 1, 2)
 
         def settings_disable_no_emulator_toast_statechanged():
             configuration_dictionary[SETTING_DISABLE_NO_EMULATOR_TOAST] = "true" if self.settings_disable_no_emulator_toast_checkbox.isChecked() else "false"
@@ -23897,7 +24132,7 @@ class MainWindow(QMainWindow):
             "Check this if you do not use any emulator and do not want the reminder."
         )
         self.settings_disable_no_emulator_toast_checkbox.stateChanged.connect(settings_disable_no_emulator_toast_statechanged)
-        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 25, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 26, 0, 1, 2)
 
         # ── NextSync HTTP bridge toggle + port ──────────────────────────
         def _http_port_widgets_set_enabled(on):
@@ -24021,7 +24256,7 @@ class MainWindow(QMainWindow):
         _http_bridge_row.addWidget(self.settings_http_conn_label)
         _http_bridge_row.addWidget(self.settings_http_conn_spinbox)
         _http_bridge_row.addStretch(1)
-        grid_tab_Settings.addLayout(_http_bridge_row, 36, 0, 1, 2)
+        grid_tab_Settings.addLayout(_http_bridge_row, 37, 0, 1, 2)
         self._http_port_widgets_set_enabled = _http_port_widgets_set_enabled
 
         # ── MAME options (shown when MAME is launchable: a detected binary, or
@@ -24037,7 +24272,7 @@ class MainWindow(QMainWindow):
                 "This is inserted right after the MAME executable and is no longer part\n"
                 "of the command-line parameters below."
             )
-            grid_tab_Settings.addWidget(mame_rom_lbl, 26, 0)
+            grid_tab_Settings.addWidget(mame_rom_lbl, 27, 0)
 
             self.settings_mame_rom_combo = QComboBox()
             for _rom_name in MAME_ROM_CHOICE:
@@ -24045,7 +24280,7 @@ class MainWindow(QMainWindow):
             self.settings_mame_rom_combo.setToolTip(mame_rom_lbl.toolTip())
             self.settings_mame_rom_combo.currentIndexChanged.connect(
                 lambda _i: settings_mame_rom_changed())
-            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 26, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 27, 1)
 
             def settings_mame_params_changed():
                 configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = self.settings_mame_params_edit.text()
@@ -24062,7 +24297,7 @@ class MainWindow(QMainWindow):
                 "-mouse/-mouse_device or -joystick/-joystickprovider options typed here\n"
                 "are ignored (the combos take precedence)."
             )
-            grid_tab_Settings.addWidget(mame_params_lbl, 27, 0)
+            grid_tab_Settings.addWidget(mame_params_lbl, 28, 0)
 
             self.settings_mame_params_edit = QLineEdit()
             self.settings_mame_params_edit.setText(
@@ -24070,7 +24305,7 @@ class MainWindow(QMainWindow):
                     SETTING_MAME_COMMAND_LINE_PARAMETERS, MAME_DEFAULT_COMMAND_LINE))
             self.settings_mame_params_edit.setToolTip(mame_params_lbl.toolTip())
             self.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
-            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 27, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 28, 1)
 
             # The startup update check only exists where the app can actually
             # fetch a build (64-bit Windows / x86_64 Linux). On macOS MAME is
@@ -24097,7 +24332,7 @@ class MainWindow(QMainWindow):
                 )
                 self.settings_mame_update_check_checkbox.stateChanged.connect(
                     lambda _s: settings_mame_update_check_changed())
-                grid_tab_Settings.addWidget(self.settings_mame_update_check_checkbox, 28, 0, 1, 2)
+                grid_tab_Settings.addWidget(self.settings_mame_update_check_checkbox, 29, 0, 1, 2)
 
         # ── Launch MAME with Flatpak (Linux) ──────────────────────────────
         # Shown on Linux regardless of whether a MAME binary was detected, so a
@@ -24165,7 +24400,7 @@ class MainWindow(QMainWindow):
             self.settings_mame_flatpak_rompath_row.setVisible(_flatpak_on)
             _flatpak_layout.addWidget(self.settings_mame_flatpak_rompath_row)
 
-            grid_tab_Settings.addWidget(_flatpak_box, 28, 0, 1, 2)
+            grid_tab_Settings.addWidget(_flatpak_box, 29, 0, 1, 2)
 
         # ── CSpect default launch parameters ───────────────────────────────
         # Shown unconditionally (unlike the MAME block above, which is gated on
@@ -24187,14 +24422,14 @@ class MainWindow(QMainWindow):
             "launch. Leave empty to restore the built-in default. Saved to the\n"
             "configuration file."
         )
-        grid_tab_Settings.addWidget(cspect_params_lbl, 29, 0)
+        grid_tab_Settings.addWidget(cspect_params_lbl, 30, 0)
 
         self.settings_cspect_params_edit = QLineEdit()
         self.settings_cspect_params_edit.setText(
             configuration_dictionary.get(SETTING_CUSTOM, CSPECT_DEFAULT_LAUNCH_PARAMETERS))
         self.settings_cspect_params_edit.setToolTip(cspect_params_lbl.toolTip())
         self.settings_cspect_params_edit.editingFinished.connect(settings_cspect_params_changed)
-        grid_tab_Settings.addWidget(self.settings_cspect_params_edit, 29, 1)
+        grid_tab_Settings.addWidget(self.settings_cspect_params_edit, 30, 1)
 
         # ── Unite! pygame background animation toggle ──────────────────────
         def _settings_pygame_anim_changed():
@@ -24223,7 +24458,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_pygame_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 31, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 32, 0, 1, 2)
 
         # ── NextSync retro-log starfield animation toggle ──────────────────
         def _settings_nextsync_anim_changed():
@@ -24255,7 +24490,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_nextsync_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_nextsync_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 34, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 35, 0, 1, 2)
 
         # ── Alien Floyd's: optional pygame-ce animated background everywhere ──
         # A Pink Floyd homage. When on, a pygame-ce "Alien Floyd's" animation
@@ -24310,7 +24545,7 @@ class MainWindow(QMainWindow):
             "file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_bg_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_bg_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 32, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 33, 0, 1, 2)
 
         # ── Alien Floyd's: optional dedicated full-window tab ────────────────
         self._alien_floyd_tab_widget = None
@@ -24382,7 +24617,7 @@ class MainWindow(QMainWindow):
             "configuration file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 33, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 34, 0, 1, 2)
 
         # ── itch.io: optional online tab (driven by the 'itch-dl' package) ───
         def _itchio_tab_set_visible(on):
@@ -24425,7 +24660,7 @@ class MainWindow(QMainWindow):
                 "configuration file. Requires the optional 'itch-dl' package.")
         self.settings_show_itchio_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_itchio_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 35, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 36, 0, 1, 2)
 
         # ── CSpect: check itch.io for a newer version at startup (default on) ──
         def settings_cspect_update_check_changed():
@@ -24448,7 +24683,7 @@ class MainWindow(QMainWindow):
         self.settings_cspect_update_check_checkbox.stateChanged.connect(
             lambda _s: settings_cspect_update_check_changed())
         grid_tab_Settings.addWidget(
-            self.settings_cspect_update_check_checkbox, 30, 0, 1, 2)
+            self.settings_cspect_update_check_checkbox, 31, 0, 1, 2)
 
         # ── NextSync: what to do when a received file/dir already exists locally ──
         def _settings_nextsync_send_conflict_changed():
@@ -24521,7 +24756,7 @@ class MainWindow(QMainWindow):
         # width rather than stretching across both columns.
         self.button_open_config_file = QPushButton("Open config file", self)
         self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
-        grid_tab_Settings.addWidget(self.button_open_config_file, 37, 0, 1, 2, Qt.AlignLeft)
+        grid_tab_Settings.addWidget(self.button_open_config_file, 38, 0, 1, 2, Qt.AlignLeft)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
@@ -24588,6 +24823,11 @@ class MainWindow(QMainWindow):
             widget = RetroLogWidget(scrollable=True)
             try:
                 widget.enable_background(getattr(self, "_nextsync_pygame_anim", True))
+            except Exception:
+                pass
+            # Seed the user's retro-log text color (Settings color picker).
+            try:
+                widget.set_text_color(qcolor_to_hex(self.img_color_retro_log))
             except Exception:
                 pass
             # Seed it with the existing help contents. The help list reads
@@ -25179,6 +25419,16 @@ class MainWindow(QMainWindow):
         self._save_configuration_file = save_configuration_file
 
         def _warn_after_startup_load(success):
+            if success:
+                # Restore the in-image folder the disk image explorer targeted
+                # when the app last ran (persisted on every selection change by
+                # image_update_path_label). A path that no longer exists in
+                # this image logs an advisory and stays at the image root — and
+                # the not-found fallback re-persists "/", so the stale path is
+                # forgotten rather than retried on every startup.
+                _saved_image_dir = configuration_dictionary[SETTING_IMAGE_EXPLORERPATH]
+                if _saved_image_dir and _saved_image_dir != "/":
+                    image_navigate_to_path(_saved_image_dir)
             if success and self.settings_warn_image_nearly_full_checkbox.isChecked():
                 _warn_if_image_nearly_full(self.right_disk_image_path)
 
@@ -25531,7 +25781,7 @@ class MainWindow(QMainWindow):
         # no image to load), so we don't clobber the in-flight "Loading image…".
         _startup_image_path = self.imageinput.currentText()
         if not (_startup_load_started and _startup_image_path and _startup_image_path != '""'):
-            self.diskimageexplorerlabelpath.setText("Please load an image.")
+            self.diskimageexplorerpathinput.setText("Please load an image.")
 
         nextsync_show_ip_info()
         nextsync_show_sync_buttons_based_on_fileexplorer_content_selection()
