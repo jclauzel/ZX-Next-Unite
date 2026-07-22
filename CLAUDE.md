@@ -31,7 +31,9 @@ toggle is greyed out until Flask is installed) with:
 python -m pip install -r REQUIREMENTS.txt
 ```
 
-No build step is needed for development. The test suite lives in `tests/` — run it all with `python tests/run_all.py` (plain scripts, no pytest; see `tests/README.md`). No linters are configured.
+No build step is needed for development. The test suite lives in `tests/` — run it all with `python tests/run_all.py` (plain scripts, no pytest; see `tests/README.md`).
+
+Linting: `ruff check .` must stay green (config in `pyproject.toml` — deliberately permissive so the legacy monolith isn't churned; don't add ignores casually, and don't `ruff format` legacy files wholesale — format only new modules).
 
 For quickly eyeballing the retro "Alien Floyd" Sir Clive promenade animations
 (the ones drawn in `zxnu_pygame.py`), pass `--anim` to force one to play first
@@ -81,7 +83,8 @@ pyside6-rcc rc_backgrounds.qrc -o rc_backgrounds.py
 
 | File | Role |
 |---|---|
-| `zx-next-unite.py` | Entry point; contains the single `MainWindow(QMainWindow)` class and all tab/pane UI logic |
+| `zx-next-unite.py` | Entry point; contains the single `MainWindow(QMainWindow)` class and most tab/pane UI logic (shrinking via the strangler extraction below) |
+| `zxnu_sdcard_explorer.py` | `SdCardExplorerPane`: the SD Card tab's dual local ⇄ disk-image explorer (widgets + navigation/model layer, incl. the lazy `hdfmonkey ls` tree). First strangler extraction from `MainWindow.__init__`: the operation layer (transfers, deletes, context menus, DnD, load pipeline) stays in `zx-next-unite.py`, reaching the pane through a documented `hooks` protocol; MainWindow keeps aliases under the historical attribute names (`self.treeview`, `self.image_treeview`, …) plus one-line delegating wrappers, so existing code and the test suite work unchanged. Also the single source of the `IMG_*_ROLE` item-data constants |
 | `zxnu_config.py` | Constants, `SETTING_*` keys, API base URLs, UI string tables, color defaults, and pure helpers (`resource_path`, `qcolor_to_hex`, etc.) |
 | `zxnu_workers.py` | Background threading primitives: `WorkerSignals`, `NextSyncSignals`, `HdfTaskSignals`, `HdfTaskWorker`, `HdfProgressDialog`, `DotDotFirstProxyModel`; also the NextSync `-listen` worker (`run_remote_listen_server` + `RemoteExplorerSignals`) behind the Remote Explorer |
 | `zxnu_remote_explorer.py` | `RemoteExplorerWidget`: the dual-pane local ⇄ Next file manager of the NextSync tab (drives the `-listen` worker via a command queue; covered headlessly by `tests/test_remote_listen.py` for the worker side) |

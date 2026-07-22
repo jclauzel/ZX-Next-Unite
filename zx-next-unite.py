@@ -216,6 +216,7 @@ except Exception:
 import fnmatch
 import glob
 import json
+from types import SimpleNamespace
 import logging
 import os
 import pathlib
@@ -317,6 +318,9 @@ import rc_backgrounds
 # --- Extracted modules (refactored out of this file) ------------------
 from zxnu_config import *
 from zxnu_workers import *
+from zxnu_sdcard_explorer import (SdCardExplorerPane, IMG_PATH_ROLE,
+                                  IMG_ISDIR_ROLE, IMG_LOADED_ROLE,
+                                  IMG_LOADING_ROLE)
 from zxnu_remote_explorer import RemoteExplorerWidget
 # NextSync HTTP bridge: a self-hosted Flask web server republishing the Remote
 # Explorer's -listen session as HTTP routes (for the Next's .http dot command).
@@ -343,8 +347,7 @@ import zxnu_itchio
 # ----------------------------------------------------------------------
 # Custom completer that stays in sync with the main window.
 # ----------------------------------------------------------------------
-from PySide6.QtWidgets import QCompleter, QWidget
-from PySide6.QtCore import Qt, QEvent, QObject, QTimer, QMargins
+from PySide6.QtCore import QMargins
 from PySide6.QtGui import QCursor
 
 
@@ -2245,10 +2248,8 @@ def _apply_completer_fix_to_children(widget: QWidget):
 # through hdfmonkey, so every tree item carries its full in-image path plus the
 # bookkeeping needed for lazy expansion.
 # ---------------------------------------------------------------------------
-IMG_PATH_ROLE   = int(Qt.ItemDataRole.UserRole) + 1   # full path inside the image, e.g. "/games/manic.tap"
-IMG_ISDIR_ROLE  = int(Qt.ItemDataRole.UserRole) + 2   # bool: is this item a directory
-IMG_LOADED_ROLE = int(Qt.ItemDataRole.UserRole) + 3   # bool: have this folder's children been loaded
-IMG_LOADING_ROLE = int(Qt.ItemDataRole.UserRole) + 4  # bool: a background "ls" for this folder is in flight
+# The IMG_* item-data roles now live in zxnu_sdcard_explorer (the pane owns
+# the tree); imported below so the operation layer here keeps using them.
 
 # Custom MIME type carrying image-explorer entries during a drag from the
 # SD-card image tree to the local file explorer. The payload is UTF-8 text,
@@ -6052,42 +6053,11 @@ class MainWindow(QMainWindow):
             if on_done is not None:
                 on_done(False)
 
-        def apply_file_extension_filter():
-            text = self.filtertext.text().strip()
-            self.proxy_model.setFilterFixedString(text)
-            set_treeview_properties()
-            self.treeview.show()
-
         def apply_file_extension_filter_nextsync():
             text = self.nextsync_filtertext.text().strip()
             self.nextsync_model.setFilterFixedString(text)
             set_treeview_properties()
             self.nextsync_treeview.show()
-
-        def apply_image_filter():
-            # Filter the image explorer tree in real-time. A row is shown when its
-            # own Name/Type/Size text matches OR any of its (already-loaded)
-            # descendants match, so matches stay reachable inside folders.
-            text = self.image_filtertext.text().strip().lower()
-
-            def _filter(parent_item):
-                any_visible = False
-                for r in range(parent_item.rowCount()):
-                    name_item = parent_item.child(r, 0)
-                    if name_item is None:
-                        continue
-                    child_match = _filter(name_item)
-                    row_text = " ".join(
-                        (parent_item.child(r, c).text() if parent_item.child(r, c) else "")
-                        for c in range(self.image_model.columnCount())
-                    ).lower()
-                    self_match = (text in row_text) if text else True
-                    visible = self_match or child_match
-                    self.image_treeview.setRowHidden(r, name_item.index().parent(), not visible)
-                    any_visible = any_visible or visible
-                return any_visible
-
-            _filter(self.image_model.invisibleRootItem())
 
         def add_main_log_window(string_to_log:str):
             newItem = QListWidgetItem()
@@ -6138,13 +6108,6 @@ class MainWindow(QMainWindow):
                     retro.append(string_to_log)
                 except Exception:
                     pass
-
-        def set_table_image_properties():
-            # Header + column sizing for the image explorer tree. Kept under the
-            # original name so the construction code and the various reset paths
-            # can call it unchanged.
-            self.image_model.setHorizontalHeaderLabels(["Name", "Type", "Size"])
-            self.image_treeview.setColumnWidth(0, 250)
 
         def set_treeview_properties():
             self.treeview.setSortingEnabled(True)
@@ -6742,13 +6705,6 @@ class MainWindow(QMainWindow):
             execution_cmd = command_to_execute + " " + additional_args
             return subprocess.run(execution_cmd, shell=False, stdin=None, stdout=None, stderr=None,close_fds=True, start_new_session=True, capture_output=False, timeout=None)
 
-        def update_root_drive():
-            drive = self.zx_next_unite_diskdrive.currentText() or self.zx_next_unite_diskdrive.itemText(0)
-            self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(drive)))
-            set_treeview_properties()
-            self.treeview.show()
-            local_sync_path_box()
-
         def nextsync_update_root_drive():
             drive = self.nextsync_diskdrive.currentText() or self.nextsync_diskdrive.itemText(0)
             self.nextsync_treeview.setRootIndex(self.nextsync_model.mapFromSource(self.nextsync_filesystem_model.index(drive)))
@@ -7317,72 +7273,6 @@ class MainWindow(QMainWindow):
         self._nextsync_start_server_fn = nextsync_start_server
 
         # Copies the selected file to image
-        def on_treeview_clicked():
-
-            for ix in self.treeview.selectedIndexes():
-
-                source_ix = self.proxy_model.mapToSource(ix)
-
-                if self.model.fileName(source_ix) == "..":
-                    # Don't navigate on single-click; navigation happens on double-click.
-                    # Just clear the current selection so no stale file path is carried.
-                    self.left_file_explorer_selection_file_name = ""
-                    self.left_file_explorer_selection_full_filename_path = ""
-                    break
-
-                else:
-
-                    self.left_file_explorer_selection_file_name = self.model.fileName(source_ix)
-                    self.left_file_explorer_selection_full_filename_path = self.model.filePath(source_ix)
-                    if platform.system() != "Windows":
-                        self.left_file_explorer_selection_full_filename_path.replace("\\", '/')
-
-                    configuration_dictionary[SETTING_EXPLORERPATH] = self.left_file_explorer_selection_full_filename_path
-                    save_configuration_file()
-
-                    break
-
-        def on_treeview_double_clicked(ix):
-            # ix is the proxy index passed directly by the doubleClicked signal
-            if not ix.isValid():
-                return
-
-            nextsync_hide_start_cancel_buttons()
-            self.nextsync_prepare_server.setVisible(True)
-
-            source_ix = self.proxy_model.mapToSource(ix)
-            file_name = self.model.fileName(source_ix)
-            file_path = self.model.filePath(source_ix)
-
-            if file_name == "..":
-                # Navigate one level up using the current root path as the reference
-                current_root_source = self.proxy_model.mapToSource(self.treeview.rootIndex())
-                current_root_path = self.model.filePath(current_root_source)
-                parent_path = os.path.dirname(current_root_path.rstrip("/\\"))
-                if not parent_path:
-                    return
-                selected_explorer_item_directory_destination = parent_path.replace("\\", "/") + "/"
-
-            elif self.model.isDir(source_ix):
-                # Navigate into the selected directory
-                selected_explorer_item_directory_destination = file_path
-                if not selected_explorer_item_directory_destination.endswith("/"):
-                    selected_explorer_item_directory_destination += "/"
-
-            else:
-                return
-
-            self.left_file_explorer_selection_file_name = ""
-            self.left_file_explorer_selection_full_filename_path = selected_explorer_item_directory_destination
-
-            self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(selected_explorer_item_directory_destination, 0)))
-            set_treeview_properties()
-            self.treeview.show()
-
-            configuration_dictionary[SETTING_EXPLORERPATH] = selected_explorer_item_directory_destination
-            save_configuration_file()
-            local_sync_path_box()
-
         def on_treeview_context_menu(pos):
             index = self.treeview.indexAt(pos)
             menu = QMenu(self.treeview)
@@ -7459,144 +7349,19 @@ class MainWindow(QMainWindow):
             menu.addAction(action_delete)
             menu.exec(self.treeview.viewport().mapToGlobal(pos))
 
+        # ---- SD Card explorer pane delegation (strangler seam) --------------
+        # The explorer pair's navigation/model layer lives in
+        # zxnu_sdcard_explorer.SdCardExplorerPane (constructed further below).
+        # These thin wrappers keep the historical closure names alive for the
+        # operation layer; new code should call the pane directly.
         def local_explorer_refresh():
-            """Force the SD-card tab's left local explorer to re-stat the folder
-            currently shown, so files just dropped in appear immediately rather
-            than waiting on the filesystem watcher."""
-            try:
-                root_src = self.proxy_model.mapToSource(self.treeview.rootIndex())
-                view_path = self.model.filePath(root_src)
-                self.model.setRootPath("")
-                self.model.setRootPath(view_path or "/")
-                if view_path:
-                    self.treeview.setRootIndex(
-                        self.proxy_model.mapFromSource(self.model.index(view_path)))
-            except Exception as e:
-                logging.error(f"Local explorer refresh failed: {e}", exc_info=True)
+            self.sdcard_explorer.local_explorer_refresh()
 
         def local_current_view_dir():
-            """Path of the folder currently shown at the top of the SD-card tab's
-            left local explorer."""
-            root_src = self.proxy_model.mapToSource(self.treeview.rootIndex())
-            return self.model.filePath(root_src)
-
-        def local_explorer_up():
-            """Navigate the SD-card tab's left local explorer one folder up —
-            the 'Up' button twin of double-clicking its '..' entry (mirrors the
-            Remote Explorer's Up button)."""
-            current_root = local_current_view_dir()
-            parent_path = os.path.dirname((current_root or "").rstrip("/\\"))
-            if not parent_path or not os.path.isdir(parent_path):
-                return
-            dest = parent_path.replace("\\", "/")
-            if not dest.endswith("/"):
-                dest += "/"
-            self.left_file_explorer_selection_file_name = ""
-            self.left_file_explorer_selection_full_filename_path = dest
-            self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(dest, 0)))
-            set_treeview_properties()
-            self.treeview.show()
-            configuration_dictionary[SETTING_EXPLORERPATH] = dest
-            save_configuration_file()
-            local_sync_path_box()
+            return self.sdcard_explorer.local_current_view_dir()
 
         def local_sync_path_box():
-            """Reflect the folder currently shown in the left local explorer
-            into its path box (above the explorer), and keep the Windows drive
-            selector on that folder's drive. Called after every navigation
-            (double-click, drive change, path-box commit, startup restore)."""
-            path = local_current_view_dir() or ""
-            if platform.system() == "Windows" and len(path) >= 2 and path[1] == ":":
-                want = path[0].upper()
-                for i in range(self.zx_next_unite_diskdrive.count()):
-                    if self.zx_next_unite_diskdrive.itemText(i)[:1].upper() == want:
-                        # setCurrentIndex does not emit activated, so this
-                        # cannot re-enter update_root_drive.
-                        if self.zx_next_unite_diskdrive.currentIndex() != i:
-                            self.zx_next_unite_diskdrive.setCurrentIndex(i)
-                        break
-            self.local_file_explorer_path.setText(path)
-
-        def on_local_file_explorer_path_edited():
-            # Typing or pasting a path into the local path box navigates the
-            # left explorer there (a file path lands on its parent folder) and
-            # persists it like a double-click navigation would. Anything that
-            # isn't an existing path restores the box to the current folder.
-            new_path = self.local_file_explorer_path.text().strip().strip('"')
-            if os.path.isfile(new_path):
-                new_path = os.path.dirname(new_path)
-            if new_path and os.path.isdir(new_path):
-                norm = new_path.replace("\\", "/")
-                if not norm.endswith("/"):
-                    norm += "/"
-                self.left_file_explorer_selection_file_name = ""
-                self.left_file_explorer_selection_full_filename_path = norm
-                self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(norm, 0)))
-                set_treeview_properties()
-                self.treeview.show()
-                configuration_dictionary[SETTING_EXPLORERPATH] = norm
-                save_configuration_file()
-            local_sync_path_box()
-
-        def _local_make_directory(parent_dir, refresh_fn, log_fn):
-            """Prompt for and create a new sub-directory inside *parent_dir* (local
-            filesystem), then call *refresh_fn* to re-list the tree. Shared by the
-            SD-card and NextSync local file explorers' 'Create new directory'
-            actions; *log_fn* writes to the relevant log pane."""
-            if not parent_dir or not os.path.isdir(parent_dir):
-                QMessageBox.warning(self, "New folder failed", "No valid destination folder.")
-                return
-            new_name, ok = QInputDialog.getText(self, "New folder", "Name for the new folder:")
-            if not ok:
-                return
-            new_name = new_name.strip()
-            if not new_name:
-                return
-            if "/" in new_name or "\\" in new_name:
-                QMessageBox.warning(self, "New folder failed", "The name cannot contain '/' or '\\'.")
-                return
-            new_path = os.path.join(parent_dir, new_name)
-            if os.path.exists(new_path):
-                QMessageBox.warning(self, "New folder failed", f'"{new_name}" already exists in this folder.')
-                return
-            try:
-                os.mkdir(new_path)
-                log_fn(f"Created folder: {new_path}")
-            except OSError as e:
-                logging.error(f"Failed to create folder {new_path}: {e}", exc_info=True)
-                log_fn(f"Failed to create folder {new_path}: {e}")
-                QMessageBox.critical(self, "New folder failed", f"Could not create folder:\n{new_path}\n\n{e}")
-            finally:
-                refresh_fn()
-
-        def local_explorer_rename_item(file_path, name, is_dir):
-            """Rename a file/folder in the SD-card tab's left local explorer
-            (local filesystem). Prompts for a new name, refuses path separators
-            and overwriting an existing entry, renames in place and refreshes."""
-            kind = "folder" if is_dir else "file"
-            new_name, ok = QInputDialog.getText(
-                self, "Rename", f"New name for the {kind}:", text=name)
-            if not ok:
-                return
-            new_name = new_name.strip()
-            if not new_name or new_name == name:
-                return
-            if "/" in new_name or "\\" in new_name:
-                QMessageBox.warning(self, "Rename failed", "The name cannot contain '/' or '\\'.")
-                return
-            new_path = os.path.join(os.path.dirname(file_path), new_name)
-            if os.path.exists(new_path):
-                QMessageBox.warning(self, "Rename failed", f'"{new_name}" already exists in this folder.')
-                return
-            try:
-                os.rename(file_path, new_path)
-                add_main_log_window(f"Renamed: {file_path} -> {new_path}")
-            except OSError as e:
-                logging.error(f"Failed to rename {file_path} -> {new_path}: {e}", exc_info=True)
-                add_main_log_window(f"Failed to rename {file_path}: {e}")
-                QMessageBox.critical(self, "Rename failed", f"Could not rename:\n{file_path}\n\n{e}")
-            finally:
-                local_explorer_refresh()
+            self.sdcard_explorer.local_sync_path_box()
 
         def _suspend_local_fs_watchers(suspend):
             """Drop (True) / restore (False) the file watchers of every local
@@ -8298,46 +8063,6 @@ class MainWindow(QMainWindow):
                     QMessageBox.Yes | QMessageBox.Cancel,
                     QMessageBox.Yes) == QMessageBox.Yes:
                 _nextsync_commit_sync_root(folder)
-
-        def image_explorer_selection_changed(*_):
-
-            global right_disk_image_explorer_content
-            global right_disk_image_selected_files
-
-            self.image_selected_path = ""
-            self.image_selected_is_dir = False
-            self.image_selected_paths = []
-            right_disk_image_selected_files = []
-
-            # Collect every selected row so that multi-selection delete can act on
-            # all of them. selectedRows(0) yields one column-0 index per selected
-            # row. The "primary" item used by single-target actions (uploads, New
-            # Folder) is the current index when valid, otherwise the first row.
-            sel_model = self.image_treeview.selectionModel()
-            for col0 in sel_model.selectedRows(0):
-                name_item = self.image_model.itemFromIndex(col0)
-                if name_item is None:
-                    continue
-                path = name_item.data(IMG_PATH_ROLE) or ""
-                if not path:
-                    continue
-                is_dir = bool(name_item.data(IMG_ISDIR_ROLE))
-                self.image_selected_paths.append((path, is_dir))
-                right_disk_image_selected_files.append(name_item.text())
-
-            current = self.image_treeview.currentIndex()
-            primary_item = None
-            if current.isValid():
-                primary_item = self.image_model.itemFromIndex(current.siblingAtColumn(0))
-            if primary_item is None or not (primary_item.data(IMG_PATH_ROLE) or ""):
-                # Fall back to the first selected row.
-                if self.image_selected_paths:
-                    self.image_selected_path, self.image_selected_is_dir = self.image_selected_paths[0]
-            else:
-                self.image_selected_path = primary_item.data(IMG_PATH_ROLE) or ""
-                self.image_selected_is_dir = bool(primary_item.data(IMG_ISDIR_ROLE))
-
-            image_update_path_label()
 
         def _run_get_task(signals, cancel_event, image_path, items,
                           dest_dir, dir_nav, is_windows):
@@ -9216,411 +8941,50 @@ class MainWindow(QMainWindow):
             dlg.exec()
 
 
-        def generate_disk_file_path():
-            # The image explorer is now a hierarchical tree, so there is no single
-            # "current directory" any more. This returns the directory that
-            # disk->image uploads, new folders and gallery "send to SD image"
-            # actions target, derived from the current tree selection (see
-            # image_dest_dir). Kept under the original name so all existing call
-            # sites continue to work unchanged.
-            return image_dest_dir()
-
+        # ---- SD Card image explorer delegation (strangler seam) -------------
+        # The image tree's model/population/navigation layer lives in
+        # zxnu_sdcard_explorer.SdCardExplorerPane; these wrappers keep the
+        # historical names alive for the operation layer around them.
         def image_dest_dir():
-            """Image directory targeted by uploads / new folders, based on the
-            current tree selection:
-              - a selected folder -> that folder
-              - a selected file   -> the folder containing it
-              - nothing selected  -> the image root
-            """
-            if self.image_selected_path:
-                if self.image_selected_is_dir:
-                    return self.image_selected_path or "/"
-                parent = self.image_selected_path.rstrip("/").rsplit("/", 1)[0]
-                return parent if parent else "/"
-            return "/"
+            return self.sdcard_explorer.image_dest_dir()
+
+        def generate_disk_file_path():
+            # Kept under the original name so every existing call site works:
+            # the directory that uploads / new folders / gallery sends target.
+            return self.sdcard_explorer.image_dest_dir()
 
         def image_update_path_label():
-            if right_disk_image_explorer_content:
-                target = image_dest_dir().replace('//', '/')
-                self.diskimageexplorerpathinput.setText(target)
-                # Persist the in-image target folder so the next startup can
-                # restore the disk image explorer to it (see the restore in
-                # _warn_after_startup_load).
-                if configuration_dictionary.get(SETTING_IMAGE_EXPLORERPATH) != target:
-                    configuration_dictionary[SETTING_IMAGE_EXPLORERPATH] = target
-                    save_configuration_file()
-            else:
-                self.diskimageexplorerpathinput.setText("Please load an image.")
+            self.sdcard_explorer.image_update_path_label()
 
         def image_clear_model():
-            # Wipe the tree and re-apply the column headers (clear() drops them).
-            # Bumping the load generation invalidates any in-flight background
-            # "hdfmonkey ls" worker: clear() frees every QStandardItem, so a worker
-            # that captured one must not repopulate it (see image_populate_item).
-            self._image_load_generation += 1
-            self.image_model.clear()
-            set_table_image_properties()
+            self.sdcard_explorer.image_clear_model()
 
         def image_parse_ls(ls_stdout):
-            """Parse 'hdfmonkey ls' output into a list of (name, is_dir, size)."""
-            entries = []
-            for line in ls_stdout.splitlines():
-                decoded = line.decode(errors="replace") if isinstance(line, bytes) else line
-                parts = decoded.split('\t', 1)
-                if len(parts) < 2:
-                    continue
-                file_type, file_name = parts[0], parts[1]
-                if is_filetype_a_directory(file_type):
-                    entries.append((file_name, True, ""))
-                else:
-                    try:
-                        # file_type is e.g. "[1234 bytes]" – extract the number
-                        file_size = file_type.strip("[]").split()[0]
-                    except Exception:
-                        logging.info(f"image_parse_ls file split failed for: {file_type}")
-                        file_size = "0"
-                    entries.append((file_name, False, file_size))
-            return entries
+            return SdCardExplorerPane.image_parse_ls(ls_stdout)
 
         def image_make_row(name, is_dir, size_value, full_path):
-            """Build the [name, type, size] QStandardItem row for one entry."""
-            name_item = QStandardItem(self._img_folder_icon if is_dir else self._img_file_icon, str(name))
-            name_item.setEditable(False)
-            name_item.setData(full_path, IMG_PATH_ROLE)
-            name_item.setData(is_dir, IMG_ISDIR_ROLE)
-            name_item.setData(False, IMG_LOADED_ROLE)
-
-            if is_dir:
-                type_item = QStandardItem("DIR")
-                size_item = QStandardItem("")
-                name_item.setForeground(self.img_color_dir_name)
-                type_item.setForeground(self.img_color_dir_type)
-            else:
-                file_ext = str.split(name, '.')[1] if '.' in name else ""
-                type_item = QStandardItem(file_ext)
-                size_item = QStandardItem()
-                # Store the size as an int so the Size column sorts numerically.
-                size_item.setData(int(size_value) if str(size_value).isdigit() else str(size_value),
-                                  Qt.ItemDataRole.DisplayRole)
-                name_item.setForeground(self.img_color_file_name)
-                type_item.setForeground(self.img_color_file_ext)
-                size_item.setForeground(self.img_color_file_size)
-
-            type_item.setEditable(False)
-            size_item.setEditable(False)
-            return [name_item, type_item, size_item]
-
-        def image_recolor_all():
-            """Re-apply the configured item colors to every row already shown in
-            the image explorer tree, in place. This is synchronous (it only
-            touches existing QStandardItems) so it does not need to re-list the
-            image — used when the user changes the colors in Settings and when
-            returning to the SD Card Utility tab."""
-            model = getattr(self, "image_model", None)
-            if model is None:
-                return
-            def _recolor(parent_item):
-                for r in range(parent_item.rowCount()):
-                    name_item = parent_item.child(r, 0)
-                    if name_item is None:
-                        continue
-                    type_item = parent_item.child(r, 1)
-                    size_item = parent_item.child(r, 2)
-                    if bool(name_item.data(IMG_ISDIR_ROLE)):
-                        name_item.setForeground(self.img_color_dir_name)
-                        if type_item is not None:
-                            type_item.setForeground(self.img_color_dir_type)
-                    else:
-                        name_item.setForeground(self.img_color_file_name)
-                        if type_item is not None:
-                            type_item.setForeground(self.img_color_file_ext)
-                        if size_item is not None:
-                            size_item.setForeground(self.img_color_file_size)
-                    if name_item.hasChildren():
-                        _recolor(name_item)
-            try:
-                _recolor(model.invisibleRootItem())
-            except Exception:
-                pass
-        self._image_recolor_all = image_recolor_all
+            return self.sdcard_explorer.image_make_row(name, is_dir, size_value, full_path)
 
         def image_populate_item(parent_name_item, dir_path, on_done=None):
-            """(Re)load the children of *dir_path* under *parent_name_item*
-            (None = the invisible root) without blocking the UI thread.
-
-            The slow part — the "hdfmonkey ls" subprocess — runs on the thread
-            pool; the parsed entries are then turned into tree rows back on the UI
-            thread (QStandardItem objects must only be created/attached there).
-            Folders get a placeholder child so the expand arrow appears; the
-            placeholder is replaced on first expand.
-
-            *on_done* (optional) is invoked on the UI thread once population
-            finishes, with the parsed entries list, or None on hdfmonkey failure.
-            """
-            parent = parent_name_item if parent_name_item is not None else self.image_model.invisibleRootItem()
-            image_path = self.right_disk_image_path
-            # Capture the load generation so a listing that completes after the
-            # tree was wiped/reloaded is discarded instead of mutating a stale
-            # (or freed) model.
-            gen    = self._image_load_generation
-            holder = {}
-
-            def _ls_fn(signals, cancel_event, _img=image_path, _dir=dir_path, _h=holder):
-                result = execute_hdf_monkey("ls", _img, extra_argv=[_dir])
-                if result.returncode != 0:
-                    _h["rc"] = result.returncode
-                else:
-                    _h["entries"] = image_parse_ls(result.stdout)
-
-            def _finish():
-                # Release our keep-alive reference now that the slot is running.
-                self._image_ls_workers.discard(worker)
-                # A newer load wiped/replaced the tree while we were listing —
-                # the captured QStandardItems may already be deleted, so do not
-                # touch the model. The newer load owns the final UI state.
-                if gen != self._image_load_generation:
-                    return
-                entries = holder.get("entries")
-                if entries is None:
-                    rc = holder.get("rc", "?")
-                    logging.error(f"Failed listing image directory: {dir_path} - hdfmonkey result code: {rc}")
-                    add_main_log_window(f"Failed listing image directory: {dir_path} - hdfmonkey result code: {rc}")
-                    if on_done is not None:
-                        on_done(None)
-                    return
-
-                parent.removeRows(0, parent.rowCount())
-                for name, is_dir, size in entries:
-                    full_path = (dir_path + "/" + name).replace("//", "/")
-                    row = image_make_row(name, is_dir, size, full_path)
-                    parent.appendRow(row)
-                    if is_dir:
-                        # Placeholder so the expand arrow shows before the folder
-                        # is actually listed; removed/replaced by image_on_expanded.
-                        row[0].appendRow([QStandardItem("")])
-
-                if parent_name_item is not None:
-                    parent_name_item.setData(True, IMG_LOADED_ROLE)
-                if on_done is not None:
-                    on_done(entries)
-
-            worker = HdfTaskWorker(_ls_fn)
-            # Keep the worker (and its signals) alive until _finish runs, so the
-            # queued cross-thread `finished` slot can't be dropped by GC.
-            self._image_ls_workers.add(worker)
-            worker.signals.finished.connect(_finish)
-            self.threadpool.start(worker)
-
-        def image_on_expanded(index):
-            # Lazy-load a folder's contents the first time it is expanded. The
-            # listing runs on a worker thread; the folder shows its placeholder
-            # row until the real children arrive, so expanding never blocks the UI.
-            if not index.isValid():
-                return
-            name_item = self.image_model.itemFromIndex(index.siblingAtColumn(0))
-            if name_item is None:
-                return
-            if (name_item.data(IMG_ISDIR_ROLE)
-                    and not name_item.data(IMG_LOADED_ROLE)
-                    and not name_item.data(IMG_LOADING_ROLE)):
-                # Guard against a second worker being launched if the user
-                # collapses and re-expands before the first listing returns.
-                name_item.setData(True, IMG_LOADING_ROLE)
-
-                def _after(_entries, _item=name_item):
-                    _item.setData(False, IMG_LOADING_ROLE)
-                    apply_image_filter()
-
-                image_populate_item(name_item, name_item.data(IMG_PATH_ROLE), _after)
+            self.sdcard_explorer.image_populate_item(parent_name_item, dir_path, on_done)
 
         def image_load_root(on_done=None):
-            """Build the tree from the image root without blocking the UI thread.
-
-            *on_done* (optional) is invoked on the UI thread with True on success
-            or False on hdfmonkey failure once the root listing completes."""
-            global right_disk_image_explorer_content
-
-            image_clear_model()
-            self.image_selected_path = ""
-            self.image_selected_is_dir = False
-
-            def _after(entries):
-                global right_disk_image_explorer_content
-                if entries is None:
-                    right_disk_image_explorer_content = []
-                    _update_image_usage_gauge("")
-                    if on_done is not None:
-                        on_done(False)
-                    return
-
-                # right_disk_image_explorer_content is used throughout as the
-                # "an image is loaded" guard, so keep it non-empty while one is.
-                right_disk_image_explorer_content = [(n, "DIR" if d else "") for (n, d, s) in entries] or ["loaded"]
-
-                # Keep the legacy flat item list in sync (used by name lookups).
-                self.image_explorer_item_list.clear()
-                for n, d, s in entries:
-                    self.image_explorer_item_list.addItem(n)
-
-                apply_image_filter()
-                _update_image_usage_gauge(self.right_disk_image_path)
-                if on_done is not None:
-                    on_done(True)
-
-            image_populate_item(None, "/", _after)
+            self.sdcard_explorer.image_load_root(on_done)
 
         def image_find_item(path):
-            """Return the column-0 QStandardItem for *path* among already-loaded
-            tree nodes, or None (None also means "the root")."""
-            if not path or path.rstrip("/") == "":
-                return None
-            target = path.rstrip("/")
-            root = self.image_model.invisibleRootItem()
-            stack = [root.child(r, 0) for r in range(root.rowCount())]
-            while stack:
-                item = stack.pop()
-                if item is None:
-                    continue
-                if (item.data(IMG_PATH_ROLE) or "").rstrip("/") == target:
-                    return item
-                for r in range(item.rowCount()):
-                    stack.append(item.child(r, 0))
-            return None
+            return self.sdcard_explorer.image_find_item(path)
 
         def image_reload_dir(path):
-            """Reload the children of the image directory at *path*, preserving
-            the rest of the tree's expansion state. Falls back to a full root
-            reload when the directory isn't currently materialised in the tree.
-            The listing runs on a worker thread, so this returns immediately."""
-            item = image_find_item(path)
-            if item is None:
-                image_load_root()
-                return
-            was_expanded = self.image_treeview.isExpanded(item.index())
-
-            def _after(_entries, _item=item, _expanded=was_expanded):
-                if _expanded:
-                    self.image_treeview.expand(_item.index())
-                apply_image_filter()
-                _update_image_usage_gauge(self.right_disk_image_path)
-
-            image_populate_item(item, item.data(IMG_PATH_ROLE), _after)
+            self.sdcard_explorer.image_reload_dir(path)
 
         def image_navigate_to_path(path):
-            """Navigate the disk image explorer to *path* (an in-image path):
-            walk the tree down from the root, listing not-yet-loaded folders on
-            demand (async, one background "hdfmonkey ls" per level), expanding
-            each level and finally selecting the target entry — so uploads /
-            New Folder target it, exactly as if the user had clicked it.
-            "/" (or an empty path) clears the selection back to the image root;
-            a segment that doesn't exist logs an advisory and the path box
-            falls back to the current target directory."""
-            segments = [s for s in path.replace("\\", "/").split("/") if s]
-            if not segments:
-                # Root: clear current + selection so actions target "/" again
-                # (image_explorer_selection_changed refreshes the path box).
-                self.image_treeview.setCurrentIndex(QModelIndex())
-                self.image_treeview.selectionModel().clearSelection()
-                image_update_path_label()
-                return
-            # A listing finishing after the image was reloaded/cleared must not
-            # keep descending into freed items (same guard as image_populate_item).
-            gen = self._image_load_generation
+            self.sdcard_explorer.image_navigate_to_path(path)
 
-            def _find_child(parent_item, name):
-                # FAT is case-insensitive, so match the segment likewise.
-                parent = parent_item if parent_item is not None else self.image_model.invisibleRootItem()
-                for r in range(parent.rowCount()):
-                    child = parent.child(r, 0)
-                    if child is not None and child.text().lower() == name.lower():
-                        return child
-                return None
+        def apply_image_filter():
+            self.sdcard_explorer.apply_image_filter()
 
-            def _descend(parent_item, remaining):
-                if gen != self._image_load_generation:
-                    return
-                child = _find_child(parent_item, remaining[0])
-                if child is None:
-                    add_main_log_window(f"Image path not found: {path}")
-                    image_update_path_label()
-                    return
-                rest = remaining[1:]
-                if not rest:
-                    # Target reached: select it (folder or file). setCurrentIndex
-                    # fires image_explorer_selection_changed, which updates the
-                    # path box to the resulting target directory.
-                    idx = child.index()
-                    self.image_treeview.setCurrentIndex(idx)
-                    self.image_treeview.scrollTo(idx)
-                    if child.data(IMG_ISDIR_ROLE):
-                        # Expanding also lazy-loads the folder via image_on_expanded.
-                        self.image_treeview.expand(idx)
-                    return
-                if not child.data(IMG_ISDIR_ROLE):
-                    add_main_log_window(f"Not a directory in image: {child.data(IMG_PATH_ROLE)}")
-                    image_update_path_label()
-                    return
-                if child.data(IMG_LOADED_ROLE):
-                    self.image_treeview.expand(child.index())
-                    _descend(child, rest)
-                    return
-                if child.data(IMG_LOADING_ROLE):
-                    # A listing for this folder is already in flight (e.g. from
-                    # the expand of a just-finished navigation). Launching a
-                    # second one would race it: whichever "ls" finishes last
-                    # does removeRows() and wipes the winner's rows — and with
-                    # them the selection the walk just made. Wait for the
-                    # in-flight listing instead, then retry this level.
-                    QTimer.singleShot(50, lambda: _descend(parent_item, remaining))
-                    return
-                # Children not listed yet — list them, then continue the walk.
-                # The IMG_LOADING_ROLE guard keeps image_on_expanded from
-                # launching a second listing for the same folder meanwhile.
-                child.setData(True, IMG_LOADING_ROLE)
-
-                def _after(entries, _child=child, _rest=rest):
-                    _child.setData(False, IMG_LOADING_ROLE)
-                    apply_image_filter()
-                    if entries is None or gen != self._image_load_generation:
-                        image_update_path_label()
-                        return
-                    self.image_treeview.expand(_child.index())
-                    _descend(_child, _rest)
-
-                image_populate_item(child, child.data(IMG_PATH_ROLE), _after)
-
-            _descend(None, segments)
-
-        def on_diskimageexplorer_path_edited():
-            # Typing or pasting a path into the disk-image path box navigates
-            # the image explorer there (expand + select), mirroring the local
-            # path box on the left. Without a loaded image the box just falls
-            # back to its "Please load an image." text.
-            if not right_disk_image_explorer_content:
-                image_update_path_label()
-                return
-            image_navigate_to_path(self.diskimageexplorerpathinput.text().strip().strip('"'))
-
-        def image_explorer_up():
-            """'Up' button of the disk image explorer: select the parent of the
-            current target directory (at the top level this clears the
-            selection, so actions target the image root again). Mirrors the
-            Remote Explorer's Up button."""
-            if not right_disk_image_explorer_content:
-                return
-            cur = image_dest_dir().replace("//", "/")
-            if not cur or cur == "/":
-                return
-            parent = cur.rstrip("/").rsplit("/", 1)[0] or "/"
-            image_navigate_to_path(parent)
-
-        def image_explorer_refresh():
-            """'Refresh' button of the disk image explorer: re-list the current
-            target directory via hdfmonkey (full root reload when it isn't
-            materialised in the tree). Mirrors the Remote Explorer's Refresh."""
-            if not right_disk_image_explorer_content:
-                return
-            image_reload_dir(image_dest_dir())
+        def set_table_image_properties():
+            self.sdcard_explorer.set_table_image_properties()
 
         def update_disk_manager_widget_table(command_execution_content=None):
             # Refresh entry point kept under its original name. Callers invoke
@@ -10653,7 +10017,7 @@ class MainWindow(QMainWindow):
             self.zx_next_unite_diskdrive.show()
 
             self.horizontal2.addWidget(self.zx_next_unite_diskdrive)
-            self.zx_next_unite_diskdrive.activated.connect(update_root_drive)
+            # (activated is connected by SdCardExplorerPane, which owns the tree)
         else:
             available_drives.append('/')
             self.zx_next_unite_diskdrive.setVisible(False)
@@ -10666,7 +10030,7 @@ class MainWindow(QMainWindow):
 
         self.filtertext = QLineEdit()
         self.filtertext.setPlaceholderText("Filter by name...")
-        self.filtertext.textChanged.connect(apply_file_extension_filter)
+        # (textChanged is connected by SdCardExplorerPane, which owns the tree)
         self.filtertext.setMinimumWidth(FILTER_TEXT_WIDTH)
         self.filtertext.setMaximumWidth(FILTER_TEXT_WIDTH)
 
@@ -10689,37 +10053,85 @@ class MainWindow(QMainWindow):
             "Type any text to show only rows whose Name, Type or Size columns contain that text.\n"
             "Clear the field to show all entries."
         )
-        self.image_filtertext.textChanged.connect(apply_image_filter)
+        # (textChanged is connected by SdCardExplorerPane, which owns the tree)
         self.image_filtertext.setMinimumWidth(FILTER_TEXT_WIDTH)
         self.image_filtertext.setMaximumWidth(FILTER_TEXT_WIDTH)
         self.horizontal2.addWidget(self.image_filtertext)
 
         self.zx_next_unite_form.addRow(self.horizontal2)
 
-        self.model = QFileSystemModel()
+        # ---- SD Card explorer pane (zxnu_sdcard_explorer) -------------------
+        # The explorer pair's widgets and navigation/model layer live in
+        # SdCardExplorerPane; the operation layer below (context menus, key
+        # handlers, drag & drop, transfers, deletes, the load pipeline) stays
+        # here and reaches the pane through these hooks and the historical
+        # attribute aliases.
+        def _sd_set_image_loaded(entries):
+            # image_load_root bookkeeping: the module-global "an image is
+            # loaded" guard plus the legacy flat name list (name lookups).
+            global right_disk_image_explorer_content
+            if entries is None:
+                right_disk_image_explorer_content = []
+                return
+            right_disk_image_explorer_content =                 [(n, "DIR" if d else "") for (n, d, s) in entries] or ["loaded"]
+            self.image_explorer_item_list.clear()
+            for n, _d, _s in entries:
+                self.image_explorer_item_list.addItem(n)
 
-        self.model.setRootPath('/')
-        self.model.setFilter(~QDir.NoDotAndDotDot | QDir.NoDot)
+        def _sd_set_selected_names(names):
+            global right_disk_image_selected_files
+            right_disk_image_selected_files = list(names)
 
-        self.treeview = QTreeView()
-        self.treeview.setSortingEnabled(True)
-        # Allow selecting several entries at once so a multi-item drag onto the
-        # image explorer uploads them all. Single-target actions (click handler,
-        # rename, '->:') still use the current/primary selection.
-        self.treeview.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        def _sd_local_nav_side_effects():
+            # Legacy behavior of the local double-click: reset the NextSync
+            # prepare/start buttons.
+            nextsync_hide_start_cancel_buttons()
+            self.nextsync_prepare_server.setVisible(True)
 
-        self.proxy_model = DotDotFirstProxyModel(recursiveFilteringEnabled = True, filterRole = QFileSystemModel.FileNameRole)
-        self.proxy_model.setSourceModel(self.model)
-        self.proxy_model.setSortCaseSensitivity(QtCore.Qt.CaseInsensitive)
-        self.proxy_model.setDynamicSortFilter(True)
+        _sd_hooks = SimpleNamespace(
+            get_setting=lambda key: configuration_dictionary.get(key, ""),
+            set_setting=lambda key, value: configuration_dictionary.__setitem__(key, value),
+            save_config=lambda: save_configuration_file(),
+            log=lambda msg: add_main_log_window(msg),
+            set_treeview_properties=lambda: set_treeview_properties(),
+            execute_hdf_monkey=lambda *a, **kw: execute_hdf_monkey(*a, **kw),
+            is_image_loaded=lambda: bool(right_disk_image_explorer_content),
+            set_image_loaded=_sd_set_image_loaded,
+            update_usage_gauge=lambda pth: _update_image_usage_gauge(pth),
+            on_local_navigate_side_effects=_sd_local_nav_side_effects,
+            set_selected_names=_sd_set_selected_names,
+        )
+        self.sdcard_explorer = SdCardExplorerPane(
+            self, _sd_hooks,
+            self.zx_next_unite_diskdrive if platform.system() == "Windows" else None,
+            available_drives[0], self.filtertext, self.image_filtertext)
 
-        self.treeview.setModel(self.proxy_model)
-        self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(available_drives[0])))
+        # Historical attribute aliases: the operation layer and the offscreen
+        # test suite keep addressing the pane's widgets through MainWindow.
+        _pane = self.sdcard_explorer
+        self.model = _pane.model
+        self.proxy_model = _pane.proxy_model
+        self.treeview = _pane.treeview
+        self.image_model = _pane.image_model
+        self.image_treeview = _pane.image_treeview
+        self.image_usage_gauge = _pane.image_usage_gauge
+        self.image_explorer_container = _pane.image_explorer_container
+        self.local_file_explorer_path = _pane.local_file_explorer_path
+        self.localexplorerlabel = _pane.localexplorerlabel
+        self.local_explorer_up_button = _pane.local_explorer_up_button
+        self.local_explorer_refresh_button = _pane.local_explorer_refresh_button
+        self.local_path_row_container = _pane.local_path_row_container
+        self.image_explorer_up_button = _pane.image_explorer_up_button
+        self.image_explorer_refresh_button = _pane.image_explorer_refresh_button
+        self.diskimageexplorerlabel = _pane.diskimageexplorerlabel
+        self.diskimageexplorerpathinput = _pane.diskimageexplorerpathinput
+        self.image_path_row_container = _pane.image_path_row_container
+        self.sdcard_explorer_grid = _pane.sdcard_explorer_grid
+        self.sdcard_explorer_container = _pane
+        self._image_recolor_all = _pane.image_recolor_all
 
-        self.treeview.show()
-        self.treeview.setColumnWidth(0, 250)
-        self.treeview.doubleClicked.connect(on_treeview_double_clicked)
-        self.treeview.clicked.connect(on_treeview_clicked)
+        # Operation-layer wiring onto the pane's local tree: the context menu
+        # dispatches into the transfer/delete/rename/zip flows kept here.
         self.treeview.setContextMenuPolicy(Qt.CustomContextMenu)
         self.treeview.customContextMenuRequested.connect(on_treeview_context_menu)
 
@@ -10870,26 +10282,10 @@ class MainWindow(QMainWindow):
         self.button_to_image.setMaximumWidth(DISK_ARROWS_BUTTONS_SIZE)
         self.button_to_image.clicked.connect(transfert_content_from_disk_to_image)
 
-        # The SD-card image explorer is a hierarchical tree (like the local
-        # explorer on the left). The disk image is a virtual filesystem reached
-        # only through hdfmonkey, so it is backed by a QStandardItemModel whose
-        # folders are lazily populated (via "hdfmonkey ls") the first time they
-        # are expanded.
-        self._img_folder_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon)
-        self._img_file_icon   = self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon)
-
-        self.image_model = QStandardItemModel(self)
-        self.image_treeview = QTreeView(self)
-        self.image_treeview.setModel(self.image_model)
-        self.image_treeview.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.image_treeview.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.image_treeview.setUniformRowHeights(True)
-        self.image_treeview.setSortingEnabled(True)
+        # The image tree is built by SdCardExplorerPane; only the operation-
+        # layer context menu is wired here (it dispatches transfers/deletes).
         self.image_treeview.setContextMenuPolicy(Qt.CustomContextMenu)
         self.image_treeview.customContextMenuRequested.connect(image_tree_context_menu)
-        self.image_treeview.expanded.connect(image_on_expanded)
-        self.image_treeview.selectionModel().selectionChanged.connect(image_explorer_selection_changed)
-        set_table_image_properties()
 
         def _image_tree_key_press(event):
             # Ctrl+C / Ctrl+X / Ctrl+V copy, cut & paste via the shared clipboard.
@@ -10996,136 +10392,14 @@ class MainWindow(QMainWindow):
         self.image_treeview.dropEvent = _image_drop
         self.image_treeview.startDrag = _image_start_drag
 
-        # Usage gauge — sits directly below the image explorer table
-        self.image_usage_gauge = QProgressBar()
-        self.image_usage_gauge.setRange(0, 100)
-        self.image_usage_gauge.setValue(0)
-        self.image_usage_gauge.setFormat("No image loaded")
-        self.image_usage_gauge.setFixedHeight(18)
-        self.image_usage_gauge.setToolTip("No SD card image is currently loaded.")
-        self.image_usage_gauge.setTextVisible(True)
-
-        self.image_explorer_container = QWidget()
-        image_explorer_vbox = QVBoxLayout(self.image_explorer_container)
-        image_explorer_vbox.setContentsMargins(0, 0, 0, 0)
-        image_explorer_vbox.setSpacing(2)
-        image_explorer_vbox.addWidget(self.image_treeview)
-        image_explorer_vbox.addWidget(self.image_usage_gauge)
-
+        # The usage gauge, path rows and the explorer grid are owned by the
+        # pane. The centre transfer-buttons column is populated here (the
+        # buttons are operation-wired) and slotted into the pane's grid.
         self.centralbuttons.addWidget(self.button_to_image)
         self.centralbuttons.addWidget(self.button_to_disk)
-
         self.centralbuttons.setAlignment(Qt.AlignCenter)
         self.centralbuttonscontainer.setLayout(self.centralbuttons)
-
-        # Path row above the explorers: on the left an editable box showing
-        # the folder the local file explorer is browsing; on the right the
-        # "Disk Image Explorer:" label plus an editable box showing the
-        # current in-image target folder. Both accept a typed or pasted path
-        # (committed on Enter or focus-out) to navigate the explorer below
-        # them — see on_local_file_explorer_path_edited and
-        # on_diskimageexplorer_path_edited.
-        self.local_file_explorer_path = QLineEdit()
-        self.local_file_explorer_path.setPlaceholderText("Local folder path...")
-        self.local_file_explorer_path.setClearButtonEnabled(True)
-        self.local_file_explorer_path.setToolTip(
-            "Folder currently shown in the local file explorer below.\n"
-            "Type or paste a folder (or file) path and press Enter to navigate there;\n"
-            "the drive selector follows automatically."
-        )
-        self.local_file_explorer_path.editingFinished.connect(on_local_file_explorer_path_edited)
-
-        # Up / Refresh buttons for both explorers, mirroring the Remote
-        # Explorer's top bars (same labels, widths and behavior).
-        self.local_explorer_up_button = QPushButton("Up", self)
-        self.local_explorer_up_button.setMaximumWidth(48)
-        self.local_explorer_up_button.setToolTip(
-            "Go up one folder in the local file explorer\n"
-            "(same as double-clicking its '..' entry).")
-        self.local_explorer_up_button.clicked.connect(local_explorer_up)
-
-        self.local_explorer_refresh_button = QPushButton("Refresh", self)
-        self.local_explorer_refresh_button.setMaximumWidth(72)
-        self.local_explorer_refresh_button.setToolTip(
-            "Re-read the current local folder from disk.")
-        self.local_explorer_refresh_button.clicked.connect(local_explorer_refresh)
-
-        self.localexplorerlabel = QLabel()
-        self.localexplorerlabel.setText("Local path: ")
-
-        self.local_path_row_container = QWidget()
-        _local_path_row = QHBoxLayout(self.local_path_row_container)
-        _local_path_row.setContentsMargins(0, 0, 0, 0)
-        _local_path_row.addWidget(self.local_explorer_up_button)
-        _local_path_row.addWidget(self.local_explorer_refresh_button)
-        _local_path_row.addWidget(self.localexplorerlabel)
-        _local_path_row.addWidget(self.local_file_explorer_path, 1)
-
-        self.image_explorer_up_button = QPushButton("Up", self)
-        self.image_explorer_up_button.setMaximumWidth(48)
-        self.image_explorer_up_button.setToolTip(
-            "Select the parent folder inside the SD card image\n"
-            "(at the top level this returns the target to the image root).")
-        self.image_explorer_up_button.clicked.connect(image_explorer_up)
-
-        self.image_explorer_refresh_button = QPushButton("Refresh", self)
-        self.image_explorer_refresh_button.setMaximumWidth(72)
-        self.image_explorer_refresh_button.setToolTip(
-            "Re-list the current image folder from the SD card image\n"
-            "(runs 'hdfmonkey ls' again).")
-        self.image_explorer_refresh_button.clicked.connect(image_explorer_refresh)
-
-        self.diskimageexplorerlabel = QLabel()
-        self.diskimageexplorerlabel.setText("Disk Image Explorer: ")
-
-        self.diskimageexplorerpathinput = QLineEdit()
-        self.diskimageexplorerpathinput.setPlaceholderText("Path inside the SD card image...")
-        self.diskimageexplorerpathinput.setClearButtonEnabled(True)
-        self.diskimageexplorerpathinput.setToolTip(
-            "Current target folder inside the SD card image (uploads, New Folder\n"
-            "and gallery sends land here). Type or paste an in-image path such as\n"
-            "/games and press Enter to navigate the disk image explorer there;\n"
-            "an empty path or / selects the image root."
-        )
-        self.diskimageexplorerpathinput.editingFinished.connect(on_diskimageexplorer_path_edited)
-
-        self.image_path_row_container = QWidget()
-        _image_path_row = QHBoxLayout(self.image_path_row_container)
-        _image_path_row.setContentsMargins(0, 0, 0, 0)
-        _image_path_row.addWidget(self.image_explorer_up_button)
-        _image_path_row.addWidget(self.image_explorer_refresh_button)
-        _image_path_row.addWidget(self.diskimageexplorerlabel)
-        _image_path_row.addWidget(self.diskimageexplorerpathinput, 1)
-
-        # SD Card explorer area, laid out as a 3-column grid so the rows above/
-        # below the explorers line up with them:
-        #   row 0: [ Up|Refresh|local path box ]                [ Up|Refresh|image path box ]
-        #   row 1: [ local file explorer ][ ⇄ transfer buttons ][ disk image explorer ]
-        #   row 2:                                              [ New Folder / Delete… ]
-        # The two explorer columns share the stretch equally (the centre
-        # transfer-button column keeps its natural width), so each path row
-        # matches its explorer's width and the New Folder / Delete buttons sit
-        # directly under the disk image explorer. Moving the buttons out of
-        # the log-window row (below) lets that log stretch the full width.
-        self.sdcard_explorer_grid = QGridLayout()
-        self.sdcard_explorer_grid.setContentsMargins(0, 0, 0, 0)
-        self.sdcard_explorer_grid.addWidget(self.local_path_row_container, 0, 0)
-        self.sdcard_explorer_grid.addWidget(self.image_path_row_container, 0, 2)
-        self.sdcard_explorer_grid.addWidget(self.treeview, 1, 0)
         self.sdcard_explorer_grid.addWidget(self.centralbuttonscontainer, 1, 1)
-        self.sdcard_explorer_grid.addWidget(self.image_explorer_container, 1, 2)
-        self.sdcard_explorer_grid.setColumnStretch(0, 1)
-        self.sdcard_explorer_grid.setColumnStretch(2, 1)
-        self.sdcard_explorer_grid.setRowStretch(1, 1)
-
-        # Seed the local path box with the folder the explorer starts on.
-        local_sync_path_box()
-
-        # The grid lives in a plain container widget so it can form the top
-        # pane of the explorers ⇄ log splitter; the splitter (and with it this
-        # whole area) is added to the form once the log window exists below.
-        self.sdcard_explorer_container = QWidget()
-        self.sdcard_explorer_container.setLayout(self.sdcard_explorer_grid)
 
         self.listWidgetLog = QListWidget(self)
 
@@ -14455,7 +13729,9 @@ class MainWindow(QMainWindow):
                     QTimer.singleShot(0, lambda _f=_folder: self._nextsync_start_server_fn(_f))
                 _getit_send_to_ns_folder(eid, default_name, _ns_base, title, _after_ns_dl_gi)
 
-        self.getit_results_table.setContextMenuPolicy
+        # (found by ruff B018: the call parens were missing, so the policy was
+        # never applied and the connected context menu could not fire)
+        self.getit_results_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.getit_results_table.customContextMenuRequested.connect(getit_on_table_context_menu)
 
         # ---- MOTD fetch ----

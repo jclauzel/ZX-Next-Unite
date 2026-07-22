@@ -335,7 +335,7 @@ ZXART_UI_TRANSLATIONS = {
     "Rating:":          {"pol": "Ocena:",         "spa": "Valoración:"},
     "Views:":           {"pol": "Wyświetlenia:",  "spa": "Vistas:"},
     "Tags:":            {"pol": "Tagi:",          "spa": "Etiquetas:"},
-    "Language:":        {"pol": "Język:",         "spa": "Idioma:"},
+    # ("Language:" already defined above — the duplicate was found by ruff F601)
     # Table headers
     "ID":               {"pol": "ID",             "spa": "ID"},
     "Title":            {"pol": "Tytuł",          "spa": "Título"},
