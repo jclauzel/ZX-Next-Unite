@@ -1079,6 +1079,7 @@ int main(int arglen, char *rawcmd)
     char fastuart = 0;
     char filehandle = 0; // init to silence "used before init" (the read is guarded, but be safe)
     char retrycount;
+    char conn_tries;   // startup connect retries used (see retryconnect)
     unsigned char saved_scr_ct;
     // init to silence "used before init" (reads are guarded by the same
     // if (g_dark) as the writes, but SDCC's flow analysis can't see that)
@@ -1297,6 +1298,10 @@ int main(int arglen, char *rawcmd)
 
     atcmd("ATE0\r\n", "OK", 2, inbuf); // command echo off; if on, we might match server name as OK/ERROR/BUSY =)
 
+    // Runs once (the handshake "goto retryconnect"s land BELOW this line), so
+    // the retry budget is never refilled by a mid-session reconnect.
+    conn_tries = 0;
+
 retryconnect:
 
     // Try disconnecting a few times just in case.
@@ -1309,6 +1314,40 @@ retryconnect:
 
     if (atcmd(scratch, "OK", 2, inbuf))
     {
+        // The server may simply not be RUNNING yet: retry the connect up to
+        // 3 times, ~2 s apart, giving the user a moment to start the classic
+        // sync server / Remote Explorer on the PC before the old hard
+        // failure. Every mode connects here, so all of them benefit. BREAK
+        // exits immediately (checked before and all through each pause),
+        // with the same message the -listen loop uses.
+        if (conn_tries < 3)
+        {
+            if (break_pressed()) goto connbreak;   // held during the attempt
+            conn_tries++;
+            scratch[0] = '0' + conn_tries;   // the CIPSTART cmd in scratch is
+            scratch[1] = 0;                  // dead here - rebuilt on retry
+            *((unsigned char *)23692) = 255;
+            conprint("Retrying connection (");
+            conprint(scratch);
+            conprint("/3)...\r");
+            {
+                // ~2 s: 100 ticks of the ROM's 50 Hz FRAMES counter (same
+                // sysvar the animation paces itself with; ~1.7 s on a 60 Hz
+                // display, close enough).
+                unsigned char frames = 100;
+                unsigned char last = *((unsigned char *)23672);
+                while (frames)
+                {
+                    unsigned char now = *((unsigned char *)23672);
+                    if (now != last) { last = now; frames--; }
+                    if (break_pressed()) goto connbreak;
+                }
+            }
+            goto retryconnect;
+connbreak:
+            print("Break - stopping");
+            goto bailout;
+        }
         print("Unable to connect");
         goto bailout;
     }
