@@ -18,3 +18,7 @@ itch-dl
 # file system of the Next connected in '.sync5 -listen' mode. The Settings
 # toggle is greyed out until this package is installed.
 flask
+
+# Dev-only — linter/formatter (config in pyproject.toml). Not needed to run
+# the app: used by contributors to keep new code clean ("ruff check .").
+ruff
