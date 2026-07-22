@@ -1119,7 +1119,7 @@ int main(int arglen, char *rawcmd)
         con_cls();                                        // paint the whole screen black + home
     }
 
-    print("NextSync 5.3 Clauzel/Komppa");
+    print("NextSync 5.4 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -1187,7 +1187,7 @@ int main(int arglen, char *rawcmd)
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v5.3 Clauzel/Komppa\r"
+                "SYNC v5.4 Clauzel/Komppa\r"
                 ".SYNC [server] : save cfg\r"
                 ".SYNC : sync files from PC\r"
                 ".SYNC -send <file|dir> : to PC\r"
@@ -1349,9 +1349,30 @@ retryconnect:
             cipxfer("Poll", 4, inbuf, &len, &dp);
             if (len < 4 || checksum(dp, len - 3) != 0)
             {
+                // v5.4: a dead link used to leave this loop polling forever.
+                // When the server goes away WITHOUT its goodbye 'Q' reaching
+                // us (app killed or crashed, PC put to sleep, wifi drop, or
+                // the app's clean-shutdown 'Q' losing its 10s race against a
+                // long transfer), the esp answers every AT+CIPSENDEX on the
+                // closed connection with ERROR, cipxfer returns an empty
+                // frame, and we re-polled a corpse for eternity - looking
+                // exactly like "listening but ignoring all commands" (only
+                // BREAK helped). Give up after enough bad polls IN A ROW;
+                // any good frame resets the count below, so uart noise and
+                // brief wifi hiccups still just re-poll like before.
+                // retrycount is free in listen mode (see "retrycount = 0"
+                // after connect); each dead poll burns the full cipxfer/
+                // atcmd timeout, so 8 in a row is many seconds of silence.
+                retrycount++;
+                if (retrycount >= 8)
+                {
+                    print("Connection lost - stopping");
+                    break;
+                }
                 flush_uart_hard();          // bad/empty frame - re-poll
                 continue;
             }
+            retrycount = 0;                 // good frame - the link is alive
 
             {
                 unsigned char op = dp[0];

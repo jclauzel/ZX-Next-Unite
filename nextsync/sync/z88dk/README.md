@@ -244,7 +244,16 @@ over a socketpair with a mock Next — run it with `python test_listen.py`.
   CSpect but no bootable NextZXOS system SD image, so a load test could not be
   performed here. To smoke-test: copy `syncdev` to your card's `C:/DOT/` folder
   and run `.syncdev` from NextZXOS BASIC — it should print
-  `NextSync 5.3 Clauzel/Komppa` and return cleanly. Then exercise a real sync
+  `NextSync 5.4 Clauzel/Komppa` and return cleanly. Then exercise a real sync
   against the ZX-Next-Unite server as usual.
+- **`-listen` dead-link watchdog (v5.4):** if the server vanishes without its
+  goodbye `Q` reaching the dot (app killed/crashed, PC asleep, wifi drop, or
+  the clean-shutdown `Q` losing its race against a long transfer), the esp
+  answers every send on the closed connection with `ERROR` and the dot used to
+  re-poll forever — "listening" but ignoring all commands, with only BREAK as
+  a way out. Since v5.4 the poll loop counts consecutive bad/empty polls and
+  exits with `Connection lost - stopping` after 8 in a row (each one burns the
+  full uart timeout, so that is many seconds of true silence); any good frame
+  resets the count, so uart noise or a brief wifi hiccup still just re-polls.
 - The UART `receive` timing was preserved but should be re-verified at 2 Mbaud
   on real hardware.
