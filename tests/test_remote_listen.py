@@ -4,7 +4,7 @@ dot's half of the protocol; we drive the worker via its command queue and check
 the emitted signals."""
 import os, sys, socket, threading, queue, tempfile, shutil, time
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from PySide6.QtCore import QCoreApplication, Qt
 from zxnu_workers import RemoteExplorerSignals, run_remote_listen_server
 

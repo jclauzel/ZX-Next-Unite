@@ -17,6 +17,17 @@ from PySide6.QtGui import QColor
 
 
 ZX_NEXT_UNITE_VERSION = "9.0.7"
+# Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
+# dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
+# kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
+# X.Y Clauzel/Komppa") whenever the dot is rebuilt with a version bump: the
+# startup dotN-updated advisory compares this against the dotn_last_version
+# persisted in hdfg.cfg, so the user is told to refresh the copy on their
+# Next (which the app cannot deploy automatically).
+ZX_NEXT_UNITE_DOTN_VERSION = "5.4"
+# Self-update check (Settings toggle, default on): the app's own releases.
+ZXNU_GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/jclauzel/ZX-Next-Unite/releases/latest"
+ZXNU_GITHUB_RELEASES_PAGE = "https://github.com/jclauzel/ZX-Next-Unite/releases"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
 ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS  = False
@@ -195,6 +206,8 @@ SETTING_ITCHIO_API_KEY         = "itchio_api_key"          # str: personal itch.
 SETTING_SHOW_ITCHIO_TAB        = "show_itchio_tab"         # "false" => hide the itch.io tab (default shown when itch-dl is installed)
 SETTING_ITCHIO_VIEW_MODE       = "itchio_view_mode"        # "gallery" (default) or "table"
 SETTING_CSPECT_UPDATE_CHECK    = "cspect_update_check"     # "false" => skip the startup itch.io CSpect update check (default on)
+SETTING_ZXNU_UPDATE_CHECK      = "zxnu_update_check"       # "false" => skip the startup ZX Next Unite GitHub release check (default on)
+SETTING_DOTN_LAST_VERSION      = "dotn_last_version"       # bundled .sync5 dotN version last seen by this cfg (drives the "update the dot on your Next" advisory)
 # Per-pane item-viewer mode: "true" => open items in the Retro (pygame) viewer
 # (renders .txt/instruction pages as a log console), else the Classic Qt viewer.
 SETTING_GETIT_ITEM_RETRO       = "getit_item_retro"
@@ -756,7 +769,7 @@ SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVO
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
 SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE,
-SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK,
+SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO)
 
 IMAGE_BUTTONS_SIZE = 190

@@ -1120,6 +1120,10 @@ int main(int arglen, char *rawcmd)
         con_cls();                                        // paint the whole screen black + home
     }
 
+    // On a version bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION in
+    // zxnu_config.py (and the help text below): the app compares it against
+    // the cfg's dotn_last_version to advise the user to refresh the .sync5
+    // copy on their Next after updating the app.
     print("NextSync 5.4 Clauzel/Komppa");
 
     len = parse_cmdline(fn);

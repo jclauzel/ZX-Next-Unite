@@ -444,4 +444,4 @@ curl "http://localhost/rfsize?path=/games&json=1"
   Remote Explorer / `listen>` console would.
 * Troubleshooting: `nextsync5.py -w -v` logs every request and response
   (`HTTP > GET /ls?path=/ …` / `HTTP < 200 GET /ls OK 2 entries…`).
-* Covered end-to-end by `test_http_bridge.py` (mock Next, both hosts).
+* Covered end-to-end by `tests/test_http_bridge.py` (repo root; mock Next, both hosts).

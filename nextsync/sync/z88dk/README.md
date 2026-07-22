@@ -227,16 +227,17 @@ user's responsibility exactly as for every other drive-prefixed command.
 Server side: `nextsync5.py` gains a `listen_session()` (triggered by `"Listen"`)
 with a console CLI (`ls`/`get`/`put`/`mkdir`/`rmdir`/`rm`/`ren`/`drives`/
 `psize`/`pfull`/`rcpy`/`rfsize`/`quit`). The whole wire
-protocol is covered by `server/test_listen.py`, which drives `listen_session()`
-over a socketpair with a mock Next — run it with `python test_listen.py`.
+protocol is covered by `tests/test_listen.py` (repo root), which drives
+`listen_session()` over a socketpair with a mock Next — run it with
+`python tests/test_listen.py`.
 (The app-side twin, `zxnu_workers.run_remote_listen_server`, is covered by
-`server/test_remote_listen.py`.)
+`tests/test_remote_listen.py`.)
 
 ## Status / testing
 
 - Builds clean as a valid dotN (~13 KB of code+data past the old 8 KB page;
   24 KB command file).
-- **Server `-listen` protocol is validated on localhost** by `test_listen.py`
+- **Server `-listen` protocol is validated on localhost** by `tests/test_listen.py`
   (ls/get/put/mkdir/rmdir/rm all pass against a mock Next). The **dot** side
   compiles clean and reuses the proven send/receive paths, but the Next half of
   `-listen` still needs a real-Next run to confirm.

@@ -31,7 +31,7 @@ toggle is greyed out until Flask is installed) with:
 python -m pip install -r REQUIREMENTS.txt
 ```
 
-No build step is needed for development. There are no tests or linters configured in this project.
+No build step is needed for development. The test suite lives in `tests/` — run it all with `python tests/run_all.py` (plain scripts, no pytest; see `tests/README.md`). No linters are configured.
 
 For quickly eyeballing the retro "Alien Floyd" Sir Clive promenade animations
 (the ones drawn in `zxnu_pygame.py`), pass `--anim` to force one to play first
@@ -84,9 +84,9 @@ pyside6-rcc rc_backgrounds.qrc -o rc_backgrounds.py
 | `zx-next-unite.py` | Entry point; contains the single `MainWindow(QMainWindow)` class and all tab/pane UI logic |
 | `zxnu_config.py` | Constants, `SETTING_*` keys, API base URLs, UI string tables, color defaults, and pure helpers (`resource_path`, `qcolor_to_hex`, etc.) |
 | `zxnu_workers.py` | Background threading primitives: `WorkerSignals`, `NextSyncSignals`, `HdfTaskSignals`, `HdfTaskWorker`, `HdfProgressDialog`, `DotDotFirstProxyModel`; also the NextSync `-listen` worker (`run_remote_listen_server` + `RemoteExplorerSignals`) behind the Remote Explorer |
-| `zxnu_remote_explorer.py` | `RemoteExplorerWidget`: the dual-pane local ⇄ Next file manager of the NextSync tab (drives the `-listen` worker via a command queue; covered headlessly by `nextsync/sync/server/test_remote_listen.py` for the worker side) |
-| `zxnu_http_bridge.py` | NextSync HTTP bridge: reusable Flask web server (stdlib-only import; Flask optional, loaded on start — `flask_available()` gates the UI) republishing a `-listen` session as HTTP routes for the Next's `.http` dot command. Used by the app (Settings toggle + port and max-connections boxes, `SETTING_NEXTSYNC_HTTP_BRIDGE`/`SETTING_NEXTSYNC_HTTP_PORT`/`SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT`, greyed without Flask) and `nextsync5.py -w`/`-http[=port]` (+`-flask-connection-limit:<n>`, default 1); docs + call samples in `nextsync/sync/server/HTTP_BRIDGE.md`, e2e test in `test_http_bridge.py` |
-| `nextsync5.py` | Standalone Sync4 NextSync command-line server (moved to the repo root so it sits next to `zxnu_http_bridge.py`); `-listen` console, `-w`/`-http[=port]` web bridge, `-v` also traces every HTTP request/response. Protocol tests in `nextsync/sync/server/test_listen.py` |
+| `zxnu_remote_explorer.py` | `RemoteExplorerWidget`: the dual-pane local ⇄ Next file manager of the NextSync tab (drives the `-listen` worker via a command queue; covered headlessly by `tests/test_remote_listen.py` for the worker side) |
+| `zxnu_http_bridge.py` | NextSync HTTP bridge: reusable Flask web server (stdlib-only import; Flask optional, loaded on start — `flask_available()` gates the UI) republishing a `-listen` session as HTTP routes for the Next's `.http` dot command. Used by the app (Settings toggle + port and max-connections boxes, `SETTING_NEXTSYNC_HTTP_BRIDGE`/`SETTING_NEXTSYNC_HTTP_PORT`/`SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT`, greyed without Flask) and `nextsync5.py -w`/`-http[=port]` (+`-flask-connection-limit:<n>`, default 1); docs + call samples in `nextsync/sync/server/HTTP_BRIDGE.md`, e2e test in `tests/test_http_bridge.py` |
+| `nextsync5.py` | Standalone Sync4 NextSync command-line server (moved to the repo root so it sits next to `zxnu_http_bridge.py`); `-listen` console, `-w`/`-http[=port]` web bridge, `-v` also traces every HTTP request/response. Protocol tests in `tests/test_listen.py` |
 | `zxnu_media.py` | ZX Spectrum `SCREEN$` decoder (`ZxSpectrumScreen`), placeholder-pixmap rendering, file-format tag helpers, and the shared pixmap cache |
 | `zxnu_gallery.py` | Reusable gallery widgets: `GalleryCell`, the scrollable grid view, and the `AnimatedBackground` widget |
 | `zxnu_itchio.py` | Optional itch.io integration: `itch-dl` detection, itch.io API access (collections/owned/search via the user's API key) and install-via-`itch-dl`. Drives the optional itch.io tab |
