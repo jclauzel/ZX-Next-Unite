@@ -2969,10 +2969,6 @@ class MainWindow(QMainWindow):
                 logging.error(f"An unexpected error occurred while saving the configuration file. Exception: {e}")
                 add_main_log_window(f"An unexpected error occurred while saving the configuration file. Exception: {e}")
 
-        def is_filetype_a_directory(file_type:str):
-            ft = file_type.strip()
-            return ft == "[DIR]" or ft == "b'[DIR]" or ft == 'b"[DIR]'
-
         def get_pyhdfmgooey_currenttab_config():
             configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING] = wid_inner.tab.currentIndex()
             # Persist the tidied path (no surrounding quotes, native separators)
@@ -5308,145 +5304,6 @@ class MainWindow(QMainWindow):
         # emitting live status/progress so the UI stays responsive.
         # ---------------------------------------------------------------
 
-        def _scan_image_tree_for_get(image_path, image_source, disk_dest, cancel_event,
-                                     signals, out_files, out_dirs):
-            """Recursively enumerate all files and dirs under image_source.
-            Appends (img_src, disk_dst) tuples to out_files and out_dirs.
-            Emits status with each discovered name so the user sees live names."""
-            hdfr = execute_hdf_monkey("ls", image_path, extra_argv=[image_source])
-            if hdfr.returncode != 0:
-                return
-            for line in hdfr.stdout.splitlines():
-                if cancel_event.is_set():
-                    return
-                decoded = line.decode(errors="replace") if isinstance(line, bytes) else line
-                parts = decoded.split('\t', 1)
-                if len(parts) < 2:
-                    continue
-                ftype = parts[0]
-                fname = parts[1]
-                img_path = (image_source + "/" + fname).replace("//", "/")
-                if platform.system() == "Windows":
-                    disk_path = disk_dest + "\\" + fname
-                else:
-                    disk_path = disk_dest + "/" + fname
-                signals.status.emit(f"Scanning\u2026\n{img_path}")
-                if is_filetype_a_directory(ftype):
-                    out_dirs.append((img_path, disk_path))
-                    _scan_image_tree_for_get(image_path, img_path, disk_path, cancel_event,
-                                             signals, out_files, out_dirs)
-                else:
-                    out_files.append((img_path, disk_path))
-
-        def _scan_image_tree_for_delete(image_path, destination, cancel_event,
-                                        signals, out_files, out_dirs):
-            """Recursively enumerate all files and dirs under destination.
-            Appends item path strings to out_files (deepest first) and out_dirs."""
-            hdfr = execute_hdf_monkey("ls", image_path, extra_argv=[destination])
-            if hdfr.returncode != 0:
-                return
-            for line in hdfr.stdout.splitlines():
-                if cancel_event.is_set():
-                    return
-                decoded = line.decode(errors="replace") if isinstance(line, bytes) else line
-                parts = decoded.split('\t', 1)
-                if len(parts) < 2:
-                    continue
-                ftype = parts[0]
-                fname = parts[1]
-                full  = (destination + "/" + fname).replace("//", "/")
-                signals.status.emit(f"Scanning\u2026\n{full}")
-                if is_filetype_a_directory(ftype):
-                    _scan_image_tree_for_delete(image_path, full, cancel_event,
-                                                signals, out_files, out_dirs)
-                    out_dirs.append(full)   # directory itself deleted after its contents
-                else:
-                    out_files.append(full)
-
-        #First returned value is the root parent directory full path second variable is the last path or filename
-        def get_parent_root_directory_splited(file_name:str):
-
-            token_path = file_name.split("/")
-
-            result_path = ""
-            row = 1
-            for i in token_path:
-                result_path += token_path[row - 1]
-                row += 1
-                if row == len(token_path):
-                    break
-                if len(token_path) != row:
-                    result_path += "/"
-            return result_path, token_path[row - 1]
-
-        def is_directory(image_path, source):
-
-            root_folder , file_name_from_source = get_parent_root_directory_splited (source)
-
-            hdfmonkeyexecresult = execute_hdf_monkey("ls", image_path, extra_argv=[root_folder])
-
-            if hdfmonkeyexecresult.returncode == 0:
-                command_execution = hdfmonkeyexecresult.stdout
-
-                results_lines = command_execution.splitlines()
-
-                for line in results_lines:
-                    decoded_line = line.decode(errors="replace") if isinstance(line, bytes) else line
-                    directory_result_table = decoded_line.split('\t', 1)
-                    if len(directory_result_table) < 2:
-                        continue
-                    file_type = directory_result_table[0]
-                    file_name = directory_result_table[1]
-
-                    if file_name == file_name_from_source:
-                        if is_filetype_a_directory(file_type):
-                            return True
-                        else:
-                            return False
-
-            return False
-
-        def _run_delete_task(signals, cancel_event, image_path, paths_to_delete):
-            """Background worker body for image_delete_files.
-            *paths_to_delete* is a list of full in-image paths.
-            Phase 1: scan/count all items recursively (indeterminate progress).
-            Phase 2: delete each item with real percentage progress."""
-            actual = [p for p in paths_to_delete if p and p != UP_DIRECTORY]
-
-            # ---- Phase 1: enumerate everything ----
-            signals.progress.emit(-1)   # indeterminate
-            all_files = []   # flat list of image paths to rm
-            all_dirs  = []   # directories to rm after their content
-            for full in actual:
-                if cancel_event.is_set():
-                    break
-                full = full.replace("//", "/")
-                signals.status.emit(f"Scanning\u2026\n{full}")
-                if is_directory(image_path, full):
-                    _scan_image_tree_for_delete(image_path, full, cancel_event,
-                                                signals, all_files, all_dirs)
-                    all_dirs.append(full)  # delete the top-level dir itself last
-                else:
-                    all_files.append(full)
-
-            if cancel_event.is_set():
-                return
-
-            # ---- Phase 2: delete ----
-            all_items = all_files + all_dirs   # files first, then dirs (deepest already ordered)
-            total     = max(len(all_items), 1)
-            for idx, item_path in enumerate(all_items):
-                if cancel_event.is_set():
-                    break
-                signals.status.emit(f"Deleting ({idx + 1}/{total})\n{item_path}")
-                signals.progress.emit(int(idx / total * 100))
-                try:
-                    execute_hdf_monkey("rm", image_path, extra_argv=[item_path])
-                except Exception as e:
-                    logging.error(f"Failed deleting: {item_path} - {e}")
-                    signals.error.emit(f"Failed deleting: {item_path}\n{e}")
-                signals.progress.emit(int((idx + 1) / total * 100))
-
         def image_confirm_deletion_dialog():
             # Popup wizard asking the user to confirm deletion of the selected
             # image file or folder. Used when the "Do not prompt for confirmation
@@ -5535,7 +5392,7 @@ class MainWindow(QMainWindow):
             set_all_buttons_disabled()
 
             dlg    = HdfProgressDialog("Deleting files\u2026", self)
-            worker = HdfTaskWorker(_run_delete_task, image_path, paths_to_delete)
+            worker = HdfTaskWorker(_run_delete_task, execute_hdf_monkey, image_path, paths_to_delete)
 
             dlg.cancel_requested.connect(worker.cancel)
             worker.signals.progress.connect(dlg.set_progress)
@@ -5606,7 +5463,7 @@ class MainWindow(QMainWindow):
 
                 # ---- Phase 1: copy the source OUT of the image to tmp_root/base_name
                 _run_get_task(_StepProxy("Downloading (Step 1/3)…"), cancel_event,
-                              image_path, [(src_path, base_name)], tmp_root,
+                              execute_hdf_monkey, image_path, [(src_path, base_name)], tmp_root,
                               dir_nav, is_windows)
                 if cancel_event.is_set():
                     return
@@ -5617,6 +5474,7 @@ class MainWindow(QMainWindow):
 
                 # ---- Phase 2: write it back under the new name
                 _run_put_task(_StepProxy("Uploading (Step 2/3)…"), cancel_event,
+                              execute_hdf_monkey, _check_access_denied_is_full_disk,
                               image_path, local_copy, new_path)
                 if cancel_event.is_set():
                     return
@@ -6560,12 +6418,13 @@ class MainWindow(QMainWindow):
             save_configuration_file()
 
         def nextsync_slowtransfer_checkbox_statechanged():
+            # The payload size itself is derived from this persisted setting at
+            # server start (see nextsync_do_server_job) — the old in-place
+            # MAX_PAYLOAD rebind here was a dead local and never took effect.
             if self.nextsync_slowtransfer_checkbox.isChecked():
                 configuration_dictionary[SETTING_NEXTSYNC_SLOWTRANSFER] = "true"
-                MAX_PAYLOAD = 256
             else:
                 configuration_dictionary[SETTING_NEXTSYNC_SLOWTRANSFER] = "false"
-                MAX_PAYLOAD = 1024
 
             save_configuration_file()
 
@@ -6650,59 +6509,6 @@ class MainWindow(QMainWindow):
                     QMessageBox.Yes) == QMessageBox.Yes:
                 _nextsync_commit_sync_root(folder)
 
-        def _run_get_task(signals, cancel_event, image_path, items,
-                          dest_dir, dir_nav, is_windows):
-            """Background worker body for transfert_content_from_image_to_disk.
-            *items* is a list of (full_image_path, base_name) for the selected
-            tree entries.
-            Phase 1: scan/count all items recursively (indeterminate progress).
-            Phase 2: copy each file with real percentage progress."""
-
-            # ---- Phase 1: enumerate everything ----
-            signals.progress.emit(-1)   # indeterminate marquee
-            all_files = []   # list of (img_src_path, local_disk_path)
-            all_dirs  = []   # list of (img_src_path, local_disk_path)  – dirs to create
-
-            for source, base_name in items:
-                if cancel_event.is_set():
-                    break
-                source = source.replace("//", "/")
-                signals.status.emit(f"Scanning\u2026\n{source}")
-                if not is_directory(image_path, source):
-                    local = dest_dir + dir_nav + base_name
-                    all_files.append((source, local))
-                else:
-                    local_dir = os.path.join(dest_dir, base_name) if is_windows else dest_dir + "/" + base_name
-                    all_dirs.append((source, local_dir))
-                    _scan_image_tree_for_get(image_path, source, local_dir, cancel_event,
-                                             signals, all_files, all_dirs)
-
-            if cancel_event.is_set():
-                return
-
-            # ---- Phase 2: create directories then copy files ----
-            # Create all discovered directories first
-            for _, local_dir in all_dirs:
-                try:
-                    os.makedirs(local_dir, exist_ok=True)
-                except Exception as e:
-                    logging.error(f"Failed creating directory: {local_dir} - {e}")
-                    signals.error.emit(f"Failed creating directory: {local_dir}\n{e}")
-
-            total = max(len(all_files), 1)
-            for idx, (img_src, local_dst) in enumerate(all_files):
-                if cancel_event.is_set():
-                    break
-                signals.status.emit(f"Downloading ({idx + 1}/{total})\n{img_src}")
-                signals.progress.emit(int(idx / total * 100))
-                try:
-                    execute_hdf_monkey("get", image_path,
-                                       extra_argv=[img_src, local_dst.replace('\\', '/')])
-                except Exception as e:
-                    logging.error(f"Failed downloading: {img_src} - {e}")
-                    signals.error.emit(f"Failed downloading: {img_src}\n{e}")
-                signals.progress.emit(int((idx + 1) / total * 100))
-
         def transfert_content_from_image_to_disk():
 
             global right_disk_image_explorer_content
@@ -6741,7 +6547,7 @@ class MainWindow(QMainWindow):
             image_path = self.right_disk_image_path
 
             dlg    = HdfProgressDialog("Downloading from image\u2026", self)
-            worker = HdfTaskWorker(_run_get_task, image_path, items,
+            worker = HdfTaskWorker(_run_get_task, execute_hdf_monkey, image_path, items,
                                    selected_explorer_item_directory_destination,
                                    directory_navigation, is_windows)
 
@@ -6803,7 +6609,7 @@ class MainWindow(QMainWindow):
 
             image_path = self.right_disk_image_path
             dlg    = HdfProgressDialog("Downloading from image…", self)
-            worker = HdfTaskWorker(_run_get_task, image_path, items, dest,
+            worker = HdfTaskWorker(_run_get_task, execute_hdf_monkey, image_path, items, dest,
                                    directory_navigation, is_windows)
             outcome = {"error": False, "cancelled": False}
 
@@ -6978,7 +6784,7 @@ class MainWindow(QMainWindow):
                         break
                     base = src.rstrip("/").rsplit("/", 1)[-1]
                     # Download this source into the temp dir …
-                    _run_get_task(signals, cancel_event, image_path, [(src, base)],
+                    _run_get_task(signals, cancel_event, execute_hdf_monkey, image_path, [(src, base)],
                                   dest_tmp, dir_nav, is_windows)
                     if cancel_event.is_set():
                         break
@@ -6986,7 +6792,9 @@ class MainWindow(QMainWindow):
                     local_path = os.path.join(dest_tmp, base)
                     unique = _image_unique_name(image_path, parent, base)
                     dest_image = (parent.rstrip("/") + "/" + unique).replace("//", "/")
-                    _run_put_task(signals, cancel_event, image_path, local_path, dest_image)
+                    _run_put_task(signals, cancel_event, execute_hdf_monkey,
+                                  _check_access_denied_is_full_disk,
+                                  image_path, local_path, dest_image)
             finally:
                 shutil.rmtree(tmp, ignore_errors=True)
 
@@ -7074,7 +6882,7 @@ class MainWindow(QMainWindow):
                     parents.append(parent)
             set_all_buttons_disabled()
             dlg    = HdfProgressDialog("Removing moved source…", self)
-            worker = HdfTaskWorker(_run_delete_task, image_path, paths)
+            worker = HdfTaskWorker(_run_delete_task, execute_hdf_monkey, image_path, paths)
 
             dlg.cancel_requested.connect(worker.cancel)
             worker.signals.progress.connect(dlg.set_progress)
@@ -7274,139 +7082,6 @@ class MainWindow(QMainWindow):
                 )
             return None
 
-        def _run_put_task(signals, cancel_event, image_path, upload_path, dest_file_path):
-            """Background worker body for transfert_content_from_disk_to_image.
-            For a single file: simple upload with status.
-            For a directory: Phase 1 scans the local tree, Phase 2 uploads each file."""
-
-            if not os.path.isdir(upload_path):
-                # ---- Single file ----
-                signals.status.emit(f"Uploading to image\n{os.path.basename(upload_path)}")
-                signals.progress.emit(0)
-                if not cancel_event.is_set():
-                    result = execute_hdf_monkey("put", image_path, extra_argv=[upload_path.replace('\\', '/'), dest_file_path])
-                    if result.returncode != 0:
-                        stdout_text = (result.stdout or b"").decode(errors="replace").strip()
-                        if "Access denied" in stdout_text:
-                            full_err = _check_access_denied_is_full_disk(image_path)
-                            if full_err:
-                                logging.error(full_err)
-                                signals.error.emit(full_err)
-                                cancel_event.set()
-                                return
-                        logging.error(f"Failed uploading to image: {image_path} file: {upload_path} {dest_file_path}")
-                        signals.error.emit(f"Failed uploading: {os.path.basename(upload_path)}")
-                signals.progress.emit(100)
-                return
-
-            # ---- Directory: Phase 1 enumerate local tree ----
-            signals.progress.emit(-1)   # indeterminate
-            all_files = []   # list of (local_path, image_dest_path)
-            all_img_dirs = []  # image-side directories to create, parents before children
-
-            def _scan_local_dir(local_dir, img_dir):
-                try:
-                    entries = os.listdir(local_dir)
-                except Exception as e:
-                    logging.error(f"Cannot list directory {local_dir}: {e}")
-                    return
-                for name in entries:
-                    if cancel_event.is_set():
-                        return
-                    local_path = os.path.join(local_dir, name)
-                    img_path   = (img_dir + "/" + name).replace("//", "/")
-                    signals.status.emit(f"Scanning\u2026\n{local_path}")
-                    if os.path.isdir(local_path):
-                        all_img_dirs.append(img_path)   # must mkdir before uploading into it
-                        _scan_local_dir(local_path, img_path)
-                    else:
-                        all_files.append((local_path, img_path))
-
-            # The top-level dest_file_path directory must also exist in the image
-            all_img_dirs.insert(0, dest_file_path)
-            _scan_local_dir(upload_path, dest_file_path)
-
-            if cancel_event.is_set():
-                return
-
-            # ---- Phase 1b: create all image-side directories (mkdir -p style) ----
-            # hdfmonkey mkdir cannot create intermediate paths, so we must ensure
-            # every ancestor segment exists before creating a child directory.
-            _img_dirs_created = set()
-
-            def _image_makedirs(img_dir_path):
-                """Create img_dir_path and all its ancestors inside the image.
-                Returns False and sets cancel_event if a full-disk condition is detected."""
-                parts = img_dir_path.strip("/").split("/")
-                for i in range(1, len(parts) + 1):
-                    if cancel_event.is_set():
-                        return False
-                    seg = "/" + "/".join(parts[:i])
-                    if seg in _img_dirs_created:
-                        continue
-                    signals.status.emit(f"Creating directory\n{seg}")
-                    result = execute_hdf_monkey("mkdir", image_path, extra_argv=[seg], silent=True)
-                    mkdir_stdout = (result.stdout or b"").decode(errors="replace").strip()
-                    if result.returncode == 0:
-                        _img_dirs_created.add(seg)
-                    else:
-                        if "Access denied" in mkdir_stdout:
-                            full_err = _check_access_denied_is_full_disk(image_path)
-                            if full_err:
-                                logging.error(full_err)
-                                signals.error.emit(full_err)
-                                cancel_event.set()
-                                return False
-                        # Non-zero may mean already exists — verify with ls
-                        ls_result = execute_hdf_monkey("ls", image_path, extra_argv=[seg], silent=True)
-                        ls_stdout = (ls_result.stdout or b"").decode(errors="replace").strip()
-                        if ls_result.returncode == 0:
-                            _img_dirs_created.add(seg)   # exists already — fine
-                        else:
-                            logging.warning(f"mkdir failed and directory not found: {seg} (rc={result.returncode})"
-                                            + (f" | mkdir stdout: {mkdir_stdout}" if mkdir_stdout else "")
-                                            + (f" | ls stdout: {ls_stdout}" if ls_stdout else ""))
-                return True
-
-            for img_dir in all_img_dirs:
-                if cancel_event.is_set():
-                    break
-                if not _image_makedirs(img_dir):
-                    break
-
-            if cancel_event.is_set():
-                return
-
-            # ---- Phase 2: upload each file ----
-            total = max(len(all_files), 1)
-            for idx, (local_path, img_dst) in enumerate(all_files):
-                if cancel_event.is_set():
-                    break
-                signals.status.emit(f"Uploading ({idx + 1}/{total})\n{local_path}")
-                signals.progress.emit(int(idx / total * 100))
-                result = execute_hdf_monkey("put", image_path, extra_argv=[local_path.replace('\\', '/'), img_dst])
-                if result.returncode != 0:
-                    stdout_text = (result.stdout or b"").decode(errors="replace").strip()
-                    if "Access denied" in stdout_text:
-                        full_err = _check_access_denied_is_full_disk(image_path)
-                        if full_err:
-                            logging.error(full_err)
-                            signals.error.emit(full_err)
-                            cancel_event.set()
-                            break
-                    logging.error(f"Failed uploading: {local_path} -> {img_dst} | stdout: {stdout_text}")
-                    signals.error.emit(f"Failed uploading: {os.path.basename(local_path)}")
-                signals.progress.emit(int((idx + 1) / total * 100))
-
-        def _run_put_external_task(signals, cancel_event, image_path, items):
-            """Background worker body for drag-and-drop uploads. *items* is a list
-            of (local_path, image_dest_path). Each entry is uploaded by reusing the
-            single-path put logic (file or directory)."""
-            for upload_path, dest_file_path in items:
-                if cancel_event.is_set():
-                    break
-                _run_put_task(signals, cancel_event, image_path, upload_path, dest_file_path)
-
         def image_upload_external_paths(paths, target_dir, on_complete=None):
             """Copy local files/folders (e.g. dropped from Windows Explorer) into
             the loaded disk image under *target_dir*. *on_complete*, when given, is
@@ -7446,7 +7121,8 @@ class MainWindow(QMainWindow):
             reload_dir = dest_dir or "/"
 
             dlg    = HdfProgressDialog("Uploading to image…", self)
-            worker = HdfTaskWorker(_run_put_external_task, image_path, items)
+            worker = HdfTaskWorker(_run_put_external_task, execute_hdf_monkey,
+                                   _check_access_denied_is_full_disk, image_path, items)
             outcome = {"error": False, "cancelled": False}
 
             dlg.cancel_requested.connect(worker.cancel)
@@ -7500,7 +7176,9 @@ class MainWindow(QMainWindow):
             disk_path_fn    = generate_disk_file_path
 
             dlg    = HdfProgressDialog("Uploading to image\u2026", self)
-            worker = HdfTaskWorker(_run_put_task, image_path, upload_path, dest_file_path)
+            worker = HdfTaskWorker(_run_put_task, execute_hdf_monkey,
+                                   _check_access_denied_is_full_disk,
+                                   image_path, upload_path, dest_file_path)
 
             dlg.cancel_requested.connect(worker.cancel)
             worker.signals.progress.connect(dlg.set_progress)
@@ -7784,135 +7462,6 @@ class MainWindow(QMainWindow):
             menu.exec(self.image_treeview.viewport().mapToGlobal(pos))
 
 
-        def update_syncpoint(path_to_content, knownfiles):
-            with open(path_to_content + SYNCPOINT, 'w') as f:
-                for x in knownfiles:
-                    f.write(f"{x}\n")
-
-        def agecheck(path_to_content, f):
-            if not os.path.isfile(path_to_content + SYNCPOINT):
-                return False
-            ptime = os.path.getmtime(path_to_content + SYNCPOINT)
-            mtime = os.path.getmtime(f)
-            if mtime > ptime:
-                return False
-            return True
-
-        def getFileList(path_to_content):
-            knownfiles = []
-            if os.path.isfile(path_to_content + SYNCPOINT):
-                with open(path_to_content + SYNCPOINT) as f:
-                    knownfiles = f.read().splitlines()
-            ignorelist = []
-            if os.path.isfile(path_to_content + IGNOREFILE):
-                with open(path_to_content + IGNOREFILE) as f:
-                    ignorelist = f.read().splitlines()
-            r = []
-            gf = glob.glob(path_to_content + "**", recursive=True)
-            for g in gf:
-                if os.path.isfile(g):
-                    basename = os.path.basename(g)
-                    # Never send internal control files to the device
-                    if basename in (SYNCPOINT, IGNOREFILE):
-                        continue
-                    ignored = False
-                    for i in ignorelist:
-                        # Match against full path OR basename so patterns like
-                        # "syncpoint.dat" work alongside glob patterns like "*.py"
-                        if fnmatch.fnmatch(g, i) or fnmatch.fnmatch(basename, i):
-                            ignored = True
-                            break
-                    if not self.nextsync_alwayssync_checkbox.isChecked():
-                        if g in knownfiles:
-                            if agecheck(path_to_content, g):
-                                ignored = True
-                    if not ignored:
-                        stats = os.stat(g)
-                        r.append([g, stats.st_size])
-            return r
-
-        def timestamp():
-            return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        def sendpacket(conn, payload, packetno):
-            checksum0 = 0 # random.choice([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]) # 5%
-            checksum1 = 0
-            # packetno -= random.choice([0]*99+[1]) # 1%
-            for x in payload:
-                checksum0 = (checksum0 ^ x) & 0xff
-                checksum1 = (checksum1 + checksum0) & 0xff
-            packet = ((len(payload)+5).to_bytes(2, byteorder="big")
-                + payload
-                + (checksum0 & 0xff).to_bytes(1, byteorder="big")
-                + (checksum1 & 0xff).to_bytes(1, byteorder="big")
-                + (packetno & 0xff).to_bytes(1, byteorder="big"))
-            conn.sendall(packet)
-
-            if ZX_NEXT_UNITE_VERBOSE_LOG_MODE:
-                add_nextsync_log_window (str(timestamp()) + " | Packet sent: " + str(len(packet)) + " bytes, payload: " + str(len(payload)) + " bytes, checksums: " + str(checksum0) + ", " + str(checksum1) + ", packetno: " + str(packetno & 0xff) )
-
-        # ---- Sync4 upload (Next -> PC) helpers ------------------------------
-        # The Next frames each uploaded block exactly like sendpacket():
-        #   [2 bytes big-endian total][payload][checksum0][checksum1][packetno]
-        # where total = len(payload) + 5. recv_block() reverses that and
-        # verifies the checksums.
-
-        def recv_exact(conn, n):
-            """Read exactly n bytes from conn, or None on disconnect."""
-            buf = b''
-            while len(buf) < n:
-                chunk = conn.recv(n - len(buf))
-                if not chunk:
-                    return None
-                buf += chunk
-            return buf
-
-        def recv_block(conn):
-            """Read one framed upload block.
-
-            Returns (payload_bytes, packetno) on success, the string 'BADCS'
-            when the frame's checksum is wrong (caller should ask for a resend),
-            or None on disconnect / malformed length.
-            """
-            hdr = recv_exact(conn, 2)
-            if hdr is None:
-                return None
-            total = (hdr[0] << 8) | hdr[1]
-            if total < 5 or total > 4096:
-                return None
-            rest = recv_exact(conn, total - 2)
-            if rest is None:
-                return None
-            payload = rest[:-3]
-            cs0, cs1, pktno = rest[-3], rest[-2], rest[-1]
-            c0 = 0
-            c1 = 0
-            for x in payload:
-                c0 = (c0 ^ x) & 0xff
-                c1 = (c1 + c0) & 0xff
-            if c0 != cs0 or c1 != cs1:
-                return 'BADCS'
-            return (payload, pktno)
-
-        def sanitize_incoming_path(root, name):
-            """Map a filename reported by the Next to a safe path under root.
-
-            Strips any drive letter and leading slashes, drops '.'/'..'
-            segments, and guarantees the result stays inside root.
-            """
-            name = name.replace('\\', '/')
-            if len(name) >= 2 and name[1] == ':':
-                name = name[2:]
-            name = name.lstrip('/')
-            parts = [p for p in name.split('/') if p not in ('', '.', '..')]
-            rel = os.path.join(*parts) if parts else 'received.bin'
-            dest = os.path.normpath(os.path.join(root, rel))
-            root_abs = os.path.abspath(root)
-            if not (os.path.abspath(dest) == root_abs or
-                    os.path.abspath(dest).startswith(root_abs + os.sep)):
-                dest = os.path.join(root, os.path.basename(rel) or 'received.bin')
-            return dest
-
         def nextsync_warnings():
             add_nextsync_log_window ("")
 
@@ -7954,8 +7503,11 @@ class MainWindow(QMainWindow):
             root_dir = selected_nextsync_explorer_sync_root_directory
             scan_result = {}
 
-            def _scan_fn(signals, cancel_event, _root=root_dir, _holder=scan_result):
-                files = getFileList(_root)
+            _always_sync = self.nextsync_alwayssync_checkbox.isChecked()
+
+            def _scan_fn(signals, cancel_event, _root=root_dir, _holder=scan_result,
+                         _always=_always_sync):
+                files = getFileList(_root, _always)
                 _holder["count"] = len(files)
                 _holder["total"] = sum(x[1] for x in files)
 
@@ -8057,410 +7609,65 @@ class MainWindow(QMainWindow):
             return holder.get("result", "ignore")
 
         def nextsync_do_server_job(progress_callback, status_callback=None, cancel_flag=None, serve_folder=None):
-            """Run the NextSync server loop.
-
-            progress_callback – Signal(int) or None; emitted with 0-100 per-file progress.
-            status_callback   – Signal(str) or None; emitted with a human-readable status line.
-            cancel_flag       – threading.Event or None; checked between socket accept retries.
-            serve_folder      – str or None; when provided, serve exactly this folder instead of
-                                the folder selected in the NextSync pane.
-            """
-
-            selected_nextsync_explorer_sync_root_directory = ""
-
-            # When the caller passes an explicit folder (e.g. the Gallery / ZXDB /
-            # GetIt "Send via NextSync" button) the transfer is meant to run
-            # exactly once. The "Sync once" checkbox defaults to unchecked on a
-            # fresh install, so without this override the server loop would keep
-            # listening forever. Force a one-shot sync for those invocations.
+            """Adapter for the classic sync server, which now lives in
+            zxnu_workers.run_classic_sync_server: computes the sync root
+            (incl. the "Send via NextSync" serve_folder one-shots), drives the
+            pane-side UI state around the run, and injects the Settings reads
+            and prompts the protocol loop needs. Kept under the historical
+            name/signature for the Worker(...) launch sites."""
+            selected_root = ""
             force_sync_once = False
-
-            # Only touch the pane progress bar when running from the pane (no cancel_flag = pane invocation)
+            # Only touch the pane progress bar when running from the pane (no
+            # cancel_flag = pane invocation), exactly as before.
             if cancel_flag is None:
                 self.nextsync_progressbar.setValue(0)
                 self.nextsync_progressbar.setVisible(True)
-                # hide all buttons
                 self.nextsync_button_create_syncignore.setVisible(False)
                 self.nextsync_button_delete_syncignore.setVisible(False)
                 self.nextsync_button_delete_syncpointfile.setVisible(False)
-
             nextsync_show_ip_info()
-
             if serve_folder and os.path.isdir(serve_folder):
-                # Caller specified an exact folder (e.g. downloads/comix) — use it directly.
-                selected_nextsync_explorer_sync_root_directory = serve_folder.rstrip("/\\") + "/"
-                # This path is only taken from the "Send via NextSync" buttons; sync once.
+                # Caller specified an exact folder (e.g. downloads/comix): the
+                # "Send via NextSync" buttons mean exactly one transfer.
+                selected_root = serve_folder.rstrip("/\\") + "/"
                 force_sync_once = True
             elif self.left_file_nextsync_explorer_selection_full_filename_path:
                 splitted_filepath = self.left_file_nextsync_explorer_selection_full_filename_path.split('/')
                 if not os.path.isdir(self.left_file_nextsync_explorer_selection_full_filename_path):
-                # if '.' in dest_file_content:
-                    for file_dest_token in range (0, len(splitted_filepath)-1):
-                        selected_nextsync_explorer_sync_root_directory += splitted_filepath[file_dest_token] + "/"
+                    for file_dest_token in range(0, len(splitted_filepath) - 1):
+                        selected_root += splitted_filepath[file_dest_token] + "/"
                 else:
-                    selected_nextsync_explorer_sync_root_directory = self.left_file_nextsync_explorer_selection_full_filename_path + "/"
+                    selected_root = self.left_file_nextsync_explorer_selection_full_filename_path + "/"
 
-            working = True
-            while working:
-                if cancel_flag is not None and cancel_flag.is_set():
-                    working = False
-                    break
-                add_nextsync_log_window (f"{timestamp()} | NextSync listening to port {PORT}")
-                add_nextsync_log_window (f"{timestamp()} | Now run one of these commands on your Next:" )
-                add_nextsync_log_window (f"{timestamp()} |   PC  -> Next : .sync5   (or .sync5 -fast)")
-                add_nextsync_log_window (f"{timestamp()} |   Next -> PC  : .sync5 -send <file or directory>")
-                if selected_nextsync_explorer_sync_root_directory:
-                    add_nextsync_log_window (f"{timestamp()} |   (-send saves received files under: {selected_nextsync_explorer_sync_root_directory})")
-                totalbytes = 0
-                payloadbytes = 0
-                starttime = 0
-                retries = 0
-                packets = 0
-                restarts = 0
-                gee = 0
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    # bind() raises OSError (WinError 10048) if the port is already
-                    # taken - typically another running instance. _run turns that
-                    # into the "another instance?" yellow toast via
-                    # nextsync_server_exception_occured.
-                    s.bind(("", PORT))
-                    s.listen()
-                    # Poll for cancel every second while waiting for connection
-                    s.settimeout(1.0)
-                    conn = None
-                    while conn is None:
-                        if cancel_flag is not None and cancel_flag.is_set():
-                            working = False
-                            break
-                        try:
-                            conn, addr = s.accept()
-                        except socket.timeout:
-                            continue
-                    if conn is None:
-                        break  # cancelled during accept
-                    # Make sure *nixes close the socket when we ask it to.
-                    conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
-                    f = getFileList(selected_nextsync_explorer_sync_root_directory)
-                    add_nextsync_log_window (f'{timestamp()} | Sync file list has {len(f)} files.')
-                    knownfiles = []
-                    if os.path.isfile(selected_nextsync_explorer_sync_root_directory + SYNCPOINT):
-                        with open(selected_nextsync_explorer_sync_root_directory + SYNCPOINT) as kf:
-                            knownfiles = kf.read().splitlines()
-                    fn = 0
-                    filedata = b''
-                    packet = b''
-                    fileofs = 0
-                    totalbytes = 0
-                    packetno = 0
-                    starttime = time.time()
-                    endtime = starttime
-                    with conn:
-                        add_nextsync_log_window (f'{timestamp()} | Connected by {addr[0]} port {addr[1]}')
-                        # A client session is live: the sidebar's NextSync icon
-                        # accelerates its packet animation while this is set
-                        # (cleared when the session ends, and defensively in
-                        # the server thread's finally).
-                        self._nextsync_transfer_active = True
-                        talking = True
-                        while talking:
-                            data = conn.recv(1024)
-                            if not data:
-                                break
-                            decoded = data.decode()
-                            if ZX_NEXT_UNITE_VERBOSE_LOG_MODE:
-                                add_nextsync_log_window (f'{timestamp()} | Data received: "{decoded}", {len(decoded)} bytes')
-                            if data == b"Sync3":
-                                add_nextsync_log_window (f'{timestamp()} | Using protocol version: {VERSION3}')
-                                packet = str.encode(VERSION3)
-                                sendpacket(conn, packet, 0)
-                                packets += 1
-                                totalbytes += len(packet)
-                            elif data == b"Sync4":
-                                # Bidirectional protocol negotiation (Sync4). Only
-                                # then will the Next be allowed to push files to us.
-                                add_nextsync_log_window (f'{timestamp()} | Using protocol version: {VERSION4}')
-                                packet = str.encode(VERSION4)
-                                sendpacket(conn, packet, 0)
-                                packets += 1
-                                totalbytes += len(packet)
-                            elif data == b"Send":
-                                # Sync4 upload mode: the Next pushes files to us.
-                                # We frame inbound blocks ourselves here (the main
-                                # recv(1024) loop can't frame length-prefixed data).
-                                add_nextsync_log_window (f'{timestamp()} | Receiving files from the Next...')
-                                sendpacket(conn, b"Send", 0)  # ack -> Next starts sending
-                                packets += 1
-                                upload_root = selected_nextsync_explorer_sync_root_directory or "./"
-                                add_nextsync_log_window (f'{timestamp()} | Saving incoming files under: {upload_root}')
-                                # How to treat incoming files/dirs that already exist
-                                # locally. Read from the (persisted) setting; an
-                                # "always in this sync" prompt choice overrides it
-                                # for the rest of this transfer.
-                                conflict_policy = configuration_dictionary.get(
-                                    SETTING_NEXTSYNC_SEND_CONFLICT, DEFAULT_NEXTSYNC_SEND_CONFLICT)
-                                if conflict_policy not in ("prompt", "overwrite", "ignore"):
-                                    conflict_policy = DEFAULT_NEXTSYNC_SEND_CONFLICT
-                                add_nextsync_log_window (
-                                    f"{timestamp()} | Existing-file policy: {conflict_policy} "
-                                    "(change in Settings -> 'NextSync - when a sent file or directory exists locally').")
-                                expected_pkt = 0
-                                cur_file = None
-                                cur_name = None
-                                cur_path = None
-                                cur_bytes = 0
-                                cur_skip = False
-                                files_received = 0
-                                # Paths of files fully received this session — added to the
-                                # syncpoint afterwards so the next PC->Next sync won't push
-                                # them straight back to the Next.
-                                received_paths = []
-                                while True:
-                                    blk = recv_block(conn)
-                                    if blk is None:
-                                        add_nextsync_log_window (f'{timestamp()} | Upload connection closed')
-                                        break
-                                    if blk == 'BADCS':
-                                        if ZX_NEXT_UNITE_VERBOSE_LOG_MODE:
-                                            add_nextsync_log_window (f'{timestamp()} | Bad checksum, requesting resend')
-                                        sendpacket(conn, b"Resend", expected_pkt)
-                                        retries += 1
-                                        continue
-                                    payload, pktno = blk
-                                    # Duplicate of last block (our ack was lost): re-ack only.
-                                    if pktno == ((expected_pkt - 1) & 0xff):
-                                        sendpacket(conn, b"Ok", pktno)
-                                        continue
-                                    if pktno != expected_pkt:
-                                        add_nextsync_log_window (f'{timestamp()} | Packet sequence error (got {pktno}, expected {expected_pkt})')
-                                        sendpacket(conn, b"Err seq", pktno)
-                                        break
-                                    op = payload[0:1]
-                                    if op == b'N':
-                                        # 'N' + [4B filelen][1B namelen][name]
-                                        namelen = payload[5] if len(payload) > 5 else 0
-                                        cur_name = payload[6:6 + namelen].decode(errors='replace')
-                                        cur_path = sanitize_incoming_path(upload_root, cur_name)
-                                        # Close any still-open previous file first.
-                                        if cur_file is not None:
-                                            cur_file.close()
-                                            cur_file = None
-                                        cur_bytes = 0
-                                        cur_skip = False
-                                        # Conflict handling when the target already exists.
-                                        if os.path.exists(cur_path):
-                                            decision = conflict_policy
-                                            if decision == 'prompt':
-                                                choice = _nextsync_ask_conflict(cur_name, cur_path)
-                                                if choice == 'overwrite_all':
-                                                    conflict_policy = 'overwrite'   # apply to rest of this sync
-                                                    decision = 'overwrite'
-                                                elif choice == 'ignore_all':
-                                                    conflict_policy = 'ignore'      # apply to rest of this sync
-                                                    decision = 'ignore'
-                                                elif choice == 'overwrite':
-                                                    decision = 'overwrite'
-                                                else:
-                                                    decision = 'ignore'
-                                            if decision == 'ignore':
-                                                cur_skip = True
-                                        if cur_skip:
-                                            # Don't create/truncate the local file: the incoming
-                                            # data blocks are still acked but discarded (cur_file
-                                            # is None), and this file is not counted/recorded.
-                                            add_nextsync_log_window (f'{timestamp()} | Skipped (already exists): {cur_path}')
-                                            if status_callback is not None:
-                                                status_callback.emit(f"Skipping (exists)\n{cur_name}")
-                                            sendpacket(conn, b"Ok", pktno)
-                                        else:
-                                            try:
-                                                parent = os.path.dirname(cur_path)
-                                                if parent:
-                                                    os.makedirs(parent, exist_ok=True)
-                                            except OSError:
-                                                pass
-                                            try:
-                                                cur_file = open(cur_path, 'wb')
-                                            except OSError as ex:
-                                                add_nextsync_log_window (f'{timestamp()} | Cannot create {cur_path}: {ex}')
-                                                cur_file = None
-                                                sendpacket(conn, b"Err open", pktno)
-                                                break
-                                            add_nextsync_log_window (f'{timestamp()} | Receiving: {cur_name} -> {cur_path}')
-                                            if status_callback is not None:
-                                                status_callback.emit(f"Receiving file\n{cur_name}")
-                                            sendpacket(conn, b"Ok", pktno)
-                                    elif op == b'D':
-                                        if cur_file is not None:
-                                            cur_file.write(payload[1:])
-                                            cur_bytes += len(payload) - 1
-                                        payloadbytes += len(payload) - 1
-                                        totalbytes += len(payload)
-                                        sendpacket(conn, b"Ok", pktno)
-                                    elif op == b'E':
-                                        if cur_file is not None:
-                                            cur_file.close()
-                                            cur_file = None
-                                            files_received += 1
-                                            if cur_path and cur_path not in received_paths:
-                                                received_paths.append(cur_path)
-                                            add_nextsync_log_window (f'{timestamp()} | Received {cur_name} ({cur_bytes} bytes)')
-                                        sendpacket(conn, b"Ok", pktno)
-                                    elif op == b'B':
-                                        # Ack the bye with "Ok" (not "Later"): the Next's
-                                        # generic send_block() only treats a reply as success
-                                        # when it starts with 'O'. Replying "Later" here makes
-                                        # the Next consider the bye failed and retry it ~12×;
-                                        # since we close the connection right after, each retry
-                                        # hits its full timeout — the long stall before the dot
-                                        # prints "All done". "Ok" lets it finish on the first try.
-                                        sendpacket(conn, b"Ok", pktno)
-                                        add_nextsync_log_window (f'{timestamp()} | Upload finished, {files_received} file(s) received')
-                                        # If that single ack is lost/corrupted in transit (more
-                                        # likely after a long directory send), the Next retransmits
-                                        # the bye and would otherwise burn its full UART timeout
-                                        # against a closed socket — the intermittent stall before
-                                        # "All done". Linger briefly: re-ack any retransmitted bye
-                                        # and stop as soon as the Next hangs up (clean case) or the
-                                        # short grace period elapses.
-                                        try:
-                                            conn.settimeout(2.0)
-                                            while True:
-                                                extra = recv_block(conn)
-                                                if extra is None:
-                                                    break  # Next closed its side — done
-                                                if extra == 'BADCS':
-                                                    continue
-                                                xpayload, xpktno = extra
-                                                if xpayload[0:1] == b'B':
-                                                    sendpacket(conn, b"Ok", xpktno)
-                                                else:
-                                                    break
-                                        except (socket.timeout, OSError):
-                                            pass
-                                        finally:
-                                            try:
-                                                conn.settimeout(None)
-                                            except OSError:
-                                                pass
-                                        break
-                                    else:
-                                        sendpacket(conn, b"Err op", pktno)
-                                        break
-                                    expected_pkt = (expected_pkt + 1) & 0xff
-                                if cur_file is not None:
-                                    cur_file.close()
-                                    cur_file = None
-                                # Record received files in the syncpoint so the next
-                                # PC->Next sync treats them as already known and skips
-                                # them (matching the glob path form getFileList uses).
-                                if received_paths:
-                                    sp_known = []
-                                    if os.path.isfile(upload_root + SYNCPOINT):
-                                        with open(upload_root + SYNCPOINT) as spf:
-                                            sp_known = spf.read().splitlines()
-                                    for rp in received_paths:
-                                        if rp not in sp_known:
-                                            sp_known.append(rp)
-                                    update_syncpoint(upload_root, sp_known)
-                                    add_nextsync_log_window (f'{timestamp()} | Sync point updated with {len(received_paths)} received file(s)')
-                                talking = False
-                            elif data == b"Next" or data == b"Neex": # Really common mistransmit. Probably uart-esp..
-                                if data == b"Neex":
-                                    gee += 1
-                                # If the user pressed Cancel, finish gracefully at the next
-                                # file boundary: the previously requested file has already
-                                # been fully transferred at this point, so we just tell the
-                                # client there is nothing more to sync.
-                                _cancel_now = cancel_flag is not None and cancel_flag.is_set()
-                                if fn >= len(f) or _cancel_now:
-                                    if _cancel_now:
-                                        add_nextsync_log_window (f"{timestamp()} | Cancel requested — stopping after current file")
-                                        if status_callback is not None:
-                                            status_callback.emit("Cancelled — finishing current file…")
-                                    else:
-                                        add_nextsync_log_window (f"{timestamp()} | Nothing (more) to sync")
-                                    packet = b'\x00\x00\x00\x00\x00' # end of.
-                                    packets += 1
-                                    sendpacket(conn, packet, 0)
-                                    totalbytes += len(packet)
-                                    # Persist sync point even on cancel so already-sent
-                                    # files aren't re-sent next time.
-                                    update_syncpoint(selected_nextsync_explorer_sync_root_directory, knownfiles)
-                                else:
-                                    specfn = f[fn][0].replace('\\','/')
-                                    add_nextsync_log_window (f"{timestamp()} | File: {f[fn][0]} (as {specfn}) length: {f[fn][1]} bytes")
-                                    packet = (f[fn][1]).to_bytes(4, byteorder="big") + (len(specfn)).to_bytes(1, byteorder="big") + (specfn).encode()
-                                    packets += 1
-                                    sendpacket(conn, packet, 0)
-                                    totalbytes += len(packet)
-                                    with open(f[fn][0], 'rb') as srcfile:
-                                        filedata = srcfile.read()
-                                    payloadbytes += len(filedata)
-                                    if f[fn][0] not in knownfiles:
-                                        knownfiles.append(f[fn][0])
-                                    fileofs = 0
-                                    packetno = 0
-                                    pct = int(fn * 100 / len(f)) if f else 0
-                                    if progress_callback is not None:
-                                        progress_callback.emit(pct)
-                                    if status_callback is not None:
-                                        status_callback.emit(f"Sending file {fn}/{len(f)}\n{specfn}")
-                                    # also update pane progress bar when running from the pane
-                                    if cancel_flag is None:
-                                        self.nextsync_progressbar.setValue(pct)
-                                    fn += 1
-                            elif data == b"Get" or data == b"Gee": # Really common mistransmit. Probably uart-esp..
-                                bytecount = MAX_PAYLOAD
-                                if bytecount + fileofs > len(filedata):
-                                    bytecount = len(filedata) - fileofs
-                                packet = filedata[fileofs:fileofs+bytecount]
-                                if ZX_NEXT_UNITE_VERBOSE_LOG_MODE:
-                                    if filedata:
-                                        add_nextsync_log_window (f"{timestamp()} | Sending {bytecount} bytes, offset {fileofs}/{len(filedata)}")
-                                    else:
-                                        add_nextsync_log_window (f"{timestamp()} | Sending {bytecount} bytes 0 bytes")
+            def _conflict_policy():
+                pol = configuration_dictionary.get(
+                    SETTING_NEXTSYNC_SEND_CONFLICT, DEFAULT_NEXTSYNC_SEND_CONFLICT)
+                return pol if pol in ("prompt", "overwrite", "ignore") else DEFAULT_NEXTSYNC_SEND_CONFLICT
 
-                                packets += 1
-                                sendpacket(conn, packet, packetno)
-                                totalbytes += len(packet)
-                                fileofs += bytecount
-                                packetno += 1
-                                if data == b"Gee":
-                                    gee += 1
-                            elif data == b"Retry":
-                                retries += 1
-                                add_nextsync_log_window (f"{timestamp()} | Resending")
-                                sendpacket(conn, packet, packetno - 1)
-                            elif data == b"Restart":
-                                restarts += 1
-                                add_nextsync_log_window (f"{timestamp()} | Restarting")
-                                fileofs = 0
-                                packetno = 0
-                                sendpacket(conn, str.encode("Back"), 0)
-                            elif data == b"Bye":
-                                sendpacket(conn, str.encode("Later"), 0)
-                                add_nextsync_log_window (f"{timestamp()} | Closing connection")
-                                talking = False
-                            elif data == b"Sync2" or data == b"Sync1" or data == b"Sync":
-                                packet = str.encode("Nextsync 0.8 or later needed")
-                                add_nextsync_log_window (f'{timestamp()} | Old protocol version requested')
-                                sendpacket(conn, packet, 0)
-                                packets += 1
-                                totalbytes += len(packet)
-                            else:
-                                add_nextsync_log_window (f"{timestamp()} | Unknown command")
-                                sendpacket(conn, str.encode("Error"), 0)
-                        endtime = time.time()
-                self._nextsync_transfer_active = False
-                deltatime = endtime - starttime
-                add_nextsync_log_window (f"{timestamp()} | {totalbytes/1024:.2f} kilobytes transferred in {deltatime:.2f} seconds, {(totalbytes/deltatime)/1024:.2f} kBps")
-                add_nextsync_log_window (f"{timestamp()} | {payloadbytes/1024:.2f} kilobytes payload, {(payloadbytes/deltatime)/1024:.2f} kBps effective speed")
-                add_nextsync_log_window (f"{timestamp()} | packets: {packets}, retries: {retries}, restarts: {restarts}, gee: {gee}")
+            # Payload size honours the persisted "slow transfer" setting. (The
+            # old in-place MAX_PAYLOAD rebind in the checkbox handler never
+            # left that function, so the toggle had no runtime effect — fixed
+            # by deriving the size here, per run.)
+            _slow = configuration_dictionary.get(
+                SETTING_NEXTSYNC_SLOWTRANSFER, "").strip().lower() in ("true", "1")
 
-                add_nextsync_log_window (f"{timestamp()} | Disconnected")
-                add_nextsync_log_window ("")
-                if force_sync_once or self.nextsync_synconce_checkbox.isChecked() or (cancel_flag is not None and cancel_flag.is_set()):
-                    working = False
+            run_classic_sync_server(
+                selected_root,
+                add_nextsync_log_window,
+                progress_callback=progress_callback,
+                status_callback=status_callback,
+                cancel_flag=cancel_flag,
+                force_sync_once=force_sync_once,
+                sync_once=lambda: self.nextsync_synconce_checkbox.isChecked(),
+                always_sync=lambda: self.nextsync_alwayssync_checkbox.isChecked(),
+                get_conflict_policy=_conflict_policy,
+                ask_conflict=_nextsync_ask_conflict,
+                max_payload=256 if _slow else 1024,
+                verbose=ZX_NEXT_UNITE_VERBOSE_LOG_MODE,
+                set_session_active=lambda on: setattr(self, "_nextsync_transfer_active", on),
+                pane_progress=(None if cancel_flag is not None
+                               else self.nextsync_progressbar.setValue),
+            )
 
             nextsync_hide_start_cancel_buttons()
             self.nextsync_prepare_server.setVisible(True)

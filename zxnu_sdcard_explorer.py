@@ -64,7 +64,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from zxnu_config import SETTING_EXPLORERPATH, SETTING_IMAGE_EXPLORERPATH
+from zxnu_config import (SETTING_EXPLORERPATH, SETTING_IMAGE_EXPLORERPATH,
+                         is_filetype_a_directory)
 from zxnu_workers import DotDotFirstProxyModel, HdfTaskWorker
 
 # ---------------------------------------------------------------------------
@@ -76,13 +77,6 @@ IMG_PATH_ROLE = int(Qt.ItemDataRole.UserRole) + 1  # full path inside the image,
 IMG_ISDIR_ROLE = int(Qt.ItemDataRole.UserRole) + 2  # bool: is this item a directory
 IMG_LOADED_ROLE = int(Qt.ItemDataRole.UserRole) + 3  # bool: have this folder's children been loaded
 IMG_LOADING_ROLE = int(Qt.ItemDataRole.UserRole) + 4  # bool: a background "ls" for this folder is in flight
-
-
-def is_filetype_a_directory(file_type: str):
-    """True for the type column hdfmonkey's ls prints for directories (the
-    same helper also exists as a MainWindow closure for the operation layer)."""
-    ft = file_type.strip()
-    return ft == "[DIR]" or ft == "b'[DIR]" or ft == 'b"[DIR]'
 
 
 class SdCardExplorerPane(QWidget):

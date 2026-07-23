@@ -180,6 +180,13 @@ for _name in sorted(_api_private - _explicit - _mono_defs):
 check("all private zxnu_api names used by the monolith are explicitly imported",
       not _missing, "; ".join(_missing))
 
+# Structural guard for the same trap: every module the monolith star-imports
+# must carry the house catch-all __all__ (which exports underscore names too).
+_CATCH_ALL = "__all__ = [_n for _n in dir() if not _n.startswith('__')]"
+for _mod in ("zxnu_config.py", "zxnu_workers.py", "zxnu_api.py"):
+    _src = open(os.path.join(REPO, _mod), encoding="utf-8").read()
+    check(f"{_mod} carries the catch-all __all__", _CATCH_ALL in _src)
+
 print()
 if FAIL:
     print(f"RESULT: {len(FAIL)} FAILURE(S)")

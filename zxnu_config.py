@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.0.7"
+ZX_NEXT_UNITE_VERSION = "9.0.8"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -1654,4 +1654,10 @@ def _zxart_set_language(code: str) -> None:
 # Export every public/private module-level name (including the
 # underscore-prefixed helpers and caches) so `from <module> import *`
 # in the main file picks them all up.
+def is_filetype_a_directory(file_type: str):
+    """True for the type column hdfmonkey's ls prints for directories."""
+    ft = file_type.strip()
+    return ft == "[DIR]" or ft == "b'[DIR]" or ft == 'b"[DIR]'
+
+
 __all__ = [_n for _n in dir() if not _n.startswith('__')]
