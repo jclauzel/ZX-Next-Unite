@@ -23,9 +23,10 @@ Requires Python 3.13+ and PySide6:
 python -m pip install pyside6
 ```
 
-Or install everything (including the optional extras `pygame-ce`, `itch-dl`
-and `flask` — the last one powers the NextSync HTTP bridge; its Settings
-toggle is greyed out until Flask is installed) with:
+Or install everything (including the optional extras `pygame-ce`, `itch-dl`,
+`Send2Trash` and `flask` — Send2Trash powers the "Send deleted files to the
+Recycle Bin" Settings toggle, Flask the NextSync HTTP bridge; each toggle is
+greyed out until its package is installed) with:
 
 ```
 python -m pip install -r REQUIREMENTS.txt
@@ -54,7 +55,7 @@ Create a standalone executable with PyInstaller:
 
 ```
 pip install pyinstaller
-pyinstaller --onefile --windowed --noupx zx-next-unite.py
+pyinstaller --clean --onefile --windowed --noupx zx-next-unite.py
 ```
 
 If the optional itch.io feature is in use, also fully bundle `itch-dl` and its
@@ -63,7 +64,7 @@ in by a bare `import itch_dl`, and the in-process installer in `zxnu_itchio.py`
 imports `itch_dl.config` / `handlers` / `downloader` / `keys` / `api`):
 
 ```
-pyinstaller --onefile --windowed --noupx --collect-all itch_dl --collect-all bs4 zx-next-unite.py
+pyinstaller --clean --onefile --windowed --noupx --collect-all itch_dl --collect-all bs4 zx-next-unite.py
 ```
 
 Note: in a frozen build `sys.executable` is the GUI exe, not a Python
@@ -108,4 +109,4 @@ pyside6-rcc rc_backgrounds.qrc -o rc_backgrounds.py
 
 **Optional itch.io tab** — built only when the optional `itch-dl` package is importable (`zxnu_itchio.itchdl_available()`). Authentication is a personal itch.io API key stored in `hdfg.cfg` (`SETTING_ITCHIO_API_KEY`); browsing of the user's collections/owned games/search uses the public itch.io API directly, while installing a selected item is delegated to `itch-dl` (downloaded to `downloads/itchio/`). The tab registers itself with the shared `_fav_fetchers` dispatch so its items also appear in the Unite! multi-search when a key is set. A Settings checkbox (`SETTING_SHOW_ITCHIO_TAB`, default on) shows/hides the tab the same way the Alien Floyd's tab toggle does.
 
-**Crash logging** is opt-in (Settings → "Enable crash log file generation"). `_zxnu_open_crash_log()` wires both `sys.excepthook` and `threading.excepthook` to a file alongside the executable, and `faulthandler` to catch C-level crashes.
+**Logging** has two layers. An **always-on rotating diagnostic log** (`zx-next-unite.log` next to the exe, `%TEMP%` fallback; `RotatingFileHandler`, ~1 MB × 3) is configured by `_zxnu_configure_logging()` and captures all `logging.*` output plus uncaught exceptions — critical because in a `--windowed` build `sys.stderr` is `None`, so without it every `logging.error(...)` is thrown away. Prefer `logging.exception(...)` (UI stays quiet) over `except …: pass` for load-bearing failures; cosmetic best-effort guards (deleted-widget `RuntimeError`, tooltip/animation) can stay bare. **Crash logging** on top of that is opt-in (Settings → "Enable crash log file generation"): `_zxnu_open_crash_log()` wires `faulthandler` (and the excepthooks' extra file write) to `zx-next-unite-crash.log` for C-level crashes.

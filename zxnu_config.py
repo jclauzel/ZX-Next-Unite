@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.0.8"
+ZX_NEXT_UNITE_VERSION = "9.0.9"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -207,6 +207,7 @@ SETTING_SHOW_ITCHIO_TAB        = "show_itchio_tab"         # "false" => hide the
 SETTING_ITCHIO_VIEW_MODE       = "itchio_view_mode"        # "gallery" (default) or "table"
 SETTING_CSPECT_UPDATE_CHECK    = "cspect_update_check"     # "false" => skip the startup itch.io CSpect update check (default on)
 SETTING_ZXNU_UPDATE_CHECK      = "zxnu_update_check"       # "false" => skip the startup ZX Next Unite GitHub release check (default on)
+SETTING_DELETE_TO_RECYCLE_BIN  = "delete_to_recycle_bin"   # "false" => local explorer deletes are permanent; default on = send to the Recycle Bin (needs Send2Trash)
 SETTING_DOTN_LAST_VERSION      = "dotn_last_version"       # bundled .sync5 dotN version last seen by this cfg (drives the "update the dot on your Next" advisory)
 # Per-pane item-viewer mode: "true" => open items in the Retro (pygame) viewer
 # (renders .txt/instruction pages as a log console), else the Classic Qt viewer.
@@ -648,6 +649,18 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              (""),
              ("Flask is distributed under the BSD-3-Clause license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The HTTP bridge toggle in Settings is greyed out until Flask is installed."),
              (""),
+             ("zx-next-unite optionally uses Send2Trash by Andrew Senetar and contributors (originally by Virgil Dupras) to send files deleted in the local file explorers to the system Recycle Bin / Trash instead of removing them permanently. Many thanks to its authors - see https://github.com/arsenetar/send2trash."),
+             (""),
+             ("Send2Trash is distributed under the BSD license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The 'Send deleted files to the Recycle Bin' toggle in Settings is greyed out until Send2Trash is installed."),
+             (""),
+             ("zx-next-unite's optional pre-compiled Windows binary is built with PyInstaller by the PyInstaller Development Team, which bundles the app and all of its dependencies into a single standalone executable. Many thanks to its authors - see https://pyinstaller.org and https://github.com/pyinstaller/pyinstaller."),
+             (""),
+             ("PyInstaller is distributed under its GPL 2.0 license with a special exception that explicitly permits packaging applications of any license. It is a build-time tool only - used to produce the pre-compiled binary - and is not needed when running zx-next-unite from source with a manual python install."),
+             (""),
+             ("The pre-compiled Windows binary is additionally compressed with UPX (the Ultimate Packer for eXecutables) by Markus Oberhumer, Laszlo Molnar and John Reiser. Many thanks to its authors - see https://upx.github.io and https://github.com/upx/upx."),
+             (""),
+             ("UPX is distributed under its own liberal license (based on the GPL, with a special exception covering the compressed executables it produces). Like PyInstaller it is a build-time tool only and is not needed when running from source."),
+             (""),
              ("Setup & How to:"),
              ("---------------"),
              ("Checkout main setup & demo video avaible at: https://youtu.be/-gUxV4fM1yo  (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )"),
@@ -769,7 +782,7 @@ SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVO
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
 SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE,
-SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION,
+SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_DELETE_TO_RECYCLE_BIN,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO)
 
 IMAGE_BUTTONS_SIZE = 190
@@ -1023,8 +1036,12 @@ def select_mame_release_asset(release, arch):
     and *arch* is a tag from :func:`mame_windows_asset_arch` (``"x64"`` /
     ``"arm64"``). MAME names the binary self-extractors ``mame<ver>b_<arch>.exe``
     (the ``b`` distinguishes them from the ``s`` source build), so match on that
-    suffix. Returns ``(tag_name, asset_name, download_url, size_bytes)`` for the
-    first match, or ``None`` when the release carries no build for this arch.
+    suffix. Returns ``(tag_name, asset_name, download_url, size_bytes,
+    sha256_or_None)`` for the first match — the hash comes from the GitHub API's
+    per-asset ``digest`` field ("sha256:<hex>", None when the API doesn't
+    publish one) and lets the installer verify the download before running the
+    self-extractor. Returns ``None`` when the release carries no build for this
+    arch.
     """
     if not isinstance(release, dict) or not arch:
         return None
@@ -1038,7 +1055,9 @@ def select_mame_release_asset(release, arch):
                 size = int(asset.get("size") or 0)
             except (TypeError, ValueError):
                 size = 0
-            return (tag, name, url, size)
+            digest = str(asset.get("digest") or "")
+            sha256 = digest[7:].lower() if digest.lower().startswith("sha256:") else None
+            return (tag, name, url, size, sha256)
     return None
 
 
@@ -1658,6 +1677,38 @@ def is_filetype_a_directory(file_type: str):
     """True for the type column hdfmonkey's ls prints for directories."""
     ft = file_type.strip()
     return ft == "[DIR]" or ft == "b'[DIR]" or ft == 'b"[DIR]'
+
+
+def send2trash_available():
+    """True when the optional Send2Trash package is importable. Gates the
+    "send deleted files to the Recycle Bin" Settings toggle the same way
+    flask_available() gates the HTTP bridge — checked without importing."""
+    import importlib.util
+    try:
+        return importlib.util.find_spec("send2trash") is not None
+    except Exception:
+        return False
+
+
+def sha256_of_file(path, chunk_size=1024 * 1024):
+    """Hex SHA-256 of *path*, streamed in chunks (downloads can be ~100 MB)."""
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
+# Pinned SHA-256 of the jjjs hdfmonkey archive at HDF_MONKEY_JJJS_URL (a static
+# forum attachment — see extract_hdfmonkey_from_jjjs_zip). The auto-download
+# verifies the fetched zip against this before extracting anything, so a
+# corrupted or tampered download is refused instead of run. If jjjs ever
+# publishes a new archive, recompute with sha256_of_file and update this pin.
+HDF_MONKEY_JJJS_SHA256 = "41266e54ce27ef0be52c9b1fc5cabd377b9f490d632891e681a44814f7c1ddcc"
 
 
 __all__ = [_n for _n in dir() if not _n.startswith('__')]

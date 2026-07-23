@@ -195,7 +195,9 @@ elif PHASE in (6, 7):
     ensure_scratch(fresh=False)
     with open(CFG, "w") as f:
         if PHASE == 6:
-            f.write(BASE_CFG + "dotn_last_version=1.0\n")
+            # delete_to_recycle_bin=false also exercises the OFF restore path.
+            f.write(BASE_CFG + "dotn_last_version=1.0\n"
+                    + "delete_to_recycle_bin=false\n")
         else:
             f.write("mame_update_check=false\ncspect_update_check=false\n")
 else:
@@ -432,12 +434,12 @@ def inspect_phase1():
     def spos(w):
         i = lay.indexOf(w)
         return None if i < 0 else lay.getItemPosition(i)[:2]
-    check("general-text swatch at settings (21,1)",
-          spos(win.settings_btn_color_general_text) == (21, 1), str(spos(win.settings_btn_color_general_text)))
-    check("retro-log swatch right under it (22,1)",
-          spos(win.settings_btn_color_retro_log) == (22, 1), str(spos(win.settings_btn_color_retro_log)))
-    check("retro font combo pushed to (23,1)",
-          spos(win.settings_retro_log_font_combo) == (23, 1), str(spos(win.settings_retro_log_font_combo)))
+    check("general-text swatch at settings (22,1)",
+          spos(win.settings_btn_color_general_text) == (22, 1), str(spos(win.settings_btn_color_general_text)))
+    check("retro-log swatch right under it (23,1)",
+          spos(win.settings_btn_color_retro_log) == (23, 1), str(spos(win.settings_btn_color_retro_log)))
+    check("retro font combo pushed to (24,1)",
+          spos(win.settings_retro_log_font_combo) == (24, 1), str(spos(win.settings_retro_log_font_combo)))
     check("default retro color is phosphor green",
           win.img_color_retro_log.name().lower() == "#78ff8c", win.img_color_retro_log.name())
     check("default swatch shows phosphor green",
@@ -552,6 +554,62 @@ def inspect_phase5():
     check("MainWindow found", win is not None)
     if win is None:
         app.quit(); return
+
+    # ---- always-on rotating diagnostic log --------------------------------
+    # The app resolves its log path from argv[0]'s dir, i.e. the scratch copy,
+    # so it must NOT touch the repo. It is created eagerly with a startup line.
+    import logging as _logging
+    _logging.getLogger().info("offscreen-test-marker-line")
+    for _h in _logging.getLogger().handlers:
+        try:
+            _h.flush()
+        except Exception:
+            pass
+    log_path = os.path.join(SCRATCH, "zx-next-unite.log")
+    check("rotating log file created next to the app", os.path.isfile(log_path))
+    if os.path.isfile(log_path):
+        body = open(log_path, encoding="utf-8", errors="replace").read()
+        check("log carries the startup banner", "starting" in body, body[:200])
+        check("log captures live log lines", "offscreen-test-marker-line" in body)
+    check("repo has no stray zx-next-unite.log",
+          not os.path.isfile(os.path.join(REPO, "zx-next-unite.log")))
+
+    # ---- delete-confirmation wording (Recycle Bin vs permanent) ------------
+    # The sweeper CLOSES each dialog (= answers No), so nothing is deleted and
+    # nothing ever lands in the user's real Recycle Bin.
+    win.settings_no_prompt_on_deletion_checkbox.setChecked(False)
+    victim = os.path.join(DELZONE, "victim")
+    win.nextsync_file_explorer_path.setText(DELZONE)
+    win.nextsync_file_explorer_path.editingFinished.emit()
+    QCoreApplication.processEvents()
+    tv, proxy, model = (win.nextsync_treeview, win.nextsync_model,
+                        win.nextsync_filesystem_model)
+    wait_until(lambda: model.index(victim).isValid(), 20, "victim index")
+    tv.setCurrentIndex(proxy.mapFromSource(model.index(victim)))
+    texts = []
+    wtimer = _arm_msgbox_autoclose([], texts=texts)
+    rb = win.settings_delete_to_recycle_bin_checkbox
+    if rb.isEnabled():
+        rb.setChecked(True)
+        _press_delete(tv)
+        ok = wait_until(lambda: any("Recycle Bin" in t for t in texts),
+                        10, "recycle-bin wording")
+        check("confirm dialog mentions the Recycle Bin when on", ok, str(texts[-1:]))
+        check("no 'cannot be undone' while recycle is on",
+              not any("cannot be undone" in t for t in texts), str(texts[-1:]))
+        texts.clear()
+    else:
+        print("NOTE: Send2Trash not installed — recycle wording check skipped")
+    rb.setChecked(False)
+    _press_delete(tv)
+    ok = wait_until(lambda: any("cannot be undone" in t for t in texts),
+                    10, "permanent wording")
+    check("confirm dialog warns permanent when off", ok, str(texts[-1:]))
+    wtimer.stop()
+    check("victim survived the rejected confirmations", os.path.exists(victim))
+
+    # Permanent-delete assertions below: no prompts, recycle stays OFF so the
+    # files are really removed (and the user's Recycle Bin stays untouched).
     win.settings_no_prompt_on_deletion_checkbox.setChecked(True)
 
     # Capture Qt warnings: the bug's signature is the watcher thread spamming
@@ -615,17 +673,20 @@ def inspect_phase5():
     qInstallMessageHandler(None)
     app.quit()
 
-def _arm_msgbox_autoclose(seen):
-    """Poll for visible QMessageBoxes, record their window titles and close
-    them. Modal boxes run their own event loop, so without this the inspector
-    would deadlock the moment one opens — QTimer callbacks keep firing inside
-    modal loops, which is what lets the sweep reach the box."""
+def _arm_msgbox_autoclose(seen, texts=None):
+    """Poll for visible QMessageBoxes, record their window titles (and, when
+    *texts* is given, their body text) and close them. Modal boxes run their
+    own event loop, so without this the inspector would deadlock the moment
+    one opens — QTimer callbacks keep firing inside modal loops, which is what
+    lets the sweep reach the box. Closing a QMessageBox.question answers No."""
     from PySide6.QtWidgets import QMessageBox
     t = QTimer()
     def _sweep():
         for w in QApplication.topLevelWidgets():
             if isinstance(w, QMessageBox) and w.isVisible():
                 seen.append(w.windowTitle())
+                if texts is not None:
+                    texts.append(w.text())
                 w.close()
     t.timeout.connect(_sweep)
     t.start(100)
@@ -655,6 +716,22 @@ def inspect_phase6():
     check("toggle persists to cfg", "zxnu_update_check=true" in cfg_lines(),
           str([l for l in cfg_lines() if l.startswith("zxnu_update_check")]))
 
+    # Recycle Bin deletes toggle: sits right under the no-prompt checkbox.
+    rb = win.settings_delete_to_recycle_bin_checkbox
+    check("recycle toggle at settings (4,0)", spos(rb) == (4, 0), str(spos(rb)))
+    check("no-prompt checkbox above it (3,0)",
+          spos(win.settings_no_prompt_on_deletion_checkbox) == (3, 0),
+          str(spos(win.settings_no_prompt_on_deletion_checkbox)))
+    if rb.isEnabled():
+        check("cfg 'false' restored as unchecked (recycle)", not rb.isChecked())
+        rb.setChecked(True)
+        QCoreApplication.processEvents()
+        check("recycle toggle persists to cfg",
+              "delete_to_recycle_bin=true" in cfg_lines(),
+              str([l for l in cfg_lines() if l.startswith("delete_to_recycle_bin")]))
+    else:
+        print("NOTE: Send2Trash not installed — recycle restore/persist checks skipped")
+
     # The advisory fires ~1.2s after startup; the sweep timer closes it and
     # records its title. The bundled dotN version is read from the app's own
     # zxnu_config module (imported by runpy — safe to touch AFTER launch).
@@ -680,6 +757,9 @@ def inspect_phase7():
     timer = _arm_msgbox_autoclose(seen)
     check("update-check toggle defaults ON (no cfg key)",
           win.settings_zxnu_update_check_checkbox.isChecked())
+    if win.settings_delete_to_recycle_bin_checkbox.isEnabled():
+        check("recycle toggle defaults ON (no cfg key)",
+              win.settings_delete_to_recycle_bin_checkbox.isChecked())
     dotv = sys.modules["zxnu_config"].ZX_NEXT_UNITE_DOTN_VERSION
     ok = wait_until(lambda: f"dotn_last_version={dotv}" in cfg_lines(),
                     timeout=15, what="first-run silent dotN persist")
