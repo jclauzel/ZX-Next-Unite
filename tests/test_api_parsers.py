@@ -13,6 +13,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(
 
 from zxnu_api import (  # noqa: E402
     _filter_download_urls,
+    _http_fetch_bytes_with_retry,
+    _zxdb_media_mirror_url,
     getit_parse_detail,
     getit_parse_file_list,
     zxart_entry_website_url,
@@ -20,6 +22,7 @@ from zxnu_api import (  # noqa: E402
     zxart_parse_prod_list,
     zxart_safe_url,
     zxdb_entry_website_url,
+    zxdb_parse_game_detail,
     zxdb_parse_search,
     zxdb_pick,
 )
@@ -84,6 +87,101 @@ check("zxdb website url: zero-padded",
 check("zxdb website url: non-numeric passthrough",
       zxdb_entry_website_url("AB12").endswith("/AB12"), zxdb_entry_website_url("AB12"))
 check("zxdb website url: empty", zxdb_entry_website_url("") == "")
+
+# ---- ZXDB media-host routing ------------------------------------------------
+# Root-relative asset paths from the ZXInfo API must all resolve against
+# zxinfo.dk/media (the primary media host). Regression guard for the retro
+# item viewer's "Loading text…" hang: /pub + /zxdb assets briefly routed to
+# spectrumcomputing.co.uk, which later became unreachable.
+_detail = zxdb_parse_game_detail({
+    "_id": "0035805",
+    "_source": {
+        "title": "Willy's New Mansion - Special Edition",
+        "screens": [
+            {"url": "/zxscreens/0035805/0035805-load-1.png", "type": "Loading screen"},
+        ],
+        "additionalDownloads": [
+            {"path": "/zxdb/sinclair/entries/0035805/0035805-run-1.scr",
+             "type": "Running screen", "format": "Screen dump (SCR)"},
+            {"path": "/pub/sinclair/games-info/w/WillysNewMansion-SpecialEdition.txt",
+             "type": "Instructions", "format": "Document (TXT)"},
+        ],
+        "releases": [{"yearOfRelease": 2016, "files": [
+            {"path": "/zxdb/sinclair/entries/0035805/WillysNewMansion-SpecialEdition.tap.zip",
+             "type": "Tape image", "format": "Tape (TAP)"},
+        ]}],
+    },
+})
+_shot_urls = [s["url"] for s in _detail.get("screenshots", [])]
+check("zxdb media routing: all screenshots on zxinfo.dk/media",
+      _shot_urls and all(u.startswith("https://zxinfo.dk/media/") for u in _shot_urls),
+      str(_shot_urls))
+_txt_urls = [t["url"] for t in _detail.get("text_files", [])]
+check("zxdb media routing: instructions .txt on zxinfo.dk/media",
+      _txt_urls == ["https://zxinfo.dk/media/pub/sinclair/games-info/w/"
+                    "WillysNewMansion-SpecialEdition.txt"], str(_txt_urls))
+_dl_urls = [d["url"] for d in _detail.get("downloads", [])]
+check("zxdb media routing: downloads on zxinfo.dk/media",
+      _dl_urls and all(u.startswith("https://zxinfo.dk/media/") for u in _dl_urls),
+      str(_dl_urls))
+
+check("zxdb mirror map: primary -> mirror (/zxdb)",
+      _zxdb_media_mirror_url("https://zxinfo.dk/media/zxdb/sinclair/entries/1/a.txt")
+      == "https://spectrumcomputing.co.uk/zxdb/sinclair/entries/1/a.txt")
+check("zxdb mirror map: mirror -> primary (/pub)",
+      _zxdb_media_mirror_url("https://spectrumcomputing.co.uk/pub/sinclair/g/a.scr")
+      == "https://zxinfo.dk/media/pub/sinclair/g/a.scr")
+check("zxdb mirror map: /zxscreens is single-host",
+      _zxdb_media_mirror_url("https://zxinfo.dk/media/zxscreens/1/a.png") is None)
+check("zxdb mirror map: unrelated host untouched",
+      _zxdb_media_mirror_url("https://zxart.ee/files/pub/x.tap") is None)
+check("zxdb mirror map: empty/None safe",
+      _zxdb_media_mirror_url("") is None and _zxdb_media_mirror_url(None) is None)
+
+# Fetch fallback: a permanent 404 on the primary host must transparently
+# retry the same asset on the mirror (once — no ping-pong). No network:
+# urllib.request.urlopen is monkeypatched.
+import io
+import urllib.error
+import urllib.request
+
+_urlopen_calls = []
+_real_urlopen = urllib.request.urlopen
+
+def _fake_urlopen(req, timeout=None):
+    _urlopen_calls.append(req.full_url)
+    if req.full_url.startswith("https://zxinfo.dk/media/"):
+        raise urllib.error.HTTPError(req.full_url, 404, "Not Found", None, io.BytesIO(b""))
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b"mirror-bytes"
+    return _Resp()
+
+urllib.request.urlopen = _fake_urlopen
+try:
+    _data = _http_fetch_bytes_with_retry(
+        "https://zxinfo.dk/media/pub/sinclair/games-info/w/W.txt", _retries=1)
+    check("zxdb fetch fallback: 404 on primary served from mirror",
+          _data == b"mirror-bytes", repr(_data))
+    check("zxdb fetch fallback: exactly one attempt per host",
+          _urlopen_calls == [
+              "https://zxinfo.dk/media/pub/sinclair/games-info/w/W.txt",
+              "https://spectrumcomputing.co.uk/pub/sinclair/games-info/w/W.txt",
+          ], str(_urlopen_calls))
+    _urlopen_calls.clear()
+    try:
+        _http_fetch_bytes_with_retry("https://zxinfo.dk/media/zxscreens/1/a.png",
+                                     _retries=1)
+        _raised = None
+    except urllib.error.HTTPError as exc:
+        _raised = exc
+    check("zxdb fetch fallback: single-host asset fails without mirror attempt",
+          _raised is not None and _raised.code == 404
+          and _urlopen_calls == ["https://zxinfo.dk/media/zxscreens/1/a.png"],
+          f"raised={_raised} calls={_urlopen_calls}")
+finally:
+    urllib.request.urlopen = _real_urlopen
 
 # ---- zxArt ------------------------------------------------------------------
 check("zxart website url: direct url from _source",

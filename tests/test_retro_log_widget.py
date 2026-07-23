@@ -1,4 +1,4 @@
-"""RetroLogWidget.set_text_color unit test.
+"""RetroLogWidget.set_text_color + _decode_text_bytes unit tests.
 
 Runs with the REAL Qt platform (no window is ever shown): pygame-dependent
 classes crash natively only under QT_QPA_PLATFORM=offscreen, so unlike the
@@ -40,8 +40,28 @@ check("per-instance tint (other widget untouched)",
       w2._C_LOG == (120, 255, 140) and w._C_LOG == (255, 0, 0),
       f"{w._C_LOG} / {w2._C_LOG}")
 
+# ---- _decode_text_bytes (item-viewer text console) --------------------------
+# Some ZXDB instruction .txt files are UTF-16 with BOM (e.g. Willy's New
+# Mansion - Special Edition); without BOM handling they decoded via the
+# latin-1 fallback into NUL-riddled mojibake.
+from zxnu_pygame import _decode_text_bytes
+
+check("decode: plain utf-8", _decode_text_bytes("héllo\nx".encode("utf-8")) == ["héllo", "x"])
+_u8bom = b"\xef\xbb\xbf" + "hi".encode("utf-8")
+check("decode: utf-8 BOM stripped", _decode_text_bytes(_u8bom) == ["hi"],
+      str(_decode_text_bytes(_u8bom)))
+_u16le = b"\xff\xfe" + "Willy's\r\nMansion".encode("utf-16-le")
+check("decode: utf-16 LE BOM", _decode_text_bytes(_u16le) == ["Willy's", "Mansion"],
+      str(_decode_text_bytes(_u16le)))
+_u16be = b"\xfe\xff" + "AB".encode("utf-16-be")
+check("decode: utf-16 BE BOM", _decode_text_bytes(_u16be) == ["AB"],
+      str(_decode_text_bytes(_u16be)))
+check("decode: cp1252 fallback", _decode_text_bytes(b"caf\xe9") == ["café"],
+      str(_decode_text_bytes(b"caf\xe9")))
+check("decode: empty", _decode_text_bytes(b"") == [])
+
 print()
 if FAIL:
     print(f"RESULT: {len(FAIL)} FAILURE(S)")
     sys.exit(1)
-print("RESULT: ALL WIDGET COLOR CHECKS PASSED")
+print("RESULT: ALL WIDGET COLOR + TEXT DECODE CHECKS PASSED")
