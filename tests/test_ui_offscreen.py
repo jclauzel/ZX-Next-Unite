@@ -42,6 +42,14 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SCRATCH = os.path.join(tempfile.gettempdir(), "zxnu-ui-tests")
+
+# The app writes its always-on log next to argv[0] — the SCRATCH copy — so it
+# must never touch the repo. A developer who ran the real app from the repo
+# will legitimately have a zx-next-unite.log there already, so we snapshot it
+# BEFORE launching the scratch app and later assert this run left it untouched
+# (rather than asserting the file is simply absent).
+_REPO_LOG = os.path.join(REPO, "zx-next-unite.log")
+_REPO_LOG_MTIME0 = os.path.getmtime(_REPO_LOG) if os.path.isfile(_REPO_LOG) else None
 CFG = os.path.join(SCRATCH, "hdfg.cfg")
 HDF = os.path.join(SCRATCH, "test.hdf")
 PASTE_SUB = os.path.join(SCRATCH, "pastedir", "sub")
@@ -571,8 +579,10 @@ def inspect_phase5():
         body = open(log_path, encoding="utf-8", errors="replace").read()
         check("log carries the startup banner", "starting" in body, body[:200])
         check("log captures live log lines", "offscreen-test-marker-line" in body)
-    check("repo has no stray zx-next-unite.log",
-          not os.path.isfile(os.path.join(REPO, "zx-next-unite.log")))
+    _repo_now = os.path.getmtime(_REPO_LOG) if os.path.isfile(_REPO_LOG) else None
+    check("scratch app did not write to a repo log",
+          _repo_now == _REPO_LOG_MTIME0,
+          f"repo log mtime changed: {_REPO_LOG_MTIME0} -> {_repo_now}")
 
     # ---- delete-confirmation wording (Recycle Bin vs permanent) ------------
     # The sweeper CLOSES each dialog (= answers No), so nothing is deleted and
