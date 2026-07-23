@@ -36,6 +36,36 @@ from zxnu_config import (
 
 _HTTP_RETRYABLE = (429, 502, 503, 504)
 
+# The ZXInfo API returns root-relative archive asset paths (/pub/…, /zxdb/…,
+# /zxscreens/…). Two hosts serve the underlying WoS/ZXDB archive and their
+# coverage has flipped over time: in mid-2026 zxinfo.dk/media 404'd the raw
+# /pub + /zxdb assets (only the spectrumcomputing.co.uk mirror had them);
+# by July 2026 zxinfo.dk/media served everything while spectrumcomputing
+# became unreachable. So game-detail URLs are built against the primary and
+# the fetch helpers below transparently retry a failed /pub|/zxdb asset once
+# on the other host. /zxscreens/… (ZXInfo's own rendered screen images) and
+# /pub/sinclair/magazines/… (only on the mirror) are the known one-host paths.
+_ZXDB_MEDIA_PRIMARY = "https://zxinfo.dk/media"
+_ZXDB_MEDIA_MIRROR  = "https://spectrumcomputing.co.uk"
+
+
+def _zxdb_media_mirror_url(url: str):
+    """Return the same ZXDB archive asset on the other media host, or None.
+
+    Only /pub/… and /zxdb/… paths are mirrored; anything else — including
+    /zxscreens/…, which exists only on zxinfo.dk/media — returns None.
+    """
+    if not url:
+        return None
+    for host, other in ((_ZXDB_MEDIA_PRIMARY, _ZXDB_MEDIA_MIRROR),
+                        (_ZXDB_MEDIA_MIRROR, _ZXDB_MEDIA_PRIMARY)):
+        if url.startswith(host + "/"):
+            path = url[len(host):]
+            if path.startswith(("/pub/", "/zxdb/")):
+                return other + path
+            return None
+    return None
+
 
 def _is_retryable_connection_error(exc: OSError) -> bool:
     """Return True for transient connection-level errors that are worth retrying.
@@ -68,6 +98,7 @@ def _http_fetch_bytes_with_retry(
     timeout: int = 20,
     _retries: int = 3,
     _backoff: float = 1.5,
+    _try_mirror: bool = True,
 ) -> bytes:
     """Fetch *url* as bytes with retry/back-off on transient errors.
 
@@ -76,6 +107,9 @@ def _http_fetch_bytes_with_retry(
     connection was forcibly closed by the remote host") whether raised
     directly or wrapped inside ``urllib.error.URLError``.
     Closes the HTTPError response before sleeping on retryable HTTP codes.
+    When *url* is a mirrored ZXDB archive asset (see _zxdb_media_mirror_url)
+    and every attempt failed — including a permanent 404 —, the same asset is
+    tried once on the other media host before giving up.
     """
     import urllib.error as _ue
     req = urllib.request.Request(url, headers=headers or {}, method=method)
@@ -86,18 +120,17 @@ def _http_fetch_bytes_with_retry(
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return resp.read()
         except _ue.HTTPError as exc:
-            if exc.code in _HTTP_RETRYABLE:
-                last_exc = exc
-                exc.close()
-                # logging.warning(
-                #     "_http_fetch_bytes_with_retry: HTTP %d on attempt %d/%d for %s",
-                #     exc.code, attempt, _retries, url,
-                # )
-                if attempt < _retries:
-                    time.sleep(delay)
-                    delay *= 2
-            else:
-                raise
+            last_exc = exc
+            exc.close()
+            if exc.code not in _HTTP_RETRYABLE:
+                break                    # permanent HTTP error on this host
+            # logging.warning(
+            #     "_http_fetch_bytes_with_retry: HTTP %d on attempt %d/%d for %s",
+            #     exc.code, attempt, _retries, url,
+            # )
+            if attempt < _retries:
+                time.sleep(delay)
+                delay *= 2
         except OSError as exc:
             # Catches urllib.error.URLError (subclass of OSError) and direct
             # socket errors such as ConnectionResetError (WinError 10054).
@@ -109,6 +142,19 @@ def _http_fetch_bytes_with_retry(
             if attempt < _retries:
                 time.sleep(delay)
                 delay *= 2
+    mirror = _zxdb_media_mirror_url(url) if _try_mirror else None
+    if mirror:
+        logging.warning(
+            "_http_fetch_bytes_with_retry: %s failed (%s); trying mirror %s",
+            url, last_exc, mirror,
+        )
+        try:
+            return _http_fetch_bytes_with_retry(
+                mirror, headers=headers, method=method, timeout=timeout,
+                _retries=_retries, _backoff=_backoff, _try_mirror=False,
+            )
+        except Exception:
+            pass                         # report the primary host's error
     raise last_exc
 
 
@@ -119,11 +165,14 @@ def _http_fetch_with_cd_retry(
     timeout: int = 60,
     _retries: int = 3,
     _backoff: float = 1.5,
+    _try_mirror: bool = True,
 ):
     """Fetch *url*, returning ``(content_disposition_header, bytes)`` with retry.
 
     Retries on HTTP 429/502/503/504 and on connection-level OS errors,
-    including ``ConnectionResetError`` / WinError 10054.
+    including ``ConnectionResetError`` / WinError 10054. Mirrored ZXDB archive
+    assets (see _zxdb_media_mirror_url) get one attempt on the other media
+    host after every attempt on *url* failed.
     """
     import urllib.error as _ue
     req = urllib.request.Request(url, headers=headers or {})
@@ -136,18 +185,17 @@ def _http_fetch_with_cd_retry(
                 data = resp.read()
             return cd, data
         except _ue.HTTPError as exc:
-            if exc.code in _HTTP_RETRYABLE:
-                last_exc = exc
-                exc.close()
-                logging.warning(
-                    "_http_fetch_with_cd_retry: HTTP %d on attempt %d/%d for %s",
-                    exc.code, attempt, _retries, url,
-                )
-                if attempt < _retries:
-                    time.sleep(delay)
-                    delay *= 2
-            else:
-                raise
+            last_exc = exc
+            exc.close()
+            if exc.code not in _HTTP_RETRYABLE:
+                break                    # permanent HTTP error on this host
+            logging.warning(
+                "_http_fetch_with_cd_retry: HTTP %d on attempt %d/%d for %s",
+                exc.code, attempt, _retries, url,
+            )
+            if attempt < _retries:
+                time.sleep(delay)
+                delay *= 2
         except OSError as exc:
             # Catches urllib.error.URLError and direct socket errors
             # including ConnectionResetError (WinError 10054).
@@ -159,6 +207,19 @@ def _http_fetch_with_cd_retry(
             if attempt < _retries:
                 time.sleep(delay)
                 delay *= 2
+    mirror = _zxdb_media_mirror_url(url) if _try_mirror else None
+    if mirror:
+        logging.warning(
+            "_http_fetch_with_cd_retry: %s failed (%s); trying mirror %s",
+            url, last_exc, mirror,
+        )
+        try:
+            return _http_fetch_with_cd_retry(
+                mirror, headers=headers, timeout=timeout,
+                _retries=_retries, _backoff=_backoff, _try_mirror=False,
+            )
+        except Exception:
+            pass                         # report the primary host's error
     raise last_exc
 
 
@@ -169,6 +230,7 @@ def _http_head_ok_with_retry(
     timeout: int = 10,
     _retries: int = 3,
     _backoff: float = 1.5,
+    _try_mirror: bool = True,
 ) -> bool:
     """Send a HEAD request; return True when the server responds with status < 400.
 
@@ -176,15 +238,28 @@ def _http_head_ok_with_retry(
     including ``ConnectionResetError`` / WinError 10054 ("An existing
     connection was forcibly closed by the remote host").
     Returns False after exhausting retries so callers treat the URL as
-    unavailable rather than propagating an exception.
+    unavailable rather than propagating an exception. A mirrored ZXDB archive
+    asset (see _zxdb_media_mirror_url) counts as available when either media
+    host serves it — the fetch helpers apply the same fallback, so a download
+    button enabled by this check will genuinely work.
     """
     import urllib.error as _ue
+
+    def _mirror_ok() -> bool:
+        mirror = _zxdb_media_mirror_url(url) if _try_mirror else None
+        if not mirror:
+            return False
+        return _http_head_ok_with_retry(
+            mirror, headers=headers, timeout=timeout,
+            _retries=_retries, _backoff=_backoff, _try_mirror=False,
+        )
+
     req = urllib.request.Request(url, headers=headers or {}, method="HEAD")
     delay = _backoff
     for attempt in range(1, _retries + 1):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return resp.status < 400
+                return resp.status < 400 or _mirror_ok()
         except _ue.HTTPError as exc:
             if exc.code in _HTTP_RETRYABLE:
                 exc.close()
@@ -192,14 +267,14 @@ def _http_head_ok_with_retry(
                     time.sleep(delay)
                     delay *= 2
             else:
-                return exc.code < 400
+                return exc.code < 400 or _mirror_ok()
         except OSError:
             # Catches urllib.error.URLError and direct socket errors
             # including ConnectionResetError (WinError 10054).
             if attempt < _retries:
                 time.sleep(delay)
                 delay *= 2
-    return False
+    return _mirror_ok()
 
 
 # ---------------------------------------------------------------------------
@@ -582,15 +657,14 @@ def zxdb_parse_game_detail(payload) -> dict:
         if not u:
             return ""
         if u.startswith("/"):
-            # ZXInfo hosts its own *rendered* screen images (/zxscreens/…) under
-            # https://zxinfo.dk/media, but the raw archive paths it references
-            # for screen dumps (.scr) and downloads — /pub/… and /zxdb/… — are
-            # NOT on zxinfo.dk/media (they 404 there); they live on the
-            # spectrumcomputing.co.uk mirror. Route each to the host that serves
-            # it, otherwise e.g. a .scr loading screen never renders.
-            if u.lower().startswith("/zxscreens/"):
-                return "https://zxinfo.dk/media" + u
-            return "https://spectrumcomputing.co.uk" + u
+            # ZXInfo serves its rendered screen images (/zxscreens/…) and —
+            # despite having 404'd them for a while in mid-2026 — the raw
+            # archive assets (/pub/…, /zxdb/… screen dumps, instructions,
+            # downloads) under https://zxinfo.dk/media. Build every URL
+            # against it; if its coverage regresses again the fetch helpers
+            # transparently retry /pub|/zxdb assets on the
+            # spectrumcomputing.co.uk mirror (see _zxdb_media_mirror_url).
+            return _ZXDB_MEDIA_PRIMARY + u
         return u
 
     # Gather candidate "asset" lists from top-level AND from each release.

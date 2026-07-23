@@ -518,19 +518,29 @@ def _url_is_text(url) -> bool:
 
 def _decode_text_bytes(data) -> list:
     """Decode raw *data* bytes into a list of display lines for the console.
-    Tries UTF-8, then common 8-bit code pages, expanding tabs and normalising
-    newlines."""
+    Honours a UTF-16 BOM, then tries UTF-8 and common 8-bit code pages,
+    expanding tabs and normalising newlines."""
     if not data:
         return []
-    text = None
-    for enc in ("utf-8", "cp1252", "latin-1"):
+    raw = bytes(data)
+    # UTF-16 BOM first: some ZXDB instruction .txt files are saved by Windows
+    # tools as UTF-16 (e.g. WillysNewMansion-SpecialEdition.txt). Without this
+    # the utf-8 try fails and the latin-1 fallback "succeeds" into
+    # NUL-riddled mojibake.
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
         try:
-            text = bytes(data).decode(enc)
+            return _text_to_lines(raw.decode("utf-16"))
+        except Exception:
+            pass
+    text = None
+    for enc in ("utf-8-sig", "cp1252", "latin-1"):
+        try:
+            text = raw.decode(enc)
             break
         except Exception:
             text = None
     if text is None:
-        text = bytes(data).decode("latin-1", "replace")
+        text = raw.decode("latin-1", "replace")
     return _text_to_lines(text)
 
 
