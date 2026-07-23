@@ -21,6 +21,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SUITES = [
     # (file, timeout seconds, required import or None)
     ("test_api_parsers.py",     120, None),
+    ("test_classic_sync.py",    180, None),
     ("test_listen.py",          120, None),
     ("test_remote_listen.py",   120, None),
     ("test_http_bridge.py",     240, "flask"),

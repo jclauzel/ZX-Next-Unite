@@ -14,6 +14,7 @@ and the import system, so isolation matters).
 | File | What it covers | Needs |
 |---|---|---|
 | `test_api_parsers.py` | Unit tests for `zxnu_api` — the pure GetIt/ZXDB/zxArt parsers, URL builders and download-URL filters. No network, no QApplication. | PySide6 importable (via `zxnu_config`) |
+| `test_classic_sync.py` | The classic (Sync3/Sync4) NextSync server loop (`zxnu_workers.run_classic_sync_server`) over localhost against a mock dot: Sync4 handshake, chunked PC→Next pull honouring `max_payload`, Next→PC framed upload, conflict policies (overwrite/ignore), syncpoint bookkeeping and hostile-path sanitation. | PySide6 importable |
 | `test_listen.py` | The Sync4 `-listen` wire protocol of the standalone server (`nextsync5.listen_session`) over a socketpair against a mock Next implementing the dot's half: ls/get/put/mkdir/rmdir/rm framing, checksums, retries. | PySide6-free (pure stdlib) |
 | `test_remote_listen.py` | The app-side `-listen` worker (`zxnu_workers.run_remote_listen_server`) over a real localhost socket against the same mock Next: command queue in, Qt signals out, incl. rmtree walks, drives/free/rcpy/rfsize, failure paths. | PySide6 |
 | `test_http_bridge.py` | End-to-end HTTP bridge (`zxnu_http_bridge`) against the mock Next, over both hosts: real HTTP → bridge → app worker, and real HTTP → bridge → `nextsync5.listen_session`. | PySide6, Flask (skipped by `run_all.py` when Flask is missing) |
