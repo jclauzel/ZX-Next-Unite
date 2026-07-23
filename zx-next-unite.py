@@ -3462,7 +3462,9 @@ class MainWindow(QMainWindow):
             if not picked:
                 raise RuntimeError(
                     f"the latest MAME release has no Windows {arch} build.")
-            return picked
+            # Also carry the release "what's changed" notes so the prompts can
+            # show them (like the ZX Next Unite self-update prompt).
+            return (*picked, str(release.get("body") or "").strip())
 
         def _mame_install_job(url, asset_name, dest_root, mame_sig,
                               expected_sha256=None):
@@ -3733,7 +3735,7 @@ class MainWindow(QMainWindow):
                 return
             add_main_log_window("Detecting the latest MAME release…")
             try:
-                tag, asset_name, url, size, sha256 = _fetch_latest_mame_asset(arch)
+                tag, asset_name, url, size, sha256, notes = _fetch_latest_mame_asset(arch)
             except Exception as e:
                 add_main_log_window(f"Could not detect the latest MAME release: {e}")
                 logging.error(f"MAME release detection failed: {e}")
@@ -3752,6 +3754,7 @@ class MainWindow(QMainWindow):
                 f"Package: {asset_name} ({arch})\n\n"
                 f"Download (~{size_txt}) and install it into the downloads "
                 f"folder?\nNote: the fully extracted install is large (~500 MB).")
+            _attach_release_notes(box, notes)
             go = box.addButton("Download and install", QMessageBox.AcceptRole)
             box.addButton("Cancel", QMessageBox.RejectRole)
             box.setDefaultButton(go)
@@ -3787,6 +3790,20 @@ class MainWindow(QMainWindow):
                 logging.info(f"MAME version probe failed: {exc}")
                 return ""
 
+        def _attach_release_notes(box, notes):
+            """Show a release's "what's changed" notes on a QMessageBox: a short
+            excerpt as the informative text, the full text behind the Show
+            Details button. No-op when *notes* is empty. Shared by the ZX Next
+            Unite, MAME and CSpect update/install prompts."""
+            notes = (notes or "").strip()
+            if not notes:
+                return
+            excerpt = "\n".join(notes.splitlines()[:10]).strip()[:800]
+            box.setInformativeText(
+                "What's changed:\n" + excerpt
+                + ("\n…" if len(excerpt) < len(notes) else ""))
+            box.setDetailedText(notes)
+
         def _prompt_mame_update(info, installed_num):
             """UI-thread dialog offering to update MAME to a newer release found
             by the startup check. 'Update' reuses the standard install flow for
@@ -3809,6 +3826,7 @@ class MainWindow(QMainWindow):
                 f"Download (~{size_txt}) and update your MAME install now?\n"
                 "The existing files in the downloads MAME folder will be "
                 "overwritten.")
+            _attach_release_notes(box, info.get("notes"))
             upd = box.addButton("Update", QMessageBox.AcceptRole)
             box.addButton("Cancel", QMessageBox.RejectRole)
             box.setDefaultButton(upd)
@@ -3854,13 +3872,14 @@ class MainWindow(QMainWindow):
                     raw = _probe_mame_version_text(mame_path)
                     installed_num = parse_mame_version_number(raw)
                     patched = mame_version_is_patched(raw)
-                tag, asset_name, url, size, sha256 = _fetch_latest_mame_asset(arch)
+                tag, asset_name, url, size, sha256, notes = _fetch_latest_mame_asset(arch)
                 return {
                     "installed_num": installed_num,
                     "patched": patched,
                     "latest_num": parse_mame_version_number(tag),
                     "tag": tag, "asset_name": asset_name,
                     "url": url, "size": size, "sha256": sha256,
+                    "notes": notes,
                 }
 
             def _on_result(info):
@@ -4077,15 +4096,9 @@ class MainWindow(QMainWindow):
             inline, the full text behind the box's Show Details button."""
             frozen = bool(getattr(sys, "frozen", False))
             notes = str(release.get("body") or "").strip()
-            excerpt = "\n".join(notes.splitlines()[:10]).strip()[:800]
 
             def _attach_notes(box):
-                if not notes:
-                    return
-                box.setInformativeText(
-                    "What's changed:\n" + excerpt
-                    + ("\n…" if len(excerpt) < len(notes) else ""))
-                box.setDetailedText(notes)
+                _attach_release_notes(box, notes)
             if not frozen:
                 add_main_log_window(
                     f"ZX Next Unite {tag} is available — running from source, so "
@@ -4362,6 +4375,7 @@ class MainWindow(QMainWindow):
                 f"Installed: {installed_name}\n"
                 f"Latest: {latest_name}\n\n"
                 "Download and install the newest version now?")
+            _attach_release_notes(box, info.get("notes"))
             yes = box.addButton("Yes", QMessageBox.AcceptRole)
             box.addButton("Cancel", QMessageBox.RejectRole)
             box.setDefaultButton(yes)
@@ -4436,6 +4450,17 @@ class MainWindow(QMainWindow):
                     add_main_log_window(
                         f"CSpect update ▸ newer build available: installed "
                         f"{installed_name}, latest {latest_name}.")
+                    # itch.io's download API carries no per-build changelog, so
+                    # point at the CSpect itch.io page where the release notes
+                    # live (the shared helper shows this as the "what's changed"
+                    # section, mirroring MAME / ZX Next Unite).
+                    _game_url = ((info.get("game") or {}).get("url")
+                                 or zxnu_itchio.CSPECT_ITCH_URL)
+                    info["notes"] = (
+                        f"New CSpect build: {latest_name}\n\n"
+                        "itch.io does not publish inline release notes for CSpect; "
+                        "the full changelog is on the CSpect itch.io page:\n"
+                        f"{_game_url}")
                     _prompt_cspect_update(info)
                 except Exception as exc:
                     logging.info(f"CSpect update check result handling failed: {exc}")
