@@ -126,6 +126,33 @@ def _zxnu_read_crash_log_pref():
 _ZXNU_CRASH_LOG = _zxnu_crash_log_path()
 _ZXNU_CRASH_FH  = None
 
+
+def _zxnu_log_file_path():
+    """Path for the ALWAYS-ON rotating diagnostic log (`zx-next-unite.log`),
+    next to the executable/script, with a %TEMP% fallback. Distinct from the
+    opt-in crash log: this one captures the app's ordinary logging output so
+    the many `logging.error(...)` calls are actually recoverable in the field
+    — in a `--windowed` PyInstaller build `sys.stderr` is None, so without a
+    file handler every log line is otherwise thrown away."""
+    try:
+        if getattr(_sys_early, "frozen", False):
+            base = _os_early.path.dirname(_sys_early.executable)
+        else:
+            base = _os_early.path.dirname(_os_early.path.abspath(__file__))
+        candidate = _os_early.path.join(base, "zx-next-unite.log")
+        with open(candidate, "a", encoding="utf-8"):
+            pass
+        return candidate
+    except Exception:
+        try:
+            import tempfile as _tf
+            return _os_early.path.join(_tf.gettempdir(), "zx-next-unite.log")
+        except Exception:
+            return None
+
+
+_ZXNU_LOG_FILE = _zxnu_log_file_path()
+
 def _zxnu_open_crash_log():
     """Open the crash-log file handle and wire faulthandler to it."""
     global _ZXNU_CRASH_FH
@@ -187,6 +214,15 @@ def _zxnu_excepthook(exc_type, exc_value, exc_tb):
         _sys_early.__excepthook__(exc_type, exc_value, exc_tb)
         return
     msg = "".join(_tb_early.format_exception(exc_type, exc_value, exc_tb))
+    # Always record uncaught exceptions in the rotating diagnostic log, even
+    # when the opt-in crash file is off — otherwise a slot/thread exception in
+    # the --windowed build is completely silent ("nothing happens"). Guarded
+    # so a logging failure here can never re-enter the excepthook.
+    try:
+        import logging as _lg_early
+        _lg_early.error("Unhandled exception:\n%s", msg)
+    except Exception:
+        pass
     if _ZXNU_CRASH_FH is not None:
         try:
             _ZXNU_CRASH_FH.write(
@@ -497,8 +533,39 @@ def _make_disclaimer_ticker(parent):
 
 assert sys.version_info >= (3, 6) # We need 3.6 for f"" strings.
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Configure logging: an ALWAYS-ON rotating file handler (so diagnostics
+# survive the `--windowed` build where sys.stderr is None and console output
+# is lost), plus a console handler when a real stderr exists (source/console
+# runs). This is independent of the opt-in crash log (faulthandler + uncaught
+# C-level crashes) toggled in Settings — that stays off by default.
+def _zxnu_configure_logging():
+    import logging.handlers
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    fmt = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    if _ZXNU_LOG_FILE:
+        try:
+            # ~1 MB per file, 3 rotations kept — enough to capture a session's
+            # worth of failures without growing unbounded on disk.
+            fh = logging.handlers.RotatingFileHandler(
+                _ZXNU_LOG_FILE, maxBytes=1_000_000, backupCount=3,
+                encoding="utf-8", delay=True)
+            fh.setFormatter(fmt)
+            root.addHandler(fh)
+        except Exception:
+            # A locked/unwritable log file must never stop the app starting.
+            logging.getLogger(__name__).warning(
+                "Could not open the rotating log file %s", _ZXNU_LOG_FILE)
+    if getattr(sys, "stderr", None) is not None:
+        sh = logging.StreamHandler()
+        sh.setFormatter(fmt)
+        root.addHandler(sh)
+
+
+_zxnu_configure_logging()
+if _ZXNU_LOG_FILE:
+    logging.info("=== zx-next-unite %s starting (log: %s) ===",
+                 ZX_NEXT_UNITE_VERSION, _ZXNU_LOG_FILE)
 
 
 
@@ -1806,7 +1873,25 @@ class MainWindow(QMainWindow):
                 logging.error(f"hdfmonkey download save error: {e}")
                 return None
 
-            add_main_log_window(f"hdfmonkey: saved archive to {dest_zip}.")
+            # Verify the pinned SHA-256 BEFORE anything touches the archive:
+            # a corrupted or tampered download is refused, not extracted.
+            actual = sha256_of_file(dest_zip)
+            if actual.lower() != HDF_MONKEY_JJJS_SHA256:
+                add_main_log_window(
+                    "hdfmonkey: SHA-256 mismatch on the downloaded archive "
+                    f"(expected {HDF_MONKEY_JJJS_SHA256[:12]}…, got {actual[:12]}…) "
+                    "— refusing to extract it. Retry the download, or install "
+                    "hdfmonkey manually (see the wiki).")
+                logging.error(
+                    f"hdfmonkey download hash mismatch: expected "
+                    f"{HDF_MONKEY_JJJS_SHA256}, got {actual}")
+                try:
+                    os.remove(dest_zip)
+                except OSError:
+                    pass
+                return None
+            add_main_log_window(
+                f"hdfmonkey: saved archive to {dest_zip} (SHA-256 verified).")
             logging.info(f"hdfmonkey download: saved {dest_zip}")
             return dest_zip
 
@@ -2239,6 +2324,17 @@ class MainWindow(QMainWindow):
                 if SETTING_NO_PROMPT_ON_DELETION in configuration_dictionary and configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION] != "":
                     checked = configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION] != "0" and configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION].lower() != "false"
                     self.settings_no_prompt_on_deletion_checkbox.setChecked(checked)
+
+                # Recycle Bin deletes toggle (default on). Only restored when
+                # Send2Trash is available — without it the checkbox stays
+                # disabled+unchecked and local deletes remain permanent.
+                if send2trash_available():
+                    _recycle = configuration_dictionary.get(
+                        SETTING_DELETE_TO_RECYCLE_BIN, "").strip().lower()
+                    _recycle_on = _recycle not in ("false", "0", "no")  # default on
+                    self.settings_delete_to_recycle_bin_checkbox.blockSignals(True)
+                    self.settings_delete_to_recycle_bin_checkbox.setChecked(_recycle_on)
+                    self.settings_delete_to_recycle_bin_checkbox.blockSignals(False)
 
                 # NextSync receive-conflict policy (combo): restore the saved value,
                 # falling back to the default for empty/unknown entries.
@@ -3368,7 +3464,8 @@ class MainWindow(QMainWindow):
                     f"the latest MAME release has no Windows {arch} build.")
             return picked
 
-        def _mame_install_job(url, asset_name, dest_root, mame_sig):
+        def _mame_install_job(url, asset_name, dest_root, mame_sig,
+                              expected_sha256=None):
             """Worker-thread job: download the MAME self-extractor and unpack it.
 
             Never touches Qt widgets — phase lines and the button's percentage
@@ -3414,6 +3511,27 @@ class MainWindow(QMainWindow):
                         _prog(min(98, int(read * 100 / total)))
             _prog(99)
             _phase(f"MAME install ▸ Download finished ({read // 1048576} MB).")
+
+            # ── Phase 1b: verify ── the GitHub API publishes a per-asset
+            # SHA-256 digest; check the download against it BEFORE running the
+            # self-extractor (it is an executable). No digest published -> log
+            # and continue, exactly as before.
+            if expected_sha256:
+                _phase("MAME install ▸ Verifying the download (SHA-256)…")
+                actual = sha256_of_file(sfx_path)
+                if actual.lower() != expected_sha256.lower():
+                    try:
+                        os.remove(sfx_path)
+                    except OSError:
+                        pass
+                    raise RuntimeError(
+                        "SHA-256 mismatch on the downloaded MAME installer "
+                        f"(expected {expected_sha256[:12]}…, got {actual[:12]}…) "
+                        "— refusing to run it. Please retry the download.")
+                _phase("MAME install ▸ SHA-256 verified.")
+            else:
+                _phase("MAME install ▸ No SHA-256 digest published for this "
+                       "asset; skipping verification.")
 
             # ── Phase 2: extract ──
             # MAME's Windows .exe is a 7-Zip self-extractor: "-o<dir> -y" unpacks
@@ -3563,7 +3681,8 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        def _start_mame_install(tag, asset_name, url, size, size_txt):
+        def _start_mame_install(tag, asset_name, url, size, size_txt,
+                                sha256=None):
             """Kick off the MAME download+extract worker for a chosen release
             asset. Shared by the first-time install (install_mame) and the
             startup auto-update flow — both overwrite any existing downloads/mame
@@ -3595,7 +3714,8 @@ class MainWindow(QMainWindow):
             # the main-thread slot has run, so the completion callbacks fire
             # reliably — the missing piece that left the button stuck before.
             getit_run_in_thread(
-                lambda: _mame_install_job(url, asset_name, dest_root, mame_sig),
+                lambda: _mame_install_job(url, asset_name, dest_root, mame_sig,
+                                          expected_sha256=sha256),
                 _on_mame_install_result,
                 _on_mame_install_error)
 
@@ -3613,7 +3733,7 @@ class MainWindow(QMainWindow):
                 return
             add_main_log_window("Detecting the latest MAME release…")
             try:
-                tag, asset_name, url, size = _fetch_latest_mame_asset(arch)
+                tag, asset_name, url, size, sha256 = _fetch_latest_mame_asset(arch)
             except Exception as e:
                 add_main_log_window(f"Could not detect the latest MAME release: {e}")
                 logging.error(f"MAME release detection failed: {e}")
@@ -3638,7 +3758,8 @@ class MainWindow(QMainWindow):
             box.exec()
             if box.clickedButton() is not go:
                 return
-            _start_mame_install(tag, asset_name, url, size, size_txt)
+            _start_mame_install(tag, asset_name, url, size, size_txt,
+                                sha256=sha256)
 
         def _probe_mame_version_text(mame_path):
             """Ask an installed MAME binary for its version and return the raw
@@ -3695,7 +3816,8 @@ class MainWindow(QMainWindow):
             if box.clickedButton() is upd:
                 add_main_log_window(
                     f"MAME update ▸ user chose to update to {tag}.")
-                _start_mame_install(tag, asset_name, url, size, size_txt)
+                _start_mame_install(tag, asset_name, url, size, size_txt,
+                                    sha256=info.get("sha256"))
 
         def _check_mame_update_async():
             """At startup, if MAME is installed and the check is enabled, look up
@@ -3732,13 +3854,13 @@ class MainWindow(QMainWindow):
                     raw = _probe_mame_version_text(mame_path)
                     installed_num = parse_mame_version_number(raw)
                     patched = mame_version_is_patched(raw)
-                tag, asset_name, url, size = _fetch_latest_mame_asset(arch)
+                tag, asset_name, url, size, sha256 = _fetch_latest_mame_asset(arch)
                 return {
                     "installed_num": installed_num,
                     "patched": patched,
                     "latest_num": parse_mame_version_number(tag),
                     "tag": tag, "asset_name": asset_name,
-                    "url": url, "size": size,
+                    "url": url, "size": size, "sha256": sha256,
                 }
 
             def _on_result(info):
@@ -3820,8 +3942,11 @@ class MainWindow(QMainWindow):
             for asset in release.get("assets", []) or []:
                 name = str(asset.get("name", ""))
                 if name.lower().endswith(".exe"):
+                    digest = str(asset.get("digest") or "")
+                    sha256 = (digest[7:].lower()
+                              if digest.lower().startswith("sha256:") else None)
                     return (name, asset.get("browser_download_url"),
-                            int(asset.get("size") or 0))
+                            int(asset.get("size") or 0), sha256)
             return None
 
         def _zxnu_offer_restart(new_path):
@@ -3855,7 +3980,8 @@ class MainWindow(QMainWindow):
                 return
             self.close()
 
-        def _zxnu_download_update(tag, asset_name, url, size):
+        def _zxnu_download_update(tag, asset_name, url, size,
+                                  expected_sha256=None):
             """Download the release exe next to the current binary on a worker
             thread (progress dialog, cancellable), then offer the restart.
             Never overwrites the RUNNING binary: a name collision gets the
@@ -3895,8 +4021,18 @@ class MainWindow(QMainWindow):
                                 f"{got // 1048576} MB"
                                 + (f" / {total // 1048576} MB" if total else ""))
                     if not _h["error"]:
-                        os.replace(tmp, _dest)
-                        _h["ok"] = True
+                        # Verify against the GitHub asset digest BEFORE the
+                        # file takes its final (runnable) name.
+                        if (expected_sha256
+                                and sha256_of_file(tmp).lower()
+                                != expected_sha256.lower()):
+                            _h["error"] = (
+                                "SHA-256 mismatch — the download does not match "
+                                "the hash GitHub published for this release "
+                                "asset. Please retry.")
+                        else:
+                            os.replace(tmp, _dest)
+                            _h["ok"] = True
                 except Exception as exc:   # network/disk problems must never crash
                     _h["error"] = str(exc)
                 if not _h["ok"]:
@@ -3917,7 +4053,9 @@ class MainWindow(QMainWindow):
                 if holder["ok"]:
                     add_main_log_window(
                         f"ZX Next Unite update: downloaded {os.path.basename(dest)} "
-                        f"to {os.path.dirname(dest)}.")
+                        f"to {os.path.dirname(dest)}"
+                        + (" (SHA-256 verified)." if expected_sha256 else
+                           " (no SHA-256 digest published; not verified)."))
                     _zxnu_offer_restart(dest)
                 elif holder["error"] == "cancelled":
                     add_main_log_window("ZX Next Unite update: download cancelled.")
@@ -3934,8 +4072,20 @@ class MainWindow(QMainWindow):
         def _prompt_zxnu_update(tag, release):
             """UI-thread prompt for an available app update. Windows-binary
             (frozen) users get download + restart; a source checkout (git
-            clone) is advised to 'git pull' instead of fetching the exe."""
+            clone) is advised to 'git pull' instead of fetching the exe.
+            The release's "what's changed" notes ride along: a short excerpt
+            inline, the full text behind the box's Show Details button."""
             frozen = bool(getattr(sys, "frozen", False))
+            notes = str(release.get("body") or "").strip()
+            excerpt = "\n".join(notes.splitlines()[:10]).strip()[:800]
+
+            def _attach_notes(box):
+                if not notes:
+                    return
+                box.setInformativeText(
+                    "What's changed:\n" + excerpt
+                    + ("\n…" if len(excerpt) < len(notes) else ""))
+                box.setDetailedText(notes)
             if not frozen:
                 add_main_log_window(
                     f"ZX Next Unite {tag} is available — running from source, so "
@@ -3950,6 +4100,7 @@ class MainWindow(QMainWindow):
                     "recommended way to update is:\n\n"
                     "    git pull\n\n"
                     "instead of downloading the Windows binary.")
+                _attach_notes(box)
                 openrel = box.addButton("Open the releases page", QMessageBox.AcceptRole)
                 box.addButton("Close", QMessageBox.RejectRole)
                 box.setDefaultButton(openrel)
@@ -3970,7 +4121,7 @@ class MainWindow(QMainWindow):
                         QMessageBox.Yes) == QMessageBox.Yes:
                     webbrowser.open(ZXNU_GITHUB_RELEASES_PAGE)
                 return
-            asset_name, url, size = asset
+            asset_name, url, size, sha256 = asset
             size_txt = f"{size / 1048576:.0f} MB" if size else "?"
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Question)
@@ -3982,13 +4133,15 @@ class MainWindow(QMainWindow):
                 f"Package: {asset_name} (~{size_txt})\n\n"
                 "The new version is saved next to the current one — you choose\n"
                 "when to switch (you'll be offered a restart after the download).")
+            _attach_notes(box)
             dl = box.addButton("Download", QMessageBox.AcceptRole)
             box.addButton("Cancel", QMessageBox.RejectRole)
             box.setDefaultButton(dl)
             box.exec()
             if box.clickedButton() is dl:
                 add_main_log_window(f"ZX Next Unite update ▸ downloading {asset_name}…")
-                _zxnu_download_update(tag, asset_name, url, size)
+                _zxnu_download_update(tag, asset_name, url, size,
+                                      expected_sha256=sha256)
             else:
                 add_main_log_window("ZX Next Unite update ▸ skipped by user.")
 
@@ -5829,6 +5982,14 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
+        def _deletes_go_to_recycle_bin():
+            """True when local-explorer deletes should go to the Recycle Bin:
+            the Settings toggle is on AND the optional Send2Trash package is
+            available. Image-side deletes never consult this (a virtual FAT
+            filesystem has no bin)."""
+            return (send2trash_available()
+                    and self.settings_delete_to_recycle_bin_checkbox.isChecked())
+
         def _local_delete_paths_async(items, log_fn):
             """Delete local *items* [(path, is_dir), …] on a worker thread with
             a progress dialog, with every local file watcher suspended for the
@@ -5836,11 +5997,18 @@ class MainWindow(QMainWindow):
             subfolders used to hang the UI). Shared by the SD-card and NextSync
             classic explorers' Delete actions. Refreshes both local explorers
             when done (same filesystem) and shows one summary box if anything
-            could not be deleted."""
+            could not be deleted.
+
+            Honours the "Send deleted files to the Recycle Bin" setting: when
+            on (and Send2Trash is installed) every item is trashed instead of
+            removed; a failed trash is reported as a failure — it never falls
+            back to a permanent delete the user did not ask for."""
+            use_recycle = _deletes_go_to_recycle_bin()
             _suspend_local_fs_watchers(True)
             holder = {"deleted": [], "failed": []}
 
-            def _task(signals, cancel_event, _items=items, _h=holder):
+            def _task(signals, cancel_event, _items=items, _h=holder,
+                      _recycle=use_recycle):
                 signals.progress.emit(-1)   # marquee: deletion has no total %
 
                 def _force_remove(func, path, exc_info):
@@ -5853,12 +6021,20 @@ class MainWindow(QMainWindow):
                     except OSError:
                         pass
 
+                verb = "Sending to Recycle Bin…" if _recycle else "Deleting…"
                 for p, is_dir in _items:
                     if cancel_event.is_set():
                         return
-                    signals.status.emit(f"Deleting…\n{p}")
+                    signals.status.emit(f"{verb}\n{p}")
                     try:
-                        if is_dir and not os.path.islink(p):
+                        if _recycle:
+                            from send2trash import send2trash
+                            # send2trash refuses forward slashes on Windows.
+                            send2trash(os.path.normpath(p))
+                            if os.path.exists(p):
+                                raise OSError(
+                                    "still present after sending to the Recycle Bin")
+                        elif is_dir and not os.path.islink(p):
                             shutil.rmtree(p, onerror=_force_remove)
                             if os.path.exists(p):
                                 # onerror swallowed a real failure and left
@@ -5885,7 +6061,8 @@ class MainWindow(QMainWindow):
                 dlg.close()
                 _suspend_local_fs_watchers(False)
                 for p in holder["deleted"]:
-                    log_fn(f"Deleted: {p}")
+                    log_fn(f"Sent to Recycle Bin: {p}" if use_recycle
+                           else f"Deleted: {p}")
                 for p, err in holder["failed"]:
                     log_fn(f"Failed to delete {p}: {err}")
                 # Both local explorers browse the same filesystem: refresh both.
@@ -5932,7 +6109,9 @@ class MainWindow(QMainWindow):
                         listing += f"\n… and {len(items) - 15} more"
                     msg = (f"Delete these {len(items)} items? Folders are "
                            f"deleted with all of their contents.\n\n{listing}")
-                msg += "\n\nThis cannot be undone."
+                msg += ("\n\nDeleted files are sent to the Recycle Bin."
+                        if _deletes_go_to_recycle_bin()
+                        else "\n\nThis cannot be undone.")
                 if QMessageBox.question(
                         self, "Confirm deletion", msg,
                         QMessageBox.Yes | QMessageBox.No,
@@ -6298,9 +6477,12 @@ class MainWindow(QMainWindow):
             else:
                 if is_dir:
                     msg = (f'Delete the folder "{name}" and all of its contents?\n\n'
-                           f'{file_path}\n\nThis cannot be undone.')
+                           f'{file_path}')
                 else:
-                    msg = f'Delete the file "{name}"?\n\n{file_path}\n\nThis cannot be undone.'
+                    msg = f'Delete the file "{name}"?\n\n{file_path}'
+                msg += ("\n\nDeleted files are sent to the Recycle Bin."
+                        if _deletes_go_to_recycle_bin()
+                        else "\n\nThis cannot be undone.")
                 reply = QMessageBox.question(
                     self, "Confirm deletion", msg,
                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
@@ -9705,7 +9887,10 @@ class MainWindow(QMainWindow):
                     _re_drain()
                     q.put(("quit",))
                 except Exception:
-                    pass
+                    # Load-bearing: if the goodbye can't be queued the Next is
+                    # left waiting (the dotN-hang class of bug), so make it
+                    # visible in the log rather than swallowing it silently.
+                    logging.exception("Remote Explorer: failed to queue the quit command")
             if t is not None and t.is_alive():
                 # Generous bound: the in-flight file must finish before the Next
                 # polls again and receives the "Q" (slow Wi-Fi links move tens
@@ -21069,6 +21254,41 @@ class MainWindow(QMainWindow):
         self.settings_no_prompt_on_deletion_checkbox.stateChanged.connect(settings_no_prompt_on_deletion_statechanged)
         grid_tab_Settings.addWidget(self.settings_no_prompt_on_deletion_checkbox, 3, 0, 1, 2)
 
+        # ── Recycle Bin deletes (Send2Trash, optional) ─────────────────────
+        # When on (the default), files/folders deleted in the LOCAL file
+        # explorers (SD Card tab + NextSync classic tab) are sent to the
+        # system Recycle Bin / Trash instead of being removed permanently.
+        # Greyed out until the optional Send2Trash package is installed —
+        # same gating pattern as the Flask HTTP-bridge toggle. Deletes
+        # INSIDE the SD-card image are always permanent (a virtual FAT
+        # filesystem has no bin), so this toggle does not affect them.
+        def settings_delete_to_recycle_bin_statechanged():
+            configuration_dictionary[SETTING_DELETE_TO_RECYCLE_BIN] = (
+                "true" if self.settings_delete_to_recycle_bin_checkbox.isChecked()
+                else "false")
+            save_configuration_file()
+
+        self.settings_delete_to_recycle_bin_checkbox = QCheckBox(
+            "Send deleted files to the Recycle Bin (local file explorers).")
+        self.settings_delete_to_recycle_bin_checkbox.setChecked(True)  # default on
+        if send2trash_available():
+            self.settings_delete_to_recycle_bin_checkbox.setToolTip(
+                "When enabled, files and folders deleted in the LOCAL file\n"
+                "explorers go to the system Recycle Bin / Trash and can be\n"
+                "restored from there. When disabled they are deleted\n"
+                "permanently, as before. Deletes inside the SD-card image are\n"
+                "always permanent. Saved to the configuration file.")
+        else:
+            self.settings_delete_to_recycle_bin_checkbox.setChecked(False)
+            self.settings_delete_to_recycle_bin_checkbox.setEnabled(False)
+            self.settings_delete_to_recycle_bin_checkbox.setToolTip(
+                "Requires the optional Send2Trash package:\n"
+                "    python -m pip install Send2Trash\n"
+                "Until it is installed, local deletes stay permanent.")
+        self.settings_delete_to_recycle_bin_checkbox.stateChanged.connect(
+            lambda _s: settings_delete_to_recycle_bin_statechanged())
+        grid_tab_Settings.addWidget(self.settings_delete_to_recycle_bin_checkbox, 4, 0, 1, 2)
+
         def settings_avail_check_statechanged():
             configuration_dictionary[SETTING_AVAIL_CHECK] = "true" if self.settings_avail_check_checkbox.isChecked() else "false"
             save_configuration_file()
@@ -21084,7 +21304,7 @@ class MainWindow(QMainWindow):
         self.settings_avail_check_checkbox.stateChanged.connect(settings_avail_check_statechanged)
         _avail_check_visible = ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS or ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS
         self.settings_avail_check_checkbox.setVisible(_avail_check_visible)
-        grid_tab_Settings.addWidget(self.settings_avail_check_checkbox, 5, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_avail_check_checkbox, 6, 0, 1, 2)
 
         def settings_multi_search_statechanged():
             configuration_dictionary[SETTING_MULTI_SEARCH] = "true" if self.settings_multi_search_checkbox.isChecked() else "false"
@@ -21098,7 +21318,7 @@ class MainWindow(QMainWindow):
             "with the number of results found, e.g. ZXDB (5)."
         )
         self.settings_multi_search_checkbox.stateChanged.connect(settings_multi_search_statechanged)
-        grid_tab_Settings.addWidget(self.settings_multi_search_checkbox, 6, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_multi_search_checkbox, 7, 0, 1, 2)
 
         def settings_search_autocomplete_statechanged():
             enabled = self.settings_search_autocomplete_checkbox.isChecked()
@@ -21114,7 +21334,7 @@ class MainWindow(QMainWindow):
             "Uncheck to disable autocomplete suggestions on all search inputs."
         )
         self.settings_search_autocomplete_checkbox.stateChanged.connect(settings_search_autocomplete_statechanged)
-        grid_tab_Settings.addWidget(self.settings_search_autocomplete_checkbox, 7, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_search_autocomplete_checkbox, 8, 0, 1, 2)
 
         # ---- Gallery (picture view) settings ----
         def _settings_gallery_anim_changed():
@@ -21131,7 +21351,7 @@ class MainWindow(QMainWindow):
             "  • Timed: cycles continuously while the gallery is visible.\n"
             "  • None: never cycles between images (animated GIFs still play)."
         )
-        grid_tab_Settings.addWidget(gallery_anim_lbl, 8, 0)
+        grid_tab_Settings.addWidget(gallery_anim_lbl, 9, 0)
 
         self.settings_gallery_anim_combo = QComboBox()
         self.settings_gallery_anim_combo.addItem("On hover (default)", "hover")
@@ -21141,7 +21361,7 @@ class MainWindow(QMainWindow):
         self.settings_gallery_anim_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_anim_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_anim_combo, 8, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_anim_combo, 9, 1)
 
         def _settings_gallery_rows_changed(val: int):
             val = max(GALLERY_MIN_ROWS, min(GALLERY_MAX_ROWS, int(val)))
@@ -21154,14 +21374,14 @@ class MainWindow(QMainWindow):
             "Number of thumbnail rows shown per gallery page.\n"
             f"Range {GALLERY_MIN_ROWS}–{GALLERY_MAX_ROWS}. Default {DEFAULT_GALLERY_ROWS_PER_PAGE}."
         )
-        grid_tab_Settings.addWidget(gallery_rows_lbl, 9, 0)
+        grid_tab_Settings.addWidget(gallery_rows_lbl, 10, 0)
 
         self.settings_gallery_rows_spin = QSpinBox()
         self.settings_gallery_rows_spin.setRange(GALLERY_MIN_ROWS, GALLERY_MAX_ROWS)
         self.settings_gallery_rows_spin.setValue(DEFAULT_GALLERY_ROWS_PER_PAGE)
         self.settings_gallery_rows_spin.setToolTip(gallery_rows_lbl.toolTip())
         self.settings_gallery_rows_spin.valueChanged.connect(_settings_gallery_rows_changed)
-        grid_tab_Settings.addWidget(self.settings_gallery_rows_spin, 9, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_rows_spin, 10, 1)
 
         def _make_color_button(setting_key, color_attr, label_text, tooltip_text, grid_row,
                                switch_theme=True, on_change=None):
@@ -21235,7 +21455,7 @@ class MainWindow(QMainWindow):
             "Number of thumbnail columns shown in the gallery grid.\n"
             "Default is 4. Choose 2 for larger tiles or 8 for more items per row."
         )
-        grid_tab_Settings.addWidget(gallery_cols_lbl, 10, 0)
+        grid_tab_Settings.addWidget(gallery_cols_lbl, 11, 0)
 
         self.settings_gallery_cols_combo = QComboBox()
         self.settings_gallery_cols_combo.addItem("2", 2)
@@ -21246,7 +21466,7 @@ class MainWindow(QMainWindow):
         self.settings_gallery_cols_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_cols_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_cols_combo, 10, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_cols_combo, 11, 1)
 
         def _settings_gallery_img_size_changed():
             val = self.settings_gallery_img_size_combo.currentData() or DEFAULT_GALLERY_IMG_SIZE
@@ -21261,7 +21481,7 @@ class MainWindow(QMainWindow):
             "  • Medium (default): standard size\n"
             "  • Large: double the medium height"
         )
-        grid_tab_Settings.addWidget(gallery_img_size_lbl, 11, 0)
+        grid_tab_Settings.addWidget(gallery_img_size_lbl, 12, 0)
 
         self.settings_gallery_img_size_combo = QComboBox()
         self.settings_gallery_img_size_combo.addItem("Small",          "small")
@@ -21272,7 +21492,7 @@ class MainWindow(QMainWindow):
         self.settings_gallery_img_size_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_img_size_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_img_size_combo, 11, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_img_size_combo, 12, 1)
 
         def _settings_gallery_slideshow_changed():
             val = self.settings_gallery_slideshow_combo.currentData()
@@ -21296,7 +21516,7 @@ class MainWindow(QMainWindow):
             "How long each screenshot is shown before the auto-advancing gallery\n"
             "slideshow moves to the next image. Default is 5 seconds."
         )
-        grid_tab_Settings.addWidget(gallery_slideshow_lbl, 12, 0)
+        grid_tab_Settings.addWidget(gallery_slideshow_lbl, 13, 0)
 
         self.settings_gallery_slideshow_combo = QComboBox()
         for _secs in GALLERY_SLIDESHOW_SECS_CHOICES:
@@ -21307,45 +21527,45 @@ class MainWindow(QMainWindow):
         self.settings_gallery_slideshow_combo.currentIndexChanged.connect(
             lambda _i: _settings_gallery_slideshow_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_gallery_slideshow_combo, 12, 1)
+        grid_tab_Settings.addWidget(self.settings_gallery_slideshow_combo, 13, 1)
 
         settings_section_lbl = QLabel("Local file explorers & App Text Colors:")
         settings_section_lbl.setToolTip(
             "Customize the foreground color of each item type shown in the SD card\n"
             "image explorer, plus the general app text color (labels, checkboxes,\n"
             "section headers) used across the app in Classic (non-pygame) mode.")
-        grid_tab_Settings.addWidget(settings_section_lbl, 14, 0, 1, 2)
+        grid_tab_Settings.addWidget(settings_section_lbl, 15, 0, 1, 2)
 
         self.settings_btn_color_up_directory = _make_color_button(
             SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory",
             "  Up Directory item",
             "Color used for the '[Up Directory..]' navigation row in the image explorer.",
-            15)
+            16)
         self.settings_btn_color_dir_name = _make_color_button(
             SETTING_COLOR_DIR_NAME, "img_color_dir_name",
             "  Directory name",
             "Color used for directory name entries in the image explorer.",
-            16)
+            17)
         self.settings_btn_color_dir_type = _make_color_button(
             SETTING_COLOR_DIR_TYPE, "img_color_dir_type",
             "  Directory type label",
             "Color used for the 'DIR' type label column of directory entries.",
-            17)
+            18)
         self.settings_btn_color_file_name = _make_color_button(
             SETTING_COLOR_FILE_NAME, "img_color_file_name",
             "  File name",
             "Color used for file name entries in the image explorer.",
-            18)
+            19)
         self.settings_btn_color_file_ext = _make_color_button(
             SETTING_COLOR_FILE_EXT, "img_color_file_ext",
             "  File extension",
             "Color used for the file extension column in the image explorer.",
-            19)
+            20)
         self.settings_btn_color_file_size = _make_color_button(
             SETTING_COLOR_FILE_SIZE, "img_color_file_size",
             "  File size",
             "Color used for the file size column in the image explorer.",
-            20)
+            21)
         self.settings_btn_color_general_text = _make_color_button(
             SETTING_COLOR_GENERAL_TEXT, "img_color_general_text",
             "  General UI text",
@@ -21354,7 +21574,7 @@ class MainWindow(QMainWindow):
             "light desktop/White theme would otherwise make this text black and\n"
             "unreadable. The White/Dark/Automatic/High-contrast themes set this\n"
             "automatically; picking a color here switches to the Custom theme.",
-            21)
+            22)
 
         # ---- Retro log console text color (pygame log windows) ----
         def _apply_retro_log_color(color=None):
@@ -21379,7 +21599,7 @@ class MainWindow(QMainWindow):
             "Font color for the retro 8-bit (pygame) log consoles on the\n"
             "SD Card, NextSync and Help tabs. Applies immediately. Default is\n"
             "the classic phosphor green. Independent of the Desktop Theme.",
-            22, switch_theme=False, on_change=_apply_retro_log_color)
+            23, switch_theme=False, on_change=_apply_retro_log_color)
 
         # ---- Retro log font size (SD Card + NextSync pygame log windows) ----
         def _apply_retro_log_font_size(px):
@@ -21408,7 +21628,7 @@ class MainWindow(QMainWindow):
             "Consolas text size for the retro 8-bit (pygame) log windows on the\n"
             "SD Card and NextSync tabs. Applies immediately. Default is 13."
         )
-        grid_tab_Settings.addWidget(retro_log_font_lbl, 23, 0)
+        grid_tab_Settings.addWidget(retro_log_font_lbl, 24, 0)
 
         self.settings_retro_log_font_combo = QComboBox()
         for _px in RETRO_LOG_FONT_SIZE_CHOICES:
@@ -21422,7 +21642,7 @@ class MainWindow(QMainWindow):
         self.settings_retro_log_font_combo.currentIndexChanged.connect(
             lambda _i: _settings_retro_log_font_changed()
         )
-        grid_tab_Settings.addWidget(self.settings_retro_log_font_combo, 23, 1)
+        grid_tab_Settings.addWidget(self.settings_retro_log_font_combo, 24, 1)
 
         # ---- Background image opacity ----
         bg_opacity_lbl = QLabel("Background image opacity (%):")
@@ -21430,7 +21650,7 @@ class MainWindow(QMainWindow):
             "Controls how visible the background image is behind the UI.\n"
             "0 = fully hidden, 100 = fully visible. Default is 5%."
         )
-        grid_tab_Settings.addWidget(bg_opacity_lbl, 24, 0)
+        grid_tab_Settings.addWidget(bg_opacity_lbl, 25, 0)
 
         bg_opacity_row = QWidget()
         bg_opacity_row_layout = QHBoxLayout(bg_opacity_row)
@@ -21561,7 +21781,7 @@ class MainWindow(QMainWindow):
 
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_slider, 1)
         bg_opacity_row_layout.addWidget(self.settings_bg_opacity_spinbox, 0)
-        grid_tab_Settings.addWidget(bg_opacity_row, 24, 1)
+        grid_tab_Settings.addWidget(bg_opacity_row, 25, 1)
 
         # ---- Background image selector ----
         bg_image_lbl = QLabel("Background image:")
@@ -21569,7 +21789,7 @@ class MainWindow(QMainWindow):
             "Choose a specific background image or 'Random' to cycle through\n"
             "all images in the script folder every 5 seconds."
         )
-        grid_tab_Settings.addWidget(bg_image_lbl, 25, 0)
+        grid_tab_Settings.addWidget(bg_image_lbl, 26, 0)
 
         bg_image_row = QWidget()
         bg_image_row_layout = QHBoxLayout(bg_image_row)
@@ -21612,7 +21832,7 @@ class MainWindow(QMainWindow):
         self.settings_bg_image_preview.setToolTip("Preview of the selected background image.")
         bg_image_row_layout.addWidget(self.settings_bg_image_preview, 0)
 
-        grid_tab_Settings.addWidget(bg_image_row, 25, 1)
+        grid_tab_Settings.addWidget(bg_image_row, 26, 1)
 
         def _update_bg_image_preview(path: str):
             """Refresh the thumbnail label for the given absolute image path."""
@@ -21665,15 +21885,18 @@ class MainWindow(QMainWindow):
         self.settings_crash_log_enabled_checkbox = QCheckBox("Enable crash log file generation")
         self.settings_crash_log_enabled_checkbox.setChecked(False)
         self.settings_crash_log_enabled_checkbox.setToolTip(
-            "When enabled, unhandled Python exceptions and native crashes are written\n"
-            "to 'zx-next-unite-crash.log' next to the executable (or in %TEMP% if that\n"
-            "folder is read-only). This is useful for diagnosing issues in the windowed\n"
-            "(.exe) build where stderr is not visible. Leave unchecked to suppress the\n"
-            "log file entirely (default)."
+            "The app ALWAYS writes a rotating diagnostic log to 'zx-next-unite.log'\n"
+            "next to the executable (or in %TEMP% if that folder is read-only),\n"
+            "capturing warnings, errors and unhandled exceptions — this is the first\n"
+            "place to look when something 'silently doesn't work'.\n\n"
+            "This checkbox additionally enables the low-level CRASH log\n"
+            "('zx-next-unite-crash.log'): native (C-level) crashes via faulthandler,\n"
+            "for diagnosing hard crashes of the windowed (.exe) build. Off by default;\n"
+            "the always-on diagnostic log above is unaffected by this toggle."
         )
         self.settings_crash_log_enabled_checkbox.stateChanged.connect(
             settings_crash_log_enabled_statechanged)
-        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 26, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_crash_log_enabled_checkbox, 27, 0, 1, 2)
 
         def settings_disable_no_emulator_toast_statechanged():
             configuration_dictionary[SETTING_DISABLE_NO_EMULATOR_TOAST] = "true" if self.settings_disable_no_emulator_toast_checkbox.isChecked() else "false"
@@ -21687,7 +21910,7 @@ class MainWindow(QMainWindow):
             "Check this if you do not use any emulator and do not want the reminder."
         )
         self.settings_disable_no_emulator_toast_checkbox.stateChanged.connect(settings_disable_no_emulator_toast_statechanged)
-        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 27, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_disable_no_emulator_toast_checkbox, 28, 0, 1, 2)
 
         # ── NextSync HTTP bridge toggle + port ──────────────────────────
         def _http_port_widgets_set_enabled(on):
@@ -21811,7 +22034,7 @@ class MainWindow(QMainWindow):
         _http_bridge_row.addWidget(self.settings_http_conn_label)
         _http_bridge_row.addWidget(self.settings_http_conn_spinbox)
         _http_bridge_row.addStretch(1)
-        grid_tab_Settings.addLayout(_http_bridge_row, 38, 0, 1, 2)
+        grid_tab_Settings.addLayout(_http_bridge_row, 39, 0, 1, 2)
         self._http_port_widgets_set_enabled = _http_port_widgets_set_enabled
 
         # ── MAME options (shown when MAME is launchable: a detected binary, or
@@ -21827,7 +22050,7 @@ class MainWindow(QMainWindow):
                 "This is inserted right after the MAME executable and is no longer part\n"
                 "of the command-line parameters below."
             )
-            grid_tab_Settings.addWidget(mame_rom_lbl, 28, 0)
+            grid_tab_Settings.addWidget(mame_rom_lbl, 29, 0)
 
             self.settings_mame_rom_combo = QComboBox()
             for _rom_name in MAME_ROM_CHOICE:
@@ -21835,7 +22058,7 @@ class MainWindow(QMainWindow):
             self.settings_mame_rom_combo.setToolTip(mame_rom_lbl.toolTip())
             self.settings_mame_rom_combo.currentIndexChanged.connect(
                 lambda _i: settings_mame_rom_changed())
-            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 28, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_rom_combo, 29, 1)
 
             def settings_mame_params_changed():
                 configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = self.settings_mame_params_edit.text()
@@ -21852,7 +22075,7 @@ class MainWindow(QMainWindow):
                 "-mouse/-mouse_device or -joystick/-joystickprovider options typed here\n"
                 "are ignored (the combos take precedence)."
             )
-            grid_tab_Settings.addWidget(mame_params_lbl, 29, 0)
+            grid_tab_Settings.addWidget(mame_params_lbl, 30, 0)
 
             self.settings_mame_params_edit = QLineEdit()
             self.settings_mame_params_edit.setText(
@@ -21860,7 +22083,7 @@ class MainWindow(QMainWindow):
                     SETTING_MAME_COMMAND_LINE_PARAMETERS, MAME_DEFAULT_COMMAND_LINE))
             self.settings_mame_params_edit.setToolTip(mame_params_lbl.toolTip())
             self.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
-            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 29, 1)
+            grid_tab_Settings.addWidget(self.settings_mame_params_edit, 30, 1)
 
             # The startup update check only exists where the app can actually
             # fetch a build (64-bit Windows / x86_64 Linux). On macOS MAME is
@@ -21887,7 +22110,7 @@ class MainWindow(QMainWindow):
                 )
                 self.settings_mame_update_check_checkbox.stateChanged.connect(
                     lambda _s: settings_mame_update_check_changed())
-                grid_tab_Settings.addWidget(self.settings_mame_update_check_checkbox, 30, 0, 1, 2)
+                grid_tab_Settings.addWidget(self.settings_mame_update_check_checkbox, 31, 0, 1, 2)
 
         # ── Launch MAME with Flatpak (Linux) ──────────────────────────────
         # Shown on Linux regardless of whether a MAME binary was detected, so a
@@ -21955,7 +22178,7 @@ class MainWindow(QMainWindow):
             self.settings_mame_flatpak_rompath_row.setVisible(_flatpak_on)
             _flatpak_layout.addWidget(self.settings_mame_flatpak_rompath_row)
 
-            grid_tab_Settings.addWidget(_flatpak_box, 30, 0, 1, 2)
+            grid_tab_Settings.addWidget(_flatpak_box, 31, 0, 1, 2)
 
         # ── CSpect default launch parameters ───────────────────────────────
         # Shown unconditionally (unlike the MAME block above, which is gated on
@@ -21977,14 +22200,14 @@ class MainWindow(QMainWindow):
             "launch. Leave empty to restore the built-in default. Saved to the\n"
             "configuration file."
         )
-        grid_tab_Settings.addWidget(cspect_params_lbl, 31, 0)
+        grid_tab_Settings.addWidget(cspect_params_lbl, 32, 0)
 
         self.settings_cspect_params_edit = QLineEdit()
         self.settings_cspect_params_edit.setText(
             configuration_dictionary.get(SETTING_CUSTOM, CSPECT_DEFAULT_LAUNCH_PARAMETERS))
         self.settings_cspect_params_edit.setToolTip(cspect_params_lbl.toolTip())
         self.settings_cspect_params_edit.editingFinished.connect(settings_cspect_params_changed)
-        grid_tab_Settings.addWidget(self.settings_cspect_params_edit, 31, 1)
+        grid_tab_Settings.addWidget(self.settings_cspect_params_edit, 32, 1)
 
         # ── Unite! pygame background animation toggle ──────────────────────
         def _settings_pygame_anim_changed():
@@ -22013,7 +22236,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_pygame_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 33, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_pygame_anim_checkbox, 34, 0, 1, 2)
 
         # ── NextSync retro-log starfield animation toggle ──────────────────
         def _settings_nextsync_anim_changed():
@@ -22045,7 +22268,7 @@ class MainWindow(QMainWindow):
         )
         self.settings_nextsync_pygame_anim_checkbox.stateChanged.connect(
             lambda _s: _settings_nextsync_anim_changed())
-        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 36, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_nextsync_pygame_anim_checkbox, 37, 0, 1, 2)
 
         # ── Alien Floyd's: optional pygame-ce animated background everywhere ──
         # A Pink Floyd homage. When on, a pygame-ce "Alien Floyd's" animation
@@ -22100,7 +22323,7 @@ class MainWindow(QMainWindow):
             "file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_bg_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_bg_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 34, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_bg_checkbox, 35, 0, 1, 2)
 
         # ── Alien Floyd's: optional dedicated full-window tab ────────────────
         self._alien_floyd_tab_widget = None
@@ -22172,7 +22395,7 @@ class MainWindow(QMainWindow):
             "configuration file. Requires the optional 'pygame-ce' package.")
         self.settings_alien_floyd_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_alien_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 35, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_alien_floyd_tab_checkbox, 36, 0, 1, 2)
 
         # ── itch.io: optional online tab (driven by the 'itch-dl' package) ───
         def _itchio_tab_set_visible(on):
@@ -22215,7 +22438,7 @@ class MainWindow(QMainWindow):
                 "configuration file. Requires the optional 'itch-dl' package.")
         self.settings_show_itchio_tab_checkbox.stateChanged.connect(
             lambda _s: _settings_itchio_tab_changed())
-        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 37, 0, 1, 2)
+        grid_tab_Settings.addWidget(self.settings_show_itchio_tab_checkbox, 38, 0, 1, 2)
 
         # ── CSpect: check itch.io for a newer version at startup (default on) ──
         def settings_cspect_update_check_changed():
@@ -22238,7 +22461,7 @@ class MainWindow(QMainWindow):
         self.settings_cspect_update_check_checkbox.stateChanged.connect(
             lambda _s: settings_cspect_update_check_changed())
         grid_tab_Settings.addWidget(
-            self.settings_cspect_update_check_checkbox, 32, 0, 1, 2)
+            self.settings_cspect_update_check_checkbox, 33, 0, 1, 2)
 
         # ── NextSync: what to do when a received file/dir already exists locally ──
         def _settings_nextsync_send_conflict_changed():
@@ -22255,7 +22478,7 @@ class MainWindow(QMainWindow):
             "  • Overwrite: always replace the local file.\n"
             "  • Ignore: never touch existing local files."
         )
-        grid_tab_Settings.addWidget(nextsync_send_conflict_lbl, 4, 0)
+        grid_tab_Settings.addWidget(nextsync_send_conflict_lbl, 5, 0)
 
         self.settings_nextsync_send_conflict_combo = QComboBox()
         self.settings_nextsync_send_conflict_combo.addItem("Prompt (default)", "prompt")
@@ -22264,7 +22487,7 @@ class MainWindow(QMainWindow):
         self.settings_nextsync_send_conflict_combo.setToolTip(nextsync_send_conflict_lbl.toolTip())
         self.settings_nextsync_send_conflict_combo.currentIndexChanged.connect(
             lambda _i: _settings_nextsync_send_conflict_changed())
-        grid_tab_Settings.addWidget(self.settings_nextsync_send_conflict_combo, 4, 1)
+        grid_tab_Settings.addWidget(self.settings_nextsync_send_conflict_combo, 5, 1)
 
         # ── Unite! search result sort / render preference ──────────────────
         def _settings_search_sort_changed():
@@ -22294,7 +22517,7 @@ class MainWindow(QMainWindow):
             "  • Classic: ZXDB and zxArt items are preferred to the top, with\n"
             "    GetIt content placed at the end."
         )
-        grid_tab_Settings.addWidget(search_sort_lbl, 13, 0)
+        grid_tab_Settings.addWidget(search_sort_lbl, 14, 0)
 
         self.settings_search_sort_combo = QComboBox()
         self.settings_search_sort_combo.addItem("GetIt first class (default)", SEARCH_SORT_GETIT_FIRST)
@@ -22303,7 +22526,7 @@ class MainWindow(QMainWindow):
         self.settings_search_sort_combo.setToolTip(search_sort_lbl.toolTip())
         self.settings_search_sort_combo.currentIndexChanged.connect(
             lambda _i: _settings_search_sort_changed())
-        grid_tab_Settings.addWidget(self.settings_search_sort_combo, 13, 1)
+        grid_tab_Settings.addWidget(self.settings_search_sort_combo, 14, 1)
 
         # "Open config file" — moved here from the SD-card tab. Opens hdfg.cfg in
         # the system text editor so advanced users can hand-edit settings. Placed
@@ -22311,7 +22534,7 @@ class MainWindow(QMainWindow):
         # width rather than stretching across both columns.
         self.button_open_config_file = QPushButton("Open config file", self)
         self.button_open_config_file.clicked.connect(open_cspect_configuration_file)
-        grid_tab_Settings.addWidget(self.button_open_config_file, 39, 0, 1, 2, Qt.AlignLeft)
+        grid_tab_Settings.addWidget(self.button_open_config_file, 40, 0, 1, 2, Qt.AlignLeft)
 
         grid_tab_Settings.setColumnStretch(2, 1)
         zxnextunite_Settings_tab.setLayout(grid_tab_Settings)
@@ -23583,13 +23806,15 @@ def _graceful_nextsync_shutdown():
             flag.set()
             t.join(timeout=10.0)
     except Exception:
-        pass
+        # Shutdown is best-effort but must be diagnosable: a failure here can
+        # leave a sync server without its clean goodbye to the Next.
+        logging.exception("Graceful shutdown: classic sync server stop failed")
     try:
         fn = getattr(window, "_nextsync_stop_listen_server_fn", None)
         if callable(fn):
             fn()
     except Exception:
-        pass
+        logging.exception("Graceful shutdown: Remote Explorer listen-server stop failed")
 
 app.aboutToQuit.connect(_graceful_nextsync_shutdown)
 

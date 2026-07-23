@@ -140,6 +140,42 @@ check("zxart pictures: fields",
       e["id"] == "11" and e["machine"] == "standard"
       and e["genre"] == "pixel, border, third" and e["_kind"] == "zxart_picture", str(e))
 
+# ---- download-safety helpers (zxnu_config) ---------------------------------
+import hashlib
+import tempfile
+
+from zxnu_config import (  # noqa: E402
+    HDF_MONKEY_JJJS_SHA256,
+    select_mame_release_asset,
+    sha256_of_file,
+)
+
+with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as _tf:
+    _tf.write(b"zx-next-unite hash check\x00\xff" * 1000)
+    _tmp_hash_file = _tf.name
+_expected = hashlib.sha256(open(_tmp_hash_file, "rb").read()).hexdigest()
+check("sha256_of_file matches hashlib", sha256_of_file(_tmp_hash_file) == _expected)
+os.unlink(_tmp_hash_file)
+check("jjjs pin is a well-formed sha256 hex",
+      len(HDF_MONKEY_JJJS_SHA256) == 64
+      and all(c in "0123456789abcdef" for c in HDF_MONKEY_JJJS_SHA256),
+      HDF_MONKEY_JJJS_SHA256)
+
+_release = {"tag_name": "mame0278", "assets": [
+    {"name": "mame0278b_x64.exe", "browser_download_url": "https://x/dl",
+     "size": "123", "digest": "sha256:ABCDEF0123"},
+]}
+picked = select_mame_release_asset(_release, "x64")
+check("mame asset picker returns the digest",
+      picked == ("mame0278", "mame0278b_x64.exe", "https://x/dl", 123, "abcdef0123"),
+      str(picked))
+_release["assets"][0].pop("digest")
+picked = select_mame_release_asset(_release, "x64")
+check("mame asset picker: missing digest -> None sha",
+      picked[4] is None, str(picked))
+check("mame asset picker: no matching arch -> None",
+      select_mame_release_asset(_release, "arm64") is None)
+
 # ---- star-import tripwire ---------------------------------------------------
 # `from zxnu_api import *` skips underscore-prefixed names, so every private
 # zxnu_api helper the monolith still references must appear in its EXPLICIT

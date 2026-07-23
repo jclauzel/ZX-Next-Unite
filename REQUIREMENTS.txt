@@ -12,6 +12,11 @@ pygame-ce>=2.5.0
 # collections). The tab is only shown when this package is installed.
 itch-dl
 
+# Optional — sends files deleted in the local file explorers to the system
+# Recycle Bin / Trash instead of removing them permanently (Settings toggle,
+# on by default; greyed out until this package is installed).
+Send2Trash
+
 # Optional — enables the NextSync HTTP bridge: a small self-hosted web
 # server (Settings toggle in the app, or "nextsync5.py -w") that lets a
 # Spectrum Next running the built-in .http dot command (or curl) drive the
