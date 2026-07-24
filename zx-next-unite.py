@@ -2435,6 +2435,24 @@ class MainWindow(QMainWindow):
                 self.settings_http_conn_spinbox.blockSignals(True)
                 self.settings_http_conn_spinbox.setValue(_http_conn)
                 self.settings_http_conn_spinbox.blockSignals(False)
+
+                # HTTP bridge bearer-token protection (checkbox + persisted
+                # token). The deferred bridge start above reads both straight
+                # from the config dict, so only the widgets need syncing.
+                _http_token_on = configuration_dictionary.get(
+                    SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, "").strip().lower() in (
+                        "true", "1", "yes", "on")
+                self.settings_http_token_checkbox.blockSignals(True)
+                self.settings_http_token_checkbox.setChecked(_http_token_on)
+                self.settings_http_token_checkbox.blockSignals(False)
+                self.settings_http_token_edit.blockSignals(True)
+                self.settings_http_token_edit.setText(
+                    (configuration_dictionary.get(
+                        SETTING_NEXTSYNC_HTTP_TOKEN) or "").strip())
+                self.settings_http_token_edit.blockSignals(False)
+
+                # This single call now also refreshes the token widgets' enabled
+                # state from the checkbox value just restored above.
                 self._http_port_widgets_set_enabled(_http_bridge_on)
 
                 # MAME ROM/system choice (combo) and command-line parameters
@@ -9513,10 +9531,18 @@ class MainWindow(QMainWindow):
                     SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT) or 1)
             except (TypeError, ValueError):
                 conn_limit = 1
+            # Optional bearer-token protection: only enforce when the toggle is
+            # on AND a token is actually persisted.
+            _token_on = configuration_dictionary.get(
+                SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, "").strip().lower() in (
+                    "true", "1", "yes", "on")
+            _token = (configuration_dictionary.get(
+                SETTING_NEXTSYNC_HTTP_TOKEN) or "").strip()
             self._re_bridge = NextSyncHttpBridge(
                 QueueBridgeHost(_re_bridge_enqueue, _re_bridge_make_cmd,
                                 _re_bridge_session_state),
                 port=port, connection_limit=conn_limit,
+                auth_token=_token if (_token_on and _token) else None,
                 log=lambda s: add_nextsync_log_window(str(s)))
             ok, err = self._re_bridge.start()
             if ok:
@@ -9524,6 +9550,11 @@ class MainWindow(QMainWindow):
                     f"NextSync HTTP bridge listening on port {port} "
                     "(routes: /status /ls /get /put /mkdir /rmdir /rmtree "
                     "/rm /ren /rcpy /rfsize /sum /free /drives)")
+                if _token_on and _token:
+                    add_nextsync_log_window(
+                        "NextSync HTTP bridge: bearer-token protection is ON "
+                        f"(requests must carry the {NEXTSYNC_BRIDGE_TOKEN_HEADER} "
+                        "header; others get HTTP 401)")
                 self._show_toast(
                     "NextSync HTTP bridge started",
                     f"Serving on port {port}. A Next with the .http dot "
@@ -14516,6 +14547,15 @@ class MainWindow(QMainWindow):
             self.settings_http_port_spinbox.setEnabled(on)
             self.settings_http_conn_label.setEnabled(on)
             self.settings_http_conn_spinbox.setEnabled(on)
+            # Bearer-token widgets: the "Require bearer token" checkbox follows
+            # the bridge; the token field + Generate button also need the token
+            # toggle itself to be on. (hasattr guards the first call, which can
+            # precede the token widgets' construction below.)
+            if hasattr(self, "settings_http_token_checkbox"):
+                self.settings_http_token_checkbox.setEnabled(on)
+                token_on = on and self.settings_http_token_checkbox.isChecked()
+                self.settings_http_token_edit.setEnabled(token_on)
+                self.settings_http_token_generate_btn.setEnabled(token_on)
 
         def settings_http_bridge_statechanged():
             enabled = self.settings_http_bridge_checkbox.isChecked()
@@ -14629,7 +14669,89 @@ class MainWindow(QMainWindow):
         _http_bridge_row.addWidget(self.settings_http_conn_label)
         _http_bridge_row.addWidget(self.settings_http_conn_spinbox)
         _http_bridge_row.addStretch(1)
-        grid_tab_Settings.addLayout(_http_bridge_row, 39, 0, 1, 2)
+
+        # ── Bearer-token protection (second row, under the bridge toggle) ──
+        def _http_bridge_restart_if_running():
+            # Apply a token change immediately by bouncing a running bridge
+            # (the token is read from the config dict at start()).
+            if self.settings_http_bridge_checkbox.isChecked() and \
+                    self._re_bridge is not None and self._re_bridge.running:
+                self._nextsync_http_bridge_stop()
+                self._nextsync_http_bridge_start()
+
+        def settings_http_token_statechanged():
+            enabled = self.settings_http_token_checkbox.isChecked()
+            configuration_dictionary[SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED] = \
+                "true" if enabled else "false"
+            # First time the protection is switched on with no token yet: mint
+            # one, persist it and show it so the user can copy it.
+            if enabled and not (configuration_dictionary.get(
+                    SETTING_NEXTSYNC_HTTP_TOKEN) or "").strip():
+                tok = generate_bridge_token()
+                configuration_dictionary[SETTING_NEXTSYNC_HTTP_TOKEN] = tok
+                self.settings_http_token_edit.setText(tok)
+            save_configuration_file()
+            _http_port_widgets_set_enabled(
+                self.settings_http_bridge_checkbox.isChecked())
+            _http_bridge_restart_if_running()
+
+        def settings_http_token_edited():
+            configuration_dictionary[SETTING_NEXTSYNC_HTTP_TOKEN] = \
+                self.settings_http_token_edit.text().strip()
+            save_configuration_file()
+            _http_bridge_restart_if_running()
+
+        def _http_token_generate():
+            tok = generate_bridge_token()
+            self.settings_http_token_edit.setText(tok)
+            configuration_dictionary[SETTING_NEXTSYNC_HTTP_TOKEN] = tok
+            save_configuration_file()
+            _http_bridge_restart_if_running()
+
+        self.settings_http_token_checkbox = QCheckBox("Require bearer token")
+        self.settings_http_token_checkbox.setChecked(False)
+        self.settings_http_token_checkbox.setEnabled(False)
+        _http_token_tip = (
+            "When on, the web server answers a request only if it carries the\n"
+            f"{NEXTSYNC_BRIDGE_TOKEN_HEADER} header equal to the token on the\n"
+            "right; every other request gets HTTP 401. A 64-character random\n"
+            "token is generated the first time you enable this; edit it or press\n"
+            "Generate for a new one. Saved to hdfg.cfg\n"
+            f"({SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED} / "
+            f"{SETTING_NEXTSYNC_HTTP_TOKEN}) and reapplied on the next request\n"
+            "(a running bridge is bounced when you change it). Off by default.")
+        self.settings_http_token_checkbox.setToolTip(_http_token_tip)
+        self.settings_http_token_checkbox.stateChanged.connect(
+            lambda _s: settings_http_token_statechanged())
+
+        self.settings_http_token_edit = QLineEdit()
+        self.settings_http_token_edit.setPlaceholderText(
+            "bearer token (generated when you enable the checkbox)")
+        self.settings_http_token_edit.setToolTip(
+            "The shared secret callers must send in the "
+            f"{NEXTSYNC_BRIDGE_TOKEN_HEADER} header.\n"
+            "Copy it to your .http caller / script, or type your own value.")
+        self.settings_http_token_edit.setEnabled(False)
+        self.settings_http_token_edit.editingFinished.connect(
+            settings_http_token_edited)
+
+        self.settings_http_token_generate_btn = QPushButton("Generate")
+        self.settings_http_token_generate_btn.setToolTip(
+            "Generate a new random 64-character bearer token")
+        self.settings_http_token_generate_btn.setEnabled(False)
+        self.settings_http_token_generate_btn.clicked.connect(
+            lambda: _http_token_generate())
+
+        _http_token_row = QHBoxLayout()
+        _http_token_row.addWidget(self.settings_http_token_checkbox)
+        _http_token_row.addSpacing(8)
+        _http_token_row.addWidget(self.settings_http_token_edit, 1)
+        _http_token_row.addWidget(self.settings_http_token_generate_btn)
+
+        _http_bridge_vbox = QVBoxLayout()
+        _http_bridge_vbox.addLayout(_http_bridge_row)
+        _http_bridge_vbox.addLayout(_http_token_row)
+        grid_tab_Settings.addLayout(_http_bridge_vbox, 39, 0, 1, 2)
         self._http_port_widgets_set_enabled = _http_port_widgets_set_enabled
 
         # ── MAME options (shown when MAME is launchable: a detected binary, or

@@ -27,6 +27,8 @@ from test_remote_listen import mock_next                 # noqa: E402
 WORKER_PORT = 2050
 HTTP_A = 18080
 HTTP_B = 18081
+HTTP_TOK1 = 18082
+HTTP_TOK2 = 18083
 
 ok = True
 
@@ -306,10 +308,70 @@ def phase_b():
     cli.close()
 
 
+def http_h(port, path, headers=None):
+    """(status, bytes) for one GET against 127.0.0.1:port with optional headers."""
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}",
+                                 headers=headers or {})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+def phase_token():
+    """Bearer-token guard: with auth_token set, only requests carrying the
+    correct ZXNEXTUNITE-BRIDGE-TOKEN header are answered; everything else gets
+    HTTP 401. The guard runs in before_request ahead of any adapter call, so a
+    trivial fake adapter is enough."""
+    print("=== phase TOKEN: bearer-token 401 guard ===")
+    from zxnu_http_bridge import BRIDGE_TOKEN_HEADER
+
+    class _FakeAdapter:
+        def state(self):
+            return {"listening": True, "connected": False,
+                    "current": "", "drives": []}
+
+        def run(self, op, a1="", a2="", body=None, timeout=None):
+            return {"ok": False, "http": 503, "error": "no next"}
+
+    TOKEN = "Tk" + "A1b2C3d4E5" * 6        # 62 chars, alphanumeric
+    bridge = NextSyncHttpBridge(_FakeAdapter(), port=HTTP_TOK1, auth_token=TOKEN)
+    okd, err = bridge.start()
+    check("TOKEN bridge started", okd, err)
+    try:
+        st, body = http_h(HTTP_TOK1, "/help")
+        check("no header -> 401", st == 401, (st, body[:40]))
+        st, body = http_h(HTTP_TOK1, "/help", {BRIDGE_TOKEN_HEADER: "wrong"})
+        check("wrong token -> 401", st == 401, (st, body[:40]))
+        st, body = http_h(HTTP_TOK1, "/help", {BRIDGE_TOKEN_HEADER: TOKEN})
+        check("correct token -> 200 help",
+              st == 200 and b"NextSync HTTP bridge" in body, (st, body[:40]))
+        st, body = http_h(HTTP_TOK1, "/status?json=1", {BRIDGE_TOKEN_HEADER: TOKEN})
+        check("correct token -> 200 status",
+              st == 200 and b'"ok": true' in body, (st, body[:60]))
+        st, body = http_h(HTTP_TOK1, "/status")
+        check("protected /status no header -> 401", st == 401, (st, body[:40]))
+    finally:
+        bridge.stop()
+
+    # With NO auth_token the bridge stays open (the historical behaviour).
+    bridge2 = NextSyncHttpBridge(_FakeAdapter(), port=HTTP_TOK2)
+    okd, err = bridge2.start()
+    check("open bridge started", okd, err)
+    try:
+        st, body = http_h(HTTP_TOK2, "/help")
+        check("no token configured -> open 200", st == 200, (st, body[:40]))
+    finally:
+        bridge2.stop()
+
+
 def main():
     phase_a()
     print()
     phase_b()
+    print()
+    phase_token()
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
     sys.exit(0 if ok else 1)
 
