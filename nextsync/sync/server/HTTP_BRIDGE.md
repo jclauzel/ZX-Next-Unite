@@ -71,6 +71,81 @@ other NextSync command. URL-encode special characters (space = `%20`).
 
 ---
 
+## Security — treat it as a LAN-only file server
+
+Be clear-eyed about what this is: **both the NextSync `-listen` protocol and
+the HTTP bridge on top of it are, by default, unauthenticated and
+unencrypted.** This is a convenience tool for a trusted home network, not a
+hardened service.
+
+* **No transport encryption.** The Next's `.http` dot command speaks **plain
+  HTTP only — the Next has no TLS** — so every request, every file and every
+  path crosses the network in clear text. Anyone on the same Wi-Fi/LAN segment
+  can read or tamper with the traffic.
+* **No authentication by default.** Out of the box the bridge answers *anyone*
+  who can reach the port: list, download, upload, rename, delete, `rmtree`,
+  `forceexit`. The `-listen` protocol underneath has no login either.
+* **Full file-system reach.** A caller can read and overwrite arbitrary paths
+  on the connected Next's SD card, across every mounted partition (bounded only
+  by what NextZXOS itself permits).
+
+The trade-off is deliberate: a Spectrum Next's `.http` client cannot do TLS or
+modern authentication, so the bridge stays simple enough to talk to it.
+**Run it only on a network you trust — your own home LAN — and never expose the
+port to the internet** (no router port-forwarding, no public/cloud host). If
+you need to reach it from elsewhere, tunnel it through something that *does*
+provide encryption and auth (a VPN, an SSH port-forward, or an authenticating
+reverse proxy in front of it).
+
+### Optional bearer token (`ZXNEXTUNITE-BRIDGE-TOKEN`)
+
+As a basic gate against casual access on a shared LAN, the bridge can require a
+**shared secret** on every request. This does **not** add encryption — the
+token itself travels in clear text over plain HTTP — it only stops a caller
+that does not know the token from driving your Next.
+
+Enable it in the **ZX-Next-Unite app → Settings tab**, on the row directly
+under the bridge toggle:
+
+1. Tick **"Require bearer token"**. The first time you do, a random
+   **64-character** alphanumeric token is generated and shown in the field
+   beside it.
+2. Copy that token (or type your own, or press **Generate** for a fresh one).
+   It is saved to `hdfg.cfg` (`nextsync_http_token_enabled` /
+   `nextsync_http_token`, strict `key=value`) and reloaded automatically at
+   startup, so it survives restarts. **Off by default.** Changing it while the
+   bridge runs restarts the server so the new token takes effect at once.
+
+While it is on, the bridge answers a request **only** if it carries the header
+
+```
+ZXNEXTUNITE-BRIDGE-TOKEN: <your token>
+```
+
+equal to the saved value (compared in constant time). Every other request —
+header missing, or the wrong token — gets **HTTP 401** and touches nothing on
+the Next.
+
+Sending the header:
+
+* **curl / a script / a browser extension** — add it directly:
+
+  ```
+  curl -H "ZXNEXTUNITE-BRIDGE-TOKEN: PASTE_YOUR_TOKEN" "http://localhost/status"
+  ```
+
+* **From a Next (`.http`)** — you need a `.http` build that can send a custom
+  request header; set `ZXNEXTUNITE-BRIDGE-TOKEN` to your token (see the
+  [next-http README](https://github.com/remy/next-http) for the header syntax
+  your version uses). If your `.http` cannot send request headers, either leave
+  token protection off for that Next or drive the bridge from a caller that can
+  send the header.
+
+> Scope: the token option is currently an **app-Settings** feature; the
+> standalone `nextsync5.py` server does not expose it yet.
+
+---
+
 ## Route reference & call samples
 
 The `curl` lines below talk to a bridge running on the **same PC**
@@ -436,8 +511,10 @@ curl "http://localhost/rfsize?path=/games&json=1"
 
 * One command runs at a time (the -listen session is serial); concurrent
   HTTP requests queue up. `/status` never blocks behind a transfer.
-* The bridge is **unauthenticated plain HTTP** for `.http` compatibility —
-  run it on your own LAN only.
+* The bridge is **plain HTTP with no encryption**, and **unauthenticated
+  unless you enable the bearer token** — run it on your own LAN only. See
+  **[Security](#security--treat-it-as-a-lan-only-file-server)** above for the
+  `ZXNEXTUNITE-BRIDGE-TOKEN` option and why the transport is still clear text.
 * Long operations (`/get`, `/put`, `/rcpy`, `/rfsize`, `/rmtree`) wait up to
   15 minutes; quick verbs time out after 45 s (`504`).
 * Wire protocol: unchanged. The bridge simply queues the same commands the

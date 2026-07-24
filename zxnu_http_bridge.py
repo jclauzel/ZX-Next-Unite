@@ -48,6 +48,7 @@ Executor reply shapes (both hosts emit these):
 """
 
 import base64
+import hmac
 import importlib.util
 import json
 import os
@@ -58,6 +59,11 @@ import tempfile
 import threading
 
 DEFAULT_PORT = 80          # .http's default; HTTP only (no TLS on the Next)
+
+# HTTP header carrying the optional shared secret. Kept in sync with
+# zxnu_config.NEXTSYNC_BRIDGE_TOKEN_HEADER (this module stays stdlib-only so it
+# does not import the app's config).
+BRIDGE_TOKEN_HEADER = "ZXNEXTUNITE-BRIDGE-TOKEN"
 
 
 def flask_available():
@@ -241,10 +247,15 @@ class NextSyncHttpBridge:
         "  GET  /forceexit                  make the Next leave -listen and exit\n")
 
     def __init__(self, host_adapter, listen_host="0.0.0.0", port=DEFAULT_PORT,
-                 log=None, verbose=False, connection_limit=1):
+                 log=None, verbose=False, connection_limit=1, auth_token=None):
         self._adapter = host_adapter
         self._listen_host = listen_host
         self._port = int(port)
+        # Optional shared secret. When set, every request must carry the
+        # BRIDGE_TOKEN_HEADER header equal to this value or it is answered with
+        # HTTP 401 (see the auth guard installed in _install_routes). None or ""
+        # = no authentication (the historical, open behaviour).
+        self._auth_token = (auth_token or "").strip() or None
         # How many HTTP requests may be served concurrently. 1 (the default
         # and the recommended value) fully serialises the bridge, matching
         # the serial -listen session behind it.
@@ -398,6 +409,24 @@ class NextSyncHttpBridge:
 
     def _install_routes(self, app):
         from flask import request, Response
+
+        # ---- bearer-token guard (registered FIRST so an unauthorised request
+        # is rejected before the verbose tracer below could log its payload) --
+        @app.before_request
+        def _require_token():          # noqa: ANN202
+            if self._auth_token is None:
+                return None            # authentication disabled
+            supplied = request.headers.get(BRIDGE_TOKEN_HEADER, "")
+            # Constant-time compare so a wrong token can't be timed byte by byte.
+            if supplied and hmac.compare_digest(supplied, self._auth_token):
+                return None            # authorised
+            msg = f"missing or invalid {BRIDGE_TOKEN_HEADER}"
+            if (request.args.get("json") in ("1", "true", "yes")
+                    or "application/json" in (request.headers.get("Accept") or "")):
+                return Response(
+                    json.dumps({"ok": False, "error": msg, "status": 401}) + "\n",
+                    status=401, mimetype="application/json")
+            return Response(f"ERR {msg}\n", status=401, mimetype="text/plain")
 
         if self._verbose:
             # -v troubleshooting: one log line per request with its payload,

@@ -8,7 +8,9 @@ import io
 import os
 import platform
 import re
+import secrets
 import shutil
+import string
 import subprocess
 import sys
 import zipfile
@@ -16,7 +18,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.1.1"
+ZX_NEXT_UNITE_VERSION = "9.1.2"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -183,6 +185,21 @@ SETTING_NEXTSYNC_SEND_CONFLICT = "nextsync_send_conflict"   # "prompt" (default)
 SETTING_NEXTSYNC_HTTP_BRIDGE   = "nextsync_http_bridge"     # "true"/"false" (default false)
 SETTING_NEXTSYNC_HTTP_PORT     = "nextsync_http_port"       # int, default 80 (.http's default)
 SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT = "nextsync_http_connection_limit"  # int, default 1 (serial -listen session)
+# Optional bearer-token protection for the HTTP bridge. When enabled the bridge
+# answers a request only if it carries the ZXNEXTUNITE-BRIDGE-TOKEN header equal
+# to the persisted token; otherwise it returns HTTP 401. Off by default.
+SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED = "nextsync_http_token_enabled"  # "true"/"false" (default false)
+SETTING_NEXTSYNC_HTTP_TOKEN         = "nextsync_http_token"          # the shared secret (alphanumeric)
+# HTTP header the bridge reads the shared secret from (kept here so the app,
+# the bridge and nextsync5 all agree on one spelling).
+NEXTSYNC_BRIDGE_TOKEN_HEADER = "ZXNEXTUNITE-BRIDGE-TOKEN"
+
+
+def generate_bridge_token(length=64):
+    """A fresh cryptographically-random alphanumeric bridge token (letters +
+    digits). Used for the HTTP bridge's optional bearer-token protection."""
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 SETTING_GALLERY_ANIM_MODE      = "gallery_anim_mode"        # "hover" (default), "timer" or "none"
 SETTING_GALLERY_ROWS_PER_PAGE  = "gallery_rows_per_page"    # int 1..10, default 2
 SETTING_GALLERY_COLS           = "gallery_cols"             # int: 2 | 4 (default) | 8
@@ -781,7 +798,7 @@ SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, S
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
-SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE,
+SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_DELETE_TO_RECYCLE_BIN,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO)
 
