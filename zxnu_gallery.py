@@ -1693,9 +1693,19 @@ class GalleryItemViewer(QWidget):
     Close: ✕ button (top-right) or Escape key → pops stack back to index 0.
     """
 
+    # On some Linux Qt/fontconfig stacks a QPushButton that carries a style
+    # sheet but pins no font-size lets a leading colour-emoji (⬇ 💾 🕹 🔁 🌐 …)
+    # fall back to Noto Color Emoji's native bitmap strike — the glyph then
+    # renders enormously and swamps the whole button. Pinning a font-size in the
+    # style sheet scales the emoji back to the text size (the viewer's globe /
+    # heart / close QToolButtons already do this and render fine). Windows and
+    # macOS size these emoji correctly and should keep the platform-default
+    # button font, so the pin is applied on Linux only.
+    _BTN_FONT_SIZE = " font-size: 13px;" if sys.platform.startswith("linux") else ""
     _BTN_STYLE = (
         "QPushButton { color: #eee; background: #2a2a2a; border: 1px solid #444;"
-        " border-radius: 4px; padding: 6px 12px; text-align: left; }"
+        " border-radius: 4px; padding: 6px 12px; text-align: left;"
+        f"{_BTN_FONT_SIZE} }}"
         "QPushButton:hover { background: #3a3a3a; border-color: #666; }"
         "QPushButton:disabled { color: #555; background: #1a1a1a; border-color: #333; }"
     )
