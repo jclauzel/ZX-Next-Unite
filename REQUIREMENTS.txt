@@ -1,29 +1,29 @@
 # ZX-Next-Unite dependencies.
 # Install everything with:  python -m pip install -r requirements.txt
 
-# Required — the GUI toolkit the whole app is built on.
+# Required - the GUI toolkit the whole app is built on.
 PySide6>=6.5.1
 
-# Optional — enables the retro 8-bit pygame log windows and the
+# Optional - enables the retro 8-bit pygame log windows and the
 # "Alien Floyd's" background/tab. The app runs fine without it.
 pygame-ce>=2.5.0
 
-# Optional — enables the itch.io tab (browse/install your itch.io
+# Optional - enables the itch.io tab (browse/install your itch.io
 # collections). The tab is only shown when this package is installed.
 itch-dl
 
-# Optional — sends files deleted in the local file explorers to the system
+# Optional - sends files deleted in the local file explorers to the system
 # Recycle Bin / Trash instead of removing them permanently (Settings toggle,
 # on by default; greyed out until this package is installed).
 Send2Trash
 
-# Optional — enables the NextSync HTTP bridge: a small self-hosted web
+# Optional - enables the NextSync HTTP bridge: a small self-hosted web
 # server (Settings toggle in the app, or "nextsync5.py -w") that lets a
 # Spectrum Next running the built-in .http dot command (or curl) drive the
 # file system of the Next connected in '.sync5 -listen' mode. The Settings
 # toggle is greyed out until this package is installed.
 flask
 
-# Dev-only — linter/formatter (config in pyproject.toml). Not needed to run
+# Dev-only - linter/formatter (config in pyproject.toml). Not needed to run
 # the app: used by contributors to keep new code clean ("ruff check .").
 ruff

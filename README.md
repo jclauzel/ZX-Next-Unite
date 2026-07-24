@@ -63,9 +63,12 @@ the **[Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki)**:
 
 Released under the **MIT** license (see [LICENSE](LICENSE)). Built on **PySide6**
 and **pygame-ce** (Qt 6, GPLv2/LGPL) and optionally
-[itch-dl](https://github.com/DragoonAethis/itch-dl) by Dragoon Aethis (MIT) and
+[itch-dl](https://github.com/DragoonAethis/itch-dl) by Dragoon Aethis (MIT),
 [Flask](https://flask.palletsprojects.com/) by the Pallets team (BSD-3-Clause),
-the web server that powers the NextSync HTTP bridge.
+the web server that powers the NextSync HTTP bridge, and
+[Send2Trash](https://github.com/arsenetar/send2trash) by Andrew Senetar and
+contributors (BSD), which sends locally-deleted files to the system Recycle
+Bin / Trash.
 
 ## Legal disclaimer — third-party content
 
