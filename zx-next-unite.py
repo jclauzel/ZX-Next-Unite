@@ -10483,9 +10483,6 @@ class MainWindow(QMainWindow):
         if ZX_NEXT_UNITE_SHOW_ZXART_PANE:
             wid_inner.tab.addTab(zxnextunite_ZXART_tab, ZX_NEXT_UNITE_TAB_TITLE_ZXART)
         else:
-            # Stop the poll timer before unparenting so it never fires against
-            # the destroyed child widgets (zxart_cache_progress_bar etc.).
-            self._zxart_cache_poll_timer.stop()
             zxnextunite_ZXART_tab.setParent(None)
 
         # Create ZXDB Tab (right of zxART)
