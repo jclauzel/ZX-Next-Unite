@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.1.0"
+ZX_NEXT_UNITE_VERSION = "9.1.1"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
