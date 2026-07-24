@@ -1621,6 +1621,7 @@ class MainWindow(QMainWindow):
             self.button_to_image.setDisabled(True)
             self.image_treeview.setDisabled(True)
             self.button_new_folder.setDisabled(True)
+            self.button_rename.setDisabled(True)
             self.button_delete_files.setDisabled(True)
             self.new_folder_input.setDisabled(True)
             self.button_create_directory.setDisabled(True)
@@ -1658,6 +1659,7 @@ class MainWindow(QMainWindow):
             self.button_to_image.setDisabled(False)
             self.image_treeview.setDisabled(False)
             self.button_new_folder.setDisabled(False)
+            self.button_rename.setDisabled(False)
             self.button_delete_files.setDisabled(False)
             self.new_folder_input.setDisabled(False)
             self.button_create_directory.setDisabled(False)
@@ -1937,6 +1939,7 @@ class MainWindow(QMainWindow):
             the automatic download or the manual-drop fallback)."""
             self._hdfmonkey_executable_path = hdfmonkey_path
             self.button_new_folder.setVisible(True)
+            self.button_rename.setVisible(True)
             self.button_delete_files.setVisible(True)
             self.download_and_install_hdfmonkey_button.setVisible(False)
             # hdfmonkey is now installed — stop the yellow attention pulse and
@@ -2102,6 +2105,7 @@ class MainWindow(QMainWindow):
         def show_hdf_monkey_download_and_install_buttons():
             self.download_and_install_hdfmonkey_button.setVisible(True)
             self.button_new_folder.setVisible(False)
+            self.button_rename.setVisible(False)
             self.button_delete_files.setVisible(False)
             # Draw the eye to the install button with a yellow 'breathing' pulse
             # while hdfmonkey is missing; it stops itself once the button is
@@ -4885,6 +4889,7 @@ class MainWindow(QMainWindow):
             if right_disk_image_explorer_content:  # check that we have an image content first
                 # hide create folder and delete folder buttons
                 self.button_new_folder.setVisible(False)
+                self.button_rename.setVisible(False)
                 self.button_delete_files.setVisible(False)
                 self.new_folder_input.setVisible(True)
                 self.button_create_directory.setVisible(True)
@@ -4902,6 +4907,7 @@ class MainWindow(QMainWindow):
             if right_disk_image_explorer_content:  # check that we have an image content first
                 # hide create folder and delete folder buttons
                 self.button_new_folder.setVisible(True)
+                self.button_rename.setVisible(True)
                 self.button_delete_files.setVisible(True)
                 self.new_folder_input.setVisible(False)
                 self.button_create_directory.setVisible(False)
@@ -4943,6 +4949,7 @@ class MainWindow(QMainWindow):
                 return
 
             self.button_new_folder.setVisible(True)
+            self.button_rename.setVisible(True)
             self.button_delete_files.setVisible(True)
             self.new_folder_input.setVisible(False)
             self.button_create_directory.setVisible(False)
@@ -8430,6 +8437,11 @@ class MainWindow(QMainWindow):
         self.button_new_folder.setMinimumWidth(IMAGE_BUTTONS_SIZE)
         self.button_new_folder.clicked.connect(image_newfolder)
 
+        self.button_rename = QPushButton("Rename", self)
+        self.button_rename.setText("Rename")
+        self.button_rename.setMinimumWidth(IMAGE_BUTTONS_SIZE)
+        self.button_rename.clicked.connect(image_rename_dialog)
+
         self.download_and_install_hdfmonkey_button = QPushButton("Download & install HDF Monkey", self)
         self.download_and_install_hdfmonkey_button.setText("Download and install HDF Monkey")
         self.download_and_install_hdfmonkey_button.setMinimumWidth(IMAGE_BUTTONS_SIZE)
@@ -8441,11 +8453,12 @@ class MainWindow(QMainWindow):
         self.imageexplorerbuttons.addWidget(self.hiddenspacelabel2)
 
         self.button_delete_files = QPushButton("DeleteFiles", self)
-        self.button_delete_files.setText("Delete Files or Folder")
+        self.button_delete_files.setText("Delete")
         self.button_delete_files.setMinimumWidth(IMAGE_BUTTONS_SIZE)
         self.button_delete_files.clicked.connect(delete_files_button_show_confirmation_buttons)
 
         self.imageexplorerbuttons.addWidget(self.button_new_folder)
+        self.imageexplorerbuttons.addWidget(self.button_rename)
         self.imageexplorerbuttons.addWidget(self.button_delete_files)
 
         self.imageexplorerbuttons.addWidget(self.download_and_install_hdfmonkey_button)
