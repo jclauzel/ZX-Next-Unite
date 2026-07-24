@@ -470,6 +470,14 @@ def _draw_text_mixed(surface, s, x, y, base_font, color):
                     img = None
         if img is None:
             continue
+        # Colour-emoji fallback fonts (e.g. Noto Color Emoji on Linux) render
+        # their glyphs at a fixed native bitmap strike, ignoring the requested
+        # pixel size, so an emoji run can come back many times taller than the
+        # surrounding text and swamp the line — the retro-mode "big icons".
+        # Shrink an oversized fallback-font run back down to the base line
+        # height (aspect preserved) before blitting.
+        if f is not base_font and img.get_height() > base_h:
+            img = _scale_keep_aspect(img, img.get_width(), base_h)
         h = img.get_height()
         oy = (base_h - h) // 2 if f is not base_font else 0
         surface.blit(img, (cur_x, int(y) + oy))
