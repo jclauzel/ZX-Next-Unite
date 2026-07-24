@@ -3204,21 +3204,21 @@ class MainWindow(QMainWindow):
 
                 cspect_arguments += " -mmc=" + mmc_path + " "
 
+                # The command that will actually be invoked: the bundled itch.io
+                # copy by absolute path, otherwise the CSpect.exe resolved from the
+                # app directory / PATH (prefixed with mono on macOS/Linux).
+                if platform.system() == "Windows":
+                    cspect_executable = f'"{cspect_exe}"' if use_bundled else "CSpect.exe"
+                else:
+                    cspect_executable = f'mono "{cspect_exe}"' if use_bundled else "mono CSpect.exe"
+
+                logging.info(f"CSpect executable: {cspect_executable}")
+                add_main_log_window(f"CSpect executable: {cspect_executable}")
                 logging.info(f"Cspect start with arguments: {cspect_arguments}")
                 add_main_log_window(f"Cspect start with arguments: {cspect_arguments}")
 
                 try:
-                    if platform.system() == "Windows":
-                        if use_bundled:
-                            execute_shell_command (f'"{cspect_exe}"', cspect_arguments, cwd=cspect_cwd)
-                        else:
-                            execute_shell_command ("CSpect.exe", cspect_arguments)
-                        #execute_shell_command_no_wait ("CSpect.exe", cspect_arguments)
-                    else:
-                        if use_bundled:
-                            execute_shell_command (f'mono "{cspect_exe}"', cspect_arguments, cwd=cspect_cwd)
-                        else:
-                            execute_shell_command ("mono CSpect.exe", cspect_arguments)
+                    execute_shell_command(cspect_executable, cspect_arguments, cwd=cspect_cwd)
                 except subprocess.CalledProcessError as ex:
                     if ex.returncode == 1:
                         logging.error("CSpect.exe is not present in the same local directory as zx-next-unite.Please install it from http://cspect.org")
@@ -3321,6 +3321,11 @@ class MainWindow(QMainWindow):
             if mame_image:
                 mame_argv += [MAME_HARD_DISK_PARAMETER, mame_image]
 
+            # Executable that will actually be invoked: the detected MAME binary,
+            # or the Flatpak run command when Flatpak mode is enabled.
+            _mame_executable = " ".join(MAME_FLATPAK_COMMAND) if _flatpak else mame_path
+            logging.info(f"MAME executable: {_mame_executable}")
+            add_main_log_window(f"MAME executable: {_mame_executable}")
             logging.info(f"MAME start with arguments: {mame_argv}")
             add_main_log_window(f"MAME start with arguments: {' '.join(mame_argv)}")
 
