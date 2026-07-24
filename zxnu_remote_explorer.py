@@ -467,6 +467,12 @@ class RemoteExplorerWidget(QWidget):
         self.btn_to_local.setToolTip("Download the selected Next item(s) to the local folder (get)")
         self.btn_to_local.clicked.connect(self._get_selected)
 
+        # QTimer driving the soft green "breathing" glow on the two transfer
+        # arrow buttons while the Remote Explorer view is visible, mirroring the
+        # SD Card tab's transfer-arrow pulse (_start_transfer_idle_animation).
+        # Started/stopped from showEvent/hideEvent; None while stopped.
+        self._arrow_pulse_timer = None
+
         centre_box = QVBoxLayout()
         centre_box.setAlignment(Qt.AlignCenter)
         centre_box.addWidget(self.btn_to_next)
@@ -584,6 +590,72 @@ class RemoteExplorerWidget(QWidget):
         grid.setRowStretch(0, 1)
 
         self._set_connected(False)
+
+    # ==================================================================
+    #  transfer-arrow "breathing" pulse (mirrors the SD Card tab)
+    # ==================================================================
+    def showEvent(self, event):
+        # The view became visible (Remote Explorer sub-view selected and the
+        # NextSync tab in front): start the green pulse, exactly like the SD
+        # Card tab kicks its transfer-arrow glow when it becomes the active tab.
+        super().showEvent(event)
+        self._start_arrow_pulse()
+
+    def hideEvent(self, event):
+        # Hidden (returned to classic sync, or switched to another tab): stop
+        # the pulse and restore the buttons' normal look.
+        super().hideEvent(event)
+        self._stop_arrow_pulse()
+
+    def _start_arrow_pulse(self):
+        """Start a soft, continuously-looping green 'breathing' background pulse
+        on the two transfer-arrow buttons (Send '->:' / Get ':<-'), matching the
+        SD Card tab's _start_transfer_idle_animation. The pulse rewrites each
+        button's background colour on a QTimer (always visible, unlike a
+        QGraphicsEffect, and it leaves the tiny arrow text untouched). Safe to
+        call repeatedly; it restarts cleanly."""
+        self._stop_arrow_pulse()
+
+        # Triangle wave over (2*steps) ticks -> a smooth fade up and down. The
+        # two buttons are offset by half a cycle so they breathe out of phase.
+        steps = 22
+        phase = {"n": 0}
+
+        def _alpha_for(pos):
+            pos %= (2 * steps)
+            tri = pos / steps if pos <= steps else (2 * steps - pos) / steps
+            return int(150 * tri)
+
+        def _tick():
+            phase["n"] = (phase["n"] + 1) % (2 * steps)
+            for btn, off in ((self.btn_to_next, 0), (self.btn_to_local, steps)):
+                a = _alpha_for(phase["n"] + off)
+                try:
+                    btn.setStyleSheet(
+                        "QPushButton { "
+                        f"background-color: rgba(46,204,113,{a}); "
+                        f"border: 1px solid rgba(46,204,113,{min(a + 60, 255)}); "
+                        "border-radius: 4px; }")
+                except RuntimeError:
+                    pass
+
+        timer = QTimer(self)
+        timer.setInterval(55)
+        timer.timeout.connect(_tick)
+        timer.start()
+        self._arrow_pulse_timer = timer
+
+    def _stop_arrow_pulse(self):
+        """Stop the breathing pulse and restore the buttons' normal appearance."""
+        timer = getattr(self, "_arrow_pulse_timer", None)
+        if timer is not None:
+            timer.stop()
+            self._arrow_pulse_timer = None
+        for btn in (self.btn_to_next, self.btn_to_local):
+            try:
+                btn.setStyleSheet("")
+            except RuntimeError:
+                pass
 
     # ==================================================================
     #  command queue  (counts toward the running operation, if any)
