@@ -11,9 +11,25 @@ import webbrowser
 
 from zxnu_config import *
 from zxnu_media import *
-from PySide6.QtCore import QBuffer, QByteArray, QDir, QEvent, QIODevice, QRect, QSize, QTimer, Qt, Signal
+from PySide6.QtCore import QBuffer, QByteArray, QDir, QEvent, QIODevice, QObject, QRect, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFontInfo, QMovie, QPainter, QPixmap
 from PySide6.QtWidgets import QAbstractItemView, QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTableWidget, QToolButton, QToolTip, QVBoxLayout, QWidget
+
+
+class _DblClickFilter(QObject):
+    """Event filter that fires *callback* on a mouse double-click. Shared by
+    the GetIt / ZXDB / zxArt gallery panes to intercept a double-click on their
+    screenshot-preview label (open the fullscreen overlay)."""
+
+    def __init__(self, callback):
+        super().__init__()
+        self._cb = callback
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonDblClick:
+            self._cb()
+            return True
+        return False
 
 
 class GalleryCell(QFrame):
