@@ -58,6 +58,20 @@ the **[Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki)**:
 
 - [Home / overview](https://github.com/jclauzel/ZX-Next-Unite/wiki)
 - [Installation](https://github.com/jclauzel/ZX-Next-Unite/wiki/Installation)
+- 📖 **[User Manual](https://github.com/jclauzel/ZX-Next-Unite/wiki/User-Manual)**
+  — **new:** a page per tab, with screenshots, aimed at first-time users. What
+  each tab is for, a quick start, and a reference for every control:
+  [SD Card Utility](https://github.com/jclauzel/ZX-Next-Unite/wiki/SD-Card-Utility-tab) ·
+  [NextSync](https://github.com/jclauzel/ZX-Next-Unite/wiki/NextSync-tab) ·
+  [Unite!](https://github.com/jclauzel/ZX-Next-Unite/wiki/Unite-tab) ·
+  [GetIt](https://github.com/jclauzel/ZX-Next-Unite/wiki/GetIt-tab) ·
+  [ZXArt.ee](https://github.com/jclauzel/ZX-Next-Unite/wiki/zxArt-tab) ·
+  [ZXDB/ZXInfo.dk](https://github.com/jclauzel/ZX-Next-Unite/wiki/ZXDB-tab) ·
+  [itch.io](https://github.com/jclauzel/ZX-Next-Unite/wiki/itch-io-tab) ·
+  [Favorites](https://github.com/jclauzel/ZX-Next-Unite/wiki/Favorites-tab) ·
+  [Alien Floyd's](https://github.com/jclauzel/ZX-Next-Unite/wiki/Alien-Floyds-tab) ·
+  [Settings](https://github.com/jclauzel/ZX-Next-Unite/wiki/Settings-tab) ·
+  [Help](https://github.com/jclauzel/ZX-Next-Unite/wiki/Help-tab)
 
 ## License
 
