@@ -10,6 +10,13 @@ Komppa (with the Sync4 extensions by Julien Clauzel).
 
 Co-developed with the assistance of **Claude** (Anthropic's AI).
 
+![A tour of the ZX-Next-Unite tabs](docs/zx-next-unite-tour.gif)
+
+*The main tabs, in Retro mode: SD Card Utility · NextSync (classic sync, then
+the Remote Explorer) · GetIt · ZXArt.ee · ZXDB/ZXInfo.dk · Unite! · Alien
+Floyd's. Every tab is documented in the
+**[User Manual](https://github.com/jclauzel/ZX-Next-Unite/wiki/User-Manual)**.*
+
 ## Features
 
 - **SD Card tab** — mount an HDF image, copy files in/out with a built-in
