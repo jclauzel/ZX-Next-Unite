@@ -840,7 +840,8 @@ def _make_retro_toggle_button(window, flag_attr, status_cb=None, on_change=None)
     Classic Qt viewer. The chosen mode is stored on *window* as *flag_attr*
     (e.g. ``_zxdb_item_retro``). The label mirrors the SD/NextSync/Unite! pygame
     buttons: it shows the mode you will switch *to* ("🎮 Retro" while Classic,
-    "🖼 Classic" while Retro). *on_change(checked)* — when given — is called after
+    "🖼 Switch to 'Classic' view mode" while Retro). *on_change(checked)* — when
+    given — is called after
     a successful toggle so the caller can persist the choice. Returns the
     QPushButton."""
     btn = QPushButton("🎮 Retro")
@@ -870,7 +871,7 @@ def _make_retro_toggle_button(window, flag_attr, status_cb=None, on_change=None)
                         pass
                 return
             setattr(window, flag_attr, True)
-            btn.setText("🖼 Classic")
+            btn.setText("🖼 Switch to 'Classic' view mode")
         else:
             setattr(window, flag_attr, False)
             btn.setText("🎮 Retro")
@@ -2721,17 +2722,18 @@ class MainWindow(QMainWindow):
                     finally:
                         self._nextsync_pygame_restoring = False
 
-                # Restore the Remote Explorer view if it was open last session,
-                # routed through the toggle so all its show/hide + widget-build
-                # side effects run (the listen server itself is NOT auto-started).
+                # Restore the Remote Explorer view if it was open last session by
+                # selecting its tab (index 0), which drives all the show/hide +
+                # widget-build side effects (the listen server itself is NOT
+                # auto-started).
                 _re_open_pref = configuration_dictionary.get(
                     SETTING_NEXTSYNC_REMOTE_EXPLORER, "").strip().lower()
                 if _re_open_pref in ("true", "1", "yes") and \
-                        hasattr(self, "nextsync_remote_button") and \
-                        not self.nextsync_remote_button.isChecked():
+                        hasattr(self, "nextsync_mode_tabs") and \
+                        self.nextsync_mode_tabs.currentIndex() != 0:
                     self._re_open_restoring = True
                     try:
-                        self.nextsync_remote_button.setChecked(True)
+                        self.nextsync_mode_tabs.setCurrentIndex(0)
                     finally:
                         self._re_open_restoring = False
 
@@ -2741,11 +2743,11 @@ class MainWindow(QMainWindow):
                 # this run only, hence the _re_open_restoring guard) and start
                 # the server once the event loop is up, so the toasts, log
                 # pane and server closures it talks to all exist by then.
-                if _ZXNU_START_RE_LISTENER and hasattr(self, "nextsync_remote_button"):
-                    if not self.nextsync_remote_button.isChecked():
+                if _ZXNU_START_RE_LISTENER and hasattr(self, "nextsync_mode_tabs"):
+                    if self.nextsync_mode_tabs.currentIndex() != 0:
                         self._re_open_restoring = True
                         try:
-                            self.nextsync_remote_button.setChecked(True)
+                            self.nextsync_mode_tabs.setCurrentIndex(0)
                         finally:
                             self._re_open_restoring = False
 
@@ -8627,7 +8629,7 @@ class MainWindow(QMainWindow):
                     _main_pygame_disable(f"Pygame init failed: {exc}")
                     return
                 self._main_pygame_on = True
-                self.main_pygame_button.setText("🖼 Classic")
+                self.main_pygame_button.setText("🖼 Switch to 'Classic' view mode")
                 self.main_log_stack.setCurrentWidget(widget)
                 widget.start()
                 _main_pygame_persist(True)
@@ -8970,6 +8972,49 @@ class MainWindow(QMainWindow):
                     break
 
         self._allinone_color_timer.timeout.connect(_allinone_color_tick)
+
+        # ---- Remote Explorer sub-tab text colour animation --------------------
+        # Mirrors the Unite! main-tab colour cycling, but on the NextSync tab's
+        # "Remote Explorer" sub-tab (nextsync_mode_tabs index 0). To save CPU it
+        # runs ONLY while the NextSync tab is the visible main tab: on_tab_changed
+        # (and the deferred startup activation) call _re_tab_anim_set_active to
+        # start/stop it. Reuses the Unite! colour list and 500 ms cadence.
+        self._re_tab_color_frame = 0
+        self._re_tab_color_timer = QTimer(self)
+        self._re_tab_color_timer.setInterval(500)
+
+        def _re_tab_color_tick():
+            tabs = getattr(self, "nextsync_mode_tabs", None)
+            if tabs is None:
+                return
+            color = _ALLINONE_COLORS[self._re_tab_color_frame % len(_ALLINONE_COLORS)]
+            self._re_tab_color_frame += 1
+            try:
+                tabs.setTabTextColor(0, color)   # index 0 == "Remote Explorer"
+            except RuntimeError:
+                pass  # tab bar gone (shutdown) — harmless
+        self._re_tab_color_timer.timeout.connect(_re_tab_color_tick)
+
+        def _re_tab_anim_set_active(active):
+            """Start/stop the Remote Explorer sub-tab colour cycling. Called with
+            True when the NextSync tab becomes visible and False when leaving it,
+            so the timer never runs while the user is on another tab."""
+            if getattr(self, "nextsync_mode_tabs", None) is None:
+                return
+            if active:
+                if not self._re_tab_color_timer.isActive():
+                    self._re_tab_color_timer.start()
+            elif self._re_tab_color_timer.isActive():
+                self._re_tab_color_timer.stop()
+                # Repaint the tab in the normal readable colour so it doesn't
+                # freeze on whatever cycle colour it stopped on.
+                _restore = getattr(self, "_apply_tab_text_colors", None)
+                if _restore is not None:
+                    try:
+                        _restore()
+                    except Exception:
+                        pass
+        self._re_tab_anim_set_active = _re_tab_anim_set_active
 
         # ── Favorites helpers (cross-pane, captured by closures below) ──
         _FAV_SOURCE_LABELS = {"getit": "GetIt", "zxdb": "ZXDB", "zxart": "zxArt",
@@ -9415,15 +9460,33 @@ class MainWindow(QMainWindow):
             "Requires the optional 'pygame-ce' package.")
         self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_pygame_button)
 
-        # Flip the log window into a dual-pane remote file explorer (local <-> Next)
-        # driven by ".sync5 -listen". Built lazily the first time it is switched on.
-        self.nextsync_remote_button = QPushButton("🗂 Remote Explorer")
-        self.nextsync_remote_button.setCheckable(True)
-        self.nextsync_remote_button.setToolTip(
-            "Turn the log window into a dual-pane file explorer (local <-> Next).\n"
+        # NextSync experience selector. Two tabs replace the old checkable
+        # "Remote Explorer" toggle button:
+        #   index 0 "Remote Explorer" — flips the log window into a dual-pane
+        #       local <-> Next file explorer driven by ".sync5 -listen" (built
+        #       lazily the first time it is shown).
+        #   index 1 "Classic" — the traditional one-way NextSync push (PC -> Next).
+        # The chosen tab is persisted (SETTING_NEXTSYNC_REMOTE_EXPLORER, "true"
+        # for Remote Explorer) so the NextSync tab reopens in the same experience
+        # next launch. currentChanged drives the same show/hide + persist logic
+        # the toggle button used to (connected below, once the mode widgets exist).
+        self.nextsync_mode_tabs = QTabBar(self)
+        self.nextsync_mode_tabs.setExpanding(False)
+        self.nextsync_mode_tabs.addTab("🗂 Remote Explorer")   # index 0
+        self.nextsync_mode_tabs.addTab("🔄 Classic sync")       # index 1
+        self.nextsync_mode_tabs.setToolTip(
+            "Remote Explorer: a dual-pane file explorer (local <-> Next).\n"
             "Run '.sync5 -listen' on your Next, then transfer files with ->: / :<-,\n"
-            "drag & drop, or the right-click menu (New Folder / Rename / Delete).")
-        self.nextsync_container_log_and_sync_buttons.addWidget(self.nextsync_remote_button)
+            "drag & drop, or the right-click menu (New Folder / Rename / Delete).\n"
+            "Classic: the traditional one-way NextSync push (PC -> Next).")
+        # Default to the Classic tab (matches the historical default and the
+        # controls built below); the saved preference restores Remote Explorer
+        # at startup. Set before currentChanged is connected so it does not fire
+        # the handler while the mode widgets are still being constructed.
+        self.nextsync_mode_tabs.setCurrentIndex(1)
+        # Placed at the very top of the NextSync tab page (added to
+        # grid_tab_nextsync below), so it sits right under the main tab strip
+        # and spans the full width, rather than being buried in the log column.
 
         # Stack: page 0 = the classic list log, page 1 = the retro pygame log
         # (built lazily the first time the user switches it on).
@@ -9626,7 +9689,7 @@ class MainWindow(QMainWindow):
                 btn.setEnabled(True)
                 btn.setText("⏹ Stop Remote Explorer NextSync server")
                 return
-            in_view = self.nextsync_remote_button.isChecked()
+            in_view = (self.nextsync_mode_tabs.currentIndex() == 0)
             if getattr(self, "_re_sync_root", ""):
                 btn.setEnabled(True)
                 btn.setText(_RE_START_TEXT)
@@ -9792,7 +9855,7 @@ class MainWindow(QMainWindow):
             if self._re_running:
                 return
             try:
-                if not self.nextsync_remote_button.isChecked():
+                if self.nextsync_mode_tabs.currentIndex() != 0:
                     return
             except RuntimeError:
                 return
@@ -10089,13 +10152,17 @@ class MainWindow(QMainWindow):
             if checked:
                 widget = _nextsync_build_remote_explorer()
                 self.nextsync_log_stack.setCurrentWidget(widget)
-                self.nextsync_remote_button.setText("🗂 Return to classic sync")
                 # Swap the normal sync controls for the dedicated server control.
                 self.nextsync_prepare_server.setVisible(False)
                 self.nextsync_start_server.setVisible(False)
                 self.nextsync_cancel_server.setVisible(False)
                 self.nextsync_sync_mode_group.setVisible(False)
                 self.nextsync_slowtransfer_checkbox.setVisible(False)
+                # The retro-log toggle ("🎮 Retro" / "🖼 Switch to 'Classic' view
+                # mode") is meaningless
+                # here — the log window is replaced by the file explorer — so hide
+                # it in Remote Explorer mode (restored on the Classic tab).
+                self.nextsync_pygame_button.setVisible(False)
                 self.nextsync_re_start_button.setVisible(True)
                 self.nextsync_re_play_label.setVisible(self._re_running)
                 # Set the button state: disabled with a "pick a sync root" prompt
@@ -10115,14 +10182,27 @@ class MainWindow(QMainWindow):
             else:
                 _nextsync_stop_listen_server()
                 _re_stop_startbtn_pulse()   # leaving the RE view: drop the pulse
-                self.nextsync_log_stack.setCurrentWidget(self.nextsync_log)
-                self.nextsync_remote_button.setText("🗂 Remote Explorer")
+                # Restore the log view that matches the current retro/classic
+                # choice — NOT always the classic list. Forcing the list here
+                # while retro mode is on desyncs the retro toggle: the button
+                # still reads "🖼 Switch to 'Classic' view mode" (checked) but the
+                # plain list shows, so
+                # the user's next press merely unchecks it with no visible change
+                # ("Retro doesn't switch on the first press").
+                if getattr(self, "_nextsync_pygame_on", False) and \
+                        self._nextsync_retro_log is not None:
+                    self.nextsync_log_stack.setCurrentWidget(self._nextsync_retro_log)
+                    self._nextsync_retro_log.start()
+                else:
+                    self.nextsync_log_stack.setCurrentWidget(self.nextsync_log)
                 self.nextsync_re_start_button.setVisible(False)
                 self.nextsync_re_play_label.setVisible(False)
                 # Restore the normal sync controls.
                 self.nextsync_prepare_server.setVisible(True)
                 self.nextsync_sync_mode_group.setVisible(True)
                 self.nextsync_slowtransfer_checkbox.setVisible(True)
+                # Bring the retro-log toggle back (hidden in Remote Explorer mode).
+                self.nextsync_pygame_button.setVisible(True)
                 # Restore the local file explorer column and the name filter.
                 self.nextsync_fileexplorer_and_buttons_container.setVisible(True)
                 self.nextsync_filterlabel.setVisible(True)
@@ -10139,7 +10219,11 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
-        self.nextsync_remote_button.toggled.connect(_nextsync_toggle_remote_explorer)
+        def _nextsync_on_mode_tab_changed(index):
+            # Tab 0 = Remote Explorer, tab 1 = Classic. Reuse the toggle logic:
+            # `checked` here means "Remote Explorer active".
+            _nextsync_toggle_remote_explorer(index == 0)
+        self.nextsync_mode_tabs.currentChanged.connect(_nextsync_on_mode_tab_changed)
 
         def _nextsync_build_retro_log():
             if self._nextsync_retro_log is not None:
@@ -10210,7 +10294,7 @@ class MainWindow(QMainWindow):
                     _nextsync_pygame_disable(f"Pygame init failed: {exc}")
                     return
                 self._nextsync_pygame_on = True
-                self.nextsync_pygame_button.setText("🖼 Classic")
+                self.nextsync_pygame_button.setText("🖼 Switch to 'Classic' view mode")
                 self.nextsync_log_stack.setCurrentWidget(widget)
                 widget.start()
                 _nextsync_pygame_persist(True)
@@ -10455,7 +10539,11 @@ class MainWindow(QMainWindow):
         zxnextunite_NextSync_tab.setAttribute(Qt.WA_TranslucentBackground)
         zxnextunite_NextSync_tab.setAutoFillBackground(False)
         grid_tab_nextsync = QGridLayout(zxnextunite_NextSync_tab)
-        grid_tab_nextsync.addWidget(nextsync_container) # here use the form container
+        # Row 0: the Remote Explorer / Classic experience selector, right below
+        # the main tab strip and spanning the full width. Row 1: the form content.
+        grid_tab_nextsync.addWidget(self.nextsync_mode_tabs, 0, 0)
+        grid_tab_nextsync.addWidget(nextsync_container, 1, 0) # here use the form container
+        grid_tab_nextsync.setRowStretch(1, 1)
         zxnextunite_NextSync_tab.setLayout(grid_tab_nextsync)
         zxnextunite_NextSync_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC
         wid_inner.tab.addTab(zxnextunite_NextSync_tab, ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC)
@@ -13618,7 +13706,7 @@ class MainWindow(QMainWindow):
                     _allinone_pygame_disable(f"Pygame init failed: {exc}")
                     return
                 self._allinone_pygame_on = True
-                self.allinone_pygame_button.setText("🖼 Classic")
+                self.allinone_pygame_button.setText("🖼 Switch to 'Classic' view mode")
                 # The autocomplete dropdown is a top-level Qt.Tool window.  Shown
                 # over the continuously-repainting pygame surface on Windows it
                 # steals keyboard activation from the search box, so the user can
@@ -14365,6 +14453,18 @@ class MainWindow(QMainWindow):
             for _i in range(self._tab_widget.count()):
                 if "Unite!" not in self._tab_widget.tabText(_i):
                     _tab_bar.setTabTextColor(_i, _color)
+            # Also paint the NextSync experience sub-tabs (nextsync_mode_tabs) so
+            # they honour the theme. Skip the "Remote Explorer" tab (index 0)
+            # while its colour animation is running — exactly as the Unite! main
+            # tab is skipped above — so its cycling colour isn't overwritten.
+            _mode_tabs = getattr(self, "nextsync_mode_tabs", None)
+            if _mode_tabs is not None:
+                _re_anim = getattr(self, "_re_tab_color_timer", None)
+                _re_animating = bool(_re_anim is not None and _re_anim.isActive())
+                for _i in range(_mode_tabs.count()):
+                    if _i == 0 and _re_animating:
+                        continue
+                    _mode_tabs.setTabTextColor(_i, _color)
         self._apply_tab_text_colors = _apply_tab_text_colors
 
         def _refresh_tab_stylesheet():
@@ -15370,7 +15470,7 @@ class MainWindow(QMainWindow):
                     _help_pygame_disable(f"Pygame init failed: {exc}")
                     return
                 self._help_pygame_on = True
-                self.help_pygame_button.setText("🖼 Classic")
+                self.help_pygame_button.setText("🖼 Switch to 'Classic' view mode")
                 self.help_log_stack.setCurrentWidget(widget)
                 widget.start()
                 _help_pygame_persist(True)
@@ -15703,6 +15803,10 @@ class MainWindow(QMainWindow):
             # Only run the idle "breathing" glow on the transfer buttons while the
             # SD-card tab is the active one; stop it on every other tab.
             _stop_transfer_idle_animation()
+            # The Remote Explorer sub-tab colour animation only runs while the
+            # NextSync tab is visible; stop it here and (re)start it in the
+            # NextSync branch below.
+            self._re_tab_anim_set_active(False)
             if tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GOOEY):
                 _start_transfer_idle_animation()
                 # Re-tint the existing rows with the current item colors (the
@@ -15735,6 +15839,8 @@ class MainWindow(QMainWindow):
             elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE):
                 _show_content_disclaimer()
             elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC):
+                # Now visible: animate the "Remote Explorer" sub-tab text.
+                self._re_tab_anim_set_active(True)
                 # Auto-run the "Prepare" step on entering the tab so the
                 # "Start Classic NextSync server" button is ready without an extra
                 # click. Guard on the prepare button still being visible so we
@@ -15776,23 +15882,25 @@ class MainWindow(QMainWindow):
 
             # Each control's own toggled/stateChanged handler sets the config
             # value, persists it and applies the visual effect, so flipping the
-            # control on (post-_initialising) is all that's needed.
-            if _unset(SETTING_ALLINONE_PYGAME_MODE):
-                btn = getattr(self, "allinone_pygame_button", None)
+            # control on (post-_initialising) is all that's needed. Each flip is
+            # isolated in its own try/except so a failure building ONE pygame
+            # surface can't abort the rest — in particular the NextSync retro
+            # default must still apply if another pane's pygame init hiccups.
+            def _first_run_check_on(key, attr):
+                if not _unset(key):
+                    return
+                btn = getattr(self, attr, None)
                 if btn is not None and btn.isEnabled() and not btn.isChecked():
-                    btn.setChecked(True)
-            if _unset(SETTING_NEXTSYNC_PYGAME_MODE):
-                btn = getattr(self, "nextsync_pygame_button", None)
-                if btn is not None and btn.isEnabled() and not btn.isChecked():
-                    btn.setChecked(True)
-            if _unset(SETTING_SDCARD_PYGAME_LOG):
-                btn = getattr(self, "main_pygame_button", None)
-                if btn is not None and btn.isEnabled() and not btn.isChecked():
-                    btn.setChecked(True)
-            if _unset(SETTING_HELP_PYGAME_LOG):
-                btn = getattr(self, "help_pygame_button", None)
-                if btn is not None and btn.isEnabled() and not btn.isChecked():
-                    btn.setChecked(True)
+                    try:
+                        btn.setChecked(True)
+                    except Exception:
+                        logging.exception(
+                            "First-run pygame default failed for %s", attr)
+
+            _first_run_check_on(SETTING_ALLINONE_PYGAME_MODE, "allinone_pygame_button")
+            _first_run_check_on(SETTING_NEXTSYNC_PYGAME_MODE, "nextsync_pygame_button")
+            _first_run_check_on(SETTING_SDCARD_PYGAME_LOG,    "main_pygame_button")
+            _first_run_check_on(SETTING_HELP_PYGAME_LOG,      "help_pygame_button")
             # Per-pane Classic/Retro item-viewer toggles (GetIt, ZXDB, zxArt,
             # itch.io, Favorites). Default them to Retro too so every gallery
             # pane opens items in the pygame viewer on first run, matching the
@@ -15805,10 +15913,7 @@ class MainWindow(QMainWindow):
                 (SETTING_ITCHIO_ITEM_RETRO,    "itchio_retro_button"),
                 (SETTING_FAVORITES_ITEM_RETRO, "favorites_retro_button"),
             ):
-                if _unset(_retro_key):
-                    btn = getattr(self, _retro_btn_attr, None)
-                    if btn is not None and btn.isEnabled() and not btn.isChecked():
-                        btn.setChecked(True)
+                _first_run_check_on(_retro_key, _retro_btn_attr)
             if _unset(SETTING_ALIEN_FLOYD_BG):
                 cb = getattr(self, "settings_alien_floyd_bg_checkbox", None)
                 if cb is not None and not cb.isChecked():
@@ -15879,8 +15984,10 @@ class MainWindow(QMainWindow):
             elif current_title == ZX_NEXT_UNITE_TAB_TITLE_ALLINONE:
                 _show_content_disclaimer()
             elif current_title == ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC:
-                # App restored directly onto the NextSync tab: auto-prepare so the
-                # Start button is ready (currentChanged was not connected yet).
+                # App restored directly onto the NextSync tab: start the Remote
+                # Explorer sub-tab animation (currentChanged wasn't connected yet)
+                # and auto-prepare so the Start button is ready.
+                self._re_tab_anim_set_active(True)
                 if self.nextsync_prepare_server.isVisible():
                     nextsync_perform_checks_and_prepare_server_start()
 
