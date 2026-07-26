@@ -99,11 +99,14 @@ def unresolved_free_vars(path):
         if exported is None:
             exported = [n for n in dir(mod) if not n.startswith("_")]
         star_names.update(exported)
-    fn = next(n for n in tree.body
-              if isinstance(n, ast.FunctionDef) and n.name.startswith("build_"))
-    params = {a.arg for a in (fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs)}
-    avail = mod_bound | star_names | params | _all_bound(fn.body)
-    return sorted(n for n in _loads(fn.body) if n not in avail and n != "self")
+    missing = []
+    for fn in [n for n in tree.body
+               if isinstance(n, ast.FunctionDef) and n.name.startswith("build_")]:
+        params = {a.arg for a in (fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs)}
+        avail = mod_bound | star_names | params | _all_bound(fn.body)
+        missing += sorted(f"{fn.name}:{n}" for n in _loads(fn.body)
+                          if n not in avail and n != "self")
+    return missing
 
 
 PANES = [
@@ -116,16 +119,26 @@ PANES = [
     ("zxnu_zxart_pane", "build_zxart_pane",
      ["zxart_run_search", "zxart_on_latest", "zxart_on_random",
       "_zxart_open_gallery_viewer"]),
+    # Extraction #7: the Unite! (AllInOne) tab — two builders in one module
+    # (widget layer at the tab-construction spot, ops layer after itch.io).
+    ("zxnu_unite_pane", ["build_unite_pane", "build_unite_ops"], []),
+    # Extraction #8: the Settings tab.
+    ("zxnu_settings_pane", "build_settings_pane", []),
+    # Extraction #9: the NextSync tab (widgets + wiring; op closures injected).
+    ("zxnu_nextsync_pane", "build_nextsync_pane", []),
 ]
 
-for modname, funcname, _outputs in PANES:
+for modname, funcnames, _outputs in PANES:
+    if isinstance(funcnames, str):
+        funcnames = [funcnames]
     path = os.path.join(REPO, modname + ".py")
     check(f"{modname}.py exists", os.path.isfile(path))
     mod = importlib.import_module(modname)
-    check(f"{modname} imports and exposes {funcname}",
-          callable(getattr(mod, funcname, None)))
+    for funcname in funcnames:
+        check(f"{modname} imports and exposes {funcname}",
+              callable(getattr(mod, funcname, None)))
     missing = unresolved_free_vars(path)
-    check(f"{modname}: build function has no unresolved free vars",
+    check(f"{modname}: build function(s) have no unresolved free vars",
           not missing, ", ".join(missing))
 
 print()
