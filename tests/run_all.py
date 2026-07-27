@@ -40,7 +40,7 @@ SUITES = [
     ("test_http_bridge.py",     240, "flask"),
     ("test_retro_log_widget.py", 120, None),
     ("test_i18n.py",            120, None),
-    ("test_ui_offscreen.py",    3600, None),   # runs its 9 phases itself
+    ("test_ui_offscreen.py",    3600, None),   # runs its 10 phases itself
 ]
 
 WITH_COVERAGE = "--coverage" in sys.argv[1:]

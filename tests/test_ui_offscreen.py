@@ -34,6 +34,10 @@ Phases:
      titles untouched, Settings combo on Español); switching the combo back
      to English live restores the originals and persists ui_language=en.
                                                          (no hdfmonkey needed)
+ 10  First-run OS-language adoption: with NO saved ui_language and the OS
+     locale forced to Spanish (ZX_NEXT_UNITE_UI_LANGUAGE=es), the app starts
+     translated, persists ui_language=es once, and shows the 15 s advisory
+     toast in the BOTTOM-LEFT corner (in Spanish).      (no hdfmonkey needed)
 
 Every phase cfg carries zxnu_update_check=false (except phase 7, which quits
 before the delayed check can fire) so the suite never talks to GitHub.
@@ -69,12 +73,14 @@ DROPSRC = os.path.join(SCRATCH, "dropsrc.txt")
 DELZONE = os.path.join(SCRATCH, "delzone")
 
 PHASE = int(sys.argv[1]) if len(sys.argv) > 1 else None
-ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9)
+ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 
 # Base cfg for the isolated app copy: update checks off (MAME/CSpect AND the
-# app's own GitHub release check) so no phase ever hits the network.
+# app's own GitHub release check) so no phase ever hits the network, and the
+# UI language pinned to English so the first-run OS-language adoption can't
+# translate the texts these phases compare (phase 10 covers that flow).
 BASE_CFG = ("mame_update_check=false\ncspect_update_check=false\n"
-            "zxnu_update_check=false\n")
+            "zxnu_update_check=false\nui_language=en\n")
 
 
 def find_hdfmonkey():
@@ -213,10 +219,21 @@ elif PHASE == 8:
         f.write(BASE_CFG)
 elif PHASE == 9:
     # Saved non-English UI language -> the startup walk must translate the
-    # static UI. Needs no image and no hdfmonkey.
+    # static UI. Needs no image and no hdfmonkey. (BASE_CFG pins en; the es
+    # line written after it wins — the cfg loader is last-value-wins.)
     ensure_scratch(fresh=False)
     with open(CFG, "w", encoding="utf-8") as f:
         f.write(BASE_CFG + "ui_language=es\n")
+elif PHASE == 10:
+    # First-run OS-language adoption: NO ui_language key at all, and the OS
+    # locale forced to Spanish via the env override the detection honours
+    # (Qt ignores LANG/LC_ALL on Windows). Expect: UI in Spanish, the choice
+    # persisted once, and the 15 s advisory toast in the BOTTOM-LEFT corner.
+    ensure_scratch(fresh=False)
+    with open(CFG, "w", encoding="utf-8") as f:
+        f.write("mame_update_check=false\ncspect_update_check=false\n"
+                "zxnu_update_check=false\n")
+    os.environ["ZX_NEXT_UNITE_UI_LANGUAGE"] = "es"
 elif PHASE in (6, 7):
     # Phase 6: dotn_last_version older than the bundled dotN -> the ".sync5
     # needs updating on your Next" advisory popup must fire, and the Settings
@@ -232,7 +249,8 @@ elif PHASE in (6, 7):
             f.write(BASE_CFG + "dotn_last_version=1.0\n"
                     + "delete_to_recycle_bin=false\n")
         else:
-            f.write("mame_update_check=false\ncspect_update_check=false\n")
+            f.write("mame_update_check=false\ncspect_update_check=false\n"
+                    "ui_language=en\n")
 else:
     print(f"Unknown phase {PHASE}")
     sys.exit(2)
@@ -248,7 +266,7 @@ sys.meta_path.insert(0, _NoPygame())
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, REPO)
 
-from PySide6.QtWidgets import QApplication, QLineEdit
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit
 from PySide6.QtCore import QTimer, QCoreApplication
 
 FAILURES = []
@@ -467,12 +485,12 @@ def inspect_phase1():
     def spos(w):
         i = lay.indexOf(w)
         return None if i < 0 else lay.getItemPosition(i)[:2]
-    check("general-text swatch at settings (22,1)",
-          spos(win.settings_btn_color_general_text) == (22, 1), str(spos(win.settings_btn_color_general_text)))
-    check("retro-log swatch right under it (23,1)",
-          spos(win.settings_btn_color_retro_log) == (23, 1), str(spos(win.settings_btn_color_retro_log)))
-    check("retro font combo pushed to (24,1)",
-          spos(win.settings_retro_log_font_combo) == (24, 1), str(spos(win.settings_retro_log_font_combo)))
+    check("general-text swatch at settings (23,1)",
+          spos(win.settings_btn_color_general_text) == (23, 1), str(spos(win.settings_btn_color_general_text)))
+    check("retro-log swatch right under it (24,1)",
+          spos(win.settings_btn_color_retro_log) == (24, 1), str(spos(win.settings_btn_color_retro_log)))
+    check("retro font combo pushed to (25,1)",
+          spos(win.settings_retro_log_font_combo) == (25, 1), str(spos(win.settings_retro_log_font_combo)))
     check("default retro color is phosphor green",
           win.img_color_retro_log.name().lower() == "#78ff8c", win.img_color_retro_log.name())
     check("default swatch shows phosphor green",
@@ -742,8 +760,11 @@ def inspect_phase6():
         i = lay.indexOf(w)
         return None if i < 0 else lay.getItemPosition(i)[:2]
     check("update-check toggle at settings row 0", spos(cb) == (0, 0), str(spos(cb)))
-    check("desktop theme pushed to row 1",
-          spos(win.settings_desktop_theme_combo) == (1, 1),
+    check("UI language row right under it (1,1)",
+          spos(win.settings_ui_language_combo) == (1, 1),
+          str(spos(win.settings_ui_language_combo)))
+    check("desktop theme pushed to row 2",
+          spos(win.settings_desktop_theme_combo) == (2, 1),
           str(spos(win.settings_desktop_theme_combo)))
     check("cfg 'false' restored as unchecked", not cb.isChecked())
     cb.setChecked(True)
@@ -753,9 +774,9 @@ def inspect_phase6():
 
     # Recycle Bin deletes toggle: sits right under the no-prompt checkbox.
     rb = win.settings_delete_to_recycle_bin_checkbox
-    check("recycle toggle at settings (4,0)", spos(rb) == (4, 0), str(spos(rb)))
-    check("no-prompt checkbox above it (3,0)",
-          spos(win.settings_no_prompt_on_deletion_checkbox) == (3, 0),
+    check("recycle toggle at settings (5,0)", spos(rb) == (5, 0), str(spos(rb)))
+    check("no-prompt checkbox above it (4,0)",
+          spos(win.settings_no_prompt_on_deletion_checkbox) == (4, 0),
           str(spos(win.settings_no_prompt_on_deletion_checkbox)))
     if rb.isEnabled():
         check("cfg 'false' restored as unchecked (recycle)", not rb.isChecked())
@@ -860,6 +881,13 @@ def inspect_phase9():
     check("saved language restored in the combo",
           win.settings_ui_language_combo.currentData() == "es",
           win.settings_ui_language_combo.currentData())
+    # The picker must live in the visible 0/1 column band (a column-2+ cell
+    # sits outside the pane width unless the window is enlarged — the bug
+    # this check pins down).
+    _lay = win.settings_ui_language_combo.parentWidget().layout()
+    _pos = _lay.getItemPosition(_lay.indexOf(win.settings_ui_language_combo))[:2]
+    check("language combo on its own visible row (1,1)", _pos == (1, 1),
+          str(_pos))
     check("button translated at startup",
           win.selectimage.text() == "Seleccionar imagen de disco NextZXOS",
           win.selectimage.text())
@@ -889,9 +917,52 @@ def inspect_phase9():
           str([l for l in cfg_lines() if l.startswith("ui_language")]))
     app.quit()
 
+def inspect_phase10():
+    app = QApplication.instance()
+    win = find_win()
+    check("MainWindow found", win is not None)
+    if win is None:
+        app.quit(); return
+    check("OS language adopted in the combo",
+          win.settings_ui_language_combo.currentData() == "es",
+          win.settings_ui_language_combo.currentData())
+    check("UI translated on first run",
+          win.selectimage.text() == "Seleccionar imagen de disco NextZXOS",
+          win.selectimage.text())
+    check("adoption persisted once", "ui_language=es" in cfg_lines(),
+          str([l for l in cfg_lines() if l.startswith("ui_language")]))
+    check("adoption logged", recent_log(win, "UI language set to 'es'", n=30))
+
+    def find_toast():
+        # Several toasts can be up at once (emulator detection is bottom-right
+        # and English); the language advisory is the bottom-left one.
+        for w in QApplication.instance().topLevelWidgets():
+            try:
+                if (w.objectName() == "zxnu_toast" and w.isVisible()
+                        and w.property("zxnu_toast_corner") == "bottom-left"):
+                    return w
+            except RuntimeError:
+                pass
+        return None
+    ok_toast = wait_until(lambda: find_toast() is not None, timeout=15,
+                          what="language advisory toast")
+    check("advisory toast shown", ok_toast)
+    t = find_toast()
+    if t is not None:
+        check("toast in the BOTTOM-LEFT corner",
+              t.x() < win.frameGeometry().center().x()
+              and t.geometry().bottom() > win.frameGeometry().center().y(),
+              f"toast={t.geometry()} win={win.frameGeometry()}")
+        check("toast is in Spanish",
+              any("Idioma ajustado a tu sistema" in c.text()
+                  for c in t.findChildren(QLabel)),
+              str([c.text() for c in t.findChildren(QLabel)]))
+    app.quit()
+
 INSPECTORS = {1: inspect_phase1, 2: inspect_phase2, 3: inspect_phase3,
               4: inspect_phase4, 5: inspect_phase5, 6: inspect_phase6,
-              7: inspect_phase7, 8: inspect_phase8, 9: inspect_phase9}
+              7: inspect_phase7, 8: inspect_phase8, 9: inspect_phase9,
+              10: inspect_phase10}
 
 _orig_exec = QApplication.exec
 def _patched_exec(*_a):
