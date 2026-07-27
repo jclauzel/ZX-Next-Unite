@@ -5701,7 +5701,7 @@ class MainWindow(QMainWindow):
 
                 # ---- Phase 3: remove the original
                 _run_delete_task(_StepProxy("Deleting (Step 3/3)…"), cancel_event,
-                                 image_path, [src_path])
+                                 execute_hdf_monkey, image_path, [src_path])
             finally:
                 shutil.rmtree(tmp_root, ignore_errors=True)
 

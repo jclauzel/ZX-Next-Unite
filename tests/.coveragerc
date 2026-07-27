@@ -1,0 +1,39 @@
+# Coverage configuration for the opt-in coverage run:
+#
+#     python tests/run_all.py --coverage
+#
+# run_all.py exports COVERAGE_PROCESS_START pointing at this file and prepends
+# tests/covhook/ (whose sitecustomize.py calls coverage.process_startup()) to
+# PYTHONPATH, so EVERY Python process the suites spawn — including the
+# offscreen UI suite's phase subprocesses and the scratch copy of
+# zx-next-unite.py they run — measures itself and drops a parallel data file
+# next to tests/.coverage (COVERAGE_FILE).
+
+[run]
+parallel = true
+# Measure only the application modules; the test scripts and their mock
+# Nexts/dots are the harness, not the subject. rc_backgrounds.py is
+# auto-generated, so it is deliberately not listed.
+include =
+    */zx-next-unite.py
+    */zxnu_*.py
+    */nextsync5.py
+# Many child processes (mock dots, skipped phases) touch none of the files
+# above; that is expected, not worth a warning per process.
+disable_warnings = no-data-collected
+
+[paths]
+# Fold the offscreen UI suite's scratch copy (%TEMP%/zxnu-ui-tests/
+# zx-next-unite.py) back onto the repo file when combining. run_all.py runs
+# `coverage combine` from the repo root, so "." is the repo.
+app =
+    .
+    */zxnu-ui-tests
+
+[report]
+precision = 1
+# Lowest coverage first: the files most at risk sit at the top of the table.
+sort = cover
+
+[html]
+directory = tests/htmlcov

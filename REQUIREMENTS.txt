@@ -27,3 +27,8 @@ flask
 # Dev-only - linter/formatter (config in pyproject.toml). Not needed to run
 # the app: used by contributors to keep new code clean ("ruff check .").
 ruff
+
+# Dev-only - line-coverage measurement for the test suite
+# ("python tests/run_all.py --coverage", config in tests/.coveragerc).
+# Not needed to run the app.
+coverage
