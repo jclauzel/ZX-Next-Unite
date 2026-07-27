@@ -1783,6 +1783,10 @@ class MainWindow(QMainWindow):
             # a mounted image) so a found emulator isn't left fully greyed out
             # just because no image is selected yet.
             _update_cspect_controls()
+            # This is the "no image loaded, picker available" resting state: if
+            # an emulator is ready, pulse the image-picking buttons as the hint
+            # (self-stops once an image loads; no-op without an emulator).
+            _start_load_image_hint_animation()
 
         def disable_image_selection():
             self.imageinput.setDisabled(True)
@@ -1962,7 +1966,7 @@ class MainWindow(QMainWindow):
 
             # Reload the currently-selected image straight away so the file
             # explorer repopulates without the user having to reopen it via
-            # "Select Disk Image". The extract succeeded and
+            # "Select NextZXOS disk Image". The extract succeeded and
             # _hdfmonkey_executable_path now points at a verified binary, so
             # there's no need to re-probe first; load_image() restores the
             # controls once the (async) listing completes, and safely no-ops when
@@ -3607,6 +3611,9 @@ class MainWindow(QMainWindow):
             has already hidden its own install button and confirmed *detected* is
             a real path."""
             self._mame_executable_path = detected
+            # An emulator is now usable: if no image is loaded yet, start the
+            # yellow hint pulse on the image-picking buttons.
+            _start_load_image_hint_animation()
             _installed_tag = getattr(self, "_mame_pending_install_tag", "")
             if _installed_tag:
                 configuration_dictionary[SETTING_MAME_INSTALLED_TAG] = _installed_tag
@@ -4750,6 +4757,80 @@ class MainWindow(QMainWindow):
             except RuntimeError:
                 pass
 
+        def _load_image_hint_wanted():
+            """True while the 'load an image' hint applies: at least one
+            emulator (CSpect or MAME) is usable but no disk image is loaded.
+            Mirrors _maybe_show_no_image_toast's emulator gating — with no
+            emulator installed the detection toast's "install one" advice is
+            the right message, not this pulse."""
+            if right_disk_image_explorer_content:
+                return False
+            _cspect_found = getattr(self, "_cspect_executable_path", None) is not None
+            return _cspect_found or self._mame_usable()
+
+        def _start_load_image_hint_animation():
+            """Pulse 'Select NextZXOS disk Image' and 'Download NextZXOS Image' in the
+            same soft yellow 'breathing' glow as the hdfmonkey install button
+            while an emulator is ready but no disk image is loaded — the hint
+            that picking an image is the user's next step.
+
+            The timer polices itself: on each tick it re-checks the condition
+            and stops (restoring the normal look) the moment an image finishes
+            loading. So callers only ever need to *start* it at the moments the
+            hint may become due — no image at startup, a failed or cleared
+            load, or an emulator detected/installed later. Safe to call
+            repeatedly — a no-op while it already runs or while the hint
+            doesn't apply."""
+            if getattr(self, "_load_image_hint_anim_timer", None) is not None:
+                return
+            if not _load_image_hint_wanted():
+                return
+
+            steps = 22
+            phase = {"n": 0}
+
+            def _alpha_for(pos):
+                pos %= (2 * steps)
+                tri = pos / steps if pos <= steps else (2 * steps - pos) / steps
+                return int(150 * tri)
+
+            def _tick():
+                if not _load_image_hint_wanted():
+                    _stop_load_image_hint_animation()
+                    return
+                phase["n"] = (phase["n"] + 1) % (2 * steps)
+                # Half a cycle apart so the two buttons breathe out of phase,
+                # exactly like the transfer arrows.
+                for btn, off in ((self.selectimage, 0), (self.downloadimage, steps)):
+                    a = _alpha_for(phase["n"] + off)
+                    try:
+                        btn.setStyleSheet(
+                            "QPushButton { "
+                            f"background-color: rgba(241,196,15,{a}); "
+                            f"border: 1px solid rgba(241,196,15,{min(a + 60, 255)}); "
+                            "border-radius: 4px; }")
+                    except RuntimeError:
+                        _stop_load_image_hint_animation()
+                        return
+
+            timer = QTimer(self)
+            timer.setInterval(55)
+            timer.timeout.connect(_tick)
+            timer.start()
+            self._load_image_hint_anim_timer = timer
+
+        def _stop_load_image_hint_animation():
+            """Stop the yellow hint pulse and restore both buttons' normal look."""
+            timer = getattr(self, "_load_image_hint_anim_timer", None)
+            if timer is not None:
+                timer.stop()
+                self._load_image_hint_anim_timer = None
+            for btn in (self.selectimage, self.downloadimage):
+                try:
+                    btn.setStyleSheet("")
+                except RuntimeError:
+                    pass
+
         def _maybe_show_no_image_toast():
             """One-shot (per session) yellow advisory pointing at the image
             picker. Shown ONLY when at least one emulator (CSpect or MAME) is
@@ -4818,7 +4899,9 @@ class MainWindow(QMainWindow):
                         set_all_buttons_enabled()
                         _add_to_image_history(self.right_disk_image_path)
                         # Kick the idle pulse so it's running right after a load,
-                        # not only when the tab is (re)entered.
+                        # not only when the tab is (re)entered — and retire the
+                        # yellow "load an image" hint, its job is done.
+                        _stop_load_image_hint_animation()
                         _start_transfer_idle_animation()
                     else:
                         logging.error(f"Failed loading image :{self.right_disk_image_path}.")
@@ -8016,7 +8099,7 @@ class MainWindow(QMainWindow):
         self.imageinput.setToolTip(
             "Path to the SD card image (.img / .hdf).\n"
             "Type a path directly, click the arrow to pick from recently loaded images,\n"
-            "or use the 'Select Disk Image' button to browse."
+            "or use the 'Select NextZXOS disk Image' button to browse."
         )
         self.imageinput.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.imageinput.lineEdit().setPlaceholderText("SD card image path...")
@@ -8025,7 +8108,7 @@ class MainWindow(QMainWindow):
         # Selecting an item from the history dropdown loads it immediately
         self.imageinput.activated.connect(lambda _index: load_image())
         self.selectimage = QPushButton("ToDisk", self)
-        self.selectimage.setText("Select Disk Image")
+        self.selectimage.setText("Select NextZXOS disk Image")
         self.selectimage.toolTip = "Select a disk image to be loaded."
         self.selectimage.clicked.connect(select_image)
 
@@ -12131,8 +12214,10 @@ class MainWindow(QMainWindow):
             # otherwise.
             _update_cspect_controls()
             # An emulator found only now (after the startup load already ran
-            # with no image) still deserves the "select a disk image" advisory.
+            # with no image) still deserves the "select a disk image" advisory
+            # and the yellow pulse on the image-picking buttons.
             _maybe_show_no_image_toast()
+            _start_load_image_hint_animation()
             self._show_emulator_detection_toast()
 
         def _finalize_hdfmonkey_button():
