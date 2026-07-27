@@ -24,6 +24,11 @@ Phases:
      cfg is older than the bundled dotN.                 (no hdfmonkey needed)
   7  dotN advisory first-run silent persist (no popup) + the update-check
      toggle defaulting ON when the cfg has no key.       (no hdfmonkey needed)
+  8  "Load an image" hint pulse: with an emulator (CSpect/MAME) detected and
+     no image loaded, 'Select NextZXOS disk Image' + 'Download NextZXOS
+     Image' breathe
+     amber; loading the test HDF stops the pulse and restores their look.
+     Without any emulator the pulse must stay off.   (needs hdfmonkey + phase 1)
 
 Every phase cfg carries zxnu_update_check=false (except phase 7, which quits
 before the delayed check can fire) so the suite never talks to GitHub.
@@ -59,7 +64,7 @@ DROPSRC = os.path.join(SCRATCH, "dropsrc.txt")
 DELZONE = os.path.join(SCRATCH, "delzone")
 
 PHASE = int(sys.argv[1]) if len(sys.argv) > 1 else None
-ALL_PHASES = (1, 2, 3, 4, 5, 6, 7)
+ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8)
 
 # Base cfg for the isolated app copy: update checks off (MAME/CSpect AND the
 # app's own GitHub release check) so no phase ever hits the network.
@@ -192,6 +197,15 @@ elif PHASE == 5:
             f.write("x")
         with open(os.path.join(deep, "b.txt"), "w") as f:
             f.write("y")
+elif PHASE == 8:
+    # Emulator present + NO image in the cfg -> the amber "load an image"
+    # hint pulse. Loading the phase-1 HDF then stops it, so the phase needs
+    # both the test HDF and hdfmonkey (skip cleanly like phases 2-3).
+    if not os.path.isfile(HDF):
+        skip("no test HDF (phase 1 did not run or was skipped)")
+    ensure_scratch(fresh=False)
+    with open(CFG, "w") as f:
+        f.write(BASE_CFG)
 elif PHASE in (6, 7):
     # Phase 6: dotn_last_version older than the bundled dotN -> the ".sync5
     # needs updating on your Next" advisory popup must fire, and the Settings
@@ -780,9 +794,55 @@ def inspect_phase7():
     timer.stop()
     app.quit()   # well before the 3.4s-delayed release check could fire
 
+def inspect_phase8():
+    app = QApplication.instance()
+    win = find_win()
+    check("MainWindow found", win is not None)
+    if win is None:
+        app.quit(); return
+    # Wait out the async emulator scan first: a CSpect adopted from
+    # downloads/cspect is one of the pulse's start sites.
+    wait_until(lambda: not getattr(win, "_emulator_scan_pending", False),
+               what="emulator scan settled")
+    emulator = (getattr(win, "_cspect_executable_path", None) is not None
+                or win._mame_usable())
+    if not emulator:
+        # No emulator on this machine: the hint must stay dark. (The pulse's
+        # start/stop transitions need an emulator, so they are only covered
+        # on machines that have one — same spirit as the hdfmonkey skips.)
+        check("no emulator: hint pulse stays off",
+              getattr(win, "_load_image_hint_anim_timer", None) is None
+              and win.selectimage.styleSheet() == "")
+        app.quit(); return
+
+    ok = wait_until(lambda: getattr(win, "_load_image_hint_anim_timer", None)
+                    is not None, timeout=10, what="hint pulse running")
+    check("emulator + no image: hint pulse running", ok)
+    ok2 = wait_until(lambda: "241,196,15" in win.selectimage.styleSheet()
+                     and "241,196,15" in win.downloadimage.styleSheet(),
+                     timeout=5, what="amber styling on both image buttons")
+    check("pulse paints both image-picking buttons amber", ok2,
+          f"sel={win.selectimage.styleSheet()!r}")
+
+    # Loading an image must stop the pulse and restore the buttons' look.
+    win.imageinput.setCurrentText(HDF)
+    win.imageinput.lineEdit().returnPressed.emit()
+    ok3 = wait_until(lambda: win.diskimageexplorerpathinput.text() == "/",
+                     what="image load -> path box '/'")
+    check("test HDF loaded", ok3, win.diskimageexplorerpathinput.text())
+    ok4 = wait_until(lambda: getattr(win, "_load_image_hint_anim_timer", None)
+                     is None and win.selectimage.styleSheet() == ""
+                     and win.downloadimage.styleSheet() == "",
+                     timeout=5, what="hint pulse stopped after load")
+    check("loaded image stops the pulse and restores the look", ok4,
+          f"timer={getattr(win, '_load_image_hint_anim_timer', None)} "
+          f"sel={win.selectimage.styleSheet()!r} "
+          f"dl={win.downloadimage.styleSheet()!r}")
+    app.quit()
+
 INSPECTORS = {1: inspect_phase1, 2: inspect_phase2, 3: inspect_phase3,
               4: inspect_phase4, 5: inspect_phase5, 6: inspect_phase6,
-              7: inspect_phase7}
+              7: inspect_phase7, 8: inspect_phase8}
 
 _orig_exec = QApplication.exec
 def _patched_exec(*_a):
