@@ -373,6 +373,7 @@ from zxnu_zxart_pane import build_zxart_pane
 from zxnu_unite_pane import build_unite_pane, build_unite_ops
 from zxnu_settings_pane import build_settings_pane
 from zxnu_nextsync_pane import build_nextsync_pane
+from zxnu_i18n import normalize_ui_language, translate_widget_tree
 import zxnu_itchio
 # ----------------------------------------------------------------------
 
@@ -8065,6 +8066,9 @@ class MainWindow(QMainWindow):
         configuration_dictionary[SETTING_COLOR_GENERAL_TEXT] = DEFAULT_COLOR_GENERAL_TEXT
         configuration_dictionary[SETTING_COLOR_RETRO_LOG]    = DEFAULT_COLOR_RETRO_LOG
         configuration_dictionary[SETTING_DESKTOP_THEME]      = DEFAULT_DESKTOP_THEME
+        # UI language default ("en"): must be seeded — save_configuration_file
+        # writes every CONFIG_FILE_SETTINGS key and would KeyError otherwise.
+        configuration_dictionary[SETTING_UI_LANGUAGE]        = "en"
 
         # Init UI forms
 
@@ -8109,7 +8113,10 @@ class MainWindow(QMainWindow):
         self.imageinput.activated.connect(lambda _index: load_image())
         self.selectimage = QPushButton("ToDisk", self)
         self.selectimage.setText("Select NextZXOS disk Image")
-        self.selectimage.toolTip = "Select a disk image to be loaded."
+        # (was `self.selectimage.toolTip = "..."` — a plain attribute that
+        # SHADOWED the Qt method with a str, so the tooltip never showed and
+        # every later toolTip() call on this button raised TypeError.)
+        self.selectimage.setToolTip("Select a disk image to be loaded.")
         self.selectimage.clicked.connect(select_image)
 
         self.downloadimage = QPushButton("Download NextZXOS Image", self)
@@ -11362,6 +11369,13 @@ class MainWindow(QMainWindow):
         # Create Settings Tab (extracted to zxnu_settings_pane.py; the builder
         # writes every historical self.settings_* attribute and hands back
         # settings_scroll for the addTab below)
+        # UI-language re-translation hook: the Settings pane's language combo
+        # calls this with a code from zxnu_i18n.UI_LANGUAGES; the walk swaps
+        # every catalogued text in place (English restores the originals).
+        def _i18n_apply(code):
+            translate_widget_tree(self, normalize_ui_language(code))
+        self._i18n_apply = _i18n_apply
+
         build_settings_pane(
             self,
             configuration_dictionary=configuration_dictionary,
@@ -12395,6 +12409,26 @@ class MainWindow(QMainWindow):
 
         nextsync_show_ip_info()
         nextsync_show_sync_buttons_based_on_fileexplorer_content_selection()
+
+        # Apply the saved UI language to the fully-built widget tree (English
+        # is a no-op). Runs at the very end of __init__ so every tab and pane
+        # already exists; texts generated later (logs, dialogs) stay English
+        # until their call sites adopt zxnu_i18n.ui_tr. The Settings combo is
+        # pointed at the saved language too (signals blocked: this is a
+        # restore, not a user change to persist/re-apply).
+        _saved_ui_language = normalize_ui_language(
+            configuration_dictionary.get(SETTING_UI_LANGUAGE, ""))
+        if _saved_ui_language != "en":
+            _ui_lang_combo = getattr(self, "settings_ui_language_combo", None)
+            if _ui_lang_combo is not None:
+                _ui_lang_ix = _ui_lang_combo.findData(_saved_ui_language)
+                if _ui_lang_ix >= 0 and _ui_lang_combo.currentIndex() != _ui_lang_ix:
+                    _ui_lang_combo.blockSignals(True)
+                    try:
+                        _ui_lang_combo.setCurrentIndex(_ui_lang_ix)
+                    finally:
+                        _ui_lang_combo.blockSignals(False)
+            self._i18n_apply(_saved_ui_language)
 
 """
     Main application loop

@@ -29,6 +29,11 @@ Phases:
      Image' breathe
      amber; loading the test HDF stops the pulse and restores their look.
      Without any emulator the pulse must stay off.   (needs hdfmonkey + phase 1)
+  9  UI language (zxnu_i18n): ui_language=es in the cfg starts the app with
+     the static UI in Spanish (button/checkbox/placeholder translated, tab
+     titles untouched, Settings combo on Español); switching the combo back
+     to English live restores the originals and persists ui_language=en.
+                                                         (no hdfmonkey needed)
 
 Every phase cfg carries zxnu_update_check=false (except phase 7, which quits
 before the delayed check can fire) so the suite never talks to GitHub.
@@ -64,7 +69,7 @@ DROPSRC = os.path.join(SCRATCH, "dropsrc.txt")
 DELZONE = os.path.join(SCRATCH, "delzone")
 
 PHASE = int(sys.argv[1]) if len(sys.argv) > 1 else None
-ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8)
+ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9)
 
 # Base cfg for the isolated app copy: update checks off (MAME/CSpect AND the
 # app's own GitHub release check) so no phase ever hits the network.
@@ -206,6 +211,12 @@ elif PHASE == 8:
     ensure_scratch(fresh=False)
     with open(CFG, "w") as f:
         f.write(BASE_CFG)
+elif PHASE == 9:
+    # Saved non-English UI language -> the startup walk must translate the
+    # static UI. Needs no image and no hdfmonkey.
+    ensure_scratch(fresh=False)
+    with open(CFG, "w", encoding="utf-8") as f:
+        f.write(BASE_CFG + "ui_language=es\n")
 elif PHASE in (6, 7):
     # Phase 6: dotn_last_version older than the bundled dotN -> the ".sync5
     # needs updating on your Next" advisory popup must fire, and the Settings
@@ -840,9 +851,47 @@ def inspect_phase8():
           f"dl={win.downloadimage.styleSheet()!r}")
     app.quit()
 
+def inspect_phase9():
+    app = QApplication.instance()
+    win = find_win()
+    check("MainWindow found", win is not None)
+    if win is None:
+        app.quit(); return
+    check("saved language restored in the combo",
+          win.settings_ui_language_combo.currentData() == "es",
+          win.settings_ui_language_combo.currentData())
+    check("button translated at startup",
+          win.selectimage.text() == "Seleccionar imagen de disco NextZXOS",
+          win.selectimage.text())
+    check("checkbox translated at startup",
+          win.settings_no_prompt_on_deletion_checkbox.text()
+          == "No pedir confirmación al eliminar.",
+          win.settings_no_prompt_on_deletion_checkbox.text())
+    check("placeholder translated at startup",
+          win.filtertext.placeholderText() == "Filtrar por nombre…",
+          win.filtertext.placeholderText())
+    check("tab titles untouched (dispatch keys)",
+          any(win._tab_widget.tabText(i).startswith("Settings")
+              for i in range(win._tab_widget.count())))
+    # Live switch back to English via the Settings combo.
+    win.settings_ui_language_combo.setCurrentIndex(
+        win.settings_ui_language_combo.findData("en"))
+    QCoreApplication.processEvents()
+    check("live switch restores English",
+          win.selectimage.text() == "Select NextZXOS disk Image",
+          win.selectimage.text())
+    check("live switch restores placeholders",
+          win.filtertext.placeholderText() == "Filter by name...",
+          win.filtertext.placeholderText())
+    ok2 = wait_until(lambda: "ui_language=en" in cfg_lines(),
+                     timeout=10, what="ui_language persisted")
+    check("language change persisted", ok2,
+          str([l for l in cfg_lines() if l.startswith("ui_language")]))
+    app.quit()
+
 INSPECTORS = {1: inspect_phase1, 2: inspect_phase2, 3: inspect_phase3,
               4: inspect_phase4, 5: inspect_phase5, 6: inspect_phase6,
-              7: inspect_phase7, 8: inspect_phase8}
+              7: inspect_phase7, 8: inspect_phase8, 9: inspect_phase9}
 
 _orig_exec = QApplication.exec
 def _patched_exec(*_a):
