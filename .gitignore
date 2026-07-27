@@ -29,3 +29,9 @@ zx-next-unite.log.*
 # Local CSpect plugin downloads (UART Replacement etc.), kept out of the repo
 CSpectPlugins-*.zip
 CSpectPlugins-*/
+
+# Coverage artifacts from `python tests/run_all.py --coverage`
+# (data files land in tests/; .coveragerc itself is tracked)
+.coverage
+.coverage.*
+tests/htmlcov/
