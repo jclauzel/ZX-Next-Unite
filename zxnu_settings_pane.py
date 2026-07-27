@@ -14,6 +14,7 @@ the memory ``strangler-extraction-pattern``.
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
 
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (QWidget, QLabel, QPushButton, QCheckBox,
 
 import zxnu_itchio
 from zxnu_http_bridge import flask_available
+from zxnu_i18n import DEFAULT_UI_LANGUAGE, UI_LANGUAGES, normalize_ui_language
 from zxnu_config import *
 from zxnu_api import *
 from zxnu_gallery import *
@@ -210,6 +212,40 @@ def build_settings_pane(
         lambda _i: _settings_desktop_theme_changed()
     )
     grid_tab_Settings.addWidget(host.settings_desktop_theme_combo, 1, 1)
+
+    # ── Application UI language (same row, right of the theme combo) ─────
+    # Item text is the language's NATIVE name and the stored value rides
+    # itemData — the i18n walk deliberately never touches combo items, so
+    # this combo needs no translating and no text comparisons can break.
+    def _settings_ui_language_changed():
+        code = (host.settings_ui_language_combo.currentData()
+                or DEFAULT_UI_LANGUAGE)
+        configuration_dictionary[SETTING_UI_LANGUAGE] = code
+        save_configuration_file()
+        try:
+            host._i18n_apply(code)      # live re-translate of the whole tree
+        except Exception:
+            logging.exception("UI language: retranslation failed")
+
+    ui_language_lbl = QLabel("Application language:")
+    ui_language_lbl.setToolTip(
+        "Language of the application's buttons, labels and checkboxes.\n"
+        "Applies immediately; texts written while the app runs (logs, dialogs)\n"
+        "follow after a restart. Saved to the configuration file.")
+    grid_tab_Settings.addWidget(ui_language_lbl, 1, 2)
+
+    host.settings_ui_language_combo = QComboBox()
+    for _lang_code, _lang_name in UI_LANGUAGES:
+        host.settings_ui_language_combo.addItem(_lang_name, _lang_code)
+    _saved_ui_lang = normalize_ui_language(
+        configuration_dictionary.get(SETTING_UI_LANGUAGE, ""))
+    _saved_ui_ix = host.settings_ui_language_combo.findData(_saved_ui_lang)
+    if _saved_ui_ix > 0:
+        host.settings_ui_language_combo.setCurrentIndex(_saved_ui_ix)
+    host.settings_ui_language_combo.setToolTip(ui_language_lbl.toolTip())
+    host.settings_ui_language_combo.currentIndexChanged.connect(
+        lambda _i: _settings_ui_language_changed())
+    grid_tab_Settings.addWidget(host.settings_ui_language_combo, 1, 3)
 
     def settings_warn_image_nearly_full_statechanged():
         configuration_dictionary[SETTING_WARN_IMAGE_NEARLY_FULL] = "true" if host.settings_warn_image_nearly_full_checkbox.isChecked() else "false"
