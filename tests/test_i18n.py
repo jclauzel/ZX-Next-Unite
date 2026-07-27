@@ -20,7 +20,8 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QGroupBox,
                                QTabWidget, QVBoxLayout, QWidget)
 
 from zxnu_i18n import (CATALOGS, DEFAULT_UI_LANGUAGE, UI_LANGUAGES,
-                       normalize_ui_language, translate_widget_tree, ui_tr)
+                       _ui_language_from_locale, normalize_ui_language,
+                       system_ui_language, translate_widget_tree, ui_tr)
 
 ok = True
 
@@ -73,6 +74,22 @@ def test_helpers():
     check("ui_tr: unknown text passes through",
           ui_tr("Totally dynamic text", "fr") == "Totally dynamic text")
     check("ui_tr: empty-safe", ui_tr("", "es") == "" and ui_tr(None, "es") is None)
+
+    # First-run OS-language detection: locale-name mapping + env override.
+    check("locale mapping",
+          [_ui_language_from_locale(n) for n in
+           ("es_ES", "pt_BR", "pl_PL", "ru_RU", "cs_CZ", "fr-FR",
+            "en_GB", "de_DE", "")]
+          == ["es", "pt", "pl", "ru", "cs", "fr", "en", "en", "en"])
+    os.environ["ZX_NEXT_UNITE_UI_LANGUAGE"] = "ru"
+    try:
+        check("env override wins", system_ui_language() == "ru")
+        os.environ["ZX_NEXT_UNITE_UI_LANGUAGE"] = "klingon"
+        check("bad override falls back to en", system_ui_language() == "en")
+    finally:
+        del os.environ["ZX_NEXT_UNITE_UI_LANGUAGE"]
+    check("system detection returns a supported code",
+          system_ui_language() in [c for c, _n in UI_LANGUAGES])
 
 
 def build_tree():

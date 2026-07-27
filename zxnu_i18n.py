@@ -34,8 +34,10 @@ Languages: Spanish (es), Portuguese (pt), Polish (pl), Russian (ru),
 Czech (cs), French (fr); English (en) is the source and needs no catalog.
 """
 
+import os
 from weakref import WeakKeyDictionary
 
+from PySide6.QtCore import QLocale
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QGroupBox, QLabel, QLineEdit, QPushButton,
     QRadioButton, QWidget,
@@ -60,6 +62,26 @@ def normalize_ui_language(code):
     """A valid language code from a saved config value ('' / bad -> 'en')."""
     code = (code or "").strip().lower()
     return code if any(code == c for c, _n in UI_LANGUAGES) else DEFAULT_UI_LANGUAGE
+
+
+def _ui_language_from_locale(locale_name):
+    """Map a Qt locale name ("es_ES", "pt_BR", "ru", …) to a supported UI
+    language code; anything we don't ship falls back to English."""
+    lang = (locale_name or "").replace("-", "_").split("_")[0].strip().lower()
+    return normalize_ui_language(lang)
+
+
+def system_ui_language():
+    """The UI language matching the OS locale, or "en" when we don't ship it.
+
+    Used on the very first run (no saved ``ui_language`` yet) to start the
+    app in the user's own language. The ``ZX_NEXT_UNITE_UI_LANGUAGE``
+    environment variable overrides the OS locale when set (power users and
+    the offscreen test suite; Qt ignores LANG/LC_ALL on Windows)."""
+    override = os.environ.get("ZX_NEXT_UNITE_UI_LANGUAGE", "").strip()
+    if override:
+        return normalize_ui_language(override)
+    return _ui_language_from_locale(QLocale.system().name())
 
 
 def ui_tr(text, lang):
@@ -360,6 +382,10 @@ CATALOGS = {
             "Alternar entre la vista de tabla clásica y la vista de galería.\nSe guarda en el archivo de configuración.",
         "Language of the application's buttons, labels and checkboxes.\nApplies immediately; texts written while the app runs (logs, dialogs)\nfollow after a restart. Saved to the configuration file.":
             "Idioma de los botones, etiquetas y casillas de la aplicación.\nSe aplica al instante; los textos generados en ejecución (registros,\ndiálogos) cambian tras reiniciar. Se guarda en la configuración.",
+        "🌐  Language set to match your system":
+            "🌐  Idioma ajustado a tu sistema",
+        "The interface language was set to match your system language.\nYou can change it anytime in the Settings tab (\"Application language:\").":
+            "El idioma de la interfaz se ha ajustado al idioma de tu sistema.\nPuedes cambiarlo cuando quieras en la pestaña Settings\n(«Idioma de la aplicación:»).",
     },
     "pt": {
         # ---- labels ----
@@ -585,6 +611,10 @@ CATALOGS = {
             "Alternar entre a vista de tabela clássica e a vista de galeria.\nGuardado no ficheiro de configuração.",
         "Language of the application's buttons, labels and checkboxes.\nApplies immediately; texts written while the app runs (logs, dialogs)\nfollow after a restart. Saved to the configuration file.":
             "Idioma dos botões, etiquetas e opções da aplicação.\nAplica-se de imediato; os textos gerados em execução (registos,\ndiálogos) mudam após reiniciar. Guardado na configuração.",
+        "🌐  Language set to match your system":
+            "🌐  Idioma ajustado ao seu sistema",
+        "The interface language was set to match your system language.\nYou can change it anytime in the Settings tab (\"Application language:\").":
+            "O idioma da interface foi ajustado ao idioma do seu sistema.\nPode alterá-lo quando quiser no separador Settings\n(«Idioma da aplicação:»).",
     },
     "pl": {
         # ---- labels ----
@@ -810,6 +840,10 @@ CATALOGS = {
             "Przełączaj między klasycznym widokiem tabeli a widokiem galerii.\nZapisywane w pliku konfiguracji.",
         "Language of the application's buttons, labels and checkboxes.\nApplies immediately; texts written while the app runs (logs, dialogs)\nfollow after a restart. Saved to the configuration file.":
             "Język przycisków, etykiet i pól wyboru aplikacji.\nDziała od razu; teksty tworzone w trakcie działania (dziennik,\nokna dialogowe) zmienią się po ponownym uruchomieniu.\nZapisywany w pliku konfiguracji.",
+        "🌐  Language set to match your system":
+            "🌐  Język dopasowany do systemu",
+        "The interface language was set to match your system language.\nYou can change it anytime in the Settings tab (\"Application language:\").":
+            "Język interfejsu został dopasowany do języka systemu.\nMożesz go zmienić w każdej chwili na karcie Settings\n(«Język aplikacji:»).",
     },
     "ru": {
         # ---- labels ----
@@ -1035,6 +1069,10 @@ CATALOGS = {
             "Переключение между классической таблицей и видом галереи.\nСохраняется в файле конфигурации.",
         "Language of the application's buttons, labels and checkboxes.\nApplies immediately; texts written while the app runs (logs, dialogs)\nfollow after a restart. Saved to the configuration file.":
             "Язык кнопок, надписей и флажков приложения.\nПрименяется сразу; тексты, создаваемые во время работы (журнал,\nдиалоги), сменятся после перезапуска. Сохраняется в конфигурации.",
+        "🌐  Language set to match your system":
+            "🌐  Язык подобран по вашей системе",
+        "The interface language was set to match your system language.\nYou can change it anytime in the Settings tab (\"Application language:\").":
+            "Язык интерфейса установлен по языку вашей системы.\nЕго можно в любой момент изменить на вкладке Settings\n(«Язык приложения:»).",
     },
     "cs": {
         # ---- labels ----
@@ -1260,6 +1298,10 @@ CATALOGS = {
             "Přepínání mezi klasickou tabulkou a zobrazením galerie.\nUkládá se do konfiguračního souboru.",
         "Language of the application's buttons, labels and checkboxes.\nApplies immediately; texts written while the app runs (logs, dialogs)\nfollow after a restart. Saved to the configuration file.":
             "Jazyk tlačítek, popisků a zaškrtávacích polí aplikace.\nProjeví se okamžitě; texty vznikající za běhu (protokol, dialogy)\nse změní po restartu. Ukládá se do konfigurace.",
+        "🌐  Language set to match your system":
+            "🌐  Jazyk nastaven podle vašeho systému",
+        "The interface language was set to match your system language.\nYou can change it anytime in the Settings tab (\"Application language:\").":
+            "Jazyk rozhraní byl nastaven podle jazyka vašeho systému.\nKdykoli ho můžete změnit na kartě Settings\n(«Jazyk aplikace:»).",
     },
     "fr": {
         # ---- labels ----
@@ -1485,5 +1527,9 @@ CATALOGS = {
             "Basculer entre la vue tableau classique et la vue galerie.\nEnregistré dans le fichier de configuration.",
         "Language of the application's buttons, labels and checkboxes.\nApplies immediately; texts written while the app runs (logs, dialogs)\nfollow after a restart. Saved to the configuration file.":
             "Langue des boutons, libellés et cases à cocher de l'application.\nS'applique immédiatement ; les textes générés en cours d'exécution\n(journal, boîtes de dialogue) changent après un redémarrage.\nEnregistrée dans la configuration.",
+        "🌐  Language set to match your system":
+            "🌐  Langue adaptée à votre système",
+        "The interface language was set to match your system language.\nYou can change it anytime in the Settings tab (\"Application language:\").":
+            "La langue de l'interface a été réglée sur celle de votre système.\nVous pouvez la changer à tout moment dans l'onglet Settings\n(« Langue de l'application : »).",
     },
 }

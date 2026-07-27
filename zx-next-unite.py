@@ -373,7 +373,8 @@ from zxnu_zxart_pane import build_zxart_pane
 from zxnu_unite_pane import build_unite_pane, build_unite_ops
 from zxnu_settings_pane import build_settings_pane
 from zxnu_nextsync_pane import build_nextsync_pane
-from zxnu_i18n import normalize_ui_language, translate_widget_tree
+from zxnu_i18n import (normalize_ui_language, system_ui_language,
+                       translate_widget_tree, ui_tr)
 import zxnu_itchio
 # ----------------------------------------------------------------------
 
@@ -977,8 +978,10 @@ class _CompleterPopupHider(QtCore.QObject):
 class MainWindow(QMainWindow):
 
     def _show_toast(self, title: str, message: str = "", *, variant: str = "green",
-                    duration_ms: int = 10000, rich: bool = False):
-        """Show a small, auto-dismissing toast in the bottom-right corner.
+                    duration_ms: int = 10000, rich: bool = False,
+                    corner: str = "bottom-right"):
+        """Show a small, auto-dismissing toast anchored to a window corner
+        (``corner``: "bottom-right", the default, or "bottom-left").
 
         ``variant`` selects the colour scheme:
           - "green"  : success / informational (default)
@@ -1042,9 +1045,12 @@ class MainWindow(QMainWindow):
 
             toast.adjustSize()
 
-            # Position in the bottom-right corner of the main window, and
+            # Position in the requested corner of the main window, and
             # remember the toast so moveEvent/resizeEvent keep it anchored
             # there while it is up (dead entries are pruned on reposition).
+            # The corner rides on the widget so _reposition_toasts keeps
+            # honouring it after window moves/resizes.
+            toast.setProperty("zxnu_toast_corner", corner)
             self._position_toast(toast)
             if not hasattr(self, "_live_toasts"):
                 self._live_toasts = []
@@ -1074,12 +1080,16 @@ class MainWindow(QMainWindow):
             pass
 
     def _position_toast(self, toast):
-        """Anchor *toast* to the bottom-right corner of the main window."""
+        """Anchor *toast* to its corner of the main window (the
+        "zxnu_toast_corner" widget property: bottom-right unless set)."""
         try:
             geo = self.frameGeometry()
-            x = geo.right() - toast.width() - 24
-            y = geo.bottom() - toast.height() - 24
-            toast.move(max(geo.left() + 8, x), max(geo.top() + 8, y))
+            if (toast.property("zxnu_toast_corner") or "") == "bottom-left":
+                x = geo.left() + 24
+            else:
+                x = max(geo.left() + 8, geo.right() - toast.width() - 24)
+            y = max(geo.top() + 8, geo.bottom() - toast.height() - 24)
+            toast.move(x, y)
         except Exception:
             pass
 
@@ -8066,9 +8076,12 @@ class MainWindow(QMainWindow):
         configuration_dictionary[SETTING_COLOR_GENERAL_TEXT] = DEFAULT_COLOR_GENERAL_TEXT
         configuration_dictionary[SETTING_COLOR_RETRO_LOG]    = DEFAULT_COLOR_RETRO_LOG
         configuration_dictionary[SETTING_DESKTOP_THEME]      = DEFAULT_DESKTOP_THEME
-        # UI language default ("en"): must be seeded — save_configuration_file
-        # writes every CONFIG_FILE_SETTINGS key and would KeyError otherwise.
-        configuration_dictionary[SETTING_UI_LANGUAGE]        = "en"
+        # UI language: seeded EMPTY, the repo's "never saved" convention (see
+        # _apply_first_run_pygame_defaults) — a blank value at the end of
+        # __init__ triggers the one-time OS-language adoption. Must be seeded
+        # regardless: save_configuration_file writes every
+        # CONFIG_FILE_SETTINGS key and would KeyError otherwise.
+        configuration_dictionary[SETTING_UI_LANGUAGE]        = ""
 
         # Init UI forms
 
@@ -12410,25 +12423,51 @@ class MainWindow(QMainWindow):
         nextsync_show_ip_info()
         nextsync_show_sync_buttons_based_on_fileexplorer_content_selection()
 
-        # Apply the saved UI language to the fully-built widget tree (English
-        # is a no-op). Runs at the very end of __init__ so every tab and pane
+        # Apply the UI language to the fully-built widget tree (English is a
+        # no-op). Runs at the very end of __init__ so every tab and pane
         # already exists; texts generated later (logs, dialogs) stay English
-        # until their call sites adopt zxnu_i18n.ui_tr. The Settings combo is
-        # pointed at the saved language too (signals blocked: this is a
-        # restore, not a user change to persist/re-apply).
-        _saved_ui_language = normalize_ui_language(
-            configuration_dictionary.get(SETTING_UI_LANGUAGE, ""))
-        if _saved_ui_language != "en":
+        # until their call sites adopt zxnu_i18n.ui_tr.
+        #
+        # First run (ui_language never saved — blank, the same convention as
+        # _apply_first_run_pygame_defaults): adopt the OS language when it is
+        # one of the shipped six, else English, persist the choice once, and
+        # tell the user with a 15 s bottom-left toast (in THAT language) that
+        # points at the Settings tab. Later runs just apply the saved value.
+        _ui_lang_saved_raw = str(
+            configuration_dictionary.get(SETTING_UI_LANGUAGE, "") or "").strip()
+        _ui_language = normalize_ui_language(_ui_lang_saved_raw)
+        if not _ui_lang_saved_raw:
+            _ui_language = system_ui_language()
+            configuration_dictionary[SETTING_UI_LANGUAGE] = _ui_language
+            save_configuration_file()   # one-time adoption (never re-runs)
+            if _ui_language != "en":
+                add_main_log_window(
+                    f"UI language set to '{_ui_language}' to match the system "
+                    "language — change it on the Settings tab.")
+                _lang_toast_title = ui_tr(
+                    "🌐  Language set to match your system", _ui_language)
+                _lang_toast_body = ui_tr(
+                    "The interface language was set to match your system "
+                    "language.\nYou can change it anytime in the Settings tab "
+                    "(\"Application language:\").", _ui_language)
+                # Deferred like the no-image advisory so it positions against
+                # the shown window.
+                QTimer.singleShot(1200, lambda: self._show_toast(
+                    _lang_toast_title, _lang_toast_body, variant="green",
+                    duration_ms=15000, corner="bottom-left"))
+        if _ui_language != "en":
+            # Point the Settings combo at the language too (signals blocked:
+            # this is a restore, not a user change to persist/re-apply).
             _ui_lang_combo = getattr(self, "settings_ui_language_combo", None)
             if _ui_lang_combo is not None:
-                _ui_lang_ix = _ui_lang_combo.findData(_saved_ui_language)
+                _ui_lang_ix = _ui_lang_combo.findData(_ui_language)
                 if _ui_lang_ix >= 0 and _ui_lang_combo.currentIndex() != _ui_lang_ix:
                     _ui_lang_combo.blockSignals(True)
                     try:
                         _ui_lang_combo.setCurrentIndex(_ui_lang_ix)
                     finally:
                         _ui_lang_combo.blockSignals(False)
-            self._i18n_apply(_saved_ui_language)
+            self._i18n_apply(_ui_language)
 
 """
     Main application loop
