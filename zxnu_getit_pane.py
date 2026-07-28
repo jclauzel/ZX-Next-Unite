@@ -1372,7 +1372,7 @@ def build_getit_pane(
             parent = os.path.dirname(p)
             if parent and os.path.isdir(parent):
                 return parent
-        return os.path.abspath("downloads")
+        return os.path.join(ZXNU_DATA_ROOT, DOWNLOADS_ROOT_DIRNAME)
 
     def _getit_send_to_image(eid: str, default_name: str, title: str):
         """Download the GetIt entry to a temp file then hdfmonkey-put it into the

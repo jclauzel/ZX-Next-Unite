@@ -80,16 +80,39 @@ import traceback as _tb_early
 # Generation of the log file is gated by the "crash_log_enabled" setting
 # stored in hdfg.cfg (Settings pane → "Enable crash log file generation").
 # Default is False — no file is produced unless the user opts in.
+def _zxnu_early_state_dir():
+    """Where per-user state (logs, hdfg.cfg, downloads/) lives, resolved
+    WITHOUT importing zxnu_config — logging must be configured before any
+    heavy import so import failures are still captured. MUST mirror
+    zxnu_config._zxnu_compute_data_root(); see the rationale there. Not
+    __file__-based: this module may live in site-packages since the
+    zxnu_main.py rename."""
+    override = _os_early.environ.get("ZX_NEXT_UNITE_HOME", "").strip()
+    if override:
+        d = _os_early.path.abspath(_os_early.path.expanduser(override))
+    elif getattr(_sys_early, "frozen", False):
+        d = _os_early.path.dirname(_os_early.path.abspath(_sys_early.executable))
+    elif _os_early.environ.get("ZX_NEXT_UNITE_MODE", "").strip().lower() == "installed":
+        if _sys_early.platform == "win32":
+            base = _os_early.environ.get("APPDATA") or _os_early.path.expanduser("~")
+        elif _sys_early.platform == "darwin":
+            base = _os_early.path.expanduser("~/Library/Application Support")
+        else:
+            base = (_os_early.environ.get("XDG_DATA_HOME", "").strip()
+                    or _os_early.path.expanduser("~/.local/share"))
+        d = _os_early.path.join(base, "zx-next-unite")
+    else:
+        d = _os_early.path.dirname(_os_early.path.abspath(_sys_early.argv[0]))
+    try:
+        _os_early.makedirs(d, exist_ok=True)
+    except OSError:
+        pass
+    return d
+
+
 def _zxnu_crash_log_path():
     try:
-        if getattr(_sys_early, "frozen", False):
-            base = _os_early.path.dirname(_sys_early.executable)
-        else:
-            # argv[0], not __file__: keep the log next to the LAUNCHED app
-            # (the zx-next-unite.py shim, a test's scratch copy, or a pipx
-            # script) alongside hdfg.cfg — this module may live elsewhere
-            # (site-packages) since the zxnu_main.py rename.
-            base = _os_early.path.dirname(_os_early.path.abspath(_sys_early.argv[0]))
+        base = _zxnu_early_state_dir()
         candidate = _os_early.path.join(base, "zx-next-unite-crash.log")
         # Probe writability
         with open(candidate, "a", encoding="utf-8"):
@@ -110,9 +133,7 @@ def _zxnu_read_crash_log_pref():
     default False.
     """
     try:
-        cfg_path = _os_early.path.join(
-            _os_early.path.dirname(_os_early.path.abspath(_sys_early.argv[0])),
-            "hdfg.cfg")
+        cfg_path = _os_early.path.join(_zxnu_early_state_dir(), "hdfg.cfg")
         if not _os_early.path.isfile(cfg_path):
             return False
         with open(cfg_path, "r", encoding="utf-8", errors="replace") as fh:
@@ -139,11 +160,7 @@ def _zxnu_log_file_path():
     — in a `--windowed` PyInstaller build `sys.stderr` is None, so without a
     file handler every log line is otherwise thrown away."""
     try:
-        if getattr(_sys_early, "frozen", False):
-            base = _os_early.path.dirname(_sys_early.executable)
-        else:
-            # argv[0], not __file__ — see the crash-log note above.
-            base = _os_early.path.dirname(_os_early.path.abspath(_sys_early.argv[0]))
+        base = _zxnu_early_state_dir()
         candidate = _os_early.path.join(base, "zx-next-unite.log")
         with open(candidate, "a", encoding="utf-8"):
             pass
@@ -1304,7 +1321,7 @@ class MainWindow(QMainWindow):
         # detection-only — but Linux can still launch MAME via Flatpak, below).
         try:
             self._mame_executable_path = resolve_mame_executable(
-                os.path.dirname(os.path.abspath(sys.argv[0])))
+                ZXNU_DATA_ROOT)
         except Exception:
             self._mame_executable_path = find_mame_executable()
         # Guard so a second click can't start a concurrent MAME install.
@@ -1814,7 +1831,7 @@ class MainWindow(QMainWindow):
             """Top-level ``downloads`` folder next to the app (created if needed).
             This is where the auto-download saves the jjjs zip and where the
             manual-fallback flow asks the user to drop a hand-downloaded copy."""
-            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            app_dir = ZXNU_DATA_ROOT
             root = os.path.join(app_dir, DOWNLOADS_ROOT_DIRNAME)
             os.makedirs(root, exist_ok=True)
             return root
@@ -1939,7 +1956,7 @@ class MainWindow(QMainWindow):
             user-provided archive in place; an auto-downloaded one is removed once
             it has been unpacked.
             """
-            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            app_dir = ZXNU_DATA_ROOT
             dest_root = os.path.join(app_dir, DOWNLOADS_HDFMONKEY_DIRNAME)
             add_main_log_window(
                 f"hdfmonkey: [2/2] extracting the build for this platform from "
@@ -1995,7 +2012,7 @@ class MainWindow(QMainWindow):
             """Look for a jjjs hdfmonkey zip the user dropped into the downloads
             folder and, if a valid one is found, install from it. Returns True on
             a successful install."""
-            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            app_dir = ZXNU_DATA_ROOT
             manual_zip = find_hdfmonkey_jjjs_zip_in_downloads(app_dir)
             if not manual_zip:
                 return False
@@ -2162,7 +2179,7 @@ class MainWindow(QMainWindow):
             # <platform>/) counts too, even before startup re-adopts it as the
             # active override (e.g. right after a fresh launch).
             try:
-                if find_hdfmonkey_in_downloads(os.path.dirname(os.path.abspath(sys.argv[0]))):
+                if find_hdfmonkey_in_downloads(ZXNU_DATA_ROOT):
                     return True
             except Exception:
                 pass
@@ -2171,7 +2188,7 @@ class MainWindow(QMainWindow):
             names = [HDFMONKEY_EXECUTABLE]
             if platform.system() == "Windows":
                 names.append(HDFMONKEY_EXECUTABLE + ".exe")
-            search_dirs = [os.getcwd()]
+            search_dirs = [os.getcwd(), ZXNU_DATA_ROOT]
             try:
                 search_dirs.append(os.path.dirname(os.path.abspath(sys.argv[0])))
             except Exception:
@@ -3020,7 +3037,7 @@ class MainWindow(QMainWindow):
                         _bg_full_load = _bg_image_raw
                         _path_valid = not QPixmap(_bg_full_load).isNull()
                     else:
-                        _bg_dir_load = os.path.dirname(os.path.abspath(sys.argv[0]))
+                        _bg_dir_load = ZXNU_DATA_ROOT
                         _bg_full_load = os.path.join(_bg_dir_load, _bg_image_raw)
                         _path_valid = os.path.isfile(_bg_full_load)
                     if _path_valid:
@@ -3608,7 +3625,7 @@ class MainWindow(QMainWindow):
             except OSError:
                 pass
             return find_mame_in_downloads(
-                os.path.dirname(os.path.abspath(sys.argv[0])))
+                ZXNU_DATA_ROOT)
 
         def _on_mame_install_progress(pct):
             try:
@@ -3692,7 +3709,7 @@ class MainWindow(QMainWindow):
             self._mame_installing = False
             # Re-run the normal MAME detection so the app adopts the freshly
             # installed build straight away — the user shouldn't have to restart.
-            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            app_dir = ZXNU_DATA_ROOT
             try:
                 detected = resolve_mame_executable(app_dir)
             except Exception:
@@ -3751,7 +3768,7 @@ class MainWindow(QMainWindow):
             startup auto-update flow — both overwrite any existing downloads/mame
             files (the SFX runs with '-y'). *tag* is remembered so a successful
             install persists the installed release for later update checks."""
-            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            app_dir = ZXNU_DATA_ROOT
             dest_root = os.path.join(app_dir, DOWNLOADS_MAME_DIRNAME)
             self._mame_pending_install_tag = tag
             self._mame_installing = True
@@ -4345,7 +4362,7 @@ class MainWindow(QMainWindow):
             """Absolute downloads/itchio root where itch.io CSpect installs land
             (and where an update is downloaded + extracted)."""
             return os.path.join(
-                os.path.dirname(os.path.abspath(sys.argv[0])),
+                ZXNU_DATA_ROOT,
                 DOWNLOADS_CSPECT_DIRNAME)
 
         def _start_cspect_update_install(info):
@@ -4509,7 +4526,7 @@ class MainWindow(QMainWindow):
             # worker thread. The authenticated lookup doubles as the "login
             # succeeded" confirmation — nothing is offered unless it returns.
             self._cspect_update_checked = True
-            app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            app_dir = ZXNU_DATA_ROOT
 
             def _job():
                 installed_name, installed_exe = find_installed_cspect_version(app_dir)
@@ -9818,7 +9835,7 @@ class MainWindow(QMainWindow):
             return (configuration_dictionary.get(SETTING_ITCHIO_API_KEY, "") or "").strip()
 
         def _itchio_downloads_dir():
-            d = os.path.abspath(os.path.join("downloads", "itchio"))
+            d = os.path.join(ZXNU_DATA_ROOT, DOWNLOADS_CSPECT_DIRNAME)
             try:
                 os.makedirs(d, exist_ok=True)
             except Exception:
@@ -12192,7 +12209,7 @@ class MainWindow(QMainWindow):
         # platform.
         if _need_hdfmonkey:
             _dl_hdfmonkey = find_hdfmonkey_in_downloads(
-                os.path.dirname(os.path.abspath(sys.argv[0])))
+                ZXNU_DATA_ROOT)
             if _dl_hdfmonkey:
                 self._hdfmonkey_executable_path = _dl_hdfmonkey
                 _need_hdfmonkey = False
@@ -12331,7 +12348,7 @@ class MainWindow(QMainWindow):
                 # Nothing left to find; just re-affirm what is available.
                 self._show_emulator_detection_toast()
                 return
-            _dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            _dir = ZXNU_DATA_ROOT
 
             def _rescan(progress_callback=None):
                 return find_emulators_in_downloads(
@@ -12412,7 +12429,7 @@ class MainWindow(QMainWindow):
 
         if _need_cspect or _need_hdfmonkey:
             self._emulator_scan_pending = True
-            _app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            _app_dir = ZXNU_DATA_ROOT
 
             def _scan_downloads(progress_callback=None):
                 # Wrapper so the generic Worker's injected progress_callback kwarg

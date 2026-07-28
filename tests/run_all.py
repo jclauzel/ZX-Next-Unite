@@ -31,6 +31,7 @@ REPO = os.path.dirname(HERE)
 SUITES = [
     # (file, timeout seconds, required import or None)
     ("test_api_parsers.py",     120, None),
+    ("test_data_root.py",       240, None),
     ("test_pane_imports.py",    120, None),
     ("test_hdf_workers.py",     120, None),
     ("test_classic_sync.py",    180, None),
