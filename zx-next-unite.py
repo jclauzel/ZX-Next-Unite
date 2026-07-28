@@ -12,7 +12,7 @@
         ZXArt by https://zxart.ee/
 
     * Requirements:
-        - Python 3.13+
+        - Python 3.10+ (the release binaries bundle 3.13)
         - pyside6
         - CSpect emulator by Mike Dailly installed in local directory please download from http://www.cspect.org
             feel free to support his development efforts & patreon https://www.patreon.com/mikedailly
@@ -540,7 +540,9 @@ def _make_disclaimer_ticker(parent):
 
 
 
-assert sys.version_info >= (3, 6) # We need 3.6 for f"" strings.
+assert sys.version_info >= (3, 10), (
+    "zx-next-unite requires Python 3.10+ (current PySide6/pygame-ce/itch-dl "
+    "releases all set that floor; CI tests 3.10 and 3.13)")
 
 # Configure logging: an ALWAYS-ON rotating file handler (so diagnostics
 # survive the `--windowed` build where sys.stderr is None and console output

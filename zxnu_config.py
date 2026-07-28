@@ -1157,7 +1157,8 @@ def extract_zxnu_update_archive(archive_path, dest_dir):
 
     Only archives need this — the Windows update is a bare ``.exe``. Tarballs
     are extracted with the stdlib ``data`` filter (refuses absolute paths and
-    parent-directory escapes) and the binary gets its executable bit back.
+    parent-directory escapes; skipped on Pythons predating the PEP 706
+    backport) and the binary gets its executable bit back.
     Zips are unpacked with macOS's ``ditto`` when available — it preserves
     the ``.app``'s internal symlinks and permissions — falling back to
     ``zipfile`` with mode/symlink restoration elsewhere (the fallback also
@@ -1172,7 +1173,14 @@ def extract_zxnu_update_archive(archive_path, dest_dir):
     if name.endswith((".tar.gz", ".tgz")):
         with tarfile.open(archive_path, "r:gz") as tf:
             members = tf.getmembers()
-            tf.extractall(dest_dir, filter="data")
+            try:
+                tf.extractall(dest_dir, filter="data")
+            except TypeError:
+                # Python without the PEP 706 backport (< 3.10.12, e.g. the
+                # last python.org Windows installer for 3.10). The archive
+                # was already SHA-256-verified against the GitHub asset
+                # digest, so extracting without the filter is acceptable.
+                tf.extractall(dest_dir)
         for member in members:
             if member.isfile() and "/" not in member.name.strip("./"):
                 out = os.path.join(dest_dir, member.name)

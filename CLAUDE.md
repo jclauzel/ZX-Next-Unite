@@ -17,7 +17,8 @@ Additional tabs provide online browsing of ZX Spectrum software via three third-
 python zx-next-unite.py
 ```
 
-Requires Python 3.13+ and PySide6:
+Requires Python 3.10+ (the documented floor — CI runs the test suite on both
+3.10 and 3.13; the release binaries bundle 3.13) and PySide6:
 
 ```
 python -m pip install pyside6
