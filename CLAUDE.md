@@ -51,7 +51,17 @@ advisory is logged instead).
 
 ## Packaging (optional)
 
-Create a standalone executable with PyInstaller:
+Releases are built by CI: pushing a `v*` tag runs `.github/workflows/release.yml`,
+which gates on the test suite (and on the tag matching `ZX_NEXT_UNITE_VERSION`),
+builds the three platform packages with PyInstaller and attaches them — plus
+`nextsync/sync/server/dot/syncdev` as the `sync5` asset — to a **draft** GitHub
+release for review and manual publish. The asset names are a contract with the
+in-app self-updater (`select_zxnu_release_asset` in `zxnu_config.py`):
+`zx-next-unite-<tag>.exe` must stay the release's only `.exe`; the Linux
+tar.gz / macOS zip each hold one version-stamped runnable that
+`extract_zxnu_update_archive` unpacks next to the running app.
+
+Create a standalone executable manually with PyInstaller:
 
 ```
 pip install pyinstaller

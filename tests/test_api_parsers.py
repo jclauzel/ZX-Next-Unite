@@ -274,6 +274,98 @@ check("mame asset picker: missing digest -> None sha",
 check("mame asset picker: no matching arch -> None",
       select_mame_release_asset(_release, "arm64") is None)
 
+# ---- app self-update asset picker + archive unpacker (zxnu_config) ---------
+import shutil
+import tarfile
+import zipfile
+
+from zxnu_config import (  # noqa: E402
+    extract_zxnu_update_archive,
+    select_zxnu_release_asset,
+)
+
+_zxnu_release = {"tag_name": "v9.2.0", "assets": [
+    {"name": "sync5", "browser_download_url": "https://x/sync5", "size": 24576},
+    {"name": "zx-next-unite-v9.2.0.exe", "browser_download_url": "https://x/exe",
+     "size": "1000", "digest": "sha256:AA11"},
+    {"name": "zx-next-unite-v9.2.0-linux-x86_64.tar.gz",
+     "browser_download_url": "https://x/lin", "size": 2000},
+    {"name": "zx-next-unite-v9.2.0-macos-x86_64.zip",
+     "browser_download_url": "https://x/mac-intel", "size": 3000},
+    {"name": "zx-next-unite-v9.2.0-macos-arm64.zip",
+     "browser_download_url": "https://x/mac-arm", "size": 3001},
+]}
+picked = select_zxnu_release_asset(_zxnu_release, "win32", "AMD64")
+check("zxnu picker: win32 -> the exe (not sync5), digest parsed",
+      picked == ("zx-next-unite-v9.2.0.exe", "https://x/exe", 1000, "aa11"),
+      str(picked))
+picked = select_zxnu_release_asset(_zxnu_release, "linux", "x86_64")
+check("zxnu picker: linux -> the tar.gz",
+      picked[0] == "zx-next-unite-v9.2.0-linux-x86_64.tar.gz", str(picked))
+picked = select_zxnu_release_asset(_zxnu_release, "darwin", "arm64")
+check("zxnu picker: darwin prefers the machine arch",
+      picked[0] == "zx-next-unite-v9.2.0-macos-arm64.zip", str(picked))
+picked = select_zxnu_release_asset(_zxnu_release, "darwin", "weird-arch")
+check("zxnu picker: unknown arch falls back to the first match",
+      picked[0] == "zx-next-unite-v9.2.0-macos-x86_64.zip", str(picked))
+check("zxnu picker: exe-only release has no linux package",
+      select_zxnu_release_asset(
+          {"assets": [{"name": "zx-next-unite-v9.2.0.exe",
+                       "browser_download_url": "https://x/exe"}]},
+          "linux", "x86_64") is None)
+check("zxnu picker: junk input -> None",
+      select_zxnu_release_asset(None, "win32", "AMD64") is None
+      and select_zxnu_release_asset({}, "win32", "AMD64") is None)
+
+# tar.gz package: one version-stamped binary inside, exec bit restored.
+_pkg_dir = tempfile.mkdtemp(prefix="zxnu-pkg-")
+_bin_src = os.path.join(_pkg_dir, "zx-next-unite-v9.2.0")
+with open(_bin_src, "wb") as _f:
+    _f.write(b"\x7fELF fake binary")
+_tar_path = os.path.join(_pkg_dir, "zx-next-unite-v9.2.0-linux-x86_64.tar.gz")
+with tarfile.open(_tar_path, "w:gz") as _tf:
+    _tf.add(_bin_src, arcname="zx-next-unite-v9.2.0")
+_out_dir = os.path.join(_pkg_dir, "out")
+_runnable = extract_zxnu_update_archive(_tar_path, _out_dir)
+check("zxnu unpack: tar.gz -> the binary inside",
+      os.path.basename(_runnable) == "zx-next-unite-v9.2.0"
+      and os.path.isfile(_runnable), _runnable)
+if os.name == "posix":
+    check("zxnu unpack: tar.gz binary is executable",
+          os.access(_runnable, os.X_OK), oct(os.stat(_runnable).st_mode))
+
+# zip package: a .app bundle inside (zipfile fallback path everywhere but
+# macOS, where ditto is used instead).
+_zip_path = os.path.join(_pkg_dir, "zx-next-unite-v9.2.0-macos-arm64.zip")
+with zipfile.ZipFile(_zip_path, "w") as _zf:
+    _info = zipfile.ZipInfo("zx-next-unite-v9.2.0.app/Contents/MacOS/zx-next-unite")
+    _info.external_attr = 0o100755 << 16
+    _zf.writestr(_info, b"\xcf\xfa\xed\xfe fake mach-o")
+    _zf.writestr("zx-next-unite-v9.2.0.app/Contents/Info.plist", b"<plist/>")
+_out_dir2 = os.path.join(_pkg_dir, "out2")
+_runnable2 = extract_zxnu_update_archive(_zip_path, _out_dir2)
+check("zxnu unpack: zip -> the .app bundle inside",
+      os.path.basename(_runnable2) == "zx-next-unite-v9.2.0.app"
+      and os.path.isdir(_runnable2)
+      and os.path.isfile(os.path.join(
+          _runnable2, "Contents", "MacOS", "zx-next-unite")), _runnable2)
+
+_bad = os.path.join(_pkg_dir, "nothing-useful.zip")
+with zipfile.ZipFile(_bad, "w") as _zf:
+    _zf.writestr("a.txt", b"x")
+    _zf.writestr("b.txt", b"y")
+try:
+    extract_zxnu_update_archive(_bad, os.path.join(_pkg_dir, "out3"))
+    check("zxnu unpack: zip without .app raises ValueError", False)
+except ValueError:
+    check("zxnu unpack: zip without .app raises ValueError", True)
+try:
+    extract_zxnu_update_archive(os.path.join(_pkg_dir, "u.rar"), _pkg_dir)
+    check("zxnu unpack: unknown package type raises ValueError", False)
+except ValueError:
+    check("zxnu unpack: unknown package type raises ValueError", True)
+shutil.rmtree(_pkg_dir, ignore_errors=True)
+
 # ---- star-import tripwire ---------------------------------------------------
 # `from zxnu_api import *` skips underscore-prefixed names, so every private
 # zxnu_api helper the monolith still references must appear in its EXPLICIT
