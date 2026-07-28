@@ -43,8 +43,20 @@ Floyd's. Every tab is documented in the
 
 ## Quick start
 
-**Windows:** download the latest `ZX-Next-Unite-v9.x` executable from the
+**Windows:** download the latest `zx-next-unite-v9.x.x.exe` from the
 [Releases](https://github.com/jclauzel/ZX-Next-Unite/releases) page — no Python needed.
+
+**Linux (x86_64):** download `zx-next-unite-v9.x.x-linux-x86_64.tar.gz` from the
+same page, extract it and run the binary inside.
+
+**macOS (Apple Silicon):** download `zx-next-unite-v9.x.x-macos-arm64.zip`,
+extract it and start the app. The app is not code-signed, so the first launch
+needs right-click → Open (or `xattr -cr` on the .app) to get past Gatekeeper.
+
+All three packages are built by CI from the tagged source
+([release workflow](.github/workflows/release.yml)), and the app's built-in
+update check offers the right package for your platform when a newer release
+is published.
 
 **From source (any platform):**
 

@@ -1,0 +1,163 @@
+# Release build: on every v* tag push, run the test suite, build the
+# PyInstaller packages for Windows / Linux / macOS and attach them (plus the
+# .sync5 dotN binary) to a DRAFT GitHub release for review + publish.
+#
+# The asset names are a contract with the in-app self-updater
+# (select_zxnu_release_asset in zxnu_config.py):
+#   zx-next-unite-<tag>.exe                    - Windows onefile binary
+#                                                (must stay the ONLY .exe asset)
+#   zx-next-unite-<tag>-linux-x86_64.tar.gz    - one version-stamped binary inside
+#   zx-next-unite-<tag>-macos-arm64.zip        - one version-stamped .app inside
+#   sync5                                      - the NextSync dotN for the Next
+#
+# workflow_dispatch builds the same packages as CI artifacts without touching
+# releases (names get a -ci suffix).
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    # ubuntu-22.04 to match the build job (see glibc note there).
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Verify the tag matches ZX_NEXT_UNITE_VERSION
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          ver=$(python -c "import re; print(re.search(r'ZX_NEXT_UNITE_VERSION = \"([^\"]+)\"', open('zxnu_config.py', encoding='utf-8').read()).group(1))")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$ver" != "$tag" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match ZX_NEXT_UNITE_VERSION=${ver} in zxnu_config.py — the self-updater compares these."
+            exit 1
+          fi
+      - name: Install Qt runtime libraries (offscreen tests)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0 fontconfig
+      - name: Install dependencies
+        run: python -m pip install -r REQUIREMENTS.txt
+      - name: Run the test suite
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python tests/run_all.py
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          # ubuntu-22.04 (not -latest): PyInstaller binaries require the build
+          # machine's glibc or newer, so building on the oldest supported
+          # runner keeps the package usable on Debian 12 / Ubuntu 22.04+.
+          - os: ubuntu-22.04
+            platform: linux
+          # macos-latest runners are Apple Silicon -> an arm64-only .app.
+          - os: macos-latest
+            platform: macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install Qt runtime libraries (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0 fontconfig
+      - name: Install dependencies
+        run: python -m pip install -r REQUIREMENTS.txt pyinstaller
+      - name: Compute the package tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            ver=$(python -c "import re; print(re.search(r'ZX_NEXT_UNITE_VERSION = \"([^\"]+)\"', open('zxnu_config.py', encoding='utf-8').read()).group(1))")
+            echo "tag=v${ver}-ci" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build with PyInstaller
+        # Same command as the CLAUDE.md packaging notes: itch_dl/bs4 must be
+        # collected wholesale because the in-process installer imports their
+        # submodules lazily.
+        run: pyinstaller --clean --onefile --windowed --noupx --collect-all itch_dl --collect-all bs4 zx-next-unite.py
+      - name: Package (Windows)
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: |
+          tag='${{ steps.tag.outputs.tag }}'
+          mkdir -p package
+          mv dist/zx-next-unite.exe "package/zx-next-unite-${tag}.exe"
+      - name: Package (Linux)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          tag='${{ steps.tag.outputs.tag }}'
+          mkdir -p package
+          mv dist/zx-next-unite "dist/zx-next-unite-${tag}"
+          chmod +x "dist/zx-next-unite-${tag}"
+          tar -C dist -czf "package/zx-next-unite-${tag}-linux-x86_64.tar.gz" "zx-next-unite-${tag}"
+      - name: Package (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          tag='${{ steps.tag.outputs.tag }}'
+          mkdir -p package
+          mv dist/zx-next-unite.app "dist/zx-next-unite-${tag}.app"
+          # ditto preserves the .app's symlinks, permissions and metadata.
+          ditto -c -k --keepParent "dist/zx-next-unite-${tag}.app" "package/zx-next-unite-${tag}-macos-arm64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.platform }}
+          path: package/*
+          if-no-files-found: error
+
+  release:
+    # Tag builds only: collect the three packages plus the dotN and create a
+    # DRAFT release — nothing is visible to users (or the in-app updater,
+    # which only sees the published "latest" release) until it is reviewed
+    # and published by hand.
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          path: package
+          merge-multiple: true
+      - name: Attach the NextSync dotN as the sync5 asset
+        run: cp nextsync/sync/server/dot/syncdev package/sync5
+      - name: Create or update the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="$GITHUB_REF_NAME"
+          ls -l package/
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" package/* --clobber
+          else
+            gh release create "$tag" --draft --title "$tag" --generate-notes package/*
+          fi

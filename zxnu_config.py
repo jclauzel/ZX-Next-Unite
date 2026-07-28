@@ -10,9 +10,11 @@ import platform
 import re
 import secrets
 import shutil
+import stat
 import string
 import subprocess
 import sys
+import tarfile
 import zipfile
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
@@ -1077,6 +1079,151 @@ def select_mame_release_asset(release, arch):
             sha256 = digest[7:].lower() if digest.lower().startswith("sha256:") else None
             return (tag, name, url, size, sha256)
     return None
+
+
+def _zxnu_normalized_machine(machine=None):
+    """Map platform.machine() spellings onto the two arch tags the release
+    workflow uses in asset names ('x86_64' / 'arm64'); '' when unknown."""
+    m = (machine if machine is not None else platform.machine()).strip().lower()
+    if m in ("amd64", "x86_64", "x64"):
+        return "x86_64"
+    if m in ("arm64", "aarch64"):
+        return "arm64"
+    return m
+
+
+def select_zxnu_release_asset(release, sys_platform=None, machine=None):
+    """Pick this app's own update package for the current platform out of a
+    parsed GitHub "latest release" object (the decoded JSON dict from
+    ``ZXNU_GITHUB_LATEST_RELEASE_API``).
+
+    The release workflow (.github/workflows/release.yml) publishes one
+    package per platform:
+
+    - Windows: the single ``.exe`` asset (``zx-next-unite-v<ver>.exe``)
+    - Linux:   ``zx-next-unite-v<ver>-linux-<arch>.tar.gz`` — a tarball
+      holding one version-stamped onefile binary
+    - macOS:   ``zx-next-unite-v<ver>-macos-<arch>.zip`` — a zip holding one
+      version-stamped ``.app`` bundle
+
+    Returns ``(asset_name, download_url, size_bytes, sha256_or_None)`` — the
+    hash comes from the GitHub API's per-asset ``digest`` field — or ``None``
+    when the release carries no package for this platform. When several
+    archives match (e.g. macOS builds for two architectures), one whose name
+    carries the current machine's arch tag is preferred, otherwise the first
+    match wins.
+    """
+    if not isinstance(release, dict):
+        return None
+    plat = sys_platform if sys_platform is not None else sys.platform
+    arch = _zxnu_normalized_machine(machine)
+
+    def _matches(name):
+        n = name.lower()
+        if plat == "win32":
+            return n.endswith(".exe")
+        if plat.startswith("linux"):
+            return n.endswith((".tar.gz", ".tgz")) and "linux" in n
+        if plat == "darwin":
+            return n.endswith(".zip") and "macos" in n
+        return False
+
+    candidates = []
+    for asset in release.get("assets") or []:
+        name = str(asset.get("name") or "")
+        url = asset.get("browser_download_url") or ""
+        if url and _matches(name):
+            try:
+                size = int(asset.get("size") or 0)
+            except (TypeError, ValueError):
+                size = 0
+            digest = str(asset.get("digest") or "")
+            sha256 = (digest[7:].lower()
+                      if digest.lower().startswith("sha256:") else None)
+            candidates.append((name, url, size, sha256))
+    if not candidates:
+        return None
+    if arch:
+        for cand in candidates:
+            if arch in cand[0].lower():
+                return cand
+    return candidates[0]
+
+
+def extract_zxnu_update_archive(archive_path, dest_dir):
+    """Unpack a downloaded ZX-Next-Unite update package into *dest_dir* and
+    return the absolute path of the runnable that came out of it (the Linux
+    binary, or the macOS ``.app`` bundle directory).
+
+    Only archives need this — the Windows update is a bare ``.exe``. Tarballs
+    are extracted with the stdlib ``data`` filter (refuses absolute paths and
+    parent-directory escapes) and the binary gets its executable bit back.
+    Zips are unpacked with macOS's ``ditto`` when available — it preserves
+    the ``.app``'s internal symlinks and permissions — falling back to
+    ``zipfile`` with mode/symlink restoration elsewhere (the fallback also
+    keeps the tests runnable on Windows/Linux). Raises ``ValueError`` for an
+    archive that holds nothing recognisable; propagates tar/zip/subprocess
+    errors for corrupt downloads.
+    """
+    name = os.path.basename(archive_path).lower()
+    dest_dir = os.path.abspath(dest_dir)
+    os.makedirs(dest_dir, exist_ok=True)
+
+    if name.endswith((".tar.gz", ".tgz")):
+        with tarfile.open(archive_path, "r:gz") as tf:
+            members = tf.getmembers()
+            tf.extractall(dest_dir, filter="data")
+        for member in members:
+            if member.isfile() and "/" not in member.name.strip("./"):
+                out = os.path.join(dest_dir, member.name)
+                os.chmod(out, os.stat(out).st_mode
+                         | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                return os.path.abspath(out)
+        raise ValueError(
+            f"{os.path.basename(archive_path)} holds no top-level binary")
+
+    if name.endswith(".zip"):
+        ditto = shutil.which("ditto") if sys.platform == "darwin" else None
+        if ditto:
+            subprocess.run([ditto, "-x", "-k", archive_path, dest_dir],
+                           check=True, capture_output=True)
+            top_names = []
+            with zipfile.ZipFile(archive_path) as zf:
+                top_names = [i.filename for i in zf.infolist()]
+        else:
+            top_names = []
+            with zipfile.ZipFile(archive_path) as zf:
+                for info in zf.infolist():
+                    fname = info.filename
+                    target = os.path.abspath(os.path.join(dest_dir, fname))
+                    if not target.startswith(dest_dir + os.sep):
+                        raise ValueError(f"unsafe path in zip: {fname!r}")
+                    top_names.append(fname)
+                    mode = info.external_attr >> 16
+                    if stat.S_ISLNK(mode):
+                        link = zf.read(info).decode("utf-8", "replace")
+                        os.makedirs(os.path.dirname(target), exist_ok=True)
+                        if os.path.lexists(target):
+                            os.remove(target)
+                        os.symlink(link, target)
+                        continue
+                    zf.extract(info, dest_dir)
+                    if mode and not info.is_dir():
+                        os.chmod(target, stat.S_IMODE(mode))
+        tops = []
+        for fname in top_names:
+            top = fname.strip("/").split("/")[0]
+            if top and top not in tops:
+                tops.append(top)
+        for top in tops:
+            if top.lower().endswith(".app"):
+                return os.path.abspath(os.path.join(dest_dir, top))
+        if len(tops) == 1:
+            return os.path.abspath(os.path.join(dest_dir, tops[0]))
+        raise ValueError(
+            f"{os.path.basename(archive_path)} holds no .app bundle")
+
+    raise ValueError(f"unsupported update package type: {name!r}")
 
 
 CSPECT_EXECUTABLE_NAME = "CSpect"

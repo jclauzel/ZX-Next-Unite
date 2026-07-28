@@ -3984,9 +3984,11 @@ class MainWindow(QMainWindow):
 
         # ── ZX Next Unite self-update check (GitHub releases) ───────────────
         # Mirrors the MAME startup check above, but for this app's own
-        # releases: Windows-binary users are offered a download + restart,
-        # source checkouts are advised to 'git pull' instead. Every branch
-        # logs to the SD Card log window so the check never looks stuck.
+        # releases: binary (frozen) users are offered a download + restart
+        # with the package for their platform (Windows .exe, linux tar.gz,
+        # macOS zip), source checkouts are advised to 'git pull' instead.
+        # Every branch logs to the SD Card log window so the check never
+        # looks stuck.
 
         def _parse_zxnu_version(text):
             """'v9.0.8' / '9.0.8' -> (9, 0, 8); None when unparseable."""
@@ -4008,24 +4010,24 @@ class MainWindow(QMainWindow):
             with urllib.request.urlopen(req, timeout=20) as resp:
                 return json.loads(resp.read().decode("utf-8", "replace"))
 
-        def _zxnu_pick_release_exe(release):
-            """(name, url, size) of the Windows app binary attached to
-            *release* (the .exe asset, e.g. zx-next-unite-v9.0.8.exe), or
-            None when the release carries no exe."""
-            for asset in release.get("assets", []) or []:
-                name = str(asset.get("name", ""))
-                if name.lower().endswith(".exe"):
-                    digest = str(asset.get("digest") or "")
-                    sha256 = (digest[7:].lower()
-                              if digest.lower().startswith("sha256:") else None)
-                    return (name, asset.get("browser_download_url"),
-                            int(asset.get("size") or 0), sha256)
-            return None
+        def _zxnu_pick_release_asset(release):
+            """(name, url, size, sha256) of the update package for THIS
+            platform attached to *release*: the .exe on Windows, the
+            linux tar.gz / macOS zip elsewhere (see
+            select_zxnu_release_asset in zxnu_config). None when the
+            release carries no package for this platform."""
+            return select_zxnu_release_asset(release)
 
         def _zxnu_offer_restart(new_path):
-            """Post-download: offer to close the app and start the new binary,
-            naming it clearly so the user knows exactly what to run."""
+            """Post-download: offer to close the app and start the new binary
+            (or .app bundle on macOS), naming it clearly so the user knows
+            exactly what to run."""
             name = os.path.basename(new_path)
+            is_app_bundle = new_path.lower().endswith(".app")
+            gatekeeper_note = (
+                "\n\nmacOS may block the first launch (unidentified "
+                "developer) — if so, right-click the app in Finder and "
+                "choose Open." if is_app_bundle else "")
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Question)
             box.setWindowTitle("Update downloaded")
@@ -4034,7 +4036,7 @@ class MainWindow(QMainWindow):
                 f"{new_path}\n\n"
                 f"Close ZX Next Unite now and start the new version ({name})?\n"
                 "Your settings (hdfg.cfg) and downloads are picked up as-is —\n"
-                "both versions run from the same folder.")
+                "both versions run from the same folder." + gatekeeper_note)
             yes = box.addButton(f"Close and start {name}", QMessageBox.AcceptRole)
             box.addButton("Later", QMessageBox.RejectRole)
             box.setDefaultButton(yes)
@@ -4045,7 +4047,8 @@ class MainWindow(QMainWindow):
                 return
             add_main_log_window(f"ZX Next Unite update: starting {name} and closing…")
             try:
-                subprocess.Popen([new_path], cwd=os.path.dirname(new_path) or None)
+                launch = ["open", new_path] if is_app_bundle else [new_path]
+                subprocess.Popen(launch, cwd=os.path.dirname(new_path) or None)
             except OSError as exc:
                 add_main_log_window(f"ZX Next Unite update: could not start {name}: {exc}")
                 QMessageBox.critical(self, "Could not start the new version",
@@ -4055,8 +4058,10 @@ class MainWindow(QMainWindow):
 
         def _zxnu_download_update(tag, asset_name, url, size,
                                   expected_sha256=None):
-            """Download the release exe next to the current binary on a worker
-            thread (progress dialog, cancellable), then offer the restart.
+            """Download the release package next to the current binary on a
+            worker thread (progress dialog, cancellable), unpack it when it
+            is an archive (linux tar.gz / macOS zip — the runnable inside is
+            version-stamped by the release workflow), then offer the restart.
             Never overwrites the RUNNING binary: a name collision gets the
             release tag appended to the filename."""
             app_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -4066,7 +4071,7 @@ class MainWindow(QMainWindow):
             if os.path.normcase(dest) == os.path.normcase(current):
                 stem, ext = os.path.splitext(asset_name)
                 dest = os.path.join(app_dir, f"{stem}-{tag}{ext}")
-            holder = {"ok": False, "error": ""}
+            holder = {"ok": False, "error": "", "runnable": ""}
 
             def _task(signals, cancel_event, _url=url, _dest=dest, _size=size,
                       _h=holder):
@@ -4105,6 +4110,17 @@ class MainWindow(QMainWindow):
                                 "asset. Please retry.")
                         else:
                             os.replace(tmp, _dest)
+                            if _dest.lower().endswith(".exe"):
+                                _h["runnable"] = _dest
+                            else:
+                                # Archive package (linux tar.gz / macOS zip):
+                                # unpack next to the app; the runnable inside
+                                # is version-stamped, so it never collides
+                                # with the running binary.
+                                signals.status.emit(
+                                    f"Unpacking {os.path.basename(_dest)}…")
+                                _h["runnable"] = extract_zxnu_update_archive(
+                                    _dest, os.path.dirname(_dest))
                             _h["ok"] = True
                 except Exception as exc:   # network/disk problems must never crash
                     _h["error"] = str(exc)
@@ -4129,9 +4145,24 @@ class MainWindow(QMainWindow):
                         f"to {os.path.dirname(dest)}"
                         + (" (SHA-256 verified)." if expected_sha256 else
                            " (no SHA-256 digest published; not verified)."))
-                    _zxnu_offer_restart(dest)
+                    runnable = holder["runnable"] or dest
+                    if runnable != dest:
+                        add_main_log_window(
+                            f"ZX Next Unite update: unpacked to {runnable}")
+                    _zxnu_offer_restart(runnable)
                 elif holder["error"] == "cancelled":
                     add_main_log_window("ZX Next Unite update: download cancelled.")
+                elif os.path.isfile(dest):
+                    # The package arrived but could not be unpacked — keep it
+                    # so the user can extract it by hand.
+                    add_main_log_window(
+                        f"ZX Next Unite update: downloaded {dest} but could not "
+                        f"unpack it: {holder['error']}")
+                    QMessageBox.critical(
+                        self, "Update could not be unpacked",
+                        f"The update was downloaded to:\n{dest}\n\n"
+                        f"but unpacking failed:\n{holder['error']}\n\n"
+                        "You can extract it manually next to the current app.")
                 else:
                     add_main_log_window(
                         f"ZX Next Unite update: download FAILED: {holder['error']}")
@@ -4143,9 +4174,9 @@ class MainWindow(QMainWindow):
             dlg.exec()
 
         def _prompt_zxnu_update(tag, release):
-            """UI-thread prompt for an available app update. Windows-binary
-            (frozen) users get download + restart; a source checkout (git
-            clone) is advised to 'git pull' instead of fetching the exe.
+            """UI-thread prompt for an available app update. Binary (frozen)
+            users get download + restart with their platform's package; a
+            source checkout (git clone) is advised to 'git pull' instead.
             The release's "what's changed" notes ride along: a short excerpt
             inline, the full text behind the box's Show Details button."""
             frozen = bool(getattr(sys, "frozen", False))
@@ -4175,14 +4206,16 @@ class MainWindow(QMainWindow):
                 if box.clickedButton() is openrel:
                     webbrowser.open(ZXNU_GITHUB_RELEASES_PAGE)
                 return
-            asset = _zxnu_pick_release_exe(release)
+            asset = _zxnu_pick_release_asset(release)
             if not asset:
                 add_main_log_window(
                     f"ZX Next Unite {tag} is available, but the release has no "
-                    ".exe asset — opening the releases page instead.")
+                    "package for this platform — opening the releases page "
+                    "instead.")
                 if QMessageBox.question(
                         self, "ZX Next Unite update available",
-                        f"{tag} is available but carries no Windows binary.\n"
+                        f"{tag} is available but carries no package for this "
+                        "platform.\n"
                         "Open the releases page in your browser?",
                         QMessageBox.Yes | QMessageBox.No,
                         QMessageBox.Yes) == QMessageBox.Yes:
