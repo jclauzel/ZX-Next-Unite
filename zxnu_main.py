@@ -6913,7 +6913,13 @@ class MainWindow(QMainWindow):
                     or "").replace("\\", "/")
             same = (current != "" and root != "" and
                     os.path.normcase(current.rstrip("/")) == os.path.normcase(root.rstrip("/")))
-            self.nextsync_set_syncroot_button.setVisible(current != "" and not same)
+            visible = current != "" and not same
+            self.nextsync_set_syncroot_button.setVisible(visible)
+            # Pulse the offer green while it is on screen (defined by the
+            # pane builder; guarded for construction order).
+            pulse = getattr(self, "_nextsync_syncroot_pulse_set", None)
+            if pulse is not None:
+                pulse(visible)
 
         def _nextsync_on_set_syncroot_clicked():
             folder = _nextsync_current_browse_dir()

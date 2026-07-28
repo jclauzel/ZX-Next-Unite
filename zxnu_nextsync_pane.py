@@ -286,6 +286,50 @@ def build_nextsync_pane(
     host.nextsync_syncroot_row.setContentsMargins(0, 0, 0, 0)
     host.nextsync_syncroot_row.addWidget(host.nextsync_file_explorer_path, 1)
     host.nextsync_syncroot_row.addWidget(host.nextsync_set_syncroot_button)
+
+    # Green "pick me" pulse while the set-sync-root offer is on screen — the
+    # same treatment as the Remote Explorer start-button pulses below, so the
+    # suggested next step is always the one that glows. Driven by
+    # _nextsync_update_set_syncroot_button in the monolith, which owns the
+    # button's visibility.
+    host._nextsync_syncroot_pulse_timer = None
+
+    def _nextsync_syncroot_pulse_set(on):
+        if not on:
+            if host._nextsync_syncroot_pulse_timer is not None:
+                host._nextsync_syncroot_pulse_timer.stop()
+                host._nextsync_syncroot_pulse_timer = None
+            try:
+                host.nextsync_set_syncroot_button.setStyleSheet("")
+            except RuntimeError:
+                pass
+            return
+        if host._nextsync_syncroot_pulse_timer is not None:
+            return                       # already pulsing
+        steps = 22
+        phase = {"n": 0}
+        r, g, b, fg = 46, 204, 113, "#eafff0"
+
+        def _tick():
+            phase["n"] = (phase["n"] + 1) % (2 * steps)
+            pos = phase["n"]
+            tri = pos / steps if pos <= steps else (2 * steps - pos) / steps
+            a = int(70 + 150 * tri)
+            try:
+                host.nextsync_set_syncroot_button.setStyleSheet(
+                    "QPushButton { color: %s; font-weight: bold;"
+                    " padding: 4px 10px; border-radius: 6px;"
+                    " background-color: rgba(%d,%d,%d,%d);"
+                    " border: 1px solid rgba(%d,%d,%d,%d); }" % (
+                        fg, r, g, b, a, r, g, b, min(a + 60, 255)))
+            except RuntimeError:
+                pass
+        timer = QTimer(host)
+        timer.setInterval(55)
+        timer.timeout.connect(_tick)
+        timer.start()
+        host._nextsync_syncroot_pulse_timer = timer
+    host._nextsync_syncroot_pulse_set = _nextsync_syncroot_pulse_set
     host.nextsync_container_fileexplorer_and_buttons_buttons.addLayout(host.nextsync_syncroot_row)
 
 
