@@ -1,4 +1,5 @@
-# ZX-Next-Unite dependencies.
+# ZX-Next-Unite dependencies. Requires Python 3.10+ (the floor CI tests —
+# current PySide6/pygame-ce/itch-dl releases all set it; newer Pythons work).
 # Install everything with:  python -m pip install -r requirements.txt
 
 # Required - the GUI toolkit the whole app is built on.

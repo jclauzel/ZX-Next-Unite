@@ -65,6 +65,8 @@ is published.
     python -m pip install -r REQUIREMENTS.txt
     python zx-next-unite.py
 
+Requires **Python 3.10 or newer** (the stock Python of Ubuntu 22.04 / Debian
+12 and later works out of the box; CI runs the test suite on 3.10 and 3.13).
 Use `python3` on Linux/macOS. Only **PySide6** is required; `pygame-ce`,
 `itch-dl` and `flask` are optional (`flask` powers the NextSync HTTP bridge —
 the web server that lets a Next drive another Next's SD card via the `.http`
