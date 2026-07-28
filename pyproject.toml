@@ -1,5 +1,80 @@
-# Tooling configuration only — the app itself is run straight from source
-# (python zx-next-unite.py) and packaged with PyInstaller; see CLAUDE.md.
+# Packaging + tooling configuration. The app can be run straight from source
+# (python zx-next-unite.py), packaged with PyInstaller (see CLAUDE.md), or
+# installed from PyPI (pipx install zx-next-unite).
+
+# ── packaging: pip / pipx / PyPI ─────────────────────────────────────────────
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zx-next-unite"
+# MUST match ZX_NEXT_UNITE_VERSION in zxnu_config.py — the release workflow
+# gates on it (same rule as the git tag).
+version = "9.1.9"
+description = "GUI toolbox for the ZX Spectrum Next: SD-card/HDF image explorer, NextSync Wi-Fi file sync + Remote Explorer & HTTP bridge, and built-in software browsing via GetIt, ZXDB and zxArt"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Julien Clauzel" }]
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6>=6.5.1",
+]
+keywords = ["zx-spectrum-next", "zx-spectrum", "nextsync", "cspect", "retrocomputing"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Emulators",
+    "Topic :: Utilities",
+]
+
+[project.optional-dependencies]
+# Everything the Settings toggles can enable: retro pygame views, the itch.io
+# tab, Recycle-Bin deletes and the NextSync HTTP bridge.
+full = ["pygame-ce>=2.5.0", "itch-dl", "Send2Trash", "flask"]
+
+[project.urls]
+Homepage = "https://github.com/jclauzel/ZX-Next-Unite"
+Documentation = "https://github.com/jclauzel/ZX-Next-Unite/wiki"
+Changelog = "https://github.com/jclauzel/ZX-Next-Unite/releases"
+Issues = "https://github.com/jclauzel/ZX-Next-Unite/issues"
+
+[project.gui-scripts]
+zx-next-unite = "zxnu_app:main"
+
+[project.scripts]
+# The standalone Sync4/Sync5 command-line server rides along.
+nextsync5 = "nextsync5:main"
+
+[tool.setuptools]
+# Flat top-level modules (the strangler layout, see CLAUDE.md) — shipped
+# as-is. rc_backgrounds is the pyside6-rcc-generated Qt resource module.
+py-modules = [
+    "zxnu_app",
+    "zxnu_main",
+    "zxnu_config",
+    "zxnu_api",
+    "zxnu_workers",
+    "zxnu_media",
+    "zxnu_gallery",
+    "zxnu_getit_pane",
+    "zxnu_zxdb_pane",
+    "zxnu_zxart_pane",
+    "zxnu_unite_pane",
+    "zxnu_settings_pane",
+    "zxnu_nextsync_pane",
+    "zxnu_sdcard_explorer",
+    "zxnu_remote_explorer",
+    "zxnu_http_bridge",
+    "zxnu_i18n",
+    "zxnu_itchio",
+    "zxnu_pygame",
+    "rc_backgrounds",
+    "nextsync5",
+]
 
 # ── ruff: lint + format ──────────────────────────────────────────────────────
 # Deliberately PERMISSIVE: the goal is that NEW code stays clean without

@@ -62,6 +62,14 @@ in-app self-updater (`select_zxnu_release_asset` in `zxnu_config.py`):
 tar.gz / macOS zip each hold one version-stamped runnable that
 `extract_zxnu_update_archive` unpacks next to the running app.
 
+PyPI: `.github/workflows/publish.yml` builds the sdist + wheel and uploads
+them via PyPI Trusted Publishing (OIDC, environment `pypi`, no stored token)
+whenever a GitHub release is **published** — so `pipx install zx-next-unite`
+tracks the releases. The `version` in `pyproject.toml` must match
+`ZX_NEXT_UNITE_VERSION` and the tag (the release workflow gates on both).
+Entry points: `zx-next-unite` (gui-script → `zxnu_app:main`) and `nextsync5`
+(console script → `nextsync5:main`).
+
 Create a standalone executable manually with PyInstaller:
 
 ```
@@ -95,10 +103,12 @@ pyside6-rcc rc_backgrounds.qrc -o rc_backgrounds.py
 
 | File | Role |
 |---|---|
-| `zx-next-unite.py` | Entry point; contains the single `MainWindow(QMainWindow)` class and most tab/pane UI logic (shrinking via the strangler extraction below) |
-| `zxnu_sdcard_explorer.py` | `SdCardExplorerPane`: the SD Card tab's dual local ⇄ disk-image explorer (widgets + navigation/model layer, incl. the lazy `hdfmonkey ls` tree). First strangler extraction from `MainWindow.__init__`: the operation layer (transfers, deletes, context menus, DnD, load pipeline) stays in `zx-next-unite.py`, reaching the pane through a documented `hooks` protocol; MainWindow keeps aliases under the historical attribute names (`self.treeview`, `self.image_treeview`, …) plus one-line delegating wrappers, so existing code and the test suite work unchanged. Also the single source of the `IMG_*_ROLE` item-data constants |
+| `zxnu_main.py` | The app monolith (formerly `zx-next-unite.py`, renamed so it is importable): contains the single `MainWindow(QMainWindow)` class and most tab/pane UI logic (shrinking via the strangler extraction below). Startup runs at module level — importing it launches the app |
+| `zx-next-unite.py` | Thin launcher shim (`import zxnu_main`) kept for the documented `python zx-next-unite.py` workflow and as the PyInstaller build target |
+| `zxnu_app.py` | PyPI entry point: `main()` imports `zxnu_main` (side-effect launch). `[project.gui-scripts]` in `pyproject.toml` maps the `zx-next-unite` command to it; `nextsync5` ships as a console script alongside |
+| `zxnu_sdcard_explorer.py` | `SdCardExplorerPane`: the SD Card tab's dual local ⇄ disk-image explorer (widgets + navigation/model layer, incl. the lazy `hdfmonkey ls` tree). First strangler extraction from `MainWindow.__init__`: the operation layer (transfers, deletes, context menus, DnD, load pipeline) stays in `zxnu_main.py`, reaching the pane through a documented `hooks` protocol; MainWindow keeps aliases under the historical attribute names (`self.treeview`, `self.image_treeview`, …) plus one-line delegating wrappers, so existing code and the test suite work unchanged. Also the single source of the `IMG_*_ROLE` item-data constants |
 | `zxnu_config.py` | Constants, `SETTING_*` keys, API base URLs, UI string tables, color defaults, and pure helpers (`resource_path`, `qcolor_to_hex`, etc.) |
-| `zxnu_api.py` | Online catalogue API layer (strangler extraction #2): shared HTTP retry helpers plus the GetIt / ZXDB / zxArt fetchers, response parsers, website-URL builders and thread-safe zxArt name caches. Pure Python — no Qt — unit-tested by `tests/test_api_parsers.py`; star-imported by `zx-next-unite.py` so historical names keep working |
+| `zxnu_api.py` | Online catalogue API layer (strangler extraction #2): shared HTTP retry helpers plus the GetIt / ZXDB / zxArt fetchers, response parsers, website-URL builders and thread-safe zxArt name caches. Pure Python — no Qt — unit-tested by `tests/test_api_parsers.py`; star-imported by `zxnu_main.py` so historical names keep working |
 | `zxnu_workers.py` | Background threading primitives: `WorkerSignals`, `NextSyncSignals`, `HdfTaskSignals`, `HdfTaskWorker`, `HdfProgressDialog`, `DotDotFirstProxyModel`; the NextSync `-listen` worker (`run_remote_listen_server` + `RemoteExplorerSignals`) behind the Remote Explorer; and (strangler extraction #3) the classic Sync3/Sync4 server loop `run_classic_sync_server` (tested by `tests/test_classic_sync.py`) plus the hdfmonkey transfer worker bodies (`_run_get_task` / `_run_put_task` / `_run_delete_task`, scan helpers, sync framing + `getFileList`/syncpoint helpers) — all UI-free, driven by injected callables |
 | `zxnu_remote_explorer.py` | `RemoteExplorerWidget`: the dual-pane local ⇄ Next file manager of the NextSync tab (drives the `-listen` worker via a command queue; covered headlessly by `tests/test_remote_listen.py` for the worker side) |
 | `zxnu_http_bridge.py` | NextSync HTTP bridge: reusable Flask web server (stdlib-only import; Flask optional, loaded on start — `flask_available()` gates the UI) republishing a `-listen` session as HTTP routes for the Next's `.http` dot command. Used by the app (Settings toggle + port and max-connections boxes, `SETTING_NEXTSYNC_HTTP_BRIDGE`/`SETTING_NEXTSYNC_HTTP_PORT`/`SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT`, greyed without Flask) and `nextsync5.py -w`/`-http[=port]` (+`-flask-connection-limit:<n>`, default 1); docs + call samples in `nextsync/sync/server/HTTP_BRIDGE.md`, e2e test in `tests/test_http_bridge.py`. Optional bearer-token protection: `NextSyncHttpBridge(auth_token=…)` installs a `before_request` guard (constant-time `hmac.compare_digest` on the `ZXNEXTUNITE-BRIDGE-TOKEN` header, else HTTP 401); the app exposes it via a Settings "Require bearer token" checkbox + token field + Generate button (`SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED`/`SETTING_NEXTSYNC_HTTP_TOKEN`, off by default — a 64-char token minted by `generate_bridge_token()` on first enable) |

@@ -1,0 +1,65 @@
+# PyPI publish: when a GitHub release is PUBLISHED (i.e. after the draft the
+# release workflow created has been reviewed and made public), build the sdist
+# + wheel from the release's tag and upload them to PyPI so
+# `pipx install zx-next-unite` serves the same version.
+#
+# Authentication is PyPI Trusted Publishing (OIDC) — no token or secret is
+# stored in the repo. One-time setup on pypi.org (see the wiki/README):
+# project "zx-next-unite" -> Publishing -> add GitHub publisher for
+# jclauzel/ZX-Next-Unite, workflow publish.yml, environment pypi.
+#
+# workflow_dispatch exists for the first publish (the v9.1.9 release predates
+# this workflow) and for re-publishing after a PyPI-side hiccup: it builds
+# whatever ref it is dispatched on.
+
+name: publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Verify the release tag matches pyproject.toml
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          pyver=$(python -c "import re; print(re.search(r'^version = \"([^\"]+)\"', open('pyproject.toml', encoding='utf-8').read(), re.M).group(1))")
+          tag="${{ github.event.release.tag_name }}"
+          if [ "$pyver" != "${tag#v}" ]; then
+            echo "::error::Release tag ${tag} does not match version=${pyver} in pyproject.toml."
+            exit 1
+          fi
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install build twine
+          python -m build
+          python -m twine check dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    environment: pypi
+    permissions:
+      id-token: write   # OIDC for PyPI Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

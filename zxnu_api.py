@@ -1540,6 +1540,6 @@ def zxart_parse_picture_list(response: dict) -> tuple:
 # House idiom (zxnu_config / zxnu_workers do the same): export EVERYTHING,
 # including underscore-prefixed helpers, so `from zxnu_api import *` cannot
 # silently skip private names the monolith still calls (the gallery-images
-# regression). The explicit underscore import in zx-next-unite.py stays as
+# regression). The explicit underscore import in zxnu_main.py stays as
 # documentation; the tripwire test guards both.
 __all__ = [_n for _n in dir() if not _n.startswith('__')]

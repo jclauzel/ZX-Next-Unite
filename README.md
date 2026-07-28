@@ -58,6 +58,15 @@ All three packages are built by CI from the tagged source
 update check offers the right package for your platform when a newer release
 is published.
 
+**Via pipx (any platform, from PyPI):**
+
+    pipx install "zx-next-unite[full]"
+
+installs the `zx-next-unite` command (plus the `nextsync5` command-line sync
+server) in its own isolated environment — one line, no repo checkout. Drop
+`[full]` to skip the optional extras (retro pygame views, itch.io tab,
+Recycle-Bin deletes, HTTP bridge).
+
 **From source (any platform):**
 
     git clone https://github.com/jclauzel/ZX-Next-Unite

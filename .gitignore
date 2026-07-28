@@ -35,3 +35,6 @@ CSpectPlugins-*/
 .coverage
 .coverage.*
 tests/htmlcov/
+
+# setuptools build metadata (python -m build)
+*.egg-info/
