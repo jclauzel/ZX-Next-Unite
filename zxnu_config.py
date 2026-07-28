@@ -5,6 +5,7 @@ Contains no GUI/window logic — only configuration constants, lookup
 tables, small pure helpers and the zxArt language state."""
 
 import io
+import logging
 import os
 import platform
 import re
@@ -44,7 +45,81 @@ ZX_NEXT_UNITE_VERBOSE_LOG_MODE = False
 ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER = 1
 ZX_NEXT_UNITE_UI_WIDTH = 900 * ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER
 ZX_NEXT_UNITE_UI_HEIGTH = 650 * ZX_NEXT_UNITE_UI_SIZE_MULTIPLIER
-ZX_NEXT_UNITE_CONFIG_FILE_NAME = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "hdfg.cfg")
+# ── Per-user data root ───────────────────────────────────────────────────────
+# EVERYTHING the app writes — hdfg.cfg, the rotating/crash logs and the whole
+# downloads/ tree (which all emulator/hdfmonkey detection is rooted in: the
+# itch.io CSpect walk, downloads/hdfmonkey/<platform>/, downloads/mame/) —
+# resolves through this ONE root so config, downloads and detection can never
+# point at different places. zxnu_main.py's early logging block mirrors this
+# resolution in _zxnu_early_state_dir() (it must run before heavy imports);
+# keep the two in sync.
+
+def _zxnu_migrate_legacy_state(root):
+    """One-time move of state a pre-data-root pipx install (9.1.9) left next
+    to the launcher script (e.g. ~/.local/bin): hdfg.cfg and downloads/ move
+    into *root* when *root* has none yet. Logs are left behind (disposable);
+    every move is best-effort."""
+    legacy_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    if os.path.normcase(legacy_dir) == os.path.normcase(root):
+        return
+    for name in ("hdfg.cfg", "downloads"):
+        src = os.path.join(legacy_dir, name)
+        dst = os.path.join(root, name)
+        if os.path.exists(src) and not os.path.exists(dst):
+            try:
+                shutil.move(src, dst)
+                logging.info(f"data root: migrated {src} -> {dst}")
+            except (OSError, shutil.Error):
+                logging.exception(
+                    f"data root: could not migrate {src} to {dst}")
+
+
+def _zxnu_compute_data_root():
+    """Resolve where per-user state lives.
+
+    1. ``ZX_NEXT_UNITE_HOME`` env var — explicit override (power users,
+       tests, USB-stick setups).
+    2. Frozen (PyInstaller) build — the executable's directory: the portable
+       layout every existing install already uses.
+    3. ``ZX_NEXT_UNITE_MODE=installed`` (set by the PyPI entry point,
+       zxnu_app.main) — the platform's per-user app-data dir:
+       ``%APPDATA%\\zx-next-unite`` / ``~/Library/Application Support/zx-next-unite``
+       / ``$XDG_DATA_HOME|~/.local/share/zx-next-unite``. Deliberately ONE
+       root (not split config/cache) so settings + downloads travel together.
+    4. Otherwise (source checkout / the zx-next-unite.py shim) — the launched
+       script's directory, exactly as always.
+    """
+    override = os.environ.get("ZX_NEXT_UNITE_HOME", "").strip()
+    if override:
+        root = os.path.abspath(os.path.expanduser(override))
+        try:
+            os.makedirs(root, exist_ok=True)
+        except OSError:
+            logging.exception(f"data root: cannot create {root}")
+        return root
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    if os.environ.get("ZX_NEXT_UNITE_MODE", "").strip().lower() == "installed":
+        if sys.platform == "win32":
+            base = os.environ.get("APPDATA") or os.path.expanduser("~")
+        elif sys.platform == "darwin":
+            base = os.path.expanduser("~/Library/Application Support")
+        else:
+            base = (os.environ.get("XDG_DATA_HOME", "").strip()
+                    or os.path.expanduser("~/.local/share"))
+        root = os.path.join(base, "zx-next-unite")
+        try:
+            os.makedirs(root, exist_ok=True)
+            _zxnu_migrate_legacy_state(root)
+        except OSError:
+            logging.exception(f"data root: cannot create {root}")
+        return root
+    return os.path.dirname(os.path.abspath(sys.argv[0]))
+
+
+ZXNU_DATA_ROOT = _zxnu_compute_data_root()
+
+ZX_NEXT_UNITE_CONFIG_FILE_NAME = os.path.join(ZXNU_DATA_ROOT, "hdfg.cfg")
 # Debounce window (ms) for the NextSync "prepare" file scan: rapid explorer
 # selection changes are coalesced so the recursive scan runs once after settling.
 NEXTSYNC_PREPARE_DEBOUNCE_MS = 300
@@ -1249,9 +1324,10 @@ def find_cspect_executable():
     """
     exe_name = CSPECT_EXECUTABLE_NAME + ".exe"
     local_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-    local_candidate = os.path.join(local_dir, exe_name)
-    if os.path.isfile(local_candidate):
-        return local_candidate
+    for candidate_dir in (local_dir, ZXNU_DATA_ROOT):
+        local_candidate = os.path.join(candidate_dir, exe_name)
+        if os.path.isfile(local_candidate):
+            return local_candidate
     candidate = shutil.which(CSPECT_EXECUTABLE_NAME)
     if candidate is None:
         candidate = shutil.which(exe_name)

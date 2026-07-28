@@ -807,7 +807,7 @@ def build_zxart_pane(
         p = (configured_path or "").strip().rstrip("/\\")
         if p and os.path.isdir(p):
             return p
-        return os.path.abspath("downloads")
+        return os.path.join(ZXNU_DATA_ROOT, DOWNLOADS_ROOT_DIRNAME)
 
     def _zxart_send_to_path(title: str, downloads: list, dest_root: str, post_action=None):
         if not downloads:
@@ -2582,7 +2582,7 @@ def build_zxart_pane(
         tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
         tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
 
-        folder_root = os.path.abspath(os.path.join("downloads", zxart_sanitize_folder(title)))
+        folder_root = os.path.join(ZXNU_DATA_ROOT, DOWNLOADS_ROOT_DIRNAME, zxart_sanitize_folder(title))
         _ns_base_dlg = _zxart_resolve_base_path(
             host.left_file_nextsync_explorer_selection_full_filename_path)
 
