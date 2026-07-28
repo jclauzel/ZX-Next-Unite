@@ -12,6 +12,7 @@ are never rewritten."""
 import os
 import sys
 
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -21,7 +22,8 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QGroupBox,
 
 from zxnu_i18n import (CATALOGS, DEFAULT_UI_LANGUAGE, UI_LANGUAGES,
                        _ui_language_from_locale, normalize_ui_language,
-                       system_ui_language, translate_widget_tree, ui_tr)
+                       set_current_ui_language, system_ui_language,
+                       translate_widget_tree, ui_tr, ui_tr_now)
 
 ok = True
 
@@ -170,10 +172,72 @@ def test_widget_walk():
           w["check"].text() == "Transfert lent")
 
 
+def test_runtime_language():
+    """ui_tr_now follows the language most recently applied — the runtime
+    side (toasts) of the catalogs."""
+    set_current_ui_language("fr")
+    check("ui_tr_now translates after set_current_ui_language",
+          ui_tr_now("NextSync server started") == "Serveur NextSync démarré",
+          ui_tr_now("NextSync server started"))
+    check("ui_tr_now translates templates before .format()",
+          ui_tr_now("Found: {emulators}.").format(emulators="CSpect")
+          == "Détecté : CSpect.",
+          ui_tr_now("Found: {emulators}.").format(emulators="CSpect"))
+    check("ui_tr_now passes unknown text through",
+          ui_tr_now("no such catalog key !?") == "no such catalog key !?")
+    set_current_ui_language("en")
+    check("ui_tr_now back to English is identity",
+          ui_tr_now("NextSync server started") == "NextSync server started")
+
+
+def test_toast_tripwire():
+    """Every LITERAL string handed to a toast (title or body of _show_toast /
+    _on_toast / _show_sd_notification) and every literal ui_tr_now(...)
+    template must exist in EVERY language catalog — otherwise a new toast
+    silently stays English for translated UIs (the exact bug this guards)."""
+    import ast
+
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    toast_funcs = {"_show_toast", "_on_toast", "_show_sd_notification"}
+    literals = set()
+    for fname in ("zxnu_main.py", "zxnu_nextsync_pane.py",
+                  "zxnu_remote_explorer.py", "zxnu_getit_pane.py",
+                  "zxnu_zxart_pane.py", "zxnu_zxdb_pane.py"):
+        tree = ast.parse(open(os.path.join(repo, fname), encoding="utf-8").read())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = (node.func.attr if isinstance(node.func, ast.Attribute)
+                    else node.func.id if isinstance(node.func, ast.Name)
+                    else "")
+            if name in toast_funcs:
+                for arg in node.args[:2]:
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        literals.add(arg.value)
+            elif name == "ui_tr_now" and node.args:
+                arg = node.args[0]
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    literals.add(arg.value)
+    # The pre-toast strings ui_tr/ui_tr_now already handled elsewhere (the
+    # first-run language toast) live in the general catalogs; empty/whitespace
+    # separators are not translatable content.
+    literals = {s for s in literals if s.strip()}
+    check("tripwire found a plausible number of toast strings",
+          len(literals) >= 40, f"only {len(literals)} found")
+    for code, _n in UI_LANGUAGES:
+        if code == DEFAULT_UI_LANGUAGE:
+            continue
+        missing = sorted(s for s in literals if s not in CATALOGS[code])
+        check(f"every toast string is translated in '{code}'",
+              not missing, "missing: " + "; ".join(repr(m) for m in missing[:4]))
+
+
 def main():
     QApplication(sys.argv)
     test_catalog_integrity()
     test_helpers()
+    test_runtime_language()
+    test_toast_tripwire()
     test_widget_walk()
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
     sys.exit(0 if ok else 1)

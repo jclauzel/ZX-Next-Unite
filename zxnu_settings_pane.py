@@ -305,9 +305,9 @@ def build_settings_pane(
         host.settings_delete_to_recycle_bin_checkbox.setChecked(False)
         host.settings_delete_to_recycle_bin_checkbox.setEnabled(False)
         host.settings_delete_to_recycle_bin_checkbox.setToolTip(
-            "Requires the optional Send2Trash package:\n"
-            "    python -m pip install Send2Trash\n"
-            "Until it is installed, local deletes stay permanent.")
+            "Requires the optional Send2Trash package.\n"
+            + zxnu_optional_install_hint("Send2Trash")
+            + "\nUntil it is installed, local deletes stay permanent.")
     host.settings_delete_to_recycle_bin_checkbox.stateChanged.connect(
         lambda _s: settings_delete_to_recycle_bin_statechanged())
     grid_tab_Settings.addWidget(host.settings_delete_to_recycle_bin_checkbox, 5, 0, 1, 2)
@@ -997,9 +997,8 @@ def build_settings_pane(
         host.settings_http_bridge_checkbox.setEnabled(False)
         host.settings_http_bridge_checkbox.setToolTip(
             "The NextSync HTTP bridge needs the optional 'flask' Python\n"
-            "package, which is not installed. Install it with:\n"
-            "    python -m pip install flask\n"
-            "then restart ZX-Next-Unite to enable this option."
+            "package, which is not installed.\n"
+            + zxnu_optional_install_hint("flask")
         )
     host.settings_http_bridge_checkbox.stateChanged.connect(
         settings_http_bridge_statechanged)

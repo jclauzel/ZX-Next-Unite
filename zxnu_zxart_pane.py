@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (QWidget, QLabel, QPushButton, QComboBox,
     QFileDialog, QInputDialog, QDialog)
 
 from zxnu_config import *
+from zxnu_i18n import ui_tr_now
 from zxnu_api import *
 from zxnu_gallery import *
 from zxnu_media import *
@@ -868,7 +869,8 @@ def build_zxart_pane(
                 if pending["ok"] > 0:
                     zxart_set_status(f"Sent {pending['ok']}/{pending['n']} file(s) → image:{img_dir}")
                     host._show_sd_notification(
-                        f"Sent {pending['ok']}/{pending['n']} file(s) to SD card image:\n{img_dir}"
+                        ui_tr_now("Sent {ok}/{n} file(s) to SD card image:\n{dir}").format(
+                            ok=pending["ok"], n=pending["n"], dir=img_dir)
                     )
                     # Async refresh (listing runs on a worker thread).
                     update_disk_manager_widget_table()
