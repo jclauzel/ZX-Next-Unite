@@ -26,6 +26,8 @@ import os
 import platform
 import threading
 
+from zxnu_i18n import ui_tr_now
+
 from PySide6 import QtCore
 from PySide6.QtCore import (Qt, QTimer, QRect, QDir)
 from PySide6.QtGui import (QKeySequence)
@@ -501,9 +503,11 @@ def build_nextsync_pane(
                     "header; others get HTTP 401)")
             host._show_toast(
                 "NextSync HTTP bridge started",
-                f"Serving on port {port}. A Next with the .http dot "
-                "command (or curl) can now drive the Next connected in "
-                "'.sync5 -listen'.", variant="green", duration_ms=6000)
+                ui_tr_now(
+                    "Serving on port {port}. A Next with the .http dot "
+                    "command (or curl) can now drive the Next connected in "
+                    "'.sync5 -listen'.").format(port=port),
+                variant="green", duration_ms=6000)
         elif host._re_bridge.port_in_use:
             # Something (IIS? another server instance?) already owns the
             # port: a targeted red error, exactly what happened and that
@@ -512,9 +516,10 @@ def build_nextsync_pane(
             add_nextsync_log_window(f"NextSync HTTP bridge NOT started: {err}")
             host._show_toast(
                 "NextSync HTTP bridge not started",
-                "You have specified to start the flask integration "
-                f"server but port {port} is already in use, the web "
-                "server has not been started.",
+                ui_tr_now(
+                    "You have specified to start the flask integration "
+                    "server but port {port} is already in use, the web "
+                    "server has not been started.").format(port=port),
                 variant="red", duration_ms=12000)
         else:
             host._re_bridge = None
@@ -805,8 +810,10 @@ def build_nextsync_pane(
             "ZX-Next-Unite (or NextSync server) already running?")
         host._show_toast(
             "NextSync server not started",
-            f"Port {port} is already in use.\nIs another ZX-Next-Unite "
-            "instance (or a standalone NextSync server) already running?",
+            ui_tr_now(
+                "Port {port} is already in use.\nIs another ZX-Next-Unite "
+                "instance (or a standalone NextSync server) already "
+                "running?").format(port=port),
             variant="yellow", duration_ms=12000)
         _re_update_start_button()
 
@@ -999,11 +1006,13 @@ def build_nextsync_pane(
                 # disconnect needs no success banner either way.
                 return
             if len(sent) == 1:
-                body = f"file {sent[0]}"
+                body = ui_tr_now("file {path}").format(path=sent[0])
             else:
-                body = f"{len(sent)} files:\n" + "\n".join(sent[:5])
+                body = (ui_tr_now("{n} files:").format(n=len(sent))
+                        + "\n" + "\n".join(sent[:5]))
                 if len(sent) > 5:
-                    body += f"\n…and {len(sent) - 5} more"
+                    body += "\n" + ui_tr_now("…and {n} more").format(
+                        n=len(sent) - 5)
             host._show_toast("✅  Sent via Remote Explorer", body,
                              variant="green", duration_ms=8000)
 

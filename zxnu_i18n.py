@@ -91,6 +91,32 @@ def ui_tr(text, lang):
     return CATALOGS.get(lang, {}).get(text, text)
 
 
+# Language most recently applied via translate_widget_tree — the runtime side
+# of the catalogs: lets strings generated AFTER construction (toast titles and
+# bodies, .format() templates) translate without threading `lang` through
+# every call site.
+_current_ui_language = DEFAULT_UI_LANGUAGE
+
+
+def set_current_ui_language(lang):
+    """Record *lang* as the active UI language for ui_tr_now()."""
+    global _current_ui_language
+    _current_ui_language = normalize_ui_language(lang)
+
+
+def current_ui_language():
+    """The language most recently applied via translate_widget_tree."""
+    return _current_ui_language
+
+
+def ui_tr_now(text):
+    """Translate a runtime-generated string into the currently applied UI
+    language. For dynamic content, translate the TEMPLATE (the catalogs key
+    templates with {placeholders}) and .format() afterwards — never the
+    already-formatted result, which cannot exact-match a catalog key."""
+    return ui_tr(text, _current_ui_language)
+
+
 # Per-widget source-text cache: {widget: {attr: {"src": str, "applied": str}}}.
 # Weak keys so destroyed widgets drop out on their own.
 _SRC_CACHE = WeakKeyDictionary()
@@ -128,6 +154,9 @@ def translate_widget_tree(root, lang):
     Safe to call repeatedly and with any language (including "en", which
     restores the original texts). Unknown texts are left untouched."""
     lang = normalize_ui_language(lang)
+    # Every full-tree application also becomes the language for runtime
+    # strings (toasts etc.) — see ui_tr_now().
+    set_current_ui_language(lang)
     widgets = [root] + root.findChildren(QWidget)
     for w in widgets:
         try:
@@ -1533,3 +1562,619 @@ CATALOGS = {
             "La langue de l'interface a été réglée sur celle de votre système.\nVous pouvez la changer à tout moment dans l'onglet Settings\n(« Langue de l'application : »).",
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# Toast titles/bodies (runtime strings, translated via ui_tr_now: the
+# _show_toast chokepoint handles exact matches, and dynamic content is
+# translated as a .format() TEMPLATE at its call site — keys carrying
+# {placeholders} are those templates). Kept in a separate dict for
+# readability and merged into CATALOGS below so ui_tr sees one namespace.
+# tests/test_i18n.py has a tripwire asserting every toast string literal in
+# the code exists in every language here.
+# ---------------------------------------------------------------------------
+_TOAST_CATALOGS = {
+    "fr": {
+        "✅  CSpect installed": "✅  CSpect installé",
+        "✅  Emulator(s) detected": "✅  Émulateur(s) détecté(s)",
+        "⚠  No emulators detected": "⚠  Aucun émulateur détecté",
+        "✅  hdfmonkey installed": "✅  hdfmonkey installé",
+        "✅  Send to SD card complete": "✅  Envoi vers la carte SD terminé",
+        "NextSync server not started": "Serveur NextSync non démarré",
+        "⚠  MAME needs the Next boot ROM": "⚠  MAME a besoin de la ROM de démarrage du Next",
+        "✅  MAME installed": "✅  MAME installé",
+        "⚠  MAME install failed": "⚠  Échec de l'installation de MAME",
+        "✅  CSpect updated": "✅  CSpect mis à jour",
+        "⚠  No disk image selected/found for your emulator": "⚠  Aucune image disque sélectionnée/trouvée pour votre émulateur",
+        "Classic NextSync server not started": "Serveur NextSync classique non démarré",
+        "NextSync HTTP bridge started": "Passerelle HTTP NextSync démarrée",
+        "NextSync HTTP bridge not started": "Passerelle HTTP NextSync non démarrée",
+        "Remote Explorer NextSync server not started": "Serveur NextSync du Remote Explorer non démarré",
+        "NextSync server started": "Serveur NextSync démarré",
+        "You have started a Remote Explorer nextsync server already": "Un serveur NextSync Remote Explorer est déjà démarré",
+        "✅  Sent via Remote Explorer": "✅  Envoyé via le Remote Explorer",
+        "Remote Explorer is busy": "Le Remote Explorer est occupé",
+        "⚠  Remote copy interrupted": "⚠  Copie distante interrompue",
+        "✅  Remote copy complete": "✅  Copie distante terminée",
+        "A Next operation failed": "Une opération sur le Next a échoué",
+        "{n} Next operations failed": "{n} opérations sur le Next ont échoué",
+        "Folder unavailable": "Dossier indisponible",
+        "Remote unzip failed": "Échec de la décompression distante",
+        "Remote unzip": "Décompression distante",
+        "Remote unzip refused": "Décompression distante refusée",
+        "✅  Remote unzip complete": "✅  Décompression distante terminée",
+        "Remote zip": "Compression distante",
+        "Remote zip failed": "Échec de la compression distante",
+        "Found: {emulators}.": "Détecté : {emulators}.",
+        " and ": " et ",
+        "Mame: via Flatpak ({app})": "Mame : via Flatpak ({app})",
+        "⚠ On Windows, CSpect needs <b>OpenAL 1.1</b> for sound. If you have no audio, install it from <a href=\"https://www.openal.org/\">openal.org</a>.":
+            "⚠ Sous Windows, CSpect a besoin d'<b>OpenAL 1.1</b> pour le son. Sans audio, installez-le depuis <a href=\"https://www.openal.org/\">openal.org</a>.",
+        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
+            "Ni CSpect ni Mame n'ont été trouvés. Ajoutez le(s) émulateur(s) à la variable d'environnement PATH de votre système pour pouvoir les lancer d'ici. \r\n\r\nCSpect : https://mdf200.itch.io/cspect \r\nMame : https://wiki.specnext.dev/MAME:Installing",
+        "hdfmonkey has been installed and is ready to use.": "hdfmonkey a été installé et est prêt à l'emploi.",
+        "Location: {path}": "Emplacement : {path}",
+        "The file was sent to the SD card image.": "Le fichier a été envoyé vers l'image de carte SD.",
+        "Sent to SD card image:\n{name}": "Envoyé vers l'image de carte SD :\n{name}",
+        "Sent {ok}/{n} file(s) to SD card image:\n{dir}": "{ok}/{n} fichier(s) envoyé(s) vers l'image de carte SD :\n{dir}",
+        "Port {port} is already in use.\nIs another ZX-Next-Unite instance (or a standalone NextSync server) already running?":
+            "Le port {port} est déjà utilisé.\nUne autre instance de ZX-Next-Unite (ou un serveur NextSync autonome) est-elle déjà en cours d'exécution ?",
+        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME ne peut pas fonctionner sans la ROM de démarrage TBBLUE — une étape manuelle.\r\nVoir {url} → « Get TBBLUE ».\r\nPlacez tbblue.zip dans le dossier roms de MAME (downloads\\mame\\roms) — NE PAS l'extraire.\r\nUtilisez uniquement une ROM acquise légalement et sous licence.",
+        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME est installé — aucun redémarrage nécessaire.\r\nÉtape manuelle : ajoutez la ROM de démarrage TBBLUE.\r\nVoir {url} → « Get TBBLUE ».\r\nPlacez tbblue.zip dans le dossier roms de MAME\r\n({roms})\r\n— NE PAS l'extraire.\r\nUtilisez uniquement une ROM acquise légalement et sous licence.",
+        "The archive was extracted but mame.exe could not be located in downloads/mame.":
+            "L'archive a été extraite mais mame.exe est introuvable dans downloads/mame.",
+        "CSpect {name} is installed — no restart needed.\r\n{extracted}":
+            "CSpect {name} est installé — aucun redémarrage nécessaire.\r\n{extracted}",
+        "To start an emulator please select first a disk image at the top of the screen on the SD Card Utility tab.":
+            "Pour démarrer un émulateur, sélectionnez d'abord une image disque en haut de l'écran dans l'onglet SD Card Utility.",
+        "You have already started a Remote Explorer nextsync server, please stop it first.":
+            "Vous avez déjà démarré un serveur NextSync Remote Explorer, veuillez d'abord l'arrêter.",
+        "You have already started a Classic nextsync server, please stop it first.":
+            "Vous avez déjà démarré un serveur NextSync classique, veuillez d'abord l'arrêter.",
+        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -listen'.":
+            "Serveur actif sur le port {port}. Un Next avec la commande dot .http (ou curl) peut maintenant piloter le Next connecté en « .sync5 -listen ».",
+        "You have specified to start the flask integration server but port {port} is already in use, the web server has not been started.":
+            "Vous avez demandé le démarrage du serveur d'intégration Flask mais le port {port} est déjà utilisé, le serveur web n'a pas été démarré.",
+        "Start '.sync5 -listen' on your Next to connect!":
+            "Lancez « .sync5 -listen » sur votre Next pour vous connecter !",
+        "Start '.sync5 -listen' on your Next and retry again (canceling the upload / send process for now).":
+            "Lancez « .sync5 -listen » sur votre Next puis réessayez (envoi annulé pour le moment).",
+        "file {path}": "fichier {path}",
+        "{n} files:": "{n} fichiers :",
+        "…and {n} more": "…et {n} de plus",
+        "Another transfer is still running — wait for it to finish, then try again.":
+            "Un autre transfert est encore en cours — attendez qu'il se termine, puis réessayez.",
+        "The connection to the Next ended before the copy finished; its state is unknown.":
+            "La connexion au Next s'est terminée avant la fin de la copie ; son état est inconnu.",
+        "Copied {n} item(s) on the Next.": "{n} élément(s) copié(s) sur le Next.",
+        "{path} no longer exists on the Next.\nReturned to {root}.":
+            "{path} n'existe plus sur le Next.\nRetour à {root}.",
+        "Could not extract {name}: {error}": "Impossible d'extraire {name} : {error}",
+        "{name} contains no extractable files.": "{name} ne contient aucun fichier extractible.",
+        "Unzipping needs {need}, but drive {drive}: only has {free} free.":
+            "La décompression nécessite {need}, mais le lecteur {drive}: n'a que {free} de libre.",
+        "Extracted {files} file(s) from {name} into {cwd}.":
+            "{files} fichier(s) extrait(s) de {name} vers {cwd}.",
+        "{skipped} unsafe entries skipped": "{skipped} entrées non sûres ignorées",
+        "Nothing was downloaded — no zip was created.": "Rien n'a été téléchargé — aucun zip n'a été créé.",
+        "Could not build {zip_name}: {error}": "Impossible de créer {zip_name} : {error}",
+        "Remote zip refused": "Compression distante refusée",
+        "✅  Remote zip complete": "✅  Compression distante terminée",
+        "Unzip failed": "Échec de la décompression",
+        "✅  Unzip complete": "✅  Décompression terminée",
+        "Zip failed": "Échec de la compression",
+        "✅  Zip complete": "✅  Compression terminée",
+        "{zip_name} is {size}, but drive {drive}: only has {free} free.":
+            "{zip_name} fait {size}, mais le lecteur {drive}: n'a que {free} de libre.",
+        "Created {zip_name} in {dest} ({files} file(s), {size}).":
+            "{zip_name} créé dans {dest} ({files} fichier(s), {size}).",
+        "Created {zip_name} in {dest} ({files} file(s)).":
+            "{zip_name} créé dans {dest} ({files} fichier(s)).",
+        "Could not create {zip_name}: {error}": "Impossible de créer {zip_name} : {error}",
+    },
+    "es": {
+        "✅  CSpect installed": "✅  CSpect instalado",
+        "✅  Emulator(s) detected": "✅  Emulador(es) detectado(s)",
+        "⚠  No emulators detected": "⚠  No se detectaron emuladores",
+        "✅  hdfmonkey installed": "✅  hdfmonkey instalado",
+        "✅  Send to SD card complete": "✅  Envío a la tarjeta SD completado",
+        "NextSync server not started": "Servidor NextSync no iniciado",
+        "⚠  MAME needs the Next boot ROM": "⚠  MAME necesita la ROM de arranque del Next",
+        "✅  MAME installed": "✅  MAME instalado",
+        "⚠  MAME install failed": "⚠  Falló la instalación de MAME",
+        "✅  CSpect updated": "✅  CSpect actualizado",
+        "⚠  No disk image selected/found for your emulator": "⚠  No hay imagen de disco seleccionada/encontrada para su emulador",
+        "Classic NextSync server not started": "Servidor NextSync clásico no iniciado",
+        "NextSync HTTP bridge started": "Puente HTTP de NextSync iniciado",
+        "NextSync HTTP bridge not started": "Puente HTTP de NextSync no iniciado",
+        "Remote Explorer NextSync server not started": "Servidor NextSync del Remote Explorer no iniciado",
+        "NextSync server started": "Servidor NextSync iniciado",
+        "You have started a Remote Explorer nextsync server already": "Ya ha iniciado un servidor NextSync del Remote Explorer",
+        "✅  Sent via Remote Explorer": "✅  Enviado mediante el Remote Explorer",
+        "Remote Explorer is busy": "El Remote Explorer está ocupado",
+        "⚠  Remote copy interrupted": "⚠  Copia remota interrumpida",
+        "✅  Remote copy complete": "✅  Copia remota completada",
+        "A Next operation failed": "Falló una operación en el Next",
+        "{n} Next operations failed": "Fallaron {n} operaciones en el Next",
+        "Folder unavailable": "Carpeta no disponible",
+        "Remote unzip failed": "Falló la descompresión remota",
+        "Remote unzip": "Descompresión remota",
+        "Remote unzip refused": "Descompresión remota rechazada",
+        "✅  Remote unzip complete": "✅  Descompresión remota completada",
+        "Remote zip": "Compresión remota",
+        "Remote zip failed": "Falló la compresión remota",
+        "Found: {emulators}.": "Encontrado: {emulators}.",
+        " and ": " y ",
+        "Mame: via Flatpak ({app})": "Mame: mediante Flatpak ({app})",
+        "⚠ On Windows, CSpect needs <b>OpenAL 1.1</b> for sound. If you have no audio, install it from <a href=\"https://www.openal.org/\">openal.org</a>.":
+            "⚠ En Windows, CSpect necesita <b>OpenAL 1.1</b> para el sonido. Si no tiene audio, instálelo desde <a href=\"https://www.openal.org/\">openal.org</a>.",
+        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
+            "No se encontraron ni CSpect ni Mame. Añada el/los emulador(es) a la variable de entorno PATH de su sistema operativo para poder lanzarlos desde aquí. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
+        "hdfmonkey has been installed and is ready to use.": "hdfmonkey se ha instalado y está listo para usar.",
+        "Location: {path}": "Ubicación: {path}",
+        "The file was sent to the SD card image.": "El archivo se envió a la imagen de la tarjeta SD.",
+        "Sent to SD card image:\n{name}": "Enviado a la imagen de la tarjeta SD:\n{name}",
+        "Sent {ok}/{n} file(s) to SD card image:\n{dir}": "{ok}/{n} archivo(s) enviado(s) a la imagen de la tarjeta SD:\n{dir}",
+        "Port {port} is already in use.\nIs another ZX-Next-Unite instance (or a standalone NextSync server) already running?":
+            "El puerto {port} ya está en uso.\n¿Hay otra instancia de ZX-Next-Unite (o un servidor NextSync independiente) ya en ejecución?",
+        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME no puede funcionar sin la ROM de arranque TBBLUE — un paso manual.\r\nVea {url} → «Get TBBLUE».\r\nColoque tbblue.zip en la carpeta roms de MAME (downloads\\mame\\roms) — NO lo extraiga.\r\nUse solo una ROM adquirida legalmente y con licencia.",
+        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME está instalado — no hace falta reiniciar.\r\nPaso manual: añada la ROM de arranque TBBLUE.\r\nVea {url} → «Get TBBLUE».\r\nColoque tbblue.zip en la carpeta roms de MAME\r\n({roms})\r\n— NO lo extraiga.\r\nUse solo una ROM adquirida legalmente y con licencia.",
+        "The archive was extracted but mame.exe could not be located in downloads/mame.":
+            "El archivo se extrajo pero no se encontró mame.exe en downloads/mame.",
+        "CSpect {name} is installed — no restart needed.\r\n{extracted}":
+            "CSpect {name} está instalado — no hace falta reiniciar.\r\n{extracted}",
+        "To start an emulator please select first a disk image at the top of the screen on the SD Card Utility tab.":
+            "Para iniciar un emulador, seleccione primero una imagen de disco en la parte superior de la pantalla, en la pestaña SD Card Utility.",
+        "You have already started a Remote Explorer nextsync server, please stop it first.":
+            "Ya ha iniciado un servidor NextSync del Remote Explorer; deténgalo primero.",
+        "You have already started a Classic nextsync server, please stop it first.":
+            "Ya ha iniciado un servidor NextSync clásico; deténgalo primero.",
+        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -listen'.":
+            "Sirviendo en el puerto {port}. Un Next con el comando dot .http (o curl) ya puede controlar el Next conectado en «.sync5 -listen».",
+        "You have specified to start the flask integration server but port {port} is already in use, the web server has not been started.":
+            "Ha indicado iniciar el servidor de integración Flask pero el puerto {port} ya está en uso; el servidor web no se ha iniciado.",
+        "Start '.sync5 -listen' on your Next to connect!":
+            "¡Ejecute «.sync5 -listen» en su Next para conectar!",
+        "Start '.sync5 -listen' on your Next and retry again (canceling the upload / send process for now).":
+            "Ejecute «.sync5 -listen» en su Next y reintente (el envío se cancela por ahora).",
+        "file {path}": "archivo {path}",
+        "{n} files:": "{n} archivos:",
+        "…and {n} more": "…y {n} más",
+        "Another transfer is still running — wait for it to finish, then try again.":
+            "Otra transferencia sigue en curso — espere a que termine y vuelva a intentarlo.",
+        "The connection to the Next ended before the copy finished; its state is unknown.":
+            "La conexión con el Next terminó antes de completar la copia; su estado es desconocido.",
+        "Copied {n} item(s) on the Next.": "{n} elemento(s) copiado(s) en el Next.",
+        "{path} no longer exists on the Next.\nReturned to {root}.":
+            "{path} ya no existe en el Next.\nSe volvió a {root}.",
+        "Could not extract {name}: {error}": "No se pudo extraer {name}: {error}",
+        "{name} contains no extractable files.": "{name} no contiene archivos extraíbles.",
+        "Unzipping needs {need}, but drive {drive}: only has {free} free.":
+            "Descomprimir necesita {need}, pero la unidad {drive}: solo tiene {free} libres.",
+        "Extracted {files} file(s) from {name} into {cwd}.":
+            "{files} archivo(s) extraído(s) de {name} en {cwd}.",
+        "{skipped} unsafe entries skipped": "{skipped} entradas no seguras omitidas",
+        "Nothing was downloaded — no zip was created.": "No se descargó nada — no se creó ningún zip.",
+        "Could not build {zip_name}: {error}": "No se pudo crear {zip_name}: {error}",
+        "Remote zip refused": "Compresión remota rechazada",
+        "✅  Remote zip complete": "✅  Compresión remota completada",
+        "Unzip failed": "Falló la descompresión",
+        "✅  Unzip complete": "✅  Descompresión completada",
+        "Zip failed": "Falló la compresión",
+        "✅  Zip complete": "✅  Compresión completada",
+        "{zip_name} is {size}, but drive {drive}: only has {free} free.":
+            "{zip_name} ocupa {size}, pero la unidad {drive}: solo tiene {free} libres.",
+        "Created {zip_name} in {dest} ({files} file(s), {size}).":
+            "Se creó {zip_name} en {dest} ({files} archivo(s), {size}).",
+        "Created {zip_name} in {dest} ({files} file(s)).":
+            "Se creó {zip_name} en {dest} ({files} archivo(s)).",
+        "Could not create {zip_name}: {error}": "No se pudo crear {zip_name}: {error}",
+    },
+    "pt": {
+        "✅  CSpect installed": "✅  CSpect instalado",
+        "✅  Emulator(s) detected": "✅  Emulador(es) detetado(s)",
+        "⚠  No emulators detected": "⚠  Nenhum emulador detetado",
+        "✅  hdfmonkey installed": "✅  hdfmonkey instalado",
+        "✅  Send to SD card complete": "✅  Envio para o cartão SD concluído",
+        "NextSync server not started": "Servidor NextSync não iniciado",
+        "⚠  MAME needs the Next boot ROM": "⚠  O MAME precisa da ROM de arranque do Next",
+        "✅  MAME installed": "✅  MAME instalado",
+        "⚠  MAME install failed": "⚠  Falha na instalação do MAME",
+        "✅  CSpect updated": "✅  CSpect atualizado",
+        "⚠  No disk image selected/found for your emulator": "⚠  Nenhuma imagem de disco selecionada/encontrada para o seu emulador",
+        "Classic NextSync server not started": "Servidor NextSync clássico não iniciado",
+        "NextSync HTTP bridge started": "Ponte HTTP NextSync iniciada",
+        "NextSync HTTP bridge not started": "Ponte HTTP NextSync não iniciada",
+        "Remote Explorer NextSync server not started": "Servidor NextSync do Remote Explorer não iniciado",
+        "NextSync server started": "Servidor NextSync iniciado",
+        "You have started a Remote Explorer nextsync server already": "Já iniciou um servidor NextSync do Remote Explorer",
+        "✅  Sent via Remote Explorer": "✅  Enviado através do Remote Explorer",
+        "Remote Explorer is busy": "O Remote Explorer está ocupado",
+        "⚠  Remote copy interrupted": "⚠  Cópia remota interrompida",
+        "✅  Remote copy complete": "✅  Cópia remota concluída",
+        "A Next operation failed": "Uma operação no Next falhou",
+        "{n} Next operations failed": "{n} operações no Next falharam",
+        "Folder unavailable": "Pasta indisponível",
+        "Remote unzip failed": "Falha na descompressão remota",
+        "Remote unzip": "Descompressão remota",
+        "Remote unzip refused": "Descompressão remota recusada",
+        "✅  Remote unzip complete": "✅  Descompressão remota concluída",
+        "Remote zip": "Compressão remota",
+        "Remote zip failed": "Falha na compressão remota",
+        "Found: {emulators}.": "Encontrado: {emulators}.",
+        " and ": " e ",
+        "Mame: via Flatpak ({app})": "Mame: via Flatpak ({app})",
+        "⚠ On Windows, CSpect needs <b>OpenAL 1.1</b> for sound. If you have no audio, install it from <a href=\"https://www.openal.org/\">openal.org</a>.":
+            "⚠ No Windows, o CSpect precisa do <b>OpenAL 1.1</b> para o som. Se não tiver áudio, instale-o a partir de <a href=\"https://www.openal.org/\">openal.org</a>.",
+        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
+            "Não foram encontrados nem o CSpect nem o Mame. Adicione o(s) emulador(es) à variável de ambiente PATH do sistema operativo para poderem ser lançados a partir daqui. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
+        "hdfmonkey has been installed and is ready to use.": "O hdfmonkey foi instalado e está pronto a usar.",
+        "Location: {path}": "Localização: {path}",
+        "The file was sent to the SD card image.": "O ficheiro foi enviado para a imagem do cartão SD.",
+        "Sent to SD card image:\n{name}": "Enviado para a imagem do cartão SD:\n{name}",
+        "Sent {ok}/{n} file(s) to SD card image:\n{dir}": "{ok}/{n} ficheiro(s) enviado(s) para a imagem do cartão SD:\n{dir}",
+        "Port {port} is already in use.\nIs another ZX-Next-Unite instance (or a standalone NextSync server) already running?":
+            "A porta {port} já está a ser utilizada.\nHá outra instância do ZX-Next-Unite (ou um servidor NextSync autónomo) já em execução?",
+        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "O MAME não funciona sem a ROM de arranque TBBLUE — um passo manual.\r\nVeja {url} → «Get TBBLUE».\r\nColoque o tbblue.zip na pasta roms do MAME (downloads\\mame\\roms) — NÃO o extraia.\r\nUse apenas uma ROM adquirida legalmente e licenciada.",
+        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "O MAME está instalado — não é preciso reiniciar.\r\nPasso manual: adicione a ROM de arranque TBBLUE.\r\nVeja {url} → «Get TBBLUE».\r\nColoque o tbblue.zip na pasta roms do MAME\r\n({roms})\r\n— NÃO o extraia.\r\nUse apenas uma ROM adquirida legalmente e licenciada.",
+        "The archive was extracted but mame.exe could not be located in downloads/mame.":
+            "O arquivo foi extraído mas o mame.exe não foi encontrado em downloads/mame.",
+        "CSpect {name} is installed — no restart needed.\r\n{extracted}":
+            "O CSpect {name} está instalado — não é preciso reiniciar.\r\n{extracted}",
+        "To start an emulator please select first a disk image at the top of the screen on the SD Card Utility tab.":
+            "Para iniciar um emulador, selecione primeiro uma imagem de disco no topo do ecrã, no separador SD Card Utility.",
+        "You have already started a Remote Explorer nextsync server, please stop it first.":
+            "Já iniciou um servidor NextSync do Remote Explorer; pare-o primeiro.",
+        "You have already started a Classic nextsync server, please stop it first.":
+            "Já iniciou um servidor NextSync clássico; pare-o primeiro.",
+        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -listen'.":
+            "A servir na porta {port}. Um Next com o comando dot .http (ou curl) já pode controlar o Next ligado em «.sync5 -listen».",
+        "You have specified to start the flask integration server but port {port} is already in use, the web server has not been started.":
+            "Indicou iniciar o servidor de integração Flask mas a porta {port} já está em uso; o servidor web não foi iniciado.",
+        "Start '.sync5 -listen' on your Next to connect!":
+            "Execute «.sync5 -listen» no seu Next para ligar!",
+        "Start '.sync5 -listen' on your Next and retry again (canceling the upload / send process for now).":
+            "Execute «.sync5 -listen» no seu Next e tente novamente (o envio é cancelado por agora).",
+        "file {path}": "ficheiro {path}",
+        "{n} files:": "{n} ficheiros:",
+        "…and {n} more": "…e mais {n}",
+        "Another transfer is still running — wait for it to finish, then try again.":
+            "Outra transferência ainda está em curso — aguarde que termine e tente novamente.",
+        "The connection to the Next ended before the copy finished; its state is unknown.":
+            "A ligação ao Next terminou antes de a cópia acabar; o seu estado é desconhecido.",
+        "Copied {n} item(s) on the Next.": "{n} item(ns) copiado(s) no Next.",
+        "{path} no longer exists on the Next.\nReturned to {root}.":
+            "{path} já não existe no Next.\nRegressou a {root}.",
+        "Could not extract {name}: {error}": "Não foi possível extrair {name}: {error}",
+        "{name} contains no extractable files.": "{name} não contém ficheiros extraíveis.",
+        "Unzipping needs {need}, but drive {drive}: only has {free} free.":
+            "Descomprimir precisa de {need}, mas a unidade {drive}: só tem {free} livres.",
+        "Extracted {files} file(s) from {name} into {cwd}.":
+            "{files} ficheiro(s) extraído(s) de {name} para {cwd}.",
+        "{skipped} unsafe entries skipped": "{skipped} entradas não seguras ignoradas",
+        "Nothing was downloaded — no zip was created.": "Nada foi transferido — nenhum zip foi criado.",
+        "Could not build {zip_name}: {error}": "Não foi possível criar {zip_name}: {error}",
+        "Remote zip refused": "Compressão remota recusada",
+        "✅  Remote zip complete": "✅  Compressão remota concluída",
+        "Unzip failed": "Falha na descompressão",
+        "✅  Unzip complete": "✅  Descompressão concluída",
+        "Zip failed": "Falha na compressão",
+        "✅  Zip complete": "✅  Compressão concluída",
+        "{zip_name} is {size}, but drive {drive}: only has {free} free.":
+            "{zip_name} ocupa {size}, mas a unidade {drive}: só tem {free} livres.",
+        "Created {zip_name} in {dest} ({files} file(s), {size}).":
+            "{zip_name} criado em {dest} ({files} ficheiro(s), {size}).",
+        "Created {zip_name} in {dest} ({files} file(s)).":
+            "{zip_name} criado em {dest} ({files} ficheiro(s)).",
+        "Could not create {zip_name}: {error}": "Não foi possível criar {zip_name}: {error}",
+    },
+    "pl": {
+        "✅  CSpect installed": "✅  CSpect zainstalowany",
+        "✅  Emulator(s) detected": "✅  Wykryto emulator(y)",
+        "⚠  No emulators detected": "⚠  Nie wykryto emulatorów",
+        "✅  hdfmonkey installed": "✅  hdfmonkey zainstalowany",
+        "✅  Send to SD card complete": "✅  Wysyłanie na kartę SD zakończone",
+        "NextSync server not started": "Serwer NextSync nie został uruchomiony",
+        "⚠  MAME needs the Next boot ROM": "⚠  MAME wymaga ROM-u startowego Next",
+        "✅  MAME installed": "✅  MAME zainstalowany",
+        "⚠  MAME install failed": "⚠  Instalacja MAME nie powiodła się",
+        "✅  CSpect updated": "✅  CSpect zaktualizowany",
+        "⚠  No disk image selected/found for your emulator": "⚠  Nie wybrano/znaleziono obrazu dysku dla emulatora",
+        "Classic NextSync server not started": "Klasyczny serwer NextSync nie został uruchomiony",
+        "NextSync HTTP bridge started": "Mostek HTTP NextSync uruchomiony",
+        "NextSync HTTP bridge not started": "Mostek HTTP NextSync nie został uruchomiony",
+        "Remote Explorer NextSync server not started": "Serwer NextSync Remote Explorera nie został uruchomiony",
+        "NextSync server started": "Serwer NextSync uruchomiony",
+        "You have started a Remote Explorer nextsync server already": "Serwer NextSync Remote Explorera jest już uruchomiony",
+        "✅  Sent via Remote Explorer": "✅  Wysłano przez Remote Explorer",
+        "Remote Explorer is busy": "Remote Explorer jest zajęty",
+        "⚠  Remote copy interrupted": "⚠  Zdalne kopiowanie przerwane",
+        "✅  Remote copy complete": "✅  Zdalne kopiowanie zakończone",
+        "A Next operation failed": "Operacja na Next nie powiodła się",
+        "{n} Next operations failed": "{n} operacji na Next nie powiodło się",
+        "Folder unavailable": "Folder niedostępny",
+        "Remote unzip failed": "Zdalne rozpakowywanie nie powiodło się",
+        "Remote unzip": "Zdalne rozpakowywanie",
+        "Remote unzip refused": "Zdalne rozpakowywanie odrzucone",
+        "✅  Remote unzip complete": "✅  Zdalne rozpakowywanie zakończone",
+        "Remote zip": "Zdalne pakowanie",
+        "Remote zip failed": "Zdalne pakowanie nie powiodło się",
+        "Found: {emulators}.": "Znaleziono: {emulators}.",
+        " and ": " i ",
+        "Mame: via Flatpak ({app})": "Mame: przez Flatpak ({app})",
+        "⚠ On Windows, CSpect needs <b>OpenAL 1.1</b> for sound. If you have no audio, install it from <a href=\"https://www.openal.org/\">openal.org</a>.":
+            "⚠ W systemie Windows CSpect wymaga <b>OpenAL 1.1</b> do dźwięku. Jeśli nie ma dźwięku, zainstaluj go ze strony <a href=\"https://www.openal.org/\">openal.org</a>.",
+        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
+            "Nie znaleziono ani CSpect, ani Mame. Dodaj emulator(y) do zmiennej środowiskowej PATH systemu, aby można je było stąd uruchamiać. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
+        "hdfmonkey has been installed and is ready to use.": "hdfmonkey został zainstalowany i jest gotowy do użycia.",
+        "Location: {path}": "Lokalizacja: {path}",
+        "The file was sent to the SD card image.": "Plik został wysłany do obrazu karty SD.",
+        "Sent to SD card image:\n{name}": "Wysłano do obrazu karty SD:\n{name}",
+        "Sent {ok}/{n} file(s) to SD card image:\n{dir}": "Wysłano {ok}/{n} plik(ów) do obrazu karty SD:\n{dir}",
+        "Port {port} is already in use.\nIs another ZX-Next-Unite instance (or a standalone NextSync server) already running?":
+            "Port {port} jest już zajęty.\nCzy działa już inna instancja ZX-Next-Unite (lub samodzielny serwer NextSync)?",
+        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME nie działa bez ROM-u startowego TBBLUE — krok ręczny.\r\nZobacz {url} → „Get TBBLUE\".\r\nUmieść tbblue.zip w folderze roms MAME (downloads\\mame\\roms) — NIE rozpakowuj go.\r\nUżywaj wyłącznie legalnie nabytego, licencjonowanego ROM-u.",
+        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME jest zainstalowany — restart nie jest potrzebny.\r\nKrok ręczny: dodaj ROM startowy TBBLUE.\r\nZobacz {url} → „Get TBBLUE\".\r\nUmieść tbblue.zip w folderze roms MAME\r\n({roms})\r\n— NIE rozpakowuj go.\r\nUżywaj wyłącznie legalnie nabytego, licencjonowanego ROM-u.",
+        "The archive was extracted but mame.exe could not be located in downloads/mame.":
+            "Archiwum zostało rozpakowane, ale nie znaleziono mame.exe w downloads/mame.",
+        "CSpect {name} is installed — no restart needed.\r\n{extracted}":
+            "CSpect {name} jest zainstalowany — restart nie jest potrzebny.\r\n{extracted}",
+        "To start an emulator please select first a disk image at the top of the screen on the SD Card Utility tab.":
+            "Aby uruchomić emulator, najpierw wybierz obraz dysku u góry ekranu na karcie SD Card Utility.",
+        "You have already started a Remote Explorer nextsync server, please stop it first.":
+            "Serwer NextSync Remote Explorera jest już uruchomiony — najpierw go zatrzymaj.",
+        "You have already started a Classic nextsync server, please stop it first.":
+            "Klasyczny serwer NextSync jest już uruchomiony — najpierw go zatrzymaj.",
+        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -listen'.":
+            "Serwer działa na porcie {port}. Next z poleceniem dot .http (lub curl) może teraz sterować Nextem połączonym w „.sync5 -listen\".",
+        "You have specified to start the flask integration server but port {port} is already in use, the web server has not been started.":
+            "Wybrano uruchomienie serwera integracji Flask, ale port {port} jest już zajęty — serwer WWW nie został uruchomiony.",
+        "Start '.sync5 -listen' on your Next to connect!":
+            "Uruchom „.sync5 -listen\" na swoim Next, aby się połączyć!",
+        "Start '.sync5 -listen' on your Next and retry again (canceling the upload / send process for now).":
+            "Uruchom „.sync5 -listen\" na swoim Next i spróbuj ponownie (wysyłanie na razie anulowano).",
+        "file {path}": "plik {path}",
+        "{n} files:": "{n} plików:",
+        "…and {n} more": "…i {n} więcej",
+        "Another transfer is still running — wait for it to finish, then try again.":
+            "Inny transfer wciąż trwa — poczekaj, aż się zakończy, i spróbuj ponownie.",
+        "The connection to the Next ended before the copy finished; its state is unknown.":
+            "Połączenie z Next zakończyło się przed ukończeniem kopiowania; jego stan jest nieznany.",
+        "Copied {n} item(s) on the Next.": "Skopiowano {n} element(ów) na Next.",
+        "{path} no longer exists on the Next.\nReturned to {root}.":
+            "{path} już nie istnieje na Next.\nPowrócono do {root}.",
+        "Could not extract {name}: {error}": "Nie można rozpakować {name}: {error}",
+        "{name} contains no extractable files.": "{name} nie zawiera plików do rozpakowania.",
+        "Unzipping needs {need}, but drive {drive}: only has {free} free.":
+            "Rozpakowanie wymaga {need}, ale dysk {drive}: ma tylko {free} wolnego.",
+        "Extracted {files} file(s) from {name} into {cwd}.":
+            "Rozpakowano {files} plik(ów) z {name} do {cwd}.",
+        "{skipped} unsafe entries skipped": "pominięto {skipped} niebezpiecznych wpisów",
+        "Nothing was downloaded — no zip was created.": "Nic nie pobrano — nie utworzono pliku zip.",
+        "Could not build {zip_name}: {error}": "Nie można utworzyć {zip_name}: {error}",
+        "Remote zip refused": "Zdalne pakowanie odrzucone",
+        "✅  Remote zip complete": "✅  Zdalne pakowanie zakończone",
+        "Unzip failed": "Rozpakowywanie nie powiodło się",
+        "✅  Unzip complete": "✅  Rozpakowywanie zakończone",
+        "Zip failed": "Pakowanie nie powiodło się",
+        "✅  Zip complete": "✅  Pakowanie zakończone",
+        "{zip_name} is {size}, but drive {drive}: only has {free} free.":
+            "{zip_name} ma {size}, ale dysk {drive}: ma tylko {free} wolnego.",
+        "Created {zip_name} in {dest} ({files} file(s), {size}).":
+            "Utworzono {zip_name} w {dest} ({files} plik(ów), {size}).",
+        "Created {zip_name} in {dest} ({files} file(s)).":
+            "Utworzono {zip_name} w {dest} ({files} plik(ów)).",
+        "Could not create {zip_name}: {error}": "Nie można utworzyć {zip_name}: {error}",
+    },
+    "ru": {
+        "✅  CSpect installed": "✅  CSpect установлен",
+        "✅  Emulator(s) detected": "✅  Обнаружен(ы) эмулятор(ы)",
+        "⚠  No emulators detected": "⚠  Эмуляторы не обнаружены",
+        "✅  hdfmonkey installed": "✅  hdfmonkey установлен",
+        "✅  Send to SD card complete": "✅  Отправка на SD-карту завершена",
+        "NextSync server not started": "Сервер NextSync не запущен",
+        "⚠  MAME needs the Next boot ROM": "⚠  MAME требуется загрузочный ROM Next",
+        "✅  MAME installed": "✅  MAME установлен",
+        "⚠  MAME install failed": "⚠  Не удалось установить MAME",
+        "✅  CSpect updated": "✅  CSpect обновлён",
+        "⚠  No disk image selected/found for your emulator": "⚠  Образ диска для эмулятора не выбран/не найден",
+        "Classic NextSync server not started": "Классический сервер NextSync не запущен",
+        "NextSync HTTP bridge started": "HTTP-мост NextSync запущен",
+        "NextSync HTTP bridge not started": "HTTP-мост NextSync не запущен",
+        "Remote Explorer NextSync server not started": "Сервер NextSync Remote Explorer не запущен",
+        "NextSync server started": "Сервер NextSync запущен",
+        "You have started a Remote Explorer nextsync server already": "Сервер NextSync Remote Explorer уже запущен",
+        "✅  Sent via Remote Explorer": "✅  Отправлено через Remote Explorer",
+        "Remote Explorer is busy": "Remote Explorer занят",
+        "⚠  Remote copy interrupted": "⚠  Удалённое копирование прервано",
+        "✅  Remote copy complete": "✅  Удалённое копирование завершено",
+        "A Next operation failed": "Операция на Next не удалась",
+        "{n} Next operations failed": "Не удалось {n} операций на Next",
+        "Folder unavailable": "Папка недоступна",
+        "Remote unzip failed": "Удалённая распаковка не удалась",
+        "Remote unzip": "Удалённая распаковка",
+        "Remote unzip refused": "Удалённая распаковка отклонена",
+        "✅  Remote unzip complete": "✅  Удалённая распаковка завершена",
+        "Remote zip": "Удалённое архивирование",
+        "Remote zip failed": "Удалённое архивирование не удалось",
+        "Found: {emulators}.": "Найдено: {emulators}.",
+        " and ": " и ",
+        "Mame: via Flatpak ({app})": "Mame: через Flatpak ({app})",
+        "⚠ On Windows, CSpect needs <b>OpenAL 1.1</b> for sound. If you have no audio, install it from <a href=\"https://www.openal.org/\">openal.org</a>.":
+            "⚠ В Windows для звука CSpect требуется <b>OpenAL 1.1</b>. Если звука нет, установите его с <a href=\"https://www.openal.org/\">openal.org</a>.",
+        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
+            "Не найдены ни CSpect, ни Mame. Добавьте эмулятор(ы) в переменную окружения PATH, чтобы их можно было запускать отсюда. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
+        "hdfmonkey has been installed and is ready to use.": "hdfmonkey установлен и готов к использованию.",
+        "Location: {path}": "Расположение: {path}",
+        "The file was sent to the SD card image.": "Файл отправлен в образ SD-карты.",
+        "Sent to SD card image:\n{name}": "Отправлено в образ SD-карты:\n{name}",
+        "Sent {ok}/{n} file(s) to SD card image:\n{dir}": "Отправлено файлов: {ok}/{n} в образ SD-карты:\n{dir}",
+        "Port {port} is already in use.\nIs another ZX-Next-Unite instance (or a standalone NextSync server) already running?":
+            "Порт {port} уже занят.\nВозможно, уже запущена другая копия ZX-Next-Unite (или отдельный сервер NextSync)?",
+        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME не работает без загрузочного ROM TBBLUE — это ручной шаг.\r\nСм. {url} → «Get TBBLUE».\r\nПоложите tbblue.zip в папку roms MAME (downloads\\mame\\roms) — НЕ распаковывайте его.\r\nИспользуйте только легально приобретённый лицензионный ROM.",
+        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME установлен — перезапуск не требуется.\r\nРучной шаг: добавьте загрузочный ROM TBBLUE.\r\nСм. {url} → «Get TBBLUE».\r\nПоложите tbblue.zip в папку roms MAME\r\n({roms})\r\n— НЕ распаковывайте его.\r\nИспользуйте только легально приобретённый лицензионный ROM.",
+        "The archive was extracted but mame.exe could not be located in downloads/mame.":
+            "Архив распакован, но mame.exe не найден в downloads/mame.",
+        "CSpect {name} is installed — no restart needed.\r\n{extracted}":
+            "CSpect {name} установлен — перезапуск не требуется.\r\n{extracted}",
+        "To start an emulator please select first a disk image at the top of the screen on the SD Card Utility tab.":
+            "Чтобы запустить эмулятор, сначала выберите образ диска вверху экрана на вкладке SD Card Utility.",
+        "You have already started a Remote Explorer nextsync server, please stop it first.":
+            "Сервер NextSync Remote Explorer уже запущен — сначала остановите его.",
+        "You have already started a Classic nextsync server, please stop it first.":
+            "Классический сервер NextSync уже запущен — сначала остановите его.",
+        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -listen'.":
+            "Работает на порту {port}. Next с dot-командой .http (или curl) теперь может управлять Next, подключённым в «.sync5 -listen».",
+        "You have specified to start the flask integration server but port {port} is already in use, the web server has not been started.":
+            "Вы указали запустить сервер интеграции Flask, но порт {port} уже занят — веб-сервер не запущен.",
+        "Start '.sync5 -listen' on your Next to connect!":
+            "Запустите «.sync5 -listen» на вашем Next для подключения!",
+        "Start '.sync5 -listen' on your Next and retry again (canceling the upload / send process for now).":
+            "Запустите «.sync5 -listen» на вашем Next и повторите попытку (отправка пока отменена).",
+        "file {path}": "файл {path}",
+        "{n} files:": "{n} файлов:",
+        "…and {n} more": "…и ещё {n}",
+        "Another transfer is still running — wait for it to finish, then try again.":
+            "Другая передача ещё выполняется — дождитесь её завершения и повторите попытку.",
+        "The connection to the Next ended before the copy finished; its state is unknown.":
+            "Соединение с Next прервалось до завершения копирования; его состояние неизвестно.",
+        "Copied {n} item(s) on the Next.": "Скопировано элементов на Next: {n}.",
+        "{path} no longer exists on the Next.\nReturned to {root}.":
+            "{path} больше не существует на Next.\nВыполнен возврат в {root}.",
+        "Could not extract {name}: {error}": "Не удалось распаковать {name}: {error}",
+        "{name} contains no extractable files.": "{name} не содержит файлов для распаковки.",
+        "Unzipping needs {need}, but drive {drive}: only has {free} free.":
+            "Для распаковки нужно {need}, но на диске {drive}: свободно только {free}.",
+        "Extracted {files} file(s) from {name} into {cwd}.":
+            "Извлечено файлов: {files} из {name} в {cwd}.",
+        "{skipped} unsafe entries skipped": "пропущено небезопасных записей: {skipped}",
+        "Nothing was downloaded — no zip was created.": "Ничего не загружено — zip не создан.",
+        "Could not build {zip_name}: {error}": "Не удалось создать {zip_name}: {error}",
+        "Remote zip refused": "Удалённое архивирование отклонено",
+        "✅  Remote zip complete": "✅  Удалённое архивирование завершено",
+        "Unzip failed": "Распаковка не удалась",
+        "✅  Unzip complete": "✅  Распаковка завершена",
+        "Zip failed": "Архивирование не удалось",
+        "✅  Zip complete": "✅  Архивирование завершено",
+        "{zip_name} is {size}, but drive {drive}: only has {free} free.":
+            "{zip_name} занимает {size}, но на диске {drive}: свободно только {free}.",
+        "Created {zip_name} in {dest} ({files} file(s), {size}).":
+            "Создан {zip_name} в {dest} ({files} файлов, {size}).",
+        "Created {zip_name} in {dest} ({files} file(s)).":
+            "Создан {zip_name} в {dest} ({files} файлов).",
+        "Could not create {zip_name}: {error}": "Не удалось создать {zip_name}: {error}",
+    },
+    "cs": {
+        "✅  CSpect installed": "✅  CSpect nainstalován",
+        "✅  Emulator(s) detected": "✅  Emulátor(y) nalezen(y)",
+        "⚠  No emulators detected": "⚠  Nebyly nalezeny žádné emulátory",
+        "✅  hdfmonkey installed": "✅  hdfmonkey nainstalován",
+        "✅  Send to SD card complete": "✅  Odeslání na SD kartu dokončeno",
+        "NextSync server not started": "Server NextSync nebyl spuštěn",
+        "⚠  MAME needs the Next boot ROM": "⚠  MAME potřebuje zaváděcí ROM Nextu",
+        "✅  MAME installed": "✅  MAME nainstalován",
+        "⚠  MAME install failed": "⚠  Instalace MAME selhala",
+        "✅  CSpect updated": "✅  CSpect aktualizován",
+        "⚠  No disk image selected/found for your emulator": "⚠  Nebyl vybrán/nalezen obraz disku pro emulátor",
+        "Classic NextSync server not started": "Klasický server NextSync nebyl spuštěn",
+        "NextSync HTTP bridge started": "HTTP most NextSync spuštěn",
+        "NextSync HTTP bridge not started": "HTTP most NextSync nebyl spuštěn",
+        "Remote Explorer NextSync server not started": "Server NextSync Remote Exploreru nebyl spuštěn",
+        "NextSync server started": "Server NextSync spuštěn",
+        "You have started a Remote Explorer nextsync server already": "Server NextSync Remote Exploreru už běží",
+        "✅  Sent via Remote Explorer": "✅  Odesláno přes Remote Explorer",
+        "Remote Explorer is busy": "Remote Explorer je zaneprázdněn",
+        "⚠  Remote copy interrupted": "⚠  Vzdálené kopírování přerušeno",
+        "✅  Remote copy complete": "✅  Vzdálené kopírování dokončeno",
+        "A Next operation failed": "Operace na Nextu selhala",
+        "{n} Next operations failed": "{n} operací na Nextu selhalo",
+        "Folder unavailable": "Složka není dostupná",
+        "Remote unzip failed": "Vzdálené rozbalení selhalo",
+        "Remote unzip": "Vzdálené rozbalení",
+        "Remote unzip refused": "Vzdálené rozbalení odmítnuto",
+        "✅  Remote unzip complete": "✅  Vzdálené rozbalení dokončeno",
+        "Remote zip": "Vzdálené zabalení",
+        "Remote zip failed": "Vzdálené zabalení selhalo",
+        "Found: {emulators}.": "Nalezeno: {emulators}.",
+        " and ": " a ",
+        "Mame: via Flatpak ({app})": "Mame: přes Flatpak ({app})",
+        "⚠ On Windows, CSpect needs <b>OpenAL 1.1</b> for sound. If you have no audio, install it from <a href=\"https://www.openal.org/\">openal.org</a>.":
+            "⚠ Ve Windows potřebuje CSpect pro zvuk <b>OpenAL 1.1</b>. Pokud nemáte zvuk, nainstalujte jej z <a href=\"https://www.openal.org/\">openal.org</a>.",
+        "Neither CSpect nor Mame were found. Add the emulator(s) to your operating system PATH environment variable so they can be launched from here. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing":
+            "Nebyl nalezen CSpect ani Mame. Přidejte emulátor(y) do proměnné prostředí PATH, aby šly spouštět odtud. \r\n\r\nCSpect: https://mdf200.itch.io/cspect \r\nMame: https://wiki.specnext.dev/MAME:Installing",
+        "hdfmonkey has been installed and is ready to use.": "hdfmonkey byl nainstalován a je připraven k použití.",
+        "Location: {path}": "Umístění: {path}",
+        "The file was sent to the SD card image.": "Soubor byl odeslán do obrazu SD karty.",
+        "Sent to SD card image:\n{name}": "Odesláno do obrazu SD karty:\n{name}",
+        "Sent {ok}/{n} file(s) to SD card image:\n{dir}": "Odesláno {ok}/{n} souborů do obrazu SD karty:\n{dir}",
+        "Port {port} is already in use.\nIs another ZX-Next-Unite instance (or a standalone NextSync server) already running?":
+            "Port {port} je již obsazen.\nNeběží už jiná instance ZX-Next-Unite (nebo samostatný server NextSync)?",
+        "MAME can't run without the TBBLUE boot ROM — a manual step.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME nefunguje bez zaváděcího ROM TBBLUE — ruční krok.\r\nViz {url} → „Get TBBLUE\".\r\nVložte tbblue.zip do složky roms MAME (downloads\\mame\\roms) — NEROZBALUJTE jej.\r\nPoužívejte pouze legálně získaný licencovaný ROM.",
+        "MAME is installed — no restart needed.\r\nManual step: add the TBBLUE boot ROM.\r\nSee {url} → \"Get TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder\r\n({roms})\r\n— DON'T extract it.\r\nUse only a legally acquired, licensed ROM.":
+            "MAME je nainstalován — restart není potřeba.\r\nRuční krok: přidejte zaváděcí ROM TBBLUE.\r\nViz {url} → „Get TBBLUE\".\r\nVložte tbblue.zip do složky roms MAME\r\n({roms})\r\n— NEROZBALUJTE jej.\r\nPoužívejte pouze legálně získaný licencovaný ROM.",
+        "The archive was extracted but mame.exe could not be located in downloads/mame.":
+            "Archiv byl rozbalen, ale mame.exe se v downloads/mame nepodařilo najít.",
+        "CSpect {name} is installed — no restart needed.\r\n{extracted}":
+            "CSpect {name} je nainstalován — restart není potřeba.\r\n{extracted}",
+        "To start an emulator please select first a disk image at the top of the screen on the SD Card Utility tab.":
+            "Pro spuštění emulátoru nejprve vyberte obraz disku v horní části obrazovky na kartě SD Card Utility.",
+        "You have already started a Remote Explorer nextsync server, please stop it first.":
+            "Server NextSync Remote Exploreru už běží — nejprve jej zastavte.",
+        "You have already started a Classic nextsync server, please stop it first.":
+            "Klasický server NextSync už běží — nejprve jej zastavte.",
+        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -listen'.":
+            "Běží na portu {port}. Next s dot příkazem .http (nebo curl) teď může ovládat Next připojený v „.sync5 -listen\".",
+        "You have specified to start the flask integration server but port {port} is already in use, the web server has not been started.":
+            "Zvolili jste spuštění integračního serveru Flask, ale port {port} je již obsazen — webový server nebyl spuštěn.",
+        "Start '.sync5 -listen' on your Next to connect!":
+            "Spusťte „.sync5 -listen\" na svém Nextu a připojte se!",
+        "Start '.sync5 -listen' on your Next and retry again (canceling the upload / send process for now).":
+            "Spusťte „.sync5 -listen\" na svém Nextu a zkuste to znovu (odesílání je zatím zrušeno).",
+        "file {path}": "soubor {path}",
+        "{n} files:": "{n} souborů:",
+        "…and {n} more": "…a {n} dalších",
+        "Another transfer is still running — wait for it to finish, then try again.":
+            "Jiný přenos stále běží — počkejte na jeho dokončení a zkuste to znovu.",
+        "The connection to the Next ended before the copy finished; its state is unknown.":
+            "Spojení s Nextem skončilo před dokončením kopírování; jeho stav není znám.",
+        "Copied {n} item(s) on the Next.": "Zkopírováno {n} položek na Nextu.",
+        "{path} no longer exists on the Next.\nReturned to {root}.":
+            "{path} už na Nextu neexistuje.\nNávrat do {root}.",
+        "Could not extract {name}: {error}": "Nelze rozbalit {name}: {error}",
+        "{name} contains no extractable files.": "{name} neobsahuje žádné soubory k rozbalení.",
+        "Unzipping needs {need}, but drive {drive}: only has {free} free.":
+            "Rozbalení vyžaduje {need}, ale disk {drive}: má volných jen {free}.",
+        "Extracted {files} file(s) from {name} into {cwd}.":
+            "Rozbaleno {files} souborů z {name} do {cwd}.",
+        "{skipped} unsafe entries skipped": "přeskočeno {skipped} nebezpečných položek",
+        "Nothing was downloaded — no zip was created.": "Nic nebylo staženo — žádný zip nevznikl.",
+        "Could not build {zip_name}: {error}": "Nelze vytvořit {zip_name}: {error}",
+        "Remote zip refused": "Vzdálené zabalení odmítnuto",
+        "✅  Remote zip complete": "✅  Vzdálené zabalení dokončeno",
+        "Unzip failed": "Rozbalení selhalo",
+        "✅  Unzip complete": "✅  Rozbalení dokončeno",
+        "Zip failed": "Zabalení selhalo",
+        "✅  Zip complete": "✅  Zabalení dokončeno",
+        "{zip_name} is {size}, but drive {drive}: only has {free} free.":
+            "{zip_name} má {size}, ale disk {drive}: má volných jen {free}.",
+        "Created {zip_name} in {dest} ({files} file(s), {size}).":
+            "Vytvořen {zip_name} v {dest} ({files} souborů, {size}).",
+        "Created {zip_name} in {dest} ({files} file(s)).":
+            "Vytvořen {zip_name} v {dest} ({files} souborů).",
+        "Could not create {zip_name}: {error}": "Nelze vytvořit {zip_name}: {error}",
+    },
+}
+
+for _lang, _entries in _TOAST_CATALOGS.items():
+    CATALOGS.setdefault(_lang, {}).update(_entries)

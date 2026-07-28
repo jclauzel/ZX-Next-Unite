@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (QWidget, QLabel, QPushButton, QComboBox,
     QFileDialog)
 
 from zxnu_config import *
+from zxnu_i18n import ui_tr_now
 from zxnu_api import *
 from zxnu_gallery import *
 from zxnu_media import *
@@ -1429,7 +1430,8 @@ def build_getit_pane(
 
         def _on_done(dest):
             getit_set_status(f"Sent to image: {dest}")
-            host._show_sd_notification(f"Sent to SD card image:\n{dest}")
+            host._show_sd_notification(
+                ui_tr_now("Sent to SD card image:\n{name}").format(name=dest))
             # Refresh the disk image table so the new folder appears (the
             # listing runs on a worker thread, so it never blocks the UI).
             update_disk_manager_widget_table()

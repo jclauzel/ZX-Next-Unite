@@ -396,7 +396,7 @@ from zxnu_unite_pane import build_unite_pane, build_unite_ops
 from zxnu_settings_pane import build_settings_pane
 from zxnu_nextsync_pane import build_nextsync_pane
 from zxnu_i18n import (normalize_ui_language, system_ui_language,
-                       translate_widget_tree, ui_tr)
+                       translate_widget_tree, ui_tr, ui_tr_now)
 import zxnu_itchio
 # ----------------------------------------------------------------------
 
@@ -1019,6 +1019,13 @@ class MainWindow(QMainWindow):
         otherwise it is plain text so embedded URLs and ``\\r\\n`` line breaks
         are shown verbatim.
         """
+        # Runtime i18n chokepoint: static toast titles/bodies translate here
+        # via exact catalog match (see the toasts section of zxnu_i18n).
+        # Composed/dynamic strings must instead be built from ui_tr_now()
+        # TEMPLATES at their call sites — already-translated or unmatched
+        # text passes through unchanged.
+        title = ui_tr_now(title)
+        message = ui_tr_now(message)
         # Colour schemes per variant: (bg, border, title_fg, btn_bg, btn_border,
         # btn_hover).
         if variant == "yellow":
@@ -1148,7 +1155,8 @@ class MainWindow(QMainWindow):
             found.append("Mame")
 
         if found:
-            body = "Found: " + " and ".join(found) + "."
+            body = ui_tr_now("Found: {emulators}.").format(
+                emulators=ui_tr_now(" and ").join(found))
             # Append the resolved CSpect / hdfmonkey paths so the user can see
             # exactly which copy will be used (PATH, app directory, or a bundled
             # itch.io install discovered under downloads/cspect).
@@ -1168,7 +1176,8 @@ class MainWindow(QMainWindow):
                 body += "\r\nMame: " + mame_path
             elif (getattr(self, "_mame_flatpak_enabled", None)
                   and self._mame_flatpak_enabled()):
-                body += "\r\nMame: via Flatpak (" + MAME_FLATPAK_APP_ID + ")"
+                body += "\r\n" + ui_tr_now("Mame: via Flatpak ({app})").format(
+                    app=MAME_FLATPAK_APP_ID)
             # After a fresh itch.io CSpect install (one-shot flag), append the
             # Windows-only reminder to install OpenAL 1.1 \u2014 CSpect has no sound
             # on Windows without it (Linux/macOS ship OpenAL, so it's skipped
@@ -1179,8 +1188,8 @@ class MainWindow(QMainWindow):
             self._cspect_openal_notice_pending = False
             if _openal:
                 rich_body = body.replace("\r\n", "<br>")
-                rich_body += (
-                    "<br><br>\u26a0 On Windows, CSpect needs <b>OpenAL 1.1</b> "
+                rich_body += "<br><br>" + ui_tr_now(
+                    "\u26a0 On Windows, CSpect needs <b>OpenAL 1.1</b> "
                     "for sound. If you have no audio, install it from "
                     "<a href=\"https://www.openal.org/\">openal.org</a>.")
                 self._show_toast(
@@ -1217,9 +1226,10 @@ class MainWindow(QMainWindow):
         emulator (CSpect / MAME) state — hdfmonkey is the SD-card tool, so its
         install should be reported on its own. Auto-dismisses after 8 seconds.
         """
-        body = "hdfmonkey has been installed and is ready to use."
+        body = ui_tr_now("hdfmonkey has been installed and is ready to use.")
         if hdfmonkey_path:
-            body += "\r\nLocation: " + hdfmonkey_path
+            body += "\r\n" + ui_tr_now("Location: {path}").format(
+                path=hdfmonkey_path)
         self._show_toast(
             "✅  hdfmonkey installed",
             body,
@@ -1595,8 +1605,10 @@ class MainWindow(QMainWindow):
                 "ZX-Next-Unite (or NextSync server) already running?")
             self._show_toast(
                 "NextSync server not started",
-                f"Port {port} is already in use.\nIs another ZX-Next-Unite "
-                "instance (or a standalone NextSync server) already running?",
+                ui_tr_now(
+                    "Port {port} is already in use.\nIs another ZX-Next-Unite "
+                    "instance (or a standalone NextSync server) already "
+                    "running?").format(port=port),
                 variant="yellow", duration_ms=12000)
 
         def nextsync_hide_start_cancel_buttons():
@@ -3481,11 +3493,13 @@ class MainWindow(QMainWindow):
                     try:
                         self._show_toast(
                             "⚠  MAME needs the Next boot ROM",
-                            "MAME can't run without the TBBLUE boot ROM — a manual "
-                            "step.\r\nSee " + MAME_INSTALL_WIKI_URL + " → \"Get "
-                            "TBBLUE\".\r\nPut tbblue.zip into MAME's roms folder "
-                            "(downloads\\mame\\roms) — DON'T extract it.\r\n"
-                            "Use only a legally acquired, licensed ROM.",
+                            ui_tr_now(
+                                "MAME can't run without the TBBLUE boot ROM — "
+                                "a manual step.\r\nSee {url} → \"Get TBBLUE\"."
+                                "\r\nPut tbblue.zip into MAME's roms folder "
+                                "(downloads\\mame\\roms) — DON'T extract it."
+                                "\r\nUse only a legally acquired, licensed "
+                                "ROM.").format(url=MAME_INSTALL_WIKI_URL),
                             variant="yellow", duration_ms=12000)
                     except Exception:
                         pass
@@ -3695,12 +3709,14 @@ class MainWindow(QMainWindow):
             try:
                 self._show_toast(
                     "✅  MAME installed",
-                    "MAME is installed — no restart needed.\r\n"
-                    "Manual step: add the TBBLUE boot ROM.\r\n"
-                    "See " + MAME_INSTALL_WIKI_URL + " → \"Get TBBLUE\".\r\n"
-                    f"Put tbblue.zip into MAME's roms folder\r\n({roms_dir})\r\n"
-                    "— DON'T extract it.\r\n"
-                    "Use only a legally acquired, licensed ROM.",
+                    ui_tr_now(
+                        "MAME is installed — no restart needed.\r\n"
+                        "Manual step: add the TBBLUE boot ROM.\r\n"
+                        "See {url} → \"Get TBBLUE\".\r\n"
+                        "Put tbblue.zip into MAME's roms folder\r\n({roms})\r\n"
+                        "— DON'T extract it.\r\n"
+                        "Use only a legally acquired, licensed ROM.").format(
+                            url=MAME_INSTALL_WIKI_URL, roms=roms_dir),
                     variant="green", duration_ms=12000)
             except Exception:
                 pass
@@ -4448,8 +4464,10 @@ class MainWindow(QMainWindow):
                 try:
                     self._show_toast(
                         "✅  CSpect updated",
-                        f"CSpect {latest_name} is installed — no restart "
-                        f"needed.\r\n{extracted}",
+                        ui_tr_now(
+                            "CSpect {name} is installed — no restart "
+                            "needed.\r\n{extracted}").format(
+                                name=latest_name, extracted=extracted),
                         variant="green", duration_ms=9000)
                 except Exception:
                     pass
@@ -10304,7 +10322,8 @@ class MainWindow(QMainWindow):
                     def _done(ok_flag):
                         if ok_flag:
                             self._show_sd_notification(
-                                f"Sent to SD card image:\n{os.path.basename(path)}")
+                                ui_tr_now("Sent to SD card image:\n{name}").format(
+                                    name=os.path.basename(path)))
                             _itchio_set_status(f"Sent “{title}” to the SD card image.")
                     # image_upload_external_paths shows its own progress dialog and
                     # uploads files/folders recursively.

@@ -16,6 +16,8 @@ import posixpath
 import shutil
 import tempfile
 
+from zxnu_i18n import ui_tr_now
+
 from PySide6.QtCore import (
     Qt, QDir, QEvent, QModelIndex, QMimeData, QUrl, QSize, QTimer,
 )
@@ -906,7 +908,8 @@ class RemoteExplorerWidget(QWidget):
             elif not fails:
                 n = self._op_completed
                 self._on_toast("✅  Remote copy complete",
-                               f"Copied {n} item(s) on the Next.", "green")
+                               ui_tr_now("Copied {n} item(s) on the Next.")
+                               .format(n=n), "green")
         # Report the batch outcome to an interested caller (see send_local_paths).
         # ok requires every queued command to have reported back with no failure
         # and no cancel; a mid-batch disconnect ends the op early with
@@ -939,9 +942,11 @@ class RemoteExplorerWidget(QWidget):
         shown = fails[:5]
         body = "\n".join(shown)
         if len(fails) > len(shown):
-            body += f"\n…and {len(fails) - len(shown)} more"
+            body += "\n" + ui_tr_now("…and {n} more").format(
+                n=len(fails) - len(shown))
         title = ("A Next operation failed" if len(fails) == 1
-                 else f"{len(fails)} Next operations failed")
+                 else ui_tr_now("{n} Next operations failed").format(
+                     n=len(fails)))
         self._on_toast(title, body, "red")
 
     # ==================================================================
@@ -1253,7 +1258,9 @@ class RemoteExplorerWidget(QWidget):
             root = "/"               # a drive root failed: back to the default
         self._log(f"{path}: no such folder on the Next — returning to {root}.")
         self._on_toast("Folder unavailable",
-                       f"{path} no longer exists on the Next.\nReturned to {root}.",
+                       ui_tr_now("{path} no longer exists on the Next.\n"
+                                 "Returned to {root}.").format(
+                                     path=path, root=root),
                        "yellow")
         self._cwd = root
         self.refresh()
@@ -2142,11 +2149,14 @@ class RemoteExplorerWidget(QWidget):
                           "the Next.")
             elif res["error"]:
                 self._on_toast("Remote unzip failed",
-                               f"Could not extract {name}: {res['error']}",
+                               ui_tr_now("Could not extract {name}: {error}")
+                               .format(name=name, error=res["error"]),
                                "red")
             else:
-                self._on_toast("Remote unzip", f"{name} contains no "
-                               "extractable files.", "yellow")
+                self._on_toast("Remote unzip",
+                               ui_tr_now("{name} contains no extractable "
+                                         "files.").format(name=name),
+                               "yellow")
             return
         # Will-it-fit guard against the freshest cached free-space figure
         # (re-read at the end of the download op just before this).
@@ -2155,8 +2165,11 @@ class RemoteExplorerWidget(QWidget):
             shutil.rmtree(tmp, ignore_errors=True)
             self._on_toast(
                 "Remote unzip refused",
-                f"Unzipping needs {self._fmt_free(total_bytes)}, but drive "
-                f"{self._cwd_drive()}: only has {self._fmt_free(free)} free.",
+                ui_tr_now("Unzipping needs {need}, but drive {drive}: only "
+                          "has {free} free.").format(
+                              need=self._fmt_free(total_bytes),
+                              drive=self._cwd_drive(),
+                              free=self._fmt_free(free)),
                 "red")
             return
         base = self._cwd_base()
@@ -2172,12 +2185,14 @@ class RemoteExplorerWidget(QWidget):
         def done(ok2, _fails2):
             shutil.rmtree(tmp, ignore_errors=True)
             if ok2:
-                extra = (f" ({skipped} unsafe "
-                         f"{'entry' if skipped == 1 else 'entries'} skipped)"
-                         if skipped else "")
+                extra = (" (" + ui_tr_now("{skipped} unsafe entries skipped")
+                         .format(skipped=skipped) + ")" if skipped else "")
                 self._on_toast("✅  Remote unzip complete",
-                               f"Extracted {files} file(s) from {name} "
-                               f"into {self._cwd}.{extra}", "green")
+                               ui_tr_now("Extracted {files} file(s) from "
+                                         "{name} into {cwd}.").format(
+                                             files=files, name=name,
+                                             cwd=self._cwd) + extra,
+                               "green")
 
         self._log(f"Remote unzip: uploading {files} file(s) to {self._cwd} …")
         if not self._connected or self._op_active:
@@ -2237,7 +2252,8 @@ class RemoteExplorerWidget(QWidget):
                                "zip was created.", "yellow")
             else:
                 self._on_toast("Remote zip failed",
-                               f"Could not build {zip_name}: {res['error']}",
+                               ui_tr_now("Could not build {zip_name}: {error}")
+                               .format(zip_name=zip_name, error=res["error"]),
                                "red")
             return
         files = res["files"]
@@ -2247,8 +2263,11 @@ class RemoteExplorerWidget(QWidget):
             shutil.rmtree(tmp, ignore_errors=True)
             self._on_toast(
                 "Remote zip refused",
-                f"{zip_name} is {self._fmt_free(size)}, but drive "
-                f"{self._cwd_drive()}: only has {self._fmt_free(free)} free.",
+                ui_tr_now("{zip_name} is {size}, but drive {drive}: only "
+                          "has {free} free.").format(
+                              zip_name=zip_name, size=self._fmt_free(size),
+                              drive=self._cwd_drive(),
+                              free=self._fmt_free(free)),
                 "red")
             return
         base = self._cwd_base()
@@ -2257,8 +2276,11 @@ class RemoteExplorerWidget(QWidget):
             shutil.rmtree(tmp, ignore_errors=True)
             if ok2:
                 self._on_toast("✅  Remote zip complete",
-                               f"Created {zip_name} in {self._cwd} "
-                               f"({files} file(s), {self._fmt_free(size)}).",
+                               ui_tr_now("Created {zip_name} in {dest} "
+                                         "({files} file(s), {size}).").format(
+                                             zip_name=zip_name, dest=self._cwd,
+                                             files=files,
+                                             size=self._fmt_free(size)),
                                "green")
 
         self._log(f"Remote zip: uploading {zip_name} "
@@ -2489,15 +2511,17 @@ class RemoteExplorerWidget(QWidget):
                       "files remain.")
         elif res["error"]:
             self._on_toast("Unzip failed",
-                           f"Could not extract {name}: {res['error']}", "red")
+                           ui_tr_now("Could not extract {name}: {error}")
+                           .format(name=name, error=res["error"]), "red")
         else:
             skipped = res["skipped"]
-            extra = (f" ({skipped} unsafe "
-                     f"{'entry' if skipped == 1 else 'entries'} skipped)"
-                     if skipped else "")
+            extra = (" (" + ui_tr_now("{skipped} unsafe entries skipped")
+                     .format(skipped=skipped) + ")" if skipped else "")
             self._on_toast("✅  Unzip complete",
-                           f"Extracted {res['files']} file(s) from {name} "
-                           f"into {dest}.{extra}", "green")
+                           ui_tr_now("Extracted {files} file(s) from {name} "
+                                     "into {cwd}.").format(
+                                         files=res["files"], name=name,
+                                         cwd=dest) + extra, "green")
         self._local_refresh()
 
     def _local_zip(self, paths):
@@ -2521,12 +2545,15 @@ class RemoteExplorerWidget(QWidget):
             self._log(f"Zip cancelled — {zip_name} was not created.")
         elif res["error"]:
             self._on_toast("Zip failed",
-                           f"Could not create {zip_name}: {res['error']}",
+                           ui_tr_now("Could not create {zip_name}: {error}")
+                           .format(zip_name=zip_name, error=res["error"]),
                            "red")
         else:
             self._on_toast("✅  Zip complete",
-                           f"Created {zip_name} in {dest} "
-                           f"({res['files']} file(s)).", "green")
+                           ui_tr_now("Created {zip_name} in {dest} "
+                                     "({files} file(s)).").format(
+                                         zip_name=zip_name, dest=dest,
+                                         files=res["files"]), "green")
         self._local_refresh()
 
     def _local_new_folder(self):
