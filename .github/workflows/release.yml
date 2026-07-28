@@ -32,8 +32,8 @@ jobs:
     # ubuntu-22.04 to match the build job (see glibc note there).
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - name: Verify the tag matches ZX_NEXT_UNITE_VERSION
@@ -75,8 +75,8 @@ jobs:
             platform: macos
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - name: Install Qt runtime libraries (Linux)
@@ -126,7 +126,7 @@ jobs:
           mv dist/zx-next-unite.app "dist/zx-next-unite-${tag}.app"
           # ditto preserves the .app's symlinks, permissions and metadata.
           ditto -c -k --keepParent "dist/zx-next-unite-${tag}.app" "package/zx-next-unite-${tag}-macos-arm64.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: package-${{ matrix.platform }}
           path: package/*
@@ -141,8 +141,8 @@ jobs:
     needs: build
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: package-*
           path: package
