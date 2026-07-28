@@ -63,5 +63,12 @@ check("decode: empty", _decode_text_bytes(b"") == [])
 print()
 if FAIL:
     print(f"RESULT: {len(FAIL)} FAILURE(S)")
-    sys.exit(1)
+    sys.stdout.flush()
+    os._exit(1)
 print("RESULT: ALL WIDGET COLOR + TEXT DECODE CHECKS PASSED")
+sys.stdout.flush()
+# Hard-exit BOTH ways: skip the Qt + pygame interpreter teardown, which
+# segfaults intermittently on CI (Linux + Python 3.10 under Xvfb) AFTER every
+# check has already passed — the exit status must reflect the checks above,
+# never the cleanup.
+os._exit(0)

@@ -41,14 +41,19 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Verify the tag matches ZX_NEXT_UNITE_VERSION
+      - name: Verify the tag matches ZX_NEXT_UNITE_VERSION and pyproject.toml
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           ver=$(python -c "import re; print(re.search(r'ZX_NEXT_UNITE_VERSION = \"([^\"]+)\"', open('zxnu_config.py', encoding='utf-8').read()).group(1))")
+          pyver=$(python -c "import re; print(re.search(r'^version = \"([^\"]+)\"', open('pyproject.toml', encoding='utf-8').read(), re.M).group(1))")
           tag="${GITHUB_REF_NAME#v}"
           if [ "$ver" != "$tag" ]; then
             echo "::error::Tag ${GITHUB_REF_NAME} does not match ZX_NEXT_UNITE_VERSION=${ver} in zxnu_config.py — the self-updater compares these."
+            exit 1
+          fi
+          if [ "$pyver" != "$tag" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match version=${pyver} in pyproject.toml — the PyPI publish uses that."
             exit 1
           fi
       - name: Install Qt runtime libraries and Xvfb (headless test display)

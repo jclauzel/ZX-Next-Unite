@@ -598,7 +598,7 @@ def _strip_html(value):
 
 def _split_title_rating(raw_title):
     """Split an aggregated title that may carry a trailing star-rating span,
-    mirroring the logic in zx-next-unite.py:_allinone_fill_table."""
+    mirroring the logic in zxnu_main.py:_allinone_fill_table."""
     raw_title = str(raw_title or "")
     m = _SPAN_RE.search(raw_title)
     rating = m.group(1).strip() if m else ""
@@ -4360,7 +4360,7 @@ SpaceInvadersBackground = AlienFloydBackground
 _ALIEN_FLOYD_ENABLED = False
 
 # Optional "force this promenade animation first" test override, set from the
-# ``--anim`` command-line flag (see zx-next-unite.py).  One of 'walk', 'c5',
+# ``--anim`` command-line flag (see zxnu_main.py).  One of 'walk', 'c5',
 # 'ufo' or 'aliens', or None for normal random behaviour.  When set it also
 # implicitly enables the Alien Floyd machinery so the forced animation is
 # actually visible without toggling the Settings preference.

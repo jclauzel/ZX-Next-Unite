@@ -4,7 +4,7 @@
 shrinks ``MainWindow.__init__``: it owns the explorer pair's WIDGETS and the
 navigation / model layer, while the heavy operation layer (hdfmonkey
 transfers, deletes, context menus, drag & drop glue, the image load pipeline)
-stays in ``zx-next-unite.py`` for now and is reached through a small `hooks`
+stays in ``zxnu_main.py`` for now and is reached through a small `hooks`
 protocol. MainWindow keeps aliases to every widget under its historical
 attribute names (``self.treeview``, ``self.image_treeview``, …), so the
 remaining monolith code — and the offscreen test suite — keep working
