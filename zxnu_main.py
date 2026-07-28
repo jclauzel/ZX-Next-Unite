@@ -892,10 +892,12 @@ def _make_retro_toggle_button(window, flag_attr, status_cb=None, on_change=None)
                 btn.blockSignals(True)
                 btn.setChecked(False)
                 btn.blockSignals(False)
-                btn.setToolTip(f"{why}\nInstall with: pip install pygame-ce")
+                btn.setToolTip(f"{why}\n" + zxnu_optional_install_hint("pygame-ce"))
                 if status_cb is not None:
                     try:
-                        status_cb("Retro mode unavailable — run: pip install pygame-ce")
+                        status_cb("Retro mode unavailable — install pygame-ce "
+                                  "(pip install pygame-ce, or for pipx: "
+                                  "pipx inject zx-next-unite pygame-ce)")
                     except Exception:
                         pass
                 return
@@ -2949,7 +2951,7 @@ class MainWindow(QMainWindow):
                                 _cb.setEnabled(False)
                                 _cb.setToolTip(
                                     "Requires the optional 'pygame-ce' package.\n"
-                                    "Install with: pip install pygame-ce")
+                                    + zxnu_optional_install_hint("pygame-ce"))
                     else:
                         if _af_bg_cb is not None:
                             _af_bg_cb.blockSignals(True)

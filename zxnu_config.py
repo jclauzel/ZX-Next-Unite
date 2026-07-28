@@ -1156,6 +1156,17 @@ def select_mame_release_asset(release, arch):
     return None
 
 
+def zxnu_optional_install_hint(package):
+    """Multi-line how-to-install hint for an optional package, shown on the
+    greyed-out Settings toggles (and similar gates). Covers both a plain pip
+    environment and a pipx install — a bare ``pip install`` cannot reach the
+    isolated venv a pipx install runs from."""
+    return (f"Install with:  python -m pip install {package}\n"
+            f"For a pipx install:  pipx inject zx-next-unite {package}\n"
+            "  (or everything:  pipx install --force \"zx-next-unite[full]\")\n"
+            "then restart ZX-Next-Unite.")
+
+
 def _zxnu_normalized_machine(machine=None):
     """Map platform.machine() spellings onto the two arch tags the release
     workflow uses in asset names ('x86_64' / 'arm64'); '' when unknown."""

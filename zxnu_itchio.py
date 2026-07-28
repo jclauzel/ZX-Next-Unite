@@ -43,10 +43,11 @@ def itchdl_available():
         import itch_dl  # noqa: F401
         return True, "itch-dl is installed"
     except Exception as exc:  # ImportError or a broken install
+        from zxnu_config import zxnu_optional_install_hint
         return False, (
             "The optional 'itch-dl' package is not installed.\n"
-            "Install it with:  pip install itch-dl\n"
-            f"({exc})"
+            + zxnu_optional_install_hint("itch-dl")
+            + f"\n({exc})"
         )
 
 
