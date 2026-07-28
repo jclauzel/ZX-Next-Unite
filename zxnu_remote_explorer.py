@@ -434,6 +434,10 @@ class RemoteExplorerWidget(QWidget):
             "Make the folder currently shown in the explorer above the new sync root.")
         self.local_set_syncroot_button.clicked.connect(self._on_set_syncroot_clicked)
         self.local_set_syncroot_button.setVisible(False)
+        # Green attention pulse while the offer is on screen (started/stopped
+        # by _update_set_syncroot_button, mirroring the classic sync view's
+        # button — see zxnu_nextsync_pane).
+        self._syncroot_pulse_timer = None
 
         local_path_row = QHBoxLayout()
         local_path_row.setContentsMargins(0, 0, 0, 0)
@@ -2355,12 +2359,54 @@ class RemoteExplorerWidget(QWidget):
 
     def _update_set_syncroot_button(self):
         """Offer "Set current folder as new sync root folder" only while the
-        browsed folder differs from the committed sync root."""
+        browsed folder differs from the committed sync root — pulsing green
+        while it is on screen, like the classic sync view's button."""
         cur = (self._browse_root or "").replace("\\", "/").rstrip("/")
         root = (self._sync_root or "").rstrip("/")
         same = (cur != "" and root != "" and
                 os.path.normcase(cur) == os.path.normcase(root))
-        self.local_set_syncroot_button.setVisible(cur != "" and not same)
+        visible = cur != "" and not same
+        self.local_set_syncroot_button.setVisible(visible)
+        self._set_syncroot_pulse(visible)
+
+    def _set_syncroot_pulse(self, on):
+        """Start/stop the green pulse on the set-sync-root offer (same look
+        as the host's server-start pulses: stylesheet alpha driven by a
+        triangle wave on a 55 ms QTimer)."""
+        if not on:
+            if self._syncroot_pulse_timer is not None:
+                self._syncroot_pulse_timer.stop()
+                self._syncroot_pulse_timer = None
+            try:
+                self.local_set_syncroot_button.setStyleSheet("")
+            except RuntimeError:
+                pass
+            return
+        if self._syncroot_pulse_timer is not None:
+            return                       # already pulsing
+        steps = 22
+        phase = {"n": 0}
+        r, g, b, fg = 46, 204, 113, "#eafff0"
+
+        def _tick():
+            phase["n"] = (phase["n"] + 1) % (2 * steps)
+            pos = phase["n"]
+            tri = pos / steps if pos <= steps else (2 * steps - pos) / steps
+            a = int(70 + 150 * tri)
+            try:
+                self.local_set_syncroot_button.setStyleSheet(
+                    "QPushButton { color: %s; font-weight: bold;"
+                    " padding: 4px 10px; border-radius: 6px;"
+                    " background-color: rgba(%d,%d,%d,%d);"
+                    " border: 1px solid rgba(%d,%d,%d,%d); }" % (
+                        fg, r, g, b, a, r, g, b, min(a + 60, 255)))
+            except RuntimeError:
+                pass
+        timer = QTimer(self)
+        timer.setInterval(55)
+        timer.timeout.connect(_tick)
+        timer.start()
+        self._syncroot_pulse_timer = timer
 
     def _on_set_syncroot_clicked(self):
         folder = self._browse_dir()
