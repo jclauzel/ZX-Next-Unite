@@ -82,14 +82,19 @@ the **[Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki)**:
 
 ## License
 
-Released under the **MIT** license (see [LICENSE](LICENSE)). Built on **PySide6**
-and **pygame-ce** (Qt 6, GPLv2/LGPL) and optionally
+Released under the **MIT** license (see [LICENSE](LICENSE)). Built on
+**PySide6** (Qt for Python, LGPL v3) and optionally **pygame-ce** (LGPL v2.1),
 [itch-dl](https://github.com/DragoonAethis/itch-dl) by Dragoon Aethis (MIT),
 [Flask](https://flask.palletsprojects.com/) by the Pallets team (BSD-3-Clause),
 the web server that powers the NextSync HTTP bridge, and
 [Send2Trash](https://github.com/arsenetar/send2trash) by Andrew Senetar and
-contributors (BSD), which sends locally-deleted files to the system Recycle
-Bin / Trash.
+contributors (BSD-3-Clause), which sends locally-deleted files to the system
+Recycle Bin / Trash.
+
+Provenance and license details for every third-party component — including
+NextSync (Jari Komppa, Unlicense), HDFM-Gooey (em00k), hdfmonkey (GPL v3),
+CSpect and MAME — are in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ## Legal disclaimer — third-party content
 
