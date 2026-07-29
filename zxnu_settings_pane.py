@@ -627,7 +627,8 @@ def build_settings_pane(
     # ---- Retro log font size (SD Card + NextSync pygame log windows) ----
     def _apply_retro_log_font_size(px):
         """Push the point size to whichever retro 8-bit log widgets exist."""
-        for _attr in ("_main_retro_log", "_nextsync_retro_log"):
+        for _attr in ("_main_retro_log", "_nextsync_retro_log",
+                      "_help_retro_log"):
             _w = getattr(host, _attr, None)
             if _w is not None:
                 try:
@@ -666,6 +667,17 @@ def build_settings_pane(
         lambda _i: _settings_retro_log_font_changed()
     )
     grid_tab_Settings.addWidget(host.settings_retro_log_font_combo, 26, 1)
+
+    def _step_retro_log_font(delta):
+        """Right-click "Increase/Decrease font size" on any retro console:
+        step through the same choices as the combo above — whose change
+        handler applies the size to every console AND persists it to the
+        cfg, so the tweak is restored on the next startup."""
+        combo = host.settings_retro_log_font_combo
+        i = combo.currentIndex() + (1 if delta > 0 else -1)
+        if 0 <= i < combo.count():
+            combo.setCurrentIndex(i)
+    host._step_retro_log_font = _step_retro_log_font
 
     # ---- Background image opacity ----
     bg_opacity_lbl = QLabel("Background image opacity (%):")

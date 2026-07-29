@@ -43,6 +43,8 @@ def build_main_retro_log(
             scrollable=True, follow_tail=True, context_copy=True,
             font_px=getattr(host, "_retro_log_font_size",
                             DEFAULT_RETRO_LOG_FONT_SIZE))
+        # Right-click font stepping (persisted via the Settings combo).
+        widget.set_font_step_cb(lambda d: host._step_retro_log_font(d))
         # Same floor as the classic log so the splitter can shrink either
         # log mode equally.
         widget.setMinimumHeight(60)
@@ -225,7 +227,14 @@ def build_help_retro_log(
         from zxnu_pygame import RetroLogWidget
         # scrollable=True adds a vertical scrollbar (+ mouse wheel) so the
         # long help text can be read in full, top-to-bottom.
-        widget = RetroLogWidget(scrollable=True)
+        widget = RetroLogWidget(
+            scrollable=True,
+            # Seed the persisted size too (this console used to build at the
+            # hardcoded default even when the cfg said otherwise).
+            font_px=getattr(host, "_retro_log_font_size",
+                            DEFAULT_RETRO_LOG_FONT_SIZE))
+        # Right-click font stepping (persisted via the Settings combo).
+        widget.set_font_step_cb(lambda d: host._step_retro_log_font(d))
         try:
             widget.enable_background(getattr(host, "_nextsync_pygame_anim", True))
         except Exception:
