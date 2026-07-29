@@ -256,6 +256,38 @@ TEXTS = {
         "fr": "Extrait du manuel :",
     },
     # ── The tab tour ──────────────────────────────────────────────────────
+    # Step 0 — the tour opens on the Settings tab so the user can pick
+    # their language before anything else (the wizard re-speaks instantly).
+    "tour.language": {
+        "en": "First things first: I speak seven languages! Right here in "
+              "Settings, find 'Application language:' and pick yours — I "
+              "will switch the very moment you do. All set? Then let's "
+              "go exploring!",
+        "es": "Lo primero es lo primero: ¡hablo siete idiomas! Aquí mismo "
+              "en Ajustes, busca «Application language:» y elige el tuyo "
+              "— cambiaré en el mismo instante. ¿Todo listo? ¡Pues vamos "
+              "a explorar!",
+        "pt": "Primeiro o mais importante: falo sete línguas! Aqui mesmo "
+              "nas Definições, procura «Application language:» e escolhe "
+              "a tua — mudo no preciso instante. Tudo pronto? Então vamos "
+              "explorar!",
+        "pl": "Najpierw najważniejsze: mówię w siedmiu językach! Tutaj, w "
+              "Ustawieniach, znajdź „Application language:” i wybierz "
+              "swój — przełączę się w tej samej chwili. Gotowe? To "
+              "ruszamy na zwiedzanie!",
+        "ru": "Первым делом: я говорю на семи языках! Прямо здесь, в "
+              "Настройках, найдите «Application language:» и выберите "
+              "свой — я переключусь в то же мгновение. Готовы? Тогда "
+              "отправляемся исследовать!",
+        "cs": "Nejdřív to hlavní: mluvím sedmi jazyky! Přímo tady v "
+              "Nastavení najdi „Application language:“ a vyber si svůj — "
+              "přepnu se v tu samou chvíli. Připraveno? Tak vyrážíme na "
+              "průzkum!",
+        "fr": "Commençons par l'essentiel : je parle sept langues ! Ici "
+              "même, dans les Réglages, trouvez « Application language: » "
+              "et choisissez la vôtre — je changerai à l'instant même. "
+              "Tout est prêt ? Alors partons explorer !",
+    },
     "tour.sdcard": {
         "en": "The SD Card Utility! Mount a Next .hdf/.img image, browse "
               "it side by side with your PC files, drag things across — "
@@ -684,6 +716,9 @@ STORIES = {
 # flags, itch.io without itch-dl). The Settings/Help steps match the
 # literal titles the monolith uses for those two addTab calls.
 TOUR_STEPS = (
+    # The tour OPENS on Settings so the user can pick their language first
+    # (the wizard re-speaks the step live when they do).
+    ("Settings 🔩",                        "tour.language",  "Settings-tab"),
     ("ZX_NEXT_UNITE_TAB_TITLE_GOOEY",     "tour.sdcard",    "SD-Card-Utility-tab"),
     ("ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC",  "tour.nextsync",  "NextSync-tab"),
     ("ZX_NEXT_UNITE_TAB_TITLE_GETIT",     "tour.getit",     "GetIt-tab"),

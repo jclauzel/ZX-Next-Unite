@@ -116,10 +116,13 @@ wiz.bubble._flip(-1)
 check("page flip goes back", wiz.bubble._page == 0)
 
 wiz.start_tour()
-check("tour switched to the first tab", tabs.currentIndex() == 0)
-first_text = wiz.bubble.label.text()
-check("tour speaks the SD-card step",
-      first_text == wc.wizard_tr("tour.sdcard", "en"))
+check("tour opens on Settings with the language step",
+      tabs.tabText(tabs.currentIndex()).startswith("Settings")
+      and wiz.bubble.label.text() == wc.wizard_tr("tour.language", "en"))
+wiz.next_tour_step()
+check("then the SD-card tab and step",
+      tabs.currentIndex() == 0
+      and wiz.bubble.label.text() == wc.wizard_tr("tour.sdcard", "en"))
 wiz.next_tour_step()
 check("tour advanced to NextSync", tabs.currentIndex() == 1)
 wiz.next_tour_step()
@@ -160,12 +163,13 @@ wiz.on_language_changed()
 check("open menu re-speaks in the new language",
       wiz.bubble.label.text() == wc.wizard_tr("menu.title", "fr"))
 zxnu_i18n.set_current_ui_language("en")
-wiz.start_tour()
+wiz.start_tour()          # opens on the Settings/language step
+_lang_tab = tabs.currentIndex()
 zxnu_i18n.set_current_ui_language("pl")
 wiz.on_language_changed()
 check("open tour step re-speaks in the new language",
-      wiz.bubble.label.text() == wc.wizard_tr("tour.sdcard", "pl"))
-check("re-speak stays on the same tab", tabs.currentIndex() == 0)
+      wiz.bubble.label.text() == wc.wizard_tr("tour.language", "pl"))
+check("re-speak stays on the same tab", tabs.currentIndex() == _lang_tab)
 zxnu_i18n.set_current_ui_language("en")
 wiz.tell_joke()
 _joke_idx = wc.JOKES["en"].index(wiz.bubble.label.text())
