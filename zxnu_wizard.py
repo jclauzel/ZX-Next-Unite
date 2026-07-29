@@ -680,6 +680,10 @@ class WizardManager(QObject):
         self._respeak = None
         self.sprite.set_gesture("idle")
 
+    def _on_network_changed(self, online):
+        if online and self._tour_active_page and self.bubble.isVisible():
+            self._request_teaser(self._tour_active_page)
+
     def on_language_changed(self):
         """Live language switch (Settings combo): re-compose the current
         speech in the new language while it is on screen."""
@@ -695,6 +699,12 @@ class WizardManager(QObject):
             cb.setChecked(self.enabled())
             cb.blockSignals(False)
         self.bubble.apply_font_px(self._font_px())
+        # When the network comes back mid-speech, fetch the teaser the
+        # open bubble skipped while offline (the watcher is built right
+        # after the wizard, so it exists by the time startup() runs).
+        net = getattr(self._host, "_network", None)
+        if net is not None:
+            net.online_changed.connect(self._on_network_changed)
         if not self.enabled():
             return
         self.sprite.show()
@@ -942,8 +952,13 @@ class WizardManager(QObject):
     def _request_teaser(self, page):
         cached = self._teaser_cache.get(page)
         if cached is not None:
-            if cached:
-                self._on_teaser(page, cached)
+            self._on_teaser(page, cached)
+            return
+        # Confirmed offline (zxnu_network watcher): don't burn a thread on
+        # a fetch that can only time out — and don't cache the failure, so
+        # the teaser is retried once the network is back.
+        gate = getattr(self._host, "_network_online", None)
+        if gate is not None and not gate():
             return
 
         def _fetch(sig=self._fetch_signals, p=page):
@@ -962,7 +977,10 @@ class WizardManager(QObject):
         threading.Thread(target=_fetch, daemon=True).start()
 
     def _on_teaser(self, page, teaser):
-        self._teaser_cache[page] = teaser
+        if teaser:
+            # Only successes are cached: a transient failure (or an
+            # offline spell) must not blank the teaser for the session.
+            self._teaser_cache[page] = teaser
         if teaser and page == self._tour_active_page and \
                 self.bubble.isVisible():
             self.bubble.append_text(

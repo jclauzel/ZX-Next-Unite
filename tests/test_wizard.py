@@ -332,6 +332,20 @@ check("MAME node appends the Flatpak note on Linux",
 zw._is_linux = _old_linux
 wiz._dismiss()
 
+# ── offline behaviour (zxnu_network gate) ────────────────────────────────
+host._network_online = lambda: False
+zw.WizardManager._request_teaser(wiz, "Some-Page")   # the real method
+check("offline: teaser fetch skipped and not cached",
+      "Some-Page" not in wiz._teaser_cache)
+host._network_online = lambda: True
+wiz._on_teaser("Some-Page", "")
+check("failed teaser is not cached (retried once online)",
+      "Some-Page" not in wiz._teaser_cache)
+wiz._on_teaser("Some-Page", "hello")
+check("successful teaser is cached",
+      wiz._teaser_cache.get("Some-Page") == "hello")
+del host._network_online
+
 # Markdown teaser extraction (pure function, no network).
 md = "# Title\n\n![badge](x.png)\n\nThe **SD Card** tab lets you [mount](u) images.\n\nMore text."
 check("teaser strips markdown to the first paragraph",
