@@ -3386,6 +3386,78 @@ class MainWindow(QMainWindow):
         # Store on self so it can be called from any scope (e.g. ZXDB/GetIt Send via NextSync)
         self._nextsync_start_server_fn = nextsync_start_server
 
+        def _local_make_directory(dir_path, refresh_fn, log_fn):
+            """'Create new directory…' on a local explorer: prompt for a name
+            and create it under dir_path. Shared by the SD-card local pane and
+            the NextSync classic explorer (both browse the local filesystem);
+            refresh_fn/log_fn route feedback to the pane the action came from.
+            """
+            if not dir_path or not os.path.isdir(dir_path):
+                return
+            name, ok = QInputDialog.getText(
+                self, "Create new directory",
+                f"New directory name in\n{dir_path}:")
+            if not ok:
+                return
+            name = name.strip()
+            if not name:
+                return
+            if "/" in name or "\\" in name:
+                QMessageBox.warning(self, "Create directory failed",
+                                    "The name cannot contain '/' or '\\'.")
+                return
+            new_path = os.path.join(dir_path, name)
+            if os.path.exists(new_path):
+                QMessageBox.warning(
+                    self, "Create directory failed",
+                    f'"{name}" already exists in this folder.')
+                return
+            try:
+                os.makedirs(new_path)
+                log_fn(f"Created directory: {new_path}")
+            except OSError as e:
+                logging.error(f"Failed to create directory {new_path}: {e}",
+                              exc_info=True)
+                log_fn(f"Failed to create directory {new_path}: {e}")
+                QMessageBox.critical(self, "Create directory failed",
+                                     f"Could not create:\n{new_path}\n\n{e}")
+            finally:
+                refresh_fn()
+
+        def local_explorer_rename_item(file_path, name, is_dir):
+            """Rename a file/folder in the SD-card local explorer (context
+            menu + F2). Mirrors nextsync_rename_explorer_item, logging to the
+            main log window."""
+            kind = "folder" if is_dir else "file"
+            new_name, ok = QInputDialog.getText(
+                self, "Rename", f"New name for the {kind}:", text=name)
+            if not ok:
+                return
+            new_name = new_name.strip()
+            if not new_name or new_name == name:
+                return
+            if "/" in new_name or "\\" in new_name:
+                QMessageBox.warning(self, "Rename failed",
+                                    "The name cannot contain '/' or '\\'.")
+                return
+            new_path = os.path.join(os.path.dirname(file_path), new_name)
+            if os.path.exists(new_path):
+                QMessageBox.warning(
+                    self, "Rename failed",
+                    f'"{new_name}" already exists in this folder.')
+                return
+            try:
+                os.rename(file_path, new_path)
+                add_main_log_window(f"Renamed: {file_path} -> {new_path}")
+            except OSError as e:
+                logging.error(f"Failed to rename {file_path} -> {new_path}: {e}",
+                              exc_info=True)
+                add_main_log_window(f"Failed to rename {file_path}: {e}")
+                QMessageBox.critical(self, "Rename failed",
+                                     f"Could not rename:\n{file_path}\n\n{e}")
+            finally:
+                local_explorer_refresh()
+
         # Copies the selected file to image
         def on_treeview_context_menu(pos):
             index = self.treeview.indexAt(pos)
