@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.jclauzel.ZXNextUnite</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>ZX Next Unite</name>
+  <summary>SD cards, NextSync and software browsing for the ZX Spectrum Next</summary>
+  <developer id="io.github.jclauzel">
+    <name>Julien Clauzel</name>
+  </developer>
+  <description>
+    <p>
+      ZX Next Unite combines the everyday tools a ZX Spectrum Next owner
+      needs on the PC side, in one place:
+    </p>
+    <ul>
+      <li>SD Card Utility — mount HDF disk images, browse them in a dual
+        local/image explorer, upload and download content, then launch the
+        CSpect or MAME emulator.</li>
+      <li>NextSync server — push files to a real Next over Wi-Fi with Jari
+        Komppa's NextSync protocol, including the two-way Sync4 extension
+        and a full Remote Explorer file manager for the Next's SD card.</li>
+      <li>Online browsing — search and preview freely-distributable ZX
+        Spectrum software from GetIt (zxnext.uk), ZXDB (zxinfo.dk) and
+        zxArt (zxart.ee), and send it straight to an SD image or to the
+        Next. A curated one-click starter pack fills a fresh card with
+        hand-picked modern homebrew.</li>
+      <li>Wizzy, an animated onboarding wizard, plus a UI translated into
+        seven languages.</li>
+    </ul>
+    <p>
+      Note: inside the Flatpak sandbox the app manages images and syncs
+      files as usual; launching external emulators installed on the host
+      is limited.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.jclauzel.ZXNextUnite.desktop</launchable>
+  <content_rating type="oars-1.1"/>
+  <url type="homepage">https://github.com/jclauzel/ZX-Next-Unite</url>
+  <url type="bugtracker">https://github.com/jclauzel/ZX-Next-Unite/issues</url>
+  <url type="help">https://github.com/jclauzel/ZX-Next-Unite/wiki</url>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/jclauzel/ZX-Next-Unite/main/docs/media/sd-card-utility-dark.png</image>
+      <caption>The SD Card Utility's dual local and disk-image explorer</caption>
+    </screenshot>
+  </screenshots>
+  <branding>
+    <color type="primary" scheme_preference="light">#8fa3ff</color>
+    <color type="primary" scheme_preference="dark">#1c1c60</color>
+  </branding>
+  <releases>
+    <release version="9.4.2" date="2026-07-29"/>
+  </releases>
+</component>

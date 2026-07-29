@@ -1185,6 +1185,14 @@ def build_emulator_ops(
         latest GitHub release (off the UI thread) and offer to update when
         it is newer. Mirrors the MAME check: every branch logs to the SD
         Card log window and failures never disrupt startup."""
+        if os.environ.get("FLATPAK_ID"):
+            # Sandboxed install: /app is read-only and updates arrive via
+            # the Flatpak remote, so the in-app self-updater must stay out
+            # of the way.
+            add_main_log_window(
+                "ZX Next Unite update check: running as a Flatpak — "
+                "updates come from your software center, skipping.")
+            return
         pref = configuration_dictionary.get(
             SETTING_ZXNU_UPDATE_CHECK, "").strip().lower()
         if pref in ("false", "0", "no"):

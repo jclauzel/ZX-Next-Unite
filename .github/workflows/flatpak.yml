@@ -1,0 +1,29 @@
+name: flatpak
+
+# Builds the Linux Flatpak bundle from flatpak/io.github.jclauzel.ZXNextUnite.yml
+# and uploads it as a workflow artifact. Runs on demand (workflow_dispatch)
+# and for every v* tag. Deliberately separate from release.yml: the release
+# asset contract with the in-app self-updater (exe / tar.gz / zip) stays
+# untouched, and a Flatpak build failure can never block a release.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  flatpak:
+    name: Build Flatpak bundle
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.8
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build bundle
+        uses: flathub-infra/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: zx-next-unite.flatpak
+          manifest-path: flatpak/io.github.jclauzel.ZXNextUnite.yml
+          cache-key: flatpak-builder-${{ hashFiles('flatpak/io.github.jclauzel.ZXNextUnite.yml') }}
+          upload-artifact: true
