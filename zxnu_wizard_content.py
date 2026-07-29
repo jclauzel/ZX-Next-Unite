@@ -226,6 +226,61 @@ TEXTS = {
               "la carte depuis GetIt/ZXDB/zxArt, ou synchronisez un "
               "vrai Next dans l'onglet NextSync. Bon Speccy ! 🚀",
     },
+    # ── Health check (wizard menu): live ✅/⚠ status lines ────────────────
+    "btn.health": {
+        "en": "🩺 Health check", "es": "🩺 Chequeo de salud",
+        "pt": "🩺 Exame de saúde", "pl": "🩺 Kontrola stanu",
+        "ru": "🩺 Проверка состояния", "cs": "🩺 Kontrola stavu",
+        "fr": "🩺 Bilan de santé",
+    },
+    "health.title": {
+        "en": "The patient looks like this:",
+        "es": "El paciente presenta este estado:",
+        "pt": "O paciente apresenta este estado:",
+        "pl": "Pacjent wygląda następująco:",
+        "ru": "Состояние пациента таково:",
+        "cs": "Pacient vypadá takto:",
+        "fr": "Le patient se présente ainsi :",
+    },
+    "health.network": {
+        "en": "Internet connection", "es": "Conexión a Internet",
+        "pt": "Ligação à Internet", "pl": "Połączenie z Internetem",
+        "ru": "Подключение к Интернету", "cs": "Připojení k internetu",
+        "fr": "Connexion Internet",
+    },
+    "health.hdfmonkey": {
+        "en": "hdfmonkey (image tool)", "es": "hdfmonkey (herramienta de imágenes)",
+        "pt": "hdfmonkey (ferramenta de imagens)", "pl": "hdfmonkey (narzędzie obrazów)",
+        "ru": "hdfmonkey (инструмент образов)", "cs": "hdfmonkey (nástroj obrazů)",
+        "fr": "hdfmonkey (outil d'images)",
+    },
+    "health.emulators": {
+        "en": "Emulator (CSpect/MAME)", "es": "Emulador (CSpect/MAME)",
+        "pt": "Emulador (CSpect/MAME)", "pl": "Emulator (CSpect/MAME)",
+        "ru": "Эмулятор (CSpect/MAME)", "cs": "Emulátor (CSpect/MAME)",
+        "fr": "Émulateur (CSpect/MAME)",
+    },
+    "health.image": {
+        "en": "SD card image loaded", "es": "Imagen de tarjeta SD cargada",
+        "pt": "Imagem de cartão SD carregada", "pl": "Załadowany obraz karty SD",
+        "ru": "Загружен образ SD-карты", "cs": "Načtený obraz SD karty",
+        "fr": "Image de carte SD chargée",
+    },
+    "health.syncroot": {
+        "en": "NextSync sync root set", "es": "Raíz de sincronización NextSync",
+        "pt": "Raiz de sincronização NextSync", "pl": "Katalog główny NextSync",
+        "ru": "Корень синхронизации NextSync", "cs": "Kořen synchronizace NextSync",
+        "fr": "Racine de synchronisation NextSync",
+    },
+    "health.localip": {
+        "en": "Local IPv4 (the Next reaches the PC here)",
+        "es": "IPv4 local (el Next llega al PC por aquí)",
+        "pt": "IPv4 local (o Next chega ao PC por aqui)",
+        "pl": "Lokalne IPv4 (Next łączy się z PC tym adresem)",
+        "ru": "Локальный IPv4 (по нему Next видит ПК)",
+        "cs": "Místní IPv4 (Next se tudy dostane k PC)",
+        "fr": "IPv4 locale (le Next joint le PC par ici)",
+    },
     "help.offer": {
         "en": "A new tab! Would you like a quick word about what it "
               "does?",

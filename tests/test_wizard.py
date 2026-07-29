@@ -389,6 +389,36 @@ check("menu offers Quick Start",
           for a in wiz.bubble._actions))
 wiz._dismiss()
 
+# ── Health check (wizard menu links row) ─────────────────────────────────
+host._hdfmonkey_binary_found = lambda: False
+wiz._health_ip = "192.168.1.50"          # probe result already cached
+wiz.show_health()
+txt = "\n".join(wiz.bubble._pages)
+check("health check lists all six items",
+      all(wc.wizard_tr(k, "en") in txt
+          for k in ("health.network", "health.hdfmonkey",
+                    "health.emulators", "health.image",
+                    "health.syncroot", "health.localip")))
+check("health check flags missing hdfmonkey with a warning",
+      "⚠️  " + wc.wizard_tr("health.hdfmonkey", "en") in txt)
+check("health check shows the found emulator and the cached local IP",
+      "✅  " + wc.wizard_tr("health.emulators", "en") + ": CSpect" in txt
+      and "192.168.1.50" in txt)
+host._hdfmonkey_binary_found = lambda: True
+wiz.bubble._actions[0][1]()              # 🩺 button doubles as refresh
+check("health refresh flips hdfmonkey to green",
+      "✅  " + wc.wizard_tr("health.hdfmonkey", "en")
+      in "\n".join(wiz.bubble._pages))
+wiz._on_health_ip("10.0.0.7")            # late daemon-probe result lands
+check("late IP probe result refreshes the open bubble",
+      "10.0.0.7" in "\n".join(wiz.bubble._pages))
+wiz._dismiss()
+wiz.show_menu()
+check("menu links row offers the health check",
+      any(lnk[0] == wc.wizard_tr("btn.health", "en")
+          for lnk in wiz.bubble._links))
+wiz._dismiss()
+
 # ── offline behaviour (zxnu_network gate) ────────────────────────────────
 host._network_online = lambda: False
 zw.WizardManager._request_teaser(wiz, "Some-Page")   # the real method

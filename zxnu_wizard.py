@@ -26,6 +26,7 @@ modules — so the monolith only grows by the builder call.
 from __future__ import annotations
 
 import logging
+import os
 import random
 import re
 import sys
@@ -39,7 +40,8 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLayout, QPushButton,
     QVBoxLayout, QWidget)
 
 import zxnu_config
-from zxnu_config import (SETTING_WIZARD_ENABLED, SETTING_WIZARD_FONT_SIZE,
+from zxnu_config import (SETTING_NEXTSYNC_EXPLORERPATH,
+                         SETTING_WIZARD_ENABLED, SETTING_WIZARD_FONT_SIZE,
                          SETTING_WIZARD_INTRO_SHOWN, ZXART_USER_AGENT,
                          mame_windows_asset_arch)
 from zxnu_i18n import current_ui_language
@@ -507,6 +509,8 @@ def _teaser_from_markdown(md, limit=220):
 class WizardManager(QObject):
     """Owns the sprite + bubble, the tour, jokes/stories and persistence."""
 
+    _health_ip_ready = Signal(str)     # "" when undetectable
+
     def __init__(self, host, *, configuration_dictionary):
         super().__init__(host)
         self._host = host
@@ -540,6 +544,11 @@ class WizardManager(QObject):
         self._idle_timer.setInterval(9000)
         self._idle_timer.timeout.connect(self._idle_act)
         self._idle_timer.start()
+        # Health check: the local-IP probe result, filled by a daemon
+        # thread (the probe can stall on broken DNS — never on UI).
+        self._health_ip = None
+        self._health_ip_pending = False
+        self._health_ip_ready.connect(self._on_health_ip)
         # Quick Start: poll for the async steps (download/install) landing.
         self._qs_pred = None
         self._qs_then = None
@@ -930,6 +939,68 @@ class WizardManager(QObject):
             if then is not None:
                 then()
 
+    # ── health check ─────────────────────────────────────────────────────
+    def _health_checks(self):
+        """Live (text_key, ok, detail) rows from state the app already
+        tracks — nothing here probes the network or spawns processes."""
+        host = self._host
+        rows = []
+        net = getattr(host, "_network_online", None)
+        rows.append(("health.network",
+                     bool(net()) if callable(net) else True, ""))
+        found = getattr(host, "_hdfmonkey_binary_found", None)
+        rows.append(("health.hdfmonkey",
+                     bool(found()) if callable(found) else False, ""))
+        emus = [name for name, attr in (("CSpect", "_cspect_executable_path"),
+                                        ("MAME", "_mame_executable_path"))
+                if getattr(host, attr, None)]
+        rows.append(("health.emulators", bool(emus), ", ".join(emus)))
+        rows.append(("health.image", self._qs_image_loaded(), ""))
+        root = str(self._cfg.get(SETTING_NEXTSYNC_EXPLORERPATH, "")).strip()
+        rows.append(("health.syncroot",
+                     bool(root) and os.path.isdir(root), ""))
+        ip = self._health_ip
+        rows.append(("health.localip", bool(ip), ip or ""))
+        return rows
+
+    def show_health(self):
+        """Wizzy's stethoscope: one ✅/⚠️ line per readiness item. The
+        health button doubles as the refresh. The local-IP probe can
+        stall ~2 s on broken DNS, so it runs in a daemon thread and the
+        line self-updates when the result lands (cached for instant
+        display meanwhile)."""
+        self._respeak = self.show_health
+        lines = [self._tr("health.title")]
+        for key, ok, detail in self._health_checks():
+            line = ("✅  " if ok else "⚠️  ") + self._tr(key)
+            if ok and detail:
+                line += f": {detail}"
+            lines.append(line)
+        self._say("\n".join(lines),
+                  [(self._tr("btn.health"), self.show_health),
+                   (self._tr("btn.close"), self._dismiss)],
+                  gesture="look", cycles=4)
+        if not self._health_ip_pending:
+            self._health_ip_pending = True
+
+            def _probe(sig=self._health_ip_ready):
+                try:
+                    from zxnu_network import detect_local_ipv4
+                    ip = detect_local_ipv4()[3]
+                except Exception:
+                    ip = None
+                sig.emit(ip or "")
+
+            threading.Thread(target=_probe, daemon=True).start()
+
+    def _on_health_ip(self, ip):
+        self._health_ip_pending = False
+        changed = (ip or None) != self._health_ip
+        self._health_ip = ip or None
+        if (changed and self.bubble.isVisible()
+                and self._respeak == self.show_health):
+            self.show_health()
+
     # ── in-depth guides ──────────────────────────────────────────────────
     def _guide_links(self, page):
         """The always-visible reference row: user manual + GitHub repo."""
@@ -1168,7 +1239,8 @@ class WizardManager(QObject):
                    (self._tr("btn.off"), self.turn_off)],
                   gesture="wave", cycles=3,
                   links=self._guide_links(None)
-                  + [(self._tr("btn.font"), lambda: self.adjust_font(0))])
+                  + [(self._tr("btn.health"), self.show_health),
+                     (self._tr("btn.font"), lambda: self.adjust_font(0))])
 
 
 def build_wizard(host, *, configuration_dictionary):
