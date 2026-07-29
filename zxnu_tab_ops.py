@@ -27,7 +27,6 @@ def build_tab_ops(
     host,
     *,
     _right_disk_content,
-    load_configuration_file,
     _start_transfer_idle_animation,
     _stop_transfer_idle_animation,
     nextsync_perform_checks_and_prepare_server_start,
@@ -338,20 +337,6 @@ def build_tab_ops(
             if host.nextsync_prepare_server.isVisible():
                 nextsync_perform_checks_and_prepare_server_start()
 
-
-    #  Start main logic
-
-    load_configuration_file()
-    # Re-tint the tab bar with the just-loaded general UI text colour. This
-    # covers Custom mode (whose theme re-apply returns early without
-    # refreshing) and the Settings / itch.io tabs that are added after the
-    # initial colouring pass, so every tab honours the saved colour.
-    if hasattr(host, "_refresh_tab_stylesheet"):
-        try:
-            host._refresh_tab_stylesheet()
-        except Exception:
-            pass
-    host._initialising = False
 
     # Consumed by bare name elsewhere in __init__ (re-bound at the call site).
     host._apply_autocomplete_setting = _apply_autocomplete_setting
