@@ -1195,6 +1195,8 @@ def build_nextsync_pane(
             scrollable=True, follow_tail=True, context_copy=True,
             font_px=getattr(host, "_retro_log_font_size",
                             DEFAULT_RETRO_LOG_FONT_SIZE))
+        # Right-click font stepping (persisted via the Settings combo).
+        widget.set_font_step_cb(lambda d: host._step_retro_log_font(d))
         widget.setMinimumHeight(NEXTSYNC_UI_HEIGTH)
         try:
             widget.enable_background(getattr(host, "_nextsync_pygame_anim", True))

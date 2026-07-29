@@ -60,6 +60,29 @@ check("decode: cp1252 fallback", _decode_text_bytes(b"caf\xe9") == ["café"],
       str(_decode_text_bytes(b"caf\xe9")))
 check("decode: empty", _decode_text_bytes(b"") == [])
 
+# ── right-click font stepping (hosted via set_font_step_cb) ──────────────
+w3 = RetroLogWidget()
+check("no opt-in -> no context menu", w3._build_context_menu() is None)
+steps = []
+w3.set_font_step_cb(steps.append)
+menu = w3._build_context_menu()
+labels = [a.text() for a in menu.actions() if not a.isSeparator()]
+check("font menu offers increase (with current px) and decrease",
+      len(labels) == 2 and labels[0].startswith("Increase font size")
+      and str(w3._font_px) in labels[0]
+      and labels[1] == "Decrease font size")
+menu.actions()[0].trigger()
+menu.actions()[1].trigger()
+check("menu actions step the host callback +1/-1", steps == [1, -1])
+w4 = RetroLogWidget(context_copy=True)
+w4.set_font_step_cb(lambda d: None)
+m4 = w4._build_context_menu()
+check("copy + font entries coexist (separated)",
+      [a.text() for a in m4.actions() if not a.isSeparator()][0]
+      == "Copy all text"
+      and any(a.isSeparator() for a in m4.actions())
+      and len([a for a in m4.actions() if not a.isSeparator()]) == 3)
+
 print()
 if FAIL:
     print(f"RESULT: {len(FAIL)} FAILURE(S)")

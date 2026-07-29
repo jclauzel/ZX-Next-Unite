@@ -458,7 +458,9 @@ def build_getit_pane(
     host.getit_splitter.setChildrenCollapsible(False)
     host.getit_splitter.setStretchFactor(0, 1)
     host.getit_splitter.setStretchFactor(1, 0)
-    host.getit_splitter.setHandleWidth(8)
+    host.getit_splitter.setHandleWidth(10)
+    # Same visible "grab pill" as the SD Card splitter (shared constant).
+    host.getit_splitter.setStyleSheet(SPLITTER_HANDLE_QSS)
     host.getit_splitter.setSizes([500, 60])
     host.getit_splitter.handle(1).setToolTip(
         "Drag to resize the results / MOTD split.")

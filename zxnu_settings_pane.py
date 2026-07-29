@@ -20,7 +20,7 @@ import sys
 
 from PySide6.QtCore import (Qt, QTimer)
 from PySide6.QtGui import (QColor, QPixmap)
-from PySide6.QtWidgets import (QWidget, QLabel, QPushButton, QCheckBox,
+from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QPushButton, QCheckBox,
     QComboBox, QLineEdit, QGridLayout, QHBoxLayout, QVBoxLayout, QFrame,
     QScrollArea, QSlider, QSpinBox, QColorDialog)
 
@@ -126,6 +126,15 @@ def build_settings_pane(
         Desktop Theme mode. White/Dark/Black/Automatic derive the palette;
         Custom keeps the user's colours (snapshotting them to the cfg when
         persist=True)."""
+        # Theme-aware view backgrounds: the explorers/tables/lists render
+        # dark under every variant except explicit White (whose item
+        # palette expects the stock light viewports). Appended to the
+        # app-wide chrome so a theme switch re-applies both.
+        _appinst = QApplication.instance()
+        if _appinst is not None:
+            _extra = ("" if _desktop_theme_variant() == "light"
+                      else NEXT_DARK_VIEWS_QSS)
+            _appinst.setStyleSheet(NEXT_CHROME_QSS + _extra)
         mode = getattr(host, "_desktop_theme_mode", DEFAULT_DESKTOP_THEME)
         if mode == DESKTOP_THEME_CUSTOM:
             if persist:
@@ -627,7 +636,8 @@ def build_settings_pane(
     # ---- Retro log font size (SD Card + NextSync pygame log windows) ----
     def _apply_retro_log_font_size(px):
         """Push the point size to whichever retro 8-bit log widgets exist."""
-        for _attr in ("_main_retro_log", "_nextsync_retro_log"):
+        for _attr in ("_main_retro_log", "_nextsync_retro_log",
+                      "_help_retro_log"):
             _w = getattr(host, _attr, None)
             if _w is not None:
                 try:
@@ -666,6 +676,17 @@ def build_settings_pane(
         lambda _i: _settings_retro_log_font_changed()
     )
     grid_tab_Settings.addWidget(host.settings_retro_log_font_combo, 26, 1)
+
+    def _step_retro_log_font(delta):
+        """Right-click "Increase/Decrease font size" on any retro console:
+        step through the same choices as the combo above — whose change
+        handler applies the size to every console AND persists it to the
+        cfg, so the tweak is restored on the next startup."""
+        combo = host.settings_retro_log_font_combo
+        i = combo.currentIndex() + (1 if delta > 0 else -1)
+        if 0 <= i < combo.count():
+            combo.setCurrentIndex(i)
+    host._step_retro_log_font = _step_retro_log_font
 
     # ---- Background image opacity ----
     bg_opacity_lbl = QLabel("Background image opacity (%):")

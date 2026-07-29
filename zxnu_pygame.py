@@ -4695,6 +4695,7 @@ class RetroLogWidget(QWidget):
         super().__init__(parent)
         # Opt-in right-click "Copy all text" menu (SD Card / NextSync logs).
         self._context_copy = bool(context_copy)
+        self._font_step_cb = None       # set via set_font_step_cb()
         # Consolas point size for the log text (before DPI scaling). Adjustable
         # at runtime via set_font_size(); the default matches the original
         # hardcoded size (see zxnu_config.DEFAULT_RETRO_LOG_FONT_SIZE).
@@ -4860,18 +4861,42 @@ class RetroLogWidget(QWidget):
             return
         super().wheelEvent(ev)
 
+    def set_font_step_cb(self, cb):
+        """Host hook for the right-click "Increase/Decrease font size"
+        entries: *cb(delta)* steps the shared retro-log font size (the host
+        routes it through the Settings combo, which applies the size to
+        every retro console AND persists SETTING_RETRO_LOG_FONT_SIZE)."""
+        self._font_step_cb = cb
+
+    def _build_context_menu(self):
+        """The right-click menu, or None when no feature opted in (factored
+        out of contextMenuEvent so tests can inspect the actions)."""
+        if not (self._context_copy or self._font_step_cb is not None):
+            return None
+        menu = QMenu(self)
+        if self._context_copy:
+            act_copy = menu.addAction("Copy all text")
+            act_copy.setEnabled(bool(self._lines))
+            act_copy.triggered.connect(
+                lambda: QGuiApplication.clipboard().setText(
+                    "\n".join(self._lines)))
+        if self._font_step_cb is not None:
+            if not menu.isEmpty():
+                menu.addSeparator()
+            act_inc = menu.addAction(
+                f"Increase font size (now {self._font_px}px)")
+            act_inc.triggered.connect(lambda: self._font_step_cb(+1))
+            act_dec = menu.addAction("Decrease font size")
+            act_dec.triggered.connect(lambda: self._font_step_cb(-1))
+        return menu
+
     def contextMenuEvent(self, ev):
-        """Right-click → offer to copy the whole log to the clipboard. Enabled
-        only on panes that opt in via *context_copy* (the SD Card and NextSync
-        retro logs); other panes keep the default (no) context menu."""
-        if not self._context_copy:
+        """Right-click → copy the log (context_copy panes) and/or step the
+        retro font size (any console the host wired via set_font_step_cb)."""
+        menu = self._build_context_menu()
+        if menu is None:
             super().contextMenuEvent(ev)
             return
-        menu = QMenu(self)
-        act_copy = menu.addAction("Copy all text")
-        act_copy.setEnabled(bool(self._lines))
-        act_copy.triggered.connect(
-            lambda: QGuiApplication.clipboard().setText("\n".join(self._lines)))
         menu.exec(ev.globalPos())
 
     def _on_scroll(self, _v):

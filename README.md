@@ -17,6 +17,27 @@ the Remote Explorer) · GetIt · ZXArt.ee · ZXDB/ZXInfo.dk · Unite! · Alien
 Floyd's. Every tab is documented in the
 **[User Manual](https://github.com/jclauzel/ZX-Next-Unite/wiki/User-Manual)**.*
 
+## Showcase
+
+**The Remote Explorer, live** — a real Spectrum Next's SD card browsed over
+Wi-Fi from the app (the Next runs `.sync5 -l`): full two-pane file
+management, both directions, remote zip/unzip included.
+
+![Live Remote Explorer session with a real Spectrum Next](docs/media/remote-explorer-live.gif)
+
+**Meet Wizzy** — the built-in onboarding wizard tours every tab, offers
+in-depth guides for the SD Card and NextSync tools, speaks seven languages
+(switching live with the app language), tells Speccy jokes — and walks like
+an Egyptian:
+
+![Wizzy the wizard touring the tabs](docs/media/wizzy-tour.gif)
+
+**The SD Card Utility** in the dark "Next" chrome — PC on the left, the
+mounted NextZXOS image on the right, drag & drop and clipboard both ways,
+emulator launch buttons below:
+
+![SD Card Utility, dark theme](docs/media/sd-card-utility-dark.png)
+
 ## Features
 
 - **SD Card tab** — mount an HDF image, copy files in/out with a built-in
