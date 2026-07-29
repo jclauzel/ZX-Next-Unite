@@ -140,8 +140,15 @@ check("hidden tabs are skipped (Settings next)",
 wiz.next_tour_step()
 check("last step is the Help tab", tabs.tabText(tabs.currentIndex()) == "?")
 wiz.next_tour_step()
+_finale = " ".join(wiz.bubble._pages)
+check("tour finale sends the kudos",
+      "em00k" in _finale and "the Gary(s)" in _finale
+      and "Tim" in _finale)
 check("tour finishes with the outro",
-      wiz.bubble.label.text() == wc.wizard_tr("tour.done", "en"))
+      wc.wizard_tr("tour.done", "en") in _finale)
+check("kudos template carries {names} in every language",
+      all("{names}" in wc.TEXTS["tour.kudos"][lang]
+          for lang in wc.WIZARD_LANGS))
 
 # Jokes rotate through the whole bag without repeats.
 seen = set()

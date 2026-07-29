@@ -197,6 +197,34 @@ TEXTS = {
         "fr": "Comme vous voudrez ! *pouf* — vous pourrez me rappeler à "
               "tout moment depuis l'onglet Réglages. Adieu, aventurier !",
     },
+    # Tour finale: KUDOS! The {names} placeholder is filled from
+    # KUDOS_NAMES below (proper names — never translated), so adding a
+    # name is a one-line edit that reaches every language.
+    "tour.kudos": {
+        "en": "One last magic word before you go: KUDOS to {names} — and "
+              "the entire community — for their support and incredible "
+              "work to make the Next an awesome platform!",
+        "es": "Una última palabra mágica antes de irte: ¡KUDOS a {names} "
+              "— y a toda la comunidad — por su apoyo y su increíble "
+              "trabajo para hacer del Next una plataforma increíble!",
+        "pt": "Uma última palavra mágica antes de ires: KUDOS a {names} — "
+              "e a toda a comunidade — pelo apoio e pelo trabalho "
+              "incrível que fazem do Next uma plataforma fantástica!",
+        "pl": "Ostatnie magiczne słowo na drogę: KUDOS dla {names} — i "
+              "całej społeczności — za wsparcie i niesamowitą pracę, "
+              "dzięki której Next jest tak wspaniałą platformą!",
+        "ru": "Последнее волшебное слово на прощание: KUDOS {names} — и "
+              "всему сообществу — за поддержку и невероятную работу, "
+              "благодаря которой Next стал такой замечательной "
+              "платформой!",
+        "cs": "Ještě jedno kouzelné slovo na cestu: KUDOS pro {names} — a "
+              "celou komunitu — za podporu a neuvěřitelnou práci, díky "
+              "níž je Next tak skvělá platforma!",
+        "fr": "Un dernier mot magique avant de partir : KUDOS à {names} — "
+              "et à toute la communauté — pour leur soutien et leur "
+              "travail incroyable qui font du Next une plateforme "
+              "formidable !",
+    },
     "tour.done": {
         "en": "And that's the tour! Click me any time for a joke, a story "
               "or another walk-around. Happy Speccy-ing!",
@@ -734,6 +762,13 @@ TOUR_STEPS = (
 # Tour steps that browse third-party online catalogues: the wizard softly
 # appends the "tour.disclaimer" rights reminder to these.
 DISCLAIMER_STEPS = {"tour.getit", "tour.zxdb", "tour.zxart", "tour.unite"}
+
+# The heroes the wizard thanks at the end of the tour (fills the {names}
+# placeholder of "tour.kudos"; proper names, shared by every language).
+KUDOS_NAMES = ("em00k, Jari, Leonis, Remy, Phoebus, Adrian, Mike, Thomas, "
+               "Robin, Flash, the Chris(s) 🙂, Holub, the Richard(s) 🙂, "
+               "the Gary(s) 🙂, Henrique, Victor, Nicolas & Anthony, "
+               "Simon, Jamie, Tim")
 
 # The manual's landing page (the wizard's "Read the manual" outside a tour).
 USER_MANUAL_PAGE = "User-Manual"
