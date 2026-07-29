@@ -109,6 +109,44 @@ _probes[:] = [False]
 w.check_now(); _spin(w)
 check("a later loss emits again", emitted == [False, True, False])
 
+# ── UI responsiveness proofs ─────────────────────────────────────────────
+from PySide6.QtCore import QTimer  # noqa: E402
+
+# A probe that takes 1.2 s must not stall the UI loop: a 100 ms QTimer has
+# to fire on time while the probe thread is still sleeping.
+zn.probe_online = lambda *a, **k: (time.sleep(1.2), False)[1]
+w2 = zn.NetworkWatcher(interval_ms=3600_000)
+got2 = []
+w2.online_changed.connect(got2.append)
+tick = []
+timer = QTimer()
+timer.setSingleShot(True)
+timer.timeout.connect(lambda: tick.append(time.time()))
+t_start = time.time()
+w2.check_now()
+timer.start(100)
+while not tick and time.time() - t_start < 1.0:
+    app.processEvents()
+    time.sleep(0.005)
+check("UI loop stays responsive during a slow probe",
+      bool(tick) and tick[0] - t_start < 0.6,
+      f"{(tick[0] - t_start) if tick else 'never'}")
+_spin(w2)
+check("the slow probe still lands afterwards", got2 == [False])
+zn.probe_online = lambda *a, **k: _probes.pop(0)
+
+# A stalled hostname resolver (broken DNS) must be time-bounded: the old
+# code could hang the startup UI for the resolver's full timeout.
+socket.gethostbyname_ex = lambda *_a: (time.sleep(6), None)[1]
+socket.socket = _DeadUdp
+t0 = time.time()
+res = zn.detect_local_ipv4()
+dt = time.time() - t0
+socket.gethostbyname_ex = _real_ghbne
+socket.socket = _real_socket
+check("hostname resolution is time-bounded (no startup hang)",
+      dt < 3.5 and res == ("", [], [], None), f"{dt:.1f}s {res}")
+
 # ── build_network_watch wiring ───────────────────────────────────────────
 class StubHost(QMainWindow):
     pass

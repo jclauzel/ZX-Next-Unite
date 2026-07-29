@@ -52,14 +52,36 @@ def probe_online(hosts=PROBE_HOSTS, timeout=PROBE_TIMEOUT_S):
     return False
 
 
+RESOLVE_TIMEOUT_S = 2.0
+
+
+def _resolve_own_host_bounded(timeout=RESOLVE_TIMEOUT_S):
+    """gethostbyname_ex(own hostname) with a hard time bound: on a
+    misconfigured resolver (unreachable DNS, hostname missing from
+    /etc/hosts) the C resolver can stall for many seconds — and this is
+    called on the UI thread at startup. The lookup runs in a daemon
+    thread; if it overruns the bound we return blanks and let the thread
+    finish (and be discarded) in the background."""
+    result = {}
+
+    def _run():
+        try:
+            result["v"] = socket.gethostbyname_ex(socket.gethostname())
+        except OSError:
+            result["v"] = ("", [], [])
+
+    t = threading.Thread(target=_run, daemon=True,
+                         name="zxnu-hostname-resolve")
+    t.start()
+    t.join(timeout)
+    return result.get("v", ("", [], []))
+
+
 def detect_local_ipv4():
     """Best-effort local address info for the NextSync tab: returns
     (hostname, aliases, ips, primary_ip_or_None) and NEVER raises — with
     no network every field simply comes back empty."""
-    try:
-        hostname, aliases, ips = socket.gethostbyname_ex(socket.gethostname())
-    except OSError:
-        hostname, aliases, ips = "", [], []
+    hostname, aliases, ips = _resolve_own_host_bounded()
     primary = None
     if not ips or len(ips) > 1 or ips[0].startswith("127"):
         # Ambiguous or loopback-only: learn the outbound interface's
