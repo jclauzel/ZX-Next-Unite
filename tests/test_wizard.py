@@ -294,6 +294,25 @@ check("font shrinks back", wiz.bubble._font_px == 12
       and cfg.get(SETTING_WIZARD_FONT_SIZE) == "12")
 wiz._dismiss()
 
+# "About this tab" in the menu re-opens tab help even after the automatic
+# once-per-session offers were spent.
+tabs.setCurrentIndex(1)                  # NextSync: offer already consumed
+wiz._dismiss()
+wiz.show_menu()
+check("menu leads with About this tab",
+      wiz.bubble._actions[0][0] == wc.wizard_tr("btn.abouttab", "en"))
+wiz.bubble._actions[0][1]()
+check("About this tab opens the NextSync guide",
+      wiz.bubble.label.text() == wc.wizard_tr("ns.what", "en"))
+wiz._dismiss()
+tabs.setCurrentIndex(2)                  # GetIt: help offer spent too
+wiz._dismiss()
+wiz.show_menu()
+wiz.bubble._actions[0][1]()
+check("About this tab shows GetIt help after the offer was spent",
+      wiz.bubble._pages[0].startswith(wc.wizard_tr("tour.getit", "en")[:40]))
+wiz._dismiss()
+
 # SD guide: the CSpect branch has a Take-me-there jump; the MAME node
 # appends the Flatpak note only on Linux.
 wiz.start_guide("sdcard")

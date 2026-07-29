@@ -866,29 +866,49 @@ class WizardManager(QObject):
         tabw = getattr(self._host, "_tab_widget", None)
         if tabw is None or index < 0:
             return
-        title = tabw.tabText(index)
+        topic = self._tab_topic(tabw.tabText(index))
+        if topic is None or topic[1] in self._offered_tabs:
+            return
+        kind, key, page = topic
+        self._offered_tabs.add(key)
+        if kind == "guide":
+            self.offer_guide(key)
+        else:
+            self.offer_help(key, page)
+
+    def _tab_topic(self, title):
+        """What the wizard knows about the tab titled *title*:
+        ("guide", guide_id, page) for the in-depth tabs, ("help",
+        tour_key, page) for tour tabs (the Settings tab's help is
+        tour.settings, not the tour's language opener), else None."""
         for guide_id, guide in GUIDES.items():
             prefix = getattr(zxnu_config, guide["tab"], guide["tab"])
             if title.startswith(prefix):
-                if guide_id in self._offered_tabs:
-                    return
-                self._offered_tabs.add(guide_id)
-                self.offer_guide(guide_id)
-                return
-        # Tabs without an in-depth guide still get a lighter, once-per-
-        # session "want a quick word about this tab?" using their tour
-        # blurb (the Settings tab's help is tour.settings, not the tour's
-        # language opener).
+                return ("guide", guide_id, guide["page"])
         for const_name, text_key, page in TOUR_STEPS:
             if text_key == "tour.language":
                 continue
             prefix = getattr(zxnu_config, const_name, const_name)
             if title.startswith(prefix):
-                if text_key in self._offered_tabs:
-                    return
-                self._offered_tabs.add(text_key)
-                self.offer_help(text_key, page)
-                return
+                return ("help", text_key, page)
+        return None
+
+    def about_current_tab(self):
+        """Menu entry: always-available help for the CURRENT tab (the
+        automatic offer only fires once per session — this is the manual
+        way back to it)."""
+        tabw = getattr(self._host, "_tab_widget", None)
+        if tabw is None:
+            return
+        topic = self._tab_topic(tabw.tabText(tabw.currentIndex()))
+        if topic is None:
+            self.open_manual(None)
+            return
+        kind, key, page = topic
+        if kind == "guide":
+            self.start_guide(key)
+        else:
+            self.show_tab_help(key, page)
 
     def offer_help(self, text_key, page):
         self._respeak = lambda: self.offer_help(text_key, page)
@@ -980,13 +1000,14 @@ class WizardManager(QObject):
     def show_menu(self):
         self._respeak = self.show_menu
         self._say(self._tr("menu.title"),
-                  [(self._tr("btn.tour"), self.start_tour),
+                  [(self._tr("btn.abouttab"), self.about_current_tab),
+                   (self._tr("btn.tour"), self.start_tour),
                    (self._tr("btn.joke"), self.tell_joke),
                    (self._tr("btn.story"), self.tell_story),
-                   (self._tr("btn.font"), lambda: self.adjust_font(0)),
                    (self._tr("btn.off"), self.turn_off)],
                   gesture="wave", cycles=3,
-                  links=self._guide_links(None))
+                  links=self._guide_links(None)
+                  + [(self._tr("btn.font"), lambda: self.adjust_font(0))])
 
 
 def build_wizard(host, *, configuration_dictionary):

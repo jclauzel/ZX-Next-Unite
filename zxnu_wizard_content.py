@@ -115,6 +115,15 @@ TEXTS = {
               "agrandir ou les rapetisser — votre choix est gardé pour "
               "la prochaine fois.",
     },
+    "btn.abouttab": {
+        "en": "💡 About this tab",
+        "es": "💡 Sobre esta pestaña",
+        "pt": "💡 Sobre este separador",
+        "pl": "💡 O tej karcie",
+        "ru": "💡 Об этой вкладке",
+        "cs": "💡 O této záložce",
+        "fr": "💡 À propos de cet onglet",
+    },
     "btn.font": {
         "en": "🔠 Font size",
         "es": "🔠 Tamaño de letra",
