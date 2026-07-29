@@ -386,19 +386,19 @@ def build_zxdb_pane(
         _ns_base    = _zxdb_resolve_base_path(host.left_file_nextsync_explorer_selection_full_filename_path)
         _ns_dest    = os.path.join(_ns_base, _safe_title)
         menu = QMenu()
-        act_download = menu.addAction("Download content")
-        act_mlt      = menu.addAction("More like this")
+        act_download = menu.addAction(ui_tr_now("Download content"))
+        act_mlt      = menu.addAction(ui_tr_now("More like this"))
         menu.addSeparator()
-        act_send_sd  = menu.addAction(f"Send to SD card (image)  \u2192  {_sd_dest}")
+        act_send_sd  = menu.addAction(ui_tr_now("Send to SD card (image)  →  {dest}").format(dest=_sd_dest))
         act_send_sd.setEnabled(bool(host.right_disk_image_path) and bool(_right_disk_content()))
-        act_send_ns  = menu.addAction(f"Send using NextSync  \u2192  {_ns_dest}")
+        act_send_ns  = menu.addAction(ui_tr_now("Send using NextSync  →  {dest}").format(dest=_ns_dest))
         if not ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS:
             act_download.setVisible(False)
             act_send_sd.setVisible(False)
             act_send_ns.setVisible(False)
         menu.addSeparator()
         _web_url = zxdb_entry_website_url(eid)
-        act_open_web = menu.addAction("Open on website (zxinfo.dk)")
+        act_open_web = menu.addAction(ui_tr_now("Open on website (zxinfo.dk)"))
         act_open_web.setEnabled(bool(_web_url))
         action = menu.exec(global_pos)
         if action is None:
@@ -1837,7 +1837,7 @@ def build_zxdb_pane(
             tbl.selectRow(row)
             _load_issue_from_row(row)
             menu2 = QMenu(tbl)
-            act_dl = menu2.addAction("Download content")
+            act_dl = menu2.addAction(ui_tr_now("Download content"))
             act_dl.setEnabled(bool(host._zxdb_selected_downloads))
             action = menu2.exec(tbl.viewport().mapToGlobal(pos))
             if action is act_dl:
@@ -2644,10 +2644,10 @@ def build_zxdb_pane(
 
         if kind == "magazine":
             mag_name = entry.get("_name") or title
-            act_fetch_mag   = menu.addAction("Fetch single magazine by name")
-            act_all_issues  = menu.addAction("Retrieve all issues")
-            act_fetch_issue = menu.addAction("Fetch issue info for this magazine")
-            act_dl_issue    = menu.addAction("Download content")
+            act_fetch_mag   = menu.addAction(ui_tr_now("Fetch single magazine by name"))
+            act_all_issues  = menu.addAction(ui_tr_now("Retrieve all issues"))
+            act_fetch_issue = menu.addAction(ui_tr_now("Fetch issue info for this magazine"))
+            act_dl_issue    = menu.addAction(ui_tr_now("Download content"))
             # Only enable download if we already have files loaded for this row
             has_downloads = (
                 host._zxdb_selected_id == (entry.get("id") or mag_name)
@@ -2787,19 +2787,19 @@ def build_zxdb_pane(
             _safe_title   = zxdb_sanitize_folder(title)
             _ns_dest      = os.path.join(_ns_base, _safe_title)
 
-            act_download  = menu.addAction("Download content")
-            act_mlt       = menu.addAction("More like this")
+            act_download  = menu.addAction(ui_tr_now("Download content"))
+            act_mlt       = menu.addAction(ui_tr_now("More like this"))
             menu.addSeparator()
-            act_send_sd   = menu.addAction(f"Send to SD card (image)  →  {_sd_dest}")
+            act_send_sd   = menu.addAction(ui_tr_now("Send to SD card (image)  →  {dest}").format(dest=_sd_dest))
             act_send_sd.setEnabled(bool(host.right_disk_image_path) and bool(_right_disk_content()))
-            act_send_ns   = menu.addAction(f"Send using NextSync  →  {_ns_dest}")
+            act_send_ns   = menu.addAction(ui_tr_now("Send using NextSync  →  {dest}").format(dest=_ns_dest))
             if not ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS:
                 act_download.setVisible(False)
                 act_send_sd.setVisible(False)
                 act_send_ns.setVisible(False)
             menu.addSeparator()
             _web_url = zxdb_entry_website_url(eid)
-            act_open_web = menu.addAction("Open on website (zxinfo.dk)")
+            act_open_web = menu.addAction(ui_tr_now("Open on website (zxinfo.dk)"))
             act_open_web.setEnabled(bool(_web_url))
             action = menu.exec(host.zxdb_results_table.viewport().mapToGlobal(pos))
             if action is None:

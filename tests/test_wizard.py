@@ -106,7 +106,9 @@ wiz.startup()
 check("first-run marks the intro as shown",
       cfg.get(SETTING_WIZARD_INTRO_SHOWN) == "true")
 check("intro bubble is visible", wiz.bubble.isVisible())
-check("intro offers tour/later/off actions", len(wiz.bubble._actions) == 3)
+check("intro offers quickstart/tour/later/off actions",
+      len(wiz.bubble._actions) == 4
+      and wiz.bubble._actions[0][0] == wc.wizard_tr("btn.quickstart", "en"))
 check("intro paginates with nav buttons",
       len(wiz.bubble._pages) > 1
       and any(b.text() == "▶" for b in wiz.bubble._buttons))
@@ -355,6 +357,66 @@ check("Tell me more opens the CURRENT tab's guide (SD Card)",
 tabs.setCurrentIndex(4)              # switch during REAL content
 check("real guide content is never hijacked by a tab switch",
       wiz.bubble.label.text() == wc.wizard_tr("sd.images", "en"))
+wiz._dismiss()
+
+# ── Quick Start: three clicks to a booting Next ──────────────────────────
+calls_qs = []
+host.download_nextzxos_image = lambda: calls_qs.append("download")
+host._launch_cspect_fn = lambda: calls_qs.append("launch")
+wiz.start_quickstart()
+check("QS opens on the image step",
+      wiz.bubble._pages[0].startswith(wc.wizard_tr("qs.image", "en")[:30]))
+wiz.bubble._actions[0][1]()          # Do it!
+check("QS triggered the NextZXOS download and waits",
+      calls_qs == ["download"]
+      and wiz.bubble.label.text() == wc.wizard_tr("qs.image.wait", "en"))
+host.right_disk_image_path = "C:/img.hdf"
+wiz._qs_tick()                       # poll finds the image loaded
+check("QS advances to the emulator step",
+      wiz.bubble._pages[0].startswith(wc.wizard_tr("qs.emulator", "en")[:30]))
+host._cspect_executable_path = "cspect.exe"
+wiz.bubble._actions[-1][1]()         # Skip this step -> launch
+check("QS launch step reached",
+      wiz.bubble._pages[0].startswith(wc.wizard_tr("qs.launch", "en")[:30]))
+wiz.bubble._actions[0][1]()          # Do it! -> boots + celebration
+check("QS launched the emulator and celebrates",
+      "launch" in calls_qs
+      and wiz.bubble._pages[0].startswith(wc.wizard_tr("qs.done", "en")[:30]))
+wiz._dismiss()
+wiz.show_menu()
+check("menu offers Quick Start",
+      any(a[0] == wc.wizard_tr("btn.quickstart", "en")
+          for a in wiz.bubble._actions))
+wiz._dismiss()
+
+# ── Health check (wizard menu links row) ─────────────────────────────────
+host._hdfmonkey_binary_found = lambda: False
+wiz._health_ip = "192.168.1.50"          # probe result already cached
+wiz.show_health()
+txt = "\n".join(wiz.bubble._pages)
+check("health check lists all six items",
+      all(wc.wizard_tr(k, "en") in txt
+          for k in ("health.network", "health.hdfmonkey",
+                    "health.emulators", "health.image",
+                    "health.syncroot", "health.localip")))
+check("health check flags missing hdfmonkey with a warning",
+      "⚠️  " + wc.wizard_tr("health.hdfmonkey", "en") in txt)
+check("health check shows the found emulator and the cached local IP",
+      "✅  " + wc.wizard_tr("health.emulators", "en") + ": CSpect" in txt
+      and "192.168.1.50" in txt)
+host._hdfmonkey_binary_found = lambda: True
+wiz.bubble._actions[0][1]()              # 🩺 button doubles as refresh
+check("health refresh flips hdfmonkey to green",
+      "✅  " + wc.wizard_tr("health.hdfmonkey", "en")
+      in "\n".join(wiz.bubble._pages))
+wiz._on_health_ip("10.0.0.7")            # late daemon-probe result lands
+check("late IP probe result refreshes the open bubble",
+      "10.0.0.7" in "\n".join(wiz.bubble._pages))
+wiz._dismiss()
+wiz.show_menu()
+check("menu links row offers the health check",
+      any(lnk[0] == wc.wizard_tr("btn.health", "en")
+          for lnk in wiz.bubble._links))
 wiz._dismiss()
 
 # ── offline behaviour (zxnu_network gate) ────────────────────────────────

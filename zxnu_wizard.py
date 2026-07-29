@@ -26,6 +26,7 @@ modules — so the monolith only grows by the builder call.
 from __future__ import annotations
 
 import logging
+import os
 import random
 import re
 import sys
@@ -39,8 +40,10 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLayout, QPushButton,
     QVBoxLayout, QWidget)
 
 import zxnu_config
-from zxnu_config import (SETTING_WIZARD_ENABLED, SETTING_WIZARD_FONT_SIZE,
-                         SETTING_WIZARD_INTRO_SHOWN, ZXART_USER_AGENT)
+from zxnu_config import (SETTING_NEXTSYNC_EXPLORERPATH,
+                         SETTING_WIZARD_ENABLED, SETTING_WIZARD_FONT_SIZE,
+                         SETTING_WIZARD_INTRO_SHOWN, ZXART_USER_AGENT,
+                         mame_windows_asset_arch)
 from zxnu_i18n import current_ui_language
 from zxnu_wizard_content import (DISCLAIMER_STEPS, GITHUB_URL, GUIDES,
                                  JOKES, KUDOS_NAMES, STORIES, TEXTS,
@@ -506,6 +509,8 @@ def _teaser_from_markdown(md, limit=220):
 class WizardManager(QObject):
     """Owns the sprite + bubble, the tour, jokes/stories and persistence."""
 
+    _health_ip_ready = Signal(str)     # "" when undetectable
+
     def __init__(self, host, *, configuration_dictionary):
         super().__init__(host)
         self._host = host
@@ -539,6 +544,17 @@ class WizardManager(QObject):
         self._idle_timer.setInterval(9000)
         self._idle_timer.timeout.connect(self._idle_act)
         self._idle_timer.start()
+        # Health check: the local-IP probe result, filled by a daemon
+        # thread (the probe can stall on broken DNS — never on UI).
+        self._health_ip = None
+        self._health_ip_pending = False
+        self._health_ip_ready.connect(self._on_health_ip)
+        # Quick Start: poll for the async steps (download/install) landing.
+        self._qs_pred = None
+        self._qs_then = None
+        self._qs_timer = QTimer(self)
+        self._qs_timer.setInterval(1000)
+        self._qs_timer.timeout.connect(self._qs_tick)
         # In-depth guide offers: fire once per guided tab per session.
         self._offered_tabs = set()
         tabw = getattr(host, "_tab_widget", None)
@@ -683,6 +699,8 @@ class WizardManager(QObject):
         self._tour_active_page = None
         self._respeak = None
         self._offer_shown = False
+        self._qs_pred = self._qs_then = None
+        self._qs_timer.stop()
         self.sprite.set_gesture("idle")
 
     def _on_network_changed(self, online):
@@ -730,7 +748,8 @@ class WizardManager(QObject):
     def intro(self):
         self._respeak = self.intro
         self._say(self._tr("intro.hello") + "\n\n" + self._tr("intro.offer"),
-                  [(self._tr("btn.tour"), self.start_tour),
+                  [(self._tr("btn.quickstart"), self.start_quickstart),
+                   (self._tr("btn.tour"), self.start_tour),
                    (self._tr("btn.later"), self._dismiss),
                    (self._tr("btn.off"), self.turn_off)],
                   gesture="wave", cycles=4)
@@ -801,6 +820,186 @@ class WizardManager(QObject):
                   + "\n\n" + self._tr("tour.done"),
                   [(self._tr("btn.close"), self._dismiss)],
                   gesture="cast", cycles=6)
+
+    # ── Quick Start: three clicks to a booting Next ──────────────────────
+    def _qs_image_loaded(self):
+        return bool(getattr(self._host, "right_disk_image_path", None))
+
+    def _qs_emulator_ready(self):
+        return bool(getattr(self._host, "_cspect_executable_path", None)
+                    or getattr(self._host, "_mame_executable_path", None))
+
+    def start_quickstart(self):
+        """Resume wherever the setup actually stands."""
+        if not self._qs_image_loaded():
+            self._qs_step_image()
+        elif not self._qs_emulator_ready():
+            self._qs_step_emulator()
+        else:
+            self._qs_step_launch()
+
+    def _qs_step_image(self):
+        self._respeak = self._qs_step_image
+        self._say(self._tr("qs.image"),
+                  [(self._tr("btn.doit"), self._qs_do_image),
+                   (self._tr("btn.skipstep"), self._qs_after_image),
+                   (self._tr("btn.later"), self._dismiss)],
+                  gesture="point", cycles=6)
+
+    def _qs_do_image(self):
+        fn = getattr(self._host, "download_nextzxos_image", None)
+        if fn is None:
+            return
+        self._goto_tab(getattr(zxnu_config, "ZX_NEXT_UNITE_TAB_TITLE_GOOEY",
+                               "TOOL: SD Card Utility"))
+        try:
+            fn()
+        except Exception:
+            logging.exception("Quick Start: NextZXOS download failed")
+            return
+        self._qs_wait(self._qs_image_loaded, "qs.image.wait",
+                      self._qs_after_image)
+
+    def _qs_after_image(self):
+        if self._qs_emulator_ready():
+            self._qs_step_launch()
+        else:
+            self._qs_step_emulator()
+
+    def _qs_step_emulator(self):
+        buttons = []
+        if (mame_windows_asset_arch() is not None
+                and getattr(self._host, "install_mame", None) is not None):
+            buttons.append((self._tr("btn.doit"), self._qs_do_mame))
+        buttons.append((self._tr("btn.takeme"),
+                        lambda: self._goto_tab(getattr(
+                            zxnu_config, "ZX_NEXT_UNITE_TAB_TITLE_ITCHIO",
+                            "itch.io"))))
+        buttons.append((self._tr("btn.skipstep"), self._qs_step_launch))
+        self._respeak = self._qs_step_emulator
+        self._say(self._tr("qs.emulator"), buttons,
+                  gesture="point", cycles=6)
+
+    def _qs_do_mame(self):
+        host = self._host
+        try:
+            found = getattr(host, "_hdfmonkey_binary_found", None)
+            if found is not None and not found():
+                host._on_hdfmonkey_button_clicked()
+        except Exception:
+            logging.exception("Quick Start: hdfmonkey install failed")
+        try:
+            host.install_mame()
+        except Exception:
+            logging.exception("Quick Start: MAME install failed")
+            return
+        self._qs_wait(self._qs_emulator_ready, "qs.emulator.wait",
+                      self._qs_step_launch)
+
+    def _qs_step_launch(self):
+        self._respeak = self._qs_step_launch
+        self._say(self._tr("qs.launch"),
+                  [(self._tr("btn.doit"), self._qs_do_launch),
+                   (self._tr("btn.later"), self._dismiss)],
+                  gesture="cast", cycles=4)
+
+    def _qs_do_launch(self):
+        host = self._host
+        fn = None
+        if getattr(host, "_cspect_executable_path", None):
+            fn = getattr(host, "_launch_cspect_fn", None)
+        fn = fn or getattr(host, "_launch_mame_fn", None)
+        try:
+            if fn is not None:
+                fn()
+        except Exception:
+            logging.exception("Quick Start: emulator launch failed")
+        self._respeak = None
+        self._say(self._tr("qs.done"),
+                  [(self._tr("btn.close"), self._dismiss)],
+                  gesture="cast", cycles=8)
+
+    def _qs_wait(self, predicate, wait_key, then):
+        """Show a waiting bubble and poll until *predicate* holds."""
+        self._qs_pred, self._qs_then = predicate, then
+        self._respeak = lambda: self.bubble.show_message(
+            self._tr(wait_key), [(self._tr("btn.later"), self._dismiss)])
+        self._say(self._tr(wait_key),
+                  [(self._tr("btn.later"), self._dismiss)],
+                  gesture="talk", cycles=30)
+        self._qs_timer.start()
+
+    def _qs_tick(self):
+        if self._qs_pred is None:
+            self._qs_timer.stop()
+            return
+        if self._qs_pred():
+            self._qs_timer.stop()
+            then, self._qs_pred, self._qs_then = self._qs_then, None, None
+            if then is not None:
+                then()
+
+    # ── health check ─────────────────────────────────────────────────────
+    def _health_checks(self):
+        """Live (text_key, ok, detail) rows from state the app already
+        tracks — nothing here probes the network or spawns processes."""
+        host = self._host
+        rows = []
+        net = getattr(host, "_network_online", None)
+        rows.append(("health.network",
+                     bool(net()) if callable(net) else True, ""))
+        found = getattr(host, "_hdfmonkey_binary_found", None)
+        rows.append(("health.hdfmonkey",
+                     bool(found()) if callable(found) else False, ""))
+        emus = [name for name, attr in (("CSpect", "_cspect_executable_path"),
+                                        ("MAME", "_mame_executable_path"))
+                if getattr(host, attr, None)]
+        rows.append(("health.emulators", bool(emus), ", ".join(emus)))
+        rows.append(("health.image", self._qs_image_loaded(), ""))
+        root = str(self._cfg.get(SETTING_NEXTSYNC_EXPLORERPATH, "")).strip()
+        rows.append(("health.syncroot",
+                     bool(root) and os.path.isdir(root), ""))
+        ip = self._health_ip
+        rows.append(("health.localip", bool(ip), ip or ""))
+        return rows
+
+    def show_health(self):
+        """Wizzy's stethoscope: one ✅/⚠️ line per readiness item. The
+        health button doubles as the refresh. The local-IP probe can
+        stall ~2 s on broken DNS, so it runs in a daemon thread and the
+        line self-updates when the result lands (cached for instant
+        display meanwhile)."""
+        self._respeak = self.show_health
+        lines = [self._tr("health.title")]
+        for key, ok, detail in self._health_checks():
+            line = ("✅  " if ok else "⚠️  ") + self._tr(key)
+            if ok and detail:
+                line += f": {detail}"
+            lines.append(line)
+        self._say("\n".join(lines),
+                  [(self._tr("btn.health"), self.show_health),
+                   (self._tr("btn.close"), self._dismiss)],
+                  gesture="look", cycles=4)
+        if not self._health_ip_pending:
+            self._health_ip_pending = True
+
+            def _probe(sig=self._health_ip_ready):
+                try:
+                    from zxnu_network import detect_local_ipv4
+                    ip = detect_local_ipv4()[3]
+                except Exception:
+                    ip = None
+                sig.emit(ip or "")
+
+            threading.Thread(target=_probe, daemon=True).start()
+
+    def _on_health_ip(self, ip):
+        self._health_ip_pending = False
+        changed = (ip or None) != self._health_ip
+        self._health_ip = ip or None
+        if (changed and self.bubble.isVisible()
+                and self._respeak == self.show_health):
+            self.show_health()
 
     # ── in-depth guides ──────────────────────────────────────────────────
     def _guide_links(self, page):
@@ -1033,13 +1232,15 @@ class WizardManager(QObject):
         self._respeak = self.show_menu
         self._say(self._tr("menu.title"),
                   [(self._tr("btn.abouttab"), self.about_current_tab),
+                   (self._tr("btn.quickstart"), self.start_quickstart),
                    (self._tr("btn.tour"), self.start_tour),
                    (self._tr("btn.joke"), self.tell_joke),
                    (self._tr("btn.story"), self.tell_story),
                    (self._tr("btn.off"), self.turn_off)],
                   gesture="wave", cycles=3,
                   links=self._guide_links(None)
-                  + [(self._tr("btn.font"), lambda: self.adjust_font(0))])
+                  + [(self._tr("btn.health"), self.show_health),
+                     (self._tr("btn.font"), lambda: self.adjust_font(0))])
 
 
 def build_wizard(host, *, configuration_dictionary):

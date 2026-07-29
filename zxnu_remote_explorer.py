@@ -1166,8 +1166,8 @@ class RemoteExplorerWidget(QWidget):
         merely opening a path on an unmounted drive crashes the dot, which is
         why adding one is an explicit, warned, user decision."""
         letter, ok = QInputDialog.getText(
-            self, "Add Next drive",
-            "Drive letter of the additional SD reader/partition (D..P):")
+            self, ui_tr_now("Add Next drive"),
+            ui_tr_now("Drive letter of the additional SD reader/partition (D..P):"))
         letter = (letter or "").strip().rstrip(":").upper()
         if not ok or not letter:
             return
@@ -1179,11 +1179,13 @@ class RemoteExplorerWidget(QWidget):
             self._select_drive(letter)
             return
         if QMessageBox.warning(
-                self, "Add Next drive",
-                f"Add drive {letter}: to the list?\n\n"
-                "Only add a drive that really exists on your Next (an extra "
-                "SD card reader or partition). Selecting a drive that is not "
-                "mounted CRASHES the Next.",
+                self, ui_tr_now("Add Next drive"),
+                ui_tr_now("Add drive {letter}: to the list?").format(
+                    letter=letter) + "\n\n"
+                + ui_tr_now("Only add a drive that really exists on your "
+                            "Next (an extra SD card reader or partition). "
+                            "Selecting a drive that is not mounted CRASHES "
+                            "the Next."),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No) != QMessageBox.Yes:
             return
@@ -1535,17 +1537,17 @@ class RemoteExplorerWidget(QWidget):
         if not self._connected:
             return
         menu = QMenu(self)
-        act_new = menu.addAction("New Folder…")
-        act_get = menu.addAction("Download (:<-)")
-        act_size = menu.addAction("Get size")
-        act_unzip = menu.addAction("Remote Unzip file")
-        act_rzip = menu.addAction("Remote Zip")
-        act_copy = menu.addAction("Copy")
-        act_cut = menu.addAction("Cut")
-        act_paste = menu.addAction("Paste")
-        act_ren = menu.addAction("Rename…")
-        act_del = menu.addAction("Delete")
-        act_ref = menu.addAction("Refresh")
+        act_new = menu.addAction(ui_tr_now("New Folder…"))
+        act_get = menu.addAction(ui_tr_now("Download (:<-)"))
+        act_size = menu.addAction(ui_tr_now("Get size"))
+        act_unzip = menu.addAction(ui_tr_now("Remote Unzip file"))
+        act_rzip = menu.addAction(ui_tr_now("Remote Zip"))
+        act_copy = menu.addAction(ui_tr_now("Copy"))
+        act_cut = menu.addAction(ui_tr_now("Cut"))
+        act_paste = menu.addAction(ui_tr_now("Paste"))
+        act_ren = menu.addAction(ui_tr_now("Rename…"))
+        act_del = menu.addAction(ui_tr_now("Delete"))
+        act_ref = menu.addAction(ui_tr_now("Refresh"))
         sel = self._selected_next_entries()
         # Rename and Get size act on exactly one item.
         act_ren.setEnabled(len(sel) == 1)
@@ -1589,7 +1591,7 @@ class RemoteExplorerWidget(QWidget):
     def _new_folder(self):
         if not self._connected:
             return
-        name, ok = QInputDialog.getText(self, "New Folder", f"New folder in {self._cwd}:")
+        name, ok = QInputDialog.getText(self, ui_tr_now("New Folder"), ui_tr_now("New folder in {path}:").format(path=self._cwd))
         if ok and name.strip():
             target = _posix_join(self._cwd, name.strip())
             self._run_op("Creating folder on the Next…",
@@ -1606,7 +1608,7 @@ class RemoteExplorerWidget(QWidget):
         path, _is_dir = entries[0]
         old_name = posixpath.basename(path.rstrip("/")) or path
         new_name, ok = QInputDialog.getText(
-            self, "Rename", f"Rename '{old_name}' to:", text=old_name)
+            self, ui_tr_now("Rename"), ui_tr_now("Rename '{name}' to:").format(name=old_name), text=old_name)
         new_name = new_name.strip()
         if not ok or not new_name or new_name == old_name:
             return
@@ -1653,11 +1655,13 @@ class RemoteExplorerWidget(QWidget):
             return
         n = int(data.get("bytes", 0))
         QMessageBox.information(
-            self, "Size on the Next",
+            self, ui_tr_now("Size on the Next"),
             f"{path}\n\n"
-            f"Files:  {int(data.get('files', 0)):,}\n"
-            f"Folders:  {int(data.get('dirs', 0)):,}\n"
-            f"Total size:  {n:,} bytes  ({self._fmt_free(n)})")
+            + ui_tr_now("Files:  {files}\nFolders:  {folders}\n"
+                        "Total size:  {size} bytes  ({pretty})").format(
+                files=f"{int(data.get('files', 0)):,}",
+                folders=f"{int(data.get('dirs', 0)):,}",
+                size=f"{n:,}", pretty=self._fmt_free(n)))
 
     def _delete_selected(self):
         entries = self._selected_next_entries()
@@ -1665,9 +1669,10 @@ class RemoteExplorerWidget(QWidget):
             return
         names = "\n".join(p for p, _ in entries)
         if QMessageBox.question(
-                self, "Delete",
-                "Delete on the Next? Folders are deleted with everything "
-                f"inside them.\n\n{names}") != QMessageBox.Yes:
+                self, ui_tr_now("Delete"),
+                ui_tr_now("Delete on the Next? Folders are deleted "
+                          "with everything inside them.")
+                + f"\n\n{names}") != QMessageBox.Yes:
             return
 
         # Folders go through the worker's recursive rmtree walk: esxDOS rmdir
@@ -1850,12 +1855,16 @@ class RemoteExplorerWidget(QWidget):
             self._log(f"rcpy refused: needs {total:,} bytes but drive {drive} "
                       f"has only {free:,} free ({over:,} bytes short).")
             QMessageBox.critical(
-                self, "Not enough space on the Next",
-                f"This copy needs {total:,} bytes ({self._fmt_free(total)}), "
-                f"but drive {drive}: only has {free:,} bytes "
-                f"({self._fmt_free(free)}) free.\n\n"
-                f"It exceeds the available remote space by {over:,} bytes "
-                f"({self._fmt_free(over)}).\n\nThe copy was not started.",
+                self, ui_tr_now("Not enough space on the Next"),
+                ui_tr_now("This copy needs {need} bytes ({need_h}), "
+                          "but drive {drive}: only has {free} bytes "
+                          "({free_h}) free.\n\nIt exceeds the available "
+                          "remote space by {over} bytes ({over_h}).\n\n"
+                          "The copy was not started.").format(
+                    need=f"{total:,}", need_h=self._fmt_free(total),
+                    drive=drive, free=f"{free:,}",
+                    free_h=self._fmt_free(free), over=f"{over:,}",
+                    over_h=self._fmt_free(over)),
                 QMessageBox.StandardButton.Close)
             return
         if pc["unknown"] or free is None:
@@ -2441,8 +2450,8 @@ class RemoteExplorerWidget(QWidget):
         if not (folder and os.path.isdir(folder)):
             return
         if QMessageBox.question(
-                self, "Set sync root",
-                "Set this folder as the new sync root?\n\n" + folder,
+                self, ui_tr_now("Set sync root"),
+                ui_tr_now("Set this folder as the new sync root?") + "\n\n" + folder,
                 QMessageBox.Yes | QMessageBox.Cancel,
                 QMessageBox.Yes) == QMessageBox.Yes:
             self._commit_sync_root(folder)
@@ -2528,18 +2537,18 @@ class RemoteExplorerWidget(QWidget):
         sel = [p for p in self._selected_local_paths() if p]
         has_sel = len(sel) > 0
         menu = QMenu(self)
-        act_new = menu.addAction("New Folder…")
-        act_unzip = menu.addAction("Unzip file")
-        act_zip = menu.addAction("Zip")
+        act_new = menu.addAction(ui_tr_now("New Folder…"))
+        act_unzip = menu.addAction(ui_tr_now("Unzip file"))
+        act_zip = menu.addAction(ui_tr_now("Zip"))
         menu.addSeparator()
-        act_copy = menu.addAction("Copy")
-        act_cut = menu.addAction("Cut")
-        act_paste = menu.addAction("Paste")
+        act_copy = menu.addAction(ui_tr_now("Copy"))
+        act_cut = menu.addAction(ui_tr_now("Cut"))
+        act_paste = menu.addAction(ui_tr_now("Paste"))
         menu.addSeparator()
-        act_ren = menu.addAction("Rename…")
-        act_del = menu.addAction("Delete")
+        act_ren = menu.addAction(ui_tr_now("Rename…"))
+        act_del = menu.addAction(ui_tr_now("Delete"))
         menu.addSeparator()
-        act_ref = menu.addAction("Refresh")
+        act_ref = menu.addAction(ui_tr_now("Refresh"))
         act_copy.setEnabled(has_sel)
         act_cut.setEnabled(has_sel)
         act_ren.setEnabled(len(sel) == 1)
@@ -2634,7 +2643,7 @@ class RemoteExplorerWidget(QWidget):
         base = self._browse_dir()
         if not base or not os.path.isdir(base):
             return
-        name, ok = QInputDialog.getText(self, "New Folder", f"New folder in {base}:")
+        name, ok = QInputDialog.getText(self, ui_tr_now("New Folder"), ui_tr_now("New folder in {path}:").format(path=base))
         name = (name or "").strip()
         if not ok or not name:
             return
@@ -2658,8 +2667,8 @@ class RemoteExplorerWidget(QWidget):
         if not paths:
             return
         names = "\n".join(paths)
-        if QMessageBox.question(self, "Delete",
-                                f"Delete from the local disk?\n\n{names}") != QMessageBox.Yes:
+        if QMessageBox.question(self, ui_tr_now("Delete"),
+                                ui_tr_now("Delete from the local disk?") + f"\n\n{names}") != QMessageBox.Yes:
             return
         for p in paths:
             try:
@@ -2744,7 +2753,7 @@ class RemoteExplorerWidget(QWidget):
         old = paths[0]
         old_name = os.path.basename(old.rstrip("/\\")) or old
         new_name, ok = QInputDialog.getText(
-            self, "Rename", f"Rename '{old_name}' to:", text=old_name)
+            self, ui_tr_now("Rename"), ui_tr_now("Rename '{name}' to:").format(name=old_name), text=old_name)
         new_name = new_name.strip()
         if not ok or not new_name or new_name == old_name:
             return

@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (QInputDialog, QMenu, QMessageBox)
 
 from zxnu_config import *
 from zxnu_workers import *
+from zxnu_i18n import ui_tr_now
 from zxnu_network import detect_local_ipv4
 
 
@@ -256,10 +257,10 @@ def build_nextsync_explorer_ops(
             clipboard_has = _explorer_clipboard_has_items()
             paste_dir = nextsync_current_view_dir()
             menu = QMenu(host.nextsync_treeview)
-            action_newdir = QAction("Create new directory…", host.nextsync_treeview)
+            action_newdir = QAction(ui_tr_now("Create new directory…"), host.nextsync_treeview)
             action_newdir.triggered.connect(lambda: QTimer.singleShot(0, lambda: _local_make_directory(
                 paste_dir, nextsync_refresh_explorer, add_nextsync_log_window)))
-            action_paste = QAction("Paste", host.nextsync_treeview)
+            action_paste = QAction(ui_tr_now("Paste"), host.nextsync_treeview)
             action_paste.setEnabled(clipboard_has and bool(paste_dir))
             action_paste.triggered.connect(lambda: QTimer.singleShot(0, lambda: nextsync_paste_explorer_item(paste_dir)))
             menu.addAction(action_newdir)
@@ -272,14 +273,14 @@ def build_nextsync_explorer_ops(
         # parent folder.
         paste_dir = file_path if is_dir else os.path.dirname(file_path)
         menu = QMenu(host.nextsync_treeview)
-        action_copy_text = QAction("Copy text to clipboard", host.nextsync_treeview)
-        action_copy_path = QAction("Copy path to clipboard", host.nextsync_treeview)
-        action_newdir = QAction("Create new directory…", host.nextsync_treeview)
-        action_copy = QAction("Copy", host.nextsync_treeview)
-        action_cut = QAction("Cut", host.nextsync_treeview)
-        action_paste = QAction("Paste", host.nextsync_treeview)
-        action_rename = QAction("Rename", host.nextsync_treeview)
-        action_delete = QAction("Delete", host.nextsync_treeview)
+        action_copy_text = QAction(ui_tr_now("Copy text to clipboard"), host.nextsync_treeview)
+        action_copy_path = QAction(ui_tr_now("Copy path to clipboard"), host.nextsync_treeview)
+        action_newdir = QAction(ui_tr_now("Create new directory…"), host.nextsync_treeview)
+        action_copy = QAction(ui_tr_now("Copy"), host.nextsync_treeview)
+        action_cut = QAction(ui_tr_now("Cut"), host.nextsync_treeview)
+        action_paste = QAction(ui_tr_now("Paste"), host.nextsync_treeview)
+        action_rename = QAction(ui_tr_now("Rename"), host.nextsync_treeview)
+        action_delete = QAction(ui_tr_now("Delete"), host.nextsync_treeview)
         action_paste.setEnabled(_explorer_clipboard_has_items())
         action_copy_text.triggered.connect(lambda: QGuiApplication.clipboard().setText(name))
         action_copy_path.triggered.connect(lambda: QGuiApplication.clipboard().setText(file_path))
@@ -312,18 +313,18 @@ def build_nextsync_explorer_ops(
         """
         kind = "folder" if is_dir else "file"
         new_name, ok = QInputDialog.getText(
-            host, "Rename", f"New name for the {kind}:", text=name)
+            host, ui_tr_now("Rename"), ui_tr_now("New name for the {kind}:").format(kind=ui_tr_now(kind)), text=name)
         if not ok:
             return
         new_name = new_name.strip()
         if not new_name or new_name == name:
             return
         if "/" in new_name or "\\" in new_name:
-            QMessageBox.warning(host, "Rename failed", "The name cannot contain '/' or '\\'.")
+            QMessageBox.warning(host, ui_tr_now("Rename failed"), ui_tr_now("The name cannot contain '/' or '\\'."))
             return
         new_path = os.path.join(os.path.dirname(file_path), new_name)
         if os.path.exists(new_path):
-            QMessageBox.warning(host, "Rename failed", f'"{new_name}" already exists in this folder.')
+            QMessageBox.warning(host, ui_tr_now("Rename failed"), ui_tr_now('"{name}" already exists in this folder.').format(name=new_name))
             return
         try:
             os.rename(file_path, new_path)
@@ -331,7 +332,7 @@ def build_nextsync_explorer_ops(
         except OSError as e:
             logging.error(f"Failed to rename {file_path} -> {new_path}: {e}", exc_info=True)
             add_nextsync_log_window(f"{timestamp()} | Failed to rename {file_path}: {e}")
-            QMessageBox.critical(host, "Rename failed", f"Could not rename:\n{file_path}\n\n{e}")
+            QMessageBox.critical(host, ui_tr_now("Rename failed"), ui_tr_now("Could not rename:") + f"\n{file_path}\n\n{e}")
         finally:
             nextsync_refresh_explorer()
 
@@ -481,15 +482,18 @@ def build_nextsync_explorer_ops(
             confirmed = True
         else:
             if is_dir:
-                msg = (f'Delete the folder "{name}" and all of its contents?\n\n'
-                       f'{file_path}')
+                msg = (ui_tr_now('Delete the folder "{name}" and all of '
+                                 'its contents?').format(name=name)
+                       + f'\n\n{file_path}')
             else:
-                msg = f'Delete the file "{name}"?\n\n{file_path}'
-            msg += ("\n\nDeleted files are sent to the Recycle Bin."
-                    if _deletes_go_to_recycle_bin()
-                    else "\n\nThis cannot be undone.")
+                msg = (ui_tr_now('Delete the file "{name}"?')
+                       .format(name=name) + f'\n\n{file_path}')
+            msg += "\n\n" + (
+                ui_tr_now("Deleted files are sent to the Recycle Bin.")
+                if _deletes_go_to_recycle_bin()
+                else ui_tr_now("This cannot be undone."))
             reply = QMessageBox.question(
-                host, "Confirm deletion", msg,
+                host, ui_tr_now("Confirm deletion"), msg,
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             confirmed = reply == QMessageBox.Yes
         if not confirmed:
@@ -696,8 +700,8 @@ def build_nextsync_explorer_ops(
         if not folder:
             return
         if QMessageBox.question(
-                host, "Set sync root",
-                "Set this folder as the new sync root?\n\n" + folder,
+                host, ui_tr_now("Set sync root"),
+                ui_tr_now("Set this folder as the new sync root?") + "\n\n" + folder,
                 QMessageBox.Yes | QMessageBox.Cancel,
                 QMessageBox.Yes) == QMessageBox.Yes:
             _nextsync_commit_sync_root(folder)
