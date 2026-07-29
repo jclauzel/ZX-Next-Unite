@@ -61,6 +61,10 @@ emulator launch buttons below:
   [HTTP bridge documentation](nextsync/sync/server/HTTP_BRIDGE.md).
 - **Online libraries** — search and download from GetIt, ZXDB/ZXInfo, zxArt and
   (optionally) itch.io.
+- 🎁 **Starter pack** — one click on the GetIt tab fills your SD image with
+  20 hand-picked modern homebrew titles from the freely-distributable GetIt
+  catalogue, each in its own folder under `/games/StarterPack` — exactly what
+  a new Next owner wants on day one, rights-clean by construction.
 
 ## Quick start
 
@@ -68,7 +72,11 @@ emulator launch buttons below:
 [Releases](https://github.com/jclauzel/ZX-Next-Unite/releases) page — no Python needed.
 
 **Linux (x86_64):** download `zx-next-unite-v9.x.x-linux-x86_64.tar.gz` from the
-same page, extract it and run the binary inside.
+same page, extract it and run the binary inside. A **Flatpak** package is also
+available: grab `zx-next-unite.flatpak` from the
+[flatpak workflow](.github/workflows/flatpak.yml) artifacts and
+`flatpak install --user zx-next-unite.flatpak` (see [flatpak/](flatpak/) for
+details and the Flathub roadmap).
 
 **macOS (Apple Silicon):** download `zx-next-unite-v9.x.x-macos-arm64.zip`,
 extract it and start the app. The app is not code-signed, so the first launch
