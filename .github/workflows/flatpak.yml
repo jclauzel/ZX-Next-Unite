@@ -1,15 +1,20 @@
 name: flatpak
 
 # Builds the Linux Flatpak bundle from flatpak/io.github.jclauzel.ZXNextUnite.yml
-# and uploads it as a workflow artifact. Runs on demand (workflow_dispatch)
-# and for every v* tag. Deliberately separate from release.yml: the release
-# asset contract with the in-app self-updater (exe / tar.gz / zip) stays
+# and uploads it as a workflow artifact. Runs on demand (workflow_dispatch,
+# available once the workflow is on the default branch) and on any push that
+# touches the packaging files — so a manifest change is CI-validated before
+# it merges. Deliberately separate from release.yml: the release asset
+# contract with the in-app self-updater (exe / tar.gz / zip) stays
 # untouched, and a Flatpak build failure can never block a release.
 on:
   workflow_dispatch:
   push:
-    tags:
-      - "v*"
+    branches:
+      - "**"
+    paths:
+      - "flatpak/**"
+      - ".github/workflows/flatpak.yml"
 
 jobs:
   flatpak:
