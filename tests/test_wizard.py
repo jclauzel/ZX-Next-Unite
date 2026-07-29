@@ -332,6 +332,24 @@ check("MAME node appends the Flatpak note on Linux",
 zw._is_linux = _old_linux
 wiz._dismiss()
 
+# An offer left open across a tab switch must retarget to the NEW tab —
+# and its buttons must open the CURRENT tab's content, never the tab the
+# offer was created on. Real (non-offer) content is never hijacked.
+tabs.setCurrentIndex(3)              # Settings: first visit -> help offer
+check("Settings visit offers help",
+      wiz.bubble.isVisible()
+      and wiz.bubble.label.text() == wc.wizard_tr("help.offer", "en"))
+tabs.setCurrentIndex(0)              # switch WHILE the offer is open
+check("stale offer replaced by the SD Card guide offer",
+      wiz.bubble.label.text() == wc.wizard_tr("guide.offer", "en"))
+wiz.bubble._actions[0][1]()          # "Tell me more" clicked NOW
+check("Tell me more opens the CURRENT tab's guide (SD Card)",
+      wiz.bubble.label.text() == wc.wizard_tr("sd.images", "en"))
+tabs.setCurrentIndex(4)              # switch during REAL content
+check("real guide content is never hijacked by a tab switch",
+      wiz.bubble.label.text() == wc.wizard_tr("sd.images", "en"))
+wiz._dismiss()
+
 # ── offline behaviour (zxnu_network gate) ────────────────────────────────
 host._network_online = lambda: False
 zw.WizardManager._request_teaser(wiz, "Some-Page")   # the real method

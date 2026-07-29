@@ -521,6 +521,9 @@ class WizardManager(QObject):
         # How to re-compose whatever the bubble currently shows — called on
         # a live language switch so the wizard changes language mid-speech.
         self._respeak = None
+        # True while the bubble shows a tab OFFER (guide.offer/help.offer):
+        # offers may be retargeted on a tab switch, real content never is.
+        self._offer_shown = False
         self._teaser_cache = {}
         self._fetch_signals = _WikiFetchSignals()
         self._fetch_signals.done.connect(self._on_teaser)
@@ -667,6 +670,7 @@ class WizardManager(QObject):
             self.sprite.set_gesture("idle")
 
     def _say(self, text, buttons, gesture="talk", cycles=8, links=None):
+        self._offer_shown = False      # offer_guide/offer_help re-set it
         self._stop_stroll()
         self.sprite.show()
         self.sprite.set_gesture(gesture, cycles=cycles)
@@ -678,6 +682,7 @@ class WizardManager(QObject):
         self._tour_index = -1
         self._tour_active_page = None
         self._respeak = None
+        self._offer_shown = False
         self.sprite.set_gesture("idle")
 
     def _on_network_changed(self, online):
@@ -811,16 +816,19 @@ class WizardManager(QObject):
             logging.exception("wizard: could not open %s", url)
 
     def offer_guide(self, guide_id):
-        """First visit of a guided tab: discovery tour or in-depth info?"""
+        """First visit of a guided tab: discovery tour or in-depth info?
+        The "Tell me more" button resolves the tab AT CLICK TIME
+        (about_current_tab), so an offer left open across a tab switch
+        can never open the previous tab's content."""
         guide = GUIDES[guide_id]
         self._respeak = lambda: self.offer_guide(guide_id)
         self._say(self._tr("guide.offer"),
-                  [(self._tr("btn.indepth"),
-                    lambda _=False, g=guide_id: self.start_guide(g)),
+                  [(self._tr("btn.indepth"), self.about_current_tab),
                    (self._tr("btn.tour"), self.start_tour),
                    (self._tr("btn.later"), self._dismiss)],
                   gesture="wave", cycles=3,
                   links=self._guide_links(guide["page"]))
+        self._offer_shown = True
 
     def start_guide(self, guide_id):
         self._show_guide_node(guide_id, GUIDES[guide_id]["start"])
@@ -868,11 +876,16 @@ class WizardManager(QObject):
 
     def _on_tab_switched(self, index):
         """First time a guided tab is visited this session (wizard idle):
-        offer the in-depth guide for it."""
+        offer the in-depth guide for it. A visible OFFER left over from
+        the previous tab is dismissed first (and the new tab's own offer
+        may replace it); real content is never hijacked."""
         if (not self.enabled() or not self.sprite.isVisible()
-                or self.bubble.isVisible()
                 or 0 <= self._tour_index < len(TOUR_STEPS)):
             return
+        if self.bubble.isVisible():
+            if not self._offer_shown:
+                return
+            self._dismiss()             # stale offer for the previous tab
         tabw = getattr(self._host, "_tab_widget", None)
         if tabw is None or index < 0:
             return
@@ -921,13 +934,14 @@ class WizardManager(QObject):
             self.show_tab_help(key, page)
 
     def offer_help(self, text_key, page):
+        # "Yes" resolves the CURRENT tab at click time — see offer_guide.
         self._respeak = lambda: self.offer_help(text_key, page)
         self._say(self._tr("help.offer"),
-                  [(self._tr("btn.yes"), lambda _=False, k=text_key,
-                    p=page: self.show_tab_help(k, p)),
+                  [(self._tr("btn.yes"), self.about_current_tab),
                    (self._tr("btn.later"), self._dismiss)],
                   gesture="look", cycles=4,
                   links=self._guide_links(page))
+        self._offer_shown = True
 
     def show_tab_help(self, text_key, page):
         text = self._tr(text_key)
