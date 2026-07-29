@@ -17,6 +17,7 @@ from zxnu_api import (  # noqa: E402
     _zxdb_media_mirror_url,
     getit_parse_detail,
     getit_parse_file_list,
+    getit_resolve_starter_pack,
     zxart_entry_website_url,
     zxart_parse_picture_list,
     zxart_parse_prod_list,
@@ -52,6 +53,54 @@ check("getit detail: DESC newlines flattened", detail.get("DESC") == "Line1 Line
       repr(detail.get("DESC")))
 check("getit detail: URL", detail.get("URL") == "http://example.com/x.tap",
       str(detail.get("URL")))
+
+# ---- GetIt curated starter pack ---------------------------------------------
+from zxnu_config import GETIT_STARTER_PACK, GETIT_STARTER_PACK_IMAGE_DIR  # noqa: E402
+
+check("starter pack: 20 curated titles", len(GETIT_STARTER_PACK) == 20,
+      str(len(GETIT_STARTER_PACK)))
+check("starter pack: ids unique",
+      len({i for i, _t in GETIT_STARTER_PACK}) == len(GETIT_STARTER_PACK))
+check("starter pack: titles unique (casefold)",
+      len({t.casefold() for _i, t in GETIT_STARTER_PACK})
+      == len(GETIT_STARTER_PACK))
+check("starter pack: image dir is absolute",
+      GETIT_STARTER_PACK_IMAGE_DIR.startswith("/")
+      and not GETIT_STARTER_PACK_IMAGE_DIR.endswith("/"))
+
+_cat = [
+    {"id": "aa1", "title": "Sonic Spectrum Next"},
+    {"id": "bb2", "title": "Wonderful Dizzy"},
+    {"id": "cc3", "title": "Operation Jeff DX"},   # prefix-only match
+    {"id": "dd4", "title": "Unrelated"},
+]
+_found, _missing = getit_resolve_starter_pack(
+    _cat, pack=(("aa1", "Sonic Spectrum Next"),      # id hit
+                ("zz9", "wonderful dizzy"),          # title hit, new id
+                ("yy8", "Operation Jeff"),           # unique prefix hit
+                ("xx7", "Retired Title")))           # gone
+check("starter resolve: id match", _found and _found[0]["id"] == "aa1",
+      str(_found[:1]))
+check("starter resolve: title fallback survives a re-upload (new id)",
+      len(_found) > 1 and _found[1]["id"] == "bb2", str(_found[1:2]))
+check("starter resolve: unique title prefix matches",
+      len(_found) > 2 and _found[2]["id"] == "cc3", str(_found[2:3]))
+check("starter resolve: retired entry reported missing",
+      _missing == [("xx7", "Retired Title")], str(_missing))
+_found2, _missing2 = getit_resolve_starter_pack(
+    [{"id": "aa1", "title": "Same Title"},
+     {"id": "bb2", "title": "Same Title X"}],
+    pack=(("aa1", "Same Title"), ("qq0", "Same Title")))
+check("starter resolve: an entry is never taken twice",
+      [e["id"] for e in _found2] == ["aa1", "bb2"] and _missing2 == [],
+      f"{_found2} {_missing2}")
+_found3, _missing3 = getit_resolve_starter_pack(
+    [{"id": "a", "title": "Brickz! (Invaderz)"},
+     {"id": "b", "title": "Brickz! (Geometrica)"}],
+    pack=(("zz", "Brickz!"),))
+check("starter resolve: ambiguous prefix is a miss, never a guess",
+      _found3 == [] and _missing3 == [("zz", "Brickz!")],
+      f"{_found3} {_missing3}")
 
 # ---- ZXDB -------------------------------------------------------------------
 check("zxdb_pick: first non-empty",

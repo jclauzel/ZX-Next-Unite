@@ -42,8 +42,8 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLayout, QPushButton,
 import zxnu_config
 from zxnu_config import (SETTING_NEXTSYNC_EXPLORERPATH,
                          SETTING_WIZARD_ENABLED, SETTING_WIZARD_FONT_SIZE,
-                         SETTING_WIZARD_INTRO_SHOWN, ZXART_USER_AGENT,
-                         mame_windows_asset_arch)
+                         SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_SP_OFFERED,
+                         ZXART_USER_AGENT, mame_windows_asset_arch)
 from zxnu_i18n import current_ui_language
 from zxnu_wizard_content import (DISCLAIMER_STEPS, GITHUB_URL, GUIDES,
                                  JOKES, KUDOS_NAMES, STORIES, TEXTS,
@@ -549,6 +549,9 @@ class WizardManager(QObject):
         self._health_ip = None
         self._health_ip_pending = False
         self._health_ip_ready.connect(self._on_health_ip)
+        # Starter pack: the image-loaded suggestion fires at most once per
+        # session (and once ever, via SETTING_WIZARD_SP_OFFERED).
+        self._sp_offered_session = False
         # Quick Start: poll for the async steps (download/install) landing.
         self._qs_pred = None
         self._qs_then = None
@@ -915,8 +918,10 @@ class WizardManager(QObject):
         except Exception:
             logging.exception("Quick Start: emulator launch failed")
         self._respeak = None
+        # The freshly booted card is the perfect moment for the 🎁 pack.
         self._say(self._tr("qs.done"),
-                  [(self._tr("btn.close"), self._dismiss)],
+                  [(self._tr("btn.starterpack"), self._sp_do),
+                   (self._tr("btn.close"), self._dismiss)],
                   gesture="cast", cycles=8)
 
     def _qs_wait(self, predicate, wait_key, then):
@@ -1000,6 +1005,56 @@ class WizardManager(QObject):
         if (changed and self.bubble.isVisible()
                 and self._respeak == self.show_health):
             self.show_health()
+
+    # ── GetIt starter pack ───────────────────────────────────────────────
+    def _sp_do(self):
+        """Jump to the GetIt tab and press the 🎁 button for the user (its
+        own confirm dialog + progress take over from there)."""
+        self._dismiss()
+        self._goto_tab(getattr(zxnu_config, "ZX_NEXT_UNITE_TAB_TITLE_GETIT",
+                               "GetIt"))
+        btn = getattr(self._host, "getit_starter_button", None)
+        if btn is not None:
+            btn.click()
+
+    def show_starter_pack(self):
+        """Explain what the 🎁 Starter pack is and exactly where it lives,
+        with a Do-it shortcut."""
+        self._respeak = self.show_starter_pack
+        self._say(self._tr("sp.about"),
+                  [(self._tr("btn.doit"), self._sp_do),
+                   (self._tr("btn.takeme"),
+                    lambda: self._goto_tab(getattr(
+                        zxnu_config, "ZX_NEXT_UNITE_TAB_TITLE_GETIT",
+                        "GetIt"))),
+                   (self._tr("btn.close"), self._dismiss)],
+                  gesture="point", cycles=6)
+
+    def on_image_loaded(self):
+        """Image-load hook (called by the SD-card load pipeline): the first
+        time an image lands, suggest filling it with the starter pack.
+        Once per session AND once ever — and never over an open bubble
+        (a Quick Start mid-flight keeps its own thread of thought)."""
+        if (self._sp_offered_session or not self.enabled()
+                or not self.sprite.isVisible() or self.bubble.isVisible()
+                or getattr(self._host, "getit_starter_button", None) is None):
+            return
+        if str(self._cfg.get(SETTING_WIZARD_SP_OFFERED,
+                             "")).lower() == "true":
+            return
+        self._sp_offered_session = True
+        self._cfg[SETTING_WIZARD_SP_OFFERED] = "true"
+        self._save_cfg()
+        self._respeak = lambda: self.bubble.show_message(
+            self._tr("sp.offer"),
+            [(self._tr("btn.doit"), self._sp_do),
+             (self._tr("btn.indepth"), self.show_starter_pack),
+             (self._tr("btn.later"), self._dismiss)])
+        self._say(self._tr("sp.offer"),
+                  [(self._tr("btn.doit"), self._sp_do),
+                   (self._tr("btn.indepth"), self.show_starter_pack),
+                   (self._tr("btn.later"), self._dismiss)],
+                  gesture="wave", cycles=4)
 
     # ── in-depth guides ──────────────────────────────────────────────────
     def _guide_links(self, page):
@@ -1239,7 +1294,8 @@ class WizardManager(QObject):
                    (self._tr("btn.off"), self.turn_off)],
                   gesture="wave", cycles=3,
                   links=self._guide_links(None)
-                  + [(self._tr("btn.health"), self.show_health),
+                  + [(self._tr("btn.starterpack"), self.show_starter_pack),
+                     (self._tr("btn.health"), self.show_health),
                      (self._tr("btn.font"), lambda: self.adjust_font(0))])
 
 

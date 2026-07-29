@@ -21,6 +21,7 @@ import urllib.request
 from zxnu_config import (
     GETIT_BASE_URL,
     GETIT_PAGE_SIZE,
+    GETIT_STARTER_PACK,
     GETIT_USER_AGENT,
     ZXART_BASE_URL,
     ZXART_USER_AGENT,
@@ -359,6 +360,50 @@ def getit_parse_detail(text: str) -> dict:
         raw_value = raw_value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").strip()
         detail[tag] = raw_value
     return detail
+
+
+def getit_resolve_starter_pack(entries, pack=None):
+    """Match the curated starter pack against a live catalogue listing.
+
+    *entries* is a list of catalogue dicts ({'id', 'title', …}); *pack*
+    defaults to GETIT_STARTER_PACK ((id, title) pairs). Returns
+    (found, missing): *found* holds the matched entry dicts in pack
+    order (each catalogue entry used at most once), *missing* the
+    (id, title) pairs with no live match. Matching tries the id first
+    (exact), then the title (case-insensitive exact, then unique
+    prefix) — so a re-uploaded entry with a fresh id still resolves by
+    title, and a retired entry is reported, never guessed at. Pure
+    (no network): unit-tested by tests/test_api_parsers.py."""
+    pack = GETIT_STARTER_PACK if pack is None else pack
+    by_id = {}
+    for e in entries:
+        by_id.setdefault(str(e.get("id", "")).strip(), e)
+    found, missing, used = [], [], set()
+
+    def _take(entry):
+        key = id(entry)
+        if key in used:
+            return False
+        used.add(key)
+        found.append(entry)
+        return True
+
+    for pack_id, pack_title in pack:
+        entry = by_id.get(str(pack_id).strip())
+        if entry is not None and _take(entry):
+            continue
+        want = str(pack_title).strip().casefold()
+        exact = [e for e in entries
+                 if str(e.get("title", "")).strip().casefold() == want]
+        if exact and _take(exact[0]):
+            continue
+        prefix = [e for e in entries
+                  if str(e.get("title", "")).strip().casefold()
+                  .startswith(want) and id(e) not in used]
+        if len(prefix) == 1 and _take(prefix[0]):
+            continue
+        missing.append((pack_id, pack_title))
+    return found, missing
 
 
 # ---------------------------------------------------------------------------

@@ -304,6 +304,7 @@ from PySide6 import QtCore
 from PySide6.QtCore import (
     QDir,
     QEvent,
+    QLoggingCategory,
     QMetaObject,
     QMimeData,
     QModelIndex,
@@ -1341,6 +1342,7 @@ class MainWindow(QMainWindow):
         configuration_dictionary[SETTING_WIZARD_ENABLED] = ""
         configuration_dictionary[SETTING_WIZARD_INTRO_SHOWN] = ""
         configuration_dictionary[SETTING_WIZARD_FONT_SIZE] = ""
+        configuration_dictionary[SETTING_WIZARD_SP_OFFERED] = ""
 
         # Detect the MAME emulator, applying the platform's search precedence
         # (see resolve_mame_executable). On Windows the PATH copy wins, falling
@@ -4353,6 +4355,14 @@ app.setStyleSheet(NEXT_CHROME_QSS)
 # (which Qt rejects by default) are loaded without the
 # "QImageIOHandler: Rejecting image" warning.
 QImageReader.setAllocationLimit(0)
+
+# Silence Qt's SVG-render chatter ("qt.svg.draw: The requested buffer size
+# is too big, ignoring", QTBUG-123010): on Linux the file explorers pull
+# the system icon THEME's SVGs, and Qt 6.7+ logs this for icons whose
+# filter buffer exceeds its cap. Purely cosmetic, not ours to fix (the
+# icons are the distro's), and every app asset here is a PNG — so the
+# category can go quiet without hiding anything actionable.
+QLoggingCategory.setFilterRules("qt.svg.draw.warning=false")
 
 # Suppress a Qt-internal warning
 # constructs a QFont from CSS that has no explicit point/pixel size (the

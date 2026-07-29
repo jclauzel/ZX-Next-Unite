@@ -382,11 +382,58 @@ wiz.bubble._actions[0][1]()          # Do it! -> boots + celebration
 check("QS launched the emulator and celebrates",
       "launch" in calls_qs
       and wiz.bubble._pages[0].startswith(wc.wizard_tr("qs.done", "en")[:30]))
+check("QS finale offers the 🎁 Starter pack",
+      wiz.bubble._actions[0][0] == wc.wizard_tr("btn.starterpack", "en"))
 wiz._dismiss()
 wiz.show_menu()
 check("menu offers Quick Start",
       any(a[0] == wc.wizard_tr("btn.quickstart", "en")
           for a in wiz.bubble._actions))
+check("menu links row offers the starter pack",
+      any(lnk[0] == wc.wizard_tr("btn.starterpack", "en")
+          for lnk in wiz.bubble._links))
+wiz._dismiss()
+
+# ── Starter pack: explainer, Do-it shortcut, image-loaded offer ──────────
+from zxnu_config import SETTING_WIZARD_SP_OFFERED  # noqa: E402
+
+sp_clicks = []
+
+
+class _SpBtn:                       # stand-in for the GetIt 🎁 QPushButton
+    def click(self):
+        sp_clicks.append(1)
+
+
+host.getit_starter_button = _SpBtn()
+wiz.show_starter_pack()
+check("starter-pack explainer says exactly where the button lives",
+      "GetIt" in " ".join(wiz.bubble._pages)
+      and "/games/StarterPack" in " ".join(wiz.bubble._pages))
+wiz.bubble._actions[0][1]()          # 🚀 Do it!
+check("Do it jumps to GetIt and presses the 🎁 button",
+      sp_clicks == [1]
+      and tabs.tabText(tabs.currentIndex()).startswith("🌍 GetIt"))
+wiz._dismiss()
+wiz._sp_offered_session = False
+cfg[SETTING_WIZARD_SP_OFFERED] = ""
+wiz.on_image_loaded()
+check("image-loaded hook offers the starter pack",
+      wiz.bubble.isVisible()
+      and wiz.bubble._pages[0].startswith(wc.wizard_tr("sp.offer", "en")[:30]))
+check("the offer persists its once-ever flag",
+      cfg.get(SETTING_WIZARD_SP_OFFERED) == "true")
+wiz._dismiss()
+wiz._sp_offered_session = False      # new session, but the flag persisted
+wiz.on_image_loaded()
+check("the offer never repeats once made", not wiz.bubble.isVisible())
+wiz._sp_offered_session = False
+cfg[SETTING_WIZARD_SP_OFFERED] = ""
+wiz.show_menu()                      # bubble busy with something else
+wiz.on_image_loaded()
+check("the offer never interrupts an open bubble",
+      wiz.bubble.label.text() == wc.wizard_tr("menu.title", "en")
+      and cfg.get(SETTING_WIZARD_SP_OFFERED) == "")
 wiz._dismiss()
 
 # ── Health check (wizard menu links row) ─────────────────────────────────

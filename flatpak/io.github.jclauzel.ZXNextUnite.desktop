@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ZX Next Unite
+GenericName=ZX Spectrum Next companion
+Comment=SD-card utility, NextSync server and software browser for the ZX Spectrum Next
+Exec=zx-next-unite
+Icon=io.github.jclauzel.ZXNextUnite
+Terminal=false
+Categories=Utility;FileTools;
+Keywords=ZX Spectrum;Spectrum Next;NextSync;SD card;HDF;hdfmonkey;CSpect;retro;

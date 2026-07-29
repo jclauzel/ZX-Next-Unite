@@ -70,6 +70,18 @@ tracks the releases. The `version` in `pyproject.toml` must match
 Entry points: `zx-next-unite` (gui-script → `zxnu_app:main`) and `nextsync5`
 (console script → `nextsync5:main`).
 
+Flatpak (Linux): everything lives under `flatpak/` (manifest on the KDE 6.8
+runtime + PySide BaseApp, desktop entry, AppStream metainfo, pixel-art icons
+— dots, not the Sinclair rainbow) with the build/Flathub-submission steps in
+`flatpak/README.md`. `.github/workflows/flatpak.yml` builds the
+`zx-next-unite.flatpak` bundle as a workflow artifact (workflow_dispatch +
+`v*` tags) — deliberately separate from `release.yml` so the self-updater's
+asset contract stays untouched (a `.flatpak` asset can never match
+`select_zxnu_release_asset`, which requires `.tar.gz`+`linux`). Inside the
+sandbox `ZX_NEXT_UNITE_MODE=installed` is set via finish-args and the
+self-updater steps aside when `FLATPAK_ID` is present (updates come from the
+Flatpak remote).
+
 Create a standalone executable manually with PyInstaller:
 
 ```

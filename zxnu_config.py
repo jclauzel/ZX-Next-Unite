@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.4.2"
+ZX_NEXT_UNITE_VERSION = "9.4.3"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -137,6 +137,40 @@ ZX_NEXT_UNITE_TAB_TITLE_ITCHIO    = "🌍 itch.io"
 GETIT_BASE_URL = "https://zxnext.uk"
 GETIT_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
 GETIT_PAGE_SIZE = 18
+
+# ── GetIt curated starter pack ──────────────────────────────────────────
+# The "fill my card" day-one selection: hand-picked modern homebrew from
+# the GetIt catalogue (zxnext.uk). Rights-clean by construction — GetIt
+# only hosts freely-distributable software. Each entry is
+# (getit_id, title); resolution (getit_resolve_starter_pack in
+# zxnu_api.py) matches the id first and falls back to the title, so a
+# re-uploaded entry (which gets a new id) keeps working as long as its
+# title survives, and a retired one is skipped with a note.
+GETIT_STARTER_PACK = (
+    ("efb3aa", "Sonic Spectrum Next"),
+    ("e4df40", "Bubble Booble Next"),
+    ("b6f7a0", "Wonderful Dizzy"),
+    ("80d2bf", "Operation Jeff"),
+    ("285bd1", "Wonderland"),
+    ("41c6b6", "Corrupt"),
+    ("8e80bf", "The Scholar"),
+    ("7ac71b", "Celeste (remake)"),
+    ("b45c2f", "Bean Bros"),
+    ("f2ed27", "Trainyard Express"),
+    ("d3a56f", "Bubble Gum Bros"),
+    ("ddd93f", "Vradark's Revenge [DEMO]"),
+    ("ab34fd", "Delta's Shadow Demo"),
+    ("356611", "Crowley's World Tour"),
+    ("5937d2", "Scramble"),
+    ("44cfed", "PacNext"),
+    ("f7c929", "Go Mummy!"),
+    ("0b4c6b", "DougieDo"),
+    ("1bb38c", "Galaxy of Errors"),
+    ("5a8574", "BaSoko"),
+)
+# Destination folder inside the loaded disk image (one sub-folder per
+# title is created underneath).
+GETIT_STARTER_PACK_IMAGE_DIR = "/games/StarterPack"
 
 # Minimum number of characters required before a keyword search is accepted.
 SEARCH_MIN_CHARS = 3
@@ -261,6 +295,8 @@ SETTING_CONTENT_DISCLAIMER_AGREED = "content_disclaimer_agreed"
 SETTING_WIZARD_ENABLED     = "wizard_enabled"
 SETTING_WIZARD_INTRO_SHOWN = "wizard_intro_shown"
 SETTING_WIZARD_FONT_SIZE   = "wizard_font_size"
+# "true" once Wizzy has made his one-time image-loaded starter-pack offer.
+SETTING_WIZARD_SP_OFFERED  = "wizard_starterpack_offered"
 SETTING_NEXTSYNC_SEND_CONFLICT = "nextsync_send_conflict"   # "prompt" (default) | "overwrite" | "ignore"
 # NextSync HTTP bridge (zxnu_http_bridge): a self-hosted Flask web server that
 # republishes the Remote Explorer's -listen session as HTTP routes, so a Next
@@ -885,7 +921,7 @@ SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_
 SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_DELETE_TO_RECYCLE_BIN,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
-SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE)
+SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30

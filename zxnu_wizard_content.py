@@ -226,6 +226,95 @@ TEXTS = {
               "la carte depuis GetIt/ZXDB/zxArt, ou synchronisez un "
               "vrai Next dans l'onglet NextSync. Bon Speccy ! 🚀",
     },
+    # ── GetIt curated starter pack ────────────────────────────────────────
+    "btn.starterpack": {
+        "en": "🎁 Starter pack", "es": "🎁 Pack de inicio",
+        "pt": "🎁 Pacote inicial", "pl": "🎁 Pakiet startowy",
+        "ru": "🎁 Стартовый набор", "cs": "🎁 Startovní balíček",
+        "fr": "🎁 Pack de démarrage",
+    },
+    "sp.about": {
+        "en": "The 🎁 Starter pack fills your SD image with 20 hand-picked "
+              "modern homebrew games from the GetIt catalogue — everything "
+              "on GetIt is freely distributable. The button lives on the "
+              "GetIt tab, in the top toolbar right after Random. Load a "
+              "disk image first (SD Card tab); the games land in "
+              "/games/StarterPack, each in its own folder. Want me to run "
+              "it for you?",
+        "es": "El 🎁 Pack de inicio llena tu imagen SD con 20 juegos "
+              "homebrew modernos seleccionados a mano del catálogo GetIt — "
+              "todo lo que hay en GetIt es de libre distribución. El botón "
+              "está en la pestaña GetIt, en la barra superior justo después "
+              "de Aleatorio. Carga primero una imagen de disco (pestaña SD "
+              "Card); los juegos van a /games/StarterPack, cada uno en su "
+              "carpeta. ¿Quieres que lo ejecute por ti?",
+        "pt": "O 🎁 Pacote inicial enche a tua imagem SD com 20 jogos "
+              "homebrew modernos escolhidos a dedo do catálogo GetIt — "
+              "tudo no GetIt é de distribuição livre. O botão está no "
+              "separador GetIt, na barra superior logo a seguir a "
+              "Aleatório. Carrega primeiro uma imagem de disco (separador "
+              "SD Card); os jogos ficam em /games/StarterPack, cada um na "
+              "sua pasta. Queres que o execute por ti?",
+        "pl": "🎁 Pakiet startowy wypełnia obraz SD 20 starannie wybranymi "
+              "nowoczesnymi grami homebrew z katalogu GetIt — wszystko w "
+              "GetIt można swobodnie rozpowszechniać. Przycisk jest na "
+              "karcie GetIt, na górnym pasku zaraz za Losowo. Najpierw "
+              "załaduj obraz dysku (karta SD Card); gry trafiają do "
+              "/games/StarterPack, każda do własnego folderu. Mam go "
+              "uruchomić za Ciebie?",
+        "ru": "🎁 Стартовый набор заполняет образ SD двадцатью отобранными "
+              "вручную современными homebrew-играми из каталога GetIt — "
+              "всё на GetIt свободно распространяется. Кнопка находится "
+              "на вкладке GetIt, в верхней панели сразу после «Случайно». "
+              "Сначала загрузите образ диска (вкладка SD Card); игры "
+              "попадают в /games/StarterPack, каждая в свою папку. "
+              "Запустить его за вас?",
+        "cs": "🎁 Startovní balíček naplní obraz SD dvaceti ručně "
+              "vybranými moderními homebrew hrami z katalogu GetIt — vše "
+              "na GetIt je volně šiřitelné. Tlačítko najdeš na kartě "
+              "GetIt, v horní liště hned za Náhodně. Nejprve načti obraz "
+              "disku (karta SD Card); hry se ukládají do "
+              "/games/StarterPack, každá do vlastní složky. Mám ho "
+              "spustit za tebe?",
+        "fr": "Le 🎁 Pack de démarrage remplit votre image SD de 20 jeux "
+              "homebrew modernes sélectionnés à la main du catalogue "
+              "GetIt — tout ce qui est sur GetIt est librement "
+              "distribuable. Le bouton se trouve dans l'onglet GetIt, "
+              "dans la barre du haut juste après Aléatoire. Chargez "
+              "d'abord une image disque (onglet SD Card) ; les jeux vont "
+              "dans /games/StarterPack, chacun dans son dossier. Voulez-"
+              "vous que je le lance pour vous ?",
+    },
+    "sp.offer": {
+        "en": "Nice, your disk image is loaded! Shall I fill it with the "
+              "🎁 Starter pack — 20 great freely-distributable homebrew "
+              "titles from GetIt? The button is always there on the GetIt "
+              "tab, right after Random.",
+        "es": "¡Genial, tu imagen de disco está cargada! ¿La lleno con el "
+              "🎁 Pack de inicio — 20 estupendos títulos homebrew de libre "
+              "distribución de GetIt? El botón está siempre en la pestaña "
+              "GetIt, justo después de Aleatorio.",
+        "pt": "Boa, a tua imagem de disco está carregada! Queres que a "
+              "encha com o 🎁 Pacote inicial — 20 ótimos títulos homebrew "
+              "de distribuição livre do GetIt? O botão está sempre no "
+              "separador GetIt, logo a seguir a Aleatório.",
+        "pl": "Świetnie, obraz dysku załadowany! Mam go wypełnić 🎁 "
+              "Pakietem startowym — 20 świetnych, swobodnie "
+              "rozpowszechnianych tytułów homebrew z GetIt? Przycisk jest "
+              "zawsze na karcie GetIt, zaraz za Losowo.",
+        "ru": "Отлично, образ диска загружен! Заполнить его 🎁 Стартовым "
+              "набором — 20 отличных свободно распространяемых "
+              "homebrew-игр из GetIt? Кнопка всегда на вкладке GetIt, "
+              "сразу после «Случайно».",
+        "cs": "Paráda, obraz disku je načtený! Mám ho naplnit 🎁 "
+              "Startovním balíčkem — 20 skvělými volně šiřitelnými "
+              "homebrew tituly z GetIt? Tlačítko je vždy na kartě GetIt, "
+              "hned za Náhodně.",
+        "fr": "Super, votre image disque est chargée ! Je la remplis avec "
+              "le 🎁 Pack de démarrage — 20 excellents titres homebrew "
+              "librement distribuables de GetIt ? Le bouton est toujours "
+              "dans l'onglet GetIt, juste après Aléatoire.",
+    },
     # ── Health check (wizard menu): live ✅/⚠ status lines ────────────────
     "btn.health": {
         "en": "🩺 Health check", "es": "🩺 Chequeo de salud",

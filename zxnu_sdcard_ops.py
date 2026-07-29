@@ -404,6 +404,13 @@ def build_sdcard_utils(
                     # yellow "load an image" hint, its job is done.
                     _stop_load_image_hint_animation()
                     _start_transfer_idle_animation()
+                    # Wizzy's one-time starter-pack suggestion (deferred a
+                    # beat so the load UI settles first; the wizard itself
+                    # gates on enabled/visible/once flags).
+                    _wiz = getattr(host, "_wizard", None)
+                    if _wiz is not None:
+                        QTimer.singleShot(
+                            1200, lambda: _wiz.on_image_loaded())
                 else:
                     logging.error(f"Failed loading image :{host.right_disk_image_path}.")
                     add_main_log_window(f"Failed loading image :{host.right_disk_image_path}.")
