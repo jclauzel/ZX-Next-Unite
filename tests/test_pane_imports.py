@@ -129,6 +129,11 @@ PANES = [
     # Extraction #10: the optional itch.io tab (built only when itch-dl is
     # importable; the builder itself must always import cleanly).
     ("zxnu_itchio_pane", "build_itchio_pane", []),
+    # Extraction #11: the Favorites tab + per-pane Classic/Retro routing —
+    # three builders, each called at its chunk's historical position.
+    ("zxnu_favorites_pane",
+     ["build_favorites_helpers", "build_favorites_pane",
+      "build_favorites_ops"], []),
 ]
 
 for modname, funcnames, _outputs in PANES:
