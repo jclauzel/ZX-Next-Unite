@@ -106,7 +106,14 @@ wiz.startup()
 check("first-run marks the intro as shown",
       cfg.get(SETTING_WIZARD_INTRO_SHOWN) == "true")
 check("intro bubble is visible", wiz.bubble.isVisible())
-check("intro offers tour/later/off buttons", len(wiz.bubble._buttons) == 3)
+check("intro offers tour/later/off actions", len(wiz.bubble._actions) == 3)
+check("intro paginates with nav buttons",
+      len(wiz.bubble._pages) > 1
+      and any(b.text() == "▶" for b in wiz.bubble._buttons))
+wiz.bubble._flip(+1)
+check("page flip advances", wiz.bubble._page == 1)
+wiz.bubble._flip(-1)
+check("page flip goes back", wiz.bubble._page == 0)
 
 wiz.start_tour()
 check("tour switched to the first tab", tabs.currentIndex() == 0)
@@ -117,6 +124,11 @@ wiz.next_tour_step()
 check("tour advanced to NextSync", tabs.currentIndex() == 1)
 wiz.next_tour_step()
 check("tour advanced to GetIt", tabs.currentIndex() == 2)
+check("catalogue step softly recalls the rights reminder",
+      wc.wizard_tr("tour.disclaimer", "en")[:40]
+      in " ".join(wiz.bubble._pages))
+check("no page ever ends in a stranded ellipsis",
+      all(not p.endswith("…") for p in wiz.bubble._pages))
 # zxArt/ZXDB/Favorites/Unite/itch.io are absent from the stub -> the tour
 # must skip them gracefully: the next steps land on Settings then Help.
 wiz.next_tour_step()

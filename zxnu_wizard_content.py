@@ -213,6 +213,39 @@ TEXTS = {
         "fr": "Et voilà la visite ! Cliquez sur moi quand vous voulez — "
               "une blague, une histoire ou un autre tour. Bon Speccy !",
     },
+    # Gentle rights reminder appended to the online-catalogue tour steps
+    # (GetIt / ZXDB / zxArt / Unite!) — see DISCLAIMER_STEPS below.
+    "tour.disclaimer": {
+        "en": "A friendly reminder: this application distributes no "
+              "software or ROMs itself — it only presents content from "
+              "third-party services, and it is up to you to check that "
+              "you have the right to download what you grab.",
+        "es": "Un recordatorio amistoso: esta aplicación no distribuye "
+              "software ni ROMs por sí misma — solo presenta contenido de "
+              "servicios de terceros, y te corresponde a ti comprobar que "
+              "tienes derecho a descargar lo que te lleves.",
+        "pt": "Um lembrete amigável: esta aplicação não distribui "
+              "software nem ROMs — apenas apresenta conteúdo de serviços "
+              "de terceiros, e cabe-te a ti verificar se tens o direito "
+              "de descarregar o que levares.",
+        "pl": "Przyjazne przypomnienie: ta aplikacja sama nie "
+              "rozpowszechnia żadnego oprogramowania ani ROM-ów — jedynie "
+              "prezentuje treści z serwisów zewnętrznych, a sprawdzenie, "
+              "czy masz prawo je pobrać, należy do ciebie.",
+        "ru": "Дружеское напоминание: это приложение само не "
+              "распространяет программы или ROM-файлы — оно лишь "
+              "показывает контент сторонних сервисов, и проверять, есть "
+              "ли у вас право его скачивать, должны вы сами.",
+        "cs": "Přátelské připomenutí: tato aplikace sama žádný software "
+              "ani ROMy nešíří — pouze zobrazuje obsah služeb třetích "
+              "stran a je na tobě ověřit, že máš právo si stáhnout, co "
+              "si bereš.",
+        "fr": "Petit rappel amical : cette application ne distribue "
+              "elle-même aucun logiciel ni ROM — elle ne fait que "
+              "présenter du contenu de services tiers, et il vous "
+              "appartient de vérifier que vous avez le droit de "
+              "télécharger ce que vous prenez.",
+    },
     "manual.teaser": {
         "en": "From the manual:",
         "es": "Del manual:",
@@ -662,6 +695,10 @@ TOUR_STEPS = (
     ("Settings 🔩",                        "tour.settings",  "Settings-tab"),
     ("?",                                  "tour.help",      "Help-tab"),
 )
+
+# Tour steps that browse third-party online catalogues: the wizard softly
+# appends the "tour.disclaimer" rights reminder to these.
+DISCLAIMER_STEPS = {"tour.getit", "tour.zxdb", "tour.zxart", "tour.unite"}
 
 # The manual's landing page (the wizard's "Read the manual" outside a tour).
 USER_MANUAL_PAGE = "User-Manual"
