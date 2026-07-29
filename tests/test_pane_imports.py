@@ -77,7 +77,9 @@ def _loads(nodes):
 
 def unresolved_free_vars(path):
     tree = ast.parse(open(path, encoding="utf-8").read())
-    mod_bound = set(dir(builtins))
+    # Module dunders always resolve at runtime (__file__ is used by
+    # build_hdfmonkey_install_ops to locate the app directory).
+    mod_bound = set(dir(builtins)) | {"__file__", "__name__"}
     star_mods = []
     for node in tree.body:
         if isinstance(node, ast.ImportFrom) and any(a.name == "*" for a in node.names):
