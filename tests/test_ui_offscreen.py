@@ -486,11 +486,11 @@ def inspect_phase1():
         i = lay.indexOf(w)
         return None if i < 0 else lay.getItemPosition(i)[:2]
     check("general-text swatch at settings (23,1)",
-          spos(win.settings_btn_color_general_text) == (23, 1), str(spos(win.settings_btn_color_general_text)))
-    check("retro-log swatch right under it (24,1)",
-          spos(win.settings_btn_color_retro_log) == (24, 1), str(spos(win.settings_btn_color_retro_log)))
-    check("retro font combo pushed to (25,1)",
-          spos(win.settings_retro_log_font_combo) == (25, 1), str(spos(win.settings_retro_log_font_combo)))
+          spos(win.settings_btn_color_general_text) == (24, 1), str(spos(win.settings_btn_color_general_text)))
+    check("retro-log swatch right under it (25,1)",
+          spos(win.settings_btn_color_retro_log) == (25, 1), str(spos(win.settings_btn_color_retro_log)))
+    check("retro font combo pushed to (26,1)",
+          spos(win.settings_retro_log_font_combo) == (26, 1), str(spos(win.settings_retro_log_font_combo)))
     check("default retro color is phosphor green",
           win.img_color_retro_log.name().lower() == "#78ff8c", win.img_color_retro_log.name())
     check("default swatch shows phosphor green",
@@ -763,8 +763,11 @@ def inspect_phase6():
     check("UI language row right under it (1,1)",
           spos(win.settings_ui_language_combo) == (1, 1),
           str(spos(win.settings_ui_language_combo)))
-    check("desktop theme pushed to row 2",
-          spos(win.settings_desktop_theme_combo) == (2, 1),
+    check("wizard toggle right under the language row (2,0)",
+          spos(win.settings_wizard_checkbox) == (2, 0),
+          str(spos(win.settings_wizard_checkbox)))
+    check("desktop theme pushed to row 3",
+          spos(win.settings_desktop_theme_combo) == (3, 1),
           str(spos(win.settings_desktop_theme_combo)))
     check("cfg 'false' restored as unchecked", not cb.isChecked())
     cb.setChecked(True)
@@ -774,9 +777,9 @@ def inspect_phase6():
 
     # Recycle Bin deletes toggle: sits right under the no-prompt checkbox.
     rb = win.settings_delete_to_recycle_bin_checkbox
-    check("recycle toggle at settings (5,0)", spos(rb) == (5, 0), str(spos(rb)))
-    check("no-prompt checkbox above it (4,0)",
-          spos(win.settings_no_prompt_on_deletion_checkbox) == (4, 0),
+    check("recycle toggle at settings (6,0)", spos(rb) == (6, 0), str(spos(rb)))
+    check("no-prompt checkbox above it (5,0)",
+          spos(win.settings_no_prompt_on_deletion_checkbox) == (5, 0),
           str(spos(win.settings_no_prompt_on_deletion_checkbox)))
     if rb.isEnabled():
         check("cfg 'false' restored as unchecked (recycle)", not rb.isChecked())
