@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import random
 import re
+import sys
 import threading
 import urllib.request
 import webbrowser
@@ -41,10 +42,16 @@ import zxnu_config
 from zxnu_config import (SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN,
                          ZXART_USER_AGENT)
 from zxnu_i18n import current_ui_language
-from zxnu_wizard_content import (DISCLAIMER_STEPS, JOKES, KUDOS_NAMES,
-                                 STORIES, TEXTS, TOUR_STEPS,
-                                 USER_MANUAL_PAGE, WIKI_PAGE_BASE,
-                                 WIKI_RAW_BASE, wizard_lines, wizard_tr)
+from zxnu_wizard_content import (DISCLAIMER_STEPS, GITHUB_URL, GUIDES,
+                                 JOKES, KUDOS_NAMES, STORIES, TEXTS,
+                                 TOUR_STEPS, USER_MANUAL_PAGE,
+                                 WIKI_PAGE_BASE, WIKI_RAW_BASE,
+                                 wizard_lines, wizard_tr)
+
+
+def _is_linux():
+    """Platform gate for the Linux-only guide notes (patchable in tests)."""
+    return sys.platform.startswith("linux")
 
 # ── Sprite artwork ────────────────────────────────────────────────────────
 # 26×28 cells, '.' transparent. The suit is deep blue with the Spectrum
@@ -317,10 +324,17 @@ class WizardBubble(QWidget):
         self.button_row = QHBoxLayout()
         self.button_row.setSpacing(6)
         v.addLayout(self.button_row)
+        # A second, smaller row for ever-present reference links (the
+        # in-depth guides keep Manual/GitHub reachable on every screen).
+        self.links_row = QHBoxLayout()
+        self.links_row.setSpacing(6)
+        v.addLayout(self.links_row)
         self._buttons = []
+        self._link_buttons = []
         self._pages = [""]
         self._page = 0
         self._actions = []
+        self._links = []
         # Set by the manager: called after every re-render so the bubble is
         # re-anchored (page flips change its height; growing from a fixed
         # top-left corner used to push it past the window's bottom edge).
@@ -345,11 +359,13 @@ class WizardBubble(QWidget):
                 pages.append(block)
         return pages or [""]
 
-    def show_message(self, text, buttons):
-        """Paginate *text* and rebuild the button row from (label, cb)."""
+    def show_message(self, text, buttons, links=None):
+        """Paginate *text* and rebuild the button row from (label, cb);
+        *links* fills the smaller always-visible reference row."""
         self._pages = self._paginate(text)
         self._page = 0
         self._actions = list(buttons)
+        self._links = list(links or [])
         self._render()
 
     def append_text(self, extra):
@@ -409,6 +425,22 @@ class WizardBubble(QWidget):
             self.button_row.addWidget(btn)
             self._buttons.append(btn)
         self.button_row.addStretch(1)
+        # Reference links row (smaller, persistent across pages).
+        while self.links_row.count():
+            item = self.links_row.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+        self._link_buttons = []
+        for (label, cb) in self._links:
+            btn = QPushButton(label)
+            btn.setStyleSheet("font-size: 10px; padding: 1px 8px;")
+            btn.clicked.connect(cb)
+            self.links_row.addWidget(btn)
+            self._link_buttons.append(btn)
+        if self._links:
+            self.links_row.addStretch(1)
         self.layout().activate()
         self.resize(self.layout().sizeHint())
         self.show()
@@ -483,6 +515,11 @@ class WizardManager(QObject):
         self._idle_timer.setInterval(9000)
         self._idle_timer.timeout.connect(self._idle_act)
         self._idle_timer.start()
+        # In-depth guide offers: fire once per guided tab per session.
+        self._offered_tabs = set()
+        tabw = getattr(host, "_tab_widget", None)
+        if tabw is not None:
+            tabw.currentChanged.connect(self._on_tab_switched)
         host.installEventFilter(self)
 
     # ── plumbing ─────────────────────────────────────────────────────────
@@ -581,11 +618,11 @@ class WizardManager(QObject):
         if self.sprite._gesture in ("walk", "walk_left"):
             self.sprite.set_gesture("idle")
 
-    def _say(self, text, buttons, gesture="talk", cycles=8):
+    def _say(self, text, buttons, gesture="talk", cycles=8, links=None):
         self._stop_stroll()
         self.sprite.show()
         self.sprite.set_gesture(gesture, cycles=cycles)
-        self.bubble.show_message(text, buttons)
+        self.bubble.show_message(text, buttons, links=links)
         self._reposition()
 
     def _dismiss(self):
@@ -621,6 +658,10 @@ class WizardManager(QObject):
             self.intro()
         else:
             self.sprite.set_gesture("wave", cycles=2)
+            # The saved default tab may itself be a guided one: offer its
+            # in-depth guide right away (returning users only — the intro
+            # takes precedence on a first run).
+            self._maybe_offer_current_tab()
 
     def intro(self):
         self._respeak = self.intro
@@ -696,6 +737,95 @@ class WizardManager(QObject):
                   + "\n\n" + self._tr("tour.done"),
                   [(self._tr("btn.close"), self._dismiss)],
                   gesture="cast", cycles=6)
+
+    # ── in-depth guides ──────────────────────────────────────────────────
+    def _guide_links(self, page):
+        """The always-visible reference row: user manual + GitHub repo."""
+        return [(self._tr("btn.more"),
+                 lambda _=False, p=page: self.open_manual(p)),
+                ("GitHub", lambda: self._open_url(GITHUB_URL))]
+
+    def _open_url(self, url):
+        try:
+            webbrowser.open(url)
+        except Exception:
+            logging.exception("wizard: could not open %s", url)
+
+    def offer_guide(self, guide_id):
+        """First visit of a guided tab: discovery tour or in-depth info?"""
+        guide = GUIDES[guide_id]
+        self._respeak = lambda: self.offer_guide(guide_id)
+        self._say(self._tr("guide.offer"),
+                  [(self._tr("btn.indepth"),
+                    lambda _=False, g=guide_id: self.start_guide(g)),
+                   (self._tr("btn.tour"), self.start_tour),
+                   (self._tr("btn.later"), self._dismiss)],
+                  gesture="wave", cycles=3,
+                  links=self._guide_links(guide["page"]))
+
+    def start_guide(self, guide_id):
+        self._show_guide_node(guide_id, GUIDES[guide_id]["start"])
+
+    def _show_guide_node(self, guide_id, node_id):
+        guide = GUIDES[guide_id]
+        node = guide["nodes"][node_id]
+        text = self._tr(node_id)
+        extra = node.get("linux_extra")
+        if extra and _is_linux():
+            text += "\n\n" + self._tr(extra)
+        buttons = []
+        goto = node.get("goto")
+        if goto:
+            title = getattr(zxnu_config, goto, goto)
+            buttons.append((self._tr("btn.takeme"),
+                            lambda _=False, t=title: self._goto_tab(t)))
+        for btn_key, target in node["buttons"]:
+            if target == "close":
+                buttons.append((self._tr(btn_key), self._dismiss))
+            else:
+                buttons.append((self._tr(btn_key),
+                                lambda _=False, g=guide_id, n=target:
+                                    self._show_guide_node(g, n)))
+        self._respeak = lambda: self._show_guide_node(guide_id, node_id)
+        self._say(text, buttons,
+                  gesture=node.get("gesture", "talk"), cycles=10,
+                  links=self._guide_links(guide["page"]))
+
+    def _goto_tab(self, title_prefix):
+        """Switch the main tab widget to the tab whose title starts with
+        *title_prefix* (the guide bubble stays where it is)."""
+        tabw = getattr(self._host, "_tab_widget", None)
+        if tabw is None:
+            return
+        for i in range(tabw.count()):
+            if tabw.tabText(i).startswith(title_prefix):
+                tabw.setCurrentIndex(i)
+                return
+
+    def _maybe_offer_current_tab(self):
+        tabw = getattr(self._host, "_tab_widget", None)
+        if tabw is not None:
+            self._on_tab_switched(tabw.currentIndex())
+
+    def _on_tab_switched(self, index):
+        """First time a guided tab is visited this session (wizard idle):
+        offer the in-depth guide for it."""
+        if (not self.enabled() or not self.sprite.isVisible()
+                or self.bubble.isVisible()
+                or 0 <= self._tour_index < len(TOUR_STEPS)):
+            return
+        tabw = getattr(self._host, "_tab_widget", None)
+        if tabw is None or index < 0:
+            return
+        title = tabw.tabText(index)
+        for guide_id, guide in GUIDES.items():
+            prefix = getattr(zxnu_config, guide["tab"], guide["tab"])
+            if title.startswith(prefix):
+                if guide_id in self._offered_tabs:
+                    return
+                self._offered_tabs.add(guide_id)
+                self.offer_guide(guide_id)
+                return
 
     # ── wiki content ─────────────────────────────────────────────────────
     def open_manual(self, page=None):

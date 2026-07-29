@@ -196,6 +196,76 @@ check("wizard hidden when disabled",
 wiz.set_enabled(True)
 check("re-enable shows the sprite again", wiz.sprite.isVisible())
 
+# ── in-depth guides ──────────────────────────────────────────────────────
+# Graph integrity: every node id / linux_extra is a translated TEXTS key,
+# every target exists (or "close"), pages and tab constants are real.
+import zxnu_config  # noqa: E402
+for gid, guide in wc.GUIDES.items():
+    nodes = guide["nodes"]
+    bad = []
+    if guide["start"] not in nodes:
+        bad.append("start")
+    if guide["page"] not in known_pages:
+        bad.append("page")
+    if not hasattr(zxnu_config, guide["tab"]):
+        bad.append("tab")
+    for nid, node in nodes.items():
+        if nid not in wc.TEXTS:
+            bad.append(f"{nid}:text")
+        extra = node.get("linux_extra")
+        if extra and extra not in wc.TEXTS:
+            bad.append(f"{nid}:linux_extra")
+        goto = node.get("goto")
+        if goto and not hasattr(zxnu_config, goto):
+            bad.append(f"{nid}:goto")
+        for _bk, target in node["buttons"]:
+            if target != "close" and target not in nodes:
+                bad.append(f"{nid}->{target}")
+    check(f"guide '{gid}' graph is sound", not bad, str(bad))
+
+# Offer trigger: first visit to the NextSync tab offers the guide, with
+# Manual/GitHub links present; a second visit stays quiet.
+wiz._dismiss()
+tabs.setCurrentIndex(1)      # TOOL: NextSync
+check("guided tab visit triggers the offer",
+      wiz.bubble.isVisible()
+      and wiz.bubble.label.text() == wc.wizard_tr("guide.offer", "en"))
+check("offer carries Manual + GitHub links",
+      len(wiz.bubble._links) == 2
+      and wiz.bubble._link_buttons[1].text() == "GitHub")
+wiz.bubble._actions[0][1]()  # "Tell me more" -> first guide node
+check("in-depth starts on ns.what",
+      wiz.bubble.label.text() == wc.wizard_tr("ns.what", "en"))
+for _ in range(4):
+    wiz.bubble._actions[0][1]()          # Next ... to the last node
+check("guide walk ends on ns.remote",
+      wiz.bubble._pages[0].startswith(wc.wizard_tr("ns.remote", "en")[:40]))
+wiz.bubble._actions[0][1]()              # Close
+check("closing the last node dismisses", not wiz.bubble.isVisible())
+tabs.setCurrentIndex(2)                  # a non-guided tab (GetIt)
+tabs.setCurrentIndex(1)
+check("no second offer for the same tab this session",
+      not wiz.bubble.isVisible())
+
+# SD guide: the CSpect branch has a Take-me-there jump; the MAME node
+# appends the Flatpak note only on Linux.
+wiz.start_guide("sdcard")
+wiz.bubble._actions[0][1]()  # Next -> hdfmonkey
+wiz.bubble._actions[0][1]()  # Next -> cspect
+wiz.bubble._actions[0][1]()  # Yes  -> cspect_steps
+check("CSpect steps offer Take me there",
+      wiz.bubble._actions[0][0] == wc.wizard_tr("btn.takeme", "en"))
+_old_linux = zw._is_linux
+zw._is_linux = lambda: True
+wiz.start_guide("sdcard")
+wiz.bubble._actions[0][1]()
+wiz.bubble._actions[0][1]()
+wiz.bubble._actions[1][1]()  # No -> sd.mame
+check("MAME node appends the Flatpak note on Linux",
+      wc.wizard_tr("sd.mame.linux", "en") in " ".join(wiz.bubble._pages))
+zw._is_linux = _old_linux
+wiz._dismiss()
+
 # Markdown teaser extraction (pure function, no network).
 md = "# Title\n\n![badge](x.png)\n\nThe **SD Card** tab lets you [mount](u) images.\n\nMore text."
 check("teaser strips markdown to the first paragraph",
