@@ -402,6 +402,7 @@ from zxnu_nextsync_ops import (build_nextsync_server_start,
     build_nextsync_explorer_ops, build_nextsync_server_job)
 from zxnu_sdcard_ops import (build_sdcard_utils, build_image_edit_ops,
     build_local_explorer_ops, build_transfer_clipboard_ops)
+from zxnu_tab_ops import build_tab_ops
 from zxnu_favorites_pane import (build_favorites_helpers,
     build_favorites_pane, build_favorites_ops)
 from zxnu_i18n import (normalize_ui_language, system_ui_language,
@@ -3819,319 +3820,33 @@ class MainWindow(QMainWindow):
 
         # ---- Multi-API cross-search helpers ----
 
-        def _autocomplete_enabled() -> bool:
-            cb = getattr(self, "settings_search_autocomplete_checkbox", None)
-            return cb is None or cb.isChecked()
-
-        def _apply_autocomplete_setting(enabled: bool):
-            """Attach or detach completers on every search input.
-
-            itch.io is optional (built only when the tab is present), so it is
-            looked up with getattr and skipped when absent — keeping it in line
-            with the other panes' typing guard so the global autocomplete toggle
-            governs its suggestion dropdown too."""
-            for input_widget, completer in (
-                (self.getit_search_input, getattr(self, "_getit_completer", None)),
-                (self.zxdb_search_input,  getattr(self, "_zxdb_completer",  None)),
-                (self.zxart_search_input, getattr(self, "_zxart_completer", None)),
-                # Never (re)attach the Unite! completer while pygame mode is on:
-                # its dropdown steals keyboard focus over the animating surface.
-                (getattr(self, "allinone_search_input", None),
-                 None if getattr(self, "_allinone_pygame_on", False)
-                 else getattr(self, "_allinone_completer", None)),
-                (getattr(self, "itchio_search_input", None),
-                 getattr(self, "_itchio_completer", None)),
-            ):
-                if input_widget is None:
-                    continue
-                try:
-                    input_widget.setCompleter(completer if enabled else None)
-                except RuntimeError:
-                    pass
-
-        def _multi_search_enabled() -> bool:
-            cb = getattr(self, "settings_multi_search_checkbox", None)
-            return cb is not None and cb.isChecked()
-
-        def _cross_search_getit(query: str, on_done=None):
-            """Run a full GetIt search in the background, populate the table and badge the tab."""
-            if not query:
-                if on_done:
-                    on_done()
-                return
-            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
-            def _after_search():
-                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_GETIT)
-                n = self.getit_results_table.rowCount()
-                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_GETIT, n)
-                if on_done:
-                    on_done()
-            getit_run_search(query, 1, _after_search)
-
-        def _cross_search_zxdb(query: str, on_done=None):
-            """Run a full ZXDB search in the background, populate the table and badge the tab."""
-            if not ZX_NEXT_UNITE_SHOW_ZXDB_PANE:
-                if on_done:
-                    on_done()
-                return
-            if not query:
-                if on_done:
-                    on_done()
-                return
-            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
-            def _after_search():
-                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
-                n = self.zxdb_results_table.rowCount()
-                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXDB, n)
-                if on_done:
-                    on_done()
-            zxdb_run_search(query, 1, _after_search)
-
-        def _cross_search_zxart(query: str, on_done=None):
-            """Run a full zxART search in the background, populate the table and badge the tab."""
-            if not ZX_NEXT_UNITE_SHOW_ZXART_PANE:
-                if on_done:
-                    on_done()
-                return
-            if not query:
-                if on_done:
-                    on_done()
-                return
-            _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
-            def _after_search():
-                _stop_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXART)
-                n = self.zxart_results_table.rowCount()
-                _set_tab_badge(ZX_NEXT_UNITE_TAB_TITLE_ZXART, n)
-                if on_done:
-                    on_done()
-            zxart_run_search(query, 1, _after_search)
-
-        # ---- Tab badge helpers (multi-search result counts) ----
-
-        def _tab_index(base_title: str) -> int:
-            """Return the tab index whose text starts with base_title (ignores badge suffix)."""
-            tw = self._tab_widget
-            for i in range(tw.count()):
-                if tw.tabText(i).startswith(base_title):
-                    return i
-            return -1
-
-        def _set_tab_badge(base_title: str, count: int):
-            idx = _tab_index(base_title)
-            if idx >= 0:
-                self._tab_widget.setTabText(idx, f"{base_title} ({count})")
-
-        def _clear_tab_badge(base_title: str):
-            idx = _tab_index(base_title)
-            if idx >= 0:
-                self._tab_widget.setTabText(idx, base_title)
-
-        # ---- Tab spinner (animated progress while cross-search is running) ----
-        _SPINNER_FRAMES = ["🌍", "🌎", "🌏", "🌐"]
-        self._spinner_tabs: dict = {}   # base_title -> frame index
-        self._spinner_timer = QTimer(self)
-        self._spinner_timer.setInterval(200)
-
-        def _spinner_tick():
-            for base_title in list(self._spinner_tabs.keys()):
-                frame_idx = self._spinner_tabs[base_title]
-                frame = _SPINNER_FRAMES[frame_idx % len(_SPINNER_FRAMES)]
-                self._spinner_tabs[base_title] = frame_idx + 1
-                idx = _tab_index(base_title)
-                if idx >= 0:
-                    self._tab_widget.setTabText(idx, f"{base_title} ({frame})")
-
-        self._spinner_timer.timeout.connect(_spinner_tick)
-
-        def _start_tab_spinner(base_title: str):
-            self._spinner_tabs[base_title] = 0
-            if not self._spinner_timer.isActive():
-                self._spinner_timer.start()
-
-        def _stop_tab_spinner(base_title: str):
-            self._spinner_tabs.pop(base_title, None)
-            if not self._spinner_tabs:
-                self._spinner_timer.stop()
-            # Reset the tab text so the last spinner frame doesn't linger.
-            # Callers that want a result badge will re-apply it via _set_tab_badge.
-            _clear_tab_badge(base_title)
-
-        # ---- Search-input placeholder animator (dancing "..." while an
-        # autocomplete cache fetch is running). Multiple concurrent fetches
-        # on the same input share the animation via a reference count.
-        _AC_ANIM_FRAMES = [
-            "...        ",
-            " ...       ",
-            "  ...      ",
-            "   ...     ",
-            "    ...    ",
-            "     ...   ",
-            "      ...  ",
-            "       ... ",
-            "      ...  ",
-            "     ...   ",
-            "    ...    ",
-            "   ...     ",
-            "  ...      ",
-            " ...       ",
-        ]
-        self._ac_anim_state: dict = {}     # id(widget) -> state dict
-        self._ac_anim_timer = QTimer(self)
-        self._ac_anim_timer.setInterval(120)
-
-        def _ac_anim_tick():
-            for state in list(self._ac_anim_state.values()):
-                w = state.get("widget")
-                if w is None:
-                    continue
-                try:
-                    frame = _AC_ANIM_FRAMES[state["frame"] % len(_AC_ANIM_FRAMES)]
-                    state["frame"] += 1
-                    w.setPlaceholderText(frame)
-                except RuntimeError:
-                    # Underlying C++ widget was destroyed; drop this entry.
-                    self._ac_anim_state.pop(id(w), None)
-                except Exception:
-                    pass
-            if not self._ac_anim_state:
-                self._ac_anim_timer.stop()
-
-        self._ac_anim_timer.timeout.connect(_ac_anim_tick)
-
-        def _ac_anim_start(widget):
-            if widget is None:
-                return
-            key = id(widget)
-            state = self._ac_anim_state.get(key)
-            if state is None:
-                try:
-                    original = widget.placeholderText()
-                except Exception:
-                    original = ""
-                state = {"widget": widget, "original": original,
-                         "refs": 0, "frame": 0}
-                self._ac_anim_state[key] = state
-            state["refs"] += 1
-            if not self._ac_anim_timer.isActive():
-                self._ac_anim_timer.start()
-
-        def _ac_anim_stop(widget):
-            if widget is None:
-                return
-            key = id(widget)
-            state = self._ac_anim_state.get(key)
-            if state is None:
-                return
-            state["refs"] -= 1
-            if state["refs"] <= 0:
-                try:
-                    widget.setPlaceholderText(state.get("original", ""))
-                except Exception:
-                    pass
-                self._ac_anim_state.pop(key, None)
-            if not self._ac_anim_state:
-                self._ac_anim_timer.stop()
-
-        self._ac_anim_start = _ac_anim_start
-        self._ac_anim_stop  = _ac_anim_stop
-
-        def on_tab_changed(index):
-            if self._initialising:
-                return
-            # Close any open completer popup so it doesn't linger after the
-            # user switches to a different pane.
-            for _c in (
-                getattr(self, "_getit_completer",    None),
-                getattr(self, "_zxdb_completer",     None),
-                getattr(self, "_zxart_completer",    None),
-                getattr(self, "_allinone_completer", None),
-            ):
-                if _c is not None:
-                    try:
-                        _c.popup().hide()
-                    except Exception:
-                        pass
-            # If any pane is currently in fullscreen mode (stack index 1),
-            # dismiss it before activating the new tab so the user always
-            # lands on the gallery view of the destination pane.
-            try:
-                if self._getit_stack.currentIndex() == 1:
-                    self._hide_fullscreen_getit()
-            except Exception:
-                pass
-            try:
-                if self._zxdb_stack.currentIndex() == 1:
-                    self._hide_fullscreen_zxdb()
-            except Exception:
-                pass
-            try:
-                if self._zxart_stack.currentIndex() == 1:
-                    self._hide_fullscreen_zxart()
-            except Exception:
-                pass
-            tab_title = wid_inner.tab.tabText(index)
-            # Only run the idle "breathing" glow on the transfer buttons while the
-            # SD-card tab is the active one; stop it on every other tab.
-            _stop_transfer_idle_animation()
-            # The Remote Explorer sub-tab colour animation only runs while the
-            # NextSync tab is visible; stop it here and (re)start it in the
-            # NextSync branch below.
-            self._re_tab_anim_set_active(False)
-            if tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GOOEY):
-                _start_transfer_idle_animation()
-                # Re-tint the existing rows with the current item colors (the
-                # user may have changed them in Settings). This is synchronous
-                # and instant, independent of the async re-listing below.
-                self._image_recolor_all()
-                if right_disk_image_explorer_content:
-                    # Refresh the explorer when returning to the SD Card tab. The
-                    # listing runs on a worker thread (no UI-thread hdfmonkey call
-                    # on tab switch).
-                    update_disk_manager_widget_table()
-            elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GETIT):
-                _show_content_disclaimer()
-                self._getit_fetch_motd()
-                # Only fall back to "Latest" when the pane is genuinely empty
-                # and no query is pending.  A query mirrored in from an
-                # AllInOne multi-search (e.g. "lunar") must be preserved — its
-                # background search may have returned few/zero rows, and we
-                # must not clear the box or override it with latest releases.
-                if (self.getit_results_table.rowCount() == 0
-                        and not self._getit_search_loading
-                        and not self.getit_search_input.text().strip()):
-                    self._getit_on_latest()
-            elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ZXDB):
-                _show_content_disclaimer()
-                self._zxdb_on_tab_activated()
-            elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ZXART):
-                _show_content_disclaimer()
-                self._zxart_on_tab_activated()
-            elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE):
-                _show_content_disclaimer()
-            elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC):
-                # Now visible: animate the "Remote Explorer" sub-tab text.
-                self._re_tab_anim_set_active(True)
-                # Auto-run the "Prepare" step on entering the tab so the
-                # "Start Classic NextSync server" button is ready without an extra
-                # click. Guard on the prepare button still being visible so we
-                # don't re-scan/re-log on every revisit or after a sync is set up.
-                if self.nextsync_prepare_server.isVisible():
-                    nextsync_perform_checks_and_prepare_server_start()
-
-
-        #  Start main logic
-
-        load_configuration_file()
-        # Re-tint the tab bar with the just-loaded general UI text colour. This
-        # covers Custom mode (whose theme re-apply returns early without
-        # refreshing) and the Settings / itch.io tabs that are added after the
-        # initial colouring pass, so every tab honours the saved colour.
-        if hasattr(self, "_refresh_tab_stylesheet"):
-            try:
-                self._refresh_tab_stylesheet()
-            except Exception:
-                pass
-        self._initialising = False
+        # ── Cross-tab ops (extracted to zxnu_tab_ops.py): autocomplete
+        # helpers, Unite! cross-search fan-out, tab badges/spinners (+their
+        # timers), the autocomplete-arrow animation and on_tab_changed.
+        build_tab_ops(
+            self,
+            _right_disk_content=lambda: right_disk_image_explorer_content,
+            load_configuration_file=load_configuration_file,
+            _start_transfer_idle_animation=_start_transfer_idle_animation,
+            _stop_transfer_idle_animation=_stop_transfer_idle_animation,
+            nextsync_perform_checks_and_prepare_server_start=nextsync_perform_checks_and_prepare_server_start,
+            update_disk_manager_widget_table=update_disk_manager_widget_table,
+            wid_inner=wid_inner,
+            getit_run_search=getit_run_search,
+            zxdb_run_search=zxdb_run_search,
+            zxart_run_search=zxart_run_search,
+            _show_content_disclaimer=_show_content_disclaimer,
+        )
+        _apply_autocomplete_setting = self._apply_autocomplete_setting
+        _multi_search_enabled = self._multi_search_enabled
+        _cross_search_getit = self._cross_search_getit
+        _cross_search_zxdb = self._cross_search_zxdb
+        _cross_search_zxart = self._cross_search_zxart
+        _set_tab_badge = self._set_tab_badge
+        _clear_tab_badge = self._clear_tab_badge
+        _start_tab_spinner = self._start_tab_spinner
+        _stop_tab_spinner = self._stop_tab_spinner
+        on_tab_changed = self.on_tab_changed
 
         def _apply_first_run_pygame_defaults():
             """On the first run (every pygame option still unset) default them all
