@@ -406,6 +406,7 @@ from zxnu_tab_ops import build_tab_ops
 from zxnu_retro_ui import (build_main_retro_log, build_sidebar_anim,
     build_help_retro_log, build_content_disclaimer)
 from zxnu_wizard import build_wizard
+from zxnu_network import build_network_watch
 from zxnu_favorites_pane import (build_favorites_helpers,
     build_favorites_pane, build_favorites_ops)
 from zxnu_i18n import (normalize_ui_language, system_ui_language,
@@ -1339,6 +1340,7 @@ class MainWindow(QMainWindow):
         # never KeyErrors on these new keys.
         configuration_dictionary[SETTING_WIZARD_ENABLED] = ""
         configuration_dictionary[SETTING_WIZARD_INTRO_SHOWN] = ""
+        configuration_dictionary[SETTING_WIZARD_FONT_SIZE] = ""
 
         # Detect the MAME emulator, applying the platform's search precedence
         # (see resolve_mame_executable). On Windows the PATH copy wins, falling
@@ -3595,6 +3597,13 @@ class MainWindow(QMainWindow):
         # Settings checkbox and plays the first-run introduction.
         build_wizard(self, configuration_dictionary=configuration_dictionary)
         QTimer.singleShot(2200, self._wizard.startup)
+
+        # ── Network watcher (zxnu_network.py): offline-tolerant startup.
+        # Probes off the UI thread every 30 s; a confirmed outage shows a
+        # yellow advisory (emulators still work) and gates the online tabs'
+        # auto-fetches; a recovery shows a green toast and re-runs the
+        # current tab's activation so the skipped fetches fire.
+        build_network_watch(self, on_tab_changed=on_tab_changed)
 
         def _apply_first_run_pygame_defaults():
             """On the first run (every pygame option still unset) default them all

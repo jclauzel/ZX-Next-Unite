@@ -196,6 +196,174 @@ check("wizard hidden when disabled",
 wiz.set_enabled(True)
 check("re-enable shows the sprite again", wiz.sprite.isVisible())
 
+# ── in-depth guides ──────────────────────────────────────────────────────
+# Graph integrity: every node id / linux_extra is a translated TEXTS key,
+# every target exists (or "close"), pages and tab constants are real.
+import zxnu_config  # noqa: E402
+for gid, guide in wc.GUIDES.items():
+    nodes = guide["nodes"]
+    bad = []
+    if guide["start"] not in nodes:
+        bad.append("start")
+    if guide["page"] not in known_pages:
+        bad.append("page")
+    if not hasattr(zxnu_config, guide["tab"]):
+        bad.append("tab")
+    for nid, node in nodes.items():
+        if nid not in wc.TEXTS:
+            bad.append(f"{nid}:text")
+        extra = node.get("linux_extra")
+        if extra and extra not in wc.TEXTS:
+            bad.append(f"{nid}:linux_extra")
+        goto = node.get("goto")
+        if goto and not hasattr(zxnu_config, goto):
+            bad.append(f"{nid}:goto")
+        for _bk, target in node["buttons"]:
+            if target != "close" and target not in nodes:
+                bad.append(f"{nid}->{target}")
+    check(f"guide '{gid}' graph is sound", not bad, str(bad))
+
+# Offer trigger: first visit to the NextSync tab offers the guide, with
+# Manual/GitHub links present; a second visit stays quiet.
+wiz._dismiss()
+tabs.setCurrentIndex(1)      # TOOL: NextSync
+check("guided tab visit triggers the offer",
+      wiz.bubble.isVisible()
+      and wiz.bubble.label.text() == wc.wizard_tr("guide.offer", "en"))
+check("offer carries Manual + GitHub links",
+      len(wiz.bubble._links) == 2
+      and wiz.bubble._link_buttons[1].text() == "GitHub")
+wiz.bubble._actions[0][1]()  # "Tell me more" -> first guide node
+check("in-depth starts on ns.what",
+      wiz.bubble.label.text() == wc.wizard_tr("ns.what", "en"))
+wiz.bubble._actions[0][1]()  # Next -> the three-way branch
+check("ns.compat offers the three branches",
+      [a[0] for a in wiz.bubble._actions] ==
+      [wc.wizard_tr(k, "en")
+       for k in ("btn.setup", "btn.remotexp", "btn.classic")])
+wiz.bubble._actions[0][1]()  # Set up -> ns.setup1
+wiz.bubble._actions[0][1]()  # Next -> ns.setup2
+wiz.bubble._actions[0][1]()  # Next -> the spellbook
+check("setup branch ends on the .sync5 spellbook",
+      "-listen" in " ".join(wiz.bubble._pages))
+wiz.bubble._actions[0][1]()              # Close
+check("closing the last node dismisses", not wiz.bubble.isVisible())
+wiz.start_guide("nextsync")
+wiz.bubble._actions[0][1]()
+wiz.bubble._actions[1][1]()  # Remote Explorer branch
+check("remote branch teaches -listen and -send",
+      "-send" in " ".join(wiz.bubble._pages))
+wiz.start_guide("nextsync")
+wiz.bubble._actions[0][1]()
+wiz.bubble._actions[2][1]()  # Classic Sync branch
+check("classic branch starts on ns.classic",
+      wiz.bubble._pages[0].startswith(wc.wizard_tr("ns.classic", "en")[:40]))
+wiz.bubble._actions[0][1]()  # Next -> ns.root
+wiz.bubble._actions[0][1]()  # Next -> ns.server
+wiz.bubble._actions[0][1]()  # Close
+check("classic branch closes cleanly", not wiz.bubble.isVisible())
+tabs.setCurrentIndex(2)                  # GetIt: a tour-step tab
+check("manual switch to a tour tab offers quick help",
+      wiz.bubble.isVisible()
+      and wiz.bubble.label.text() == wc.wizard_tr("help.offer", "en"))
+wiz.bubble._actions[0][1]()              # Yes
+check("tab help shows the GetIt blurb + rights reminder",
+      wiz.bubble._pages[0].startswith(wc.wizard_tr("tour.getit", "en")[:40])
+      and wc.wizard_tr("tour.disclaimer", "en")[:30]
+      in " ".join(wiz.bubble._pages))
+wiz._dismiss()
+tabs.setCurrentIndex(1)
+check("no second offer for the same tab this session",
+      not wiz.bubble.isVisible())
+tabs.setCurrentIndex(2)
+check("tab help offered once per session too",
+      not wiz.bubble.isVisible())
+
+# Font size: the wizard's own A-/A+ dialog, persisted and clamped.
+from zxnu_config import SETTING_WIZARD_FONT_SIZE  # noqa: E402
+wiz.adjust_font(0)
+check("font dialog speaks",
+      wiz.bubble.label.text().startswith(
+          wc.wizard_tr("wizard.font", "en")[:30]))
+wiz.bubble._actions[1][1]()              # A+
+check("font grows and persists",
+      wiz.bubble._font_px == 13
+      and cfg.get(SETTING_WIZARD_FONT_SIZE) == "13")
+wiz.bubble._actions[0][1]()              # A-
+check("font shrinks back", wiz.bubble._font_px == 12
+      and cfg.get(SETTING_WIZARD_FONT_SIZE) == "12")
+wiz._dismiss()
+
+# "About this tab" in the menu re-opens tab help even after the automatic
+# once-per-session offers were spent.
+tabs.setCurrentIndex(1)                  # NextSync: offer already consumed
+wiz._dismiss()
+wiz.show_menu()
+check("menu leads with About this tab",
+      wiz.bubble._actions[0][0] == wc.wizard_tr("btn.abouttab", "en"))
+wiz.bubble._actions[0][1]()
+check("About this tab opens the NextSync guide",
+      wiz.bubble.label.text() == wc.wizard_tr("ns.what", "en"))
+wiz._dismiss()
+tabs.setCurrentIndex(2)                  # GetIt: help offer spent too
+wiz._dismiss()
+wiz.show_menu()
+wiz.bubble._actions[0][1]()
+check("About this tab shows GetIt help after the offer was spent",
+      wiz.bubble._pages[0].startswith(wc.wizard_tr("tour.getit", "en")[:40]))
+wiz._dismiss()
+
+# SD guide: the CSpect branch has a Take-me-there jump; the MAME node
+# appends the Flatpak note only on Linux.
+wiz.start_guide("sdcard")
+wiz.bubble._actions[0][1]()  # Next -> hdfmonkey
+wiz.bubble._actions[0][1]()  # Next -> cspect
+wiz.bubble._actions[0][1]()  # Yes  -> cspect_steps
+check("CSpect steps offer Take me there",
+      wiz.bubble._actions[0][0] == wc.wizard_tr("btn.takeme", "en"))
+_old_linux = zw._is_linux
+zw._is_linux = lambda: True
+wiz.start_guide("sdcard")
+wiz.bubble._actions[0][1]()
+wiz.bubble._actions[0][1]()
+wiz.bubble._actions[1][1]()  # No -> sd.mame
+check("MAME node appends the Flatpak note on Linux",
+      wc.wizard_tr("sd.mame.linux", "en") in " ".join(wiz.bubble._pages))
+zw._is_linux = _old_linux
+wiz._dismiss()
+
+# An offer left open across a tab switch must retarget to the NEW tab —
+# and its buttons must open the CURRENT tab's content, never the tab the
+# offer was created on. Real (non-offer) content is never hijacked.
+tabs.setCurrentIndex(3)              # Settings: first visit -> help offer
+check("Settings visit offers help",
+      wiz.bubble.isVisible()
+      and wiz.bubble.label.text() == wc.wizard_tr("help.offer", "en"))
+tabs.setCurrentIndex(0)              # switch WHILE the offer is open
+check("stale offer replaced by the SD Card guide offer",
+      wiz.bubble.label.text() == wc.wizard_tr("guide.offer", "en"))
+wiz.bubble._actions[0][1]()          # "Tell me more" clicked NOW
+check("Tell me more opens the CURRENT tab's guide (SD Card)",
+      wiz.bubble.label.text() == wc.wizard_tr("sd.images", "en"))
+tabs.setCurrentIndex(4)              # switch during REAL content
+check("real guide content is never hijacked by a tab switch",
+      wiz.bubble.label.text() == wc.wizard_tr("sd.images", "en"))
+wiz._dismiss()
+
+# ── offline behaviour (zxnu_network gate) ────────────────────────────────
+host._network_online = lambda: False
+zw.WizardManager._request_teaser(wiz, "Some-Page")   # the real method
+check("offline: teaser fetch skipped and not cached",
+      "Some-Page" not in wiz._teaser_cache)
+host._network_online = lambda: True
+wiz._on_teaser("Some-Page", "")
+check("failed teaser is not cached (retried once online)",
+      "Some-Page" not in wiz._teaser_cache)
+wiz._on_teaser("Some-Page", "hello")
+check("successful teaser is cached",
+      wiz._teaser_cache.get("Some-Page") == "hello")
+del host._network_online
+
 # Markdown teaser extraction (pure function, no network).
 md = "# Title\n\n![badge](x.png)\n\nThe **SD Card** tab lets you [mount](u) images.\n\nMore text."
 check("teaser strips markdown to the first paragraph",

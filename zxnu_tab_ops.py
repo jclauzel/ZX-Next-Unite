@@ -254,6 +254,12 @@ def build_tab_ops(
     host._ac_anim_start = _ac_anim_start
     host._ac_anim_stop  = _ac_anim_stop
 
+    def _network_online():
+        """The zxnu_network watcher's verdict; optimistic before it is
+        built (host attr appears once build_network_watch has run)."""
+        gate = getattr(host, "_network_online", None)
+        return True if gate is None else gate()
+
     def on_tab_changed(index):
         if host._initialising:
             return
@@ -309,6 +315,12 @@ def build_tab_ops(
                 update_disk_manager_widget_table()
         elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GETIT):
             _show_content_disclaimer()
+            # Confirmed offline (zxnu_network watcher): skip the automatic
+            # fetches — nothing was marked "already fetched", so when the
+            # network returns build_network_watch re-runs this handler and
+            # they fire then.
+            if not _network_online():
+                return
             host._getit_fetch_motd()
             # Only fall back to "Latest" when the pane is genuinely empty
             # and no query is pending.  A query mirrored in from an
@@ -321,9 +333,13 @@ def build_tab_ops(
                 host._getit_on_latest()
         elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ZXDB):
             _show_content_disclaimer()
+            if not _network_online():
+                return
             host._zxdb_on_tab_activated()
         elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ZXART):
             _show_content_disclaimer()
+            if not _network_online():
+                return
             host._zxart_on_tab_activated()
         elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE):
             _show_content_disclaimer()

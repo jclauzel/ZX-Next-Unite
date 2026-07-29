@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import random
 import re
+import sys
 import threading
 import urllib.request
 import webbrowser
@@ -38,13 +39,19 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLayout, QPushButton,
     QVBoxLayout, QWidget)
 
 import zxnu_config
-from zxnu_config import (SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN,
-                         ZXART_USER_AGENT)
+from zxnu_config import (SETTING_WIZARD_ENABLED, SETTING_WIZARD_FONT_SIZE,
+                         SETTING_WIZARD_INTRO_SHOWN, ZXART_USER_AGENT)
 from zxnu_i18n import current_ui_language
-from zxnu_wizard_content import (DISCLAIMER_STEPS, JOKES, KUDOS_NAMES,
-                                 STORIES, TEXTS, TOUR_STEPS,
-                                 USER_MANUAL_PAGE, WIKI_PAGE_BASE,
-                                 WIKI_RAW_BASE, wizard_lines, wizard_tr)
+from zxnu_wizard_content import (DISCLAIMER_STEPS, GITHUB_URL, GUIDES,
+                                 JOKES, KUDOS_NAMES, STORIES, TEXTS,
+                                 TOUR_STEPS, USER_MANUAL_PAGE,
+                                 WIKI_PAGE_BASE, WIKI_RAW_BASE,
+                                 wizard_lines, wizard_tr)
+
+
+def _is_linux():
+    """Platform gate for the Linux-only guide notes (patchable in tests)."""
+    return sys.platform.startswith("linux")
 
 # ── Sprite artwork ────────────────────────────────────────────────────────
 # 26×28 cells, '.' transparent. The suit is deep blue with the Spectrum
@@ -287,18 +294,17 @@ class WizardBubble(QWidget):
 
     MAX_TEXT_W = 360
 
+    # Bubble font size in px: adjustable via the wizard's own "Font size"
+    # dialog (persisted in SETTING_WIZARD_FONT_SIZE), clamped to sane bounds.
+    DEFAULT_FONT_PX = 12
+    MIN_FONT_PX = 9
+    MAX_FONT_PX = 20
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(
-            "WizardBubble { background-color: rgba(20, 20, 46, 235);"
-            " border: 2px solid #ff3cff; border-radius: 10px; }"
-            "QLabel { color: #ffffff; background: transparent;"
-            " font-size: 12px; }"
-            "QPushButton { background-color: #32327a; color: #ffff3c;"
-            " border: 1px solid #ffff3c; border-radius: 4px;"
-            " padding: 3px 10px; }"
-            "QPushButton:hover { background-color: #4646aa; }")
+        self._font_px = self.DEFAULT_FONT_PX
+        self._apply_style()
         v = QVBoxLayout(self)
         v.setContentsMargins(10, 8, 10, 8)
         v.setSpacing(6)
@@ -317,14 +323,41 @@ class WizardBubble(QWidget):
         self.button_row = QHBoxLayout()
         self.button_row.setSpacing(6)
         v.addLayout(self.button_row)
+        # A second, smaller row for ever-present reference links (the
+        # in-depth guides keep Manual/GitHub reachable on every screen).
+        self.links_row = QHBoxLayout()
+        self.links_row.setSpacing(6)
+        v.addLayout(self.links_row)
         self._buttons = []
+        self._link_buttons = []
         self._pages = [""]
         self._page = 0
         self._actions = []
+        self._links = []
         # Set by the manager: called after every re-render so the bubble is
         # re-anchored (page flips change its height; growing from a fixed
         # top-left corner used to push it past the window's bottom edge).
         self.on_resize = None
+
+    def _apply_style(self):
+        px = self._font_px
+        self.setStyleSheet(
+            "WizardBubble { background-color: rgba(20, 20, 46, 235);"
+            " border: 2px solid #ff3cff; border-radius: 10px; }"
+            f"QLabel {{ color: #ffffff; background: transparent;"
+            f" font-size: {px}px; }}"
+            "QPushButton { background-color: #32327a; color: #ffff3c;"
+            " border: 1px solid #ffff3c; border-radius: 4px;"
+            " padding: 3px 10px; }"
+            "QPushButton:hover { background-color: #4646aa; }")
+
+    def apply_font_px(self, px):
+        """Set the bubble font (clamped) and re-render the current page so
+        the geometry is re-measured with the new metrics."""
+        self._font_px = max(self.MIN_FONT_PX, min(self.MAX_FONT_PX, int(px)))
+        self._apply_style()
+        if self.isVisible():
+            self._render()
 
     # Long speeches are split into pages the reader flips with ◀ / ▶ —
     # nothing ever ends in an unreadable "…" again.
@@ -345,11 +378,13 @@ class WizardBubble(QWidget):
                 pages.append(block)
         return pages or [""]
 
-    def show_message(self, text, buttons):
-        """Paginate *text* and rebuild the button row from (label, cb)."""
+    def show_message(self, text, buttons, links=None):
+        """Paginate *text* and rebuild the button row from (label, cb);
+        *links* fills the smaller always-visible reference row."""
         self._pages = self._paginate(text)
         self._page = 0
         self._actions = list(buttons)
+        self._links = list(links or [])
         self._render()
 
     def append_text(self, extra):
@@ -409,6 +444,24 @@ class WizardBubble(QWidget):
             self.button_row.addWidget(btn)
             self._buttons.append(btn)
         self.button_row.addStretch(1)
+        # Reference links row (smaller, persistent across pages).
+        while self.links_row.count():
+            item = self.links_row.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+        self._link_buttons = []
+        for (label, cb) in self._links:
+            btn = QPushButton(label)
+            btn.setStyleSheet(
+                f"font-size: {max(8, self._font_px - 2)}px;"
+                " padding: 1px 8px;")
+            btn.clicked.connect(cb)
+            self.links_row.addWidget(btn)
+            self._link_buttons.append(btn)
+        if self._links:
+            self.links_row.addStretch(1)
         self.layout().activate()
         self.resize(self.layout().sizeHint())
         self.show()
@@ -468,6 +521,9 @@ class WizardManager(QObject):
         # How to re-compose whatever the bubble currently shows — called on
         # a live language switch so the wizard changes language mid-speech.
         self._respeak = None
+        # True while the bubble shows a tab OFFER (guide.offer/help.offer):
+        # offers may be retargeted on a tab switch, real content never is.
+        self._offer_shown = False
         self._teaser_cache = {}
         self._fetch_signals = _WikiFetchSignals()
         self._fetch_signals.done.connect(self._on_teaser)
@@ -483,6 +539,11 @@ class WizardManager(QObject):
         self._idle_timer.setInterval(9000)
         self._idle_timer.timeout.connect(self._idle_act)
         self._idle_timer.start()
+        # In-depth guide offers: fire once per guided tab per session.
+        self._offered_tabs = set()
+        tabw = getattr(host, "_tab_widget", None)
+        if tabw is not None:
+            tabw.currentChanged.connect(self._on_tab_switched)
         host.installEventFilter(self)
 
     # ── plumbing ─────────────────────────────────────────────────────────
@@ -503,6 +564,33 @@ class WizardManager(QObject):
 
     def enabled(self):
         return str(self._cfg.get(SETTING_WIZARD_ENABLED, "")).lower() != "false"
+
+    def _font_px(self):
+        try:
+            v = int(str(self._cfg.get(SETTING_WIZARD_FONT_SIZE, "")).strip()
+                    or 0)
+        except ValueError:
+            v = 0
+        if WizardBubble.MIN_FONT_PX <= v <= WizardBubble.MAX_FONT_PX:
+            return v
+        return WizardBubble.DEFAULT_FONT_PX
+
+    def adjust_font(self, delta=0):
+        """The wizard's own font dialog: A− / A+ resize his letters live
+        and persist the choice."""
+        px = self.bubble._font_px + delta
+        px = max(WizardBubble.MIN_FONT_PX,
+                 min(WizardBubble.MAX_FONT_PX, px))
+        if delta:
+            self._cfg[SETTING_WIZARD_FONT_SIZE] = str(px)
+            self._save_cfg()
+            self.bubble.apply_font_px(px)
+        self._respeak = lambda: self.adjust_font(0)
+        self._say(f"{self._tr('wizard.font')} ({px}px)",
+                  [("A−", lambda: self.adjust_font(-1)),
+                   ("A+", lambda: self.adjust_font(+1)),
+                   (self._tr("btn.close"), self._dismiss)],
+                  gesture="talk", cycles=6)
 
     def set_enabled(self, on, persist=True):
         self._cfg[SETTING_WIZARD_ENABLED] = "" if on else "false"
@@ -581,11 +669,12 @@ class WizardManager(QObject):
         if self.sprite._gesture in ("walk", "walk_left"):
             self.sprite.set_gesture("idle")
 
-    def _say(self, text, buttons, gesture="talk", cycles=8):
+    def _say(self, text, buttons, gesture="talk", cycles=8, links=None):
+        self._offer_shown = False      # offer_guide/offer_help re-set it
         self._stop_stroll()
         self.sprite.show()
         self.sprite.set_gesture(gesture, cycles=cycles)
-        self.bubble.show_message(text, buttons)
+        self.bubble.show_message(text, buttons, links=links)
         self._reposition()
 
     def _dismiss(self):
@@ -593,7 +682,12 @@ class WizardManager(QObject):
         self._tour_index = -1
         self._tour_active_page = None
         self._respeak = None
+        self._offer_shown = False
         self.sprite.set_gesture("idle")
+
+    def _on_network_changed(self, online):
+        if online and self._tour_active_page and self.bubble.isVisible():
+            self._request_teaser(self._tour_active_page)
 
     def on_language_changed(self):
         """Live language switch (Settings combo): re-compose the current
@@ -609,6 +703,13 @@ class WizardManager(QObject):
             cb.blockSignals(True)
             cb.setChecked(self.enabled())
             cb.blockSignals(False)
+        self.bubble.apply_font_px(self._font_px())
+        # When the network comes back mid-speech, fetch the teaser the
+        # open bubble skipped while offline (the watcher is built right
+        # after the wizard, so it exists by the time startup() runs).
+        net = getattr(self._host, "_network", None)
+        if net is not None:
+            net.online_changed.connect(self._on_network_changed)
         if not self.enabled():
             return
         self.sprite.show()
@@ -621,6 +722,10 @@ class WizardManager(QObject):
             self.intro()
         else:
             self.sprite.set_gesture("wave", cycles=2)
+            # The saved default tab may itself be a guided one: offer its
+            # in-depth guide right away (returning users only — the intro
+            # takes precedence on a first run).
+            self._maybe_offer_current_tab()
 
     def intro(self):
         self._respeak = self.intro
@@ -697,6 +802,159 @@ class WizardManager(QObject):
                   [(self._tr("btn.close"), self._dismiss)],
                   gesture="cast", cycles=6)
 
+    # ── in-depth guides ──────────────────────────────────────────────────
+    def _guide_links(self, page):
+        """The always-visible reference row: user manual + GitHub repo."""
+        return [(self._tr("btn.more"),
+                 lambda _=False, p=page: self.open_manual(p)),
+                ("GitHub", lambda: self._open_url(GITHUB_URL))]
+
+    def _open_url(self, url):
+        try:
+            webbrowser.open(url)
+        except Exception:
+            logging.exception("wizard: could not open %s", url)
+
+    def offer_guide(self, guide_id):
+        """First visit of a guided tab: discovery tour or in-depth info?
+        The "Tell me more" button resolves the tab AT CLICK TIME
+        (about_current_tab), so an offer left open across a tab switch
+        can never open the previous tab's content."""
+        guide = GUIDES[guide_id]
+        self._respeak = lambda: self.offer_guide(guide_id)
+        self._say(self._tr("guide.offer"),
+                  [(self._tr("btn.indepth"), self.about_current_tab),
+                   (self._tr("btn.tour"), self.start_tour),
+                   (self._tr("btn.later"), self._dismiss)],
+                  gesture="wave", cycles=3,
+                  links=self._guide_links(guide["page"]))
+        self._offer_shown = True
+
+    def start_guide(self, guide_id):
+        self._show_guide_node(guide_id, GUIDES[guide_id]["start"])
+
+    def _show_guide_node(self, guide_id, node_id):
+        guide = GUIDES[guide_id]
+        node = guide["nodes"][node_id]
+        text = self._tr(node_id)
+        extra = node.get("linux_extra")
+        if extra and _is_linux():
+            text += "\n\n" + self._tr(extra)
+        buttons = []
+        goto = node.get("goto")
+        if goto:
+            title = getattr(zxnu_config, goto, goto)
+            buttons.append((self._tr("btn.takeme"),
+                            lambda _=False, t=title: self._goto_tab(t)))
+        for btn_key, target in node["buttons"]:
+            if target == "close":
+                buttons.append((self._tr(btn_key), self._dismiss))
+            else:
+                buttons.append((self._tr(btn_key),
+                                lambda _=False, g=guide_id, n=target:
+                                    self._show_guide_node(g, n)))
+        self._respeak = lambda: self._show_guide_node(guide_id, node_id)
+        self._say(text, buttons,
+                  gesture=node.get("gesture", "talk"), cycles=10,
+                  links=self._guide_links(guide["page"]))
+
+    def _goto_tab(self, title_prefix):
+        """Switch the main tab widget to the tab whose title starts with
+        *title_prefix* (the guide bubble stays where it is)."""
+        tabw = getattr(self._host, "_tab_widget", None)
+        if tabw is None:
+            return
+        for i in range(tabw.count()):
+            if tabw.tabText(i).startswith(title_prefix):
+                tabw.setCurrentIndex(i)
+                return
+
+    def _maybe_offer_current_tab(self):
+        tabw = getattr(self._host, "_tab_widget", None)
+        if tabw is not None:
+            self._on_tab_switched(tabw.currentIndex())
+
+    def _on_tab_switched(self, index):
+        """First time a guided tab is visited this session (wizard idle):
+        offer the in-depth guide for it. A visible OFFER left over from
+        the previous tab is dismissed first (and the new tab's own offer
+        may replace it); real content is never hijacked."""
+        if (not self.enabled() or not self.sprite.isVisible()
+                or 0 <= self._tour_index < len(TOUR_STEPS)):
+            return
+        if self.bubble.isVisible():
+            if not self._offer_shown:
+                return
+            self._dismiss()             # stale offer for the previous tab
+        tabw = getattr(self._host, "_tab_widget", None)
+        if tabw is None or index < 0:
+            return
+        topic = self._tab_topic(tabw.tabText(index))
+        if topic is None or topic[1] in self._offered_tabs:
+            return
+        kind, key, page = topic
+        self._offered_tabs.add(key)
+        if kind == "guide":
+            self.offer_guide(key)
+        else:
+            self.offer_help(key, page)
+
+    def _tab_topic(self, title):
+        """What the wizard knows about the tab titled *title*:
+        ("guide", guide_id, page) for the in-depth tabs, ("help",
+        tour_key, page) for tour tabs (the Settings tab's help is
+        tour.settings, not the tour's language opener), else None."""
+        for guide_id, guide in GUIDES.items():
+            prefix = getattr(zxnu_config, guide["tab"], guide["tab"])
+            if title.startswith(prefix):
+                return ("guide", guide_id, guide["page"])
+        for const_name, text_key, page in TOUR_STEPS:
+            if text_key == "tour.language":
+                continue
+            prefix = getattr(zxnu_config, const_name, const_name)
+            if title.startswith(prefix):
+                return ("help", text_key, page)
+        return None
+
+    def about_current_tab(self):
+        """Menu entry: always-available help for the CURRENT tab (the
+        automatic offer only fires once per session — this is the manual
+        way back to it)."""
+        tabw = getattr(self._host, "_tab_widget", None)
+        if tabw is None:
+            return
+        topic = self._tab_topic(tabw.tabText(tabw.currentIndex()))
+        if topic is None:
+            self.open_manual(None)
+            return
+        kind, key, page = topic
+        if kind == "guide":
+            self.start_guide(key)
+        else:
+            self.show_tab_help(key, page)
+
+    def offer_help(self, text_key, page):
+        # "Yes" resolves the CURRENT tab at click time — see offer_guide.
+        self._respeak = lambda: self.offer_help(text_key, page)
+        self._say(self._tr("help.offer"),
+                  [(self._tr("btn.yes"), self.about_current_tab),
+                   (self._tr("btn.later"), self._dismiss)],
+                  gesture="look", cycles=4,
+                  links=self._guide_links(page))
+        self._offer_shown = True
+
+    def show_tab_help(self, text_key, page):
+        text = self._tr(text_key)
+        if text_key in DISCLAIMER_STEPS:
+            text += "\n\n" + self._tr("tour.disclaimer")
+        self._respeak = lambda: self.show_tab_help(text_key, page)
+        self._tour_active_page = page       # lets the wiki teaser append
+        self._say(text,
+                  [(self._tr("btn.close"), self._dismiss)],
+                  gesture="point", cycles=6,
+                  links=self._guide_links(page))
+        self._request_teaser(page)
+
     # ── wiki content ─────────────────────────────────────────────────────
     def open_manual(self, page=None):
         try:
@@ -708,8 +966,13 @@ class WizardManager(QObject):
     def _request_teaser(self, page):
         cached = self._teaser_cache.get(page)
         if cached is not None:
-            if cached:
-                self._on_teaser(page, cached)
+            self._on_teaser(page, cached)
+            return
+        # Confirmed offline (zxnu_network watcher): don't burn a thread on
+        # a fetch that can only time out — and don't cache the failure, so
+        # the teaser is retried once the network is back.
+        gate = getattr(self._host, "_network_online", None)
+        if gate is not None and not gate():
             return
 
         def _fetch(sig=self._fetch_signals, p=page):
@@ -728,7 +991,10 @@ class WizardManager(QObject):
         threading.Thread(target=_fetch, daemon=True).start()
 
     def _on_teaser(self, page, teaser):
-        self._teaser_cache[page] = teaser
+        if teaser:
+            # Only successes are cached: a transient failure (or an
+            # offline spell) must not blank the teaser for the session.
+            self._teaser_cache[page] = teaser
         if teaser and page == self._tour_active_page and \
                 self.bubble.isVisible():
             self.bubble.append_text(
@@ -766,12 +1032,14 @@ class WizardManager(QObject):
     def show_menu(self):
         self._respeak = self.show_menu
         self._say(self._tr("menu.title"),
-                  [(self._tr("btn.tour"), self.start_tour),
+                  [(self._tr("btn.abouttab"), self.about_current_tab),
+                   (self._tr("btn.tour"), self.start_tour),
                    (self._tr("btn.joke"), self.tell_joke),
                    (self._tr("btn.story"), self.tell_story),
-                   (self._tr("btn.more"), lambda: self.open_manual(None)),
                    (self._tr("btn.off"), self.turn_off)],
-                  gesture="wave", cycles=3)
+                  gesture="wave", cycles=3,
+                  links=self._guide_links(None)
+                  + [(self._tr("btn.font"), lambda: self.adjust_font(0))])
 
 
 def build_wizard(host, *, configuration_dictionary):
