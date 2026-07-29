@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build bundle
-        uses: flathub-infra/flatpak-github-actions/flatpak-builder@v6
+        uses: bilelmoussaoui/flatpak-github-actions/flatpak-builder@v6.7
         with:
           bundle: zx-next-unite.flatpak
           manifest-path: flatpak/io.github.jclauzel.ZXNextUnite.yml
