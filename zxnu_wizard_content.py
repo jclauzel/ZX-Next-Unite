@@ -83,6 +83,47 @@ TEXTS = {
         "cs": "🪄 Vezmi mě tam",
         "fr": "🪄 Emmène-moi",
     },
+    "help.offer": {
+        "en": "A new tab! Would you like a quick word about what it "
+              "does?",
+        "es": "¡Una pestaña nueva! ¿Quieres que te cuente en dos "
+              "palabras qué hace?",
+        "pt": "Um separador novo! Queres que te diga em duas palavras o "
+              "que faz?",
+        "pl": "Nowa karta! Chcesz usłyszeć w dwóch słowach, co robi?",
+        "ru": "Новая вкладка! Рассказать в двух словах, что она делает?",
+        "cs": "Nová záložka! Chceš v rychlosti slyšet, co dělá?",
+        "fr": "Un nouvel onglet ! Voulez-vous un petit mot sur ce qu'il "
+              "fait ?",
+    },
+    "wizard.font": {
+        "en": "Are my letters comfortable to read? I can make them "
+              "bigger or smaller — your choice is saved for next time.",
+        "es": "¿Se leen bien mis letras? Puedo hacerlas más grandes o "
+              "más pequeñas — tu elección se guarda para la próxima "
+              "vez.",
+        "pt": "As minhas letras leem-se bem? Posso torná-las maiores ou "
+              "mais pequenas — a tua escolha fica guardada para a "
+              "próxima vez.",
+        "pl": "Czy moje literki dobrze się czytają? Mogę je powiększyć "
+              "lub pomniejszyć — twój wybór zostanie zapamiętany.",
+        "ru": "Удобно ли читать мои буквы? Могу сделать их крупнее или "
+              "мельче — ваш выбор сохранится на следующий раз.",
+        "cs": "Čtou se má písmenka pohodlně? Umím je zvětšit i zmenšit "
+              "— tvá volba se uloží na příště.",
+        "fr": "Mes lettres sont-elles agréables à lire ? Je peux les "
+              "agrandir ou les rapetisser — votre choix est gardé pour "
+              "la prochaine fois.",
+    },
+    "btn.font": {
+        "en": "🔠 Font size",
+        "es": "🔠 Tamaño de letra",
+        "pt": "🔠 Tamanho da letra",
+        "pl": "🔠 Rozmiar czcionki",
+        "ru": "🔠 Размер шрифта",
+        "cs": "🔠 Velikost písma",
+        "fr": "🔠 Taille de police",
+    },
     "btn.setup": {
         "en": "⚙ Set up NextSync",
         "es": "⚙ Configurar NextSync",

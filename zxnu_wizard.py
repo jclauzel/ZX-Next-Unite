@@ -39,8 +39,8 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLayout, QPushButton,
     QVBoxLayout, QWidget)
 
 import zxnu_config
-from zxnu_config import (SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN,
-                         ZXART_USER_AGENT)
+from zxnu_config import (SETTING_WIZARD_ENABLED, SETTING_WIZARD_FONT_SIZE,
+                         SETTING_WIZARD_INTRO_SHOWN, ZXART_USER_AGENT)
 from zxnu_i18n import current_ui_language
 from zxnu_wizard_content import (DISCLAIMER_STEPS, GITHUB_URL, GUIDES,
                                  JOKES, KUDOS_NAMES, STORIES, TEXTS,
@@ -294,18 +294,17 @@ class WizardBubble(QWidget):
 
     MAX_TEXT_W = 360
 
+    # Bubble font size in px: adjustable via the wizard's own "Font size"
+    # dialog (persisted in SETTING_WIZARD_FONT_SIZE), clamped to sane bounds.
+    DEFAULT_FONT_PX = 12
+    MIN_FONT_PX = 9
+    MAX_FONT_PX = 20
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(
-            "WizardBubble { background-color: rgba(20, 20, 46, 235);"
-            " border: 2px solid #ff3cff; border-radius: 10px; }"
-            "QLabel { color: #ffffff; background: transparent;"
-            " font-size: 12px; }"
-            "QPushButton { background-color: #32327a; color: #ffff3c;"
-            " border: 1px solid #ffff3c; border-radius: 4px;"
-            " padding: 3px 10px; }"
-            "QPushButton:hover { background-color: #4646aa; }")
+        self._font_px = self.DEFAULT_FONT_PX
+        self._apply_style()
         v = QVBoxLayout(self)
         v.setContentsMargins(10, 8, 10, 8)
         v.setSpacing(6)
@@ -339,6 +338,26 @@ class WizardBubble(QWidget):
         # re-anchored (page flips change its height; growing from a fixed
         # top-left corner used to push it past the window's bottom edge).
         self.on_resize = None
+
+    def _apply_style(self):
+        px = self._font_px
+        self.setStyleSheet(
+            "WizardBubble { background-color: rgba(20, 20, 46, 235);"
+            " border: 2px solid #ff3cff; border-radius: 10px; }"
+            f"QLabel {{ color: #ffffff; background: transparent;"
+            f" font-size: {px}px; }}"
+            "QPushButton { background-color: #32327a; color: #ffff3c;"
+            " border: 1px solid #ffff3c; border-radius: 4px;"
+            " padding: 3px 10px; }"
+            "QPushButton:hover { background-color: #4646aa; }")
+
+    def apply_font_px(self, px):
+        """Set the bubble font (clamped) and re-render the current page so
+        the geometry is re-measured with the new metrics."""
+        self._font_px = max(self.MIN_FONT_PX, min(self.MAX_FONT_PX, int(px)))
+        self._apply_style()
+        if self.isVisible():
+            self._render()
 
     # Long speeches are split into pages the reader flips with ◀ / ▶ —
     # nothing ever ends in an unreadable "…" again.
@@ -435,7 +454,9 @@ class WizardBubble(QWidget):
         self._link_buttons = []
         for (label, cb) in self._links:
             btn = QPushButton(label)
-            btn.setStyleSheet("font-size: 10px; padding: 1px 8px;")
+            btn.setStyleSheet(
+                f"font-size: {max(8, self._font_px - 2)}px;"
+                " padding: 1px 8px;")
             btn.clicked.connect(cb)
             self.links_row.addWidget(btn)
             self._link_buttons.append(btn)
@@ -540,6 +561,33 @@ class WizardManager(QObject):
 
     def enabled(self):
         return str(self._cfg.get(SETTING_WIZARD_ENABLED, "")).lower() != "false"
+
+    def _font_px(self):
+        try:
+            v = int(str(self._cfg.get(SETTING_WIZARD_FONT_SIZE, "")).strip()
+                    or 0)
+        except ValueError:
+            v = 0
+        if WizardBubble.MIN_FONT_PX <= v <= WizardBubble.MAX_FONT_PX:
+            return v
+        return WizardBubble.DEFAULT_FONT_PX
+
+    def adjust_font(self, delta=0):
+        """The wizard's own font dialog: A− / A+ resize his letters live
+        and persist the choice."""
+        px = self.bubble._font_px + delta
+        px = max(WizardBubble.MIN_FONT_PX,
+                 min(WizardBubble.MAX_FONT_PX, px))
+        if delta:
+            self._cfg[SETTING_WIZARD_FONT_SIZE] = str(px)
+            self._save_cfg()
+            self.bubble.apply_font_px(px)
+        self._respeak = lambda: self.adjust_font(0)
+        self._say(f"{self._tr('wizard.font')} ({px}px)",
+                  [("A−", lambda: self.adjust_font(-1)),
+                   ("A+", lambda: self.adjust_font(+1)),
+                   (self._tr("btn.close"), self._dismiss)],
+                  gesture="talk", cycles=6)
 
     def set_enabled(self, on, persist=True):
         self._cfg[SETTING_WIZARD_ENABLED] = "" if on else "false"
@@ -646,6 +694,7 @@ class WizardManager(QObject):
             cb.blockSignals(True)
             cb.setChecked(self.enabled())
             cb.blockSignals(False)
+        self.bubble.apply_font_px(self._font_px())
         if not self.enabled():
             return
         self.sprite.show()
@@ -826,6 +875,41 @@ class WizardManager(QObject):
                 self._offered_tabs.add(guide_id)
                 self.offer_guide(guide_id)
                 return
+        # Tabs without an in-depth guide still get a lighter, once-per-
+        # session "want a quick word about this tab?" using their tour
+        # blurb (the Settings tab's help is tour.settings, not the tour's
+        # language opener).
+        for const_name, text_key, page in TOUR_STEPS:
+            if text_key == "tour.language":
+                continue
+            prefix = getattr(zxnu_config, const_name, const_name)
+            if title.startswith(prefix):
+                if text_key in self._offered_tabs:
+                    return
+                self._offered_tabs.add(text_key)
+                self.offer_help(text_key, page)
+                return
+
+    def offer_help(self, text_key, page):
+        self._respeak = lambda: self.offer_help(text_key, page)
+        self._say(self._tr("help.offer"),
+                  [(self._tr("btn.yes"), lambda _=False, k=text_key,
+                    p=page: self.show_tab_help(k, p)),
+                   (self._tr("btn.later"), self._dismiss)],
+                  gesture="look", cycles=4,
+                  links=self._guide_links(page))
+
+    def show_tab_help(self, text_key, page):
+        text = self._tr(text_key)
+        if text_key in DISCLAIMER_STEPS:
+            text += "\n\n" + self._tr("tour.disclaimer")
+        self._respeak = lambda: self.show_tab_help(text_key, page)
+        self._tour_active_page = page       # lets the wiki teaser append
+        self._say(text,
+                  [(self._tr("btn.close"), self._dismiss)],
+                  gesture="point", cycles=6,
+                  links=self._guide_links(page))
+        self._request_teaser(page)
 
     # ── wiki content ─────────────────────────────────────────────────────
     def open_manual(self, page=None):
@@ -899,9 +983,10 @@ class WizardManager(QObject):
                   [(self._tr("btn.tour"), self.start_tour),
                    (self._tr("btn.joke"), self.tell_joke),
                    (self._tr("btn.story"), self.tell_story),
-                   (self._tr("btn.more"), lambda: self.open_manual(None)),
+                   (self._tr("btn.font"), lambda: self.adjust_font(0)),
                    (self._tr("btn.off"), self.turn_off)],
-                  gesture="wave", cycles=3)
+                  gesture="wave", cycles=3,
+                  links=self._guide_links(None))
 
 
 def build_wizard(host, *, configuration_dictionary):

@@ -262,10 +262,37 @@ wiz.bubble._actions[0][1]()  # Next -> ns.root
 wiz.bubble._actions[0][1]()  # Next -> ns.server
 wiz.bubble._actions[0][1]()  # Close
 check("classic branch closes cleanly", not wiz.bubble.isVisible())
-tabs.setCurrentIndex(2)                  # a non-guided tab (GetIt)
+tabs.setCurrentIndex(2)                  # GetIt: a tour-step tab
+check("manual switch to a tour tab offers quick help",
+      wiz.bubble.isVisible()
+      and wiz.bubble.label.text() == wc.wizard_tr("help.offer", "en"))
+wiz.bubble._actions[0][1]()              # Yes
+check("tab help shows the GetIt blurb + rights reminder",
+      wiz.bubble._pages[0].startswith(wc.wizard_tr("tour.getit", "en")[:40])
+      and wc.wizard_tr("tour.disclaimer", "en")[:30]
+      in " ".join(wiz.bubble._pages))
+wiz._dismiss()
 tabs.setCurrentIndex(1)
 check("no second offer for the same tab this session",
       not wiz.bubble.isVisible())
+tabs.setCurrentIndex(2)
+check("tab help offered once per session too",
+      not wiz.bubble.isVisible())
+
+# Font size: the wizard's own A-/A+ dialog, persisted and clamped.
+from zxnu_config import SETTING_WIZARD_FONT_SIZE  # noqa: E402
+wiz.adjust_font(0)
+check("font dialog speaks",
+      wiz.bubble.label.text().startswith(
+          wc.wizard_tr("wizard.font", "en")[:30]))
+wiz.bubble._actions[1][1]()              # A+
+check("font grows and persists",
+      wiz.bubble._font_px == 13
+      and cfg.get(SETTING_WIZARD_FONT_SIZE) == "13")
+wiz.bubble._actions[0][1]()              # A-
+check("font shrinks back", wiz.bubble._font_px == 12
+      and cfg.get(SETTING_WIZARD_FONT_SIZE) == "12")
+wiz._dismiss()
 
 # SD guide: the CSpect branch has a Take-me-there jump; the MAME node
 # appends the Flatpak note only on Linux.

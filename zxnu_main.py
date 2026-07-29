@@ -1339,6 +1339,7 @@ class MainWindow(QMainWindow):
         # never KeyErrors on these new keys.
         configuration_dictionary[SETTING_WIZARD_ENABLED] = ""
         configuration_dictionary[SETTING_WIZARD_INTRO_SHOWN] = ""
+        configuration_dictionary[SETTING_WIZARD_FONT_SIZE] = ""
 
         # Detect the MAME emulator, applying the platform's search precedence
         # (see resolve_mame_executable). On Windows the PATH copy wins, falling
