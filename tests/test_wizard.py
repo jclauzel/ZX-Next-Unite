@@ -251,8 +251,15 @@ check("closing the last node dismisses", not wiz.bubble.isVisible())
 wiz.start_guide("nextsync")
 wiz.bubble._actions[0][1]()
 wiz.bubble._actions[1][1]()  # Remote Explorer branch
-check("remote branch teaches -listen and -send",
-      "-send" in " ".join(wiz.bubble._pages))
+_re_setup = " ".join(wiz.bubble._pages)
+check("remote branch starts with the three setup moves",
+      "sync root" in _re_setup and "-l" in _re_setup)
+wiz.bubble._actions[0][1]()  # Next -> capabilities page
+_re_caps = " ".join(wiz.bubble._pages)
+check("remote capabilities teach -send and both graceful exits",
+      "-send" in _re_caps and "BREAK" in _re_caps
+      and "Caps Shift" in _re_caps
+      and "Stop Remote Explorer NextSync server" in _re_caps)
 wiz.start_guide("nextsync")
 wiz.bubble._actions[0][1]()
 wiz.bubble._actions[2][1]()  # Classic Sync branch

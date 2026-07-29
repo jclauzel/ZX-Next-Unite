@@ -4426,6 +4426,18 @@ def _graceful_nextsync_shutdown():
             fn()
     except Exception:
         logging.exception("Graceful shutdown: Remote Explorer listen-server stop failed")
+    # In-flight catalogue/thumbnail/update fetches are QRunnables on the
+    # GLOBAL QThreadPool doing network I/O — and interpreter finalization
+    # waits for them, so a slow socket used to hold the whole exit hostage
+    # for its full timeout (very visible since the wizard's tour started
+    # warming the online tabs). Drop everything still queued and give the
+    # running ones a short grace; _handle_sigint escalates if they overrun.
+    try:
+        _pool = QThreadPool.globalInstance()
+        _pool.clear()
+        _pool.waitForDone(3000)
+    except Exception:
+        logging.exception("Graceful shutdown: thread-pool drain failed")
 
 app.aboutToQuit.connect(_graceful_nextsync_shutdown)
 
@@ -4452,6 +4464,23 @@ def _handle_sigint(*_args):
     except Exception:
         pass
     app.quit()
+    # The graceful shutdown above already cleared the global pool and
+    # granted 3 s of grace. If a network runnable is STILL running, the
+    # interpreter's exit would block until its socket times out — for a
+    # console Ctrl-C that reads as a hang, so leave hard instead: config
+    # and syncpoint are saved (window.close()) and the sync goodbyes were
+    # delivered; only the doomed fetch results are lost.
+    try:
+        if not QThreadPool.globalInstance().waitForDone(0):
+            print("Exiting with a network fetch still in flight.", flush=True)
+            for _h in logging.getLogger().handlers:
+                try:
+                    _h.flush()
+                except Exception:
+                    pass
+            os._exit(0)
+    except Exception:
+        pass
 
 signal.signal(signal.SIGINT, _handle_sigint)
 

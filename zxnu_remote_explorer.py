@@ -521,6 +521,12 @@ class RemoteExplorerWidget(QWidget):
         self.next_view.startDrag = self._next_start_drag
         self.next_view.keyPressEvent = self._next_key_press
 
+        # Idle-status provider: the host app can plug in a callable that
+        # returns the "Next: …" text to show while DISCONNECTED, so the
+        # label reflects the real setup stage ("Select a sync root folder",
+        # "Start NextSync server", "waiting for .sync5 -listen…") instead
+        # of always claiming to be waiting for the dot.
+        self._idle_status_provider = None
         self.next_path_label = QLabel("Next: (not connected)", self)
         next_up = QPushButton("Up", self)
         next_up.setMaximumWidth(48)
@@ -956,6 +962,28 @@ class RemoteExplorerWidget(QWidget):
     # ==================================================================
     #  connection state
     # ==================================================================
+    def _idle_status_text(self):
+        if self._idle_status_provider is not None:
+            try:
+                text = self._idle_status_provider()
+                if text:
+                    return text
+            except Exception:
+                pass
+        return "Next: (waiting for .sync5 -listen …)"
+
+    def set_idle_status_provider(self, provider):
+        """Install the host's disconnected-state status callable (0-arg,
+        returns the full "Next: …" text) and apply it right away."""
+        self._idle_status_provider = provider
+        self.refresh_idle_status()
+
+    def refresh_idle_status(self):
+        """Re-evaluate the idle status (host state changed: sync root set,
+        server started/stopped). No-op while connected."""
+        if not self._connected:
+            self.next_path_label.setText(self._idle_status_text())
+
     def _set_connected(self, on):
         self._connected = on
         for w in (self.btn_to_next, self.btn_to_local, self.btn_new_folder,
@@ -963,7 +991,7 @@ class RemoteExplorerWidget(QWidget):
             w.setEnabled(on)
         if not on:
             self.next_model.removeRows(0, self.next_model.rowCount())
-            self.next_path_label.setText("Next: (waiting for .sync5 -listen …)")
+            self.next_path_label.setText(self._idle_status_text())
             self.next_path_label.setToolTip("")
             self._free_space.clear()   # a reconnect re-reads it
             self._drives = []

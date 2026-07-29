@@ -372,6 +372,29 @@ def main():
     else:
         print("FAIL lsfail:", got['ls_failed']); ok = False
 
+    # ── unconnected listener must stop promptly on the stop event ──────
+    # The pane's stop path skips the 10 s "Q" goodbye grace when no Next
+    # is connected (there is nobody to say goodbye to and the command
+    # queue is never polled while accepting) and relies on the worker's
+    # accept() noticing the stop event within its 1 s poll — the Ctrl-C
+    # exit time on an idle listener depends on this staying fast.
+    sig2 = RemoteExplorerSignals()
+    stop2 = threading.Event()
+    t2 = threading.Thread(target=run_remote_listen_server,
+                          args=(sig2, queue.Queue(), stop2, PORT + 1),
+                          daemon=True)
+    t2.start()
+    time.sleep(0.3)                       # let it bind and start accepting
+    t0 = time.time()
+    stop2.set()
+    t2.join(timeout=5)
+    dt = time.time() - t0
+    if not t2.is_alive() and dt < 2.5:
+        print(f"PASS idle-stop: unconnected listener exited in {dt:.2f}s")
+    else:
+        print(f"FAIL idle-stop: alive={t2.is_alive()} after {dt:.2f}s")
+        ok = False
+
     shutil.rmtree(tmp, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
     sys.exit(0 if ok else 1)

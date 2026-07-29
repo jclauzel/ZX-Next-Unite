@@ -914,60 +914,129 @@ TEXTS = {
               "décide du sort d'un fichier déjà présent ici.",
     },
     "ns.remote": {
-        "en": "The Remote Explorer is the full file-management mode: "
-              "run '.sync5 -l' (-listen) on the Next, and this tab "
-              "becomes a two-pane manager for the Next itself — "
-              "transfer files and whole directories both ways, rename, "
-              "and even zip and unzip REMOTELY on the Next. And "
-              "straight from the Next, '.sync5 -send <file|dir>' "
-              "pushes a file or directory back to the PC.",
+        "en": "The Remote Explorer is the full file-management mode. "
+              "Getting it running takes three moves: 1) in the left "
+              "local explorer, pick your base folder and press 'Set "
+              "current folder as new sync root folder'. 2) Press the "
+              "'Start Remote Explorer NextSync server' button at the "
+              "bottom. 3) On the Next, run '.sync5 -l' (-listen) — the "
+              "dot connects to the PC's configured IP address and the "
+              "two panes light up.",
         "es": "El Remote Explorer es el modo de gestión completa de "
-              "archivos: ejecuta «.sync5 -l» (-listen) en el Next y "
-              "esta pestaña se convierte en un gestor de dos paneles "
-              "para el propio Next — transfiere archivos y carpetas "
-              "enteras en ambos sentidos, renombra, e incluso comprime "
-              "y descomprime zip EN REMOTO en el Next. Y directamente "
-              "desde el Next, «.sync5 -send <archivo|carpeta>» envía "
-              "un archivo o carpeta de vuelta al PC.",
+              "archivos. Ponerlo en marcha son tres pasos: 1) en el "
+              "explorador local izquierdo, elige tu carpeta base y "
+              "pulsa «Set current folder as new sync root folder». 2) "
+              "Pulsa el botón «Start Remote Explorer NextSync server» "
+              "de abajo. 3) En el Next, ejecuta «.sync5 -l» (-listen) "
+              "— el dot se conecta a la dirección IP configurada del "
+              "PC y los dos paneles cobran vida.",
         "pt": "O Remote Explorer é o modo de gestão completa de "
-              "ficheiros: corre «.sync5 -l» (-listen) no Next e este "
-              "separador torna-se um gestor de dois painéis para o "
-              "próprio Next — transfere ficheiros e pastas inteiras "
-              "nos dois sentidos, renomeia, e até faz zip e unzip "
-              "REMOTAMENTE no Next. E diretamente do Next, «.sync5 "
-              "-send <ficheiro|pasta>» envia um ficheiro ou pasta de "
-              "volta para o PC.",
-        "pl": "Remote Explorer to tryb pełnego zarządzania plikami: "
-              "uruchom „.sync5 -l” (-listen) na Nexcie, a ta karta "
-              "stanie się dwupanelowym menedżerem samego Nexta — "
-              "przesyłaj pliki i całe katalogi w obie strony, zmieniaj "
-              "nazwy, a nawet pakuj i rozpakowuj zip ZDALNIE na "
-              "Nexcie. A prosto z Nexta „.sync5 -send <plik|katalog>” "
-              "odsyła plik lub katalog na PC.",
-        "ru": "Remote Explorer — режим полного управления файлами: "
-              "запустите «.sync5 -l» (-listen) на Next, и эта вкладка "
-              "станет двухпанельным менеджером самого Next — "
-              "передавайте файлы и целые каталоги в обе стороны, "
-              "переименовывайте и даже упаковывайте и распаковывайте "
-              "zip УДАЛЁННО на Next. А прямо с Next «.sync5 -send "
-              "<файл|папка>» отправляет файл или каталог обратно на "
-              "ПК.",
-        "cs": "Remote Explorer je režim plné správy souborů: spusť na "
-              "Nextu „.sync5 -l“ (-listen) a tahle záložka se stane "
-              "dvoupanelovým správcem samotného Nextu — přenášej "
-              "soubory i celé složky oběma směry, přejmenovávej a "
-              "dokonce zipuj a rozbaluj VZDÁLENĚ na Nextu. A přímo z "
-              "Nextu „.sync5 -send <soubor|složka>“ pošle soubor nebo "
-              "složku zpátky do PC.",
+              "ficheiros. Pô-lo a funcionar são três passos: 1) no "
+              "explorador local à esquerda, escolhe a tua pasta base e "
+              "carrega em «Set current folder as new sync root "
+              "folder». 2) Carrega no botão «Start Remote Explorer "
+              "NextSync server» em baixo. 3) No Next, corre «.sync5 "
+              "-l» (-listen) — o dot liga-se ao endereço IP "
+              "configurado do PC e os dois painéis ganham vida.",
+        "pl": "Remote Explorer to tryb pełnego zarządzania plikami. "
+              "Uruchomienie to trzy ruchy: 1) w lewym lokalnym "
+              "eksploratorze wybierz folder bazowy i wciśnij „Set "
+              "current folder as new sync root folder”. 2) Wciśnij "
+              "przycisk „Start Remote Explorer NextSync server” na "
+              "dole. 3) Na Nexcie uruchom „.sync5 -l” (-listen) — dot "
+              "połączy się ze skonfigurowanym adresem IP PC i oba "
+              "panele ożyją.",
+        "ru": "Remote Explorer — режим полного управления файлами. "
+              "Запуск — три шага: 1) в левом локальном проводнике "
+              "выберите базовую папку и нажмите «Set current folder "
+              "as new sync root folder». 2) Нажмите кнопку «Start "
+              "Remote Explorer NextSync server» внизу. 3) На Next "
+              "выполните «.sync5 -l» (-listen) — dot подключится к "
+              "настроенному IP-адресу ПК, и обе панели оживут.",
+        "cs": "Remote Explorer je režim plné správy souborů. "
+              "Rozjedeš ho třemi tahy: 1) v levém lokálním "
+              "průzkumníku vyber základní složku a stiskni „Set "
+              "current folder as new sync root folder“. 2) Stiskni "
+              "tlačítko „Start Remote Explorer NextSync server“ dole. "
+              "3) Na Nextu spusť „.sync5 -l“ (-listen) — dot se "
+              "připojí na nastavenou IP adresu PC a oba panely ožijí.",
         "fr": "Le Remote Explorer est le mode de gestion complète des "
-              "fichiers : lancez « .sync5 -l » (-listen) sur le Next et "
-              "cet onglet devient un gestionnaire à deux panneaux pour "
-              "le Next lui-même — transférez fichiers et dossiers "
-              "entiers dans les deux sens, renommez, et compressez ou "
-              "décompressez même des zip À DISTANCE sur le Next. Et "
-              "directement depuis le Next, « .sync5 -send "
+              "fichiers. Trois gestes pour le lancer : 1) dans "
+              "l'explorateur local de gauche, choisissez votre dossier "
+              "de base et appuyez sur « Set current folder as new "
+              "sync root folder ». 2) Appuyez sur le bouton « Start "
+              "Remote Explorer NextSync server » en bas. 3) Sur le "
+              "Next, lancez « .sync5 -l » (-listen) — le dot se "
+              "connecte à l'adresse IP configurée du PC et les deux "
+              "panneaux s'animent.",
+    },
+    "ns.remote2": {
+        "en": "From there you exchange files and whole directories "
+              "BOTH ways: transfer, rename, even zip and unzip "
+              "remotely on the Next — and straight from the Next, "
+              "'.sync5 -send <file|dir>' pushes a file or directory "
+              "back to the PC. Done for the day? Press the BREAK key "
+              "(Caps Shift + Space) on the Next to exit the session "
+              "gracefully, or press the 'Stop Remote Explorer "
+              "NextSync server' button here — either way an "
+              "in-progress transfer always finishes first.",
+        "es": "A partir de ahí intercambias archivos y carpetas "
+              "enteras en AMBOS sentidos: transfiere, renombra, "
+              "incluso comprime y descomprime zip en remoto en el "
+              "Next — y directamente desde el Next, «.sync5 -send "
+              "<archivo|carpeta>» envía un archivo o carpeta de vuelta "
+              "al PC. ¿Terminaste por hoy? Pulsa la tecla BREAK (Caps "
+              "Shift + Space) en el Next para salir de la sesión con "
+              "elegancia, o pulsa aquí el botón «Stop Remote Explorer "
+              "NextSync server» — en ambos casos una transferencia en "
+              "curso siempre termina primero.",
+        "pt": "A partir daí trocas ficheiros e pastas inteiras nos "
+              "DOIS sentidos: transfere, renomeia, até faz zip e "
+              "unzip remotamente no Next — e diretamente do Next, "
+              "«.sync5 -send <ficheiro|pasta>» envia um ficheiro ou "
+              "pasta de volta para o PC. Acabou por hoje? Carrega na "
+              "tecla BREAK (Caps Shift + Space) no Next para sair da "
+              "sessão com elegância, ou carrega aqui no botão «Stop "
+              "Remote Explorer NextSync server» — em ambos os casos "
+              "uma transferência em curso termina sempre primeiro.",
+        "pl": "Od tej chwili wymieniasz pliki i całe katalogi w OBIE "
+              "strony: przesyłaj, zmieniaj nazwy, a nawet pakuj i "
+              "rozpakowuj zip zdalnie na Nexcie — a prosto z Nexta "
+              "„.sync5 -send <plik|katalog>” odsyła plik lub katalog "
+              "na PC. Koniec na dziś? Wciśnij klawisz BREAK (Caps "
+              "Shift + Space) na Nexcie, by elegancko zakończyć "
+              "sesję, albo wciśnij tutaj przycisk „Stop Remote "
+              "Explorer NextSync server” — w obu przypadkach trwający "
+              "transfer zawsze najpierw się kończy.",
+        "ru": "Дальше вы обмениваетесь файлами и целыми каталогами в "
+              "ОБЕ стороны: передавайте, переименовывайте, даже "
+              "упаковывайте и распаковывайте zip удалённо на Next — а "
+              "прямо с Next «.sync5 -send <файл|папка>» отправляет "
+              "файл или каталог обратно на ПК. Закончили? Нажмите "
+              "клавишу BREAK (Caps Shift + Space) на Next, чтобы "
+              "изящно завершить сеанс, или нажмите здесь кнопку "
+              "«Stop Remote Explorer NextSync server» — в обоих "
+              "случаях начатая передача всегда сперва завершится.",
+        "cs": "Odtud vyměňuješ soubory i celé složky OBĚMA směry: "
+              "přenášej, přejmenovávej, dokonce zipuj a rozbaluj "
+              "vzdáleně na Nextu — a přímo z Nextu „.sync5 -send "
+              "<soubor|složka>“ pošle soubor nebo složku zpátky do "
+              "PC. Hotovo pro dnešek? Stiskni klávesu BREAK (Caps "
+              "Shift + Space) na Nextu a sezení se elegantně ukončí, "
+              "nebo stiskni tady tlačítko „Stop Remote Explorer "
+              "NextSync server“ — v obou případech se rozběhnutý "
+              "přenos vždy nejdřív dokončí.",
+        "fr": "Dès lors, vous échangez fichiers et dossiers entiers "
+              "dans les DEUX sens : transférez, renommez, compressez "
+              "et décompressez même des zip à distance sur le Next — "
+              "et directement depuis le Next, « .sync5 -send "
               "<fichier|dossier> » renvoie un fichier ou un dossier "
-              "vers le PC.",
+              "vers le PC. Fini pour aujourd'hui ? Appuyez sur la "
+              "touche BREAK (Caps Shift + Space) sur le Next pour "
+              "quitter la session en douceur, ou appuyez ici sur le "
+              "bouton « Stop Remote Explorer NextSync server » — dans "
+              "les deux cas, un transfert en cours se termine "
+              "toujours d'abord.",
     },
     # ── Buttons / menu ────────────────────────────────────────────────────
     "btn.tour": {
@@ -1769,9 +1838,11 @@ GUIDES = {
             "ns.setup2": {"buttons": [("btn.next", "ns.options")]},
             "ns.options": {"buttons": [("btn.close", "close")],
                            "gesture": "cast"},
-            # Branch 2: the Remote Explorer, focused.
-            "ns.remote": {"buttons": [("btn.close", "close")],
-                          "gesture": "cast"},
+            # Branch 2: the Remote Explorer — setup, then capabilities
+            # (incl. the graceful BREAK exit).
+            "ns.remote": {"buttons": [("btn.next", "ns.remote2")]},
+            "ns.remote2": {"buttons": [("btn.close", "close")],
+                           "gesture": "cast"},
             # Branch 3: Classic Sync -> sync root -> server.
             "ns.classic": {"buttons": [("btn.next", "ns.root")]},
             "ns.root":   {"buttons": [("btn.next", "ns.server")]},

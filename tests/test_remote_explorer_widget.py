@@ -299,6 +299,33 @@ def test_initial_and_connection_state():
     check("bogus current drive distrusted", w._default_drive == "C")
 
 
+def test_idle_status_provider():
+    # The host can plug a callable that supplies the disconnected "Next:"
+    # label (sync-root / start-server / waiting stages); without one the
+    # classic waiting text stays. Connected state is never touched.
+    root = tdir("idle_status_root")
+    w, _calls = make_widget(local_start_dir=root)
+    state = {"text": "Next: Select a sync root folder"}
+    w.set_idle_status_provider(lambda: state["text"])
+    check("provider text applied on install",
+          w.next_path_label.text() == "Next: Select a sync root folder")
+    state["text"] = "Next: Start NextSync server"
+    w.refresh_idle_status()
+    check("refresh follows the host state",
+          w.next_path_label.text() == "Next: Start NextSync server")
+    w.on_connected()
+    w.on_listing("/", [])
+    connected_label = w.next_path_label.text()
+    w.refresh_idle_status()
+    check("refresh is a no-op while connected",
+          w.next_path_label.text() == connected_label
+          and "Next: Start" not in connected_label)
+    state["text"] = ""      # provider yielding nothing -> classic fallback
+    w.on_disconnected()
+    check("empty provider text falls back to the waiting label",
+          "waiting for .sync5" in w.next_path_label.text())
+
+
 def test_listing_and_rendering():
     w, calls = make_widget(local_start_dir=tdir("lst_root"))
     connect_widget(w, calls)
@@ -1049,6 +1076,7 @@ def main():
         test_local_file_operations()
         test_drag_and_drop()
         test_arrow_pulse_and_overlay_resize()
+        test_idle_status_provider()
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")

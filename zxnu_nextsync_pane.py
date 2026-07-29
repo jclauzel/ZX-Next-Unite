@@ -628,7 +628,25 @@ def build_nextsync_pane(
             btn.setEnabled(False)
             btn.setText(_RE_NO_ROOT_TEXT)
             _re_start_startbtn_pulse("green") if in_view else _re_stop_startbtn_pulse()
+    def _re_update_start_button_and_status():
+        _re_update_start_button_inner()
+        # Mirror the same state onto the Remote Explorer's "Next:" label
+        # (only shown while disconnected) so it never claims to be waiting
+        # for .sync5 before the server is even running.
+        if host._re_widget is not None:
+            host._re_widget.refresh_idle_status()
+    _re_update_start_button_inner = _re_update_start_button
+    _re_update_start_button = _re_update_start_button_and_status
     host._re_update_start_button = _re_update_start_button
+
+    def _re_idle_status():
+        """The "Next:" pane label while DISCONNECTED, mirroring the start
+        button's three states."""
+        if host._re_running:
+            return "Next: (waiting for .sync5 -listen …)"
+        if not getattr(host, "_re_sync_root", ""):
+            return "Next: Select a sync root folder"
+        return "Next: Start NextSync server"
 
     def _re_on_sync_root_changed(root):
         # The widget reports the user picked (or changed) the local sync root.
@@ -697,6 +715,7 @@ def build_nextsync_pane(
         # Sync the cached sync root with whatever the widget restored (a saved
         # path enables Start; first run leaves it disabled).
         host._re_sync_root = widget.sync_root() or ""
+        widget.set_idle_status_provider(_re_idle_status)
         _re_update_start_button()
         return widget
 
@@ -949,6 +968,13 @@ def build_nextsync_pane(
         # stop event (which would drop the link without saying goodbye).
         q = host._re_queue
         t = host._re_thread
+        # Is a Next actually on the line? The 10 s goodbye grace below only
+        # makes sense for a CONNECTED session: while merely listening the
+        # worker sits in accept() and never polls the command queue, so the
+        # "Q" cannot be delivered and there is no dot to say goodbye to —
+        # waiting used to make Ctrl-C take ~11 s on an idle listener.
+        connected = bool(getattr(getattr(host, "_re_widget", None),
+                                 "_connected", False))
         if q is not None:
             try:
                 # Drop everything still queued first: the transfer currently
@@ -964,17 +990,17 @@ def build_nextsync_pane(
                 # left waiting (the dotN-hang class of bug), so make it
                 # visible in the log rather than swallowing it silently.
                 logging.exception("Remote Explorer: failed to queue the quit command")
-        if t is not None and t.is_alive():
+        if connected and t is not None and t.is_alive():
             # Generous bound: the in-flight file must finish before the Next
             # polls again and receives the "Q" (slow Wi-Fi links move tens
             # of KB/s). Only after this do we force the socket shut.
             t.join(timeout=10.0)        # worker sends "Q", then exits cleanly
-        # Fallback: if it didn't exit on its own (e.g. the Next stopped polling
-        # mid-transfer), force the loop to end so the app can shut down.
+        # Fallback (and the whole path while unconnected): end the loop —
+        # the accept() poll notices the stop event within its 1 s timeout.
         if host._re_stop is not None:
             host._re_stop.set()
         if t is not None and t.is_alive():
-            t.join(timeout=1.0)
+            t.join(timeout=1.0 if connected else 2.0)
         host._re_thread = None
         host._re_stop = None
         host._re_queue = None
