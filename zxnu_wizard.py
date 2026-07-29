@@ -41,10 +41,10 @@ import zxnu_config
 from zxnu_config import (SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN,
                          ZXART_USER_AGENT)
 from zxnu_i18n import current_ui_language
-from zxnu_wizard_content import (DISCLAIMER_STEPS, JOKES, STORIES, TEXTS,
-                                 TOUR_STEPS, USER_MANUAL_PAGE,
-                                 WIKI_PAGE_BASE, WIKI_RAW_BASE,
-                                 wizard_lines, wizard_tr)
+from zxnu_wizard_content import (DISCLAIMER_STEPS, JOKES, KUDOS_NAMES,
+                                 STORIES, TEXTS, TOUR_STEPS,
+                                 USER_MANUAL_PAGE, WIKI_PAGE_BASE,
+                                 WIKI_RAW_BASE, wizard_lines, wizard_tr)
 
 # ── Sprite artwork ────────────────────────────────────────────────────────
 # 26×28 cells, '.' transparent. The suit is deep blue with the Spectrum
@@ -690,9 +690,12 @@ class WizardManager(QObject):
     def finish_tour(self):
         self._tour_active_page = None
         self._respeak = self.finish_tour
-        self._say(self._tr("tour.done"),
+        # The finale: kudos to the people who make the Next awesome, then
+        # the goodbye — the bubble paginates the long thank-you list.
+        self._say(self._tr("tour.kudos").format(names=KUDOS_NAMES)
+                  + "\n\n" + self._tr("tour.done"),
                   [(self._tr("btn.close"), self._dismiss)],
-                  gesture="cast", cycles=3)
+                  gesture="cast", cycles=6)
 
     # ── wiki content ─────────────────────────────────────────────────────
     def open_manual(self, page=None):
