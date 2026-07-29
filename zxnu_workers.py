@@ -2234,6 +2234,28 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                         elif data == b"Bye":
                             sendpacket(conn, str.encode("Later"), 0, log=_vlog)
                             log(f"{timestamp()} | Closing connection")
+                            # Drain until the Next closes its side before we
+                            # do: the hard (SO_LINGER-0) close below sends an
+                            # RST that can otherwise clobber the just-queued
+                            # "Later" (on Windows a reset also flushes data
+                            # already in the peer's receive buffer), making
+                            # the dot retry its bye against a dead socket —
+                            # and tests/test_classic_sync.py flake with
+                            # WinError 10054. The peer's EOF proves "Later"
+                            # was consumed; the grace period bounds a client
+                            # that never hangs up. Mirrors the post-B linger
+                            # in the Send path above.
+                            try:
+                                conn.settimeout(2.0)
+                                while conn.recv(1024):
+                                    pass
+                            except (socket.timeout, OSError):
+                                pass
+                            finally:
+                                try:
+                                    conn.settimeout(None)
+                                except OSError:
+                                    pass
                             talking = False
                         elif data == b"Sync2" or data == b"Sync1" or data == b"Sync":
                             packet = str.encode("Nextsync 0.8 or later needed")
