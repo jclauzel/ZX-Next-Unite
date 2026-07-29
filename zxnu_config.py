@@ -890,6 +890,32 @@ SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE)
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
 
+# Shared splitter-handle style (SD Card + GetIt splitters): the default
+# handle is invisible on dark themes, so users never discover they can
+# resize the panes. Paint a centered translucent "grab pill" (the margins
+# only shrink the painted box — the full handle stays grabbable) with the
+# app's magenta accent on hover. Translucent grays read on light AND dark
+# themes; both orientations covered so the constant works anywhere.
+SPLITTER_HANDLE_QSS = (
+    "QSplitter::handle:vertical {"
+    " background: rgba(150, 150, 190, 70);"
+    " border-top: 1px solid rgba(180, 180, 220, 110);"
+    " border-bottom: 1px solid rgba(180, 180, 220, 110);"
+    " border-radius: 4px; margin: 1px 120px; }"
+    "QSplitter::handle:vertical:hover {"
+    " background: rgba(255, 60, 255, 140);"
+    " border-top: 1px solid rgba(255, 130, 255, 210);"
+    " border-bottom: 1px solid rgba(255, 130, 255, 210); }"
+    "QSplitter::handle:horizontal {"
+    " background: rgba(150, 150, 190, 70);"
+    " border-left: 1px solid rgba(180, 180, 220, 110);"
+    " border-right: 1px solid rgba(180, 180, 220, 110);"
+    " border-radius: 4px; margin: 120px 1px; }"
+    "QSplitter::handle:horizontal:hover {"
+    " background: rgba(255, 60, 255, 140);"
+    " border-left: 1px solid rgba(255, 130, 255, 210);"
+    " border-right: 1px solid rgba(255, 130, 255, 210); }")
+
 CSPECT_SCREEN_SIZES = (("Screen Size X1", "-w1"),("Screen Size X2", "-w2"),("Screen Size X3", "-w3"), ("Screen Size X4", "-w4"), ("Fullscreen", "-fullscreen"))
 CSPECT_SOUND = (("Sound On", ""),("Sound Off", "-sound"))
 CSPECT_SCREEN_SYNC = (("VSync On", "-vsync"),("VSync Off", ""))

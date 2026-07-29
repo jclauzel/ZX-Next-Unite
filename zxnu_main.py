@@ -2853,7 +2853,10 @@ class MainWindow(QMainWindow):
         self.sdcard_splitter.setChildrenCollapsible(False)
         self.sdcard_splitter.setStretchFactor(0, 1)
         self.sdcard_splitter.setStretchFactor(1, 0)
-        self.sdcard_splitter.setHandleWidth(8)
+        self.sdcard_splitter.setHandleWidth(10)
+        # Visible "grab pill" on the handle (invisible by default on dark
+        # themes — users never found the splitter). Shared style constant.
+        self.sdcard_splitter.setStyleSheet(SPLITTER_HANDLE_QSS)
         self.sdcard_splitter.setSizes([500, 160])
         self.sdcard_splitter.handle(1).setToolTip(
             "Drag to resize the file explorers / log window split.")
