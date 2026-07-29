@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (QWidget, QLabel, QComboBox, QHBoxLayout,
 
 from zxnu_config import *
 from zxnu_gallery import *
+from zxnu_i18n import ui_tr_now
 
 
 def build_favorites_helpers(
@@ -302,8 +303,8 @@ def build_favorites_pane(
     def _fav_context_menu(entry, global_pos):
         menu = QMenu()
         src_lbl = host._fav_source_label_for(entry) or "source"
-        act_go = menu.addAction(f"Open in {src_lbl}")
-        act_rm = menu.addAction("Remove from Favorites")
+        act_go = menu.addAction(ui_tr_now("Open in {source}").format(source=src_lbl))
+        act_rm = menu.addAction(ui_tr_now("Remove from Favorites"))
         chosen = menu.exec(global_pos)
         if chosen is act_go:
             host._fav_navigate_to_source(entry)

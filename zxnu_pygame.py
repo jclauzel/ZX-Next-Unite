@@ -37,6 +37,7 @@ from PySide6.QtCore import Qt, QPoint, QTimer
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter
 from PySide6.QtWidgets import QWidget, QMenu, QScrollBar
 
+from zxnu_i18n import ui_tr_now
 from zxnu_media import zxfmt_url_is_displayable_image
 
 
@@ -4875,7 +4876,7 @@ class RetroLogWidget(QWidget):
             return None
         menu = QMenu(self)
         if self._context_copy:
-            act_copy = menu.addAction("Copy all text")
+            act_copy = menu.addAction(ui_tr_now("Copy all text"))
             act_copy.setEnabled(bool(self._lines))
             act_copy.triggered.connect(
                 lambda: QGuiApplication.clipboard().setText(
@@ -4884,9 +4885,9 @@ class RetroLogWidget(QWidget):
             if not menu.isEmpty():
                 menu.addSeparator()
             act_inc = menu.addAction(
-                f"Increase font size (now {self._font_px}px)")
+                ui_tr_now("Increase font size (now {px}px)").format(px=self._font_px))
             act_inc.triggered.connect(lambda: self._font_step_cb(+1))
-            act_dec = menu.addAction("Decrease font size")
+            act_dec = menu.addAction(ui_tr_now("Decrease font size"))
             act_dec.triggered.connect(lambda: self._font_step_cb(-1))
         return menu
 

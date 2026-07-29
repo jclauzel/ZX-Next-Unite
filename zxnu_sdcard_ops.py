@@ -54,6 +54,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox,
 
 from zxnu_config import *
 from zxnu_workers import *
+from zxnu_i18n import ui_tr_now
 from zxnu_sdcard_explorer import (SdCardExplorerPane, IMG_PATH_ROLE,
                                   IMG_ISDIR_ROLE)
 
@@ -743,8 +744,8 @@ def build_sdcard_utils(
                 add_main_log_window(f"Failed downloading NextZXOS image: {download_error}")
                 QMessageBox.critical(
                     dialog,
-                    "Download Failed",
-                    f"Failed to download the NextZXOS image:\n{download_error}"
+                    ui_tr_now("Download Failed"),
+                    ui_tr_now("Failed to download the NextZXOS image:") + f"\n{download_error}"
                 )
                 download_button.setEnabled(True)
                 cancel_button.setEnabled(True)
@@ -771,8 +772,8 @@ def build_sdcard_utils(
                 add_main_log_window(f"Failed extracting NextZXOS image: {extract_error}")
                 QMessageBox.critical(
                     dialog,
-                    "Extraction Failed",
-                    f"The image was downloaded but could not be extracted:\n{extract_error}"
+                    ui_tr_now("Extraction Failed"),
+                    ui_tr_now("The image was downloaded but could not be extracted:") + f"\n{extract_error}"
                 )
                 download_button.setEnabled(True)
                 cancel_button.setEnabled(True)
@@ -1210,7 +1211,7 @@ def build_image_edit_ops(
         if img_err:
             logging.error(img_err)
             add_main_log_window(f"ERROR: {img_err}")
-            QMessageBox.critical(host, "Image not writable", img_err)
+            QMessageBox.critical(host, ui_tr_now("Image not writable"), img_err)
             return
 
         # Delete every selected entry. Fall back to the primary selection if
@@ -1340,20 +1341,20 @@ def build_image_edit_ops(
         if img_err:
             logging.error(img_err)
             add_main_log_window(f"ERROR: {img_err}")
-            QMessageBox.critical(host, "Image not writable", img_err)
+            QMessageBox.critical(host, ui_tr_now("Image not writable"), img_err)
             return
 
         old_name = src_path.rsplit("/", 1)[-1]
         kind = "folder" if is_dir else "file"
         new_name, ok = QInputDialog.getText(
-            host, "Rename", f"New name for the {kind}:", text=old_name)
+            host, ui_tr_now("Rename"), ui_tr_now("New name for the {kind}:").format(kind=ui_tr_now(kind)), text=old_name)
         if not ok:
             return
         new_name = new_name.strip()
         if not new_name or new_name == old_name:
             return
         if "/" in new_name or "\\" in new_name:
-            QMessageBox.warning(host, "Rename failed", "The name cannot contain '/' or '\\'.")
+            QMessageBox.warning(host, ui_tr_now("Rename failed"), ui_tr_now("The name cannot contain '/' or '\\'."))
             return
 
         parent     = src_path.rsplit("/", 1)[0]   # "" for a root-level entry
@@ -1361,8 +1362,8 @@ def build_image_edit_ops(
         image_path = host.right_disk_image_path
 
         if _image_entry_exists(image_path, new_path):
-            QMessageBox.warning(host, "Rename failed",
-                                f'"{new_name}" already exists in this folder.')
+            QMessageBox.warning(host, ui_tr_now("Rename failed"),
+                                ui_tr_now('"{name}" already exists in this folder.').format(name=new_name))
             return
 
         parent_dir = parent or "/"
@@ -1415,22 +1416,22 @@ def build_local_explorer_ops(
         if not dir_path or not os.path.isdir(dir_path):
             return
         name, ok = QInputDialog.getText(
-            host, "Create new directory",
-            f"New directory name in\n{dir_path}:")
+            host, ui_tr_now("Create new directory"),
+            ui_tr_now("New directory name in") + f"\n{dir_path}:")
         if not ok:
             return
         name = name.strip()
         if not name:
             return
         if "/" in name or "\\" in name:
-            QMessageBox.warning(host, "Create directory failed",
-                                "The name cannot contain '/' or '\\'.")
+            QMessageBox.warning(host, ui_tr_now("Create directory failed"),
+                                ui_tr_now("The name cannot contain '/' or '\\'."))
             return
         new_path = os.path.join(dir_path, name)
         if os.path.exists(new_path):
             QMessageBox.warning(
-                host, "Create directory failed",
-                f'"{name}" already exists in this folder.')
+                host, ui_tr_now("Create directory failed"),
+                ui_tr_now('"{name}" already exists in this folder.').format(name=name))
             return
         try:
             os.makedirs(new_path)
@@ -1439,8 +1440,8 @@ def build_local_explorer_ops(
             logging.error(f"Failed to create directory {new_path}: {e}",
                           exc_info=True)
             log_fn(f"Failed to create directory {new_path}: {e}")
-            QMessageBox.critical(host, "Create directory failed",
-                                 f"Could not create:\n{new_path}\n\n{e}")
+            QMessageBox.critical(host, ui_tr_now("Create directory failed"),
+                                 ui_tr_now("Could not create:") + f"\n{new_path}\n\n{e}")
         finally:
             refresh_fn()
 
@@ -1450,21 +1451,21 @@ def build_local_explorer_ops(
         main log window."""
         kind = "folder" if is_dir else "file"
         new_name, ok = QInputDialog.getText(
-            host, "Rename", f"New name for the {kind}:", text=name)
+            host, ui_tr_now("Rename"), ui_tr_now("New name for the {kind}:").format(kind=ui_tr_now(kind)), text=name)
         if not ok:
             return
         new_name = new_name.strip()
         if not new_name or new_name == name:
             return
         if "/" in new_name or "\\" in new_name:
-            QMessageBox.warning(host, "Rename failed",
-                                "The name cannot contain '/' or '\\'.")
+            QMessageBox.warning(host, ui_tr_now("Rename failed"),
+                                ui_tr_now("The name cannot contain '/' or '\\'."))
             return
         new_path = os.path.join(os.path.dirname(file_path), new_name)
         if os.path.exists(new_path):
             QMessageBox.warning(
-                host, "Rename failed",
-                f'"{new_name}" already exists in this folder.')
+                host, ui_tr_now("Rename failed"),
+                ui_tr_now('"{name}" already exists in this folder.').format(name=new_name))
             return
         try:
             os.rename(file_path, new_path)
@@ -1473,8 +1474,8 @@ def build_local_explorer_ops(
             logging.error(f"Failed to rename {file_path} -> {new_path}: {e}",
                           exc_info=True)
             add_main_log_window(f"Failed to rename {file_path}: {e}")
-            QMessageBox.critical(host, "Rename failed",
-                                 f"Could not rename:\n{file_path}\n\n{e}")
+            QMessageBox.critical(host, ui_tr_now("Rename failed"),
+                                 ui_tr_now("Could not rename:") + f"\n{file_path}\n\n{e}")
         finally:
             local_explorer_refresh()
 
@@ -1488,10 +1489,10 @@ def build_local_explorer_ops(
         # targeting the folder currently shown at the top of the tree.
         if source_index is None or name == "..":
             target_dir = local_current_view_dir()
-            menu.addAction("Create new directory…",
+            menu.addAction(ui_tr_now("Create new directory…"),
                            lambda: QTimer.singleShot(0, lambda: _local_make_directory(
                                target_dir, local_explorer_refresh, add_main_log_window)))
-            action_paste = menu.addAction("Paste")
+            action_paste = menu.addAction(ui_tr_now("Paste"))
             action_paste.setEnabled(_explorer_clipboard_has_items())
             action_paste.triggered.connect(lambda: QTimer.singleShot(0, lambda: _explorer_paste_into_local(
                 target_dir, local_explorer_refresh, add_main_log_window)))
@@ -1501,13 +1502,13 @@ def build_local_explorer_ops(
         is_dir = host.model.isDir(source_index)
         # A new folder lands inside a folder, or in a file's parent folder.
         new_dir_target = file_path if is_dir else os.path.dirname(file_path)
-        action_copy_text = QAction("Copy text to clipboard", host.treeview)
-        action_copy_path = QAction("Copy path to clipboard", host.treeview)
-        action_copy = QAction("Copy", host.treeview)
-        action_cut = QAction("Cut", host.treeview)
-        action_paste = QAction("Paste", host.treeview)
-        action_newdir = QAction("Create new directory…", host.treeview)
-        action_rename = QAction("Rename", host.treeview)
+        action_copy_text = QAction(ui_tr_now("Copy text to clipboard"), host.treeview)
+        action_copy_path = QAction(ui_tr_now("Copy path to clipboard"), host.treeview)
+        action_copy = QAction(ui_tr_now("Copy"), host.treeview)
+        action_cut = QAction(ui_tr_now("Cut"), host.treeview)
+        action_paste = QAction(ui_tr_now("Paste"), host.treeview)
+        action_newdir = QAction(ui_tr_now("Create new directory…"), host.treeview)
+        action_rename = QAction(ui_tr_now("Rename"), host.treeview)
         action_copy_text.triggered.connect(lambda: QGuiApplication.clipboard().setText(name))
         action_copy_path.triggered.connect(lambda: QGuiApplication.clipboard().setText(file_path))
         action_copy.triggered.connect(lambda: _local_explorer_copy_selection())
@@ -1524,18 +1525,18 @@ def build_local_explorer_ops(
             lambda: QTimer.singleShot(0, lambda: local_explorer_rename_item(file_path, name, is_dir)))
         # Delete acts on the selection (or the clicked item); the Del key
         # runs the same handler. Deferred like the other dialog-openers.
-        action_delete = QAction("Delete", host.treeview)
+        action_delete = QAction(ui_tr_now("Delete"), host.treeview)
         action_delete.triggered.connect(
             lambda: QTimer.singleShot(0, local_explorer_delete_selection))
         # Zip actions (mirroring the Remote Explorer's local pane): "Unzip
         # file" only on a .zip file, "Zip" archives the selection (or the
         # clicked item) into <first item>.zip next to it. Deferred like the
         # other dialog-openers so the menu's grab is released first.
-        action_unzip = QAction("Unzip file", host.treeview)
+        action_unzip = QAction(ui_tr_now("Unzip file"), host.treeview)
         action_unzip.triggered.connect(
             lambda: QTimer.singleShot(0, lambda: _local_unzip_file(
                 file_path, local_explorer_refresh, add_main_log_window)))
-        action_zip = QAction("Zip", host.treeview)
+        action_zip = QAction(ui_tr_now("Zip"), host.treeview)
         action_zip.triggered.connect(
             lambda: QTimer.singleShot(0, lambda: _local_zip_selection(
                 _local_explorer_selected_paths_or(file_path),
@@ -1680,9 +1681,9 @@ def build_local_explorer_ops(
             if holder["failed"]:
                 listing = "\n".join(p for p, _e in holder["failed"][:10])
                 if len(holder["failed"]) > 10:
-                    listing += f"\n… and {len(holder['failed']) - 10} more"
-                QMessageBox.critical(host, "Delete failed",
-                                     f"Could not delete:\n{listing}")
+                    listing += "\n" + ui_tr_now("… and {n} more").format(n=len(holder['failed']) - 10)
+                QMessageBox.critical(host, ui_tr_now("Delete failed"),
+                                     ui_tr_now("Could not delete:") + f"\n{listing}")
 
         worker.signals.finished.connect(_on_delete_finished)
         host.threadpool.start(worker)
@@ -1709,20 +1710,24 @@ def build_local_explorer_ops(
             if len(items) == 1:
                 p, is_dir = items[0]
                 name = os.path.basename(p.rstrip("/\\")) or p
-                msg = (f'Delete the folder "{name}" and all of its '
-                       f'contents?\n\n{p}' if is_dir
-                       else f'Delete the file "{name}"?\n\n{p}')
+                msg = (ui_tr_now('Delete the folder "{name}" and all of its '
+                                 'contents?').format(name=name) if is_dir
+                       else ui_tr_now('Delete the file "{name}"?')
+                       .format(name=name)) + f"\n\n{p}"
             else:
                 listing = "\n".join(p for p, _d in items[:15])
                 if len(items) > 15:
-                    listing += f"\n… and {len(items) - 15} more"
-                msg = (f"Delete these {len(items)} items? Folders are "
-                       f"deleted with all of their contents.\n\n{listing}")
-            msg += ("\n\nDeleted files are sent to the Recycle Bin."
-                    if _deletes_go_to_recycle_bin()
-                    else "\n\nThis cannot be undone.")
+                    listing += "\n" + ui_tr_now("… and {n} more").format(
+                        n=len(items) - 15)
+                msg = (ui_tr_now("Delete these {count} items? Folders are "
+                                 "deleted with all of their contents.")
+                       .format(count=len(items)) + f"\n\n{listing}")
+            msg += "\n\n" + (
+                ui_tr_now("Deleted files are sent to the Recycle Bin.")
+                if _deletes_go_to_recycle_bin()
+                else ui_tr_now("This cannot be undone."))
             if QMessageBox.question(
-                    host, "Confirm deletion", msg,
+                    host, ui_tr_now("Confirm deletion"), msg,
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.No) != QMessageBox.Yes:
                 return
@@ -1741,8 +1746,8 @@ def build_local_explorer_ops(
             log_fn(f"Unzip of {name} cancelled — already-extracted files remain.")
         elif res["error"]:
             log_fn(f"ERROR: could not extract {name}: {res['error']}")
-            QMessageBox.critical(host, "Unzip failed",
-                                 f"Could not extract {name}:\n{res['error']}")
+            QMessageBox.critical(host, ui_tr_now("Unzip failed"),
+                                 ui_tr_now("Could not extract {name}:").format(name=name) + f"\n{res['error']}")
         else:
             skipped = res["skipped"]
             extra = (f" ({skipped} unsafe "
@@ -1771,8 +1776,8 @@ def build_local_explorer_ops(
             log_fn(f"Zip cancelled — {zip_name} was not created.")
         elif res["error"]:
             log_fn(f"ERROR: could not create {zip_name}: {res['error']}")
-            QMessageBox.critical(host, "Zip failed",
-                                 f"Could not create {zip_name}:\n{res['error']}")
+            QMessageBox.critical(host, ui_tr_now("Zip failed"),
+                                 ui_tr_now("Could not create {name}:").format(name=zip_name) + f"\n{res['error']}")
         else:
             log_fn(f"Created {zip_name} in {dest} ({res['files']} file(s)).")
         refresh_fn()
@@ -2184,7 +2189,7 @@ def build_transfer_clipboard_ops(
         if img_err:
             logging.error(img_err)
             add_main_log_window(f"ERROR: {img_err}")
-            QMessageBox.critical(host, "Image not writable", img_err)
+            QMessageBox.critical(host, ui_tr_now("Image not writable"), img_err)
             return
         items = [(p, d) for (p, d) in image_items if p]
         if not items:
@@ -2470,7 +2475,7 @@ def build_transfer_clipboard_ops(
         if img_err:
             logging.error(img_err)
             add_main_log_window(f"ERROR: {img_err}")
-            QMessageBox.critical(host, "Image not writable", img_err)
+            QMessageBox.critical(host, ui_tr_now("Image not writable"), img_err)
             return
 
         if host.settings_warn_image_nearly_full_checkbox.isChecked():
@@ -2528,7 +2533,7 @@ def build_transfer_clipboard_ops(
         if img_err:
             logging.error(img_err)
             add_main_log_window(f"ERROR: {img_err}")
-            QMessageBox.critical(host, "Image not writable", img_err)
+            QMessageBox.critical(host, ui_tr_now("Image not writable"), img_err)
             return
 
         if host.settings_warn_image_nearly_full_checkbox.isChecked():
@@ -2643,7 +2648,7 @@ def build_transfer_clipboard_ops(
         img_err = _check_image_writable(host.right_disk_image_path)
         if img_err:
             add_main_log_window(f"ERROR: {img_err}")
-            QMessageBox.critical(host, "Image not writable", img_err)
+            QMessageBox.critical(host, ui_tr_now("Image not writable"), img_err)
             return
         name = zip_path.rstrip("/").rsplit("/", 1)[-1]
         dest_dir = zip_path.rstrip("/").rsplit("/", 1)[0] or "/"
@@ -2670,8 +2675,8 @@ def build_transfer_clipboard_ops(
                     add_main_log_window(f"ERROR: could not extract {name}: "
                                         f"{res['error']}")
                     QMessageBox.critical(
-                        host, "Remote unzip failed",
-                        f"Could not extract {name}:\n{res['error']}")
+                        host, ui_tr_now("Remote unzip failed"),
+                        ui_tr_now("Could not extract {name}:").format(name=name) + f"\n{res['error']}")
                 else:
                     add_main_log_window(f"{name} contains no extractable "
                                         "files.")
@@ -2709,7 +2714,7 @@ def build_transfer_clipboard_ops(
         img_err = _check_image_writable(host.right_disk_image_path)
         if img_err:
             add_main_log_window(f"ERROR: {img_err}")
-            QMessageBox.critical(host, "Image not writable", img_err)
+            QMessageBox.critical(host, ui_tr_now("Image not writable"), img_err)
             return
         first = items[0][0].rstrip("/").rsplit("/", 1)[-1] or "archive"
         dest_dir = items[0][0].rstrip("/").rsplit("/", 1)[0] or "/"
@@ -2790,14 +2795,14 @@ def build_transfer_clipboard_ops(
             menu.addAction(copy_label, lambda: _image_explorer_copy_selection())
             cut_label = f"Cut {selected_count} items" if selected_count > 1 else "Cut"
             menu.addAction(cut_label, lambda: _image_explorer_copy_selection(mode="cut"))
-            action_paste = menu.addAction("Paste")
+            action_paste = menu.addAction(ui_tr_now("Paste"))
             action_paste.setEnabled(_explorer_clipboard_has_items())
             action_paste.triggered.connect(
                 lambda: QTimer.singleShot(0, lambda: _explorer_paste_into_image(image_dest_dir())))
             menu.addSeparator()
             # Rename acts on a single entry; only offer it for a lone selection.
             if selected_count <= 1:
-                menu.addAction("Rename…",
+                menu.addAction(ui_tr_now("Rename…"),
                                lambda: QTimer.singleShot(0, image_rename_dialog))
             delete_label = f"Delete {selected_count} items" if selected_count > 1 else "Delete"
             menu.addAction(delete_label, delete_files_button_show_confirmation_buttons)
@@ -2824,8 +2829,8 @@ def build_transfer_clipboard_ops(
         else:
             # Empty area: clear the selection so a new folder lands at the root.
             host.image_treeview.clearSelection()
-            menu.addAction("New Folder…", image_newfolder_dialog)
-            action_paste = menu.addAction("Paste")
+            menu.addAction(ui_tr_now("New Folder…"), image_newfolder_dialog)
+            action_paste = menu.addAction(ui_tr_now("Paste"))
             action_paste.setEnabled(_explorer_clipboard_has_items())
             action_paste.triggered.connect(
                 lambda: QTimer.singleShot(0, lambda: _explorer_paste_into_image(image_dest_dir())))

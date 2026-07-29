@@ -335,9 +335,9 @@ def build_getit_pane(
         menu = QMenu()
         act_dl      = menu.addAction(f'Download \u201c{title}\u201d')
         menu.addSeparator()
-        act_send_sd = menu.addAction(f"Send to SD card (image)  \u2192  {_sd_dest}")
+        act_send_sd = menu.addAction(ui_tr_now("Send to SD card (image)  →  {dest}").format(dest=_sd_dest))
         act_send_sd.setEnabled(bool(host.right_disk_image_path) and bool(_right_disk_content()))
-        act_send_ns = menu.addAction(f"Send using NextSync  \u2192  {_ns_dest}")
+        act_send_ns = menu.addAction(ui_tr_now("Send using NextSync  →  {dest}").format(dest=_ns_dest))
         chosen = menu.exec(global_pos)
         if chosen is None:
             return
@@ -1512,9 +1512,9 @@ def build_getit_pane(
         menu = QMenu(host.getit_results_table)
         act_dl      = menu.addAction(f'Download \u201c{title}\u201d')
         menu.addSeparator()
-        act_send_sd = menu.addAction(f"Send to SD card (image)  →  {_sd_dest}")
+        act_send_sd = menu.addAction(ui_tr_now("Send to SD card (image)  →  {dest}").format(dest=_sd_dest))
         act_send_sd.setEnabled(bool(host.right_disk_image_path) and bool(_right_disk_content()))
-        act_send_ns = menu.addAction(f"Send using NextSync  →  {_ns_dest}")
+        act_send_ns = menu.addAction(ui_tr_now("Send using NextSync  →  {dest}").format(dest=_ns_dest))
         chosen = menu.exec(host.getit_results_table.viewport().mapToGlobal(pos))
         if chosen is None:
             return

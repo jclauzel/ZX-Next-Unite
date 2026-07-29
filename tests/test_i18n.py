@@ -202,7 +202,10 @@ def test_toast_tripwire():
     literals = set()
     for fname in ("zxnu_main.py", "zxnu_nextsync_pane.py",
                   "zxnu_remote_explorer.py", "zxnu_getit_pane.py",
-                  "zxnu_zxart_pane.py", "zxnu_zxdb_pane.py"):
+                  "zxnu_zxart_pane.py", "zxnu_zxdb_pane.py",
+                  # runtime context menus + confirm/failure dialogs:
+                  "zxnu_sdcard_ops.py", "zxnu_nextsync_ops.py",
+                  "zxnu_favorites_pane.py", "zxnu_pygame.py"):
         tree = ast.parse(open(os.path.join(repo, fname), encoding="utf-8").read())
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
