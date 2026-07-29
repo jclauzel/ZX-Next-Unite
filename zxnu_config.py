@@ -138,6 +138,40 @@ GETIT_BASE_URL = "https://zxnext.uk"
 GETIT_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
 GETIT_PAGE_SIZE = 18
 
+# ── GetIt curated starter pack ──────────────────────────────────────────
+# The "fill my card" day-one selection: hand-picked modern homebrew from
+# the GetIt catalogue (zxnext.uk). Rights-clean by construction — GetIt
+# only hosts freely-distributable software. Each entry is
+# (getit_id, title); resolution (getit_resolve_starter_pack in
+# zxnu_api.py) matches the id first and falls back to the title, so a
+# re-uploaded entry (which gets a new id) keeps working as long as its
+# title survives, and a retired one is skipped with a note.
+GETIT_STARTER_PACK = (
+    ("efb3aa", "Sonic Spectrum Next"),
+    ("e4df40", "Bubble Booble Next"),
+    ("b6f7a0", "Wonderful Dizzy"),
+    ("80d2bf", "Operation Jeff"),
+    ("285bd1", "Wonderland"),
+    ("41c6b6", "Corrupt"),
+    ("8e80bf", "The Scholar"),
+    ("7ac71b", "Celeste (remake)"),
+    ("b45c2f", "Bean Bros"),
+    ("f2ed27", "Trainyard Express"),
+    ("d3a56f", "Bubble Gum Bros"),
+    ("ddd93f", "Vradark's Revenge [DEMO]"),
+    ("ab34fd", "Delta's Shadow Demo"),
+    ("356611", "Crowley's World Tour"),
+    ("5937d2", "Scramble"),
+    ("44cfed", "PacNext"),
+    ("f7c929", "Go Mummy!"),
+    ("0b4c6b", "DougieDo"),
+    ("1bb38c", "Galaxy of Errors"),
+    ("5a8574", "BaSoko"),
+)
+# Destination folder inside the loaded disk image (one sub-folder per
+# title is created underneath).
+GETIT_STARTER_PACK_IMAGE_DIR = "/games/StarterPack"
+
 # Minimum number of characters required before a keyword search is accepted.
 SEARCH_MIN_CHARS = 3
 

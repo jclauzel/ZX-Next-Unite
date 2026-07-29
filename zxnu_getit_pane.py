@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import webbrowser
 import urllib.error
 import urllib.parse
@@ -27,7 +28,7 @@ from PySide6.QtWidgets import (QWidget, QLabel, QPushButton, QComboBox,
     QLineEdit, QFormLayout, QHBoxLayout, QVBoxLayout, QSizePolicy,
     QScrollArea, QStackedWidget, QSplitter, QFrame, QTableWidget,
     QTableWidgetItem, QAbstractItemView, QToolButton, QMenu, QCompleter,
-    QFileDialog)
+    QFileDialog, QMessageBox)
 
 from zxnu_config import *
 from zxnu_i18n import ui_tr_now
@@ -105,6 +106,14 @@ def build_getit_pane(
         "Pick a random page from the full GetIt catalogue and show its entries."
     )
     getit_search_row.addWidget(host.getit_random_button)
+
+    host.getit_starter_button = QPushButton("🎁 Starter pack")
+    host.getit_starter_button.setToolTip(
+        "Fill the loaded SD image with a hand-picked selection of modern "
+        "homebrew from the GetIt catalogue — everything on GetIt is freely "
+        "distributable."
+    )
+    getit_search_row.addWidget(host.getit_starter_button)
 
     getit_search_row.addWidget(QLabel("Page:"))
     host.getit_page_label = QLabel("1")
@@ -1442,6 +1451,176 @@ def build_getit_pane(
             getit_set_status(f"Send to image failed: {err[1]}")
 
         getit_run_in_thread(_dl_and_put, _on_done, _on_err)
+
+    # ---- 🎁 Curated starter pack --------------------------------------
+    def _starter_install_one(e, image_path):
+        """Download one resolved pack entry and hdfmonkey-put it into the
+        image under GETIT_STARTER_PACK_IMAGE_DIR/<Title>/. Worker-thread
+        code — raises on failure, caller collects."""
+        eid = str(e.get("id", "")).strip()
+        title = str(e.get("title") or eid)
+        safe_name = re.sub(r'[<>:"/\\|?*]', "", title).strip() or eid
+        url = f"{GETIT_BASE_URL}/nx/{eid}/"
+        cd, data = _http_fetch_with_cd_retry(
+            url, headers={"User-Agent": GETIT_USER_AGENT}, timeout=120)
+        real = ""
+        for part in cd.split(";"):
+            part = part.strip()
+            if part.lower().startswith("filename="):
+                real = part[len("filename="):].strip().strip('"').strip("'")
+                break
+        fname = real or f"{eid}.bin"
+        img_dir = f"{GETIT_STARTER_PACK_IMAGE_DIR}/{safe_name}"
+        img_dest = f"{img_dir}/{fname}"
+        tmp = tempfile.NamedTemporaryFile(suffix="_" + fname, delete=False)
+        tmp.close()
+        try:
+            with open(tmp.name, "wb") as fh:
+                fh.write(data)
+            execute_hdf_monkey("mkdir", image_path,
+                               extra_argv=[img_dir], silent=True)
+            result = execute_hdf_monkey(
+                "put", image_path,
+                extra_argv=[tmp.name.replace("\\", "/"), img_dest])
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"hdfmonkey put failed (rc={result.returncode})")
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+
+    def getit_on_starter_pack():
+        """One click to a filled card: fetch the catalogue, resolve the
+        hand-picked GETIT_STARTER_PACK titles, then download and
+        hdfmonkey-put each into its own folder inside the loaded image —
+        sequential, cancellable between titles, all off the UI thread
+        (the modal progress dialog's event loop delivers the queued
+        progress/finish signals)."""
+        online = getattr(host, "_network_online", None)
+        if online is not None and not online():
+            getit_set_status(ui_tr_now("No network connection."))
+            return
+        if not host.right_disk_image_path or not _right_disk_content():
+            QMessageBox.information(
+                host, ui_tr_now("Starter pack"),
+                ui_tr_now("Load a disk image first (SD Card tab), "
+                          "then try again."))
+            return
+        if QMessageBox.question(
+                host, ui_tr_now("Starter pack"),
+                ui_tr_now("Fill your SD image with {count} hand-picked "
+                          "homebrew titles from the GetIt catalogue?")
+                .format(count=len(GETIT_STARTER_PACK))
+                + "\n\n"
+                + ui_tr_now("Everything on GetIt is freely distributable; "
+                            "the files are written to {dir} inside the "
+                            "loaded image.")
+                .format(dir=GETIT_STARTER_PACK_IMAGE_DIR),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes) != QMessageBox.Yes:
+            return
+
+        image_path = host.right_disk_image_path
+        host.getit_starter_button.setEnabled(False)
+        dlg = HdfProgressDialog(ui_tr_now("Assembling the starter pack…"),
+                                host)
+        cancel_event = threading.Event()
+        dlg.cancel_requested.connect(cancel_event.set)
+        sig = HdfTaskSignals()
+        sig.progress.connect(dlg.set_progress)
+        sig.status.connect(dlg.set_status)
+        host._getit_starter_signals = sig      # keep alive while running
+
+        def _job():
+            sig.progress.emit(-1)
+            sig.status.emit(ui_tr_now("Fetching the GetIt catalogue…"))
+            entries, off = [], 0
+            while not cancel_event.is_set():
+                text = getit_fetch(f"/f?s=&o={off}" if off else "/f?s=")
+                page_entries, _t, _p, _tp = getit_parse_file_list(text)
+                if not page_entries:
+                    break
+                entries += page_entries
+                off += len(page_entries)
+                if off > 3000:      # safety valve on a runaway listing
+                    break
+            found, missing = getit_resolve_starter_pack(entries)
+            res = {"done": 0, "total": len(found),
+                   "missing": [t for _i, t in missing], "failed": [],
+                   "cancelled": cancel_event.is_set()}
+            # Parent folders once (hdfmonkey mkdir makes one level).
+            parts = [p for p in
+                     GETIT_STARTER_PACK_IMAGE_DIR.split("/") if p]
+            for i in range(1, len(parts) + 1):
+                execute_hdf_monkey("mkdir", image_path,
+                                   extra_argv=["/" + "/".join(parts[:i])],
+                                   silent=True)
+            for idx, e in enumerate(found):
+                if cancel_event.is_set():
+                    res["cancelled"] = True
+                    break
+                title = e.get("title") or e.get("id")
+                sig.progress.emit(int(idx * 100 / max(1, len(found))))
+                sig.status.emit(
+                    ui_tr_now("Downloading {title} ({idx}/{total})…")
+                    .format(title=title, idx=idx + 1, total=len(found)))
+                try:
+                    _starter_install_one(e, image_path)
+                    res["done"] += 1
+                except Exception:
+                    logging.exception("starter pack: %s failed", title)
+                    res["failed"].append(str(title))
+            sig.progress.emit(100)
+            return res
+
+        def _finish(res):
+            dlg.accept()
+            host.getit_starter_button.setEnabled(True)
+            host._getit_starter_signals = None
+            if res["cancelled"]:
+                summary = ui_tr_now(
+                    "Starter pack cancelled — {done} title(s) were "
+                    "installed.").format(done=res["done"])
+            else:
+                summary = ui_tr_now(
+                    "Starter pack complete: {done} of {total} titles "
+                    "installed to {dir}.").format(
+                    done=res["done"], total=res["total"],
+                    dir=GETIT_STARTER_PACK_IMAGE_DIR)
+            details = []
+            if res["missing"]:
+                details.append(
+                    ui_tr_now("Not in the catalogue right now: {names}")
+                    .format(names=", ".join(res["missing"])))
+            if res["failed"]:
+                details.append(ui_tr_now("Failed: {names}")
+                               .format(names=", ".join(res["failed"])))
+            getit_set_status(summary)
+            host._show_sd_notification(summary)
+            QMessageBox.information(
+                host, ui_tr_now("Starter pack"),
+                "\n\n".join([summary] + details))
+            # Refresh the disk-image table so /games/StarterPack appears.
+            update_disk_manager_widget_table()
+
+        def _fail(err):
+            dlg.accept()
+            host.getit_starter_button.setEnabled(True)
+            host._getit_starter_signals = None
+            getit_set_status(ui_tr_now("Starter pack failed: {error}")
+                             .format(error=err[1]))
+            QMessageBox.warning(
+                host, ui_tr_now("Starter pack"),
+                ui_tr_now("Starter pack failed: {error}")
+                .format(error=err[1]))
+
+        host._getit_starter_thread = getit_run_in_thread(_job, _finish,
+                                                         _fail)
+        dlg.exec()
+
+    host.getit_starter_button.clicked.connect(getit_on_starter_pack)
 
     def _getit_send_to_ns_folder(eid: str, default_name: str, dest_root: str,
                                  title: str, post_action=None):

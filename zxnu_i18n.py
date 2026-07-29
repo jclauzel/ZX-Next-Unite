@@ -188,6 +188,29 @@ def translate_widget_tree(root, lang):
 
 CATALOGS = {
     "es": {
+        # ---- GetIt starter pack ----
+        'Assembling the starter pack…': 'Preparando el pack de inicio…',
+        'Downloading {title} ({idx}/{total})…': 'Descargando {title} ({idx}/{total})…',
+        ('Everything on GetIt is freely distributable; the files are written to {dir} '
+         'inside the loaded image.'):
+            ('Todo lo que hay en GetIt es de libre distribución; los archivos se '
+             'escriben en {dir} dentro de la imagen cargada.'),
+        'Failed: {names}': 'Fallaron: {names}',
+        'Fetching the GetIt catalogue…': 'Obteniendo el catálogo GetIt…',
+        ('Fill the loaded SD image with a hand-picked selection of modern homebrew '
+         'from the GetIt catalogue — everything on GetIt is freely distributable.'):
+            ('Llena la imagen SD cargada con una selección hecha a mano de homebrew '
+             'moderno del catálogo GetIt: todo lo que hay en GetIt es de libre '
+             'distribución.'),
+        'Fill your SD image with {count} hand-picked homebrew titles from the GetIt catalogue?': '¿Llenar tu imagen SD con {count} títulos homebrew seleccionados a mano del catálogo GetIt?',
+        'Load a disk image first (SD Card tab), then try again.': 'Carga primero una imagen de disco (pestaña SD Card) y vuelve a intentarlo.',
+        'No network connection.': 'Sin conexión de red.',
+        'Not in the catalogue right now: {names}': 'Ahora mismo no está(n) en el catálogo: {names}',
+        'Starter pack': 'Pack de inicio',
+        'Starter pack cancelled — {done} title(s) were installed.': 'Pack de inicio cancelado: se instalaron {done} título(s).',
+        'Starter pack complete: {done} of {total} titles installed to {dir}.': 'Pack de inicio completado: {done} de {total} títulos instalados en {dir}.',
+        'Starter pack failed: {error}': 'El pack de inicio falló: {error}',
+        '🎁 Starter pack': '🎁 Pack de inicio',
         # ---- context menus & runtime dialogs ----
         '"{name}" already exists in this folder.': '"{name}" ya existe en esta carpeta.',
         'Add drive {letter}: to the list?': '¿Añadir la unidad {letter}: a la lista?',
@@ -495,6 +518,29 @@ CATALOGS = {
             "El idioma de la interfaz se ha ajustado al idioma de tu sistema.\nPuedes cambiarlo cuando quieras en la pestaña Settings\n(«Idioma de la aplicación:»).",
     },
     "pt": {
+        # ---- GetIt starter pack ----
+        'Assembling the starter pack…': 'A montar o pacote inicial…',
+        'Downloading {title} ({idx}/{total})…': 'A transferir {title} ({idx}/{total})…',
+        ('Everything on GetIt is freely distributable; the files are written to {dir} '
+         'inside the loaded image.'):
+            ('Tudo no GetIt é de distribuição livre; os ficheiros são escritos em '
+             '{dir} dentro da imagem carregada.'),
+        'Failed: {names}': 'Falharam: {names}',
+        'Fetching the GetIt catalogue…': 'A obter o catálogo GetIt…',
+        ('Fill the loaded SD image with a hand-picked selection of modern homebrew '
+         'from the GetIt catalogue — everything on GetIt is freely distributable.'):
+            ('Preenche a imagem SD carregada com uma seleção escolhida a dedo de '
+             'homebrew moderno do catálogo GetIt — tudo no GetIt é de distribuição '
+             'livre.'),
+        'Fill your SD image with {count} hand-picked homebrew titles from the GetIt catalogue?': 'Preencher a tua imagem SD com {count} títulos homebrew escolhidos a dedo do catálogo GetIt?',
+        'Load a disk image first (SD Card tab), then try again.': 'Carrega primeiro uma imagem de disco (separador SD Card) e tenta novamente.',
+        'No network connection.': 'Sem ligação de rede.',
+        'Not in the catalogue right now: {names}': 'De momento não está(ão) no catálogo: {names}',
+        'Starter pack': 'Pacote inicial',
+        'Starter pack cancelled — {done} title(s) were installed.': 'Pacote inicial cancelado — foram instalados {done} título(s).',
+        'Starter pack complete: {done} of {total} titles installed to {dir}.': 'Pacote inicial concluído: {done} de {total} títulos instalados em {dir}.',
+        'Starter pack failed: {error}': 'O pacote inicial falhou: {error}',
+        '🎁 Starter pack': '🎁 Pacote inicial',
         # ---- context menus & runtime dialogs ----
         '"{name}" already exists in this folder.': '"{name}" já existe nesta pasta.',
         'Add drive {letter}: to the list?': 'Adicionar a unidade {letter}: à lista?',
@@ -803,6 +849,28 @@ CATALOGS = {
             "O idioma da interface foi ajustado ao idioma do seu sistema.\nPode alterá-lo quando quiser no separador Settings\n(«Idioma da aplicação:»).",
     },
     "pl": {
+        # ---- GetIt starter pack ----
+        'Assembling the starter pack…': 'Składanie pakietu startowego…',
+        'Downloading {title} ({idx}/{total})…': 'Pobieranie {title} ({idx}/{total})…',
+        ('Everything on GetIt is freely distributable; the files are written to {dir} '
+         'inside the loaded image.'):
+            ('Wszystko w GetIt można swobodnie rozpowszechniać; pliki są zapisywane w '
+             '{dir} wewnątrz załadowanego obrazu.'),
+        'Failed: {names}': 'Nie powiodło się: {names}',
+        'Fetching the GetIt catalogue…': 'Pobieranie katalogu GetIt…',
+        ('Fill the loaded SD image with a hand-picked selection of modern homebrew '
+         'from the GetIt catalogue — everything on GetIt is freely distributable.'):
+            ('Wypełnia załadowany obraz SD starannie wybranym nowoczesnym homebrew z '
+             'katalogu GetIt — wszystko w GetIt można swobodnie rozpowszechniać.'),
+        'Fill your SD image with {count} hand-picked homebrew titles from the GetIt catalogue?': 'Wypełnić obraz SD {count} starannie wybranymi tytułami homebrew z katalogu GetIt?',
+        'Load a disk image first (SD Card tab), then try again.': 'Najpierw załaduj obraz dysku (karta SD Card), potem spróbuj ponownie.',
+        'No network connection.': 'Brak połączenia sieciowego.',
+        'Not in the catalogue right now: {names}': 'Obecnie brak w katalogu: {names}',
+        'Starter pack': 'Pakiet startowy',
+        'Starter pack cancelled — {done} title(s) were installed.': 'Pakiet startowy anulowany — zainstalowano tytułów: {done}.',
+        'Starter pack complete: {done} of {total} titles installed to {dir}.': 'Pakiet startowy ukończony: zainstalowano {done} z {total} tytułów w {dir}.',
+        'Starter pack failed: {error}': 'Pakiet startowy nie powiódł się: {error}',
+        '🎁 Starter pack': '🎁 Pakiet startowy',
         # ---- context menus & runtime dialogs ----
         '"{name}" already exists in this folder.': '"{name}" już istnieje w tym folderze.',
         'Add drive {letter}: to the list?': 'Dodać dysk {letter}: do listy?',
@@ -1110,6 +1178,28 @@ CATALOGS = {
             "Język interfejsu został dopasowany do języka systemu.\nMożesz go zmienić w każdej chwili na karcie Settings\n(«Język aplikacji:»).",
     },
     "ru": {
+        # ---- GetIt starter pack ----
+        'Assembling the starter pack…': 'Сборка стартового набора…',
+        'Downloading {title} ({idx}/{total})…': 'Скачивание {title} ({idx}/{total})…',
+        ('Everything on GetIt is freely distributable; the files are written to {dir} '
+         'inside the loaded image.'):
+            ('Всё на GetIt свободно распространяется; файлы записываются в {dir} '
+             'внутри загруженного образа.'),
+        'Failed: {names}': 'Не удалось: {names}',
+        'Fetching the GetIt catalogue…': 'Загрузка каталога GetIt…',
+        ('Fill the loaded SD image with a hand-picked selection of modern homebrew '
+         'from the GetIt catalogue — everything on GetIt is freely distributable.'):
+            ('Заполняет загруженный образ SD отобранным вручную современным homebrew '
+             'из каталога GetIt — всё на GetIt свободно распространяется.'),
+        'Fill your SD image with {count} hand-picked homebrew titles from the GetIt catalogue?': 'Заполнить образ SD {count} отобранными вручную homebrew-играми из каталога GetIt?',
+        'Load a disk image first (SD Card tab), then try again.': 'Сначала загрузите образ диска (вкладка SD Card), затем повторите.',
+        'No network connection.': 'Нет сетевого подключения.',
+        'Not in the catalogue right now: {names}': 'Сейчас нет в каталоге: {names}',
+        'Starter pack': 'Стартовый набор',
+        'Starter pack cancelled — {done} title(s) were installed.': 'Стартовый набор отменён — установлено игр: {done}.',
+        'Starter pack complete: {done} of {total} titles installed to {dir}.': 'Стартовый набор готов: установлено {done} из {total} игр в {dir}.',
+        'Starter pack failed: {error}': 'Сбой стартового набора: {error}',
+        '🎁 Starter pack': '🎁 Стартовый набор',
         # ---- context menus & runtime dialogs ----
         '"{name}" already exists in this folder.': '"{name}" уже существует в этой папке.',
         'Add drive {letter}: to the list?': 'Добавить диск {letter}: в список?',
@@ -1418,6 +1508,28 @@ CATALOGS = {
             "Язык интерфейса установлен по языку вашей системы.\nЕго можно в любой момент изменить на вкладке Settings\n(«Язык приложения:»).",
     },
     "cs": {
+        # ---- GetIt starter pack ----
+        'Assembling the starter pack…': 'Sestavování startovního balíčku…',
+        'Downloading {title} ({idx}/{total})…': 'Stahování {title} ({idx}/{total})…',
+        ('Everything on GetIt is freely distributable; the files are written to {dir} '
+         'inside the loaded image.'):
+            ('Vše na GetIt je volně šiřitelné; soubory se zapisují do {dir} uvnitř '
+             'načteného obrazu.'),
+        'Failed: {names}': 'Selhalo: {names}',
+        'Fetching the GetIt catalogue…': 'Načítání katalogu GetIt…',
+        ('Fill the loaded SD image with a hand-picked selection of modern homebrew '
+         'from the GetIt catalogue — everything on GetIt is freely distributable.'):
+            ('Naplní načtený obraz SD ručně vybraným moderním homebrew z katalogu '
+             'GetIt — vše na GetIt je volně šiřitelné.'),
+        'Fill your SD image with {count} hand-picked homebrew titles from the GetIt catalogue?': 'Naplnit obraz SD {count} ručně vybranými homebrew tituly z katalogu GetIt?',
+        'Load a disk image first (SD Card tab), then try again.': 'Nejprve načtěte obraz disku (karta SD Card) a zkuste to znovu.',
+        'No network connection.': 'Žádné síťové připojení.',
+        'Not in the catalogue right now: {names}': 'Momentálně nejsou v katalogu: {names}',
+        'Starter pack': 'Startovní balíček',
+        'Starter pack cancelled — {done} title(s) were installed.': 'Startovní balíček zrušen — nainstalováno titulů: {done}.',
+        'Starter pack complete: {done} of {total} titles installed to {dir}.': 'Startovní balíček hotov: nainstalováno {done} z {total} titulů do {dir}.',
+        'Starter pack failed: {error}': 'Startovní balíček selhal: {error}',
+        '🎁 Starter pack': '🎁 Startovní balíček',
         # ---- context menus & runtime dialogs ----
         '"{name}" already exists in this folder.': '"{name}" v této složce už existuje.',
         'Add drive {letter}: to the list?': 'Přidat jednotku {letter}: do seznamu?',
@@ -1725,6 +1837,29 @@ CATALOGS = {
             "Jazyk rozhraní byl nastaven podle jazyka vašeho systému.\nKdykoli ho můžete změnit na kartě Settings\n(«Jazyk aplikace:»).",
     },
     "fr": {
+        # ---- GetIt starter pack ----
+        'Assembling the starter pack…': 'Assemblage du pack de démarrage…',
+        'Downloading {title} ({idx}/{total})…': 'Téléchargement de {title} ({idx}/{total})…',
+        ('Everything on GetIt is freely distributable; the files are written to {dir} '
+         'inside the loaded image.'):
+            ('Tout ce qui est sur GetIt est librement distribuable ; les fichiers sont '
+             "écrits dans {dir} à l'intérieur de l'image chargée."),
+        'Failed: {names}': 'Échecs : {names}',
+        'Fetching the GetIt catalogue…': 'Récupération du catalogue GetIt…',
+        ('Fill the loaded SD image with a hand-picked selection of modern homebrew '
+         'from the GetIt catalogue — everything on GetIt is freely distributable.'):
+            ("Remplit l'image SD chargée d'une sélection faite main de homebrew "
+             'moderne du catalogue GetIt — tout ce qui est sur GetIt est librement '
+             'distribuable.'),
+        'Fill your SD image with {count} hand-picked homebrew titles from the GetIt catalogue?': 'Remplir votre image SD avec {count} titres homebrew sélectionnés à la main du catalogue GetIt ?',
+        'Load a disk image first (SD Card tab), then try again.': "Chargez d'abord une image disque (onglet SD Card), puis réessayez.",
+        'No network connection.': 'Pas de connexion réseau.',
+        'Not in the catalogue right now: {names}': 'Absent(s) du catalogue pour le moment : {names}',
+        'Starter pack': 'Pack de démarrage',
+        'Starter pack cancelled — {done} title(s) were installed.': 'Pack de démarrage annulé — {done} titre(s) installé(s).',
+        'Starter pack complete: {done} of {total} titles installed to {dir}.': 'Pack de démarrage terminé : {done} titres sur {total} installés dans {dir}.',
+        'Starter pack failed: {error}': 'Échec du pack de démarrage : {error}',
+        '🎁 Starter pack': '🎁 Pack de démarrage',
         # ---- context menus & runtime dialogs ----
         '"{name}" already exists in this folder.': '"{name}" existe déjà dans ce dossier.',
         'Add drive {letter}: to the list?': 'Ajouter le lecteur {letter}: à la liste ?',
