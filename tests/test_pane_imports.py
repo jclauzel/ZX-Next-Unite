@@ -77,7 +77,9 @@ def _loads(nodes):
 
 def unresolved_free_vars(path):
     tree = ast.parse(open(path, encoding="utf-8").read())
-    mod_bound = set(dir(builtins))
+    # Module dunders always resolve at runtime (__file__ is used by
+    # build_hdfmonkey_install_ops to locate the app directory).
+    mod_bound = set(dir(builtins)) | {"__file__", "__name__"}
     star_mods = []
     for node in tree.body:
         if isinstance(node, ast.ImportFrom) and any(a.name == "*" for a in node.names):
@@ -126,6 +128,19 @@ PANES = [
     ("zxnu_settings_pane", "build_settings_pane", []),
     # Extraction #9: the NextSync tab (widgets + wiring; op closures injected).
     ("zxnu_nextsync_pane", "build_nextsync_pane", []),
+    # Extraction #10: the optional itch.io tab (built only when itch-dl is
+    # importable; the builder itself must always import cleanly).
+    ("zxnu_itchio_pane", "build_itchio_pane", []),
+    # Extraction #11: the Favorites tab + per-pane Classic/Retro routing —
+    # three builders, each called at its chunk's historical position.
+    ("zxnu_favorites_pane",
+     ["build_favorites_helpers", "build_favorites_pane",
+      "build_favorites_ops"], []),
+    # Extraction #12: the emulator + self-update operation layer (CSpect/MAME
+    # setters + launchers, MAME/CSpect/app update chains, viewer wiring).
+    ("zxnu_emulator_ops", "build_emulator_ops", []),
+    # Extraction #13: the hdfg.cfg restore/save pipeline.
+    ("zxnu_config_io", "build_config_io", []),
 ]
 
 for modname, funcnames, _outputs in PANES:
