@@ -137,6 +137,8 @@ PANES = [
     # Extraction #12: the emulator + self-update operation layer (CSpect/MAME
     # setters + launchers, MAME/CSpect/app update chains, viewer wiring).
     ("zxnu_emulator_ops", "build_emulator_ops", []),
+    # Extraction #13: the hdfg.cfg restore/save pipeline.
+    ("zxnu_config_io", "build_config_io", []),
 ]
 
 for modname, funcnames, _outputs in PANES:
