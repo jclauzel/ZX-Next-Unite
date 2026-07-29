@@ -83,6 +83,149 @@ TEXTS = {
         "cs": "🪄 Vezmi mě tam",
         "fr": "🪄 Emmène-moi",
     },
+    # ── Quick Start: three clicks to a booting Next ──────────────────────
+    "btn.quickstart": {
+        "en": "🚀 Quick Start", "es": "🚀 Inicio rápido",
+        "pt": "🚀 Início rápido", "pl": "🚀 Szybki start",
+        "ru": "🚀 Быстрый старт", "cs": "🚀 Rychlý start",
+        "fr": "🚀 Démarrage rapide",
+    },
+    "btn.doit": {
+        "en": "🚀 Do it!", "es": "🚀 ¡Hazlo!", "pt": "🚀 Fá-lo!",
+        "pl": "🚀 Zrób to!", "ru": "🚀 Давай!", "cs": "🚀 Do toho!",
+        "fr": "🚀 Vas-y !",
+    },
+    "btn.skipstep": {
+        "en": "Skip this step", "es": "Saltar este paso",
+        "pt": "Saltar este passo", "pl": "Pomiń ten krok",
+        "ru": "Пропустить шаг", "cs": "Přeskočit krok",
+        "fr": "Passer cette étape",
+    },
+    "qs.image": {
+        "en": "Quick Start — three clicks and your Next boots! Click ONE: "
+              "I fetch an official NextZXOS image from zxnext.uk, mount "
+              "it into the SD Card explorer and make it your working "
+              "card. Ready?",
+        "es": "Inicio rápido — ¡tres clics y tu Next arranca! Clic UNO: "
+              "descargo una imagen NextZXOS oficial de zxnext.uk, la "
+              "monto en el explorador SD Card y la convierto en tu "
+              "tarjeta de trabajo. ¿Listo?",
+        "pt": "Início rápido — três cliques e o teu Next arranca! Clique "
+              "UM: vou buscar uma imagem NextZXOS oficial a zxnext.uk, "
+              "monto-a no explorador SD Card e faço dela o teu cartão "
+              "de trabalho. Pronto?",
+        "pl": "Szybki start — trzy kliknięcia i twój Next startuje! Klik "
+              "PIERWSZY: pobieram oficjalny obraz NextZXOS z zxnext.uk, "
+              "montuję go w eksploratorze SD Card i robię z niego twoją "
+              "roboczą kartę. Gotowy?",
+        "ru": "Быстрый старт — три клика, и ваш Next загружается! Клик "
+              "ПЕРВЫЙ: я скачаю официальный образ NextZXOS с zxnext.uk, "
+              "смонтирую его в проводнике SD Card и сделаю вашей "
+              "рабочей картой. Готовы?",
+        "cs": "Rychlý start — tři kliknutí a tvůj Next bootuje! Klik "
+              "JEDNA: stáhnu oficiální obraz NextZXOS ze zxnext.uk, "
+              "připojím ho do průzkumníka SD Card a udělám z něj tvou "
+              "pracovní kartu. Připraven?",
+        "fr": "Démarrage rapide — trois clics et votre Next démarre ! "
+              "Clic UN : je récupère une image NextZXOS officielle sur "
+              "zxnext.uk, je la monte dans l'explorateur SD Card et "
+              "j'en fais votre carte de travail. Prêt ?",
+    },
+    "qs.image.wait": {
+        "en": "Downloading and mounting the NextZXOS image… I'll speak "
+              "up the moment it's loaded.",
+        "es": "Descargando y montando la imagen NextZXOS… te aviso en "
+              "cuanto esté cargada.",
+        "pt": "A descarregar e montar a imagem NextZXOS… aviso-te assim "
+              "que estiver carregada.",
+        "pl": "Pobieram i montuję obraz NextZXOS… odezwę się, gdy tylko "
+              "będzie wczytany.",
+        "ru": "Скачиваю и монтирую образ NextZXOS… скажу, как только он "
+              "загрузится.",
+        "cs": "Stahuji a připojuji obraz NextZXOS… ozvu se, jakmile bude "
+              "načtený.",
+        "fr": "Téléchargement et montage de l'image NextZXOS… je vous "
+              "préviens dès qu'elle est chargée.",
+    },
+    "qs.emulator": {
+        "en": "Click TWO: an emulator. The royal road is CSpect from the "
+              "itch.io tab (it ships hdfmonkey too) — or I can install "
+              "MAME with standalone hdfmonkey for you right now.",
+        "es": "Clic DOS: un emulador. El camino real es CSpect desde la "
+              "pestaña itch.io (incluye también hdfmonkey) — o puedo "
+              "instalarte MAME con hdfmonkey independiente ahora mismo.",
+        "pt": "Clique DOIS: um emulador. O caminho real é o CSpect no "
+              "separador itch.io (traz também o hdfmonkey) — ou posso "
+              "instalar-te já o MAME com o hdfmonkey autónomo.",
+        "pl": "Klik DRUGI: emulator. Królewska droga to CSpect z karty "
+              "itch.io (zawiera też hdfmonkey) — albo mogę od razu "
+              "zainstalować ci MAME z samodzielnym hdfmonkey.",
+        "ru": "Клик ВТОРОЙ: эмулятор. Царский путь — CSpect со вкладки "
+              "itch.io (в комплекте и hdfmonkey) — или я прямо сейчас "
+              "установлю вам MAME с отдельным hdfmonkey.",
+        "cs": "Klik DVĚ: emulátor. Královská cesta je CSpect ze záložky "
+              "itch.io (nese i hdfmonkey) — nebo ti hned nainstaluju "
+              "MAME se samostatným hdfmonkey.",
+        "fr": "Clic DEUX : un émulateur. La voie royale est CSpect "
+              "depuis l'onglet itch.io (il embarque aussi hdfmonkey) — "
+              "ou je peux vous installer MAME avec hdfmonkey autonome "
+              "tout de suite.",
+    },
+    "qs.emulator.wait": {
+        "en": "Installing the emulator… I'll pipe up when the launch "
+              "button lights.",
+        "es": "Instalando el emulador… avisaré cuando se encienda el "
+              "botón de arranque.",
+        "pt": "A instalar o emulador… falo quando o botão de arranque "
+              "acender.",
+        "pl": "Instaluję emulator… odezwę się, gdy zapali się przycisk "
+              "startu.",
+        "ru": "Устанавливаю эмулятор… подам голос, когда загорится "
+              "кнопка запуска.",
+        "cs": "Instaluji emulátor… ozvu se, až se rozsvítí spouštěcí "
+              "tlačítko.",
+        "fr": "Installation de l'émulateur… je me manifeste dès que le "
+              "bouton de lancement s'allume.",
+    },
+    "qs.launch": {
+        "en": "Click THREE: blast off! Your image is mounted and an "
+              "emulator is ready — shall I boot your Next?",
+        "es": "Clic TRES: ¡despegue! Tu imagen está montada y el "
+              "emulador listo — ¿arranco tu Next?",
+        "pt": "Clique TRÊS: descolagem! A tua imagem está montada e o "
+              "emulador pronto — arranco o teu Next?",
+        "pl": "Klik TRZECI: start! Obraz zamontowany, emulator gotowy — "
+              "odpalić twojego Nexta?",
+        "ru": "Клик ТРЕТИЙ: пуск! Образ смонтирован, эмулятор готов — "
+              "загрузить ваш Next?",
+        "cs": "Klik TŘI: odpal! Obraz je připojený a emulátor "
+              "připravený — mám nabootovat tvůj Next?",
+        "fr": "Clic TROIS : décollage ! Votre image est montée et un "
+              "émulateur est prêt — je démarre votre Next ?",
+    },
+    "qs.done": {
+        "en": "And there it goes — a booting Next! From here: fill the "
+              "card from GetIt/ZXDB/zxArt, or sync a real Next on the "
+              "NextSync tab. Happy Speccy-ing! 🚀",
+        "es": "¡Y ahí va — un Next arrancando! Desde aquí: llena la "
+              "tarjeta desde GetIt/ZXDB/zxArt, o sincroniza un Next "
+              "real en la pestaña NextSync. ¡Feliz Speccy! 🚀",
+        "pt": "E lá vai ele — um Next a arrancar! A partir daqui: enche "
+              "o cartão a partir de GetIt/ZXDB/zxArt, ou sincroniza um "
+              "Next real no separador NextSync. Bom Speccy! 🚀",
+        "pl": "I proszę — Next startuje! Dalej: wypełnij kartę z "
+              "GetIt/ZXDB/zxArt albo zsynchronizuj prawdziwego Nexta w "
+              "karcie NextSync. Miłego Speccy! 🚀",
+        "ru": "И вот он — загружающийся Next! Дальше: наполните карту "
+              "из GetIt/ZXDB/zxArt или синхронизируйте настоящий Next "
+              "во вкладке NextSync. Счастливого Speccy! 🚀",
+        "cs": "A je to — Next bootuje! Odtud: naplň kartu z "
+              "GetIt/ZXDB/zxArt, nebo synchronizuj opravdový Next v "
+              "záložce NextSync. Šťastné Speccy! 🚀",
+        "fr": "Et le voilà — un Next qui démarre ! Ensuite : remplissez "
+              "la carte depuis GetIt/ZXDB/zxArt, ou synchronisez un "
+              "vrai Next dans l'onglet NextSync. Bon Speccy ! 🚀",
+    },
     "help.offer": {
         "en": "A new tab! Would you like a quick word about what it "
               "does?",
