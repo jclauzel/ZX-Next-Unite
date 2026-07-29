@@ -83,6 +83,28 @@ TEXTS = {
         "cs": "🪄 Vezmi mě tam",
         "fr": "🪄 Emmène-moi",
     },
+    "btn.setup": {
+        "en": "⚙ Set up NextSync",
+        "es": "⚙ Configurar NextSync",
+        "pt": "⚙ Configurar o NextSync",
+        "pl": "⚙ Skonfiguruj NextSync",
+        "ru": "⚙ Настроить NextSync",
+        "cs": "⚙ Nastavit NextSync",
+        "fr": "⚙ Configurer NextSync",
+    },
+    # Feature names stay untranslated (they match the in-app selector).
+    "btn.remotexp": {
+        "en": "🗂 Remote Explorer", "es": "🗂 Remote Explorer",
+        "pt": "🗂 Remote Explorer", "pl": "🗂 Remote Explorer",
+        "ru": "🗂 Remote Explorer", "cs": "🗂 Remote Explorer",
+        "fr": "🗂 Remote Explorer",
+    },
+    "btn.classic": {
+        "en": "🔁 Classic Sync", "es": "🔁 Classic Sync",
+        "pt": "🔁 Classic Sync", "pl": "🔁 Classic Sync",
+        "ru": "🔁 Classic Sync", "cs": "🔁 Classic Sync",
+        "fr": "🔁 Classic Sync",
+    },
     # ── SD Card in-depth guide ───────────────────────────────────────────
     "sd.images": {
         "en": "The Next boots from an SD card — and on the PC you work "
@@ -499,36 +521,273 @@ TEXTS = {
               "Le Next exécute la petite commande dot .sync5 ; cet "
               "onglet est le serveur auquel elle parle.",
     },
-    "ns.dot": {
-        "en": "First, the dot: grab 'sync5' from the app's GitHub "
-              "release, copy it into C:/DOT on the Next's SD card as "
-              "'SYNC5', and you're armed. The user manual has the "
-              "step-by-step for every NextZXOS version.",
-        "es": "Primero, el dot: descarga «sync5» de la release de GitHub "
-              "de la aplicación, cópialo en C:/DOT de la tarjeta SD del "
-              "Next como «SYNC5», y listo. El manual de usuario tiene el "
-              "paso a paso para cada versión de NextZXOS.",
-        "pt": "Primeiro, o dot: descarrega o «sync5» da release no "
-              "GitHub da aplicação, copia-o para C:/DOT no cartão SD do "
-              "Next como «SYNC5», e estás armado. O manual de utilizador "
-              "tem o passo a passo para cada versão do NextZXOS.",
-        "pl": "Najpierw dot: pobierz „sync5” z wydania aplikacji na "
-              "GitHubie, skopiuj do C:/DOT na karcie SD Nexta jako "
-              "„SYNC5” i jesteś uzbrojony. Podręcznik użytkownika ma "
-              "instrukcję krok po kroku dla każdej wersji NextZXOS.",
-        "ru": "Сначала dot: возьмите «sync5» из релиза приложения на "
-              "GitHub, скопируйте в C:/DOT на SD-карте Next под именем "
-              "«SYNC5» — и вы во всеоружии. В руководстве пользователя "
-              "есть пошаговая инструкция для каждой версии NextZXOS.",
-        "cs": "Nejdřív dot: vezmi „sync5“ z GitHub release aplikace, "
-              "zkopíruj ho do C:/DOT na SD kartě Nextu jako „SYNC5“ a "
-              "jsi vyzbrojen. Uživatelská příručka má návod krok za "
-              "krokem pro každou verzi NextZXOS.",
-        "fr": "D'abord, le dot : prenez « sync5 » dans la release "
-              "GitHub de l'application, copiez-le dans C:/DOT sur la "
-              "carte SD du Next sous le nom « SYNC5 », et vous voilà "
-              "armé. Le manuel utilisateur a le pas-à-pas pour chaque "
-              "version de NextZXOS.",
+    "ns.compat": {
+        "en": "ZX Next Unite (and its command-line twin nextsync5.py) is "
+              "fully compatible with the LEGACY .sync command — but that "
+              "road is one-way only: PC to Next, no picking and "
+              "choosing. That's what the 'Classic Sync' experience is "
+              "for. The shiny new way is the Remote Explorer: complete "
+              "file management between PC and Next. What shall we dive "
+              "into?",
+        "es": "ZX Next Unite (y su gemelo de línea de comandos "
+              "nextsync5.py) es totalmente compatible con el comando "
+              ".sync CLÁSICO — pero ese camino es de sentido único: del "
+              "PC al Next, sin elegir qué. Para eso está la experiencia "
+              "«Classic Sync». La vía nueva y reluciente es el Remote "
+              "Explorer: gestión completa de archivos entre PC y Next. "
+              "¿En qué nos sumergimos?",
+        "pt": "O ZX Next Unite (e o seu gémeo de linha de comandos "
+              "nextsync5.py) é totalmente compatível com o comando "
+              ".sync LEGADO — mas essa estrada é de sentido único: do "
+              "PC para o Next, sem escolher o quê. É para isso que "
+              "existe a experiência «Classic Sync». O caminho novo e "
+              "reluzente é o Remote Explorer: gestão completa de "
+              "ficheiros entre PC e Next. Em que mergulhamos?",
+        "pl": "ZX Next Unite (i jego bliźniak wiersza poleceń "
+              "nextsync5.py) jest w pełni zgodny z DAWNYM poleceniem "
+              ".sync — ale ta droga jest jednokierunkowa: z PC do "
+              "Nexta, bez wybierania. Po to jest tryb „Classic Sync”. "
+              "Nowa, błyszcząca droga to Remote Explorer: pełne "
+              "zarządzanie plikami między PC a Nextem. W co się "
+              "zagłębiamy?",
+        "ru": "ZX Next Unite (и его близнец для командной строки "
+              "nextsync5.py) полностью совместим со СТАРОЙ командой "
+              ".sync — но эта дорога односторонняя: с ПК на Next, без "
+              "выбора файлов. Для этого и есть режим «Classic Sync». "
+              "Новый блестящий путь — Remote Explorer: полное "
+              "управление файлами между ПК и Next. Во что нырнём?",
+        "cs": "ZX Next Unite (a jeho dvojče pro příkazovou řádku "
+              "nextsync5.py) je plně kompatibilní se STARÝM příkazem "
+              ".sync — ale ta cesta je jednosměrná: z PC do Nextu, bez "
+              "vybírání. Od toho je zážitek „Classic Sync“. Nová lesklá "
+              "cesta je Remote Explorer: kompletní správa souborů mezi "
+              "PC a Nextem. Do čeho se ponoříme?",
+        "fr": "ZX Next Unite (et son jumeau en ligne de commande "
+              "nextsync5.py) est entièrement compatible avec l'ANCIENNE "
+              "commande .sync — mais cette route est à sens unique : du "
+              "PC vers le Next, sans tri possible. C'est à cela que "
+              "sert l'expérience « Classic Sync ». La nouvelle voie "
+              "étincelante, c'est le Remote Explorer : gestion complète "
+              "des fichiers entre PC et Next. Où plongeons-nous ?",
+    },
+    "ns.setup1": {
+        "en": "Setting up: from the app's GitHub release package, drop "
+              "the 'sync5' command into the DOT folder at the root of "
+              "the Next's SD card — the SD Card Utility tab is perfect "
+              "for that. Then, on the Next, run '.sync5' followed by "
+              "the IPv4 address of the machine running ZX Next Unite "
+              "(or nextsync5.py) and press Enter — the Next saves that "
+              "address and knows whom to talk to from now on.",
+        "es": "Configuración: del paquete de la release de GitHub, "
+              "coloca el comando «sync5» en la carpeta DOT de la raíz "
+              "de la tarjeta SD del Next — la pestaña SD Card Utility "
+              "es perfecta para eso. Luego, en el Next, ejecuta «.sync5» "
+              "seguido de la dirección IPv4 de la máquina que ejecuta "
+              "ZX Next Unite (o nextsync5.py) y pulsa Enter — el Next "
+              "guarda esa dirección y ya sabe con quién hablar.",
+        "pt": "Configuração: do pacote da release no GitHub, coloca o "
+              "comando «sync5» na pasta DOT na raiz do cartão SD do "
+              "Next — o separador SD Card Utility é perfeito para isso. "
+              "Depois, no Next, corre «.sync5» seguido do endereço IPv4 "
+              "da máquina que executa o ZX Next Unite (ou nextsync5.py) "
+              "e carrega em Enter — o Next guarda esse endereço e passa "
+              "a saber com quem falar.",
+        "pl": "Konfiguracja: z pakietu wydania na GitHubie umieść "
+              "polecenie „sync5” w folderze DOT w katalogu głównym "
+              "karty SD Nexta — karta SD Card Utility nadaje się do "
+              "tego idealnie. Potem na Nexcie uruchom „.sync5” z "
+              "adresem IPv4 maszyny, na której działa ZX Next Unite "
+              "(lub nextsync5.py) i wciśnij Enter — Next zapisze ten "
+              "adres i będzie wiedział, z kim rozmawiać.",
+        "ru": "Настройка: из релизного пакета на GitHub положите "
+              "команду «sync5» в папку DOT в корне SD-карты Next — "
+              "вкладка SD Card Utility отлично для этого подходит. "
+              "Затем на Next выполните «.sync5», затем IPv4-адрес "
+              "машины, где работает ZX Next Unite (или nextsync5.py), и "
+              "нажмите Enter — Next сохранит адрес и будет знать, с "
+              "кем говорить.",
+        "cs": "Nastavení: z release balíčku na GitHubu vlož příkaz "
+              "„sync5“ do složky DOT v kořeni SD karty Nextu — záložka "
+              "SD Card Utility se na to hodí dokonale. Pak na Nextu "
+              "spusť „.sync5“ následované IPv4 adresou stroje, na němž "
+              "běží ZX Next Unite (nebo nextsync5.py), a stiskni Enter "
+              "— Next si adresu uloží a ví, s kým mluvit.",
+        "fr": "Installation : depuis le paquet de release GitHub, "
+              "déposez la commande « sync5 » dans le dossier DOT à la "
+              "racine de la carte SD du Next — l'onglet SD Card Utility "
+              "est parfait pour ça. Puis, sur le Next, lancez « .sync5 » "
+              "suivi de l'adresse IPv4 de la machine qui exécute ZX "
+              "Next Unite (ou nextsync5.py) et appuyez sur Entrée — le "
+              "Next enregistre cette adresse et sait désormais à qui "
+              "parler.",
+    },
+    "ns.setup2": {
+        "en": "Next, in ZX Next Unite pick your root synchronization "
+              "folder — the base for every sync and file transfer. Then "
+              "start the server (here, or in nextsync5.py): it now "
+              "waits and LISTENS for the Next to connect. Finally, on "
+              "the Next, launch the mode of your choice: '.sync5 -l' "
+              "(-listen) for the Remote Explorer, or plain '.sync5' for "
+              "a Classic sync.",
+        "es": "Después, en ZX Next Unite elige tu carpeta raíz de "
+              "sincronización — la base de cada sincronización y "
+              "transferencia. Luego arranca el servidor (aquí, o en "
+              "nextsync5.py): ahora espera y ESCUCHA a que el Next se "
+              "conecte. Por último, en el Next, lanza el modo que "
+              "quieras: «.sync5 -l» (-listen) para el Remote Explorer, "
+              "o «.sync5» a secas para una sincronización clásica.",
+        "pt": "A seguir, no ZX Next Unite escolhe a tua pasta raiz de "
+              "sincronização — a base de cada sincronização e "
+              "transferência. Depois arranca o servidor (aqui, ou no "
+              "nextsync5.py): ele fica à espera, à ESCUTA de que o Next "
+              "se ligue. Por fim, no Next, lança o modo que quiseres: "
+              "«.sync5 -l» (-listen) para o Remote Explorer, ou "
+              "«.sync5» simples para uma sincronização clássica.",
+        "pl": "Następnie w ZX Next Unite wybierz główny folder "
+              "synchronizacji — bazę każdej synchronizacji i przesyłki. "
+              "Potem uruchom serwer (tutaj albo w nextsync5.py): teraz "
+              "czeka i NASŁUCHUJE połączenia Nexta. Na końcu na Nexcie "
+              "odpal wybrany tryb: „.sync5 -l” (-listen) dla Remote "
+              "Explorera albo samo „.sync5” dla klasycznej "
+              "synchronizacji.",
+        "ru": "Далее в ZX Next Unite выберите корневую папку "
+              "синхронизации — основу каждой синхронизации и передачи. "
+              "Затем запустите сервер (здесь или в nextsync5.py): "
+              "теперь он ждёт и СЛУШАЕТ подключение Next. Наконец, на "
+              "Next запустите нужный режим: «.sync5 -l» (-listen) для "
+              "Remote Explorer или просто «.sync5» для классической "
+              "синхронизации.",
+        "cs": "Dál si v ZX Next Unite vyber kořenovou složku "
+              "synchronizace — základ každé synchronizace a přenosu. "
+              "Pak spusť server (tady, nebo v nextsync5.py): teď čeká a "
+              "NASLOUCHÁ, až se Next připojí. Nakonec na Nextu spusť "
+              "zvolený režim: „.sync5 -l“ (-listen) pro Remote "
+              "Explorer, nebo prosté „.sync5“ pro klasickou "
+              "synchronizaci.",
+        "fr": "Ensuite, dans ZX Next Unite, choisissez votre dossier "
+              "racine de synchronisation — la base de chaque synchro et "
+              "transfert. Puis démarrez le serveur (ici, ou dans "
+              "nextsync5.py) : il attend désormais et ÉCOUTE la "
+              "connexion du Next. Enfin, sur le Next, lancez le mode de "
+              "votre choix : « .sync5 -l » (-listen) pour le Remote "
+              "Explorer, ou « .sync5 » tout court pour une synchro "
+              "classique.",
+    },
+    "ns.options": {
+        "en": "Here is the .sync5 spellbook:\n"
+              ".sync5 <ip> — save the server address\n"
+              ".sync5 — classic sync from the PC\n"
+              ".sync5 -send <file|dir> — send from the Next to the PC\n"
+              ".sync5 -listen (-l) — the Remote Explorer file server "
+              "(the BREAK key stops it safely)\n"
+              ".sync5 -slow | -default | -fast — transfer speed\n"
+              ".sync5 -na | -nv | -nr — disable the animation, the "
+              "verbose trace or the retro look\n"
+              ".sync5 -help (-h) — the built-in help",
+        "es": "Aquí está el grimorio de .sync5:\n"
+              ".sync5 <ip> — guardar la dirección del servidor\n"
+              ".sync5 — sincronización clásica desde el PC\n"
+              ".sync5 -send <archivo|carpeta> — enviar del Next al PC\n"
+              ".sync5 -listen (-l) — el servidor de archivos del Remote "
+              "Explorer (la tecla BREAK lo detiene con seguridad)\n"
+              ".sync5 -slow | -default | -fast — velocidad de "
+              "transferencia\n"
+              ".sync5 -na | -nv | -nr — desactivar la animación, la "
+              "traza detallada o el aspecto retro\n"
+              ".sync5 -help (-h) — la ayuda integrada",
+        "pt": "Eis o grimório do .sync5:\n"
+              ".sync5 <ip> — guardar o endereço do servidor\n"
+              ".sync5 — sincronização clássica a partir do PC\n"
+              ".sync5 -send <ficheiro|pasta> — enviar do Next para o PC\n"
+              ".sync5 -listen (-l) — o servidor de ficheiros do Remote "
+              "Explorer (a tecla BREAK pára-o em segurança)\n"
+              ".sync5 -slow | -default | -fast — velocidade de "
+              "transferência\n"
+              ".sync5 -na | -nv | -nr — desligar a animação, o registo "
+              "detalhado ou o visual retro\n"
+              ".sync5 -help (-h) — a ajuda integrada",
+        "pl": "Oto księga zaklęć .sync5:\n"
+              ".sync5 <ip> — zapisz adres serwera\n"
+              ".sync5 — klasyczna synchronizacja z PC\n"
+              ".sync5 -send <plik|katalog> — wyślij z Nexta na PC\n"
+              ".sync5 -listen (-l) — serwer plików Remote Explorera "
+              "(klawisz BREAK bezpiecznie go zatrzymuje)\n"
+              ".sync5 -slow | -default | -fast — prędkość przesyłu\n"
+              ".sync5 -na | -nv | -nr — wyłącz animację, szczegółowy "
+              "ślad lub wygląd retro\n"
+              ".sync5 -help (-h) — wbudowana pomoc",
+        "ru": "Вот книга заклинаний .sync5:\n"
+              ".sync5 <ip> — сохранить адрес сервера\n"
+              ".sync5 — классическая синхронизация с ПК\n"
+              ".sync5 -send <файл|папка> — отправить с Next на ПК\n"
+              ".sync5 -listen (-l) — файловый сервер Remote Explorer "
+              "(клавиша BREAK безопасно останавливает его)\n"
+              ".sync5 -slow | -default | -fast — скорость передачи\n"
+              ".sync5 -na | -nv | -nr — отключить анимацию, подробную "
+              "трассировку или ретро-вид\n"
+              ".sync5 -help (-h) — встроенная справка",
+        "cs": "Tady je kniha kouzel .sync5:\n"
+              ".sync5 <ip> — uložit adresu serveru\n"
+              ".sync5 — klasická synchronizace z PC\n"
+              ".sync5 -send <soubor|složka> — poslat z Nextu do PC\n"
+              ".sync5 -listen (-l) — souborový server Remote Exploreru "
+              "(klávesa BREAK ho bezpečně zastaví)\n"
+              ".sync5 -slow | -default | -fast — rychlost přenosu\n"
+              ".sync5 -na | -nv | -nr — vypnout animaci, podrobný "
+              "výpis nebo retro vzhled\n"
+              ".sync5 -help (-h) — vestavěná nápověda",
+        "fr": "Voici le grimoire de .sync5 :\n"
+              ".sync5 <ip> — enregistrer l'adresse du serveur\n"
+              ".sync5 — synchro classique depuis le PC\n"
+              ".sync5 -send <fichier|dossier> — envoyer du Next vers le "
+              "PC\n"
+              ".sync5 -listen (-l) — le serveur de fichiers du Remote "
+              "Explorer (la touche BREAK l'arrête en sécurité)\n"
+              ".sync5 -slow | -default | -fast — vitesse de transfert\n"
+              ".sync5 -na | -nv | -nr — désactiver l'animation, la "
+              "trace détaillée ou le look rétro\n"
+              ".sync5 -help (-h) — l'aide intégrée",
+    },
+    "ns.classic": {
+        "en": "The new sync5 command still speaks the legacy Sync3 "
+              "protocol: in 'Classic NextSync' mode, a plain '.sync5' "
+              "on the Next triggers a traditional sync — the server "
+              "pushes everything new under the sync root, PC to Next. "
+              "Let me show you the knobs that tame it.",
+        "es": "El nuevo comando sync5 sigue hablando el protocolo "
+              "clásico Sync3: en modo «Classic NextSync», un «.sync5» a "
+              "secas en el Next lanza una sincronización tradicional — "
+              "el servidor envía todo lo nuevo bajo la raíz de "
+              "sincronización, del PC al Next. Deja que te enseñe los "
+              "mandos que la doman.",
+        "pt": "O novo comando sync5 continua a falar o protocolo "
+              "clássico Sync3: em modo «Classic NextSync», um «.sync5» "
+              "simples no Next dispara uma sincronização tradicional — "
+              "o servidor envia tudo o que é novo sob a raiz de "
+              "sincronização, do PC para o Next. Deixa-me mostrar-te os "
+              "botões que a domam.",
+        "pl": "Nowe polecenie sync5 wciąż mówi starym protokołem "
+              "Sync3: w trybie „Classic NextSync” samo „.sync5” na "
+              "Nexcie wyzwala tradycyjną synchronizację — serwer "
+              "wypycha wszystko, co nowe w katalogu głównym, z PC do "
+              "Nexta. Pokażę ci pokrętła, które ją oswajają.",
+        "ru": "Новая команда sync5 по-прежнему говорит на старом "
+              "протоколе Sync3: в режиме «Classic NextSync» простое "
+              "«.sync5» на Next запускает традиционную синхронизацию — "
+              "сервер отправляет всё новое из корня синхронизации, с "
+              "ПК на Next. Покажу ручки, которые её укрощают.",
+        "cs": "Nový příkaz sync5 stále mluví starým protokolem Sync3: "
+              "v režimu „Classic NextSync“ prosté „.sync5“ na Nextu "
+              "spustí tradiční synchronizaci — server pošle vše nové "
+              "pod kořenem synchronizace, z PC do Nextu. Ukážu ti "
+              "páčky, které ji krotí.",
+        "fr": "La nouvelle commande sync5 parle toujours l'ancien "
+              "protocole Sync3 : en mode « Classic NextSync », un "
+              "« .sync5 » tout court sur le Next déclenche une synchro "
+              "traditionnelle — le serveur pousse tout ce qui est "
+              "nouveau sous la racine de synchronisation, du PC vers le "
+              "Next. Laissez-moi vous montrer les réglages qui "
+              "l'apprivoisent.",
     },
     "ns.root": {
         "en": "Choose your sync root — the folder whose contents get "
@@ -605,44 +864,60 @@ TEXTS = {
               "décide du sort d'un fichier déjà présent ici.",
     },
     "ns.remote": {
-        "en": "The Remote Explorer experience turns this tab into a "
-              "two-pane file manager for the Next itself: run '.sync5 "
-              "-listen' on the Next and browse, upload, download and "
-              "rename its SD card from your chair. There's even an HTTP "
-              "bridge in Settings for the Next's .http dot command.",
-        "es": "La experiencia Remote Explorer convierte esta pestaña en "
-              "un gestor de archivos de dos paneles para el propio "
-              "Next: ejecuta «.sync5 -listen» en el Next y navega, sube, "
-              "baja y renombra su tarjeta SD sin levantarte de la "
-              "silla. Hay incluso un puente HTTP en Ajustes para el "
-              "comando dot .http del Next.",
-        "pt": "A experiência Remote Explorer transforma este separador "
-              "num gestor de ficheiros de dois painéis para o próprio "
-              "Next: corre «.sync5 -listen» no Next e navega, envia, "
-              "descarrega e renomeia o cartão SD dele sem sair da "
-              "cadeira. Há até uma ponte HTTP nas Definições para o "
-              "comando dot .http do Next.",
-        "pl": "Widok Remote Explorer zamienia tę kartę w dwupanelowy "
-              "menedżer plików samego Nexta: uruchom „.sync5 -listen” "
-              "na Nexcie i przeglądaj, wysyłaj, pobieraj i zmieniaj "
-              "nazwy na jego karcie SD z fotela. W Ustawieniach jest "
-              "nawet mostek HTTP dla polecenia dot .http Nexta.",
-        "ru": "Режим Remote Explorer превращает эту вкладку в "
-              "двухпанельный файловый менеджер самого Next: запустите "
-              "«.sync5 -listen» на Next — и просматривайте, загружайте, "
-              "скачивайте и переименовывайте его SD-карту из кресла. В "
-              "Настройках есть даже HTTP-мост для dot-команды .http.",
-        "cs": "Zážitek Remote Explorer promění tuhle záložku ve "
-              "dvoupanelový správce souborů samotného Nextu: spusť na "
-              "Nextu „.sync5 -listen“ a procházej, nahrávej, stahuj a "
-              "přejmenovávej jeho SD kartu z křesla. V Nastavení je "
-              "dokonce HTTP můstek pro dot příkaz .http Nextu.",
-        "fr": "L'expérience Remote Explorer transforme cet onglet en "
-              "gestionnaire de fichiers à deux panneaux pour le Next "
-              "lui-même : lancez « .sync5 -listen » sur le Next et "
-              "parcourez, envoyez, téléchargez et renommez sa carte SD "
-              "depuis votre fauteuil. Il y a même un pont HTTP dans les "
-              "Réglages pour la commande dot .http du Next.",
+        "en": "The Remote Explorer is the full file-management mode: "
+              "run '.sync5 -l' (-listen) on the Next, and this tab "
+              "becomes a two-pane manager for the Next itself — "
+              "transfer files and whole directories both ways, rename, "
+              "and even zip and unzip REMOTELY on the Next. And "
+              "straight from the Next, '.sync5 -send <file|dir>' "
+              "pushes a file or directory back to the PC.",
+        "es": "El Remote Explorer es el modo de gestión completa de "
+              "archivos: ejecuta «.sync5 -l» (-listen) en el Next y "
+              "esta pestaña se convierte en un gestor de dos paneles "
+              "para el propio Next — transfiere archivos y carpetas "
+              "enteras en ambos sentidos, renombra, e incluso comprime "
+              "y descomprime zip EN REMOTO en el Next. Y directamente "
+              "desde el Next, «.sync5 -send <archivo|carpeta>» envía "
+              "un archivo o carpeta de vuelta al PC.",
+        "pt": "O Remote Explorer é o modo de gestão completa de "
+              "ficheiros: corre «.sync5 -l» (-listen) no Next e este "
+              "separador torna-se um gestor de dois painéis para o "
+              "próprio Next — transfere ficheiros e pastas inteiras "
+              "nos dois sentidos, renomeia, e até faz zip e unzip "
+              "REMOTAMENTE no Next. E diretamente do Next, «.sync5 "
+              "-send <ficheiro|pasta>» envia um ficheiro ou pasta de "
+              "volta para o PC.",
+        "pl": "Remote Explorer to tryb pełnego zarządzania plikami: "
+              "uruchom „.sync5 -l” (-listen) na Nexcie, a ta karta "
+              "stanie się dwupanelowym menedżerem samego Nexta — "
+              "przesyłaj pliki i całe katalogi w obie strony, zmieniaj "
+              "nazwy, a nawet pakuj i rozpakowuj zip ZDALNIE na "
+              "Nexcie. A prosto z Nexta „.sync5 -send <plik|katalog>” "
+              "odsyła plik lub katalog na PC.",
+        "ru": "Remote Explorer — режим полного управления файлами: "
+              "запустите «.sync5 -l» (-listen) на Next, и эта вкладка "
+              "станет двухпанельным менеджером самого Next — "
+              "передавайте файлы и целые каталоги в обе стороны, "
+              "переименовывайте и даже упаковывайте и распаковывайте "
+              "zip УДАЛЁННО на Next. А прямо с Next «.sync5 -send "
+              "<файл|папка>» отправляет файл или каталог обратно на "
+              "ПК.",
+        "cs": "Remote Explorer je režim plné správy souborů: spusť na "
+              "Nextu „.sync5 -l“ (-listen) a tahle záložka se stane "
+              "dvoupanelovým správcem samotného Nextu — přenášej "
+              "soubory i celé složky oběma směry, přejmenovávej a "
+              "dokonce zipuj a rozbaluj VZDÁLENĚ na Nextu. A přímo z "
+              "Nextu „.sync5 -send <soubor|složka>“ pošle soubor nebo "
+              "složku zpátky do PC.",
+        "fr": "Le Remote Explorer est le mode de gestion complète des "
+              "fichiers : lancez « .sync5 -l » (-listen) sur le Next et "
+              "cet onglet devient un gestionnaire à deux panneaux pour "
+              "le Next lui-même — transférez fichiers et dossiers "
+              "entiers dans les deux sens, renommez, et compressez ou "
+              "décompressez même des zip À DISTANCE sur le Next. Et "
+              "directement depuis le Next, « .sync5 -send "
+              "<fichier|dossier> » renvoie un fichier ou un dossier "
+              "vers le PC.",
     },
     # ── Buttons / menu ────────────────────────────────────────────────────
     "btn.tour": {
@@ -1433,11 +1708,24 @@ GUIDES = {
         "page": "NextSync-tab",
         "start": "ns.what",
         "nodes": {
-            "ns.what":   {"buttons": [("btn.next", "ns.dot")]},
-            "ns.dot":    {"buttons": [("btn.next", "ns.root")]},
-            "ns.root":   {"buttons": [("btn.next", "ns.server")]},
-            "ns.server": {"buttons": [("btn.next", "ns.remote")]},
+            # Intro, then a three-way branch: setup / Remote Explorer /
+            # Classic Sync.
+            "ns.what":   {"buttons": [("btn.next", "ns.compat")]},
+            "ns.compat": {"buttons": [("btn.setup", "ns.setup1"),
+                                      ("btn.remotexp", "ns.remote"),
+                                      ("btn.classic", "ns.classic")]},
+            # Branch 1: full setup, ending on the .sync5 spellbook.
+            "ns.setup1": {"buttons": [("btn.next", "ns.setup2")]},
+            "ns.setup2": {"buttons": [("btn.next", "ns.options")]},
+            "ns.options": {"buttons": [("btn.close", "close")],
+                           "gesture": "cast"},
+            # Branch 2: the Remote Explorer, focused.
             "ns.remote": {"buttons": [("btn.close", "close")],
+                          "gesture": "cast"},
+            # Branch 3: Classic Sync -> sync root -> server.
+            "ns.classic": {"buttons": [("btn.next", "ns.root")]},
+            "ns.root":   {"buttons": [("btn.next", "ns.server")]},
+            "ns.server": {"buttons": [("btn.close", "close")],
                           "gesture": "cast"},
         },
     },

@@ -236,12 +236,32 @@ check("offer carries Manual + GitHub links",
 wiz.bubble._actions[0][1]()  # "Tell me more" -> first guide node
 check("in-depth starts on ns.what",
       wiz.bubble.label.text() == wc.wizard_tr("ns.what", "en"))
-for _ in range(4):
-    wiz.bubble._actions[0][1]()          # Next ... to the last node
-check("guide walk ends on ns.remote",
-      wiz.bubble._pages[0].startswith(wc.wizard_tr("ns.remote", "en")[:40]))
+wiz.bubble._actions[0][1]()  # Next -> the three-way branch
+check("ns.compat offers the three branches",
+      [a[0] for a in wiz.bubble._actions] ==
+      [wc.wizard_tr(k, "en")
+       for k in ("btn.setup", "btn.remotexp", "btn.classic")])
+wiz.bubble._actions[0][1]()  # Set up -> ns.setup1
+wiz.bubble._actions[0][1]()  # Next -> ns.setup2
+wiz.bubble._actions[0][1]()  # Next -> the spellbook
+check("setup branch ends on the .sync5 spellbook",
+      "-listen" in " ".join(wiz.bubble._pages))
 wiz.bubble._actions[0][1]()              # Close
 check("closing the last node dismisses", not wiz.bubble.isVisible())
+wiz.start_guide("nextsync")
+wiz.bubble._actions[0][1]()
+wiz.bubble._actions[1][1]()  # Remote Explorer branch
+check("remote branch teaches -listen and -send",
+      "-send" in " ".join(wiz.bubble._pages))
+wiz.start_guide("nextsync")
+wiz.bubble._actions[0][1]()
+wiz.bubble._actions[2][1]()  # Classic Sync branch
+check("classic branch starts on ns.classic",
+      wiz.bubble._pages[0].startswith(wc.wizard_tr("ns.classic", "en")[:40]))
+wiz.bubble._actions[0][1]()  # Next -> ns.root
+wiz.bubble._actions[0][1]()  # Next -> ns.server
+wiz.bubble._actions[0][1]()  # Close
+check("classic branch closes cleanly", not wiz.bubble.isVisible())
 tabs.setCurrentIndex(2)                  # a non-guided tab (GetIt)
 tabs.setCurrentIndex(1)
 check("no second offer for the same tab this session",
