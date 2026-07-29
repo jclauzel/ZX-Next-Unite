@@ -890,6 +890,89 @@ SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE)
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
 
+# ── The "Next" chrome ────────────────────────────────────────────────────
+# App-wide widget-chrome stylesheet (applied once to the QApplication):
+# deep navy surfaces with the app's magenta/cyan retro accents, matching
+# the wizard bubble and the sidebar sprites. It deliberately styles ONLY
+# the chrome — buttons, inputs, combos, group boxes, scrollbars, menus,
+# tooltips, headers, selections — and never touches QLabel, the tab bar,
+# item foreground colors or pane backgrounds, which stay owned by the
+# desktop-theme engine (the panes are always dark by design, so this
+# chrome reads correctly under every theme). Widget-level stylesheets
+# (color swatches, splitter pills, wizard bubble) override it as before.
+NEXT_CHROME_QSS = (
+    "QPushButton, QToolButton {"
+    " background-color: #222248; color: #e6e6fa;"
+    " border: 1px solid #4a4a8a; border-radius: 4px; padding: 3px 10px; }"
+    "QPushButton:hover, QToolButton:hover {"
+    " background-color: #2a2a58; border-color: #ff3cff; }"
+    "QPushButton:pressed, QToolButton:pressed {"
+    " background-color: #191938; }"
+    "QPushButton:checked, QToolButton:checked {"
+    " background-color: #35356a; border-color: #3cd8e8; }"
+    "QPushButton:disabled, QToolButton:disabled {"
+    " color: #8888aa; background-color: #1b1b38; border-color: #33335a; }"
+    "QLineEdit, QSpinBox, QPlainTextEdit {"
+    " background-color: #101024; color: #e6e6fa;"
+    " border: 1px solid #4a4a8a; border-radius: 3px; padding: 2px 6px;"
+    " selection-background-color: #ff3cff; selection-color: #ffffff; }"
+    "QLineEdit:focus, QSpinBox:focus { border-color: #3cd8e8; }"
+    "QComboBox {"
+    " background-color: #1c1c3c; color: #e6e6fa;"
+    " border: 1px solid #4a4a8a; border-radius: 3px; padding: 2px 8px; }"
+    "QComboBox:hover { border-color: #ff3cff; }"
+    "QComboBox QAbstractItemView {"
+    " background-color: #16162e; color: #e6e6fa;"
+    " border: 1px solid #4a4a8a;"
+    " selection-background-color: rgba(255, 60, 255, 80); }"
+    "QGroupBox {"
+    " border: 1px solid #4a4a8a; border-radius: 6px; margin-top: 12px; }"
+    "QGroupBox::title {"
+    " color: #3cd8e8; subcontrol-origin: margin; left: 10px;"
+    " padding: 0 6px; }"
+    "QScrollBar:vertical {"
+    " background: transparent; width: 12px; margin: 0; }"
+    "QScrollBar:horizontal {"
+    " background: transparent; height: 12px; margin: 0; }"
+    "QScrollBar::handle {"
+    " background: #3a3a6e; border-radius: 5px; }"
+    "QScrollBar::handle:vertical { min-height: 24px; }"
+    "QScrollBar::handle:horizontal { min-width: 24px; }"
+    "QScrollBar::handle:hover { background: #5a5ab0; }"
+    "QScrollBar::add-line, QScrollBar::sub-line {"
+    " height: 0; width: 0; }"
+    "QCheckBox::indicator, QRadioButton::indicator {"
+    " width: 14px; height: 14px;"
+    " background-color: #101024; border: 1px solid #4a4a8a; }"
+    "QCheckBox::indicator { border-radius: 3px; }"
+    "QRadioButton::indicator { border-radius: 7px; }"
+    "QCheckBox::indicator:hover, QRadioButton::indicator:hover {"
+    " border-color: #3cd8e8; }"
+    "QCheckBox::indicator:checked, QRadioButton::indicator:checked {"
+    " background-color: #ff3cff; border-color: #ff3cff; }"
+    "QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {"
+    " background-color: #1b1b38; border-color: #33335a; }"
+    "QProgressBar {"
+    " background-color: #101024; color: #e6e6fa;"
+    " border: 1px solid #4a4a8a; border-radius: 4px; text-align: center; }"
+    "QProgressBar::chunk {"
+    " border-radius: 3px; background: qlineargradient(x1:0, y1:0,"
+    " x2:1, y2:0, stop:0 #ff3cff, stop:1 #3cd8e8); }"
+    "QMenu {"
+    " background-color: #16162e; color: #e6e6fa;"
+    " border: 1px solid #4a4a8a; }"
+    "QMenu::item:selected { background-color: rgba(255, 60, 255, 80); }"
+    "QMenu::separator { height: 1px; background: #33335a; margin: 3px 8px; }"
+    "QToolTip {"
+    " background-color: #101028; color: #ffff9c;"
+    " border: 1px solid #ff3cff; }"
+    "QHeaderView::section {"
+    " background-color: #1c1c3c; color: #cfcfef;"
+    " border: 1px solid #33335a; padding: 3px 6px; }"
+    "QAbstractItemView {"
+    " selection-background-color: rgba(255, 60, 255, 70);"
+    " selection-color: #ffffff; }")
+
 # Shared splitter-handle style (SD Card + GetIt splitters): the default
 # handle is invisible on dark themes, so users never discover they can
 # resize the panes. Paint a centered translucent "grab pill" (the margins

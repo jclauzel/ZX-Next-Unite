@@ -4344,6 +4344,11 @@ _zxnu_parse_start_re_listener_arg()
 
 app = QApplication(sys.argv)
 
+# The "Next" chrome: retro navy + magenta/cyan widget styling, applied
+# app-wide (see NEXT_CHROME_QSS in zxnu_config for the boundary rules —
+# the desktop-theme engine keeps owning colors, tabs and backgrounds).
+app.setStyleSheet(NEXT_CHROME_QSS)
+
 # Remove the 256 MB image allocation cap so that large zxART images
 # (which Qt rejects by default) are loaded without the
 # "QImageIOHandler: Rejecting image" warning.
