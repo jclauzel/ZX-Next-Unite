@@ -465,6 +465,9 @@ class WizardManager(QObject):
         self.bubble.on_resize = self._reposition
         self._tour_index = -1
         self._tour_active_page = None
+        # How to re-compose whatever the bubble currently shows — called on
+        # a live language switch so the wizard changes language mid-speech.
+        self._respeak = None
         self._teaser_cache = {}
         self._fetch_signals = _WikiFetchSignals()
         self._fetch_signals.done.connect(self._on_teaser)
@@ -589,7 +592,14 @@ class WizardManager(QObject):
         self.bubble.hide()
         self._tour_index = -1
         self._tour_active_page = None
+        self._respeak = None
         self.sprite.set_gesture("idle")
+
+    def on_language_changed(self):
+        """Live language switch (Settings combo): re-compose the current
+        speech in the new language while it is on screen."""
+        if self.bubble.isVisible() and self._respeak is not None:
+            self._respeak()
 
     # ── startup / first run ──────────────────────────────────────────────
     def startup(self):
@@ -613,6 +623,7 @@ class WizardManager(QObject):
             self.sprite.set_gesture("wave", cycles=2)
 
     def intro(self):
+        self._respeak = self.intro
         self._say(self._tr("intro.hello") + "\n\n" + self._tr("intro.offer"),
                   [(self._tr("btn.tour"), self.start_tour),
                    (self._tr("btn.later"), self._dismiss),
@@ -620,6 +631,7 @@ class WizardManager(QObject):
                   gesture="wave", cycles=4)
 
     def turn_off(self):
+        self._respeak = None
         self._say(self._tr("wizard.off"), [], gesture="cast", cycles=2)
         QTimer.singleShot(2600, lambda: self.set_enabled(False))
 
@@ -641,18 +653,23 @@ class WizardManager(QObject):
         self.next_tour_step()
 
     def next_tour_step(self):
-        tabw = getattr(self._host, "_tab_widget", None)
         while True:
             self._tour_index += 1
             if self._tour_index >= len(TOUR_STEPS):
                 self.finish_tour()
                 return
-            resolved = self._resolve_step(TOUR_STEPS[self._tour_index])
-            if resolved is not None:
+            if self._resolve_step(TOUR_STEPS[self._tour_index]) is not None:
                 break
+        self._show_tour_step()
+
+    def _show_tour_step(self):
+        """Display (or, on a language switch, re-display) the current step."""
+        resolved = self._resolve_step(TOUR_STEPS[self._tour_index])
+        if resolved is None:
+            return
         tab_index, text_key, page = resolved
         try:
-            tabw.setCurrentIndex(tab_index)
+            self._host._tab_widget.setCurrentIndex(tab_index)
         except Exception:
             pass
         self._tour_active_page = page
@@ -661,6 +678,7 @@ class WizardManager(QObject):
             # Browsing third-party catalogues: softly recall that the app
             # distributes nothing itself and rights are the user's to check.
             text += "\n\n" + self._tr("tour.disclaimer")
+        self._respeak = self._show_tour_step
         self._say(text,
                   [(self._tr("btn.next"), self.next_tour_step),
                    (self._tr("btn.more"), lambda _=False, p=page:
@@ -671,6 +689,7 @@ class WizardManager(QObject):
 
     def finish_tour(self):
         self._tour_active_page = None
+        self._respeak = self.finish_tour
         self._say(self._tr("tour.done"),
                   [(self._tr("btn.close"), self._dismiss)],
                   gesture="cast", cycles=3)
@@ -714,26 +733,35 @@ class WizardManager(QObject):
             self._reposition()
 
     # ── fun ──────────────────────────────────────────────────────────────
-    def _draw_from(self, table, bag):
-        lines = wizard_lines(table, self._lang())
+    # Bags hold INDICES into the canonical lists (same length in every
+    # language, tripwired), so a live language switch re-tells the SAME
+    # joke/story in the new language.
+    def _draw_index(self, table, bag):
         if not bag:
-            bag[:] = random.sample(lines, len(lines))
+            n = len(wizard_lines(table, "en"))
+            bag[:] = random.sample(range(n), n)
         return bag.pop()
 
-    def tell_joke(self):
-        self._say(self._draw_from(JOKES, self._joke_bag),
-                  [(self._tr("btn.another"), self.tell_joke),
+    def _show_fun(self, table, idx, again_cb, gesture, cycles):
+        lines = wizard_lines(table, self._lang())
+        self._respeak = lambda: self._show_fun(table, idx, again_cb,
+                                               gesture, cycles)
+        self._say(lines[idx % len(lines)],
+                  [(self._tr("btn.another"), again_cb),
                    (self._tr("btn.close"), self._dismiss)],
-                  gesture="cast", cycles=4)
+                  gesture=gesture, cycles=cycles)
+
+    def tell_joke(self):
+        self._show_fun(JOKES, self._draw_index(JOKES, self._joke_bag),
+                       self.tell_joke, "cast", 4)
 
     def tell_story(self):
-        self._say(self._draw_from(STORIES, self._story_bag),
-                  [(self._tr("btn.another"), self.tell_story),
-                   (self._tr("btn.close"), self._dismiss)],
-                  gesture="talk", cycles=14)
+        self._show_fun(STORIES, self._draw_index(STORIES, self._story_bag),
+                       self.tell_story, "talk", 14)
 
     # ── the click menu ───────────────────────────────────────────────────
     def show_menu(self):
+        self._respeak = self.show_menu
         self._say(self._tr("menu.title"),
                   [(self._tr("btn.tour"), self.start_tour),
                    (self._tr("btn.joke"), self.tell_joke),

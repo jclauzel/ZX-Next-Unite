@@ -153,7 +153,28 @@ zxnu_i18n.set_current_ui_language("es")
 wiz.show_menu()
 check("menu speaks the active language",
       wiz.bubble.label.text() == wc.wizard_tr("menu.title", "es"))
+
+# A live language switch re-composes whatever is currently on screen.
+zxnu_i18n.set_current_ui_language("fr")
+wiz.on_language_changed()
+check("open menu re-speaks in the new language",
+      wiz.bubble.label.text() == wc.wizard_tr("menu.title", "fr"))
 zxnu_i18n.set_current_ui_language("en")
+wiz.start_tour()
+zxnu_i18n.set_current_ui_language("pl")
+wiz.on_language_changed()
+check("open tour step re-speaks in the new language",
+      wiz.bubble.label.text() == wc.wizard_tr("tour.sdcard", "pl"))
+check("re-speak stays on the same tab", tabs.currentIndex() == 0)
+zxnu_i18n.set_current_ui_language("en")
+wiz.tell_joke()
+_joke_idx = wc.JOKES["en"].index(wiz.bubble.label.text())
+zxnu_i18n.set_current_ui_language("cs")
+wiz.on_language_changed()
+check("the SAME joke re-tells in the new language",
+      wiz.bubble.label.text() == wc.JOKES["cs"][_joke_idx])
+zxnu_i18n.set_current_ui_language("en")
+wiz._dismiss()
 
 # Turn-off persists and hides (the farewell hides after a delay; force it).
 wiz.set_enabled(False)

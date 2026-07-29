@@ -3475,6 +3475,10 @@ class MainWindow(QMainWindow):
         # every catalogued text in place (English restores the originals).
         def _i18n_apply(code):
             translate_widget_tree(self, normalize_ui_language(code))
+            # A speaking wizard switches language mid-speech (zxnu_wizard.py).
+            _wiz = getattr(self, "_wizard", None)
+            if _wiz is not None:
+                _wiz.on_language_changed()
         self._i18n_apply = _i18n_apply
 
         build_settings_pane(
