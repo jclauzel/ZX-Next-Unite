@@ -1704,8 +1704,8 @@ DISCLAIMER_STEPS = {"tour.getit", "tour.zxdb", "tour.zxart", "tour.unite"}
 # placeholder of "tour.kudos"; proper names, shared by every language).
 KUDOS_NAMES = ("em00k, Jari, Leonis, Remy, Phoebus, Adrian, Mike, Thomas, "
                "Robin, Flash, the Chris(s) 🙂, Holub, the Richard(s) 🙂, "
-               "the Gary(s) 🙂, Henrique, Victor, Nicolas & Anthony, "
-               "Simon, Jamie, Tim")
+               "Szerman, the Gary(s) 🙂, Henrique, Victor, "
+               "Nicolas & Anthony, Simon, Jamie, Tim")
 
 # The manual's landing page (the wizard's "Read the manual" outside a tour).
 USER_MANUAL_PAGE = "User-Manual"
