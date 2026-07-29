@@ -405,6 +405,7 @@ from zxnu_sdcard_ops import (build_sdcard_utils, build_image_edit_ops,
 from zxnu_tab_ops import build_tab_ops
 from zxnu_retro_ui import (build_main_retro_log, build_sidebar_anim,
     build_help_retro_log, build_content_disclaimer)
+from zxnu_wizard import build_wizard
 from zxnu_favorites_pane import (build_favorites_helpers,
     build_favorites_pane, build_favorites_ops)
 from zxnu_i18n import (normalize_ui_language, system_ui_language,
@@ -1333,6 +1334,11 @@ class MainWindow(QMainWindow):
         # locally: "prompt" (ask, default), "overwrite" (always), "ignore" (never
         # touch). Seeded so a first-run cfg persists a value.
         configuration_dictionary[SETTING_NEXTSYNC_SEND_CONFLICT] = DEFAULT_NEXTSYNC_SEND_CONFLICT
+        # Onboarding Wizard assistant (zxnu_wizard.py): shown by default;
+        # the first-run introduction plays once. Seeded so the config writer
+        # never KeyErrors on these new keys.
+        configuration_dictionary[SETTING_WIZARD_ENABLED] = ""
+        configuration_dictionary[SETTING_WIZARD_INTRO_SHOWN] = ""
 
         # Detect the MAME emulator, applying the platform's search precedence
         # (see resolve_mame_executable). On Windows the PATH copy wins, falling
@@ -3545,7 +3551,6 @@ class MainWindow(QMainWindow):
         build_tab_ops(
             self,
             _right_disk_content=lambda: right_disk_image_explorer_content,
-            load_configuration_file=load_configuration_file,
             _start_transfer_idle_animation=_start_transfer_idle_animation,
             _stop_transfer_idle_animation=_stop_transfer_idle_animation,
             nextsync_perform_checks_and_prepare_server_start=nextsync_perform_checks_and_prepare_server_start,
@@ -3566,6 +3571,26 @@ class MainWindow(QMainWindow):
         _start_tab_spinner = self._start_tab_spinner
         _stop_tab_spinner = self._stop_tab_spinner
         on_tab_changed = self.on_tab_changed
+
+        #  Start main logic
+        load_configuration_file()
+        # Re-tint the tab bar with the just-loaded general UI text colour.
+        # This covers Custom mode (whose theme re-apply returns early without
+        # refreshing) and the Settings / itch.io tabs that are added after the
+        # initial colouring pass, so every tab honours the saved colour.
+        if hasattr(self, "_refresh_tab_stylesheet"):
+            try:
+                self._refresh_tab_stylesheet()
+            except Exception:
+                pass
+        self._initialising = False
+
+        # ── Onboarding Wizard (zxnu_wizard.py): Wizzy, the animated
+        # pixel-art assistant. Built now (hidden); its deferred startup —
+        # after the deferred tab activation below has settled — syncs the
+        # Settings checkbox and plays the first-run introduction.
+        build_wizard(self, configuration_dictionary=configuration_dictionary)
+        QTimer.singleShot(2200, self._wizard.startup)
 
         def _apply_first_run_pygame_defaults():
             """On the first run (every pygame option still unset) default them all

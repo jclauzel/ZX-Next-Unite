@@ -1565,6 +1565,33 @@ def build_settings_pane(
         lambda _s: _settings_itchio_tab_changed())
     grid_tab_Settings.addWidget(host.settings_show_itchio_tab_checkbox, 39, 0, 1, 2)
 
+    # ── Onboarding Wizard (Wizzy, zxnu_wizard.py) ────────────────────────
+    def _settings_wizard_changed():
+        on = host.settings_wizard_checkbox.isChecked()
+        wiz = getattr(host, "_wizard", None)
+        if wiz is not None:
+            wiz.set_enabled(on, persist=not host._initialising)
+        else:
+            # During construction the wizard doesn't exist yet; just record
+            # the preference (its deferred startup reads it).
+            configuration_dictionary[SETTING_WIZARD_ENABLED] = (
+                "" if on else "false")
+            if not host._initialising:
+                save_configuration_file()
+
+    host.settings_wizard_checkbox = QCheckBox(
+        "Show Wizzy, the onboarding wizard (bottom-left assistant)")
+    host.settings_wizard_checkbox.setChecked(True)
+    host.settings_wizard_checkbox.setToolTip(
+        "An animated pixel-art wizard that lives in the bottom-left corner:\n"
+        "tours the tabs for newcomers (deep-dive content comes from the\n"
+        "GitHub wiki user manual), tells ZX Spectrum Next jokes and stories,\n"
+        "and follows the application language. On by default. Saved to the\n"
+        "configuration file.")
+    host.settings_wizard_checkbox.stateChanged.connect(
+        lambda _s: _settings_wizard_changed())
+    grid_tab_Settings.addWidget(host.settings_wizard_checkbox, 40, 0, 1, 2)
+
     # ── CSpect: check itch.io for a newer version at startup (default on) ──
     def settings_cspect_update_check_changed():
         on = host.settings_cspect_update_check_checkbox.isChecked()
