@@ -152,6 +152,14 @@ PANES = [
     ("zxnu_sdcard_ops",
      ["build_sdcard_utils", "build_image_edit_ops",
       "build_local_explorer_ops", "build_transfer_clipboard_ops"], []),
+    # Extraction #17: cross-tab ops (autocomplete, cross-search fan-out,
+    # tab badges/spinners, autocomplete animation, on_tab_changed).
+    ("zxnu_tab_ops", "build_tab_ops", []),
+    # Extraction #18: retro-log toggles, sidebar/tab-colour animations and
+    # the one-time content disclaimer — four small builders.
+    ("zxnu_retro_ui",
+     ["build_main_retro_log", "build_sidebar_anim",
+      "build_help_retro_log", "build_content_disclaimer"], []),
 ]
 
 for modname, funcnames, _outputs in PANES:
