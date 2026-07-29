@@ -973,6 +973,16 @@ NEXT_CHROME_QSS = (
     " selection-background-color: rgba(255, 60, 255, 70);"
     " selection-color: #ffffff; }")
 
+# Theme-aware companion to NEXT_CHROME_QSS: dark viewport backgrounds for
+# the explorers/tables/lists. Applied (appended to the chrome) by the
+# desktop-theme engine for the Dark/Black/Automatic-dark and Custom
+# variants; the explicit White variant keeps stock light viewports (its
+# item palette is tuned for them).
+NEXT_DARK_VIEWS_QSS = (
+    "QTreeView, QTableView, QListView, QTextBrowser {"
+    " background-color: rgba(13, 13, 32, 216);"
+    " border: 1px solid #33335a; }")
+
 # Shared splitter-handle style (SD Card + GetIt splitters): the default
 # handle is invisible on dark themes, so users never discover they can
 # resize the panes. Paint a centered translucent "grab pill" (the margins

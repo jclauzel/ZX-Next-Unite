@@ -20,7 +20,7 @@ import sys
 
 from PySide6.QtCore import (Qt, QTimer)
 from PySide6.QtGui import (QColor, QPixmap)
-from PySide6.QtWidgets import (QWidget, QLabel, QPushButton, QCheckBox,
+from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QPushButton, QCheckBox,
     QComboBox, QLineEdit, QGridLayout, QHBoxLayout, QVBoxLayout, QFrame,
     QScrollArea, QSlider, QSpinBox, QColorDialog)
 
@@ -126,6 +126,15 @@ def build_settings_pane(
         Desktop Theme mode. White/Dark/Black/Automatic derive the palette;
         Custom keeps the user's colours (snapshotting them to the cfg when
         persist=True)."""
+        # Theme-aware view backgrounds: the explorers/tables/lists render
+        # dark under every variant except explicit White (whose item
+        # palette expects the stock light viewports). Appended to the
+        # app-wide chrome so a theme switch re-applies both.
+        _appinst = QApplication.instance()
+        if _appinst is not None:
+            _extra = ("" if _desktop_theme_variant() == "light"
+                      else NEXT_DARK_VIEWS_QSS)
+            _appinst.setStyleSheet(NEXT_CHROME_QSS + _extra)
         mode = getattr(host, "_desktop_theme_mode", DEFAULT_DESKTOP_THEME)
         if mode == DESKTOP_THEME_CUSTOM:
             if persist:
