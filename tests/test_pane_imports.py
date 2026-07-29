@@ -141,6 +141,17 @@ PANES = [
     ("zxnu_emulator_ops", "build_emulator_ops", []),
     # Extraction #13: the hdfg.cfg restore/save pipeline.
     ("zxnu_config_io", "build_config_io", []),
+    # Extraction #15: the NextSync op layer (server prepare/start, classic
+    # explorer ops, server job/warnings/conflict) — three builders.
+    ("zxnu_nextsync_ops",
+     ["build_nextsync_server_start", "build_nextsync_explorer_ops",
+      "build_nextsync_server_job"], []),
+    # Extraction #16: the SD-card op layer (utils/load pipeline, image
+    # delete/rename, local-pane ops, transfers + shared clipboard) — four
+    # builders.
+    ("zxnu_sdcard_ops",
+     ["build_sdcard_utils", "build_image_edit_ops",
+      "build_local_explorer_ops", "build_transfer_clipboard_ops"], []),
 ]
 
 for modname, funcnames, _outputs in PANES:
