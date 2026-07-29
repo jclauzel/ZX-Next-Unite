@@ -1341,6 +1341,7 @@ class MainWindow(QMainWindow):
         configuration_dictionary[SETTING_WIZARD_ENABLED] = ""
         configuration_dictionary[SETTING_WIZARD_INTRO_SHOWN] = ""
         configuration_dictionary[SETTING_WIZARD_FONT_SIZE] = ""
+        configuration_dictionary[SETTING_WIZARD_SP_OFFERED] = ""
 
         # Detect the MAME emulator, applying the platform's search precedence
         # (see resolve_mame_executable). On Windows the PATH copy wins, falling
