@@ -126,6 +126,9 @@ PANES = [
     ("zxnu_settings_pane", "build_settings_pane", []),
     # Extraction #9: the NextSync tab (widgets + wiring; op closures injected).
     ("zxnu_nextsync_pane", "build_nextsync_pane", []),
+    # Extraction #10: the optional itch.io tab (built only when itch-dl is
+    # importable; the builder itself must always import cleanly).
+    ("zxnu_itchio_pane", "build_itchio_pane", []),
 ]
 
 for modname, funcnames, _outputs in PANES:
