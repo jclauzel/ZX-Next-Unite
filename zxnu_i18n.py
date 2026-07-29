@@ -1575,6 +1575,11 @@ CATALOGS = {
 # ---------------------------------------------------------------------------
 _TOAST_CATALOGS = {
     "fr": {
+        "⚠  No network connection": "⚠  Pas de connexion réseau",
+        "Online features are paused until the connection returns — emulators and the SD Card tools still work.":
+            "Les fonctions en ligne sont en pause jusqu'au retour de la connexion — les émulateurs et les outils SD Card fonctionnent toujours.",
+        "✅  Network restored": "✅  Réseau rétabli",
+        "Online features are back.": "Les fonctions en ligne sont de retour.",
         "✅  CSpect installed": "✅  CSpect installé",
         "✅  Emulator(s) detected": "✅  Émulateur(s) détecté(s)",
         "⚠  No emulators detected": "⚠  Aucun émulateur détecté",
@@ -1675,6 +1680,11 @@ _TOAST_CATALOGS = {
         "Could not create {zip_name}: {error}": "Impossible de créer {zip_name} : {error}",
     },
     "es": {
+        "⚠  No network connection": "⚠  Sin conexión de red",
+        "Online features are paused until the connection returns — emulators and the SD Card tools still work.":
+            "Las funciones en línea quedan en pausa hasta que vuelva la conexión — los emuladores y las herramientas de SD Card siguen funcionando.",
+        "✅  Network restored": "✅  Red restablecida",
+        "Online features are back.": "Las funciones en línea están de vuelta.",
         "✅  CSpect installed": "✅  CSpect instalado",
         "✅  Emulator(s) detected": "✅  Emulador(es) detectado(s)",
         "⚠  No emulators detected": "⚠  No se detectaron emuladores",
@@ -1775,6 +1785,11 @@ _TOAST_CATALOGS = {
         "Could not create {zip_name}: {error}": "No se pudo crear {zip_name}: {error}",
     },
     "pt": {
+        "⚠  No network connection": "⚠  Sem ligação de rede",
+        "Online features are paused until the connection returns — emulators and the SD Card tools still work.":
+            "As funções online ficam em pausa até a ligação voltar — os emuladores e as ferramentas de SD Card continuam a funcionar.",
+        "✅  Network restored": "✅  Rede restabelecida",
+        "Online features are back.": "As funções online estão de volta.",
         "✅  CSpect installed": "✅  CSpect instalado",
         "✅  Emulator(s) detected": "✅  Emulador(es) detetado(s)",
         "⚠  No emulators detected": "⚠  Nenhum emulador detetado",
@@ -1875,6 +1890,11 @@ _TOAST_CATALOGS = {
         "Could not create {zip_name}: {error}": "Não foi possível criar {zip_name}: {error}",
     },
     "pl": {
+        "⚠  No network connection": "⚠  Brak połączenia sieciowego",
+        "Online features are paused until the connection returns — emulators and the SD Card tools still work.":
+            "Funkcje online są wstrzymane do powrotu połączenia — emulatory i narzędzia SD Card nadal działają.",
+        "✅  Network restored": "✅  Sieć przywrócona",
+        "Online features are back.": "Funkcje online wróciły.",
         "✅  CSpect installed": "✅  CSpect zainstalowany",
         "✅  Emulator(s) detected": "✅  Wykryto emulator(y)",
         "⚠  No emulators detected": "⚠  Nie wykryto emulatorów",
@@ -1975,6 +1995,11 @@ _TOAST_CATALOGS = {
         "Could not create {zip_name}: {error}": "Nie można utworzyć {zip_name}: {error}",
     },
     "ru": {
+        "⚠  No network connection": "⚠  Нет сетевого подключения",
+        "Online features are paused until the connection returns — emulators and the SD Card tools still work.":
+            "Онлайн-функции приостановлены до восстановления подключения — эмуляторы и инструменты SD Card продолжают работать.",
+        "✅  Network restored": "✅  Сеть восстановлена",
+        "Online features are back.": "Онлайн-функции снова доступны.",
         "✅  CSpect installed": "✅  CSpect установлен",
         "✅  Emulator(s) detected": "✅  Обнаружен(ы) эмулятор(ы)",
         "⚠  No emulators detected": "⚠  Эмуляторы не обнаружены",
@@ -2075,6 +2100,11 @@ _TOAST_CATALOGS = {
         "Could not create {zip_name}: {error}": "Не удалось создать {zip_name}: {error}",
     },
     "cs": {
+        "⚠  No network connection": "⚠  Žádné síťové připojení",
+        "Online features are paused until the connection returns — emulators and the SD Card tools still work.":
+            "Online funkce jsou pozastaveny do návratu připojení — emulátory a nástroje SD Card fungují dál.",
+        "✅  Network restored": "✅  Síť obnovena",
+        "Online features are back.": "Online funkce jsou zpět.",
         "✅  CSpect installed": "✅  CSpect nainstalován",
         "✅  Emulator(s) detected": "✅  Emulátor(y) nalezen(y)",
         "⚠  No emulators detected": "⚠  Nebyly nalezeny žádné emulátory",

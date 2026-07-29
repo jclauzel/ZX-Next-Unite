@@ -42,6 +42,7 @@ SUITES = [
     ("test_retro_log_widget.py", 120, None),
     ("test_i18n.py",            120, None),
     ("test_wizard.py",          120, None),
+    ("test_network.py",         120, None),
     ("test_ui_offscreen.py",    3600, None),   # runs its 10 phases itself
 ]
 

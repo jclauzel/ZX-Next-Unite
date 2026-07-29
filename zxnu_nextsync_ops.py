@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (QInputDialog, QMenu, QMessageBox)
 
 from zxnu_config import *
 from zxnu_workers import *
+from zxnu_network import detect_local_ipv4
 
 
 def build_nextsync_server_start(
@@ -813,22 +814,25 @@ def build_nextsync_server_job(
         add_nextsync_log_window ("------------------------------------------", False)
         add_nextsync_log_window ("NextSync server, protocol version: " + VERSION, False)
         add_nextsync_log_window ("", False)
-        hostinfo = socket.gethostbyname_ex(socket.gethostname())
-        add_nextsync_log_window ("Running on host:\n    " + str(hostinfo[0]) , False)
-        if hostinfo[1] != []:
+        # detect_local_ipv4 never raises: a Linux box with no network route
+        # used to crash the whole startup here on the raw 8.8.8.8 connect.
+        hostname, aliases, ips, primary = detect_local_ipv4()
+        if hostname:
+            add_nextsync_log_window ("Running on host:\n    " + str(hostname), False)
+        if aliases:
             add_nextsync_log_window ("Aliases:", False)
-            for x in hostinfo[1]:
+            for x in aliases:
                 add_nextsync_log_window ("    " + str(x), False)
-        if hostinfo[2] != []:
+        if ips:
             add_nextsync_log_window ("IP addresses:", False)
-            for x in hostinfo[2]:
+            for x in ips:
                 add_nextsync_log_window ("    " + str(x), False)
-
-        # If we're unsure of the ip, try getting it via internet connection
-        if len(hostinfo[2]) > 1 or "127" in hostinfo[2][0]:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                s.connect(("8.8.8.8", 80)) # ping google dns
-                add_nextsync_log_window ("Primary IP:\n    " + str(s.getsockname()[0]), False)
+        if primary is not None:
+            add_nextsync_log_window ("Primary IP:\n    " + str(primary), False)
+        elif not ips or ips[0].startswith("127"):
+            add_nextsync_log_window (
+                "No network detected - connect to Wi-Fi/Ethernet to see "
+                "the address your Next should sync to.", False)
 
     def nextsync_cancel_server_job():
         nextsync_hide_start_cancel_buttons()
