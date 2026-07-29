@@ -1417,6 +1417,23 @@ def main():
                     elif data == b"Bye":
                         sendpacket(conn, str.encode("Later"), 0)
                         print(f"{timestamp()} | Closing connection")
+                        # Drain until the Next closes its side before we do:
+                        # the hard (SO_LINGER-0) close below sends an RST
+                        # that can otherwise clobber the just-queued "Later",
+                        # making the dot retry its bye against a dead socket.
+                        # The peer's EOF proves "Later" was consumed; the
+                        # grace period bounds a client that never hangs up.
+                        try:
+                            conn.settimeout(2.0)
+                            while conn.recv(1024):
+                                pass
+                        except (socket.timeout, OSError):
+                            pass
+                        finally:
+                            try:
+                                conn.settimeout(None)
+                            except OSError:
+                                pass
                         talking = False
                         _in_transfer = False
                     elif data == b"Sync2" or data == b"Sync1" or data == b"Sync":
