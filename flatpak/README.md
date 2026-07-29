@@ -60,7 +60,7 @@ zip) stays untouched and a Flatpak failure can never block a release.
    sources:
      - type: git
        url: https://github.com/jclauzel/ZX-Next-Unite.git
-       tag: v9.4.2
+       tag: v9.4.3
        commit: <full commit sha of the tag>
    ```
 
