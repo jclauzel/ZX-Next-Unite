@@ -32,18 +32,19 @@ import threading
 import urllib.request
 import webbrowser
 
-from PySide6.QtCore import (Qt, QObject, QTimer, Signal)
+from PySide6.QtCore import (Qt, QObject, QRect, QTimer, Signal)
 from PySide6.QtGui import (QColor, QImage, QPainter, QPixmap)
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton,
+from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLayout, QPushButton,
     QVBoxLayout, QWidget)
 
 import zxnu_config
 from zxnu_config import (SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN,
                          ZXART_USER_AGENT)
 from zxnu_i18n import current_ui_language
-from zxnu_wizard_content import (JOKES, STORIES, TEXTS, TOUR_STEPS,
-                                 USER_MANUAL_PAGE, WIKI_PAGE_BASE,
-                                 WIKI_RAW_BASE, wizard_lines, wizard_tr)
+from zxnu_wizard_content import (DISCLAIMER_STEPS, JOKES, STORIES, TEXTS,
+                                 TOUR_STEPS, USER_MANUAL_PAGE,
+                                 WIKI_PAGE_BASE, WIKI_RAW_BASE,
+                                 wizard_lines, wizard_tr)
 
 # ── Sprite artwork ────────────────────────────────────────────────────────
 # 26×28 cells, '.' transparent. The suit is deep blue with the Spectrum
@@ -301,36 +302,125 @@ class WizardBubble(QWidget):
         v = QVBoxLayout(self)
         v.setContentsMargins(10, 8, 10, 8)
         v.setSpacing(6)
+        # The layout owns the bubble's size: it can never shrink below its
+        # content (deferred button deletions used to trigger a relayout
+        # that squashed the bubble under its own text).
+        v.setSizeConstraint(QLayout.SetMinimumSize)
         self.label = QLabel("")
         self.label.setWordWrap(True)
-        self.label.setMaximumWidth(self.MAX_TEXT_W)
+        # Fixed width: a wrapped QLabel's sizeHint under a plain adjustSize
+        # miscomputes its height (the classic word-wrap trap — text got
+        # visibly clipped); pinning the width makes heightForWidth exact.
+        self.label.setFixedWidth(self.MAX_TEXT_W)
         self.label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         v.addWidget(self.label)
         self.button_row = QHBoxLayout()
         self.button_row.setSpacing(6)
         v.addLayout(self.button_row)
         self._buttons = []
+        self._pages = [""]
+        self._page = 0
+        self._actions = []
+        # Set by the manager: called after every re-render so the bubble is
+        # re-anchored (page flips change its height; growing from a fixed
+        # top-left corner used to push it past the window's bottom edge).
+        self.on_resize = None
+
+    # Long speeches are split into pages the reader flips with ◀ / ▶ —
+    # nothing ever ends in an unreadable "…" again.
+    PAGE_CHARS = 250
+
+    @staticmethod
+    def _paginate(text, limit=PAGE_CHARS):
+        pages = []
+        for block in text.split("\n\n"):
+            block = block.strip()
+            while len(block) > limit:
+                cut = block.rfind(" ", 0, limit)
+                if cut <= 0:
+                    cut = limit
+                pages.append(block[:cut].rstrip())
+                block = block[cut:].strip()
+            if block:
+                pages.append(block)
+        return pages or [""]
 
     def show_message(self, text, buttons):
-        """Set *text* and rebuild the button row from (label, cb) pairs."""
-        for b in self._buttons:
-            self.button_row.removeWidget(b)
-            b.deleteLater()
+        """Paginate *text* and rebuild the button row from (label, cb)."""
+        self._pages = self._paginate(text)
+        self._page = 0
+        self._actions = list(buttons)
+        self._render()
+
+    def append_text(self, extra):
+        """Add late-arriving text (the wiki teaser) as extra pages."""
+        self._pages += self._paginate(extra)
+        self._render()
+
+    def _flip(self, delta):
+        self._page = max(0, min(len(self._pages) - 1, self._page + delta))
+        self._render()
+
+    def _render(self):
+        # Empty the whole button row (widgets AND the stretch item — the
+        # stretch used to accumulate once per render).
+        while self.button_row.count():
+            item = self.button_row.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)   # off-screen NOW (deleteLater ghosts)
+                w.deleteLater()
         self._buttons = []
+        many = len(self._pages) > 1
+        last = self._page >= len(self._pages) - 1
+        text = self._pages[self._page] + ("  …" if not last else "")
         self.label.setText(text)
-        for (label, cb) in buttons:
+        # Word-wrapped QLabels under-report their wrapped height to layouts
+        # (the text was visibly clipped); measure it ourselves — with the
+        # POLISHED (stylesheet) font — and pin both dimensions so the
+        # layout maths below is exact.
+        self.label.ensurePolished()
+        fm = self.label.fontMetrics()
+        rect = fm.boundingRect(QRect(0, 0, self.MAX_TEXT_W, 2000),
+                               Qt.TextWordWrap, text)
+        self.label.setFixedSize(self.MAX_TEXT_W,
+                                rect.height() + fm.lineSpacing())
+        nav = []
+        if many:
+            nav = [("◀", lambda: self._flip(-1)),
+                   (f"{self._page + 1}/{len(self._pages)}", None),
+                   ("▶", lambda: self._flip(+1))]
+        for (label, cb) in nav + self._actions:
             btn = QPushButton(label)
-            btn.clicked.connect(cb)
+            if cb is None:
+                btn.setEnabled(False)              # the page counter
+            elif label == "◀":
+                btn.clicked.connect(cb)
+                btn.setEnabled(self._page > 0)
+            elif label == "▶":
+                btn.clicked.connect(cb)
+                btn.setEnabled(not last)
+            else:
+                btn.clicked.connect(cb)
+            if label in ("◀", "▶"):
+                btn.setFixedWidth(30)
+            elif cb is None:
+                btn.setFixedWidth(48)
             self.button_row.addWidget(btn)
             self._buttons.append(btn)
         self.button_row.addStretch(1)
-        self.adjustSize()
+        self.layout().activate()
+        self.resize(self.layout().sizeHint())
         self.show()
         self.raise_()
 
-    def append_text(self, extra):
-        self.label.setText(self.label.text() + "\n\n" + extra)
-        self.adjustSize()
+    def resizeEvent(self, event):
+        # The SetMinimumSize layout constraint can grow the bubble a beat
+        # after _render (posted LayoutRequest); re-anchoring on the REAL
+        # resize keeps the bubble inside the window whatever the timing.
+        super().resizeEvent(event)
+        if self.on_resize is not None:
+            self.on_resize()
 
 
 class _WikiFetchSignals(QObject):
@@ -372,8 +462,12 @@ class WizardManager(QObject):
         self.sprite.hide()
         self.bubble.hide()
         self.sprite.clicked.connect(self.show_menu)
+        self.bubble.on_resize = self._reposition
         self._tour_index = -1
         self._tour_active_page = None
+        # How to re-compose whatever the bubble currently shows — called on
+        # a live language switch so the wizard changes language mid-speech.
+        self._respeak = None
         self._teaser_cache = {}
         self._fetch_signals = _WikiFetchSignals()
         self._fetch_signals.done.connect(self._on_teaser)
@@ -498,7 +592,14 @@ class WizardManager(QObject):
         self.bubble.hide()
         self._tour_index = -1
         self._tour_active_page = None
+        self._respeak = None
         self.sprite.set_gesture("idle")
+
+    def on_language_changed(self):
+        """Live language switch (Settings combo): re-compose the current
+        speech in the new language while it is on screen."""
+        if self.bubble.isVisible() and self._respeak is not None:
+            self._respeak()
 
     # ── startup / first run ──────────────────────────────────────────────
     def startup(self):
@@ -522,6 +623,7 @@ class WizardManager(QObject):
             self.sprite.set_gesture("wave", cycles=2)
 
     def intro(self):
+        self._respeak = self.intro
         self._say(self._tr("intro.hello") + "\n\n" + self._tr("intro.offer"),
                   [(self._tr("btn.tour"), self.start_tour),
                    (self._tr("btn.later"), self._dismiss),
@@ -529,6 +631,7 @@ class WizardManager(QObject):
                   gesture="wave", cycles=4)
 
     def turn_off(self):
+        self._respeak = None
         self._say(self._tr("wizard.off"), [], gesture="cast", cycles=2)
         QTimer.singleShot(2600, lambda: self.set_enabled(False))
 
@@ -550,22 +653,33 @@ class WizardManager(QObject):
         self.next_tour_step()
 
     def next_tour_step(self):
-        tabw = getattr(self._host, "_tab_widget", None)
         while True:
             self._tour_index += 1
             if self._tour_index >= len(TOUR_STEPS):
                 self.finish_tour()
                 return
-            resolved = self._resolve_step(TOUR_STEPS[self._tour_index])
-            if resolved is not None:
+            if self._resolve_step(TOUR_STEPS[self._tour_index]) is not None:
                 break
+        self._show_tour_step()
+
+    def _show_tour_step(self):
+        """Display (or, on a language switch, re-display) the current step."""
+        resolved = self._resolve_step(TOUR_STEPS[self._tour_index])
+        if resolved is None:
+            return
         tab_index, text_key, page = resolved
         try:
-            tabw.setCurrentIndex(tab_index)
+            self._host._tab_widget.setCurrentIndex(tab_index)
         except Exception:
             pass
         self._tour_active_page = page
-        self._say(self._tr(text_key),
+        text = self._tr(text_key)
+        if text_key in DISCLAIMER_STEPS:
+            # Browsing third-party catalogues: softly recall that the app
+            # distributes nothing itself and rights are the user's to check.
+            text += "\n\n" + self._tr("tour.disclaimer")
+        self._respeak = self._show_tour_step
+        self._say(text,
                   [(self._tr("btn.next"), self.next_tour_step),
                    (self._tr("btn.more"), lambda _=False, p=page:
                        self.open_manual(p)),
@@ -575,6 +689,7 @@ class WizardManager(QObject):
 
     def finish_tour(self):
         self._tour_active_page = None
+        self._respeak = self.finish_tour
         self._say(self._tr("tour.done"),
                   [(self._tr("btn.close"), self._dismiss)],
                   gesture="cast", cycles=3)
@@ -618,26 +733,35 @@ class WizardManager(QObject):
             self._reposition()
 
     # ── fun ──────────────────────────────────────────────────────────────
-    def _draw_from(self, table, bag):
-        lines = wizard_lines(table, self._lang())
+    # Bags hold INDICES into the canonical lists (same length in every
+    # language, tripwired), so a live language switch re-tells the SAME
+    # joke/story in the new language.
+    def _draw_index(self, table, bag):
         if not bag:
-            bag[:] = random.sample(lines, len(lines))
+            n = len(wizard_lines(table, "en"))
+            bag[:] = random.sample(range(n), n)
         return bag.pop()
 
-    def tell_joke(self):
-        self._say(self._draw_from(JOKES, self._joke_bag),
-                  [(self._tr("btn.another"), self.tell_joke),
+    def _show_fun(self, table, idx, again_cb, gesture, cycles):
+        lines = wizard_lines(table, self._lang())
+        self._respeak = lambda: self._show_fun(table, idx, again_cb,
+                                               gesture, cycles)
+        self._say(lines[idx % len(lines)],
+                  [(self._tr("btn.another"), again_cb),
                    (self._tr("btn.close"), self._dismiss)],
-                  gesture="cast", cycles=4)
+                  gesture=gesture, cycles=cycles)
+
+    def tell_joke(self):
+        self._show_fun(JOKES, self._draw_index(JOKES, self._joke_bag),
+                       self.tell_joke, "cast", 4)
 
     def tell_story(self):
-        self._say(self._draw_from(STORIES, self._story_bag),
-                  [(self._tr("btn.another"), self.tell_story),
-                   (self._tr("btn.close"), self._dismiss)],
-                  gesture="talk", cycles=14)
+        self._show_fun(STORIES, self._draw_index(STORIES, self._story_bag),
+                       self.tell_story, "talk", 14)
 
     # ── the click menu ───────────────────────────────────────────────────
     def show_menu(self):
+        self._respeak = self.show_menu
         self._say(self._tr("menu.title"),
                   [(self._tr("btn.tour"), self.start_tour),
                    (self._tr("btn.joke"), self.tell_joke),

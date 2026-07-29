@@ -213,6 +213,39 @@ TEXTS = {
         "fr": "Et voilà la visite ! Cliquez sur moi quand vous voulez — "
               "une blague, une histoire ou un autre tour. Bon Speccy !",
     },
+    # Gentle rights reminder appended to the online-catalogue tour steps
+    # (GetIt / ZXDB / zxArt / Unite!) — see DISCLAIMER_STEPS below.
+    "tour.disclaimer": {
+        "en": "A friendly reminder: this application distributes no "
+              "software or ROMs itself — it only presents content from "
+              "third-party services, and it is up to you to check that "
+              "you have the right to download what you grab.",
+        "es": "Un recordatorio amistoso: esta aplicación no distribuye "
+              "software ni ROMs por sí misma — solo presenta contenido de "
+              "servicios de terceros, y te corresponde a ti comprobar que "
+              "tienes derecho a descargar lo que te lleves.",
+        "pt": "Um lembrete amigável: esta aplicação não distribui "
+              "software nem ROMs — apenas apresenta conteúdo de serviços "
+              "de terceiros, e cabe-te a ti verificar se tens o direito "
+              "de descarregar o que levares.",
+        "pl": "Przyjazne przypomnienie: ta aplikacja sama nie "
+              "rozpowszechnia żadnego oprogramowania ani ROM-ów — jedynie "
+              "prezentuje treści z serwisów zewnętrznych, a sprawdzenie, "
+              "czy masz prawo je pobrać, należy do ciebie.",
+        "ru": "Дружеское напоминание: это приложение само не "
+              "распространяет программы или ROM-файлы — оно лишь "
+              "показывает контент сторонних сервисов, и проверять, есть "
+              "ли у вас право его скачивать, должны вы сами.",
+        "cs": "Přátelské připomenutí: tato aplikace sama žádný software "
+              "ani ROMy nešíří — pouze zobrazuje obsah služeb třetích "
+              "stran a je na tobě ověřit, že máš právo si stáhnout, co "
+              "si bereš.",
+        "fr": "Petit rappel amical : cette application ne distribue "
+              "elle-même aucun logiciel ni ROM — elle ne fait que "
+              "présenter du contenu de services tiers, et il vous "
+              "appartient de vérifier que vous avez le droit de "
+              "télécharger ce que vous prenez.",
+    },
     "manual.teaser": {
         "en": "From the manual:",
         "es": "Del manual:",
@@ -223,6 +256,38 @@ TEXTS = {
         "fr": "Extrait du manuel :",
     },
     # ── The tab tour ──────────────────────────────────────────────────────
+    # Step 0 — the tour opens on the Settings tab so the user can pick
+    # their language before anything else (the wizard re-speaks instantly).
+    "tour.language": {
+        "en": "First things first: I speak seven languages! Right here in "
+              "Settings, find 'Application language:' and pick yours — I "
+              "will switch the very moment you do. All set? Then let's "
+              "go exploring!",
+        "es": "Lo primero es lo primero: ¡hablo siete idiomas! Aquí mismo "
+              "en Ajustes, busca «Application language:» y elige el tuyo "
+              "— cambiaré en el mismo instante. ¿Todo listo? ¡Pues vamos "
+              "a explorar!",
+        "pt": "Primeiro o mais importante: falo sete línguas! Aqui mesmo "
+              "nas Definições, procura «Application language:» e escolhe "
+              "a tua — mudo no preciso instante. Tudo pronto? Então vamos "
+              "explorar!",
+        "pl": "Najpierw najważniejsze: mówię w siedmiu językach! Tutaj, w "
+              "Ustawieniach, znajdź „Application language:” i wybierz "
+              "swój — przełączę się w tej samej chwili. Gotowe? To "
+              "ruszamy na zwiedzanie!",
+        "ru": "Первым делом: я говорю на семи языках! Прямо здесь, в "
+              "Настройках, найдите «Application language:» и выберите "
+              "свой — я переключусь в то же мгновение. Готовы? Тогда "
+              "отправляемся исследовать!",
+        "cs": "Nejdřív to hlavní: mluvím sedmi jazyky! Přímo tady v "
+              "Nastavení najdi „Application language:“ a vyber si svůj — "
+              "přepnu se v tu samou chvíli. Připraveno? Tak vyrážíme na "
+              "průzkum!",
+        "fr": "Commençons par l'essentiel : je parle sept langues ! Ici "
+              "même, dans les Réglages, trouvez « Application language: » "
+              "et choisissez la vôtre — je changerai à l'instant même. "
+              "Tout est prêt ? Alors partons explorer !",
+    },
     "tour.sdcard": {
         "en": "The SD Card Utility! Mount a Next .hdf/.img image, browse "
               "it side by side with your PC files, drag things across — "
@@ -651,6 +716,9 @@ STORIES = {
 # flags, itch.io without itch-dl). The Settings/Help steps match the
 # literal titles the monolith uses for those two addTab calls.
 TOUR_STEPS = (
+    # The tour OPENS on Settings so the user can pick their language first
+    # (the wizard re-speaks the step live when they do).
+    ("Settings 🔩",                        "tour.language",  "Settings-tab"),
     ("ZX_NEXT_UNITE_TAB_TITLE_GOOEY",     "tour.sdcard",    "SD-Card-Utility-tab"),
     ("ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC",  "tour.nextsync",  "NextSync-tab"),
     ("ZX_NEXT_UNITE_TAB_TITLE_GETIT",     "tour.getit",     "GetIt-tab"),
@@ -662,6 +730,10 @@ TOUR_STEPS = (
     ("Settings 🔩",                        "tour.settings",  "Settings-tab"),
     ("?",                                  "tour.help",      "Help-tab"),
 )
+
+# Tour steps that browse third-party online catalogues: the wizard softly
+# appends the "tour.disclaimer" rights reminder to these.
+DISCLAIMER_STEPS = {"tour.getit", "tour.zxdb", "tour.zxart", "tour.unite"}
 
 # The manual's landing page (the wizard's "Read the manual" outside a tour).
 USER_MANUAL_PAGE = "User-Manual"

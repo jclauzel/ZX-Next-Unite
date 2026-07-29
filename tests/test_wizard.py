@@ -106,17 +106,32 @@ wiz.startup()
 check("first-run marks the intro as shown",
       cfg.get(SETTING_WIZARD_INTRO_SHOWN) == "true")
 check("intro bubble is visible", wiz.bubble.isVisible())
-check("intro offers tour/later/off buttons", len(wiz.bubble._buttons) == 3)
+check("intro offers tour/later/off actions", len(wiz.bubble._actions) == 3)
+check("intro paginates with nav buttons",
+      len(wiz.bubble._pages) > 1
+      and any(b.text() == "▶" for b in wiz.bubble._buttons))
+wiz.bubble._flip(+1)
+check("page flip advances", wiz.bubble._page == 1)
+wiz.bubble._flip(-1)
+check("page flip goes back", wiz.bubble._page == 0)
 
 wiz.start_tour()
-check("tour switched to the first tab", tabs.currentIndex() == 0)
-first_text = wiz.bubble.label.text()
-check("tour speaks the SD-card step",
-      first_text == wc.wizard_tr("tour.sdcard", "en"))
+check("tour opens on Settings with the language step",
+      tabs.tabText(tabs.currentIndex()).startswith("Settings")
+      and wiz.bubble.label.text() == wc.wizard_tr("tour.language", "en"))
+wiz.next_tour_step()
+check("then the SD-card tab and step",
+      tabs.currentIndex() == 0
+      and wiz.bubble.label.text() == wc.wizard_tr("tour.sdcard", "en"))
 wiz.next_tour_step()
 check("tour advanced to NextSync", tabs.currentIndex() == 1)
 wiz.next_tour_step()
 check("tour advanced to GetIt", tabs.currentIndex() == 2)
+check("catalogue step softly recalls the rights reminder",
+      wc.wizard_tr("tour.disclaimer", "en")[:40]
+      in " ".join(wiz.bubble._pages))
+check("no page ever ends in a stranded ellipsis",
+      all(not p.endswith("…") for p in wiz.bubble._pages))
 # zxArt/ZXDB/Favorites/Unite/itch.io are absent from the stub -> the tour
 # must skip them gracefully: the next steps land on Settings then Help.
 wiz.next_tour_step()
@@ -141,7 +156,29 @@ zxnu_i18n.set_current_ui_language("es")
 wiz.show_menu()
 check("menu speaks the active language",
       wiz.bubble.label.text() == wc.wizard_tr("menu.title", "es"))
+
+# A live language switch re-composes whatever is currently on screen.
+zxnu_i18n.set_current_ui_language("fr")
+wiz.on_language_changed()
+check("open menu re-speaks in the new language",
+      wiz.bubble.label.text() == wc.wizard_tr("menu.title", "fr"))
 zxnu_i18n.set_current_ui_language("en")
+wiz.start_tour()          # opens on the Settings/language step
+_lang_tab = tabs.currentIndex()
+zxnu_i18n.set_current_ui_language("pl")
+wiz.on_language_changed()
+check("open tour step re-speaks in the new language",
+      wiz.bubble.label.text() == wc.wizard_tr("tour.language", "pl"))
+check("re-speak stays on the same tab", tabs.currentIndex() == _lang_tab)
+zxnu_i18n.set_current_ui_language("en")
+wiz.tell_joke()
+_joke_idx = wc.JOKES["en"].index(wiz.bubble.label.text())
+zxnu_i18n.set_current_ui_language("cs")
+wiz.on_language_changed()
+check("the SAME joke re-tells in the new language",
+      wiz.bubble.label.text() == wc.JOKES["cs"][_joke_idx])
+zxnu_i18n.set_current_ui_language("en")
+wiz._dismiss()
 
 # Turn-off persists and hides (the farewell hides after a delay; force it).
 wiz.set_enabled(False)
