@@ -628,7 +628,25 @@ def build_nextsync_pane(
             btn.setEnabled(False)
             btn.setText(_RE_NO_ROOT_TEXT)
             _re_start_startbtn_pulse("green") if in_view else _re_stop_startbtn_pulse()
+    def _re_update_start_button_and_status():
+        _re_update_start_button_inner()
+        # Mirror the same state onto the Remote Explorer's "Next:" label
+        # (only shown while disconnected) so it never claims to be waiting
+        # for .sync5 before the server is even running.
+        if host._re_widget is not None:
+            host._re_widget.refresh_idle_status()
+    _re_update_start_button_inner = _re_update_start_button
+    _re_update_start_button = _re_update_start_button_and_status
     host._re_update_start_button = _re_update_start_button
+
+    def _re_idle_status():
+        """The "Next:" pane label while DISCONNECTED, mirroring the start
+        button's three states."""
+        if host._re_running:
+            return "Next: (waiting for .sync5 -listen …)"
+        if not getattr(host, "_re_sync_root", ""):
+            return "Next: Select a sync root folder"
+        return "Next: Start NextSync server"
 
     def _re_on_sync_root_changed(root):
         # The widget reports the user picked (or changed) the local sync root.
@@ -697,6 +715,7 @@ def build_nextsync_pane(
         # Sync the cached sync root with whatever the widget restored (a saved
         # path enables Start; first run leaves it disabled).
         host._re_sync_root = widget.sync_root() or ""
+        widget.set_idle_status_provider(_re_idle_status)
         _re_update_start_button()
         return widget
 
