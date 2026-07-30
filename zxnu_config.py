@@ -1167,6 +1167,20 @@ MAME_FLATPAK_APP_ID = "org.mamedev.MAME"
 MAME_FLATPAK_COMMAND = ("flatpak", "run", MAME_FLATPAK_APP_ID)
 
 
+def mame_flatpak_command():
+    """The argv prefix that launches Flatpak MAME, sandbox-aware.
+
+    When ZX Next Unite itself runs inside a Flatpak sandbox (FLATPAK_ID set),
+    there is no `flatpak` binary on the sandbox PATH — the launch must be
+    delegated to the host through `flatpak-spawn --host` (present in every
+    Flatpak runtime; needs the org.freedesktop.Flatpak talk-name granted in
+    the manifest). Unsandboxed installs keep calling `flatpak` directly.
+    """
+    if os.environ.get("FLATPAK_ID"):
+        return ("flatpak-spawn", "--host") + MAME_FLATPAK_COMMAND
+    return MAME_FLATPAK_COMMAND
+
+
 def mame_flatpak_supported():
     """True where the "Launch Mame with Flatpak" option is offered — Linux only,
     since Flatpak is a Linux packaging system."""
@@ -1853,6 +1867,46 @@ def find_hdfmonkey_near_cspect(cspect_path):
     return None
 
 
+def flatpak_stray_download_root():
+    """Extra base directory to scan for hand-dropped hdfmonkey copies when the
+    app runs inside a Flatpak sandbox: ``~/.var/app/<app-id>``.
+
+    The real data root there is ``~/.var/app/<app-id>/data/zx-next-unite``
+    (the XDG data dir), but every Flatpak how-to presents ``~/.var/app/<id>``
+    itself as "the app's folder", so manual copies routinely land in
+    ``~/.var/app/<id>/downloads/`` — one level too shallow to ever be found.
+    Scanning that stray location too turns the mistake into a working install.
+    Returns ``None`` when not sandboxed.
+    """
+    app_id = os.environ.get("FLATPAK_ID")
+    if not app_id:
+        return None
+    return os.path.join(os.path.expanduser("~"), ".var", "app", app_id)
+
+
+def _hdfmonkey_scan_bases(base_dir):
+    """The candidate base directories for the downloads-folder scans: the
+    caller's data root plus, inside a Flatpak, the stray ``~/.var/app/<id>``
+    location (see :func:`flatpak_stray_download_root`)."""
+    bases = [base_dir] if base_dir else []
+    stray = flatpak_stray_download_root()
+    if stray and stray not in bases:
+        bases.append(stray)
+    return bases
+
+
+def _hdfmonkey_adopt_binary(path):
+    """Return ``path`` after making sure it is runnable: zip extractors (and
+    manual copies) routinely lose the executable bit the POSIX platforms need."""
+    if platform.system() != "Windows" and not os.access(path, os.X_OK):
+        try:
+            os.chmod(path, os.stat(path).st_mode
+                     | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        except OSError:
+            logging.exception(f"hdfmonkey: could not set the exec bit on {path}")
+    return path
+
+
 def find_hdfmonkey_in_downloads(base_dir):
     """Locate an hdfmonkey executable installed by the standalone auto-download
     (HDF_MONKEY_JJJS_URL) under ``<base_dir>/downloads/hdfmonkey/<platform>/``.
@@ -1862,16 +1916,41 @@ def find_hdfmonkey_in_downloads(base_dir):
     ``extract_hdfmonkey_from_jjjs_zip``), so a later launch re-discovers it the
     same cheap way ``find_hdfmonkey_near_cspect`` picks up a CSpect-bundled copy.
 
+    Hand-extracted copies are accepted too: the per-platform folder may sit at
+    any depth below ``downloads/hdfmonkey`` (unzipping the jjjs archive adds
+    nesting levels), and a bare binary dropped straight into
+    ``downloads/hdfmonkey/`` counts as well. The bare file name is shared
+    across the Linux and macOS builds, so only the current platform's folder
+    name is trusted at depth — never a loose file under some other platform's
+    folder. Inside a Flatpak the stray ``~/.var/app/<id>/downloads`` location
+    is scanned in addition to the real data root.
+
     Returns the full path to the first matching build for this platform, or
     ``None`` when none is present.
     """
-    if not base_dir:
-        return None
-    root = os.path.join(base_dir, DOWNLOADS_HDFMONKEY_DIRNAME)
-    for plat_dir, exe in hdfmonkey_platform_dirs():
-        candidate = os.path.join(root, plat_dir, exe)
-        if os.path.isfile(candidate):
-            return candidate
+    plat_pairs = hdfmonkey_platform_dirs()
+    for scan_base in _hdfmonkey_scan_bases(base_dir):
+        root = os.path.join(scan_base, DOWNLOADS_HDFMONKEY_DIRNAME)
+        # The canonical layout the auto-download produces.
+        for plat_dir, exe in plat_pairs:
+            candidate = os.path.join(root, plat_dir, exe)
+            if os.path.isfile(candidate):
+                return _hdfmonkey_adopt_binary(candidate)
+        if not os.path.isdir(root):
+            continue
+        # A bare binary dropped straight into downloads/hdfmonkey/.
+        for _plat_dir, exe in plat_pairs:
+            candidate = os.path.join(root, exe)
+            if os.path.isfile(candidate):
+                return _hdfmonkey_adopt_binary(candidate)
+        # This platform's folder at any depth (hand-extracted archive).
+        for plat_dir, exe in plat_pairs:
+            for walk_root, dirs, _files in os.walk(root):
+                dirs.sort()
+                if os.path.basename(walk_root) == plat_dir:
+                    candidate = os.path.join(walk_root, exe)
+                    if os.path.isfile(candidate):
+                        return _hdfmonkey_adopt_binary(candidate)
     return None
 
 
@@ -1907,12 +1986,10 @@ def find_hdfmonkey_jjjs_zip_in_downloads(base_dir):
     Returns the full path to the first matching archive, or ``None`` when none is
     found.
     """
-    if not base_dir:
-        return None
-    search_dirs = [
-        os.path.join(base_dir, DOWNLOADS_ROOT_DIRNAME),
-        os.path.join(base_dir, DOWNLOADS_HDFMONKEY_DIRNAME),
-    ]
+    search_dirs = []
+    for scan_base in _hdfmonkey_scan_bases(base_dir):
+        search_dirs.append(os.path.join(scan_base, DOWNLOADS_ROOT_DIRNAME))
+        search_dirs.append(os.path.join(scan_base, DOWNLOADS_HDFMONKEY_DIRNAME))
     seen = set()
     for d in search_dirs:
         if not os.path.isdir(d):

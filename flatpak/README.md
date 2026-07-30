@@ -25,10 +25,18 @@ and painless updates.
   come from the Flatpak remote.
 - hdfmonkey: the "Download and install HDF Monkey" button works as usual;
   the jjjs `linux-musl` build is static and runs inside the sandbox.
-- Limitations: launching host-installed emulators (CSpect via mono, MAME)
-  from inside the sandbox is not supported; the optional extras (pygame
-  retro modes, Flask HTTP bridge, Send2Trash, itch-dl) are not bundled in
-  the first iteration — their Settings toggles simply stay greyed out.
+- The four optional extras (pygame-ce retro modes + Alien Floyd's, itch-dl
+  / the itch.io tab, the Flask HTTP bridge, Send2Trash) are bundled as
+  pinned wheels (the `python3-extras` module), so their Settings toggles
+  work out of the box.
+- "Launch MAME via Flatpak" works from inside the sandbox: the launch is
+  delegated to the host via `flatpak-spawn --host flatpak run
+  org.mamedev.MAME` (hence the `--talk-name=org.freedesktop.Flatpak`
+  finish-arg; see `mame_flatpak_command` in `zxnu_config.py`). Launching a
+  host-installed CSpect (via mono) is still not wired up.
+- Manual hdfmonkey drops are found in the stray
+  `~/.var/app/<id>/downloads/` location as well as the real data root
+  (`flatpak_stray_download_root` in `zxnu_config.py`).
 
 ## Building locally (on Linux)
 
