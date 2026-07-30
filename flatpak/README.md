@@ -54,9 +54,13 @@ flatpak install --user zx-next-unite.flatpak
 `.github/workflows/flatpak.yml` builds the bundle in the
 `flathub-infra/flatpak-github-actions` KDE 6.8 container and uploads
 `zx-next-unite.flatpak` as a workflow artifact. Triggers: manual
-(workflow_dispatch, once the workflow is on the default branch) and any
+(workflow_dispatch, once the workflow is on the default branch), any
 push touching `flatpak/**` or the workflow itself — so manifest changes are
-CI-validated before they merge. It is deliberately separate from
+CI-validated before they merge — and `v*` tag creation, where the bundle
+(built from the exact tag commit) is additionally attached to the tag's
+draft release as `zx-next-unite-<tag>-linux-x86_64.flatpak` (stdlib-only
+uploader, drafts included; it retries while `release.yml` creates the
+draft, then degrades to a warning). It is deliberately separate from
 `release.yml` so the self-updater's release-asset contract (exe / tar.gz /
 zip) stays untouched and a Flatpak failure can never block a release.
 
