@@ -74,8 +74,12 @@ Flatpak (Linux): everything lives under `flatpak/` (manifest on the KDE 6.8
 runtime + PySide BaseApp, desktop entry, AppStream metainfo, pixel-art icons
 — dots, not the Sinclair rainbow) with the build/Flathub-submission steps in
 `flatpak/README.md`. `.github/workflows/flatpak.yml` builds the
-`zx-next-unite.flatpak` bundle as a workflow artifact (workflow_dispatch +
-`v*` tags) — deliberately separate from `release.yml` so the self-updater's
+`zx-next-unite.flatpak` bundle as a workflow artifact (workflow_dispatch,
+pushes touching `flatpak/**`, and `v*` tag creation — tag runs also attach
+the bundle to the tag's draft release as
+`zx-next-unite-<tag>-linux-x86_64.flatpak`, retrying while `release.yml`
+creates the draft and degrading to a warning, never a failure) —
+deliberately separate from `release.yml` so the self-updater's
 asset contract stays untouched (a `.flatpak` asset can never match
 `select_zxnu_release_asset`, which requires `.tar.gz`+`linux`). Inside the
 sandbox `ZX_NEXT_UNITE_MODE=installed` is set via finish-args and the

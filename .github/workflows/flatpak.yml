@@ -2,13 +2,23 @@ name: flatpak
 
 # Builds the Linux Flatpak bundle from flatpak/io.github.jclauzel.ZXNextUnite.yml
 # and uploads it as a workflow artifact. Runs on demand (workflow_dispatch,
-# available once the workflow is on the default branch) and on any push that
+# available once the workflow is on the default branch), on any push that
 # touches the packaging files — so a manifest change is CI-validated before
-# it merges. Deliberately separate from release.yml: the release asset
-# contract with the in-app self-updater (exe / tar.gz / zip) stays
-# untouched, and a Flatpak build failure can never block a release.
+# it merges — and on v* tag creation, where the bundle (built from the exact
+# tag commit) is additionally attached to the draft GitHub release that
+# release.yml creates for the same tag, named
+# zx-next-unite-<tag>-linux-x86_64.flatpak.
+#
+# Deliberately separate from release.yml: the release asset contract with
+# the in-app self-updater (exe / tar.gz / zip) stays untouched — a .flatpak
+# asset can never match select_zxnu_release_asset — and a Flatpak build
+# failure can never block a release. The attach step is non-blocking too:
+# it retries while release.yml is still creating the draft, then degrades
+# to a warning (worst case the bundle is attached manually from the
+# workflow artifact).
 on:
   workflow_dispatch:
+  create:
   push:
     branches:
       - "**"
@@ -19,7 +29,12 @@ on:
 jobs:
   flatpak:
     name: Build Flatpak bundle
+    # Every new branch fires `create` too — those builds are already covered
+    # by the push-paths trigger, so for create events only v* tags proceed.
+    if: github.event_name != 'create' || (github.event.ref_type == 'tag' && startsWith(github.event.ref, 'v'))
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.8
       options: --privileged
@@ -32,3 +47,53 @@ jobs:
           manifest-path: flatpak/io.github.jclauzel.ZXNextUnite.yml
           cache-key: flatpak-builder-${{ hashFiles('flatpak/io.github.jclauzel.ZXNextUnite.yml') }}
           upload-artifact: true
+      # stdlib-only python (the container has no gh CLI): find the release
+      # for this tag (drafts included — the tags API endpoint skips drafts),
+      # replace any same-named asset, upload the bundle.
+      - name: Attach bundle to the release (v* tags)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, sys, time, urllib.request
+
+          tag = os.environ["GITHUB_REF"].split("/", 2)[2]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          asset = f"zx-next-unite-{tag}-linux-x86_64.flatpak"
+          api = "https://api.github.com"
+
+          def req(url, data=None, method=None, ctype="application/json"):
+              r = urllib.request.Request(url, data=data, method=method)
+              r.add_header("Authorization", f"Bearer {token}")
+              r.add_header("Accept", "application/vnd.github+json")
+              if data is not None:
+                  r.add_header("Content-Type", ctype)
+              return urllib.request.urlopen(r, timeout=300)
+
+          release = None
+          for attempt in range(10):  # release.yml may still be creating the draft
+              with req(f"{api}/repos/{repo}/releases?per_page=30") as resp:
+                  releases = json.load(resp)
+              release = next((r for r in releases if r.get("tag_name") == tag), None)
+              if release:
+                  break
+              print(f"release {tag} not there yet (attempt {attempt + 1}/10) - waiting 60s")
+              time.sleep(60)
+          if not release:
+              print(f"::warning::no release found for {tag} - attach {asset} "
+                    "manually from the workflow artifact")
+              sys.exit(0)
+
+          for a in release.get("assets", []):  # --clobber semantics on re-runs
+              if a["name"] == asset:
+                  req(f"{api}/repos/{repo}/releases/assets/{a['id']}",
+                      method="DELETE").close()
+
+          upload = release["upload_url"].split("{")[0] + f"?name={asset}"
+          with open("zx-next-unite.flatpak", "rb") as fh:
+              data = fh.read()
+          with req(upload, data=data, ctype="application/octet-stream") as resp:
+              print(f"attached {asset} to release {tag} (HTTP {resp.status})")
+          PYEOF
