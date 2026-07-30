@@ -600,6 +600,16 @@ def build_nextsync_pane(
                 "file_size":    host.img_color_file_size,
                 "general_text": host.img_color_general_text,
             })
+            # The idle host/IP panel follows the retro (Consolas) log colour
+            # and font-size settings — floored at 12pt for readability.
+            col = (configuration_dictionary.get(SETTING_COLOR_RETRO_LOG)
+                   or "").strip() or "#33ff33"
+            try:
+                pt = int(configuration_dictionary.get(SETTING_RETRO_LOG_FONT_SIZE)
+                         or DEFAULT_RETRO_LOG_FONT_SIZE)
+            except (TypeError, ValueError):
+                pt = DEFAULT_RETRO_LOG_FONT_SIZE
+            widget.set_idle_details_style(col, max(12, pt))
         except Exception:
             pass
     host._re_apply_item_colors = _re_apply_item_colors
@@ -685,6 +695,15 @@ def build_nextsync_pane(
                           "to — give it the",
                           "Primary IP (or whichever address is on the same "
                           "network as the Next)."]
+                addr = primary or next(
+                    (x for x in ips if not x.startswith("127")), None)
+                if addr:
+                    lines += ["",
+                              "Example — on the Next, type this once to save "
+                              "the address:",
+                              f"    .sync5 {addr}",
+                              "then start the remote session any time with:",
+                              "    .sync5 -listen"]
             _re_ip_info_cache["text"] = "\n".join(lines)
             _re_ip_info_cache["t"] = now
         return _re_ip_info_cache["text"]

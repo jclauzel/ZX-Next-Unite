@@ -533,6 +533,11 @@ class RemoteExplorerWidget(QWidget):
         # '.sync5' is the one thing they need while setting the link up.
         self._idle_details_provider = None
         self._idle_info_overlay = None
+        # Style for the idle-details overlay; the host pushes the user's
+        # retro-log (Consolas) colour + font-size settings through
+        # set_idle_details_style so the panel follows them live.
+        self._idle_info_color = "#a6f0a6"
+        self._idle_info_pt = 12
         self.next_path_label = QLabel("Next: (not connected)", self)
         next_up = QPushButton("Up", self)
         next_up.setMaximumWidth(48)
@@ -1012,15 +1017,28 @@ class RemoteExplorerWidget(QWidget):
             lbl.setAlignment(Qt.AlignCenter)
             # Purely informational: never intercept the pane's mouse events.
             lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-            lbl.setStyleSheet(
-                "QLabel { background: transparent; color: #7fae7f;"
-                " font-family: Consolas, 'Courier New', monospace;"
-                " font-size: 10pt; }")
+            lbl.setStyleSheet(self._idle_info_stylesheet())
             lbl.setGeometry(self.next_container.rect())
             lbl.show()
             lbl.raise_()
             self._idle_info_overlay = lbl
         self._idle_info_overlay.setText(text)
+
+    def _idle_info_stylesheet(self):
+        return ("QLabel { background: transparent;"
+                f" color: {self._idle_info_color};"
+                " font-family: Consolas, 'Courier New', monospace;"
+                f" font-size: {self._idle_info_pt}pt; }}")
+
+    def set_idle_details_style(self, color=None, point_size=None):
+        """Restyle the idle-details overlay (the host pushes the retro-log
+        Consolas colour and font-size settings here, live)."""
+        if color:
+            self._idle_info_color = color
+        if point_size:
+            self._idle_info_pt = int(point_size)
+        if self._idle_info_overlay is not None:
+            self._idle_info_overlay.setStyleSheet(self._idle_info_stylesheet())
 
     def refresh_idle_status(self):
         """Re-evaluate the idle status (host state changed: sync root set,
