@@ -25,6 +25,7 @@ import logging
 import os
 import platform
 import threading
+import time
 
 from zxnu_i18n import ui_tr_now
 
@@ -37,6 +38,7 @@ from PySide6.QtWidgets import (QWidget, QLabel, QPushButton, QCheckBox,
     QTabBar, QStackedWidget, QAbstractItemView)
 
 from zxnu_http_bridge import NextSyncHttpBridge, QueueBridgeHost
+from zxnu_network import detect_local_ipv4
 from zxnu_remote_explorer import RemoteExplorerWidget
 from zxnu_config import *
 from zxnu_api import *
@@ -648,6 +650,45 @@ def build_nextsync_pane(
             return "Next: Select a sync root folder"
         return "Next: Start NextSync server"
 
+    # Cache the host/IP block briefly: refresh_idle_status fires on every
+    # start-button state churn and the (time-bounded) hostname resolution
+    # is not free. Addresses can change (Wi-Fi roaming), hence the expiry.
+    _re_ip_info_cache = {"t": 0.0, "text": ""}
+
+    def _re_idle_details():
+        """Multi-line host/IP block for the EMPTY Next pane while
+        disconnected — the same information the Classic sync log prints,
+        because the server address to type into '.sync5' on the Next is
+        exactly what the user needs while setting the link up."""
+        now = time.monotonic()
+        if now - _re_ip_info_cache["t"] > 30 or not _re_ip_info_cache["text"]:
+            try:
+                hostname, _aliases, ips, primary = detect_local_ipv4()
+            except Exception:
+                return ""
+            lines = ["The Next's files will appear here.",
+                     "Run '.sync5 -listen' (short: '.sync5 -l' or '-L') "
+                     "on your Next to connect.", ""]
+            if hostname:
+                lines += ["Running on host:", f"    {hostname}"]
+            if ips:
+                lines.append("IP addresses:")
+                lines += [f"    {x}" for x in ips]
+            if primary:
+                lines += ["Primary IP:", f"    {primary}"]
+            if not (ips or primary):
+                lines += ["No network detected — connect to Wi-Fi/Ethernet",
+                          "to see the address your Next should sync to."]
+            else:
+                lines += ["",
+                          "The first '.sync5' run asks which server to talk "
+                          "to — give it the",
+                          "Primary IP (or whichever address is on the same "
+                          "network as the Next)."]
+            _re_ip_info_cache["text"] = "\n".join(lines)
+            _re_ip_info_cache["t"] = now
+        return _re_ip_info_cache["text"]
+
     def _re_on_sync_root_changed(root):
         # The widget reports the user picked (or changed) the local sync root.
         host._re_sync_root = (root or "").strip()
@@ -716,6 +757,7 @@ def build_nextsync_pane(
         # path enables Start; first run leaves it disabled).
         host._re_sync_root = widget.sync_root() or ""
         widget.set_idle_status_provider(_re_idle_status)
+        widget.set_idle_details_provider(_re_idle_details)
         _re_update_start_button()
         return widget
 

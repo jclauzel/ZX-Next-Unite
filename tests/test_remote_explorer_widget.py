@@ -326,6 +326,32 @@ def test_idle_status_provider():
           "waiting for .sync5" in w.next_path_label.text())
 
 
+def test_idle_details_provider():
+    # The host can plug a second callable whose multi-line host/IP block is
+    # shown over the empty Next pane while disconnected (the address to give
+    # '.sync5' on the Next); it disappears on connect and returns after a
+    # disconnect. An empty text means no overlay at all.
+    root = tdir("idle_details_root")
+    w, _calls = make_widget(local_start_dir=root)
+    state = {"text": "Running on host:\n    <pc>\nPrimary IP:\n    1.2.3.4"}
+    w.set_idle_details_provider(lambda: state["text"])
+    check("details overlay applied on install",
+          w._idle_info_overlay is not None
+          and "Primary IP" in w._idle_info_overlay.text())
+    w.on_connected()
+    w.on_listing("/", [])
+    check("details overlay removed while connected",
+          w._idle_info_overlay is None)
+    w.on_disconnected()
+    check("details overlay returns after disconnect",
+          w._idle_info_overlay is not None
+          and "1.2.3.4" in w._idle_info_overlay.text())
+    state["text"] = ""
+    w.refresh_idle_status()
+    check("empty details text removes the overlay",
+          w._idle_info_overlay is None)
+
+
 def test_listing_and_rendering():
     w, calls = make_widget(local_start_dir=tdir("lst_root"))
     connect_widget(w, calls)
@@ -1077,6 +1103,7 @@ def main():
         test_drag_and_drop()
         test_arrow_pulse_and_overlay_resize()
         test_idle_status_provider()
+        test_idle_details_provider()
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")

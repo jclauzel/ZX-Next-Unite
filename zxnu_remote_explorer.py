@@ -527,6 +527,12 @@ class RemoteExplorerWidget(QWidget):
         # "Start NextSync server", "waiting for .sync5 -listen…") instead
         # of always claiming to be waiting for the dot.
         self._idle_status_provider = None
+        # Idle-DETAILS provider: a second host callable whose multi-line text
+        # (the host/IP block the Classic log prints) is shown INSIDE the empty
+        # Next pane while disconnected — the address the user must give
+        # '.sync5' is the one thing they need while setting the link up.
+        self._idle_details_provider = None
+        self._idle_info_overlay = None
         self.next_path_label = QLabel("Next: (not connected)", self)
         next_up = QPushButton("Up", self)
         next_up.setMaximumWidth(48)
@@ -885,12 +891,14 @@ class RemoteExplorerWidget(QWidget):
         self._next_overlay.setText(text)
 
     def eventFilter(self, obj, event):
-        # Keep the background-copy overlay covering the Next pane through
-        # resizes / splitter drags.
+        # Keep the background-copy and idle-details overlays covering the
+        # Next pane through resizes / splitter drags.
         if (obj is getattr(self, "next_container", None)
-                and self._next_overlay is not None
                 and event.type() == QEvent.Type.Resize):
-            self._next_overlay.setGeometry(self.next_container.rect())
+            if self._next_overlay is not None:
+                self._next_overlay.setGeometry(self.next_container.rect())
+            if self._idle_info_overlay is not None:
+                self._idle_info_overlay.setGeometry(self.next_container.rect())
         return super().eventFilter(obj, event)
 
     def _end_operation(self):
@@ -978,11 +986,48 @@ class RemoteExplorerWidget(QWidget):
         self._idle_status_provider = provider
         self.refresh_idle_status()
 
+    def set_idle_details_provider(self, provider):
+        """Install the host's disconnected-state DETAILS callable (0-arg,
+        returns the multi-line host/IP block for the empty Next pane, "" for
+        none) and apply it right away."""
+        self._idle_details_provider = provider
+        self._update_idle_info_overlay()
+
+    def _update_idle_info_overlay(self):
+        """Show the idle-details text over the (empty, disabled) Next pane
+        while disconnected; remove it when connected or without text."""
+        text = ""
+        if not self._connected and self._idle_details_provider is not None:
+            try:
+                text = self._idle_details_provider() or ""
+            except Exception:
+                text = ""
+        if not text:
+            if self._idle_info_overlay is not None:
+                self._idle_info_overlay.deleteLater()
+                self._idle_info_overlay = None
+            return
+        if self._idle_info_overlay is None:
+            lbl = QLabel(self.next_container)
+            lbl.setAlignment(Qt.AlignCenter)
+            # Purely informational: never intercept the pane's mouse events.
+            lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            lbl.setStyleSheet(
+                "QLabel { background: transparent; color: #7fae7f;"
+                " font-family: Consolas, 'Courier New', monospace;"
+                " font-size: 10pt; }")
+            lbl.setGeometry(self.next_container.rect())
+            lbl.show()
+            lbl.raise_()
+            self._idle_info_overlay = lbl
+        self._idle_info_overlay.setText(text)
+
     def refresh_idle_status(self):
         """Re-evaluate the idle status (host state changed: sync root set,
         server started/stopped). No-op while connected."""
         if not self._connected:
             self.next_path_label.setText(self._idle_status_text())
+        self._update_idle_info_overlay()
 
     def _set_connected(self, on):
         self._connected = on
@@ -1003,6 +1048,7 @@ class RemoteExplorerWidget(QWidget):
                 self.next_drive_combo.setEnabled(False)
             finally:
                 self._drive_combo_guard = False
+        self._update_idle_info_overlay()
 
     # ---- worker signal slots (UI thread) ------------------------------
     def on_connected(self):
