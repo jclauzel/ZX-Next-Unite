@@ -29,11 +29,12 @@ and painless updates.
   / the itch.io tab, the Flask HTTP bridge, Send2Trash) are bundled as
   pinned wheels (the `python3-extras` module), so their Settings toggles
   work out of the box.
-- "Launch MAME via Flatpak" works from inside the sandbox: the launch is
-  delegated to the host via `flatpak-spawn --host flatpak run
-  org.mamedev.MAME` (hence the `--talk-name=org.freedesktop.Flatpak`
-  finish-arg; see `mame_flatpak_command` in `zxnu_config.py`). Launching a
-  host-installed CSpect (via mono) is still not wired up.
+- Emulator launches are delegated to the host via `flatpak-spawn --host`
+  when sandboxed (hence the `--talk-name=org.freedesktop.Flatpak`
+  finish-arg): "Launch MAME via Flatpak" runs `flatpak run org.mamedev.MAME`
+  on the host (`mame_flatpak_command` in `zxnu_config.py`), and CSpect runs
+  under the HOST's mono (which must be installed there) — all involved
+  paths live under the user's real home, so they resolve unchanged.
 - Manual hdfmonkey drops are found in the stray
   `~/.var/app/<id>/downloads/` location as well as the real data root
   (`flatpak_stray_download_root` in `zxnu_config.py`).
@@ -68,7 +69,7 @@ zip) stays untouched and a Flatpak failure can never block a release.
    sources:
      - type: git
        url: https://github.com/jclauzel/ZX-Next-Unite.git
-       tag: v9.4.4
+       tag: v9.4.5
        commit: <full commit sha of the tag>
    ```
 

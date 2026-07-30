@@ -184,6 +184,13 @@ def build_emulator_ops(
                 cspect_executable = f'"{cspect_exe}"' if use_bundled else "CSpect.exe"
             else:
                 cspect_executable = f'mono "{cspect_exe}"' if use_bundled else "mono CSpect.exe"
+                # Inside the Flatpak sandbox there is no mono — delegate the
+                # launch to the host through the Flatpak portal, exactly like
+                # the MAME launch (mame_flatpak_command): every involved path
+                # (CSpect under ~/.var/app, the cwd, the -mmc image) is a real
+                # host path, so the host-side mono resolves them unchanged.
+                if os.environ.get("FLATPAK_ID"):
+                    cspect_executable = "flatpak-spawn --host " + cspect_executable
 
             logging.info(f"CSpect executable: {cspect_executable}")
             add_main_log_window(f"CSpect executable: {cspect_executable}")
@@ -203,6 +210,11 @@ def build_emulator_ops(
                 if platform.system() != "Windows":
                     logging.error("On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.")
                     add_main_log_window("On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.")
+                    if os.environ.get("FLATPAK_ID"):
+                        add_main_log_window(
+                            "Running as a Flatpak: mono must be installed on "
+                            "the HOST system — the launch is delegated there "
+                            "via flatpak-spawn.")
 
             set_all_buttons_enabled()
 
