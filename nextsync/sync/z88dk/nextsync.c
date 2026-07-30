@@ -1195,19 +1195,20 @@ int main(int arglen, char *rawcmd)
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v5.4 Clauzel/Komppa\r"
-                ".SYNC [server] : save cfg\r"
-                ".SYNC : sync files from PC\r"
-                ".SYNC -send <file|dir> : to PC\r"
-                ".SYNC -listen|-l : file server\r"
-                "  PC drives: ls get put mkdir\r"
-                "  rmdir rm ren free rcpy rfsize\r"
+                "SYNC v5.5 Clauzel/Komppa\r"
+                ".SYNC5 [server] : save cfg\r"
+                ".SYNC5 : sync files from PC\r"
+                ".SYNC5 -send <file|dir> : to PC\r"
+                ".SYNC5 -listen -l -L\r"
+                "  : file server. PC drives:\r"
+                "  ls get put mkdir rmdir rm\r"
+                "  ren free rcpy rfsize\r"
                 "  BREAK key stops it (safe)\r"
-                ".SYNC -slow|-default|-fast\r"
+                ".SYNC5 -slow -default -fast\r"
                 "Anim, verbose trace and retro\r"
                 "look are ON; to disable:\r"
-                ".SYNC -na|-nv|-nr\r"
-                ".SYNC -help|-h : this help\r"
+                ".SYNC5 -na -nv -nr\r"
+                ".SYNC5 -help -h : this help\r"
                 "See nextsync.txt\r\r");
             goto terminate;
         }
@@ -1243,7 +1244,7 @@ int main(int arglen, char *rawcmd)
         filehandle = fopen((char*)conffile, 1);
         if (filehandle == 0)
         {
-            conprint("No server set - .sync <ip>\r");
+            conprint("No server set - .sync5 <ip>\r");
             goto terminate;
         }
         len = fread(filehandle, fn, 255);
