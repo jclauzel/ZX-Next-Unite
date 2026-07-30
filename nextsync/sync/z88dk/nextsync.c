@@ -1124,7 +1124,7 @@ int main(int arglen, char *rawcmd)
     // zxnu_config.py (and the help text below): the app compares it against
     // the cfg's dotn_last_version to advise the user to refresh the .sync5
     // copy on their Next after updating the app.
-    print("NextSync 5.4 Clauzel/Komppa");
+    print("NextSync 5.5 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -1161,13 +1161,16 @@ int main(int arglen, char *rawcmd)
             sendmode = 1;
     }
 
-    // Detect "-listen" (or its short alias "-l"): run as a remote file server
-    // driven by the PC. Like -send, it connects to the saved server (from the
-    // config file). "-l" is accepted because "-listen" is a mouthful to type.
+    // Detect "-listen" (or its short alias "-l" / "-L"): run as a remote file
+    // server driven by the PC. Like -send, it connects to the saved server
+    // (from the config file). "-l" is accepted because "-listen" is a mouthful
+    // to type; upper-case "-L" too because a lone lower-case l is easily
+    // misread as a 1 or an I on the Next's screen.
     if (!sendmode &&
         ((len >= 7 && fn[0] == '-' && fn[1] == 'l' && fn[2] == 'i' && fn[3] == 's' &&
           fn[4] == 't' && fn[5] == 'e' && fn[6] == 'n' && (fn[7] == 0 || fn[7] == ' ')) ||
-         (len >= 2 && fn[0] == '-' && fn[1] == 'l' && (fn[2] == 0 || fn[2] == ' '))))
+         (len >= 2 && fn[0] == '-' && (fn[1] == 'l' || fn[1] == 'L') &&
+          (fn[2] == 0 || fn[2] == ' '))))
     {
         listenmode = 1;
     }
