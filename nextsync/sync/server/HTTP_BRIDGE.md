@@ -2,8 +2,8 @@
 
 The HTTP bridge is a small self-hosted web server — built on
 [Flask](https://flask.palletsprojects.com/) by the Pallets team
-(BSD-3-Clause) — that republishes a NextSync **`.sync5 -listen`** session as
-plain HTTP routes:
+(BSD-3-Clause) — that republishes a NextSync **`.sync5 -listen`** session
+(short aliases: `.sync5 -l` or `-L`) as plain HTTP routes:
 
 ```
 caller (.http on a Next / curl / browser)
