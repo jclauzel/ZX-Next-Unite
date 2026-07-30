@@ -262,7 +262,7 @@ def build_emulator_ops(
         # below, so they must not be duplicated or conflict. The launcher
         # prefix is either the detected binary or the Flatpak run command.
         _param_tokens = strip_mame_combo_options(shlex.split(mame_parameters))
-        _launch_prefix = (list(MAME_FLATPAK_COMMAND) if _flatpak
+        _launch_prefix = (list(mame_flatpak_command()) if _flatpak
                           else [mame_path])
         mame_argv = _launch_prefix + [mame_rom] + _param_tokens
 
@@ -296,7 +296,7 @@ def build_emulator_ops(
 
         # Executable that will actually be invoked: the detected MAME binary,
         # or the Flatpak run command when Flatpak mode is enabled.
-        _mame_executable = " ".join(MAME_FLATPAK_COMMAND) if _flatpak else mame_path
+        _mame_executable = " ".join(mame_flatpak_command()) if _flatpak else mame_path
         logging.info(f"MAME executable: {_mame_executable}")
         add_main_log_window(f"MAME executable: {_mame_executable}")
         logging.info(f"MAME start with arguments: {mame_argv}")
@@ -1821,7 +1821,9 @@ def build_hdfmonkey_install_ops(
             f"1. Click 'Open download page' below (or browse to\n"
             f"    {HDF_MONKEY_JJJS_URL} ).\n"
             "2. Download the hdfmonkey .zip file.\n"
-            f"3. Drop the downloaded .zip into this folder:\n"
+            f"3. Drop the downloaded .zip into this EXACT folder — the app "
+            f"has already created it, and the 'Open downloads folder' button "
+            f"below opens it so nothing needs to be typed:\n"
             f"    {downloads_root}\n"
             "4. Click \"I've dropped the zip - try again\".")
         open_page_btn = box.addButton("Open download page", QMessageBox.ActionRole)
