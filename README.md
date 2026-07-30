@@ -20,7 +20,7 @@ Floyd's. Every tab is documented in the
 ## Showcase
 
 **The Remote Explorer, live** — a real Spectrum Next's SD card browsed over
-Wi-Fi from the app (the Next runs `.sync5 -l`): full two-pane file
+Wi-Fi from the app (the Next runs `.sync5 -l` or `-L`): full two-pane file
 management, both directions, remote zip/unzip included.
 
 ![Live Remote Explorer session with a real Spectrum Next](docs/media/remote-explorer-live.gif)
@@ -47,8 +47,8 @@ emulator launch buttons below:
   (KS1/KS2 or clones with an ESP module) using the `.sync5` dot command.
 - ⭐ **Remote Explorer** — a two-pane file manager for your Next's **real
   filesystem over Wi-Fi**: browse, drag & drop, upload/download and manage files
-  (new folder, delete) directly — no SD-card swapping. Run `.sync5 -listen` on
-  the Next to connect, and launch the app with the
+  (new folder, delete) directly — no SD-card swapping. Run `.sync5 -listen`
+  (short: `-l` or `-L`) on the Next to connect, and launch the app with the
   `-start-remote-explorer-listener` switch to have the listen server running
   from startup with no clicks. See the
   [Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki#remote-file-explorer).

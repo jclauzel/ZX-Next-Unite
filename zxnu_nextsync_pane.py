@@ -677,8 +677,8 @@ def build_nextsync_pane(
             except Exception:
                 return ""
             lines = ["The Next's files will appear here.",
-                     "Run '.sync5 -listen' (short: '.sync5 -l' or '-L') "
-                     "on your Next to connect.", ""]
+                     "Run '.sync5 -listen' on your Next to connect",
+                     "(short aliases: '.sync5 -l' or '-L').", ""]
             if hostname:
                 lines += ["Running on host:", f"    {hostname}"]
             if ips:
