@@ -204,6 +204,23 @@ for label, marker in (
     check(f"the {label} action is gated on a loadable extension",
           "mame_can_autostart" in window)
 
+# ---- the local pane offers BOTH a plain start and a send-then-start -------
+# Emulator-neutral: these entries are generated from the shared helper, so the
+# same two checks cover CSpect and MAME together.
+check("the local explorer also offers a plain start (no transfer)",
+      "emulator_autostart_entries(host, file_path, is_dir)" in ops,
+      "mirrors the NextSync tab's local explorers")
+check("the plain start launches the local file as-is",
+      "_e.launch(file_path)" in ops)
+direct_at = ops.find("emulator_autostart_entries(host, file_path, is_dir)")
+send_at = ops.find('ui_tr_now("Send to SD Card and start CSpect with file {name}"')
+check("the plain start sits ABOVE the send-then-start entries",
+      direct_at != -1 and send_at != -1 and direct_at < send_at,
+      f"direct={direct_at} send={send_at}")
+check("...and does not replace them (both jobs stay available)",
+      send_at != -1
+      and 'ui_tr_now("Send to SD Card and start MAME with file {name}"' in ops)
+
 # Top of the menu, as asked for, and not at the price of the CSpect entry.
 img_at = ops.find('ui_tr_now("Start MAME with file {name}")')
 newfolder_at = ops.find("new_folder_label = ")
