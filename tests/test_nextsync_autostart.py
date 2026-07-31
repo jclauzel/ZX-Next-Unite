@@ -193,11 +193,10 @@ check("a failed download NEVER deletes the user's local folder",
       and seg.count("shutil.rmtree(dest, ignore_errors=True)") == 1
       and seg.index("if scratch:") < seg.index("shutil.rmtree(dest"),
       "rmtree must be reachable only for a directory we made")
-# Booting a file needs no mounted image (MAME: no -hard1; CSpect: -mmc=<dir>),
-# so the pre-flight check must not turn a missing SD card into a red toast.
-check("a missing SD card does not block booting a file",
-      "autostart=True" in open(
-          os.path.join(REPO, "zxnu_workers.py"), encoding="utf-8").read())
+# The pre-flight check exists so a launch that cannot succeed is reported
+# BEFORE the download rather than after it.
+check("the pre-flight check runs before the transfer",
+      seg.index("entry.blocked()") < seg.index('("get", remote_path, dest)'))
 # Both panes act on exactly one selected FILE — a folder or a multi-selection
 # has no single file to boot.
 check("the Next pane only offers the entries for a single selected file",

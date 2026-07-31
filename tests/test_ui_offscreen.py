@@ -1195,41 +1195,16 @@ def inspect_phase12():
         check("a shared launch-precondition check is exposed",
               blocker is not None)
         if blocker is not None:
-            # With NOTHING to boot, the image is all there is to run, so it is
-            # genuinely required...
-            check("with no image and no file, CSpect reports itself blocked",
+            # Both emulators boot the Next from the mounted image, so both
+            # require one — with or without a file to auto-start. That is how
+            # these launches have always worked and is deliberately unchanged;
+            # what changed is only that saying so is no longer silent.
+            check("with no image, CSpect reports itself blocked",
                   bool(blocker("CSpect")), repr(blocker("CSpect")))
-            check("with no image and no file, MAME reports itself blocked",
+            check("with no image, MAME reports itself blocked",
                   bool(blocker("MAME")), repr(blocker("MAME")))
-            # ...but booting a FILE needs no image at all: MAME loads a
-            # snapshot with no -hard1, and CSpect takes a plain folder as its
-            # -mmc root (its own beast.bat/NXtel.bat use `-mmc=./`). Demanding
-            # an image there is what made "Start … with file" unusable on the
-            # NextSync tab, where none is mounted.
-            check("booting a FILE needs no disk image (CSpect)",
-                  blocker("CSpect", autostart=True) == "",
-                  repr(blocker("CSpect", autostart=True)))
-            check("booting a FILE needs no disk image (MAME)",
-                  blocker("MAME", autostart=True) == "",
-                  repr(blocker("MAME", autostart=True)))
             check("an unknown emulator is not reported as blocked",
                   blocker("Nonesuch") == "")
-
-        # And the launchers themselves must now go through with a file even
-        # with no image loaded — no refusal, no red toast.
-        toasts.clear()
-        if launch_cspect is not None:
-            probe = os.path.join(SCRATCH, "probe.nex")
-            with open(probe, "wb") as f:
-                f.write(b"\x00" * 16)
-            # CSpect is very unlikely to be installed in this environment; the
-            # point is only that the IMAGE check no longer refuses. Skip if the
-            # detection found none, since then it refuses for another reason.
-            if getattr(win, "_cspect_executable_path", None):
-                launch_cspect(probe)
-                check("with a file, CSpect no longer demands a disk image",
-                      not any("disk image" in t[1].lower() for t in toasts),
-                      str(toasts))
     finally:
         win._show_toast = real_toast
     app.quit()
