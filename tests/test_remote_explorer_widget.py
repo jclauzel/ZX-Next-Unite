@@ -147,6 +147,14 @@ def fwd(p):
     return p.replace("\\", "/")
 
 
+def samepath(a, b):
+    """True when two paths name the same file. _local_dir() hands back
+    forward-slashed paths while os.path.join uses the native separator, so a
+    raw string compare fails on Windows for paths that are in fact identical."""
+    return (os.path.normcase(os.path.realpath(a))
+            == os.path.normcase(os.path.realpath(b)))
+
+
 def normq(q):
     """A queue with every string normalised to forward slashes, so command
     comparisons are separator-agnostic."""
@@ -1174,44 +1182,57 @@ def test_emulator_start_from_next():
         staged.append(stage_root)
         return stage_root
 
+    # The download goes to the LOCAL pane's folder, exactly where the Download
+    # action puts things, so the file shows up in the left explorer and the
+    # user keeps it — not into a temp directory it can never be found in.
+    local_dir = tempfile.mkdtemp(dir=TMP)
     entry = EmulatorAutostart("CSpect", "Start CSpect with file beast.nex",
                               launched.append, make_stage)
-    w, calls = make_widget(emulator_entries=lambda p: [entry])
+    w, calls = make_widget(emulator_entries=lambda p: [entry],
+                           local_start_dir=local_dir)
     connect_widget(w, calls, listing=[(False, 4096, "beast.nex")])
 
-    # The download is queued against the emulator's own staging directory.
     w._emulator_start_from_next("/beast.nex", entry)
     q = list(calls["q"])
     check("the Next-pane action queues a download",
           any(c[0] == "get" and c[1] == "/beast.nex" for c in q), str(q))
-    check("...into the directory the emulator asked for",
-          staged == [stage_root] and any(len(c) > 2 and c[2] == stage_root
-                                         for c in q), str(q))
+    check("...into the LOCAL pane's folder, so the file lands where it shows",
+          any(len(c) > 2 and os.path.realpath(c[2]) == os.path.realpath(local_dir)
+              for c in q), str(q))
+    check("...and NOT into a scratch directory the user cannot find",
+          staged == [], str(staged))
     check("nothing is launched before the download finishes", launched == [])
 
     # Finish the download with the file actually present, as the worker would.
-    open(os.path.join(stage_root, "beast.nex"), "wb").write(b"\x00" * 8)
+    open(os.path.join(local_dir, "beast.nex"), "wb").write(b"\x00" * 8)
     w.on_op_done(True, "get", "/beast.nex")
     QApplication.processEvents()          # the launch is deferred by one tick
     check("the emulator is started once the file has arrived",
-          launched == [os.path.join(stage_root, "beast.nex")], str(launched))
+          len(launched) == 1 and samepath(launched[0],
+                                          os.path.join(local_dir, "beast.nex")),
+          str(launched))
     check("it is started on the DOWNLOADED copy, not the Next path",
           launched and not launched[0].startswith("/beast"), str(launched))
-    check("the copy survives the launch (the emulator is detached)",
-          os.path.isfile(os.path.join(stage_root, "beast.nex")))
+    check("the downloaded file is kept (it is the user's now)",
+          os.path.isfile(os.path.join(local_dir, "beast.nex")))
 
-    # A failed download must not start anything and must clean up after itself.
+    # A failed download must not start anything — and must NEVER delete the
+    # folder it downloaded into, which is the user's own browsing directory.
     launched.clear()
-    stage2 = tempfile.mkdtemp(dir=TMP)
+    local2 = tempfile.mkdtemp(dir=TMP)
+    keeper = os.path.join(local2, "precious.txt")
+    open(keeper, "wb").write(b"do not delete me")
     entry2 = EmulatorAutostart("MAME", "Start MAME with file x.nex",
-                               launched.append, lambda: stage2)
-    w2, calls2 = make_widget(emulator_entries=lambda p: [entry2])
+                               launched.append, lambda: stage_root)
+    w2, calls2 = make_widget(emulator_entries=lambda p: [entry2],
+                             local_start_dir=local2)
     connect_widget(w2, calls2, listing=[(False, 10, "x.nex")])
     w2._emulator_start_from_next("/x.nex", entry2)
     w2.on_op_done(False, "get", "/x.nex")   # download failed
     QApplication.processEvents()
     check("a failed download starts nothing", launched == [], str(launched))
-    check("...and removes the staging directory", not os.path.isdir(stage2))
+    check("a failed download NEVER deletes the user's local folder",
+          os.path.isdir(local2) and os.path.isfile(keeper), local2)
     check("...and says so in the log",
           any("could not be downloaded" in str(s) or "not started" in str(s)
               for s in calls2["log"]), str(calls2["log"][-3:]))
@@ -1221,43 +1242,48 @@ def test_emulator_start_from_next():
     check("no hook -> no entries (the widget knows no emulators itself)",
           w3._emulator_entries("/anything.nex") == [])
 
-    # REGRESSION (reported): the file downloaded and then nothing happened.
-    # Both emulators need a mounted SD image, and on this tab there usually is
-    # none — so the launch could never work, and CSpect's launcher returned
-    # silently. Ask before transferring, and say why.
+    # A genuine blocker (not a missing SD card — booting a file needs none)
+    # must be reported BEFORE any transfer, so the user never waits for a
+    # download that cannot lead anywhere.
     launched.clear()
     blocked_entry = EmulatorAutostart(
         "CSpect", "Start CSpect with file x.nex", launched.append,
         lambda: tempfile.mkdtemp(dir=TMP),
-        lambda: "Load a ZX Spectrum Next disk image first")
-    w4, calls4 = make_widget(emulator_entries=lambda p: [blocked_entry])
+        lambda: "CSpect could not be found")
+    w4, calls4 = make_widget(emulator_entries=lambda p: [blocked_entry],
+                             local_start_dir=tempfile.mkdtemp(dir=TMP))
     connect_widget(w4, calls4, listing=[(False, 10, "x.nex")])
     w4._emulator_start_from_next("/x.nex", blocked_entry)
     check("a launch that cannot succeed downloads NOTHING",
           not any(c[0] == "get" for c in calls4["q"]), str(calls4["q"]))
     check("...and says why, visibly (toast, not just the log)",
           len(calls4["toasts"]) == 1
-          and "disk image" in calls4["toasts"][0][1], str(calls4["toasts"]))
+          and "CSpect could not be found" in calls4["toasts"][0][1],
+          str(calls4["toasts"]))
     check("...and starts no emulator", launched == [])
 
     # The worker names the arriving file from what the NEXT reports, not from
     # the path we asked for, so a single-file get can land under a sub-path.
-    # The staging dir holds this download alone, so the file must still be
-    # found rather than reported as a failed download.
+    # It must still be found — BY NAME, since the destination is the user's own
+    # folder and "the only file in here" would pick up something unrelated.
     launched.clear()
-    stage3 = tempfile.mkdtemp(dir=TMP)
+    local3 = tempfile.mkdtemp(dir=TMP)
+    open(os.path.join(local3, "unrelated.bin"), "wb").write(b"x")
     entry3 = EmulatorAutostart("CSpect", "Start CSpect with file y.nex",
-                               launched.append, lambda: stage3)
-    w5, calls5 = make_widget(emulator_entries=lambda p: [entry3])
+                               launched.append, lambda: stage_root)
+    w5, calls5 = make_widget(emulator_entries=lambda p: [entry3],
+                             local_start_dir=local3)
     connect_widget(w5, calls5, listing=[(False, 10, "y.nex")])
     w5._emulator_start_from_next("/games/y.nex", entry3)
-    odd = os.path.join(stage3, "games", "y.nex")     # not <tmp>/y.nex
+    odd = os.path.join(local3, "games", "y.nex")     # not <dest>/y.nex
     os.makedirs(os.path.dirname(odd), exist_ok=True)
     open(odd, "wb").write(b"\x00" * 4)
     w5.on_op_done(True, "get", "/games/y.nex")
     QApplication.processEvents()
     check("a file that lands under a sub-path is still found and booted",
-          launched == [odd], str(launched))
+          len(launched) == 1 and samepath(launched[0], odd), str(launched))
+    check("...found by NAME, so an unrelated neighbour is never booted",
+          launched and os.path.basename(launched[0]) == "y.nex", str(launched))
 
 
 def main():

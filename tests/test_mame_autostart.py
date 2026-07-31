@@ -125,6 +125,16 @@ if fn is not None:
           src.index("_auto_switch, _auto") < src.index("MAME_HARD_DISK_PARAMETER, mame_image"))
     check("an unsupported file does not silently vanish",
           "MAME cannot load {name} directly" in src)
+    # Verified live against MAME 0.288: `mame tbblue -snapshot foo.nex` boots
+    # with no -hard1 at all. So a file to boot lifts the image requirement —
+    # without this, "Start MAME with file …" was unusable from the NextSync
+    # tab, where no image is mounted.
+    check("a file to boot lifts the disk-image requirement",
+          "and not _has_autostart" in src,
+          "MAME loads a snapshot with no -hard1")
+    check("only a real file is passed as -hard1",
+          "os.path.isfile(mame_image)" in src,
+          "'-hard1 <not a file>' is fatal in MAME, not a no-op")
 
 # ---- booting a file that lives on the image must extract it first --------
 ops = open(os.path.join(REPO, "zxnu_sdcard_ops.py"), encoding="utf-8").read()

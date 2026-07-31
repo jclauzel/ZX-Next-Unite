@@ -2244,18 +2244,22 @@ class RemoteExplorerWidget(QWidget):
         and the emulator started on that copy — the Next pane's counterpart to
         the SD Card tab extracting from the image with hdfmonkey.
 
-        The copy is deliberately NOT deleted on success: the emulator is
-        launched detached and opens the file after we return. Which directory
-        it goes to is the emulator's business (entry.staging_dir), because
-        Flatpak MAME cannot see this process's /tmp.
+        It lands in the LOCAL pane's current folder — exactly where the
+        Download action puts things — so it appears in the left explorer and
+        the user keeps it, instead of disappearing into a temp directory. The
+        file is deliberately NOT deleted afterwards: it is the user's now, and
+        the emulator is launched detached and opens it after we return.
+
+        NO disk image is involved and none is required. MAME loads a snapshot
+        with no -hard1, and CSpect takes a plain folder as its -mmc root (its
+        own sample launchers use `-mmc=./`), so the downloaded file's folder
+        serves as the card root.
         """
         if not self._connected or self._op_active:
             return
         name = posixpath.basename(remote_path.rstrip("/")) or remote_path
-        # Ask BEFORE transferring anything: both emulators need a mounted SD
-        # image, and on this tab there often is none. Downloading first and
-        # only then discovering the launch cannot happen is what made this
-        # look like "the file downloads and nothing happens".
+        # Only asks about things that genuinely stop a launch — booting a file
+        # needs no mounted image, so this does not fire for a missing SD card.
         blocked = entry.blocked()
         if blocked:
             self._log(blocked)
@@ -2263,30 +2267,43 @@ class RemoteExplorerWidget(QWidget):
                 ui_tr_now("Could not start {emulator}").format(emulator=entry.name),
                 blocked, "red")
             return
-        try:
-            tmp = entry.staging_dir()
-        except OSError as exc:
-            logging.exception("emulator staging dir unusable")
-            self._on_toast(
-                ui_tr_now("Could not start {emulator}").format(emulator=entry.name),
-                ui_tr_now("Could not prepare a folder for {name}: {error}")
-                .format(name=name, error=exc), "red")
-            return
+
+        # The local pane's folder, same as Download. Only if it cannot be
+        # written to (read-only media, permissions) does this fall back to the
+        # emulator's own staging directory.
+        dest = self._local_dir()
+        scratch = False
+        if not (dest and os.path.isdir(dest) and os.access(dest, os.W_OK)):
+            try:
+                dest = entry.staging_dir()
+                scratch = True
+            except OSError as exc:
+                logging.exception("emulator staging dir unusable")
+                self._on_toast(
+                    ui_tr_now("Could not start {emulator}").format(emulator=entry.name),
+                    ui_tr_now("Could not prepare a folder for {name}: {error}")
+                    .format(name=name, error=exc), "red")
+                return
 
         def _started(ok, _fails):
-            local = os.path.join(tmp, name)
+            local = os.path.join(dest, name)
             if ok and not os.path.isfile(local):
-                # The worker names the file from what the NEXT reports, not
-                # from the path we asked for (see _re_relname_under), so a
-                # single-file get can land under a sub-path. The staging dir
-                # holds this download and nothing else, so if exactly one file
-                # arrived it is the one to boot, whatever it ended up called.
-                arrived = [os.path.join(root, f)
-                           for root, _dirs, files in os.walk(tmp) for f in files]
-                if len(arrived) == 1:
-                    local = arrived[0]
+                # The worker names the arriving file from what the NEXT
+                # reports, not from the path we asked for (_re_relname_under),
+                # so a single-file get can land under a sub-path. Look for it
+                # by name — never by "the only file here", which was safe in a
+                # private staging dir but not in the user's own folder.
+                found = [os.path.join(root, f)
+                         for root, _dirs, files in os.walk(dest)
+                         for f in files if f == name]
+                if found:
+                    local = max(found, key=os.path.getmtime)
             if not ok or not os.path.isfile(local):
-                shutil.rmtree(tmp, ignore_errors=True)
+                # Only ever remove a directory WE made. dest is normally the
+                # user's own browsing folder, and deleting that would be
+                # catastrophic.
+                if scratch:
+                    shutil.rmtree(dest, ignore_errors=True)
                 self._log(ui_tr_now(
                     "Start {emulator}: {name} could not be downloaded from "
                     "the Next, {emulator} was not started.").format(
@@ -2299,6 +2316,7 @@ class RemoteExplorerWidget(QWidget):
                               "started.").format(emulator=entry.name, name=name),
                     "red")
                 return
+            self._local_refresh()      # show what just arrived
             # Deferred so _end_operation fully unwinds before the launch.
             QTimer.singleShot(0, lambda: entry.launch(local))
 
@@ -2306,7 +2324,7 @@ class RemoteExplorerWidget(QWidget):
             "Downloading {name} from the Next, then starting {emulator}…")
             .format(name=name, emulator=entry.name))
         self._run_op(ui_tr_now("Downloading {name}…").format(name=name),
-                     lambda: self._enqueue(("get", remote_path, tmp)),
+                     lambda: self._enqueue(("get", remote_path, dest)),
                      on_done=_started)
 
     def _remote_unzip(self, zip_path):
