@@ -639,7 +639,7 @@ def build_emulator_ops(
             f"Download (~{size_txt}) and install it into the downloads "
             f"folder?\nNote: the fully extracted install is large (~500 MB).")
         _attach_release_notes(box, release.get("notes"))
-        go = box.addButton("Download and install", QMessageBox.AcceptRole)
+        go = box.addButton(ui_tr_now("Download and install"), QMessageBox.AcceptRole)
         box.addButton("Cancel", QMessageBox.RejectRole)
         box.setDefaultButton(go)
         box.exec()
@@ -1038,7 +1038,7 @@ def build_emulator_ops(
         size_txt = f"{size / 1048576:.0f} MB" if size else "about 90 MB"
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("MAME update available")
+        box.setWindowTitle(ui_tr_now("MAME update available"))
         box.setText(
             "A newer version of MAME is available.\n\n"
             f"Installed: 0.{installed_num}\n"
@@ -1048,10 +1048,11 @@ def build_emulator_ops(
             "The existing files in the downloads MAME folder will be "
             "overwritten.")
         _attach_release_notes(box, info.get("notes"))
-        upd = box.addButton("Update", QMessageBox.AcceptRole)
+        upd = box.addButton(ui_tr_now("Update"), QMessageBox.AcceptRole)
         # Escape hatch to any other recent release — including an older one,
         # which is how the update path itself can be exercised again.
-        other = box.addButton("Choose another release…", QMessageBox.ActionRole)
+        other = box.addButton(
+            ui_tr_now("Choose another release…"), QMessageBox.ActionRole)
         box.addButton("Cancel", QMessageBox.RejectRole)
         box.setDefaultButton(upd)
         box.exec()
@@ -1206,7 +1207,7 @@ def build_emulator_ops(
             "choose Open." if is_app_bundle else "")
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("Update downloaded")
+        box.setWindowTitle(ui_tr_now("Update downloaded"))
         box.setText(
             "The new version was saved as:\n\n"
             f"{new_path}\n\n"
@@ -1214,7 +1215,7 @@ def build_emulator_ops(
             "Your settings (hdfg.cfg) and downloads are picked up as-is —\n"
             "both versions run from the same folder." + gatekeeper_note)
         yes = box.addButton(f"Close and start {name}", QMessageBox.AcceptRole)
-        box.addButton("Later", QMessageBox.RejectRole)
+        box.addButton(ui_tr_now("Later"), QMessageBox.RejectRole)
         box.setDefaultButton(yes)
         box.exec()
         if box.clickedButton() is not yes:
@@ -1367,7 +1368,7 @@ def build_emulator_ops(
                 "update with 'git pull' instead of the Windows binary.")
             box = QMessageBox(host)
             box.setIcon(QMessageBox.Information)
-            box.setWindowTitle("ZX Next Unite update available")
+            box.setWindowTitle(ui_tr_now("ZX Next Unite update available"))
             box.setText(
                 f"ZX Next Unite {tag} is available "
                 f"(you are running {ZX_NEXT_UNITE_VERSION}).\n\n"
@@ -1376,8 +1377,9 @@ def build_emulator_ops(
                 "    git pull\n\n"
                 "instead of downloading the Windows binary.")
             _attach_notes(box)
-            openrel = box.addButton("Open the releases page", QMessageBox.AcceptRole)
-            box.addButton("Close", QMessageBox.RejectRole)
+            openrel = box.addButton(
+                ui_tr_now("Open the releases page"), QMessageBox.AcceptRole)
+            box.addButton(ui_tr_now("Close"), QMessageBox.RejectRole)
             box.setDefaultButton(openrel)
             box.exec()
             if box.clickedButton() is openrel:
@@ -1402,7 +1404,7 @@ def build_emulator_ops(
         size_txt = f"{size / 1048576:.0f} MB" if size else "?"
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("ZX Next Unite update available")
+        box.setWindowTitle(ui_tr_now("ZX Next Unite update available"))
         box.setText(
             f"ZX Next Unite {tag} is available — download?\n\n"
             f"Installed: {ZX_NEXT_UNITE_VERSION}\n"
@@ -1646,14 +1648,14 @@ def build_emulator_ops(
         latest_name = info.get("version_name") or "a newer build"
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("CSpect update available")
+        box.setWindowTitle(ui_tr_now("CSpect update available"))
         box.setText(
             "A newer version of CSpect is available on itch.io.\n\n"
             f"Installed: {installed_name}\n"
             f"Latest: {latest_name}\n\n"
             "Download and install the newest version now?")
         _attach_release_notes(box, info.get("notes"))
-        yes = box.addButton("Yes", QMessageBox.AcceptRole)
+        yes = box.addButton(ui_tr_now("Yes"), QMessageBox.AcceptRole)
         box.addButton("Cancel", QMessageBox.RejectRole)
         box.setDefaultButton(yes)
         box.exec()
@@ -2061,7 +2063,7 @@ def build_hdfmonkey_install_ops(
         downloads_root = _hdfmonkey_downloads_root()
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle("hdfmonkey download failed")
+        box.setWindowTitle(ui_tr_now("hdfmonkey download failed"))
         box.setText(
             "The automatic hdfmonkey download from specnext.com failed — the "
             "forum may be asking for a login or an anti-robot confirmation "
@@ -2159,7 +2161,7 @@ def build_hdfmonkey_install_ops(
         download, so the user can choose the fuller route instead."""
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Information)
-        box.setWindowTitle("Install hdfmonkey")
+        box.setWindowTitle(ui_tr_now("Install hdfmonkey"))
         box.setText(
             "TIP: Did you know that if you have purchased CSpect from "
             "itch.io you can do a full end-to-end CSpect install from "

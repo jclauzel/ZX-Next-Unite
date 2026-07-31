@@ -417,6 +417,61 @@ CATALOGS = {
         "Mouse Off": "Ratón desactivado",
         "Disable ESC Key Off": "Desactivar tecla ESC: no",
         "Disable ESC Key On": "Desactivar tecla ESC: sí",
+        # ---- dialogs (message boxes) ----
+        "CSpect update available":
+            "Actualización de CSpect disponible",
+        "Choose another release…":
+            "Elegir otra versión…",
+        "Close":
+            "Cerrar",
+        "Download and install":
+            "Descargar e instalar",
+        "File or directory already exists locally.":
+            "El archivo o directorio ya existe localmente.",
+        "File or directory exists":
+            "El archivo o directorio ya existe",
+        "Ignore (always in this sync)":
+            "Ignorar (siempre en esta sincronización)",
+        "Ignore (one time)":
+            "Ignorar (una vez)",
+        "Install from .zip…":
+            "Instalar desde .zip…",
+        "Install hdfmonkey":
+            "Instalar hdfmonkey",
+        "Later":
+            "Más tarde",
+        "MAME update available":
+            "Actualización de MAME disponible",
+        "Open itch.io page":
+            "Abrir la página de itch.io",
+        "Open the releases page":
+            "Abrir la página de versiones",
+        "Overwrite local file (always in this sync)":
+            "Sobrescribir el archivo local (siempre en esta sincronización)",
+        "Overwrite local file (one time)":
+            "Sobrescribir el archivo local (una vez)",
+        "The automated download failed.":
+            "La descarga automática falló.",
+        "This is going to completely delete the files in {path} and its sub folders, so they will be unrecoverable.\n\nAre you sure want to continue?":
+            "Esto eliminará por completo los archivos de {path} y sus subcarpetas, de forma irrecuperable.\n\n¿Seguro que quieres continuar?",
+        "Tip: set a default for this in Settings → \"NextSync — when a sent file or directory exists locally\".":
+            "Consejo: define un valor predeterminado en Ajustes → \"NextSync — when a sent file or directory exists locally\".",
+        "Uninstall":
+            "Desinstalar",
+        "Update":
+            "Actualizar",
+        "Update downloaded":
+            "Actualización descargada",
+        "Yes":
+            "Sí",
+        "You can download it manually from the itch.io page in your browser, then install it from the downloaded .zip.":
+            "Puedes descargarlo manualmente desde la página de itch.io en tu navegador y luego instalarlo desde el .zip descargado.",
+        "ZX Next Unite update available":
+            "Actualización de ZX Next Unite disponible",
+        "hdfmonkey download failed":
+            "Falló la descarga de hdfmonkey",
+        "itch.io download":
+            "Descarga de itch.io",
         # ---- emulator install / update console ----
         "CSpect update check skipped: {reason}":
             "Comprobación de CSpect omitida: {reason}",
@@ -1045,6 +1100,61 @@ CATALOGS = {
         "Mouse Off": "Rato desligado",
         "Disable ESC Key Off": "Desativar tecla ESC: não",
         "Disable ESC Key On": "Desativar tecla ESC: sim",
+        # ---- dialogs (message boxes) ----
+        "CSpect update available":
+            "Atualização do CSpect disponível",
+        "Choose another release…":
+            "Escolher outra versão…",
+        "Close":
+            "Fechar",
+        "Download and install":
+            "Transferir e instalar",
+        "File or directory already exists locally.":
+            "O ficheiro ou diretório já existe localmente.",
+        "File or directory exists":
+            "O ficheiro ou diretório já existe",
+        "Ignore (always in this sync)":
+            "Ignorar (sempre nesta sincronização)",
+        "Ignore (one time)":
+            "Ignorar (uma vez)",
+        "Install from .zip…":
+            "Instalar a partir de .zip…",
+        "Install hdfmonkey":
+            "Instalar o hdfmonkey",
+        "Later":
+            "Mais tarde",
+        "MAME update available":
+            "Atualização do MAME disponível",
+        "Open itch.io page":
+            "Abrir a página do itch.io",
+        "Open the releases page":
+            "Abrir a página de versões",
+        "Overwrite local file (always in this sync)":
+            "Substituir o ficheiro local (sempre nesta sincronização)",
+        "Overwrite local file (one time)":
+            "Substituir o ficheiro local (uma vez)",
+        "The automated download failed.":
+            "A transferência automática falhou.",
+        "This is going to completely delete the files in {path} and its sub folders, so they will be unrecoverable.\n\nAre you sure want to continue?":
+            "Isto vai eliminar completamente os ficheiros em {path} e nas suas subpastas, de forma irrecuperável.\n\nTens a certeza de que queres continuar?",
+        "Tip: set a default for this in Settings → \"NextSync — when a sent file or directory exists locally\".":
+            "Dica: define um valor predefinido em Definições → \"NextSync — when a sent file or directory exists locally\".",
+        "Uninstall":
+            "Desinstalar",
+        "Update":
+            "Atualizar",
+        "Update downloaded":
+            "Atualização transferida",
+        "Yes":
+            "Sim",
+        "You can download it manually from the itch.io page in your browser, then install it from the downloaded .zip.":
+            "Podes transferi-lo manualmente a partir da página do itch.io no teu navegador e depois instalá-lo a partir do .zip transferido.",
+        "ZX Next Unite update available":
+            "Atualização do ZX Next Unite disponível",
+        "hdfmonkey download failed":
+            "Falhou a transferência do hdfmonkey",
+        "itch.io download":
+            "Transferência do itch.io",
         # ---- emulator install / update console ----
         "CSpect update check skipped: {reason}":
             "Verificação do CSpect ignorada: {reason}",
@@ -1671,6 +1781,61 @@ CATALOGS = {
         "Mouse Off": "Mysz wyłączona",
         "Disable ESC Key Off": "Blokada klawisza ESC: wył.",
         "Disable ESC Key On": "Blokada klawisza ESC: wł.",
+        # ---- dialogs (message boxes) ----
+        "CSpect update available":
+            "Dostępna aktualizacja CSpect",
+        "Choose another release…":
+            "Wybierz inną wersję…",
+        "Close":
+            "Zamknij",
+        "Download and install":
+            "Pobierz i zainstaluj",
+        "File or directory already exists locally.":
+            "Plik lub katalog już istnieje lokalnie.",
+        "File or directory exists":
+            "Plik lub katalog już istnieje",
+        "Ignore (always in this sync)":
+            "Pomiń (zawsze w tej synchronizacji)",
+        "Ignore (one time)":
+            "Pomiń (raz)",
+        "Install from .zip…":
+            "Zainstaluj z pliku .zip…",
+        "Install hdfmonkey":
+            "Zainstaluj hdfmonkey",
+        "Later":
+            "Później",
+        "MAME update available":
+            "Dostępna aktualizacja MAME",
+        "Open itch.io page":
+            "Otwórz stronę itch.io",
+        "Open the releases page":
+            "Otwórz stronę wydań",
+        "Overwrite local file (always in this sync)":
+            "Nadpisz plik lokalny (zawsze w tej synchronizacji)",
+        "Overwrite local file (one time)":
+            "Nadpisz plik lokalny (raz)",
+        "The automated download failed.":
+            "Automatyczne pobieranie nie powiodło się.",
+        "This is going to completely delete the files in {path} and its sub folders, so they will be unrecoverable.\n\nAre you sure want to continue?":
+            "Spowoduje to całkowite usunięcie plików w {path} i jego podfolderach — bez możliwości odzyskania.\n\nCzy na pewno chcesz kontynuować?",
+        "Tip: set a default for this in Settings → \"NextSync — when a sent file or directory exists locally\".":
+            "Wskazówka: ustaw domyślne zachowanie w Ustawieniach → \"NextSync — when a sent file or directory exists locally\".",
+        "Uninstall":
+            "Odinstaluj",
+        "Update":
+            "Aktualizuj",
+        "Update downloaded":
+            "Aktualizacja pobrana",
+        "Yes":
+            "Tak",
+        "You can download it manually from the itch.io page in your browser, then install it from the downloaded .zip.":
+            "Możesz pobrać go ręcznie ze strony itch.io w przeglądarce, a następnie zainstalować z pobranego pliku .zip.",
+        "ZX Next Unite update available":
+            "Dostępna aktualizacja ZX Next Unite",
+        "hdfmonkey download failed":
+            "Pobieranie hdfmonkey nie powiodło się",
+        "itch.io download":
+            "Pobieranie z itch.io",
         # ---- emulator install / update console ----
         "CSpect update check skipped: {reason}":
             "Pominięto sprawdzanie CSpect: {reason}",
@@ -2298,6 +2463,61 @@ CATALOGS = {
         "Mouse Off": "Мышь выкл.",
         "Disable ESC Key Off": "Блокировка ESC: выкл.",
         "Disable ESC Key On": "Блокировка ESC: вкл.",
+        # ---- dialogs (message boxes) ----
+        "CSpect update available":
+            "Доступно обновление CSpect",
+        "Choose another release…":
+            "Выбрать другую версию…",
+        "Close":
+            "Закрыть",
+        "Download and install":
+            "Скачать и установить",
+        "File or directory already exists locally.":
+            "Файл или папка уже существует локально.",
+        "File or directory exists":
+            "Файл или папка уже существует",
+        "Ignore (always in this sync)":
+            "Пропускать (всегда в этой синхронизации)",
+        "Ignore (one time)":
+            "Пропустить (один раз)",
+        "Install from .zip…":
+            "Установить из .zip…",
+        "Install hdfmonkey":
+            "Установить hdfmonkey",
+        "Later":
+            "Позже",
+        "MAME update available":
+            "Доступно обновление MAME",
+        "Open itch.io page":
+            "Открыть страницу itch.io",
+        "Open the releases page":
+            "Открыть страницу релизов",
+        "Overwrite local file (always in this sync)":
+            "Перезаписывать локальный файл (всегда в этой синхронизации)",
+        "Overwrite local file (one time)":
+            "Перезаписать локальный файл (один раз)",
+        "The automated download failed.":
+            "Автоматическая загрузка не удалась.",
+        "This is going to completely delete the files in {path} and its sub folders, so they will be unrecoverable.\n\nAre you sure want to continue?":
+            "Это полностью удалит файлы в {path} и вложенных папках без возможности восстановления.\n\nПродолжить?",
+        "Tip: set a default for this in Settings → \"NextSync — when a sent file or directory exists locally\".":
+            "Совет: задайте поведение по умолчанию в Настройках → \"NextSync — when a sent file or directory exists locally\".",
+        "Uninstall":
+            "Удалить",
+        "Update":
+            "Обновить",
+        "Update downloaded":
+            "Обновление загружено",
+        "Yes":
+            "Да",
+        "You can download it manually from the itch.io page in your browser, then install it from the downloaded .zip.":
+            "Вы можете скачать его вручную со страницы itch.io в браузере, а затем установить из загруженного .zip.",
+        "ZX Next Unite update available":
+            "Доступно обновление ZX Next Unite",
+        "hdfmonkey download failed":
+            "Не удалось скачать hdfmonkey",
+        "itch.io download":
+            "Загрузка с itch.io",
         # ---- emulator install / update console ----
         "CSpect update check skipped: {reason}":
             "Проверка CSpect пропущена: {reason}",
@@ -2924,6 +3144,61 @@ CATALOGS = {
         "Mouse Off": "Myš vypnuta",
         "Disable ESC Key Off": "Blokovat klávesu ESC: ne",
         "Disable ESC Key On": "Blokovat klávesu ESC: ano",
+        # ---- dialogs (message boxes) ----
+        "CSpect update available":
+            "K dispozici je aktualizace CSpectu",
+        "Choose another release…":
+            "Zvolit jinou verzi…",
+        "Close":
+            "Zavřít",
+        "Download and install":
+            "Stáhnout a nainstalovat",
+        "File or directory already exists locally.":
+            "Soubor nebo složka již místně existuje.",
+        "File or directory exists":
+            "Soubor nebo složka již existuje",
+        "Ignore (always in this sync)":
+            "Ignorovat (vždy při této synchronizaci)",
+        "Ignore (one time)":
+            "Ignorovat (jednorázově)",
+        "Install from .zip…":
+            "Instalovat ze .zip…",
+        "Install hdfmonkey":
+            "Nainstalovat hdfmonkey",
+        "Later":
+            "Později",
+        "MAME update available":
+            "K dispozici je aktualizace MAME",
+        "Open itch.io page":
+            "Otevřít stránku itch.io",
+        "Open the releases page":
+            "Otevřít stránku vydání",
+        "Overwrite local file (always in this sync)":
+            "Přepsat místní soubor (vždy při této synchronizaci)",
+        "Overwrite local file (one time)":
+            "Přepsat místní soubor (jednorázově)",
+        "The automated download failed.":
+            "Automatické stažení selhalo.",
+        "This is going to completely delete the files in {path} and its sub folders, so they will be unrecoverable.\n\nAre you sure want to continue?":
+            "Tímto se zcela smažou soubory v {path} a jeho podsložkách, bez možnosti obnovy.\n\nOpravdu chcete pokračovat?",
+        "Tip: set a default for this in Settings → \"NextSync — when a sent file or directory exists locally\".":
+            "Tip: výchozí chování nastavíte v Nastavení → \"NextSync — when a sent file or directory exists locally\".",
+        "Uninstall":
+            "Odinstalovat",
+        "Update":
+            "Aktualizovat",
+        "Update downloaded":
+            "Aktualizace stažena",
+        "Yes":
+            "Ano",
+        "You can download it manually from the itch.io page in your browser, then install it from the downloaded .zip.":
+            "Můžete jej stáhnout ručně ze stránky itch.io v prohlížeči a poté nainstalovat ze staženého .zip.",
+        "ZX Next Unite update available":
+            "K dispozici je aktualizace ZX Next Unite",
+        "hdfmonkey download failed":
+            "Stažení hdfmonkey selhalo",
+        "itch.io download":
+            "Stahování z itch.io",
         # ---- emulator install / update console ----
         "CSpect update check skipped: {reason}":
             "Kontrola CSpectu přeskočena: {reason}",
@@ -3553,6 +3828,61 @@ CATALOGS = {
         "Mouse Off": "Souris désactivée",
         "Disable ESC Key Off": "Désactiver la touche ÉCHAP : non",
         "Disable ESC Key On": "Désactiver la touche ÉCHAP : oui",
+        # ---- dialogs (message boxes) ----
+        "CSpect update available":
+            "Mise à jour de CSpect disponible",
+        "Choose another release…":
+            "Choisir une autre version…",
+        "Close":
+            "Fermer",
+        "Download and install":
+            "Télécharger et installer",
+        "File or directory already exists locally.":
+            "Le fichier ou dossier existe déjà en local.",
+        "File or directory exists":
+            "Le fichier ou dossier existe",
+        "Ignore (always in this sync)":
+            "Ignorer (toujours dans cette synchronisation)",
+        "Ignore (one time)":
+            "Ignorer (une fois)",
+        "Install from .zip…":
+            "Installer depuis un .zip…",
+        "Install hdfmonkey":
+            "Installer hdfmonkey",
+        "Later":
+            "Plus tard",
+        "MAME update available":
+            "Mise à jour de MAME disponible",
+        "Open itch.io page":
+            "Ouvrir la page itch.io",
+        "Open the releases page":
+            "Ouvrir la page des versions",
+        "Overwrite local file (always in this sync)":
+            "Écraser le fichier local (toujours dans cette synchronisation)",
+        "Overwrite local file (one time)":
+            "Écraser le fichier local (une fois)",
+        "The automated download failed.":
+            "Le téléchargement automatique a échoué.",
+        "This is going to completely delete the files in {path} and its sub folders, so they will be unrecoverable.\n\nAre you sure want to continue?":
+            "Cela va supprimer définitivement les fichiers de {path} et de ses sous-dossiers, sans récupération possible.\n\nVoulez-vous vraiment continuer ?",
+        "Tip: set a default for this in Settings → \"NextSync — when a sent file or directory exists locally\".":
+            "Astuce : définissez une valeur par défaut dans Réglages → \"NextSync — when a sent file or directory exists locally\".",
+        "Uninstall":
+            "Désinstaller",
+        "Update":
+            "Mettre à jour",
+        "Update downloaded":
+            "Mise à jour téléchargée",
+        "Yes":
+            "Oui",
+        "You can download it manually from the itch.io page in your browser, then install it from the downloaded .zip.":
+            "Vous pouvez le télécharger manuellement depuis la page itch.io dans votre navigateur, puis l'installer depuis le .zip téléchargé.",
+        "ZX Next Unite update available":
+            "Mise à jour de ZX Next Unite disponible",
+        "hdfmonkey download failed":
+            "Échec du téléchargement de hdfmonkey",
+        "itch.io download":
+            "Téléchargement itch.io",
         # ---- emulator install / update console ----
         "CSpect update check skipped: {reason}":
             "Vérification de CSpect ignorée : {reason}",
