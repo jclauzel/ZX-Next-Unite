@@ -417,6 +417,51 @@ CATALOGS = {
         "Mouse Off": "Ratón desactivado",
         "Disable ESC Key Off": "Desactivar tecla ESC: no",
         "Disable ESC Key On": "Desactivar tecla ESC: sí",
+        # ---- emulator install / update console ----
+        "CSpect update check skipped: {reason}":
+            "Comprobación de CSpect omitida: {reason}",
+        "CSpect update ▸ user cancelled the update.":
+            "Actualización de CSpect ▸ el usuario canceló la actualización.",
+        "ERROR: CSpect.exe is not present in the same local directory as zx-next-unite. Please install it from http://cspect.org":
+            "ERROR: CSpect.exe no está en el mismo directorio local que zx-next-unite. Instálalo desde http://cspect.org",
+        "ERROR: MAME executable not found on PATH. Cannot launch MAME.":
+            "ERROR: no se encontró el ejecutable de MAME en el PATH. No se puede iniciar MAME.",
+        "Listing the available MAME releases…":
+            "Listando las versiones de MAME disponibles…",
+        "MAME install ▸ FAILED — the download and extraction finished, but no mame.exe could be found in downloads/mame.":
+            "Instalación de MAME ▸ FALLÓ — la descarga y extracción terminaron, pero no se encontró mame.exe en downloads/mame.",
+        "MAME install ▸ FAILED — {error}. You can download it manually from https://www.mamedev.org/release.html":
+            "Instalación de MAME ▸ FALLÓ — {error}. Puedes descargarlo manualmente desde https://www.mamedev.org/release.html",
+        "MAME install ▸ Starting: {tag} ({asset}, ~{size}).":
+            "Instalación de MAME ▸ iniciando: {tag} ({asset}, ~{size}).",
+        "MAME install ▸ release picker cancelled.":
+            "Instalación de MAME ▸ selección de versión cancelada.",
+        "MAME is ready to launch now — no restart needed. Use the '🕹  Launch Mame' button.":
+            "MAME ya se puede iniciar, sin reiniciar. Usa el botón '🕹  Launch Mame'.",
+        "MAME update check: could not determine the installed MAME version; skipping.":
+            "Comprobación de MAME: no se pudo determinar la versión instalada; se omite.",
+        "MAME update check: could not determine the latest release; skipping.":
+            "Comprobación de MAME: no se pudo determinar la última versión; se omite.",
+        "MAME update check: could not reach the release site; skipping.":
+            "Comprobación de MAME: no se pudo acceder al sitio de versiones; se omite.",
+        "MAME update ▸ user chose to pick a release manually.":
+            "Actualización de MAME ▸ el usuario eligió seleccionar una versión manualmente.",
+        "MAME update ▸ user chose to update to {tag}.":
+            "Actualización de MAME ▸ el usuario eligió actualizar a {tag}.",
+        "On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.":
+            "En MacOS y Linux se necesita mono, ya que se ejecuta sobre él. Asegúrate de que mono está instalado.",
+        "Running as a Flatpak: mono must be installed on the HOST system — the launch is delegated there via flatpak-spawn.":
+            "Ejecutándose como Flatpak: mono debe estar instalado en el sistema ANFITRIÓN; el lanzamiento se delega allí mediante flatpak-spawn.",
+        "Select a valid ZX Spectrum Next disk image (.img/.hdf) before launching MAME.":
+            "Selecciona una imagen de disco ZX Spectrum Next válida (.img/.hdf) antes de iniciar MAME.",
+        "ZX Next Unite update check: could not reach GitHub (offline, or no release published yet); skipping.":
+            "Comprobación de ZX Next Unite: no se pudo acceder a GitHub (sin conexión o sin versiones publicadas); se omite.",
+        "ZX Next Unite update check: running as a Flatpak — updates come from your software center, skipping.":
+            "Comprobación de ZX Next Unite: ejecutándose como Flatpak; las actualizaciones vienen de tu centro de software, se omite.",
+        "ZX Next Unite update ▸ skipped by user.":
+            "Actualización de ZX Next Unite ▸ omitida por el usuario.",
+        "ZX Next Unite update: download cancelled.":
+            "Actualización de ZX Next Unite: descarga cancelada.",
         # ---- SD Card tab: console + dialogs ----
         "Confirm Deletion":
             "Confirmar eliminación",
@@ -1000,6 +1045,51 @@ CATALOGS = {
         "Mouse Off": "Rato desligado",
         "Disable ESC Key Off": "Desativar tecla ESC: não",
         "Disable ESC Key On": "Desativar tecla ESC: sim",
+        # ---- emulator install / update console ----
+        "CSpect update check skipped: {reason}":
+            "Verificação do CSpect ignorada: {reason}",
+        "CSpect update ▸ user cancelled the update.":
+            "Atualização do CSpect ▸ o utilizador cancelou a atualização.",
+        "ERROR: CSpect.exe is not present in the same local directory as zx-next-unite. Please install it from http://cspect.org":
+            "ERRO: o CSpect.exe não está na mesma pasta local que o zx-next-unite. Instala-o a partir de http://cspect.org",
+        "ERROR: MAME executable not found on PATH. Cannot launch MAME.":
+            "ERRO: o executável do MAME não foi encontrado no PATH. Não é possível iniciar o MAME.",
+        "Listing the available MAME releases…":
+            "A listar as versões do MAME disponíveis…",
+        "MAME install ▸ FAILED — the download and extraction finished, but no mame.exe could be found in downloads/mame.":
+            "Instalação do MAME ▸ FALHOU — a transferência e extração terminaram, mas não se encontrou o mame.exe em downloads/mame.",
+        "MAME install ▸ FAILED — {error}. You can download it manually from https://www.mamedev.org/release.html":
+            "Instalação do MAME ▸ FALHOU — {error}. Podes transferi-lo manualmente a partir de https://www.mamedev.org/release.html",
+        "MAME install ▸ Starting: {tag} ({asset}, ~{size}).":
+            "Instalação do MAME ▸ a iniciar: {tag} ({asset}, ~{size}).",
+        "MAME install ▸ release picker cancelled.":
+            "Instalação do MAME ▸ seleção de versão cancelada.",
+        "MAME is ready to launch now — no restart needed. Use the '🕹  Launch Mame' button.":
+            "O MAME já pode ser iniciado, sem reiniciar. Usa o botão '🕹  Launch Mame'.",
+        "MAME update check: could not determine the installed MAME version; skipping.":
+            "Verificação do MAME: não foi possível determinar a versão instalada; a ignorar.",
+        "MAME update check: could not determine the latest release; skipping.":
+            "Verificação do MAME: não foi possível determinar a versão mais recente; a ignorar.",
+        "MAME update check: could not reach the release site; skipping.":
+            "Verificação do MAME: não foi possível aceder ao site das versões; a ignorar.",
+        "MAME update ▸ user chose to pick a release manually.":
+            "Atualização do MAME ▸ o utilizador escolheu selecionar uma versão manualmente.",
+        "MAME update ▸ user chose to update to {tag}.":
+            "Atualização do MAME ▸ o utilizador escolheu atualizar para {tag}.",
+        "On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.":
+            "No MacOS e no Linux é necessário o mono, pois é executado sobre ele. Certifica-te de que o mono está instalado.",
+        "Running as a Flatpak: mono must be installed on the HOST system — the launch is delegated there via flatpak-spawn.":
+            "A executar como Flatpak: o mono tem de estar instalado no sistema ANFITRIÃO; o arranque é delegado aí através do flatpak-spawn.",
+        "Select a valid ZX Spectrum Next disk image (.img/.hdf) before launching MAME.":
+            "Seleciona uma imagem de disco ZX Spectrum Next válida (.img/.hdf) antes de iniciar o MAME.",
+        "ZX Next Unite update check: could not reach GitHub (offline, or no release published yet); skipping.":
+            "Verificação do ZX Next Unite: não foi possível aceder ao GitHub (sem ligação ou sem versões publicadas); a ignorar.",
+        "ZX Next Unite update check: running as a Flatpak — updates come from your software center, skipping.":
+            "Verificação do ZX Next Unite: a executar como Flatpak; as atualizações vêm do teu centro de software, a ignorar.",
+        "ZX Next Unite update ▸ skipped by user.":
+            "Atualização do ZX Next Unite ▸ ignorada pelo utilizador.",
+        "ZX Next Unite update: download cancelled.":
+            "Atualização do ZX Next Unite: transferência cancelada.",
         # ---- SD Card tab: console + dialogs ----
         "Confirm Deletion":
             "Confirmar eliminação",
@@ -1581,6 +1671,51 @@ CATALOGS = {
         "Mouse Off": "Mysz wyłączona",
         "Disable ESC Key Off": "Blokada klawisza ESC: wył.",
         "Disable ESC Key On": "Blokada klawisza ESC: wł.",
+        # ---- emulator install / update console ----
+        "CSpect update check skipped: {reason}":
+            "Pominięto sprawdzanie CSpect: {reason}",
+        "CSpect update ▸ user cancelled the update.":
+            "Aktualizacja CSpect ▸ użytkownik anulował aktualizację.",
+        "ERROR: CSpect.exe is not present in the same local directory as zx-next-unite. Please install it from http://cspect.org":
+            "BŁĄD: CSpect.exe nie znajduje się w tym samym katalogu co zx-next-unite. Zainstaluj go z http://cspect.org",
+        "ERROR: MAME executable not found on PATH. Cannot launch MAME.":
+            "BŁĄD: nie znaleziono pliku wykonywalnego MAME w PATH. Nie można uruchomić MAME.",
+        "Listing the available MAME releases…":
+            "Pobieranie listy dostępnych wersji MAME…",
+        "MAME install ▸ FAILED — the download and extraction finished, but no mame.exe could be found in downloads/mame.":
+            "Instalacja MAME ▸ NIEPOWODZENIE — pobieranie i wypakowanie zakończone, ale nie znaleziono mame.exe w downloads/mame.",
+        "MAME install ▸ FAILED — {error}. You can download it manually from https://www.mamedev.org/release.html":
+            "Instalacja MAME ▸ NIEPOWODZENIE — {error}. Możesz pobrać go ręcznie z https://www.mamedev.org/release.html",
+        "MAME install ▸ Starting: {tag} ({asset}, ~{size}).":
+            "Instalacja MAME ▸ rozpoczynanie: {tag} ({asset}, ~{size}).",
+        "MAME install ▸ release picker cancelled.":
+            "Instalacja MAME ▸ anulowano wybór wersji.",
+        "MAME is ready to launch now — no restart needed. Use the '🕹  Launch Mame' button.":
+            "MAME jest gotowy do uruchomienia — bez restartu. Użyj przycisku '🕹  Launch Mame'.",
+        "MAME update check: could not determine the installed MAME version; skipping.":
+            "Sprawdzanie MAME: nie udało się ustalić zainstalowanej wersji — pomijanie.",
+        "MAME update check: could not determine the latest release; skipping.":
+            "Sprawdzanie MAME: nie udało się ustalić najnowszej wersji — pomijanie.",
+        "MAME update check: could not reach the release site; skipping.":
+            "Sprawdzanie MAME: nie udało się połączyć z witryną wydań — pomijanie.",
+        "MAME update ▸ user chose to pick a release manually.":
+            "Aktualizacja MAME ▸ użytkownik wybrał ręczny wybór wersji.",
+        "MAME update ▸ user chose to update to {tag}.":
+            "Aktualizacja MAME ▸ użytkownik wybrał aktualizację do {tag}.",
+        "On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.":
+            "W systemach MacOS i Linux wymagany jest mono, ponieważ program działa pod nim. Upewnij się, że mono jest zainstalowany.",
+        "Running as a Flatpak: mono must be installed on the HOST system — the launch is delegated there via flatpak-spawn.":
+            "Uruchomiono jako Flatpak: mono musi być zainstalowany w systemie GOSPODARZA — uruchomienie jest tam delegowane przez flatpak-spawn.",
+        "Select a valid ZX Spectrum Next disk image (.img/.hdf) before launching MAME.":
+            "Wybierz prawidłowy obraz dysku ZX Spectrum Next (.img/.hdf) przed uruchomieniem MAME.",
+        "ZX Next Unite update check: could not reach GitHub (offline, or no release published yet); skipping.":
+            "Sprawdzanie ZX Next Unite: nie udało się połączyć z GitHubem (brak sieci lub brak wydań) — pomijanie.",
+        "ZX Next Unite update check: running as a Flatpak — updates come from your software center, skipping.":
+            "Sprawdzanie ZX Next Unite: uruchomiono jako Flatpak — aktualizacje pochodzą z centrum oprogramowania, pomijanie.",
+        "ZX Next Unite update ▸ skipped by user.":
+            "Aktualizacja ZX Next Unite ▸ pominięta przez użytkownika.",
+        "ZX Next Unite update: download cancelled.":
+            "Aktualizacja ZX Next Unite: pobieranie anulowane.",
         # ---- SD Card tab: console + dialogs ----
         "Confirm Deletion":
             "Potwierdź usunięcie",
@@ -2163,6 +2298,51 @@ CATALOGS = {
         "Mouse Off": "Мышь выкл.",
         "Disable ESC Key Off": "Блокировка ESC: выкл.",
         "Disable ESC Key On": "Блокировка ESC: вкл.",
+        # ---- emulator install / update console ----
+        "CSpect update check skipped: {reason}":
+            "Проверка CSpect пропущена: {reason}",
+        "CSpect update ▸ user cancelled the update.":
+            "Обновление CSpect ▸ пользователь отменил обновление.",
+        "ERROR: CSpect.exe is not present in the same local directory as zx-next-unite. Please install it from http://cspect.org":
+            "ОШИБКА: CSpect.exe отсутствует в том же каталоге, что и zx-next-unite. Установите его с http://cspect.org",
+        "ERROR: MAME executable not found on PATH. Cannot launch MAME.":
+            "ОШИБКА: исполняемый файл MAME не найден в PATH. Запуск MAME невозможен.",
+        "Listing the available MAME releases…":
+            "Получение списка доступных версий MAME…",
+        "MAME install ▸ FAILED — the download and extraction finished, but no mame.exe could be found in downloads/mame.":
+            "Установка MAME ▸ ОШИБКА — загрузка и распаковка завершены, но mame.exe не найден в downloads/mame.",
+        "MAME install ▸ FAILED — {error}. You can download it manually from https://www.mamedev.org/release.html":
+            "Установка MAME ▸ ОШИБКА — {error}. Скачать вручную можно с https://www.mamedev.org/release.html",
+        "MAME install ▸ Starting: {tag} ({asset}, ~{size}).":
+            "Установка MAME ▸ запуск: {tag} ({asset}, ~{size}).",
+        "MAME install ▸ release picker cancelled.":
+            "Установка MAME ▸ выбор версии отменён.",
+        "MAME is ready to launch now — no restart needed. Use the '🕹  Launch Mame' button.":
+            "MAME готов к запуску — перезапуск не нужен. Нажмите кнопку '🕹  Launch Mame'.",
+        "MAME update check: could not determine the installed MAME version; skipping.":
+            "Проверка MAME: не удалось определить установленную версию — пропуск.",
+        "MAME update check: could not determine the latest release; skipping.":
+            "Проверка MAME: не удалось определить последнюю версию — пропуск.",
+        "MAME update check: could not reach the release site; skipping.":
+            "Проверка MAME: не удалось связаться с сайтом релизов — пропуск.",
+        "MAME update ▸ user chose to pick a release manually.":
+            "Обновление MAME ▸ пользователь выбрал версию вручную.",
+        "MAME update ▸ user chose to update to {tag}.":
+            "Обновление MAME ▸ пользователь выбрал обновление до {tag}.",
+        "On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.":
+            "В MacOS и Linux требуется mono, так как запуск происходит через него. Убедитесь, что mono установлен.",
+        "Running as a Flatpak: mono must be installed on the HOST system — the launch is delegated there via flatpak-spawn.":
+            "Запуск в виде Flatpak: mono должен быть установлен в ОСНОВНОЙ системе — запуск делегируется туда через flatpak-spawn.",
+        "Select a valid ZX Spectrum Next disk image (.img/.hdf) before launching MAME.":
+            "Выберите корректный образ диска ZX Spectrum Next (.img/.hdf) перед запуском MAME.",
+        "ZX Next Unite update check: could not reach GitHub (offline, or no release published yet); skipping.":
+            "Проверка ZX Next Unite: не удалось связаться с GitHub (нет сети или релизы не опубликованы) — пропуск.",
+        "ZX Next Unite update check: running as a Flatpak — updates come from your software center, skipping.":
+            "Проверка ZX Next Unite: запуск в виде Flatpak — обновления приходят из центра приложений, пропуск.",
+        "ZX Next Unite update ▸ skipped by user.":
+            "Обновление ZX Next Unite ▸ пропущено пользователем.",
+        "ZX Next Unite update: download cancelled.":
+            "Обновление ZX Next Unite: загрузка отменена.",
         # ---- SD Card tab: console + dialogs ----
         "Confirm Deletion":
             "Подтвердите удаление",
@@ -2744,6 +2924,51 @@ CATALOGS = {
         "Mouse Off": "Myš vypnuta",
         "Disable ESC Key Off": "Blokovat klávesu ESC: ne",
         "Disable ESC Key On": "Blokovat klávesu ESC: ano",
+        # ---- emulator install / update console ----
+        "CSpect update check skipped: {reason}":
+            "Kontrola CSpectu přeskočena: {reason}",
+        "CSpect update ▸ user cancelled the update.":
+            "Aktualizace CSpectu ▸ uživatel aktualizaci zrušil.",
+        "ERROR: CSpect.exe is not present in the same local directory as zx-next-unite. Please install it from http://cspect.org":
+            "CHYBA: CSpect.exe není ve stejném adresáři jako zx-next-unite. Nainstalujte jej z http://cspect.org",
+        "ERROR: MAME executable not found on PATH. Cannot launch MAME.":
+            "CHYBA: spustitelný soubor MAME nebyl nalezen v PATH. MAME nelze spustit.",
+        "Listing the available MAME releases…":
+            "Načítá se seznam dostupných verzí MAME…",
+        "MAME install ▸ FAILED — the download and extraction finished, but no mame.exe could be found in downloads/mame.":
+            "Instalace MAME ▸ SELHALA — stažení i rozbalení proběhlo, ale mame.exe nebyl v downloads/mame nalezen.",
+        "MAME install ▸ FAILED — {error}. You can download it manually from https://www.mamedev.org/release.html":
+            "Instalace MAME ▸ SELHALA — {error}. Ručně jej lze stáhnout z https://www.mamedev.org/release.html",
+        "MAME install ▸ Starting: {tag} ({asset}, ~{size}).":
+            "Instalace MAME ▸ spouští se: {tag} ({asset}, ~{size}).",
+        "MAME install ▸ release picker cancelled.":
+            "Instalace MAME ▸ výběr verze zrušen.",
+        "MAME is ready to launch now — no restart needed. Use the '🕹  Launch Mame' button.":
+            "MAME je připraven ke spuštění — bez restartu. Použijte tlačítko '🕹  Launch Mame'.",
+        "MAME update check: could not determine the installed MAME version; skipping.":
+            "Kontrola MAME: nepodařilo se zjistit nainstalovanou verzi — přeskakuje se.",
+        "MAME update check: could not determine the latest release; skipping.":
+            "Kontrola MAME: nepodařilo se zjistit nejnovější verzi — přeskakuje se.",
+        "MAME update check: could not reach the release site; skipping.":
+            "Kontrola MAME: nepodařilo se spojit se stránkou vydání — přeskakuje se.",
+        "MAME update ▸ user chose to pick a release manually.":
+            "Aktualizace MAME ▸ uživatel zvolil ruční výběr verze.",
+        "MAME update ▸ user chose to update to {tag}.":
+            "Aktualizace MAME ▸ uživatel zvolil aktualizaci na {tag}.",
+        "On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.":
+            "Na MacOS a Linuxu je vyžadován mono, protože pod ním program běží. Ujistěte se, že je mono nainstalován.",
+        "Running as a Flatpak: mono must be installed on the HOST system — the launch is delegated there via flatpak-spawn.":
+            "Běží jako Flatpak: mono musí být nainstalován v HOSTITELSKÉM systému — spuštění se tam deleguje přes flatpak-spawn.",
+        "Select a valid ZX Spectrum Next disk image (.img/.hdf) before launching MAME.":
+            "Před spuštěním MAME vyberte platný obraz disku ZX Spectrum Next (.img/.hdf).",
+        "ZX Next Unite update check: could not reach GitHub (offline, or no release published yet); skipping.":
+            "Kontrola ZX Next Unite: nepodařilo se spojit s GitHubem (offline nebo žádné vydání) — přeskakuje se.",
+        "ZX Next Unite update check: running as a Flatpak — updates come from your software center, skipping.":
+            "Kontrola ZX Next Unite: běží jako Flatpak — aktualizace přicházejí z centra softwaru, přeskakuje se.",
+        "ZX Next Unite update ▸ skipped by user.":
+            "Aktualizace ZX Next Unite ▸ přeskočena uživatelem.",
+        "ZX Next Unite update: download cancelled.":
+            "Aktualizace ZX Next Unite: stahování zrušeno.",
         # ---- SD Card tab: console + dialogs ----
         "Confirm Deletion":
             "Potvrdit smazání",
@@ -3328,6 +3553,51 @@ CATALOGS = {
         "Mouse Off": "Souris désactivée",
         "Disable ESC Key Off": "Désactiver la touche ÉCHAP : non",
         "Disable ESC Key On": "Désactiver la touche ÉCHAP : oui",
+        # ---- emulator install / update console ----
+        "CSpect update check skipped: {reason}":
+            "Vérification de CSpect ignorée : {reason}",
+        "CSpect update ▸ user cancelled the update.":
+            "Mise à jour de CSpect ▸ l'utilisateur a annulé la mise à jour.",
+        "ERROR: CSpect.exe is not present in the same local directory as zx-next-unite. Please install it from http://cspect.org":
+            "ERREUR : CSpect.exe n'est pas dans le même dossier local que zx-next-unite. Installez-le depuis http://cspect.org",
+        "ERROR: MAME executable not found on PATH. Cannot launch MAME.":
+            "ERREUR : exécutable MAME introuvable dans le PATH. Impossible de lancer MAME.",
+        "Listing the available MAME releases…":
+            "Liste des versions de MAME disponibles…",
+        "MAME install ▸ FAILED — the download and extraction finished, but no mame.exe could be found in downloads/mame.":
+            "Installation de MAME ▸ ÉCHEC — le téléchargement et l'extraction sont terminés, mais aucun mame.exe n'a été trouvé dans downloads/mame.",
+        "MAME install ▸ FAILED — {error}. You can download it manually from https://www.mamedev.org/release.html":
+            "Installation de MAME ▸ ÉCHEC — {error}. Vous pouvez le télécharger manuellement depuis https://www.mamedev.org/release.html",
+        "MAME install ▸ Starting: {tag} ({asset}, ~{size}).":
+            "Installation de MAME ▸ démarrage : {tag} ({asset}, ~{size}).",
+        "MAME install ▸ release picker cancelled.":
+            "Installation de MAME ▸ choix de version annulé.",
+        "MAME is ready to launch now — no restart needed. Use the '🕹  Launch Mame' button.":
+            "MAME peut être lancé maintenant — aucun redémarrage nécessaire. Utilisez le bouton '🕹  Launch Mame'.",
+        "MAME update check: could not determine the installed MAME version; skipping.":
+            "Vérification de MAME : impossible de déterminer la version installée ; ignorée.",
+        "MAME update check: could not determine the latest release; skipping.":
+            "Vérification de MAME : impossible de déterminer la dernière version ; ignorée.",
+        "MAME update check: could not reach the release site; skipping.":
+            "Vérification de MAME : site des versions inaccessible ; ignorée.",
+        "MAME update ▸ user chose to pick a release manually.":
+            "Mise à jour de MAME ▸ l'utilisateur a choisi de sélectionner une version manuellement.",
+        "MAME update ▸ user chose to update to {tag}.":
+            "Mise à jour de MAME ▸ l'utilisateur a choisi de passer à {tag}.",
+        "On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.":
+            "Sur MacOS et Linux, mono est requis car l'exécution se fait via lui. Vérifiez que mono est installé.",
+        "Running as a Flatpak: mono must be installed on the HOST system — the launch is delegated there via flatpak-spawn.":
+            "Exécution en Flatpak : mono doit être installé sur le système HÔTE — le lancement y est délégué via flatpak-spawn.",
+        "Select a valid ZX Spectrum Next disk image (.img/.hdf) before launching MAME.":
+            "Sélectionnez une image disque ZX Spectrum Next valide (.img/.hdf) avant de lancer MAME.",
+        "ZX Next Unite update check: could not reach GitHub (offline, or no release published yet); skipping.":
+            "Vérification de ZX Next Unite : GitHub inaccessible (hors ligne, ou aucune version publiée) ; ignorée.",
+        "ZX Next Unite update check: running as a Flatpak — updates come from your software center, skipping.":
+            "Vérification de ZX Next Unite : exécution en Flatpak — les mises à jour viennent de votre logithèque, ignorée.",
+        "ZX Next Unite update ▸ skipped by user.":
+            "Mise à jour de ZX Next Unite ▸ ignorée par l'utilisateur.",
+        "ZX Next Unite update: download cancelled.":
+            "Mise à jour de ZX Next Unite : téléchargement annulé.",
         # ---- SD Card tab: console + dialogs ----
         "Confirm Deletion":
             "Confirmer la suppression",
