@@ -82,8 +82,15 @@ class CompactButton(QPushButton):
 #   launch      call with a HOST path to boot the file
 #   staging_dir call to create and return a directory to put a host copy in,
 #               when the file is not already on the PC
+#   blocked     call for the reason this emulator cannot start right now, or ""
+#               when it can. Callers that must fetch the file first (the Next
+#               pane downloads it) check this BEFORE the transfer, so a launch
+#               that cannot succeed is reported instead of silently doing
+#               nothing after a download. Defaults to "never blocked" so a
+#               caller can still build an entry by hand.
 EmulatorAutostart = namedtuple("EmulatorAutostart",
-                               "name label launch staging_dir")
+                               "name label launch staging_dir blocked",
+                               defaults=(lambda: "",))
 
 
 def emulator_autostart_entries(host, path, is_dir=False):
@@ -109,13 +116,17 @@ def emulator_autostart_entries(host, path, is_dir=False):
     def _tmp(prefix):
         return lambda: tempfile.mkdtemp(prefix=prefix)
 
+    def _blocked(emulator):
+        fn = getattr(host, "_emulator_launch_blocker", None)
+        return (lambda: fn(emulator)) if fn else (lambda: "")
+
     if (cspect_can_autostart(path)
             and getattr(host, "_cspect_executable_path", None)
             and getattr(host, "_launch_cspect_fn", None)):
         entries.append(EmulatorAutostart(
             "CSpect",
             ui_tr_now("Start CSpect with file {name}").format(name=name),
-            host._launch_cspect_fn, _tmp("zxnu-cspect-")))
+            host._launch_cspect_fn, _tmp("zxnu-cspect-"), _blocked("CSpect")))
 
     _mame_usable = getattr(host, "_mame_usable", None)
     if (mame_can_autostart(path) and _mame_usable and _mame_usable()
@@ -133,7 +144,7 @@ def emulator_autostart_entries(host, path, is_dir=False):
         entries.append(EmulatorAutostart(
             "MAME",
             ui_tr_now("Start MAME with file {name}").format(name=name),
-            host._launch_mame_fn, _mame_staging_dir))
+            host._launch_mame_fn, _mame_staging_dir, _blocked("MAME")))
     return entries
 
 
