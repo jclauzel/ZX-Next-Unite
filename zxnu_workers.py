@@ -115,7 +115,14 @@ def emulator_autostart_entries(host, path, is_dir=False):
     # tape without starting it — see EMULATOR_AUTOSTART_OFFER_EXTENSIONS.
     if is_dir or not emulator_offers_autostart(path):
         return entries
-    name = os.path.basename(str(path).rstrip("/\\")) or str(path)
+    # Split on BOTH separators regardless of platform. os.path.basename does
+    # not treat "\" as one on POSIX, so a Windows-style path was labelled in
+    # full there ("Start CSpect with file C:\games\beast.nex") — and the paths
+    # reaching here come from the Next as well as from the local disk, so the
+    # separator is not always the host's. Caught by CI on Linux; every dev
+    # machine here is Windows, where it looked fine.
+    _p = str(path).replace("\\", "/").rstrip("/")
+    name = _p.rsplit("/", 1)[-1] or str(path)
 
     def _tmp(prefix):
         return lambda: tempfile.mkdtemp(prefix=prefix)
