@@ -29,6 +29,7 @@ from PySide6.QtCore import (Qt, QTimer)
 from PySide6.QtGui import (QPixmap)
 
 from zxnu_config import *
+from zxnu_i18n import ui_tr_now
 from zxnu_gallery import *
 from zxnu_http_bridge import flask_available
 
@@ -907,7 +908,7 @@ def build_config_io(
                 pass
 
             config_loaded_with_success = True
-            add_main_log_window("Loaded configuration file.")
+            add_main_log_window(ui_tr_now("Loaded configuration file."))
             logging.info("Configuration file loaded successfully.")
 
         except ValueError as e:

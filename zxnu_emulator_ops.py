@@ -1122,14 +1122,15 @@ def build_emulator_ops(
                     return
                 if latest_num <= installed_num:
                     if info.get("patched"):
-                        add_main_log_window(
+                        add_main_log_window(ui_tr_now(
                             "MAME is up-to-date with a patched version "
-                            f"(installed 0.{installed_num}, "
-                            f"latest 0.{latest_num}).")
+                            "(installed 0.{installed}, latest 0.{latest})."
+                        ).format(installed=installed_num, latest=latest_num))
                     else:
-                        add_main_log_window(
-                            f"MAME is up-to-date (installed 0.{installed_num}, "
-                            f"latest 0.{latest_num}).")
+                        add_main_log_window(ui_tr_now(
+                            "MAME is up-to-date (installed 0.{installed}, "
+                            "latest 0.{latest})."
+                        ).format(installed=installed_num, latest=latest_num))
                     return
                 _prompt_mame_update(info, installed_num)
             except Exception as exc:
@@ -1142,7 +1143,7 @@ def build_emulator_ops(
                 "MAME update check: could not reach the release site; "
                 "skipping.")
 
-        add_main_log_window("Checking for a newer MAME release…")
+        add_main_log_window(ui_tr_now("Checking for a newer MAME release…"))
         getit_run_in_thread(_job, _on_result, _on_error)
 
     # Expose so the startup sequence can kick the check once the config
@@ -1444,9 +1445,10 @@ def build_emulator_ops(
                         f"versions (latest tag {tag!r}); skipping.")
                     return
                 if remote <= local:
-                    add_main_log_window(
-                        f"ZX Next Unite is up to date "
-                        f"(installed {ZX_NEXT_UNITE_VERSION}, latest {tag}).")
+                    add_main_log_window(ui_tr_now(
+                        "ZX Next Unite is up to date (installed {installed}, "
+                        "latest {latest})."
+                    ).format(installed=ZX_NEXT_UNITE_VERSION, latest=tag))
                     return
                 add_main_log_window(
                     f"ZX Next Unite update available: {tag} "
@@ -1462,7 +1464,8 @@ def build_emulator_ops(
                 "ZX Next Unite update check: could not reach GitHub "
                 "(offline, or no release published yet); skipping.")
 
-        add_main_log_window("Checking for a newer ZX Next Unite release on GitHub…")
+        add_main_log_window(ui_tr_now(
+            "Checking for a newer ZX Next Unite release on GitHub…"))
         getit_run_in_thread(_job, _on_result, _on_error)
 
     host._check_zxnu_update_async = _check_zxnu_update_async
@@ -1707,9 +1710,10 @@ def build_emulator_ops(
                 installed_name = info.get("installed_name")
                 latest_name = info.get("version_name")
                 if not info.get("newer"):
-                    add_main_log_window(
-                        f"CSpect is up to date (installed {installed_name}, "
-                        f"latest {latest_name}).")
+                    add_main_log_window(ui_tr_now(
+                        "CSpect is up to date (installed {installed}, "
+                        "latest {latest})."
+                    ).format(installed=installed_name, latest=latest_name))
                     return
                 add_main_log_window(
                     f"CSpect update ▸ newer build available: installed "
@@ -1735,7 +1739,8 @@ def build_emulator_ops(
             add_main_log_window(f"CSpect update check skipped: {detail}")
             logging.info(f"CSpect update check skipped: {detail}")
 
-        add_main_log_window("Checking itch.io for a newer CSpect release…")
+        add_main_log_window(ui_tr_now(
+            "Checking itch.io for a newer CSpect release…"))
         getit_run_in_thread(_job, _on_result, _on_error)
 
     # Expose so the startup sequence (and the itch.io post-login callback)

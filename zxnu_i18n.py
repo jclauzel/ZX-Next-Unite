@@ -417,6 +417,45 @@ CATALOGS = {
         "Mouse Off": "Ratón desactivado",
         "Disable ESC Key Off": "Desactivar tecla ESC: no",
         "Disable ESC Key On": "Desactivar tecla ESC: sí",
+        # ---- SD Card console: banner, detection, update checks ----
+        "CSpect - by Mike Dailly http://cspect.org":
+            "CSpect - por Mike Dailly http://cspect.org",
+        "CSpect is up to date (installed {installed}, latest {latest}).":
+            "CSpect está actualizado (instalada {installed}, última {latest}).",
+        "Checking for a newer MAME release…":
+            "Buscando una versión más reciente de MAME…",
+        "Checking for a newer ZX Next Unite release on GitHub…":
+            "Buscando en GitHub una versión más reciente de ZX Next Unite…",
+        "Checking itch.io for a newer CSpect release…":
+            "Buscando en itch.io una versión más reciente de CSpect…",
+        "HDF Monkey - by Matt Westcott":
+            "HDF Monkey - por Matt Westcott",
+        "Inspired by HDFM-GOOEY - by em00k":
+            "Inspirado en HDFM-GOOEY - por em00k",
+        "Loaded configuration file.":
+            "Archivo de configuración cargado.",
+        "MAME - ZX Spectrum Next support by Holub https://wiki.specnext.dev/MAME:Installing":
+            "MAME - compatibilidad con ZX Spectrum Next por Holub https://wiki.specnext.dev/MAME:Installing",
+        "MAME is up-to-date (installed 0.{installed}, latest 0.{latest}).":
+            "MAME está actualizado (instalada 0.{installed}, última 0.{latest}).",
+        "MAME is up-to-date with a patched version (installed 0.{installed}, latest 0.{latest}).":
+            "MAME está actualizado con una versión parcheada (instalada 0.{installed}, última 0.{latest}).",
+        "MAME version: {version}":
+            "Versión de MAME: {version}",
+        "NextSync - by Jari Komppa and Julien Clauzel":
+            "NextSync - por Jari Komppa y Julien Clauzel",
+        "Using CSpect under downloads/cspect: {path}":
+            "Usando CSpect en downloads/cspect: {path}",
+        "Using MAME under: {path}":
+            "Usando MAME en: {path}",
+        "Using hdfmonkey bundled with CSpect: {path}":
+            "Usando el hdfmonkey incluido con CSpect: {path}",
+        "Welcome to ZX Next Unite {version}":
+            "Bienvenido a ZX Next Unite {version}",
+        "ZX Next Unite is up to date (installed {installed}, latest {latest}).":
+            "ZX Next Unite está actualizado (instalada {installed}, última {latest}).",
+        "zx-next-unite - by Julien Clauzel 2024":
+            "zx-next-unite - por Julien Clauzel 2024",
         "No image loaded": "No hay imagen cargada",
         # ---- itch.io item viewer + web-link labels ----
         "About": "Acerca de",
@@ -896,6 +935,45 @@ CATALOGS = {
         "Mouse Off": "Rato desligado",
         "Disable ESC Key Off": "Desativar tecla ESC: não",
         "Disable ESC Key On": "Desativar tecla ESC: sim",
+        # ---- SD Card console: banner, detection, update checks ----
+        "CSpect - by Mike Dailly http://cspect.org":
+            "CSpect - por Mike Dailly http://cspect.org",
+        "CSpect is up to date (installed {installed}, latest {latest}).":
+            "O CSpect está atualizado (instalada {installed}, mais recente {latest}).",
+        "Checking for a newer MAME release…":
+            "A procurar uma versão mais recente do MAME…",
+        "Checking for a newer ZX Next Unite release on GitHub…":
+            "A procurar no GitHub uma versão mais recente do ZX Next Unite…",
+        "Checking itch.io for a newer CSpect release…":
+            "A procurar no itch.io uma versão mais recente do CSpect…",
+        "HDF Monkey - by Matt Westcott":
+            "HDF Monkey - por Matt Westcott",
+        "Inspired by HDFM-GOOEY - by em00k":
+            "Inspirado em HDFM-GOOEY - por em00k",
+        "Loaded configuration file.":
+            "Ficheiro de configuração carregado.",
+        "MAME - ZX Spectrum Next support by Holub https://wiki.specnext.dev/MAME:Installing":
+            "MAME - suporte para ZX Spectrum Next por Holub https://wiki.specnext.dev/MAME:Installing",
+        "MAME is up-to-date (installed 0.{installed}, latest 0.{latest}).":
+            "O MAME está atualizado (instalada 0.{installed}, mais recente 0.{latest}).",
+        "MAME is up-to-date with a patched version (installed 0.{installed}, latest 0.{latest}).":
+            "O MAME está atualizado com uma versão modificada (instalada 0.{installed}, mais recente 0.{latest}).",
+        "MAME version: {version}":
+            "Versão do MAME: {version}",
+        "NextSync - by Jari Komppa and Julien Clauzel":
+            "NextSync - por Jari Komppa e Julien Clauzel",
+        "Using CSpect under downloads/cspect: {path}":
+            "A usar o CSpect em downloads/cspect: {path}",
+        "Using MAME under: {path}":
+            "A usar o MAME em: {path}",
+        "Using hdfmonkey bundled with CSpect: {path}":
+            "A usar o hdfmonkey incluído no CSpect: {path}",
+        "Welcome to ZX Next Unite {version}":
+            "Bem-vindo ao ZX Next Unite {version}",
+        "ZX Next Unite is up to date (installed {installed}, latest {latest}).":
+            "O ZX Next Unite está atualizado (instalada {installed}, mais recente {latest}).",
+        "zx-next-unite - by Julien Clauzel 2024":
+            "zx-next-unite - por Julien Clauzel 2024",
         "No image loaded": "Nenhuma imagem carregada",
         # ---- itch.io item viewer + web-link labels ----
         "About": "Sobre",
@@ -1373,6 +1451,45 @@ CATALOGS = {
         "Mouse Off": "Mysz wyłączona",
         "Disable ESC Key Off": "Blokada klawisza ESC: wył.",
         "Disable ESC Key On": "Blokada klawisza ESC: wł.",
+        # ---- SD Card console: banner, detection, update checks ----
+        "CSpect - by Mike Dailly http://cspect.org":
+            "CSpect - autor: Mike Dailly http://cspect.org",
+        "CSpect is up to date (installed {installed}, latest {latest}).":
+            "CSpect jest aktualny (zainstalowana {installed}, najnowsza {latest}).",
+        "Checking for a newer MAME release…":
+            "Sprawdzanie nowszej wersji MAME…",
+        "Checking for a newer ZX Next Unite release on GitHub…":
+            "Sprawdzanie w GitHubie nowszej wersji ZX Next Unite…",
+        "Checking itch.io for a newer CSpect release…":
+            "Sprawdzanie w itch.io nowszej wersji CSpect…",
+        "HDF Monkey - by Matt Westcott":
+            "HDF Monkey - autor: Matt Westcott",
+        "Inspired by HDFM-GOOEY - by em00k":
+            "Zainspirowane przez HDFM-GOOEY - autor: em00k",
+        "Loaded configuration file.":
+            "Wczytano plik konfiguracyjny.",
+        "MAME - ZX Spectrum Next support by Holub https://wiki.specnext.dev/MAME:Installing":
+            "MAME - obsługa ZX Spectrum Next: Holub https://wiki.specnext.dev/MAME:Installing",
+        "MAME is up-to-date (installed 0.{installed}, latest 0.{latest}).":
+            "MAME jest aktualny (zainstalowana 0.{installed}, najnowsza 0.{latest}).",
+        "MAME is up-to-date with a patched version (installed 0.{installed}, latest 0.{latest}).":
+            "MAME jest aktualny w wersji ze zmianami (zainstalowana 0.{installed}, najnowsza 0.{latest}).",
+        "MAME version: {version}":
+            "Wersja MAME: {version}",
+        "NextSync - by Jari Komppa and Julien Clauzel":
+            "NextSync - autorzy: Jari Komppa i Julien Clauzel",
+        "Using CSpect under downloads/cspect: {path}":
+            "Używany CSpect w downloads/cspect: {path}",
+        "Using MAME under: {path}":
+            "Używany MAME w: {path}",
+        "Using hdfmonkey bundled with CSpect: {path}":
+            "Używany hdfmonkey dołączony do CSpect: {path}",
+        "Welcome to ZX Next Unite {version}":
+            "Witaj w ZX Next Unite {version}",
+        "ZX Next Unite is up to date (installed {installed}, latest {latest}).":
+            "ZX Next Unite jest aktualny (zainstalowana {installed}, najnowsza {latest}).",
+        "zx-next-unite - by Julien Clauzel 2024":
+            "zx-next-unite - autor: Julien Clauzel 2024",
         "No image loaded": "Nie wczytano obrazu",
         # ---- itch.io item viewer + web-link labels ----
         "About": "Informacje",
@@ -1851,6 +1968,45 @@ CATALOGS = {
         "Mouse Off": "Мышь выкл.",
         "Disable ESC Key Off": "Блокировка ESC: выкл.",
         "Disable ESC Key On": "Блокировка ESC: вкл.",
+        # ---- SD Card console: banner, detection, update checks ----
+        "CSpect - by Mike Dailly http://cspect.org":
+            "CSpect - автор: Mike Dailly http://cspect.org",
+        "CSpect is up to date (installed {installed}, latest {latest}).":
+            "CSpect актуален (установлена {installed}, последняя {latest}).",
+        "Checking for a newer MAME release…":
+            "Проверка новой версии MAME…",
+        "Checking for a newer ZX Next Unite release on GitHub…":
+            "Проверка на GitHub новой версии ZX Next Unite…",
+        "Checking itch.io for a newer CSpect release…":
+            "Проверка на itch.io новой версии CSpect…",
+        "HDF Monkey - by Matt Westcott":
+            "HDF Monkey - автор: Matt Westcott",
+        "Inspired by HDFM-GOOEY - by em00k":
+            "Вдохновлено HDFM-GOOEY - автор: em00k",
+        "Loaded configuration file.":
+            "Файл конфигурации загружен.",
+        "MAME - ZX Spectrum Next support by Holub https://wiki.specnext.dev/MAME:Installing":
+            "MAME - поддержка ZX Spectrum Next: Holub https://wiki.specnext.dev/MAME:Installing",
+        "MAME is up-to-date (installed 0.{installed}, latest 0.{latest}).":
+            "MAME актуален (установлена 0.{installed}, последняя 0.{latest}).",
+        "MAME is up-to-date with a patched version (installed 0.{installed}, latest 0.{latest}).":
+            "MAME актуален (используется модифицированная сборка; установлена 0.{installed}, последняя 0.{latest}).",
+        "MAME version: {version}":
+            "Версия MAME: {version}",
+        "NextSync - by Jari Komppa and Julien Clauzel":
+            "NextSync - авторы: Jari Komppa и Julien Clauzel",
+        "Using CSpect under downloads/cspect: {path}":
+            "Используется CSpect из downloads/cspect: {path}",
+        "Using MAME under: {path}":
+            "Используется MAME: {path}",
+        "Using hdfmonkey bundled with CSpect: {path}":
+            "Используется hdfmonkey из комплекта CSpect: {path}",
+        "Welcome to ZX Next Unite {version}":
+            "Добро пожаловать в ZX Next Unite {version}",
+        "ZX Next Unite is up to date (installed {installed}, latest {latest}).":
+            "ZX Next Unite актуален (установлена {installed}, последняя {latest}).",
+        "zx-next-unite - by Julien Clauzel 2024":
+            "zx-next-unite - автор: Julien Clauzel 2024",
         "No image loaded": "Образ не загружен",
         # ---- itch.io item viewer + web-link labels ----
         "About": "Описание",
@@ -2328,6 +2484,45 @@ CATALOGS = {
         "Mouse Off": "Myš vypnuta",
         "Disable ESC Key Off": "Blokovat klávesu ESC: ne",
         "Disable ESC Key On": "Blokovat klávesu ESC: ano",
+        # ---- SD Card console: banner, detection, update checks ----
+        "CSpect - by Mike Dailly http://cspect.org":
+            "CSpect - autor: Mike Dailly http://cspect.org",
+        "CSpect is up to date (installed {installed}, latest {latest}).":
+            "CSpect je aktuální (nainstalovaná {installed}, nejnovější {latest}).",
+        "Checking for a newer MAME release…":
+            "Hledá se novější verze MAME…",
+        "Checking for a newer ZX Next Unite release on GitHub…":
+            "Na GitHubu se hledá novější verze ZX Next Unite…",
+        "Checking itch.io for a newer CSpect release…":
+            "Na itch.io se hledá novější verze CSpectu…",
+        "HDF Monkey - by Matt Westcott":
+            "HDF Monkey - autor: Matt Westcott",
+        "Inspired by HDFM-GOOEY - by em00k":
+            "Inspirováno HDFM-GOOEY - autor: em00k",
+        "Loaded configuration file.":
+            "Konfigurační soubor načten.",
+        "MAME - ZX Spectrum Next support by Holub https://wiki.specnext.dev/MAME:Installing":
+            "MAME - podpora ZX Spectrum Next: Holub https://wiki.specnext.dev/MAME:Installing",
+        "MAME is up-to-date (installed 0.{installed}, latest 0.{latest}).":
+            "MAME je aktuální (nainstalovaná 0.{installed}, nejnovější 0.{latest}).",
+        "MAME is up-to-date with a patched version (installed 0.{installed}, latest 0.{latest}).":
+            "MAME je aktuální v upravené verzi (nainstalovaná 0.{installed}, nejnovější 0.{latest}).",
+        "MAME version: {version}":
+            "Verze MAME: {version}",
+        "NextSync - by Jari Komppa and Julien Clauzel":
+            "NextSync - autoři: Jari Komppa a Julien Clauzel",
+        "Using CSpect under downloads/cspect: {path}":
+            "Používá se CSpect v downloads/cspect: {path}",
+        "Using MAME under: {path}":
+            "Používá se MAME v: {path}",
+        "Using hdfmonkey bundled with CSpect: {path}":
+            "Používá se hdfmonkey dodaný s CSpectem: {path}",
+        "Welcome to ZX Next Unite {version}":
+            "Vítejte v ZX Next Unite {version}",
+        "ZX Next Unite is up to date (installed {installed}, latest {latest}).":
+            "ZX Next Unite je aktuální (nainstalovaná {installed}, nejnovější {latest}).",
+        "zx-next-unite - by Julien Clauzel 2024":
+            "zx-next-unite - autor: Julien Clauzel 2024",
         "No image loaded": "Není načten žádný obraz",
         # ---- itch.io item viewer + web-link labels ----
         "About": "O hře",
@@ -2808,6 +3003,45 @@ CATALOGS = {
         "Mouse Off": "Souris désactivée",
         "Disable ESC Key Off": "Désactiver la touche ÉCHAP : non",
         "Disable ESC Key On": "Désactiver la touche ÉCHAP : oui",
+        # ---- SD Card console: banner, detection, update checks ----
+        "CSpect - by Mike Dailly http://cspect.org":
+            "CSpect - par Mike Dailly http://cspect.org",
+        "CSpect is up to date (installed {installed}, latest {latest}).":
+            "CSpect est à jour (installée {installed}, dernière {latest}).",
+        "Checking for a newer MAME release…":
+            "Recherche d'une version plus récente de MAME…",
+        "Checking for a newer ZX Next Unite release on GitHub…":
+            "Recherche sur GitHub d'une version plus récente de ZX Next Unite…",
+        "Checking itch.io for a newer CSpect release…":
+            "Recherche sur itch.io d'une version plus récente de CSpect…",
+        "HDF Monkey - by Matt Westcott":
+            "HDF Monkey - par Matt Westcott",
+        "Inspired by HDFM-GOOEY - by em00k":
+            "Inspiré de HDFM-GOOEY - par em00k",
+        "Loaded configuration file.":
+            "Fichier de configuration chargé.",
+        "MAME - ZX Spectrum Next support by Holub https://wiki.specnext.dev/MAME:Installing":
+            "MAME - prise en charge du ZX Spectrum Next par Holub https://wiki.specnext.dev/MAME:Installing",
+        "MAME is up-to-date (installed 0.{installed}, latest 0.{latest}).":
+            "MAME est à jour (installée 0.{installed}, dernière 0.{latest}).",
+        "MAME is up-to-date with a patched version (installed 0.{installed}, latest 0.{latest}).":
+            "MAME est à jour avec une version modifiée (installée 0.{installed}, dernière 0.{latest}).",
+        "MAME version: {version}":
+            "Version de MAME : {version}",
+        "NextSync - by Jari Komppa and Julien Clauzel":
+            "NextSync - par Jari Komppa et Julien Clauzel",
+        "Using CSpect under downloads/cspect: {path}":
+            "CSpect utilisé depuis downloads/cspect : {path}",
+        "Using MAME under: {path}":
+            "MAME utilisé depuis : {path}",
+        "Using hdfmonkey bundled with CSpect: {path}":
+            "hdfmonkey fourni avec CSpect utilisé : {path}",
+        "Welcome to ZX Next Unite {version}":
+            "Bienvenue dans ZX Next Unite {version}",
+        "ZX Next Unite is up to date (installed {installed}, latest {latest}).":
+            "ZX Next Unite est à jour (installée {installed}, dernière {latest}).",
+        "zx-next-unite - by Julien Clauzel 2024":
+            "zx-next-unite - par Julien Clauzel 2024",
         "No image loaded": "Aucune image chargée",
         # ---- itch.io item viewer + web-link labels ----
         "About": "À propos",

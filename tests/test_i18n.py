@@ -505,6 +505,63 @@ def test_gallery_item_viewer():
               not missing, str(missing))
 
 
+def test_sdcard_console():
+    """The SD Card console's startup banner, detection block and update checks.
+
+    These are emitted through add_main_log_window, so nothing but ui_tr_now can
+    reach them. The banner and credits come from INIT_LOG, a module constant
+    built at IMPORT time — before any language is known — so they have to be
+    translated as they are emitted, not where they are defined."""
+    print("\n== SD Card console ==")
+    from zxnu_config import INIT_LOG, ZX_NEXT_UNITE_VERSION
+
+    banner = "Welcome to ZX Next Unite {version}"
+    lines = [banner] + list(INIT_LOG[1:])
+    detection = [
+        "Loaded configuration file.",
+        "Using MAME under: {path}",
+        "MAME version: {version}",
+        "Using CSpect under downloads/cspect: {path}",
+        "Using hdfmonkey bundled with CSpect: {path}",
+        "Checking for a newer MAME release…",
+        "Checking itch.io for a newer CSpect release…",
+        "Checking for a newer ZX Next Unite release on GitHub…",
+        "MAME is up-to-date (installed 0.{installed}, latest 0.{latest}).",
+        "MAME is up-to-date with a patched version "
+        "(installed 0.{installed}, latest 0.{latest}).",
+        "ZX Next Unite is up to date (installed {installed}, latest {latest}).",
+        "CSpect is up to date (installed {installed}, latest {latest}).",
+    ]
+    for code, _n in UI_LANGUAGES:
+        if code == DEFAULT_UI_LANGUAGE:
+            continue
+        missing = [s for s in lines + detection if s not in CATALOGS[code]]
+        check(f"the SD Card console is translated in '{code}'",
+              not missing, f"{len(missing)}: {[m[:34] for m in missing[:3]]}")
+
+    # INIT_LOG[0] is the banner WITH the version already interpolated, so it
+    # can never match a catalog key — the emitter must use the template.
+    check("the banner constant is not itself a catalog key (template is used)",
+          INIT_LOG[0] not in CATALOGS["fr"]
+          and INIT_LOG[0] == f"Welcome to ZX Next Unite {ZX_NEXT_UNITE_VERSION}",
+          INIT_LOG[0])
+
+    set_current_ui_language("fr")
+    rendered = ui_tr_now(banner).format(version=ZX_NEXT_UNITE_VERSION)
+    check("the banner renders translated with the version intact",
+          rendered.startswith("Bienvenue") and ZX_NEXT_UNITE_VERSION in rendered,
+          rendered)
+    # Names and URLs inside the credit lines must survive translation.
+    for src, keep in ((INIT_LOG[1], "Jari Komppa"),
+                      (INIT_LOG[2], "https://wiki.specnext.dev/MAME:Installing"),
+                      (INIT_LOG[4], "http://cspect.org")):
+        for code, _n in UI_LANGUAGES:
+            set_current_ui_language(code)
+            check(f"credit line keeps {keep[:26]!r} in '{code}'",
+                  keep in ui_tr_now(src), ui_tr_now(src)[:60])
+    set_current_ui_language(DEFAULT_UI_LANGUAGE)
+
+
 def test_runtime_text_sweep():
     """No widget text written AFTER startup may be a bare English literal.
 
@@ -596,6 +653,7 @@ def main():
     test_emulator_option_combos()
     test_log_line_placeholders()
     test_gallery_item_viewer()
+    test_sdcard_console()
     test_runtime_text_sweep()
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
     sys.exit(0 if ok else 1)
