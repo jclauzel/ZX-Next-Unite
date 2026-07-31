@@ -26,6 +26,10 @@ import tempfile
 import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# The compact-button checks print translated labels ("W górę", "Вверх"), which
+# a cp1252 console cannot encode — without this the suite dies in its own
+# print() rather than on anything it is testing.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from PySide6.QtCore import QItemSelectionModel, QMimeData, QPointF, Qt, QUrl

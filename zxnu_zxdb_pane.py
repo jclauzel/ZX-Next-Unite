@@ -3060,6 +3060,53 @@ def build_zxdb_pane(
         # by-letter fetches before the first render completes.
         host._zxdb_ac_ready = True
 
+    def zxdb_startup_initial_load(_ticks=20, _saw_fanout=False, _waits=400):
+        """Give the ZXDB tab a picture-rich first page when the app is
+        restored straight onto it.
+
+        Every launch kicks off the Unite! "Latest" multi-search before the
+        restored tab is activated, and that fan-out drives THIS pane through
+        zxdb_on_latest. ZXDB's newest rows are database entries created long
+        before anyone uploads media to them, so that page is a grid of blank
+        cells — the "no pictures on restart" report. The pane's own first-visit
+        content (a random page) is drawn from established titles and does have
+        screenshots, but a plain activation loses the race: it runs before the
+        fan-out's ZXDB fetch starts, and the fan-out then overwrites it.
+
+        Taking over early is not an option either — superseding the fan-out's
+        fetch means its on_complete never fires, and Unite! waits on that
+        callback. So this waits for the fan-out's ZXDB load to start AND
+        finish, then runs the normal first-visit load. If no fan-out ever
+        materialises (feature flag off, offline, Unite! hidden) the tick budget
+        expires and the load runs anyway, so the tab is never left empty.
+
+        A user-driven query owns the pane outright and is never replaced.
+        """
+        if host.zxdb_search_input.text().strip():
+            return                          # a real query owns the pane
+        if host._zxdb_search_loading:
+            # A fetch is in flight — the fan-out's. Waiting for it does NOT
+            # spend the budget: on a slow link it can easily outlast a fixed
+            # window, and giving up mid-flight would leave the screenshot-less
+            # page on screen, i.e. the very bug this exists to fix. The
+            # separate _waits cap keeps a wedged request from polling forever.
+            if _waits > 0:
+                QTimer.singleShot(
+                    150,
+                    lambda: zxdb_startup_initial_load(_ticks, True, _waits - 1))
+            return
+        if not _saw_fanout and _ticks > 0:
+            # No fan-out yet. It is kicked off just before this runs, so give
+            # it a moment to start before concluding there won't be one.
+            QTimer.singleShot(
+                150, lambda: zxdb_startup_initial_load(_ticks - 1, False, _waits))
+            return
+        # The fan-out (if any) has finished; replace its page with ours.
+        host._zxdb_loaded_once = False
+        host._zxdb_last_query = ""
+        zxdb_on_tab_activated()
+
+    host._zxdb_startup_initial_load = zxdb_startup_initial_load
     host._zxdb_on_tab_activated = zxdb_on_tab_activated
     host.zxdb_run_search = zxdb_run_search
     host.zxdb_on_latest = zxdb_on_latest
