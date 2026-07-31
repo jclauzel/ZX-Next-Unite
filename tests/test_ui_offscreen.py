@@ -1147,6 +1147,31 @@ def inspect_phase12():
                      ("->disk transfer button", win.button_to_disk),
                      ("in-image new-folder button", win.button_new_folder)):
         check(f"the {label} stays disabled with no image", not w.isEnabled())
+
+    # A refusal to launch must be VISIBLE, not just logged. MAME needs an
+    # image, and with the local explorer now usable without one, "Start MAME
+    # with <file>" is reachable in exactly this state — from the NextSync tab
+    # too, whose user never sees the SD Card tab's log window. So the refusal
+    # has to toast. Driven through the real launcher, on the real refusal path.
+    toasts = []
+    real_toast = win._show_toast
+    win._show_toast = lambda title, message="", **kw: toasts.append(
+        (title, message, kw.get("variant")))
+    try:
+        launch_mame = getattr(win, "_launch_mame_fn", None)
+        check("the MAME launcher is exposed on the window", launch_mame is not None)
+        if launch_mame is not None:
+            launch_mame()          # no image loaded -> must refuse
+            check("refusing to launch MAME raises a toast, not just a log line",
+                  len(toasts) == 1, f"{len(toasts)} toast(s)")
+            if toasts:
+                title, message, variant = toasts[0]
+                check("the toast names the emulator", "MAME" in title, title)
+                check("the toast body says what to do about it",
+                      "image" in message.lower(), message)
+                check("the toast is styled as a failure", variant == "red", str(variant))
+    finally:
+        win._show_toast = real_toast
     app.quit()
 
 

@@ -235,6 +235,25 @@ def build_emulator_ops(
             execute_shell_command("vim", "./" + ZX_NEXT_UNITE_CONFIG_FILE_NAME)
         return
 
+    def _emulator_launch_failed(emulator, message):
+        """Report a launch that produced nothing, where the user can see it.
+
+        These launches are logged to the SD Card tab's window, which was fine
+        while "Launch CSpect/MAME" were buttons on that very tab. They are now
+        also reachable from the NextSync tab's explorers (and from the SD Card
+        local pane with no image loaded), so on any other tab a refusal would
+        look exactly like nothing happening. The log line stays — it is the
+        record — and the toast is what makes the refusal visible.
+        """
+        add_main_log_window(message)
+        try:
+            host._show_toast(
+                ui_tr_now("Could not start {emulator}").format(emulator=emulator),
+                message, variant="red", duration_ms=9000)
+        except (RuntimeError, AttributeError):
+            # Toasts are best-effort UI; never let one break a launch path.
+            logging.exception("could not show the launch-failure toast")
+
     def launch_cspect(autostart_file=None):
         """Launch CSpect against the loaded SD image.
 
@@ -344,13 +363,17 @@ def build_emulator_ops(
             except subprocess.CalledProcessError as ex:
                 if ex.returncode == 1:
                     logging.error("CSpect.exe is not present in the same local directory as zx-next-unite.Please install it from http://cspect.org")
-                    add_main_log_window(ui_tr_now(
+                    _emulator_launch_failed("CSpect", ui_tr_now(
                         "ERROR: CSpect.exe is not present in the same local "
                         "directory as zx-next-unite. Please install it from "
                         "http://cspect.org"))
                 else:
                     logging.error(f"ERROR: Unknown shell execute error: {ex.returncode} - :{ex}")
+                    # The raw shell error stays English (a diagnostic), but the
+                    # user still needs to see that nothing started.
                     add_main_log_window(f"ERROR: Unknown shell execute error: {ex.returncode} - :{ex}")
+                    _emulator_launch_failed("CSpect", ui_tr_now(
+                        "ERROR: Failed to launch CSpect: {error}").format(error=ex))
 
                 if platform.system() != "Windows":
                     logging.error("On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.")
@@ -386,7 +409,7 @@ def build_emulator_ops(
         # missing) — otherwise MAME could never be launched without hdfmonkey.
         _sel_image = host.imageinput.currentText().strip().strip('"')
         if not (_sel_image and os.path.isfile(_sel_image)):
-            add_main_log_window(ui_tr_now(
+            _emulator_launch_failed("MAME", ui_tr_now(
                 "Select a valid ZX Spectrum Next disk image (.img/.hdf) "
                 "before launching MAME."))
             return
@@ -398,7 +421,7 @@ def build_emulator_ops(
         mame_path = getattr(host, "_mame_executable_path", None)
         if not _flatpak and not mame_path:
             logging.error("MAME executable not found on PATH. Cannot launch MAME.")
-            add_main_log_window(ui_tr_now(
+            _emulator_launch_failed("MAME", ui_tr_now(
                 "ERROR: MAME executable not found on PATH. Cannot launch MAME."))
             return
 
@@ -536,7 +559,7 @@ def build_emulator_ops(
                 )
         except Exception as ex:
             logging.error(f"ERROR: Failed to launch MAME: {ex}")
-            add_main_log_window(ui_tr_now(
+            _emulator_launch_failed("MAME", ui_tr_now(
                 "ERROR: Failed to launch MAME: {error}").format(error=ex))
             return
 

@@ -482,6 +482,8 @@ CATALOGS = {
             "No se pudieron listar las versiones de MAME: {error}",
         "ERROR: Failed to launch MAME: {error}":
             "ERROR: no se pudo iniciar MAME: {error}",
+        "ERROR: Failed to launch CSpect: {error}":
+            "ERROR: No se pudo iniciar CSpect: {error}",
         "ERROR: could not extract {name}: {error}":
             "ERROR: no se pudo extraer {name}: {error}",
         "ERROR: hdfmonkey failed - A file can't be opened this is commonly caused by strange characters such as quotes and signs":
@@ -1309,6 +1311,8 @@ CATALOGS = {
             "Não foi possível listar as versões do MAME: {error}",
         "ERROR: Failed to launch MAME: {error}":
             "ERRO: não foi possível iniciar o MAME: {error}",
+        "ERROR: Failed to launch CSpect: {error}":
+            "ERRO: Não foi possível iniciar o CSpect: {error}",
         "ERROR: could not extract {name}: {error}":
             "ERRO: não foi possível extrair {name}: {error}",
         "ERROR: hdfmonkey failed - A file can't be opened this is commonly caused by strange characters such as quotes and signs":
@@ -2134,6 +2138,8 @@ CATALOGS = {
             "Nie udało się pobrać listy wersji MAME: {error}",
         "ERROR: Failed to launch MAME: {error}":
             "BŁĄD: nie udało się uruchomić MAME: {error}",
+        "ERROR: Failed to launch CSpect: {error}":
+            "BŁĄD: Nie udało się uruchomić CSpect: {error}",
         "ERROR: could not extract {name}: {error}":
             "BŁĄD: nie udało się wypakować {name}: {error}",
         "ERROR: hdfmonkey failed - A file can't be opened this is commonly caused by strange characters such as quotes and signs":
@@ -2960,6 +2966,8 @@ CATALOGS = {
             "Не удалось получить список версий MAME: {error}",
         "ERROR: Failed to launch MAME: {error}":
             "ОШИБКА: не удалось запустить MAME: {error}",
+        "ERROR: Failed to launch CSpect: {error}":
+            "ОШИБКА: Не удалось запустить CSpect: {error}",
         "ERROR: could not extract {name}: {error}":
             "ОШИБКА: не удалось извлечь {name}: {error}",
         "ERROR: hdfmonkey failed - A file can't be opened this is commonly caused by strange characters such as quotes and signs":
@@ -3785,6 +3793,8 @@ CATALOGS = {
             "Nepodařilo se načíst seznam verzí MAME: {error}",
         "ERROR: Failed to launch MAME: {error}":
             "CHYBA: nepodařilo se spustit MAME: {error}",
+        "ERROR: Failed to launch CSpect: {error}":
+            "CHYBA: Nepodařilo se spustit CSpect: {error}",
         "ERROR: could not extract {name}: {error}":
             "CHYBA: nepodařilo se rozbalit {name}: {error}",
         "ERROR: hdfmonkey failed - A file can't be opened this is commonly caused by strange characters such as quotes and signs":
@@ -4613,6 +4623,8 @@ CATALOGS = {
             "Impossible de lister les versions de MAME : {error}",
         "ERROR: Failed to launch MAME: {error}":
             "ERREUR : impossible de lancer MAME : {error}",
+        "ERROR: Failed to launch CSpect: {error}":
+            "ERREUR : Impossible de lancer CSpect : {error}",
         "ERROR: could not extract {name}: {error}":
             "ERREUR : impossible d'extraire {name} : {error}",
         "ERROR: hdfmonkey failed - A file can't be opened this is commonly caused by strange characters such as quotes and signs":
