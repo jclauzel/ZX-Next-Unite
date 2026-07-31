@@ -73,7 +73,37 @@ if fn is not None:
           "isinstance" in body,
           "launch_cspect is also a clicked() slot")
     check("the file is appended after -mmc, not before",
-          src.index("-mmc=") < src.index("autostart_file.strip().lstrip"))
+          src.index("-mmc=") < src.index("autostart_file.strip"))
+    # THE bug this feature shipped with: CSpect resolves the trailing argument
+    # against its own working directory, so an in-image path made it look for
+    # <cspect dir>/<in-image path> and fail. The argument must be an absolute
+    # HOST path, and must NOT have a leading slash stripped (that would maim
+    # /tmp/... on POSIX).
+    check("the auto-start argument is made an absolute host path",
+          "os.path.abspath(autostart_file" in src)
+    check("no leading-slash stripping (host path, not an image path)",
+          'autostart_file.strip().lstrip("/")' not in src)
+
+# ---- booting a file that lives on the image must extract it first --------
+ops_src = open(os.path.join(REPO, "zxnu_sdcard_ops.py"), encoding="utf-8").read()
+check("there is an extract-then-launch step for image files",
+      "def _cspect_start_from_image" in ops_src)
+seg_img = ops_src[ops_src.find("def _cspect_start_from_image"):]
+seg_img = seg_img[:seg_img.find("def _image_remote_zip")]
+check("it pulls the file out of the image with the hdfmonkey helper",
+      "image_get_paths_to_local" in seg_img)
+check("it launches the EXTRACTED host copy, not the in-image path",
+      "_launch_cspect_fn(local)" in seg_img)
+check("a failed extraction does not start CSpect",
+      "could not be read from the image" in seg_img)
+
+# The local action must launch the LOCAL file, never the in-image copy.
+seg_loc = ops_src[ops_src.find("def _send_and_start"):]
+seg_loc = seg_loc[:seg_loc.find("menu.addAction")]
+check("the local action starts CSpect on the local (host) file",
+      "_launch_cspect_fn(_p)" in seg_loc)
+check("...and no longer builds an in-image path to hand to CSpect",
+      "in_image" not in seg_loc)
 
 # ---- both menus are gated on CSpect being installed ---------------------
 ops = open(os.path.join(REPO, "zxnu_sdcard_ops.py"), encoding="utf-8").read()
