@@ -1614,7 +1614,7 @@ def build_local_explorer_ops(
         # uploads into the folder the image explorer is showing and, once that
         # succeeds, starts CSpect on the local copy (a host path — see
         # _cspect_start_from_image for why it cannot be the in-image one).
-        if (not is_dir and cspect_can_autostart(file_path)
+        if (not is_dir and emulator_offers_autostart(file_path)
                 and _right_disk_content()
                 and getattr(host, "_cspect_executable_path", None)
                 and getattr(host, "_launch_cspect_fn", None)
@@ -1648,7 +1648,7 @@ def build_local_explorer_ops(
         # The MAME twin of the action above. Same shape, same reason for
         # starting on the LOCAL file rather than the copy just written into
         # the image: MAME cannot read a path inside the mounted image.
-        if (not is_dir and mame_can_autostart(file_path)
+        if (not is_dir and emulator_offers_autostart(file_path)
                 and _right_disk_content()
                 and host._mame_usable()
                 and getattr(host, "_launch_mame_fn", None)
@@ -3030,7 +3030,7 @@ def build_transfer_clipboard_ops(
             item_path = (name_item.data(IMG_PATH_ROLE) or "") \
                 if name_item is not None else ""
             _emu_entry_added = False
-            if (not is_dir and cspect_can_autostart(item_path)
+            if (not is_dir and emulator_offers_autostart(item_path)
                     and getattr(host, "_cspect_executable_path", None)
                     and getattr(host, "_launch_cspect_fn", None)):
                 menu.addAction(
@@ -3039,7 +3039,7 @@ def build_transfer_clipboard_ops(
                     lambda p=item_path: QTimer.singleShot(
                         0, lambda: _cspect_start_from_image(p)))
                 _emu_entry_added = True
-            if (not is_dir and mame_can_autostart(item_path)
+            if (not is_dir and emulator_offers_autostart(item_path)
                     and host._mame_usable()
                     and getattr(host, "_launch_mame_fn", None)):
                 menu.addAction(

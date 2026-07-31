@@ -77,13 +77,48 @@ check("a directory is never offered", names(both, "/games", True) == [])
 check("a readme is never offered", names(both, "/docs/readme.txt") == [])
 check("empty / None are safe",
       names(both, "") == [] and names(both, None) == [])
-# The two emulators genuinely take different media, and the helper must respect
-# that rather than assuming what one can boot the other can too.
-check("a .dsk is offered for CSpect only (MAME's Next drivers take no disks)",
-      names(both, "/games/disk.dsk") == ["CSpect"])
-check("a .scr is offered for MAME only (CSpect does not boot screens)",
-      names(both, "/loading.scr") == ["MAME"])
-check("a .tap is offered for both", names(both, "/tape.tap") == ["CSpect", "MAME"])
+# .nex ONLY, however much more the emulators nominally accept. CSpect crashes
+# outright on a .tap trailing argument (seen as exit 0xC0000094 integer divide
+# by zero and 0xE0434352 unhandled .NET exception, while every .nex launched
+# normally), and MAME's -cassette merely inserts a tape without starting it.
+check("a .tap is NOT offered — it crashes CSpect",
+      names(both, "/tape.tap") == [])
+check("nor a .tzx", names(both, "/tape.tzx") == [])
+check("nor a .dsk / .trd / .scl", not any(
+    names(both, "/x" + e) for e in (".dsk", ".trd", ".scl")))
+check("nor a .sna or .z80 snapshot", not any(
+    names(both, "/x" + e) for e in (".sna", ".z80")))
+check("nor a .scr (MAME would only show a screen)",
+      names(both, "/loading.scr") == [])
+check("only .nex reaches the menu, in both emulators",
+      names(both, "/games/beast.nex") == ["CSpect", "MAME"])
+
+# Tripwire on the offer set itself. What each emulator ACCEPTS is a separate
+# (and still accurate) question — MAME's media mapping needs it to pick
+# -snapshot — so the two must not be conflated back together.
+from zxnu_config import (  # noqa: E402
+    CSPECT_AUTOSTART_EXTENSIONS,
+    EMULATOR_AUTOSTART_OFFER_EXTENSIONS,
+    MAME_SNAPSHOT_EXTENSIONS,
+    emulator_offers_autostart,
+    mame_autostart_argument,
+)
+
+check("the offer set is exactly .nex",
+      tuple(EMULATOR_AUTOSTART_OFFER_EXTENSIONS) == (".nex",),
+      str(EMULATOR_AUTOSTART_OFFER_EXTENSIONS))
+check("it is NARROWER than what the emulators accept",
+      set(EMULATOR_AUTOSTART_OFFER_EXTENSIONS) < set(CSPECT_AUTOSTART_EXTENSIONS)
+      and set(EMULATOR_AUTOSTART_OFFER_EXTENSIONS) < set(MAME_SNAPSHOT_EXTENSIONS),
+      "offering != accepting; keep both facts")
+check("MAME's media mapping still knows the wider truth",
+      mame_autostart_argument("/x.tap") == "-cassette"
+      and mame_autostart_argument("/x.nex") == "-snapshot")
+check("matching is case-insensitive and safe on empty/None",
+      emulator_offers_autostart("/A.NEX")
+      and not emulator_offers_autostart("")
+      and not emulator_offers_autostart(None)
+      and not emulator_offers_autostart("/games/nex-collection"))
 
 # ---- the entries are usable as menu items --------------------------------
 entries = emulator_autostart_entries(both, "/games/beast.nex")
