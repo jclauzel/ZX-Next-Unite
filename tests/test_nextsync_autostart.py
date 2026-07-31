@@ -176,15 +176,28 @@ check("the Next pane routes through the download-first path",
 seg = rex[rex.find("def _emulator_start_from_next"):]
 seg = seg[:seg.find("def _remote_unzip")]
 check("the Next pane downloads with the same 'get' op as Download",
-      '("get", remote_path, tmp)' in seg)
-check("...into the emulator's own staging directory",
-      "entry.staging_dir()" in seg,
-      "a plain mkdtemp would break Flatpak MAME")
+      '("get", remote_path, dest)' in seg)
+check("...into the LOCAL pane's folder, where the user can see and keep it",
+      "dest = self._local_dir()" in seg,
+      "a temp dir made the file vanish; Download puts it here")
+check("...falling back to a scratch dir only if that folder is unwritable",
+      "entry.staging_dir()" in seg and "os.access(dest, os.W_OK)" in seg)
 check("...and launches the DOWNLOADED copy, never the Next path",
       "entry.launch(local)" in seg and "entry.launch(remote_path)" not in seg)
-check("a failed download starts nothing and cleans up",
-      "shutil.rmtree(tmp, ignore_errors=True)" in seg
-      and "could not be downloaded from " in seg)
+check("a failed download starts nothing and says so",
+      "could not be downloaded from " in seg)
+# The destination is normally the user's own browsing folder, so the failure
+# path must never rmtree it — only a scratch dir this code created itself.
+check("a failed download NEVER deletes the user's local folder",
+      "if scratch:" in seg
+      and seg.count("shutil.rmtree(dest, ignore_errors=True)") == 1
+      and seg.index("if scratch:") < seg.index("shutil.rmtree(dest"),
+      "rmtree must be reachable only for a directory we made")
+# Booting a file needs no mounted image (MAME: no -hard1; CSpect: -mmc=<dir>),
+# so the pre-flight check must not turn a missing SD card into a red toast.
+check("a missing SD card does not block booting a file",
+      "autostart=True" in open(
+          os.path.join(REPO, "zxnu_workers.py"), encoding="utf-8").read())
 # Both panes act on exactly one selected FILE — a folder or a multi-selection
 # has no single file to boot.
 check("the Next pane only offers the entries for a single selected file",

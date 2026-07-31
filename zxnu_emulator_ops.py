@@ -254,15 +254,22 @@ def build_emulator_ops(
             # Toasts are best-effort UI; never let one break a launch path.
             logging.exception("could not show the launch-failure toast")
 
-    def _emulator_launch_blocker(emulator):
+    def _emulator_launch_blocker(emulator, autostart=False):
         """Why *emulator* cannot start right now, or "" when it can.
 
-        Both emulators boot the Next from the mounted SD image, so both need
-        one; these checks mirror exactly what each launcher enforces itself.
-        Callers that must do expensive work BEFORE launching — the Remote
-        Explorer downloads the file off the Next first — ask this up front, so
-        the user is told immediately instead of after a pointless transfer.
+        Mirrors exactly what each launcher enforces, so callers that must do
+        expensive work BEFORE launching — the Remote Explorer downloads the
+        file off the Next first — can ask up front instead of discovering it
+        after a pointless transfer.
+
+        With *autostart* (a file is being booted) neither emulator needs a
+        mounted image: MAME loads a snapshot with no -hard1, and CSpect takes a
+        plain folder as its -mmc root, which is what its own sample launchers
+        do. Without a file there is nothing to run but the image itself, so
+        then it is genuinely required.
         """
+        if autostart:
+            return ""
         if emulator == "CSpect":
             if _right_disk_content():
                 return ""
@@ -307,7 +314,8 @@ def build_emulator_ops(
         # without an image, but the "Start CSpect with <file>" actions are
         # reachable from the NextSync tab, where there is usually no image
         # mounted, and there it looked like the action was simply broken.
-        if not _right_disk_content():
+        _has_autostart = isinstance(autostart_file, str) and bool(autostart_file.strip())
+        if not _right_disk_content() and not _has_autostart:
             _emulator_launch_failed("CSpect", ui_tr_now(
                 "Load a ZX Spectrum Next disk image first — then CSpect can "
                 "boot it from the mounted SD card."))
@@ -354,6 +362,17 @@ def build_emulator_ops(
         # <cwd>\"C:\temp\img". Re-quote only the final path below (the
         # -mmc= argument goes through the shell, so spaces need quoting).
         img_path = (host.right_disk_image_path or "").strip().strip('"')
+        # -mmc does not have to be a disk image: CSpect's own sample launchers
+        # point it at a FOLDER used as the SD-card root —
+        #     CSpect.exe -sound -w2 -zxnext -mmc=./ beast.nex
+        # (beast.bat / NXtel.bat / parallax.bat / mod_player.bat, shipped with
+        # CSpect). So booting a single file needs no mounted image at all: when
+        # none is loaded, the file's OWN folder becomes the card root. A loaded
+        # image still wins — it is the richer environment, and anything the
+        # program loads from the card then resolves as usual.
+        if not img_path and isinstance(autostart_file, str) and autostart_file.strip():
+            img_path = os.path.dirname(
+                os.path.abspath(autostart_file.strip().strip('"')))
         if use_bundled:
             # CSpect runs from its own folder so its Next ROMs resolve;
             # the working dir then differs from the app dir, so the image
@@ -446,7 +465,13 @@ def build_emulator_ops(
         # hdfmonkey-produced listing, which is empty when hdfmonkey is
         # missing) — otherwise MAME could never be launched without hdfmonkey.
         _sel_image = host.imageinput.currentText().strip().strip('"')
-        if not (_sel_image and os.path.isfile(_sel_image)):
+        # An image is the Next's hard disk, and without one there is nothing to
+        # boot — UNLESS a file was handed in, which MAME loads on its own:
+        # `mame tbblue -snapshot foo.nex` runs with no -hard1 at all (verified
+        # against MAME 0.288). Requiring an image there made "Start MAME with
+        # file …" unusable from the NextSync tab, where none is mounted.
+        _has_autostart = isinstance(autostart_file, str) and bool(autostart_file.strip())
+        if not (_sel_image and os.path.isfile(_sel_image)) and not _has_autostart:
             _emulator_launch_failed("MAME", ui_tr_now(
                 "Select a valid ZX Spectrum Next disk image (.img/.hdf) "
                 "before launching MAME."))
@@ -487,9 +512,13 @@ def build_emulator_ops(
         # install directory (see below), so resolve the image to an absolute
         # path to keep relative paths working. The "-hard1 <image>" pair is
         # appended last so the image is always the final argument.
+        # Only a real image file becomes -hard1. Before the auto-start case this
+        # was guaranteed by the early return above; now the function can get
+        # this far with the combo holding nothing (or a stale path), and
+        # "-hard1 <not a file>" is a fatal error in MAME rather than a no-op.
         mame_image = host.imageinput.currentText().strip().strip('"')
-        if mame_image:
-            mame_image = os.path.abspath(mame_image)
+        mame_image = os.path.abspath(mame_image) if (
+            mame_image and os.path.isfile(mame_image)) else ""
         # Drop any aspect/mouse/joystick options from the (editable) params —
         # these are now controlled by the MAME group combos and appended
         # below, so they must not be duplicated or conflict. The launcher

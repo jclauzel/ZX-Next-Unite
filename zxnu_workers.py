@@ -117,8 +117,10 @@ def emulator_autostart_entries(host, path, is_dir=False):
         return lambda: tempfile.mkdtemp(prefix=prefix)
 
     def _blocked(emulator):
+        # autostart=True: every entry here boots a FILE, and neither emulator
+        # needs a mounted disk image to do that.
         fn = getattr(host, "_emulator_launch_blocker", None)
-        return (lambda: fn(emulator)) if fn else (lambda: "")
+        return (lambda: fn(emulator, autostart=True)) if fn else (lambda: "")
 
     if (cspect_can_autostart(path)
             and getattr(host, "_cspect_executable_path", None)
