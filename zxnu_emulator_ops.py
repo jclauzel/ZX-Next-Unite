@@ -254,6 +254,32 @@ def build_emulator_ops(
             # Toasts are best-effort UI; never let one break a launch path.
             logging.exception("could not show the launch-failure toast")
 
+    def _emulator_launch_blocker(emulator):
+        """Why *emulator* cannot start right now, or "" when it can.
+
+        Both emulators boot the Next from the mounted SD image, so both need
+        one; these checks mirror exactly what each launcher enforces itself.
+        Callers that must do expensive work BEFORE launching — the Remote
+        Explorer downloads the file off the Next first — ask this up front, so
+        the user is told immediately instead of after a pointless transfer.
+        """
+        if emulator == "CSpect":
+            if _right_disk_content():
+                return ""
+            return ui_tr_now(
+                "Load a ZX Spectrum Next disk image first — then CSpect can "
+                "boot it from the mounted SD card.")
+        if emulator == "MAME":
+            _img = (host.imageinput.currentText() or "").strip().strip('"')
+            if _img and os.path.isfile(_img):
+                return ""
+            return ui_tr_now(
+                "Select a valid ZX Spectrum Next disk image (.img/.hdf) "
+                "before launching MAME.")
+        return ""
+
+    host._emulator_launch_blocker = _emulator_launch_blocker
+
     def launch_cspect(autostart_file=None):
         """Launch CSpect against the loaded SD image.
 
@@ -274,119 +300,131 @@ def build_emulator_ops(
         accept an argument. That bool is filtered out by the isinstance() check
         below rather than by a keyword-only signature, which Qt handles less
         predictably across PySide versions."""
-        if _right_disk_content():  # check that we have an image content first
-            set_all_buttons_disabled()
+        # CSpect boots the Next from the mounted SD image, so it needs one.
+        # This used to be a bare `if` around the whole body with no else: with
+        # no image the call did nothing at all — no launch, no log, no toast.
+        # Harmless while the only caller was a button that was greyed out
+        # without an image, but the "Start CSpect with <file>" actions are
+        # reachable from the NextSync tab, where there is usually no image
+        # mounted, and there it looked like the action was simply broken.
+        if not _right_disk_content():
+            _emulator_launch_failed("CSpect", ui_tr_now(
+                "Load a ZX Spectrum Next disk image first — then CSpect can "
+                "boot it from the mounted SD card."))
+            return
 
-            # Editable "CSpect default launch parameters" from the Settings
-            # tab (persisted in SETTING_CUSTOM), falling back to the built-in
-            # default. The SD Card group options are appended on top below,
-            # mirroring how launch_mame handles its default command line.
-            cspect_default_params = configuration_dictionary.get(
-                SETTING_CUSTOM, CSPECT_DEFAULT_LAUNCH_PARAMETERS)
-            if not cspect_default_params:
-                cspect_default_params = CSPECT_DEFAULT_LAUNCH_PARAMETERS
-            cspect_arguments = " " + cspect_default_params + " "
-            # Selections are read by INDEX: these combos show translated labels,
-            # so currentText() no longer identifies the entry (see
-            # emulator_option_argument).
-            for _cspect_combo, _cspect_opts in (
-                    (host.cspect_screensize, CSPECT_SCREEN_SIZES),
-                    (host.cspect_sound, CSPECT_SOUND),
-                    (host.cspect_vsync, CSPECT_SCREEN_SYNC),
-                    (host.cspect_joystick, CSPECT_JOYSTICK),
-                    (host.cspect_mouse, CSPECT_MOUSE),
-                    (host.cspect_frequency, CSPECT_FREQUENCY),
-                    # ESC-key disable ("-esc"); "Disable ESC Key Off" (default)
-                    # passes nothing so ESC still exits.
-                    (host.cspect_esc, CSPECT_ESC)):
-                cspect_arguments += emulator_option_argument(
-                    _cspect_opts, _cspect_combo.currentIndex()) + " "
+        set_all_buttons_disabled()
 
-            # When the CSpect copy in use is a bundled itch.io install under
-            # downloads/cspect, it must be launched from its own folder so its
-            # Next ROMs resolve. The working directory then differs from the
-            # app directory, so the image path must be absolute.
-            cspect_exe = getattr(host, "_cspect_executable_path", None)
-            use_bundled = (getattr(host, "_cspect_from_downloads", False)
-                           and cspect_exe and os.path.isfile(cspect_exe))
-            # The path is normalised (unquoted) when loaded, but strip any
-            # stray surrounding quotes defensively before os.path work:
-            # os.path.abspath() on a string starting with '"' treats it as a
-            # relative path and prepends the cwd, yielding a bogus value like
-            # <cwd>\"C:\temp\img". Re-quote only the final path below (the
-            # -mmc= argument goes through the shell, so spaces need quoting).
-            img_path = (host.right_disk_image_path or "").strip().strip('"')
-            if use_bundled:
-                # CSpect runs from its own folder so its Next ROMs resolve;
-                # the working dir then differs from the app dir, so the image
-                # path must be absolute.
-                cspect_cwd = os.path.dirname(cspect_exe)
-                if img_path:
-                    img_path = os.path.abspath(img_path)
+        # Editable "CSpect default launch parameters" from the Settings
+        # tab (persisted in SETTING_CUSTOM), falling back to the built-in
+        # default. The SD Card group options are appended on top below,
+        # mirroring how launch_mame handles its default command line.
+        cspect_default_params = configuration_dictionary.get(
+            SETTING_CUSTOM, CSPECT_DEFAULT_LAUNCH_PARAMETERS)
+        if not cspect_default_params:
+            cspect_default_params = CSPECT_DEFAULT_LAUNCH_PARAMETERS
+        cspect_arguments = " " + cspect_default_params + " "
+        # Selections are read by INDEX: these combos show translated labels,
+        # so currentText() no longer identifies the entry (see
+        # emulator_option_argument).
+        for _cspect_combo, _cspect_opts in (
+                (host.cspect_screensize, CSPECT_SCREEN_SIZES),
+                (host.cspect_sound, CSPECT_SOUND),
+                (host.cspect_vsync, CSPECT_SCREEN_SYNC),
+                (host.cspect_joystick, CSPECT_JOYSTICK),
+                (host.cspect_mouse, CSPECT_MOUSE),
+                (host.cspect_frequency, CSPECT_FREQUENCY),
+                # ESC-key disable ("-esc"); "Disable ESC Key Off" (default)
+                # passes nothing so ESC still exits.
+                (host.cspect_esc, CSPECT_ESC)):
+            cspect_arguments += emulator_option_argument(
+                _cspect_opts, _cspect_combo.currentIndex()) + " "
+
+        # When the CSpect copy in use is a bundled itch.io install under
+        # downloads/cspect, it must be launched from its own folder so its
+        # Next ROMs resolve. The working directory then differs from the
+        # app directory, so the image path must be absolute.
+        cspect_exe = getattr(host, "_cspect_executable_path", None)
+        use_bundled = (getattr(host, "_cspect_from_downloads", False)
+                       and cspect_exe and os.path.isfile(cspect_exe))
+        # The path is normalised (unquoted) when loaded, but strip any
+        # stray surrounding quotes defensively before os.path work:
+        # os.path.abspath() on a string starting with '"' treats it as a
+        # relative path and prepends the cwd, yielding a bogus value like
+        # <cwd>\"C:\temp\img". Re-quote only the final path below (the
+        # -mmc= argument goes through the shell, so spaces need quoting).
+        img_path = (host.right_disk_image_path or "").strip().strip('"')
+        if use_bundled:
+            # CSpect runs from its own folder so its Next ROMs resolve;
+            # the working dir then differs from the app dir, so the image
+            # path must be absolute.
+            cspect_cwd = os.path.dirname(cspect_exe)
+            if img_path:
+                img_path = os.path.abspath(img_path)
+        else:
+            cspect_cwd = None
+        mmc_path = f'"{img_path}"' if img_path else img_path
+
+        cspect_arguments += " -mmc=" + mmc_path + " "
+
+        # Auto-start file: a HOST path, appended as CSpect's trailing
+        # argument. It is made absolute because CSpect may run from its
+        # own folder (the bundled itch.io copy does), and always quoted —
+        # this goes through the shell and Next files live under paths with
+        # spaces often enough.
+        if isinstance(autostart_file, str) and autostart_file.strip():
+            _auto = os.path.abspath(autostart_file.strip().strip('"'))
+            cspect_arguments += f'"{_auto}" '
+
+        # The command that will actually be invoked: the bundled itch.io
+        # copy by absolute path, otherwise the CSpect.exe resolved from the
+        # app directory / PATH (prefixed with mono on macOS/Linux).
+        if platform.system() == "Windows":
+            cspect_executable = f'"{cspect_exe}"' if use_bundled else "CSpect.exe"
+        else:
+            cspect_executable = f'mono "{cspect_exe}"' if use_bundled else "mono CSpect.exe"
+            # Inside the Flatpak sandbox there is no mono — delegate the
+            # launch to the host through the Flatpak portal, exactly like
+            # the MAME launch (mame_flatpak_command): every involved path
+            # (CSpect under ~/.var/app, the cwd, the -mmc image) is a real
+            # host path, so the host-side mono resolves them unchanged.
+            if os.environ.get("FLATPAK_ID"):
+                cspect_executable = "flatpak-spawn --host " + cspect_executable
+
+        logging.info(f"CSpect executable: {cspect_executable}")
+        add_main_log_window(f"CSpect executable: {cspect_executable}")
+        logging.info(f"Cspect start with arguments: {cspect_arguments}")
+        add_main_log_window(f"Cspect start with arguments: {cspect_arguments}")
+
+        try:
+            execute_shell_command(cspect_executable, cspect_arguments, cwd=cspect_cwd)
+        except subprocess.CalledProcessError as ex:
+            if ex.returncode == 1:
+                logging.error("CSpect.exe is not present in the same local directory as zx-next-unite.Please install it from http://cspect.org")
+                _emulator_launch_failed("CSpect", ui_tr_now(
+                    "ERROR: CSpect.exe is not present in the same local "
+                    "directory as zx-next-unite. Please install it from "
+                    "http://cspect.org"))
             else:
-                cspect_cwd = None
-            mmc_path = f'"{img_path}"' if img_path else img_path
+                logging.error(f"ERROR: Unknown shell execute error: {ex.returncode} - :{ex}")
+                # The raw shell error stays English (a diagnostic), but the
+                # user still needs to see that nothing started.
+                add_main_log_window(f"ERROR: Unknown shell execute error: {ex.returncode} - :{ex}")
+                _emulator_launch_failed("CSpect", ui_tr_now(
+                    "ERROR: Failed to launch CSpect: {error}").format(error=ex))
 
-            cspect_arguments += " -mmc=" + mmc_path + " "
-
-            # Auto-start file: a HOST path, appended as CSpect's trailing
-            # argument. It is made absolute because CSpect may run from its
-            # own folder (the bundled itch.io copy does), and always quoted —
-            # this goes through the shell and Next files live under paths with
-            # spaces often enough.
-            if isinstance(autostart_file, str) and autostart_file.strip():
-                _auto = os.path.abspath(autostart_file.strip().strip('"'))
-                cspect_arguments += f'"{_auto}" '
-
-            # The command that will actually be invoked: the bundled itch.io
-            # copy by absolute path, otherwise the CSpect.exe resolved from the
-            # app directory / PATH (prefixed with mono on macOS/Linux).
-            if platform.system() == "Windows":
-                cspect_executable = f'"{cspect_exe}"' if use_bundled else "CSpect.exe"
-            else:
-                cspect_executable = f'mono "{cspect_exe}"' if use_bundled else "mono CSpect.exe"
-                # Inside the Flatpak sandbox there is no mono — delegate the
-                # launch to the host through the Flatpak portal, exactly like
-                # the MAME launch (mame_flatpak_command): every involved path
-                # (CSpect under ~/.var/app, the cwd, the -mmc image) is a real
-                # host path, so the host-side mono resolves them unchanged.
+            if platform.system() != "Windows":
+                logging.error("On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.")
+                add_main_log_window(ui_tr_now(
+                    "On MacOS and Linux mono is required as it runs under "
+                    "it. Please make sure mono is installed."))
                 if os.environ.get("FLATPAK_ID"):
-                    cspect_executable = "flatpak-spawn --host " + cspect_executable
-
-            logging.info(f"CSpect executable: {cspect_executable}")
-            add_main_log_window(f"CSpect executable: {cspect_executable}")
-            logging.info(f"Cspect start with arguments: {cspect_arguments}")
-            add_main_log_window(f"Cspect start with arguments: {cspect_arguments}")
-
-            try:
-                execute_shell_command(cspect_executable, cspect_arguments, cwd=cspect_cwd)
-            except subprocess.CalledProcessError as ex:
-                if ex.returncode == 1:
-                    logging.error("CSpect.exe is not present in the same local directory as zx-next-unite.Please install it from http://cspect.org")
-                    _emulator_launch_failed("CSpect", ui_tr_now(
-                        "ERROR: CSpect.exe is not present in the same local "
-                        "directory as zx-next-unite. Please install it from "
-                        "http://cspect.org"))
-                else:
-                    logging.error(f"ERROR: Unknown shell execute error: {ex.returncode} - :{ex}")
-                    # The raw shell error stays English (a diagnostic), but the
-                    # user still needs to see that nothing started.
-                    add_main_log_window(f"ERROR: Unknown shell execute error: {ex.returncode} - :{ex}")
-                    _emulator_launch_failed("CSpect", ui_tr_now(
-                        "ERROR: Failed to launch CSpect: {error}").format(error=ex))
-
-                if platform.system() != "Windows":
-                    logging.error("On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.")
                     add_main_log_window(ui_tr_now(
-                        "On MacOS and Linux mono is required as it runs under "
-                        "it. Please make sure mono is installed."))
-                    if os.environ.get("FLATPAK_ID"):
-                        add_main_log_window(ui_tr_now(
-                            "Running as a Flatpak: mono must be installed on "
-                            "the HOST system — the launch is delegated there "
-                            "via flatpak-spawn."))
+                        "Running as a Flatpak: mono must be installed on "
+                        "the HOST system — the launch is delegated there "
+                        "via flatpak-spawn."))
 
-            set_all_buttons_enabled()
+        set_all_buttons_enabled()
 
 
     def launch_mame(autostart_file=None):

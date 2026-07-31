@@ -2252,6 +2252,17 @@ class RemoteExplorerWidget(QWidget):
         if not self._connected or self._op_active:
             return
         name = posixpath.basename(remote_path.rstrip("/")) or remote_path
+        # Ask BEFORE transferring anything: both emulators need a mounted SD
+        # image, and on this tab there often is none. Downloading first and
+        # only then discovering the launch cannot happen is what made this
+        # look like "the file downloads and nothing happens".
+        blocked = entry.blocked()
+        if blocked:
+            self._log(blocked)
+            self._on_toast(
+                ui_tr_now("Could not start {emulator}").format(emulator=entry.name),
+                blocked, "red")
+            return
         try:
             tmp = entry.staging_dir()
         except OSError as exc:
@@ -2264,12 +2275,29 @@ class RemoteExplorerWidget(QWidget):
 
         def _started(ok, _fails):
             local = os.path.join(tmp, name)
+            if ok and not os.path.isfile(local):
+                # The worker names the file from what the NEXT reports, not
+                # from the path we asked for (see _re_relname_under), so a
+                # single-file get can land under a sub-path. The staging dir
+                # holds this download and nothing else, so if exactly one file
+                # arrived it is the one to boot, whatever it ended up called.
+                arrived = [os.path.join(root, f)
+                           for root, _dirs, files in os.walk(tmp) for f in files]
+                if len(arrived) == 1:
+                    local = arrived[0]
             if not ok or not os.path.isfile(local):
                 shutil.rmtree(tmp, ignore_errors=True)
                 self._log(ui_tr_now(
                     "Start {emulator}: {name} could not be downloaded from "
                     "the Next, {emulator} was not started.").format(
                         emulator=entry.name, name=name))
+                self._on_toast(
+                    ui_tr_now("Could not start {emulator}").format(
+                        emulator=entry.name),
+                    ui_tr_now("Start {emulator}: {name} could not be "
+                              "downloaded from the Next, {emulator} was not "
+                              "started.").format(emulator=entry.name, name=name),
+                    "red")
                 return
             # Deferred so _end_operation fully unwinds before the launch.
             QTimer.singleShot(0, lambda: entry.launch(local))

@@ -1170,6 +1170,37 @@ def inspect_phase12():
                 check("the toast body says what to do about it",
                       "image" in message.lower(), message)
                 check("the toast is styled as a failure", variant == "red", str(variant))
+
+        # REGRESSION (reported): "Start CSpect with file X" downloaded the file
+        # and then nothing happened. launch_cspect wrapped its whole body in a
+        # bare `if _right_disk_content():` with no else, so with no image
+        # mounted it returned in total silence — no launch, no log, no toast.
+        toasts.clear()
+        launch_cspect = getattr(win, "_launch_cspect_fn", None)
+        check("the CSpect launcher is exposed on the window",
+              launch_cspect is not None)
+        if launch_cspect is not None:
+            launch_cspect()        # no image loaded -> must refuse, not vanish
+            check("refusing to launch CSpect is never silent",
+                  len(toasts) == 1, f"{len(toasts)} toast(s)")
+            if toasts:
+                check("the CSpect toast names the emulator",
+                      "CSpect" in toasts[0][0], toasts[0][0])
+                check("the CSpect toast says an image is needed",
+                      "image" in toasts[0][1].lower(), toasts[0][1])
+
+        # And the pre-flight check both emulators share reports the same thing,
+        # so the Remote Explorer can ask BEFORE downloading anything.
+        blocker = getattr(win, "_emulator_launch_blocker", None)
+        check("a shared launch-precondition check is exposed",
+              blocker is not None)
+        if blocker is not None:
+            check("with no image, CSpect reports itself blocked",
+                  bool(blocker("CSpect")), repr(blocker("CSpect")))
+            check("with no image, MAME reports itself blocked",
+                  bool(blocker("MAME")), repr(blocker("MAME")))
+            check("an unknown emulator is not reported as blocked",
+                  blocker("Nonesuch") == "")
     finally:
         win._show_toast = real_toast
     app.quit()

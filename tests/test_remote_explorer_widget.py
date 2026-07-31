@@ -1221,6 +1221,44 @@ def test_emulator_start_from_next():
     check("no hook -> no entries (the widget knows no emulators itself)",
           w3._emulator_entries("/anything.nex") == [])
 
+    # REGRESSION (reported): the file downloaded and then nothing happened.
+    # Both emulators need a mounted SD image, and on this tab there usually is
+    # none — so the launch could never work, and CSpect's launcher returned
+    # silently. Ask before transferring, and say why.
+    launched.clear()
+    blocked_entry = EmulatorAutostart(
+        "CSpect", "Start CSpect with file x.nex", launched.append,
+        lambda: tempfile.mkdtemp(dir=TMP),
+        lambda: "Load a ZX Spectrum Next disk image first")
+    w4, calls4 = make_widget(emulator_entries=lambda p: [blocked_entry])
+    connect_widget(w4, calls4, listing=[(False, 10, "x.nex")])
+    w4._emulator_start_from_next("/x.nex", blocked_entry)
+    check("a launch that cannot succeed downloads NOTHING",
+          not any(c[0] == "get" for c in calls4["q"]), str(calls4["q"]))
+    check("...and says why, visibly (toast, not just the log)",
+          len(calls4["toasts"]) == 1
+          and "disk image" in calls4["toasts"][0][1], str(calls4["toasts"]))
+    check("...and starts no emulator", launched == [])
+
+    # The worker names the arriving file from what the NEXT reports, not from
+    # the path we asked for, so a single-file get can land under a sub-path.
+    # The staging dir holds this download alone, so the file must still be
+    # found rather than reported as a failed download.
+    launched.clear()
+    stage3 = tempfile.mkdtemp(dir=TMP)
+    entry3 = EmulatorAutostart("CSpect", "Start CSpect with file y.nex",
+                               launched.append, lambda: stage3)
+    w5, calls5 = make_widget(emulator_entries=lambda p: [entry3])
+    connect_widget(w5, calls5, listing=[(False, 10, "y.nex")])
+    w5._emulator_start_from_next("/games/y.nex", entry3)
+    odd = os.path.join(stage3, "games", "y.nex")     # not <tmp>/y.nex
+    os.makedirs(os.path.dirname(odd), exist_ok=True)
+    open(odd, "wb").write(b"\x00" * 4)
+    w5.on_op_done(True, "get", "/games/y.nex")
+    QApplication.processEvents()
+    check("a file that lands under a sub-path is still found and booted",
+          launched == [odd], str(launched))
+
 
 def main():
     logging.disable(logging.CRITICAL)
