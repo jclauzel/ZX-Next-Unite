@@ -366,7 +366,19 @@ def build_emulator_ops(
             set_all_buttons_enabled()
 
 
-    def launch_mame():
+    def launch_mame(autostart_file=None):
+        """Boot the Next in MAME with the selected image as its hard disk.
+
+        *autostart_file* optionally names a program for MAME to load once the
+        machine is up (see ``mame_autostart_argument`` for the media switch
+        used per file type). It must be a HOST path, NOT a path inside the
+        mounted image: MAME's file loader knows nothing about the emulated
+        SD card's contents.
+
+        The Launch MAME button connects straight to this function, so Qt hands
+        the parameter its ``clicked(checked)`` bool — hence the isinstance()
+        guard below rather than a bare truth test.
+        """
         # Launching MAME boots the Next with the selected HDF as its hard
         # disk and never calls hdfmonkey, so gate on a real image file being
         # selected rather than on right_disk_image_explorer_content (the
@@ -453,6 +465,19 @@ def build_emulator_ops(
                 _rompath = default_mame_flatpak_rompath()
             mame_argv += ["-rompath", _rompath]
 
+        # Autostart file, inserted before -hard1 so the image stays the final
+        # argument. MAME resolves it against its own working directory, which
+        # is its install folder (see mame_cwd below), so it is made absolute.
+        if isinstance(autostart_file, str) and autostart_file.strip():
+            _auto = os.path.abspath(autostart_file.strip().strip('"'))
+            _auto_switch = mame_autostart_argument(_auto)
+            if _auto_switch:
+                mame_argv += [_auto_switch, _auto]
+            else:
+                add_main_log_window(ui_tr_now(
+                    "MAME cannot load {name} directly; starting MAME without "
+                    "it.").format(name=os.path.basename(_auto)))
+
         if mame_image:
             mame_argv += [MAME_HARD_DISK_PARAMETER, mame_image]
 
@@ -538,14 +563,14 @@ def build_emulator_ops(
             # boot-30204.bin) is absent — a manual step the auto-install
             # deliberately leaves to the user. Point them at the guide.
             if getattr(host, "_mame_missing_files", False):
-                add_main_log_window(
+                add_main_log_window(ui_tr_now(
                     "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) "
-                    "is missing. This step is manual — see "
-                    f"{MAME_INSTALL_WIKI_URL} and follow \"Get TBBLUE (the "
-                    "Next 'boot ROM')\". Put the file tbblue.zip into MAME's "
-                    "roms folder (downloads\\mame\\roms) — DON'T extract it — "
-                    "and try again. You must provide a legally acquired, "
-                    "licensed ROM.")
+                    "is missing. This step is manual — see {url} and follow "
+                    "\"Get TBBLUE (the Next 'boot ROM')\". Put the file "
+                    "tbblue.zip into MAME's roms folder (downloads\\mame\\roms) "
+                    "— DON'T extract it — and try again. You must provide a "
+                    "legally acquired, licensed ROM.").format(
+                        url=MAME_INSTALL_WIKI_URL))
                 logging.warning(
                     "MAME launch failed: TBBLUE boot ROM missing. See "
                     f"{MAME_INSTALL_WIKI_URL}")
@@ -895,12 +920,12 @@ def build_emulator_ops(
         add_main_log_window(ui_tr_now(
             "MAME is ready to launch now — no restart needed. Use the "
             "'🕹  Launch Mame' button."))
-        add_main_log_window(
+        add_main_log_window(ui_tr_now(
             "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See "
-            f"{MAME_INSTALL_WIKI_URL} → \"Get TBBLUE (the Next 'boot ROM')\". "
-            f"Put the file tbblue.zip into MAME's roms folder ({roms_dir}) — "
-            "DON'T extract it. You must provide a legally acquired, licensed "
-            "ROM.")
+            "{url} → \"Get TBBLUE (the Next 'boot ROM')\". Put the file "
+            "tbblue.zip into MAME's roms folder ({roms}) — DON'T extract it. "
+            "You must provide a legally acquired, licensed ROM.").format(
+                url=MAME_INSTALL_WIKI_URL, roms=roms_dir))
         logging.info(f"Successfully installed MAME: {detected}")
         try:
             host._show_toast(
@@ -1361,8 +1386,10 @@ def build_emulator_ops(
             dlg.close()
             if holder["ok"]:
                 add_main_log_window(
-                    f"ZX Next Unite update: downloaded {os.path.basename(dest)} "
-                    f"to {os.path.dirname(dest)}"
+                    ui_tr_now(
+                        "ZX Next Unite update: downloaded {name} to {folder}"
+                    ).format(name=os.path.basename(dest),
+                             folder=os.path.dirname(dest))
                     + (" (SHA-256 verified)." if expected_sha256 else
                        " (no SHA-256 digest published; not verified)."))
                 runnable = holder["runnable"] or dest
@@ -1377,9 +1404,10 @@ def build_emulator_ops(
             elif os.path.isfile(dest):
                 # The package arrived but could not be unpacked — keep it
                 # so the user can extract it by hand.
-                add_main_log_window(
-                    f"ZX Next Unite update: downloaded {dest} but could not "
-                    f"unpack it: {holder['error']}")
+                add_main_log_window(ui_tr_now(
+                    "ZX Next Unite update: downloaded {path} but could not "
+                    "unpack it: {error}").format(
+                        path=dest, error=holder["error"]))
                 QMessageBox.critical(
                     host, "Update could not be unpacked",
                     f"The update was downloaded to:\n{dest}\n\n"
@@ -1408,19 +1436,21 @@ def build_emulator_ops(
         def _attach_notes(box):
             _attach_release_notes(box, notes)
         if not frozen:
-            add_main_log_window(
-                f"ZX Next Unite {tag} is available — running from source, so "
-                "update with 'git pull' instead of the Windows binary.")
+            add_main_log_window(ui_tr_now(
+                "ZX Next Unite {latest} is available — running from source, "
+                "so update with 'git pull' instead of the Windows binary."
+            ).format(latest=tag))
             box = QMessageBox(host)
             box.setIcon(QMessageBox.Information)
             box.setWindowTitle(ui_tr_now("ZX Next Unite update available"))
-            box.setText(
-                f"ZX Next Unite {tag} is available "
-                f"(you are running {ZX_NEXT_UNITE_VERSION}).\n\n"
+            box.setText(ui_tr_now(
+                "ZX Next Unite {latest} is available (you are running "
+                "{installed}).\n\n"
                 "You appear to be running from source (git clone), so the\n"
                 "recommended way to update is:\n\n"
                 "    git pull\n\n"
-                "instead of downloading the Windows binary.")
+                "instead of downloading the Windows binary.").format(
+                    latest=tag, installed=ZX_NEXT_UNITE_VERSION))
             _attach_notes(box)
             openrel = box.addButton(
                 ui_tr_now("Open the releases page"), QMessageBox.AcceptRole)
@@ -1433,9 +1463,10 @@ def build_emulator_ops(
         asset = _zxnu_pick_release_asset(release)
         if not asset:
             add_main_log_window(
-                f"ZX Next Unite {tag} is available, but the release has no "
-                "package for this platform — opening the releases page "
-                "instead.")
+                ui_tr_now(
+                    "ZX Next Unite {latest} is available, but the release has "
+                    "no package for this platform — opening the releases page "
+                    "instead.").format(latest=tag))
             if QMessageBox.question(
                     host, "ZX Next Unite update available",
                     f"{tag} is available but carries no package for this "
@@ -1450,15 +1481,16 @@ def build_emulator_ops(
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Question)
         box.setWindowTitle(ui_tr_now("ZX Next Unite update available"))
-        box.setText(
-            f"ZX Next Unite {tag} is available — download?\n\n"
-            f"Installed: {ZX_NEXT_UNITE_VERSION}\n"
-            f"Latest: {tag}\n"
-            f"Package: {asset_name} (~{size_txt})\n\n"
+        box.setText(ui_tr_now(
+            "ZX Next Unite {latest} is available — download?\n\n"
+            "Installed: {installed}\nLatest: {latest}\n"
+            "Package: {asset} (~{size})\n\n"
             "The new version is saved next to the current one — you choose\n"
-            "when to switch (you'll be offered a restart after the download).")
+            "when to switch (you'll be offered a restart after the download)."
+        ).format(latest=tag, installed=ZX_NEXT_UNITE_VERSION,
+                 asset=asset_name, size=size_txt))
         _attach_notes(box)
-        dl = box.addButton("Download", QMessageBox.AcceptRole)
+        dl = box.addButton(ui_tr_now("Download"), QMessageBox.AcceptRole)
         box.addButton(ui_tr_now("Cancel"), QMessageBox.RejectRole)
         box.setDefaultButton(dl)
         box.exec()
@@ -1499,9 +1531,10 @@ def build_emulator_ops(
                 remote = _parse_zxnu_version(tag)
                 local = _parse_zxnu_version(ZX_NEXT_UNITE_VERSION)
                 if not remote or not local:
-                    add_main_log_window(
+                    add_main_log_window(ui_tr_now(
                         "ZX Next Unite update check: could not parse the "
-                        f"versions (latest tag {tag!r}); skipping.")
+                        "versions (latest tag {tag}); skipping.").format(
+                            tag=repr(tag)))
                     return
                 if remote <= local:
                     add_main_log_window(ui_tr_now(
@@ -1546,10 +1579,11 @@ def build_emulator_ops(
         save_configuration_file()
         if not saved:
             return  # first run with this feature: remember, don't nag
-        add_main_log_window(
-            f"NextSync .sync5 dot command updated: v{saved} -> "
-            f"v{ZX_NEXT_UNITE_DOTN_VERSION} — please copy the new build "
-            "to your Next (it cannot be deployed automatically).")
+        add_main_log_window(ui_tr_now(
+            "NextSync .sync5 dot command updated: v{old} -> v{new} — please "
+            "copy the new build to your Next (it cannot be deployed "
+            "automatically).").format(
+                old=saved, new=ZX_NEXT_UNITE_DOTN_VERSION))
         QMessageBox.information(
             host, ".sync5 needs updating on your Next",
             "This ZX Next Unite version ships an updated NextSync dot "
@@ -1596,9 +1630,11 @@ def build_emulator_ops(
         filename = info.get("filename") or ""
         dest_dir = _cspect_update_dest_dir()
 
-        add_main_log_window(
-            f"CSpect update ▸ Starting download + install of {latest_name} "
-            f"({filename or 'archive'}) from itch.io into {dest_dir}.")
+        add_main_log_window(ui_tr_now(
+            "CSpect update ▸ Starting download + install of {name} ({file}) "
+            "from itch.io into {folder}.").format(
+                name=latest_name, file=filename or "archive",
+                folder=dest_dir))
 
         # Marshal worker-thread log lines to the UI thread. Reuses
         # MameInstallSignals (its 'status' str signal); kept on self so the
@@ -1645,9 +1681,9 @@ def build_emulator_ops(
 
         def _ok(extracted):
             host._cspect_update_installing = False
-            add_main_log_window(
-                f"CSpect update ▸ SUCCESS — {latest_name} extracted to: "
-                f"{extracted}")
+            add_main_log_window(ui_tr_now(
+                "CSpect update ▸ SUCCESS — {name} extracted to: {path}"
+            ).format(name=latest_name, path=extracted))
             # Adopt the freshly-installed build: drop the current CSpect path
             # so the rescan re-selects the newest one (find_emulators_in_
             # downloads now prefers the highest version folder). Also re-picks
@@ -1699,11 +1735,11 @@ def build_emulator_ops(
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Question)
         box.setWindowTitle(ui_tr_now("CSpect update available"))
-        box.setText(
+        box.setText(ui_tr_now(
             "A newer version of CSpect is available on itch.io.\n\n"
-            f"Installed: {installed_name}\n"
-            f"Latest: {latest_name}\n\n"
-            "Download and install the newest version now?")
+            "Installed: {installed}\nLatest: {latest}\n\n"
+            "Download and install the newest version now?").format(
+                installed=installed_name, latest=latest_name))
         _attach_release_notes(box, info.get("notes"))
         yes = box.addButton(ui_tr_now("Yes"), QMessageBox.AcceptRole)
         box.addButton(ui_tr_now("Cancel"), QMessageBox.RejectRole)
@@ -2117,19 +2153,20 @@ def build_hdfmonkey_install_ops(
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Warning)
         box.setWindowTitle(ui_tr_now("hdfmonkey download failed"))
-        box.setText(
+        box.setText(ui_tr_now(
             "The automatic hdfmonkey download from specnext.com failed — the "
             "forum may be asking for a login or an anti-robot confirmation "
             "before the download can start (see the log for details).\n\n"
             "You can install it manually instead:\n"
-            f"1. Click 'Open download page' below (or browse to\n"
-            f"    {HDF_MONKEY_JJJS_URL} ).\n"
+            "1. Click 'Open download page' below (or browse to\n"
+            "    {url} ).\n"
             "2. Download the hdfmonkey .zip file.\n"
-            f"3. Drop the downloaded .zip into this EXACT folder — the app "
-            f"has already created it, and the 'Open downloads folder' button "
-            f"below opens it so nothing needs to be typed:\n"
-            f"    {downloads_root}\n"
-            "4. Click \"I've dropped the zip - try again\".")
+            "3. Drop the downloaded .zip into this EXACT folder — the app has "
+            "already created it, and the 'Open downloads folder' button below "
+            "opens it so nothing needs to be typed:\n"
+            "    {folder}\n"
+            "4. Click \"I've dropped the zip - try again\".").format(
+                url=HDF_MONKEY_JJJS_URL, folder=downloads_root))
         open_page_btn = box.addButton(ui_tr_now("Open download page"), QMessageBox.ActionRole)
         open_folder_btn = box.addButton(ui_tr_now("Open downloads folder"), QMessageBox.ActionRole)
         retry_btn = box.addButton(ui_tr_now("I've dropped the zip - try again"),
@@ -2216,14 +2253,14 @@ def build_hdfmonkey_install_ops(
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Information)
         box.setWindowTitle(ui_tr_now("Install hdfmonkey"))
-        box.setText(
+        box.setText(ui_tr_now(
             "TIP: Did you know that if you have purchased CSpect from "
             "itch.io you can do a full end-to-end CSpect install from "
             "there?\n\n"
             "Simply log into your itch.io account in the itch.io tab, "
             "navigate to CSpect and click Install.\n\n"
             "Do you still want to install hdfmonkey only, or abort and then "
-            "make an end-to-end install of CSpect using itch.io?")
+            "make an end-to-end install of CSpect using itch.io?"))
         continue_btn = box.addButton(
             ui_tr_now("Continue hdfmonkey standalone install"),
             QMessageBox.AcceptRole)

@@ -36,6 +36,7 @@ SUITES = [
     ("test_mame_install.py",     120, None),
     ("test_startup_tab_activation.py", 120, None),
     ("test_cspect_autostart.py",  120, None),
+    ("test_mame_autostart.py",   120, None),
     ("test_pane_imports.py",    120, None),
     ("test_hdf_workers.py",     120, None),
     ("test_classic_sync.py",    180, None),

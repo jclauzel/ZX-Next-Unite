@@ -1120,6 +1120,70 @@ def cspect_can_autostart(path):
     return bool(path) and str(path).lower().endswith(CSPECT_AUTOSTART_EXTENSIONS)
 
 
+# File types MAME can load straight from the command line on the Next drivers,
+# grouped by the media switch that takes them. The extension lists come from
+# `mame -listmedia tbblue` (identical for specnext_ks1/ks2/ks3).
+#
+# Contrary to a widespread belief, a raw file needs NO software-list entry and
+# no copy into a software/<system> folder: `mame tbblue -snapshot <host path>`
+# boots an arbitrary .nex. The software-list route (hash/specnext_sd.xml) is
+# for hash-matched SD-card images, which is a different mechanism entirely and
+# cannot describe a file it has never seen. The path must be a HOST path — a
+# path inside the mounted image means nothing to MAME's file loader.
+#
+# MAME also accepts .wav/.flac as cassettes and .raw as a quickload; those are
+# deliberately left out. On an SD card such a name is far more likely to be
+# ordinary audio or generic data than a Spectrum tape, and the point of these
+# tables is to decide when the "start with this file" actions are worth
+# offering — same reason CSPECT_AUTOSTART_EXTENSIONS stops short of .txt.
+MAME_SNAPSHOT_EXTENSIONS = (".nex", ".sna", ".snx", ".snp", ".z80", ".sp",
+                            ".spg", ".zx", ".ach", ".frz", ".sem", ".sit")
+MAME_QUICKLOAD_EXTENSIONS = (".scr",)
+MAME_CASSETTE_EXTENSIONS = (".tap", ".tzx", ".blk")
+
+
+def mame_autostart_argument(path):
+    """The MAME media switch that loads *path* (``-snapshot`` / ``-quickload``
+    / ``-cassette``), or ``""`` when MAME cannot boot that file type."""
+    lowered = str(path or "").lower()
+    if not lowered:
+        return ""
+    if lowered.endswith(MAME_SNAPSHOT_EXTENSIONS):
+        return "-snapshot"
+    if lowered.endswith(MAME_QUICKLOAD_EXTENSIONS):
+        return "-quickload"
+    if lowered.endswith(MAME_CASSETTE_EXTENSIONS):
+        return "-cassette"
+    return ""
+
+
+def mame_can_autostart(path):
+    """True when *path* looks like something MAME can load directly."""
+    return bool(mame_autostart_argument(path))
+
+
+def mame_autostart_staging_dir():
+    """Where to put a file extracted from the SD image before handing it to
+    FLATPAK MAME.
+
+    The obvious ``tempfile.mkdtemp()`` is wrong here: Flatpak gives every app a
+    private ``/tmp``, and ``--filesystem=host`` deliberately excludes ``/tmp``
+    (it is one of Flatpak's reserved root directories), so a copy left there is
+    invisible to Flatpak MAME no matter what permissions it holds.
+
+    A path under the user's home works from both sides: this app's manifest
+    grants ``--filesystem=home`` (so the directory is written to the real home,
+    not a sandbox-private one) and Flathub's org.mamedev.MAME grants
+    ``--filesystem=home`` too, so it can read the file back.
+
+    One fixed directory, cleared before each use, rather than a fresh temp dir
+    per launch — nothing under ``~`` is cleaned up by the OS, so accumulating
+    copies would just leak disk space.
+    """
+    return os.path.join(os.path.expanduser("~"), ".cache",
+                        "zx-next-unite", "mame-autostart")
+
+
 def emulator_option_argument(options, index):
     """The command-line argument for entry *index* of an emulator option tuple
     (any of the ``CSPECT_*`` / ``MAME_*`` ``(label, argument)`` tuples above),
