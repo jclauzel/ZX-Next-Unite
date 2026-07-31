@@ -417,6 +417,7 @@ CATALOGS = {
         "Mouse Off": "Ratón desactivado",
         "Disable ESC Key Off": "Desactivar tecla ESC: no",
         "Disable ESC Key On": "Desactivar tecla ESC: sí",
+        "No image loaded": "No hay imagen cargada",
         # ---- itch.io item viewer + web-link labels ----
         "About": "Acerca de",
         "Open on {site}": "Abrir en {site}",
@@ -895,6 +896,7 @@ CATALOGS = {
         "Mouse Off": "Rato desligado",
         "Disable ESC Key Off": "Desativar tecla ESC: não",
         "Disable ESC Key On": "Desativar tecla ESC: sim",
+        "No image loaded": "Nenhuma imagem carregada",
         # ---- itch.io item viewer + web-link labels ----
         "About": "Sobre",
         "Open on {site}": "Abrir em {site}",
@@ -1371,6 +1373,7 @@ CATALOGS = {
         "Mouse Off": "Mysz wyłączona",
         "Disable ESC Key Off": "Blokada klawisza ESC: wył.",
         "Disable ESC Key On": "Blokada klawisza ESC: wł.",
+        "No image loaded": "Nie wczytano obrazu",
         # ---- itch.io item viewer + web-link labels ----
         "About": "Informacje",
         "Open on {site}": "Otwórz w {site}",
@@ -1848,6 +1851,7 @@ CATALOGS = {
         "Mouse Off": "Мышь выкл.",
         "Disable ESC Key Off": "Блокировка ESC: выкл.",
         "Disable ESC Key On": "Блокировка ESC: вкл.",
+        "No image loaded": "Образ не загружен",
         # ---- itch.io item viewer + web-link labels ----
         "About": "Описание",
         "Open on {site}": "Открыть на {site}",
@@ -2324,6 +2328,7 @@ CATALOGS = {
         "Mouse Off": "Myš vypnuta",
         "Disable ESC Key Off": "Blokovat klávesu ESC: ne",
         "Disable ESC Key On": "Blokovat klávesu ESC: ano",
+        "No image loaded": "Není načten žádný obraz",
         # ---- itch.io item viewer + web-link labels ----
         "About": "O hře",
         "Open on {site}": "Otevřít na {site}",
@@ -2803,6 +2808,7 @@ CATALOGS = {
         "Mouse Off": "Souris désactivée",
         "Disable ESC Key Off": "Désactiver la touche ÉCHAP : non",
         "Disable ESC Key On": "Désactiver la touche ÉCHAP : oui",
+        "No image loaded": "Aucune image chargée",
         # ---- itch.io item viewer + web-link labels ----
         "About": "À propos",
         "Open on {site}": "Ouvrir sur {site}",
