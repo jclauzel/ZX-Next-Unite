@@ -235,7 +235,20 @@ def build_emulator_ops(
             execute_shell_command("vim", "./" + ZX_NEXT_UNITE_CONFIG_FILE_NAME)
         return
 
-    def launch_cspect():
+    def launch_cspect(autostart_file=None):
+        """Launch CSpect against the loaded SD image.
+
+        *autostart_file* is a path INSIDE that image (e.g. "games/foo.nex").
+        When given it is appended as CSpect's final argument, which makes
+        CSpect load and start it right after boot:
+
+            CSpect.exe … -zxnext -mmc=<image> games/foo.nex
+
+        Note the parameter is positional on purpose: this function is also a
+        clicked() slot, and Qt passes the button's `checked` bool to slots that
+        accept an argument. That bool is filtered out by the isinstance() check
+        below rather than by a keyword-only signature, which Qt handles less
+        predictably across PySide versions."""
         if _right_disk_content():  # check that we have an image content first
             set_all_buttons_disabled()
 
@@ -290,6 +303,14 @@ def build_emulator_ops(
             mmc_path = f'"{img_path}"' if img_path else img_path
 
             cspect_arguments += " -mmc=" + mmc_path + " "
+
+            # Auto-start a file that lives on the mounted image. CSpect takes
+            # it as a trailing argument, resolved relative to the -mmc root, so
+            # the in-image path is used with its leading slash stripped.
+            if isinstance(autostart_file, str) and autostart_file.strip():
+                _auto = autostart_file.strip().lstrip("/")
+                cspect_arguments += (f'"{_auto}" ' if " " in _auto
+                                     else _auto + " ")
 
             # The command that will actually be invoked: the bundled itch.io
             # copy by absolute path, otherwise the CSpect.exe resolved from the

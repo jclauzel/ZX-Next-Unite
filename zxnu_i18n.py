@@ -417,6 +417,15 @@ CATALOGS = {
         "Mouse Off": "Ratón desactivado",
         "Disable ESC Key Off": "Desactivar tecla ESC: no",
         "Disable ESC Key On": "Desactivar tecla ESC: sí",
+        # ---- CSpect auto-start actions (SD Card tab menus) ----
+        "Send to SD Card and start CSpect with file {name}":
+            "Enviar a la tarjeta SD e iniciar CSpect con el archivo {name}",
+        "Send to SD Card and start CSpect: the transfer failed, CSpect was not started.":
+            "Enviar a la tarjeta SD e iniciar CSpect: la transferencia falló; CSpect no se ha iniciado.",
+        "Sending {name} to the SD card image, then starting CSpect…":
+            "Enviando {name} a la imagen de la tarjeta SD y luego iniciando CSpect…",
+        "Start CSpect with file {name}":
+            "Iniciar CSpect con el archivo {name}",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Actualización de CSpect disponible",
@@ -1100,6 +1109,15 @@ CATALOGS = {
         "Mouse Off": "Rato desligado",
         "Disable ESC Key Off": "Desativar tecla ESC: não",
         "Disable ESC Key On": "Desativar tecla ESC: sim",
+        # ---- CSpect auto-start actions (SD Card tab menus) ----
+        "Send to SD Card and start CSpect with file {name}":
+            "Enviar para o cartão SD e iniciar o CSpect com o ficheiro {name}",
+        "Send to SD Card and start CSpect: the transfer failed, CSpect was not started.":
+            "Enviar para o cartão SD e iniciar o CSpect: a transferência falhou; o CSpect não foi iniciado.",
+        "Sending {name} to the SD card image, then starting CSpect…":
+            "A enviar {name} para a imagem do cartão SD e depois a iniciar o CSpect…",
+        "Start CSpect with file {name}":
+            "Iniciar o CSpect com o ficheiro {name}",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Atualização do CSpect disponível",
@@ -1781,6 +1799,15 @@ CATALOGS = {
         "Mouse Off": "Mysz wyłączona",
         "Disable ESC Key Off": "Blokada klawisza ESC: wył.",
         "Disable ESC Key On": "Blokada klawisza ESC: wł.",
+        # ---- CSpect auto-start actions (SD Card tab menus) ----
+        "Send to SD Card and start CSpect with file {name}":
+            "Wyślij na kartę SD i uruchom CSpect z plikiem {name}",
+        "Send to SD Card and start CSpect: the transfer failed, CSpect was not started.":
+            "Wyślij na kartę SD i uruchom CSpect: transfer nie powiódł się — CSpect nie został uruchomiony.",
+        "Sending {name} to the SD card image, then starting CSpect…":
+            "Wysyłanie {name} do obrazu karty SD, potem uruchomienie CSpect…",
+        "Start CSpect with file {name}":
+            "Uruchom CSpect z plikiem {name}",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Dostępna aktualizacja CSpect",
@@ -2463,6 +2490,15 @@ CATALOGS = {
         "Mouse Off": "Мышь выкл.",
         "Disable ESC Key Off": "Блокировка ESC: выкл.",
         "Disable ESC Key On": "Блокировка ESC: вкл.",
+        # ---- CSpect auto-start actions (SD Card tab menus) ----
+        "Send to SD Card and start CSpect with file {name}":
+            "Отправить на SD-карту и запустить CSpect с файлом {name}",
+        "Send to SD Card and start CSpect: the transfer failed, CSpect was not started.":
+            "Отправка на SD-карту и запуск CSpect: передача не удалась — CSpect не запущен.",
+        "Sending {name} to the SD card image, then starting CSpect…":
+            "Отправка {name} в образ SD-карты, затем запуск CSpect…",
+        "Start CSpect with file {name}":
+            "Запустить CSpect с файлом {name}",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Доступно обновление CSpect",
@@ -3144,6 +3180,15 @@ CATALOGS = {
         "Mouse Off": "Myš vypnuta",
         "Disable ESC Key Off": "Blokovat klávesu ESC: ne",
         "Disable ESC Key On": "Blokovat klávesu ESC: ano",
+        # ---- CSpect auto-start actions (SD Card tab menus) ----
+        "Send to SD Card and start CSpect with file {name}":
+            "Odeslat na SD kartu a spustit CSpect se souborem {name}",
+        "Send to SD Card and start CSpect: the transfer failed, CSpect was not started.":
+            "Odeslat na SD kartu a spustit CSpect: přenos selhal — CSpect nebyl spuštěn.",
+        "Sending {name} to the SD card image, then starting CSpect…":
+            "Odesílání {name} do obrazu SD karty, poté spuštění CSpectu…",
+        "Start CSpect with file {name}":
+            "Spustit CSpect se souborem {name}",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "K dispozici je aktualizace CSpectu",
@@ -3828,6 +3873,15 @@ CATALOGS = {
         "Mouse Off": "Souris désactivée",
         "Disable ESC Key Off": "Désactiver la touche ÉCHAP : non",
         "Disable ESC Key On": "Désactiver la touche ÉCHAP : oui",
+        # ---- CSpect auto-start actions (SD Card tab menus) ----
+        "Send to SD Card and start CSpect with file {name}":
+            "Envoyer vers la carte SD et lancer CSpect avec le fichier {name}",
+        "Send to SD Card and start CSpect: the transfer failed, CSpect was not started.":
+            "Envoyer vers la carte SD et lancer CSpect : le transfert a échoué, CSpect n'a pas été lancé.",
+        "Sending {name} to the SD card image, then starting CSpect…":
+            "Envoi de {name} vers l'image de la carte SD, puis lancement de CSpect…",
+        "Start CSpect with file {name}":
+            "Lancer CSpect avec le fichier {name}",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Mise à jour de CSpect disponible",

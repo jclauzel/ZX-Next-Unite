@@ -1439,6 +1439,7 @@ def build_local_explorer_ops(
     host,
     *,
     add_main_log_window,
+    _right_disk_content,
     nextsync_refresh_explorer,
     _nextsync_unique_path,
     _run_nextsync_import_task,
@@ -1583,6 +1584,38 @@ def build_local_explorer_ops(
             lambda: QTimer.singleShot(0, lambda: _local_zip_selection(
                 _local_explorer_selected_paths_or(file_path),
                 local_explorer_refresh, add_main_log_window)))
+        # "Send to SD Card and start CSpect with <file>" — top of the menu,
+        # offered only with CSpect installed, an image loaded, and a file
+        # CSpect can boot. It uploads into the folder the image explorer is
+        # showing and, once that succeeds, starts CSpect on the uploaded copy
+        # (the in-image path, which is what CSpect resolves against -mmc).
+        if (not is_dir and cspect_can_autostart(file_path)
+                and _right_disk_content()
+                and getattr(host, "_cspect_executable_path", None)
+                and getattr(host, "_launch_cspect_fn", None)
+                and getattr(host, "image_upload_external_paths", None)):
+            def _send_and_start(_p=file_path):
+                target = (host.diskimageexplorerpathinput.text() or "/").strip()
+                target = ("/" + target.strip("/")) if target.strip("/") else "/"
+                in_image = (target.rstrip("/") + "/" + os.path.basename(_p))
+
+                def _after(success):
+                    if not success:
+                        add_main_log_window(ui_tr_now(
+                            "Send to SD Card and start CSpect: the transfer "
+                            "failed, CSpect was not started."))
+                        return
+                    host._launch_cspect_fn(in_image)
+                add_main_log_window(ui_tr_now(
+                    "Sending {name} to the SD card image, then starting "
+                    "CSpect…").format(name=os.path.basename(_p)))
+                host.image_upload_external_paths([_p], target, on_complete=_after)
+            menu.addAction(
+                ui_tr_now("Send to SD Card and start CSpect with file {name}"
+                          ).format(name=name),
+                lambda: QTimer.singleShot(0, _send_and_start))
+            menu.addSeparator()
+
         menu.addAction(action_copy_text)
         menu.addAction(action_copy_path)
         menu.addSeparator()
@@ -2508,6 +2541,8 @@ def build_transfer_clipboard_ops(
         return None
 
     def image_upload_external_paths(paths, target_dir, on_complete=None):
+        # (exposed on host below so the LOCAL explorer's menu — built by a
+        # different builder — can upload a file before starting CSpect)
         """Copy local files/folders (e.g. dropped from Windows Explorer) into
         the loaded disk image under *target_dir*. *on_complete*, when given, is
         called with a single bool (True only if the upload finished without error
@@ -2841,6 +2876,23 @@ def build_transfer_clipboard_ops(
             is_dir = bool(name_item.data(IMG_ISDIR_ROLE)) if name_item is not None else False
 
             selected_count = len(host.image_selected_paths)
+
+            # "Start CSpect with <file>" — top of the menu, and only when
+            # CSpect is actually installed and the row is a file CSpect can
+            # boot. CSpect takes the in-image path as its trailing argument,
+            # resolved against the -mmc root, so the file must already live on
+            # the mounted image (which it does: this is the image explorer).
+            item_path = (name_item.data(IMG_PATH_ROLE) or "") \
+                if name_item is not None else ""
+            if (not is_dir and cspect_can_autostart(item_path)
+                    and getattr(host, "_cspect_executable_path", None)
+                    and getattr(host, "_launch_cspect_fn", None)):
+                menu.addAction(
+                    ui_tr_now("Start CSpect with file {name}").format(
+                        name=os.path.basename(item_path)),
+                    lambda p=item_path: host._launch_cspect_fn(p))
+                menu.addSeparator()
+
             new_folder_label = "New Folder Here…" if is_dir else "New Folder…"
             menu.addAction(new_folder_label, image_newfolder_dialog)
             menu.addSeparator()

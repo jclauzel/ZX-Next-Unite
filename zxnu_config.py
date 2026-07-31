@@ -1107,6 +1107,19 @@ MAME_JOYSTICK = (("Joystick On", "-joystick"), ("Joystick Off", "-joystickprovid
 MAME_ESC = (("Disable ESC Key Off", ""), ("Disable ESC Key On", "-confirm_quit"))
 
 
+# File types CSpect can load and start straight from the command line (passed
+# as its trailing argument, resolved against the -mmc root). Used to decide
+# whether the SD Card tab offers its "start CSpect with this file" actions —
+# offering them on a readme.txt would just be noise.
+CSPECT_AUTOSTART_EXTENSIONS = (".nex", ".sna", ".z80", ".tap", ".tzx", ".trd",
+                               ".scl", ".dsk", ".slt", ".szx")
+
+
+def cspect_can_autostart(path):
+    """True when *path* looks like something CSpect can boot directly."""
+    return bool(path) and str(path).lower().endswith(CSPECT_AUTOSTART_EXTENSIONS)
+
+
 def emulator_option_argument(options, index):
     """The command-line argument for entry *index* of an emulator option tuple
     (any of the ``CSPECT_*`` / ``MAME_*`` ``(label, argument)`` tuples above),
