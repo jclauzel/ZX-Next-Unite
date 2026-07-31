@@ -98,8 +98,8 @@ def build_main_retro_log(
             if not ok:
                 _main_pygame_disable(
                     f"{why}\nInstall with: pip install pygame-ce")
-                add_main_log_window(
-                    "Pygame mode unavailable — run: pip install pygame-ce")
+                add_main_log_window(ui_tr_now(
+                    "Pygame mode unavailable — run: pip install pygame-ce"))
                 return
             try:
                 widget = _main_build_retro_log()

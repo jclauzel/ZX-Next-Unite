@@ -123,7 +123,9 @@ def build_sdcard_utils(
             return False
         except Exception as e:
             logging.error(f"Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.... {e}")
-            add_main_log_window(f"Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.... {e}")
+            add_main_log_window(ui_tr_now(
+                "Failed executing hdfmonkey, please make sure it is "
+                "installed in the same local directory as zx-next-unite.") + f" {e}")
             return False
 
     def _add_to_image_history(path: str):
@@ -615,7 +617,7 @@ def build_sdcard_utils(
         button_box = QDialogButtonBox(dialog)
         create_button = button_box.addButton(
             ui_tr_now("Create"), QDialogButtonBox.AcceptRole)
-        button_box.addButton("Cancel", QDialogButtonBox.RejectRole)
+        button_box.addButton(ui_tr_now("Cancel"), QDialogButtonBox.RejectRole)
         layout.addWidget(button_box)
 
         def _on_create():
@@ -702,7 +704,7 @@ def build_sdcard_utils(
         button_box = QDialogButtonBox(dialog)
         download_button = button_box.addButton(
             ui_tr_now("Download"), QDialogButtonBox.AcceptRole)
-        cancel_button = button_box.addButton("Cancel", QDialogButtonBox.RejectRole)
+        cancel_button = button_box.addButton(ui_tr_now("Cancel"), QDialogButtonBox.RejectRole)
         dialog_layout.addWidget(button_box)
 
         cancel_button.clicked.connect(dialog.reject)
@@ -1095,10 +1097,17 @@ def build_sdcard_utils(
                 elif ex.returncode == 255:
                     if execution_cmd is not None:
                         logging.error(f"ERROR: hdfmonkey failed - A file can't be opened: {execution_cmd} this is commonly caused by strange characters such as quotes and signs")
-                        add_main_log_window(f"ERROR: hdfmonkey failed - A file can't be opened: {execution_cmd} this is commonly caused by strange characters such as quotes and signs")
+                        add_main_log_window(ui_tr_now(
+                            "ERROR: hdfmonkey failed - A file can't be opened: "
+                            "{command} this is commonly caused by strange "
+                            "characters such as quotes and signs").format(
+                                command=execution_cmd))
                     else:
                         logging.error(f"ERROR: hdfmonkey failed - A file can't be opened this is commonly caused by strange characters such as quotes and signs")
-                        add_main_log_window(f"ERROR: hdfmonkey failed - A file can't be opened this is commonly caused by strange characters such as quotes and signs")
+                        add_main_log_window(ui_tr_now(
+                            "ERROR: hdfmonkey failed - A file can't be opened "
+                            "this is commonly caused by strange characters "
+                            "such as quotes and signs"))
                 else:
                     err_detail = f" | stderr: {stderr_text}" if stderr_text else ""
                     if HDFMONKEY_EXECUTABLE is not None and execution_cmd is not None:
@@ -1222,8 +1231,9 @@ def build_image_edit_ops(
         layout.addWidget(warn)
 
         button_box = QDialogButtonBox(dialog)
-        delete_button = button_box.addButton("Delete", QDialogButtonBox.AcceptRole)
-        cancel_button = button_box.addButton("Cancel", QDialogButtonBox.RejectRole)
+        delete_button = button_box.addButton(
+            ui_tr_now("Delete"), QDialogButtonBox.AcceptRole)
+        cancel_button = button_box.addButton(ui_tr_now("Cancel"), QDialogButtonBox.RejectRole)
         layout.addWidget(button_box)
 
         delete_button.clicked.connect(dialog.accept)
@@ -2758,14 +2768,15 @@ def build_transfer_clipboard_ops(
                     add_main_log_window(ui_tr_now(
                         "Remote unzip cancelled — the image is unchanged."))
                 elif res["error"]:
-                    add_main_log_window(f"ERROR: could not extract {name}: "
-                                        f"{res['error']}")
+                    add_main_log_window(ui_tr_now(
+                        "ERROR: could not extract {name}: {error}").format(
+                            name=name, error=res["error"]))
                     QMessageBox.critical(
                         host, ui_tr_now("Remote unzip failed"),
                         ui_tr_now("Could not extract {name}:").format(name=name) + f"\n{res['error']}")
                 else:
-                    add_main_log_window(f"{name} contains no extractable "
-                                        "files.")
+                    add_main_log_window(ui_tr_now(
+                        "{name} contains no extractable files.").format(name=name))
                 return
             tops = [os.path.join(extract_dir, e)
                     for e in sorted(os.listdir(extract_dir))]
@@ -2788,8 +2799,8 @@ def build_transfer_clipboard_ops(
                         "cancelled."))
             image_upload_external_paths(tops, dest_dir, on_complete=_done)
 
-        add_main_log_window(f"Remote unzip: fetching {zip_path} from "
-                            "the image …")
+        add_main_log_window(ui_tr_now(
+            "Remote unzip: fetching {path} from the image …").format(path=zip_path))
         image_get_paths_to_local(
             [(zip_path, False)], tmp, refresh_fn=lambda: None,
             on_complete=lambda okd: QTimer.singleShot(0, lambda: _go(okd)))
@@ -2890,8 +2901,9 @@ def build_transfer_clipboard_ops(
             image_upload_external_paths([zip_local], dest_dir,
                                         on_complete=_done)
 
-        add_main_log_window(f"Remote zip: fetching {len(items)} item(s) "
-                            "from the image …")
+        add_main_log_window(ui_tr_now(
+            "Remote zip: fetching {count} item(s) from the image …").format(
+                count=len(items)))
         image_get_paths_to_local(
             items, dl, refresh_fn=lambda: None,
             on_complete=lambda okd: QTimer.singleShot(0, lambda: _go(okd)))

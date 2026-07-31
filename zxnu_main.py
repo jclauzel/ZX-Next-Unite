@@ -3915,7 +3915,9 @@ class MainWindow(QMainWindow):
             if _near_hdfmonkey:
                 self._hdfmonkey_executable_path = _near_hdfmonkey
                 _need_hdfmonkey = False
-                add_main_log_window(f"Found hdfmonkey alongside CSpect: {_near_hdfmonkey}")
+                add_main_log_window(ui_tr_now(
+                    "Found hdfmonkey alongside CSpect: {path}").format(
+                        path=_near_hdfmonkey))
                 self.download_and_install_hdfmonkey_button.setVisible(False)
                 self.button_new_folder.setVisible(True)
                 self.button_delete_files.setVisible(True)
@@ -4023,7 +4025,9 @@ class MainWindow(QMainWindow):
                 if near:
                     self._hdfmonkey_executable_path = near
                     need_hdfmonkey = False
-                    add_main_log_window(f"Found hdfmonkey alongside CSpect: {near}")
+                    add_main_log_window(ui_tr_now(
+                        "Found hdfmonkey alongside CSpect: {path}").format(
+                            path=near))
                     try:
                         self.download_and_install_hdfmonkey_button.setVisible(False)
                         self.button_new_folder.setVisible(True)
@@ -4184,9 +4188,10 @@ class MainWindow(QMainWindow):
             configuration_dictionary[SETTING_UI_LANGUAGE] = _ui_language
             save_configuration_file()   # one-time adoption (never re-runs)
             if _ui_language != "en":
-                add_main_log_window(
-                    f"UI language set to '{_ui_language}' to match the system "
-                    "language — change it on the Settings tab.")
+                add_main_log_window(ui_tr_now(
+                    "UI language set to '{lang}' to match the system "
+                    "language — change it on the Settings tab.").format(
+                        lang=_ui_language))
                 _lang_toast_title = ui_tr(
                     "🌐  Language set to match your system", _ui_language)
                 _lang_toast_body = ui_tr(

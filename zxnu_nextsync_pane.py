@@ -1325,7 +1325,8 @@ def build_nextsync_pane(
                 _nextsync_pygame_disable(
                     f"{why}\nInstall with: pip install pygame-ce")
                 add_nextsync_log_window(
-                    "Pygame mode unavailable — run: pip install pygame-ce")
+                    ui_tr_now(
+                        "Pygame mode unavailable — run: pip install pygame-ce"))
                 return
             try:
                 widget = _nextsync_build_retro_log()

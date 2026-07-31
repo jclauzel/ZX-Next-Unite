@@ -948,12 +948,14 @@ def build_config_io(
 
             if ZX_NEXT_UNITE_VERBOSE_LOG_MODE:
                 logging.info("Configuration file saved successfully.")
-                add_main_log_window("Saved configuration file.")
+                add_main_log_window(ui_tr_now("Saved configuration file."))
 
 
         except IOError as e:
             logging.error(f"Failed to save configuration file with IOError: {e}")
-            add_main_log_window(f"Failed to save configuration file with IOError: {e}")
+            add_main_log_window(ui_tr_now(
+                "Failed to save configuration file with IOError: {error}"
+            ).format(error=e))
         except Exception as e:
             logging.error(f"An unexpected error occurred while saving the configuration file. Exception: {e}")
             add_main_log_window(f"An unexpected error occurred while saving the configuration file. Exception: {e}")

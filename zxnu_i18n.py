@@ -417,6 +417,76 @@ CATALOGS = {
         "Mouse Off": "Ratón desactivado",
         "Disable ESC Key Off": "Desactivar tecla ESC: no",
         "Disable ESC Key On": "Desactivar tecla ESC: sí",
+        # ---- emulator update prompts (bodies + buttons) ----
+        "A newer version of MAME is available.\n\nInstalled: 0.{installed}\nLatest: {latest}  (0.{latest_num})\nPackage: {asset}\n\nDownload (~{size}) and update your MAME install now?\nThe existing files in the downloads MAME folder will be overwritten.":
+            "Hay una versión más reciente de MAME.\n\nInstalada: 0.{installed}\nÚltima: {latest}  (0.{latest_num})\nPaquete: {asset}\n\n¿Descargar (~{size}) y actualizar tu instalación de MAME ahora?\nLos archivos existentes en la carpeta MAME se sobrescribirán.",
+        "Close and start {name}":
+            "Cerrar e iniciar {name}",
+        "Continue hdfmonkey standalone install":
+            "Continuar con la instalación independiente de hdfmonkey",
+        "I've dropped the zip - try again":
+            "Ya he puesto el zip: inténtalo de nuevo",
+        "MAME release: {tag}\nPackage: {asset} ({arch})\n\nDownload (~{size}) and install it into the downloads folder?\nNote: the fully extracted install is large (~500 MB).":
+            "Versión de MAME: {tag}\nPaquete: {asset} ({arch})\n\n¿Descargar (~{size}) e instalarlo en la carpeta de descargas?\nNota: la instalación completa ocupa bastante (~500 MB).",
+        "Open download page":
+            "Abrir la página de descarga",
+        "Open downloads folder":
+            "Abrir la carpeta de descargas",
+        "The new version was saved as:\n\n{path}\n\nClose ZX Next Unite now and start the new version ({name})?\nYour settings (hdfg.cfg) and downloads are picked up as-is —\nboth versions run from the same folder.":
+            "La nueva versión se guardó como:\n\n{path}\n\n¿Cerrar ZX Next Unite ahora e iniciar la nueva versión ({name})?\nTus ajustes (hdfg.cfg) y descargas se reutilizan tal cual —\nambas versiones se ejecutan desde la misma carpeta.",
+        "What's changed:":
+            "Novedades:",
+        # ---- emulator / config console (final batch) ----
+        "CSpect update check: {reason}.":
+            "Comprobación de CSpect: {reason}.",
+        "CSpect update ▸ FAILED — {error}":
+            "Actualización de CSpect ▸ FALLÓ — {error}",
+        "CSpect update ▸ newer build available: installed {installed}, latest {latest}.":
+            "Actualización de CSpect ▸ hay una compilación más reciente: instalada {installed}, última {latest}.",
+        "CSpect update ▸ user chose to update to {name}.":
+            "Actualización de CSpect ▸ el usuario eligió actualizar a {name}.",
+        "Could not list the MAME releases: {error}":
+            "No se pudieron listar las versiones de MAME: {error}",
+        "ERROR: Failed to launch MAME: {error}":
+            "ERROR: no se pudo iniciar MAME: {error}",
+        "ERROR: could not extract {name}: {error}":
+            "ERROR: no se pudo extraer {name}: {error}",
+        "ERROR: hdfmonkey failed - A file can't be opened this is commonly caused by strange characters such as quotes and signs":
+            "ERROR: hdfmonkey falló - no se puede abrir un archivo; esto suele deberse a caracteres extraños como comillas y signos",
+        "ERROR: hdfmonkey failed - A file can't be opened: {command} this is commonly caused by strange characters such as quotes and signs":
+            "ERROR: hdfmonkey falló - no se puede abrir un archivo: {command}; esto suele deberse a caracteres extraños como comillas y signos",
+        "Failed to save configuration file with IOError: {error}":
+            "Error al guardar el archivo de configuración (IOError): {error}",
+        "Found hdfmonkey alongside CSpect: {path}":
+            "hdfmonkey encontrado junto a CSpect: {path}",
+        "MAME exited with code {code}.":
+            "MAME finalizó con el código {code}.",
+        "MAME install ▸ SUCCESS — MAME detected at: {path}":
+            "Instalación de MAME ▸ CORRECTA — MAME detectado en: {path}",
+        "Pygame mode unavailable — run: pip install pygame-ce":
+            "Modo pygame no disponible — ejecuta: pip install pygame-ce",
+        "Remote unzip: fetching {path} from the image …":
+            "Descompresión remota: obteniendo {path} de la imagen …",
+        "Remote zip: fetching {count} item(s) from the image …":
+            "Compresión remota: obteniendo {count} elemento(s) de la imagen …",
+        "Saved configuration file.":
+            "Archivo de configuración guardado.",
+        "UI language set to '{lang}' to match the system language — change it on the Settings tab.":
+            "Idioma de la interfaz ajustado a '{lang}' para coincidir con el del sistema; puedes cambiarlo en la pestaña Ajustes.",
+        "ZX Next Unite update available: {latest} (installed {installed}).":
+            "Actualización de ZX Next Unite disponible: {latest} (instalada {installed}).",
+        "ZX Next Unite update ▸ downloading {asset}…":
+            "Actualización de ZX Next Unite ▸ descargando {asset}…",
+        "ZX Next Unite update: could not start {name}: {error}":
+            "Actualización de ZX Next Unite: no se pudo iniciar {name}: {error}",
+        "ZX Next Unite update: download FAILED: {error}":
+            "Actualización de ZX Next Unite: la descarga FALLÓ: {error}",
+        "ZX Next Unite update: downloaded — start it any time: {path}":
+            "Actualización de ZX Next Unite: descargada; puedes iniciarla cuando quieras: {path}",
+        "ZX Next Unite update: starting {name} and closing…":
+            "Actualización de ZX Next Unite: iniciando {name} y cerrando…",
+        "ZX Next Unite update: unpacked to {path}":
+            "Actualización de ZX Next Unite: descomprimida en {path}",
         "Extracting {name} from the image, then starting CSpect…":
             "Extrayendo {name} de la imagen y luego iniciando CSpect…",
         "Start CSpect: {name} could not be read from the image, CSpect was not started.":
@@ -1113,6 +1183,76 @@ CATALOGS = {
         "Mouse Off": "Rato desligado",
         "Disable ESC Key Off": "Desativar tecla ESC: não",
         "Disable ESC Key On": "Desativar tecla ESC: sim",
+        # ---- emulator update prompts (bodies + buttons) ----
+        "A newer version of MAME is available.\n\nInstalled: 0.{installed}\nLatest: {latest}  (0.{latest_num})\nPackage: {asset}\n\nDownload (~{size}) and update your MAME install now?\nThe existing files in the downloads MAME folder will be overwritten.":
+            "Existe uma versão mais recente do MAME.\n\nInstalada: 0.{installed}\nMais recente: {latest}  (0.{latest_num})\nPacote: {asset}\n\nTransferir (~{size}) e atualizar a instalação do MAME agora?\nOs ficheiros existentes na pasta MAME serão substituídos.",
+        "Close and start {name}":
+            "Fechar e iniciar {name}",
+        "Continue hdfmonkey standalone install":
+            "Continuar a instalação autónoma do hdfmonkey",
+        "I've dropped the zip - try again":
+            "Já coloquei o zip - tenta de novo",
+        "MAME release: {tag}\nPackage: {asset} ({arch})\n\nDownload (~{size}) and install it into the downloads folder?\nNote: the fully extracted install is large (~500 MB).":
+            "Versão do MAME: {tag}\nPacote: {asset} ({arch})\n\nTransferir (~{size}) e instalar na pasta de transferências?\nNota: a instalação extraída é grande (~500 MB).",
+        "Open download page":
+            "Abrir a página de transferência",
+        "Open downloads folder":
+            "Abrir a pasta de transferências",
+        "The new version was saved as:\n\n{path}\n\nClose ZX Next Unite now and start the new version ({name})?\nYour settings (hdfg.cfg) and downloads are picked up as-is —\nboth versions run from the same folder.":
+            "A nova versão foi guardada como:\n\n{path}\n\nFechar o ZX Next Unite agora e iniciar a nova versão ({name})?\nAs tuas definições (hdfg.cfg) e transferências são reutilizadas tal como estão —\nambas as versões correm a partir da mesma pasta.",
+        "What's changed:":
+            "Novidades:",
+        # ---- emulator / config console (final batch) ----
+        "CSpect update check: {reason}.":
+            "Verificação do CSpect: {reason}.",
+        "CSpect update ▸ FAILED — {error}":
+            "Atualização do CSpect ▸ FALHOU — {error}",
+        "CSpect update ▸ newer build available: installed {installed}, latest {latest}.":
+            "Atualização do CSpect ▸ existe uma versão mais recente: instalada {installed}, mais recente {latest}.",
+        "CSpect update ▸ user chose to update to {name}.":
+            "Atualização do CSpect ▸ o utilizador escolheu atualizar para {name}.",
+        "Could not list the MAME releases: {error}":
+            "Não foi possível listar as versões do MAME: {error}",
+        "ERROR: Failed to launch MAME: {error}":
+            "ERRO: não foi possível iniciar o MAME: {error}",
+        "ERROR: could not extract {name}: {error}":
+            "ERRO: não foi possível extrair {name}: {error}",
+        "ERROR: hdfmonkey failed - A file can't be opened this is commonly caused by strange characters such as quotes and signs":
+            "ERRO: o hdfmonkey falhou - não é possível abrir um ficheiro; normalmente deve-se a caracteres estranhos como aspas e sinais",
+        "ERROR: hdfmonkey failed - A file can't be opened: {command} this is commonly caused by strange characters such as quotes and signs":
+            "ERRO: o hdfmonkey falhou - não é possível abrir um ficheiro: {command}; normalmente deve-se a caracteres estranhos como aspas e sinais",
+        "Failed to save configuration file with IOError: {error}":
+            "Falha ao guardar o ficheiro de configuração (IOError): {error}",
+        "Found hdfmonkey alongside CSpect: {path}":
+            "hdfmonkey encontrado junto ao CSpect: {path}",
+        "MAME exited with code {code}.":
+            "O MAME terminou com o código {code}.",
+        "MAME install ▸ SUCCESS — MAME detected at: {path}":
+            "Instalação do MAME ▸ CONCLUÍDA — MAME detetado em: {path}",
+        "Pygame mode unavailable — run: pip install pygame-ce":
+            "Modo pygame indisponível — executa: pip install pygame-ce",
+        "Remote unzip: fetching {path} from the image …":
+            "Descompressão remota: a obter {path} da imagem …",
+        "Remote zip: fetching {count} item(s) from the image …":
+            "Compressão remota: a obter {count} item(ns) da imagem …",
+        "Saved configuration file.":
+            "Ficheiro de configuração guardado.",
+        "UI language set to '{lang}' to match the system language — change it on the Settings tab.":
+            "Idioma da interface definido para '{lang}' para corresponder ao do sistema; podes alterá-lo no separador Definições.",
+        "ZX Next Unite update available: {latest} (installed {installed}).":
+            "Atualização do ZX Next Unite disponível: {latest} (instalada {installed}).",
+        "ZX Next Unite update ▸ downloading {asset}…":
+            "Atualização do ZX Next Unite ▸ a transferir {asset}…",
+        "ZX Next Unite update: could not start {name}: {error}":
+            "Atualização do ZX Next Unite: não foi possível iniciar {name}: {error}",
+        "ZX Next Unite update: download FAILED: {error}":
+            "Atualização do ZX Next Unite: a transferência FALHOU: {error}",
+        "ZX Next Unite update: downloaded — start it any time: {path}":
+            "Atualização do ZX Next Unite: transferida; podes iniciá-la quando quiseres: {path}",
+        "ZX Next Unite update: starting {name} and closing…":
+            "Atualização do ZX Next Unite: a iniciar {name} e a fechar…",
+        "ZX Next Unite update: unpacked to {path}":
+            "Atualização do ZX Next Unite: descompactada em {path}",
         "Extracting {name} from the image, then starting CSpect…":
             "A extrair {name} da imagem e depois a iniciar o CSpect…",
         "Start CSpect: {name} could not be read from the image, CSpect was not started.":
@@ -1807,6 +1947,76 @@ CATALOGS = {
         "Mouse Off": "Mysz wyłączona",
         "Disable ESC Key Off": "Blokada klawisza ESC: wył.",
         "Disable ESC Key On": "Blokada klawisza ESC: wł.",
+        # ---- emulator update prompts (bodies + buttons) ----
+        "A newer version of MAME is available.\n\nInstalled: 0.{installed}\nLatest: {latest}  (0.{latest_num})\nPackage: {asset}\n\nDownload (~{size}) and update your MAME install now?\nThe existing files in the downloads MAME folder will be overwritten.":
+            "Dostępna jest nowsza wersja MAME.\n\nZainstalowana: 0.{installed}\nNajnowsza: {latest}  (0.{latest_num})\nPakiet: {asset}\n\nPobrać (~{size}) i zaktualizować instalację MAME teraz?\nIstniejące pliki w folderze MAME zostaną nadpisane.",
+        "Close and start {name}":
+            "Zamknij i uruchom {name}",
+        "Continue hdfmonkey standalone install":
+            "Kontynuuj samodzielną instalację hdfmonkey",
+        "I've dropped the zip - try again":
+            "Wrzuciłem plik zip — spróbuj ponownie",
+        "MAME release: {tag}\nPackage: {asset} ({arch})\n\nDownload (~{size}) and install it into the downloads folder?\nNote: the fully extracted install is large (~500 MB).":
+            "Wersja MAME: {tag}\nPakiet: {asset} ({arch})\n\nPobrać (~{size}) i zainstalować w folderze pobierania?\nUwaga: w pełni wypakowana instalacja jest duża (~500 MB).",
+        "Open download page":
+            "Otwórz stronę pobierania",
+        "Open downloads folder":
+            "Otwórz folder pobierania",
+        "The new version was saved as:\n\n{path}\n\nClose ZX Next Unite now and start the new version ({name})?\nYour settings (hdfg.cfg) and downloads are picked up as-is —\nboth versions run from the same folder.":
+            "Nowa wersja została zapisana jako:\n\n{path}\n\nZamknąć ZX Next Unite i uruchomić nową wersję ({name})?\nTwoje ustawienia (hdfg.cfg) i pobrane pliki są używane bez zmian —\nobie wersje działają z tego samego folderu.",
+        "What's changed:":
+            "Co nowego:",
+        # ---- emulator / config console (final batch) ----
+        "CSpect update check: {reason}.":
+            "Sprawdzanie CSpect: {reason}.",
+        "CSpect update ▸ FAILED — {error}":
+            "Aktualizacja CSpect ▸ NIEPOWODZENIE — {error}",
+        "CSpect update ▸ newer build available: installed {installed}, latest {latest}.":
+            "Aktualizacja CSpect ▸ dostępna nowsza kompilacja: zainstalowana {installed}, najnowsza {latest}.",
+        "CSpect update ▸ user chose to update to {name}.":
+            "Aktualizacja CSpect ▸ użytkownik wybrał aktualizację do {name}.",
+        "Could not list the MAME releases: {error}":
+            "Nie udało się pobrać listy wersji MAME: {error}",
+        "ERROR: Failed to launch MAME: {error}":
+            "BŁĄD: nie udało się uruchomić MAME: {error}",
+        "ERROR: could not extract {name}: {error}":
+            "BŁĄD: nie udało się wypakować {name}: {error}",
+        "ERROR: hdfmonkey failed - A file can't be opened this is commonly caused by strange characters such as quotes and signs":
+            "BŁĄD: hdfmonkey zawiódł - nie można otworzyć pliku; zwykle powodują to nietypowe znaki, np. cudzysłowy i symbole",
+        "ERROR: hdfmonkey failed - A file can't be opened: {command} this is commonly caused by strange characters such as quotes and signs":
+            "BŁĄD: hdfmonkey zawiódł - nie można otworzyć pliku: {command}; zwykle powodują to nietypowe znaki, np. cudzysłowy i symbole",
+        "Failed to save configuration file with IOError: {error}":
+            "Nie udało się zapisać pliku konfiguracyjnego (IOError): {error}",
+        "Found hdfmonkey alongside CSpect: {path}":
+            "Znaleziono hdfmonkey obok CSpect: {path}",
+        "MAME exited with code {code}.":
+            "MAME zakończył działanie z kodem {code}.",
+        "MAME install ▸ SUCCESS — MAME detected at: {path}":
+            "Instalacja MAME ▸ SUKCES — MAME wykryty w: {path}",
+        "Pygame mode unavailable — run: pip install pygame-ce":
+            "Tryb pygame niedostępny — uruchom: pip install pygame-ce",
+        "Remote unzip: fetching {path} from the image …":
+            "Zdalne rozpakowanie: pobieranie {path} z obrazu …",
+        "Remote zip: fetching {count} item(s) from the image …":
+            "Zdalne pakowanie: pobieranie {count} element(ów) z obrazu …",
+        "Saved configuration file.":
+            "Zapisano plik konfiguracyjny.",
+        "UI language set to '{lang}' to match the system language — change it on the Settings tab.":
+            "Język interfejsu ustawiono na '{lang}', zgodnie z językiem systemu — możesz go zmienić w karcie Ustawienia.",
+        "ZX Next Unite update available: {latest} (installed {installed}).":
+            "Dostępna aktualizacja ZX Next Unite: {latest} (zainstalowana {installed}).",
+        "ZX Next Unite update ▸ downloading {asset}…":
+            "Aktualizacja ZX Next Unite ▸ pobieranie {asset}…",
+        "ZX Next Unite update: could not start {name}: {error}":
+            "Aktualizacja ZX Next Unite: nie udało się uruchomić {name}: {error}",
+        "ZX Next Unite update: download FAILED: {error}":
+            "Aktualizacja ZX Next Unite: pobieranie NIE POWIODŁO SIĘ: {error}",
+        "ZX Next Unite update: downloaded — start it any time: {path}":
+            "Aktualizacja ZX Next Unite: pobrana — możesz ją uruchomić w dowolnej chwili: {path}",
+        "ZX Next Unite update: starting {name} and closing…":
+            "Aktualizacja ZX Next Unite: uruchamianie {name} i zamykanie…",
+        "ZX Next Unite update: unpacked to {path}":
+            "Aktualizacja ZX Next Unite: rozpakowano do {path}",
         "Extracting {name} from the image, then starting CSpect…":
             "Wypakowywanie {name} z obrazu, potem uruchomienie CSpect…",
         "Start CSpect: {name} could not be read from the image, CSpect was not started.":
@@ -2502,6 +2712,76 @@ CATALOGS = {
         "Mouse Off": "Мышь выкл.",
         "Disable ESC Key Off": "Блокировка ESC: выкл.",
         "Disable ESC Key On": "Блокировка ESC: вкл.",
+        # ---- emulator update prompts (bodies + buttons) ----
+        "A newer version of MAME is available.\n\nInstalled: 0.{installed}\nLatest: {latest}  (0.{latest_num})\nPackage: {asset}\n\nDownload (~{size}) and update your MAME install now?\nThe existing files in the downloads MAME folder will be overwritten.":
+            "Доступна более новая версия MAME.\n\nУстановлена: 0.{installed}\nПоследняя: {latest}  (0.{latest_num})\nПакет: {asset}\n\nСкачать (~{size}) и обновить установку MAME сейчас?\nСуществующие файлы в папке MAME будут перезаписаны.",
+        "Close and start {name}":
+            "Закрыть и запустить {name}",
+        "Continue hdfmonkey standalone install":
+            "Продолжить отдельную установку hdfmonkey",
+        "I've dropped the zip - try again":
+            "Я положил zip — попробовать снова",
+        "MAME release: {tag}\nPackage: {asset} ({arch})\n\nDownload (~{size}) and install it into the downloads folder?\nNote: the fully extracted install is large (~500 MB).":
+            "Версия MAME: {tag}\nПакет: {asset} ({arch})\n\nСкачать (~{size}) и установить в папку загрузок?\nПримечание: полностью распакованная установка занимает ~500 МБ.",
+        "Open download page":
+            "Открыть страницу загрузки",
+        "Open downloads folder":
+            "Открыть папку загрузок",
+        "The new version was saved as:\n\n{path}\n\nClose ZX Next Unite now and start the new version ({name})?\nYour settings (hdfg.cfg) and downloads are picked up as-is —\nboth versions run from the same folder.":
+            "Новая версия сохранена как:\n\n{path}\n\nЗакрыть ZX Next Unite и запустить новую версию ({name})?\nВаши настройки (hdfg.cfg) и загрузки используются как есть —\nобе версии запускаются из одной папки.",
+        "What's changed:":
+            "Что нового:",
+        # ---- emulator / config console (final batch) ----
+        "CSpect update check: {reason}.":
+            "Проверка CSpect: {reason}.",
+        "CSpect update ▸ FAILED — {error}":
+            "Обновление CSpect ▸ ОШИБКА — {error}",
+        "CSpect update ▸ newer build available: installed {installed}, latest {latest}.":
+            "Обновление CSpect ▸ доступна более новая сборка: установлена {installed}, последняя {latest}.",
+        "CSpect update ▸ user chose to update to {name}.":
+            "Обновление CSpect ▸ пользователь выбрал обновление до {name}.",
+        "Could not list the MAME releases: {error}":
+            "Не удалось получить список версий MAME: {error}",
+        "ERROR: Failed to launch MAME: {error}":
+            "ОШИБКА: не удалось запустить MAME: {error}",
+        "ERROR: could not extract {name}: {error}":
+            "ОШИБКА: не удалось извлечь {name}: {error}",
+        "ERROR: hdfmonkey failed - A file can't be opened this is commonly caused by strange characters such as quotes and signs":
+            "ОШИБКА: сбой hdfmonkey - не удаётся открыть файл; обычно причина в необычных символах, например кавычках и знаках",
+        "ERROR: hdfmonkey failed - A file can't be opened: {command} this is commonly caused by strange characters such as quotes and signs":
+            "ОШИБКА: сбой hdfmonkey - не удаётся открыть файл: {command}; обычно причина в необычных символах, например кавычках и знаках",
+        "Failed to save configuration file with IOError: {error}":
+            "Не удалось сохранить файл конфигурации (IOError): {error}",
+        "Found hdfmonkey alongside CSpect: {path}":
+            "hdfmonkey найден рядом с CSpect: {path}",
+        "MAME exited with code {code}.":
+            "MAME завершился с кодом {code}.",
+        "MAME install ▸ SUCCESS — MAME detected at: {path}":
+            "Установка MAME ▸ УСПЕШНО — MAME найден: {path}",
+        "Pygame mode unavailable — run: pip install pygame-ce":
+            "Режим pygame недоступен — выполните: pip install pygame-ce",
+        "Remote unzip: fetching {path} from the image …":
+            "Удалённая распаковка: получение {path} из образа …",
+        "Remote zip: fetching {count} item(s) from the image …":
+            "Удалённая упаковка: получение элементов из образа: {count} …",
+        "Saved configuration file.":
+            "Файл конфигурации сохранён.",
+        "UI language set to '{lang}' to match the system language — change it on the Settings tab.":
+            "Язык интерфейса установлен на '{lang}' в соответствии с системным — изменить можно на вкладке Настройки.",
+        "ZX Next Unite update available: {latest} (installed {installed}).":
+            "Доступно обновление ZX Next Unite: {latest} (установлена {installed}).",
+        "ZX Next Unite update ▸ downloading {asset}…":
+            "Обновление ZX Next Unite ▸ загрузка {asset}…",
+        "ZX Next Unite update: could not start {name}: {error}":
+            "Обновление ZX Next Unite: не удалось запустить {name}: {error}",
+        "ZX Next Unite update: download FAILED: {error}":
+            "Обновление ZX Next Unite: загрузка НЕ УДАЛАСЬ: {error}",
+        "ZX Next Unite update: downloaded — start it any time: {path}":
+            "Обновление ZX Next Unite: загружено — запустить можно в любой момент: {path}",
+        "ZX Next Unite update: starting {name} and closing…":
+            "Обновление ZX Next Unite: запуск {name} и закрытие…",
+        "ZX Next Unite update: unpacked to {path}":
+            "Обновление ZX Next Unite: распаковано в {path}",
         "Extracting {name} from the image, then starting CSpect…":
             "Извлечение {name} из образа, затем запуск CSpect…",
         "Start CSpect: {name} could not be read from the image, CSpect was not started.":
@@ -3196,6 +3476,76 @@ CATALOGS = {
         "Mouse Off": "Myš vypnuta",
         "Disable ESC Key Off": "Blokovat klávesu ESC: ne",
         "Disable ESC Key On": "Blokovat klávesu ESC: ano",
+        # ---- emulator update prompts (bodies + buttons) ----
+        "A newer version of MAME is available.\n\nInstalled: 0.{installed}\nLatest: {latest}  (0.{latest_num})\nPackage: {asset}\n\nDownload (~{size}) and update your MAME install now?\nThe existing files in the downloads MAME folder will be overwritten.":
+            "Je dostupná novější verze MAME.\n\nNainstalovaná: 0.{installed}\nNejnovější: {latest}  (0.{latest_num})\nBalíček: {asset}\n\nStáhnout (~{size}) a aktualizovat instalaci MAME nyní?\nStávající soubory ve složce MAME budou přepsány.",
+        "Close and start {name}":
+            "Zavřít a spustit {name}",
+        "Continue hdfmonkey standalone install":
+            "Pokračovat v samostatné instalaci hdfmonkey",
+        "I've dropped the zip - try again":
+            "Zip jsem vložil - zkusit znovu",
+        "MAME release: {tag}\nPackage: {asset} ({arch})\n\nDownload (~{size}) and install it into the downloads folder?\nNote: the fully extracted install is large (~500 MB).":
+            "Verze MAME: {tag}\nBalíček: {asset} ({arch})\n\nStáhnout (~{size}) a nainstalovat do složky stahování?\nPoznámka: plně rozbalená instalace je velká (~500 MB).",
+        "Open download page":
+            "Otevřít stránku stahování",
+        "Open downloads folder":
+            "Otevřít složku stahování",
+        "The new version was saved as:\n\n{path}\n\nClose ZX Next Unite now and start the new version ({name})?\nYour settings (hdfg.cfg) and downloads are picked up as-is —\nboth versions run from the same folder.":
+            "Nová verze byla uložena jako:\n\n{path}\n\nZavřít ZX Next Unite a spustit novou verzi ({name})?\nVaše nastavení (hdfg.cfg) a stažené soubory se použijí beze změny —\nobě verze běží ze stejné složky.",
+        "What's changed:":
+            "Co je nového:",
+        # ---- emulator / config console (final batch) ----
+        "CSpect update check: {reason}.":
+            "Kontrola CSpectu: {reason}.",
+        "CSpect update ▸ FAILED — {error}":
+            "Aktualizace CSpectu ▸ SELHALA — {error}",
+        "CSpect update ▸ newer build available: installed {installed}, latest {latest}.":
+            "Aktualizace CSpectu ▸ je dostupné novější sestavení: nainstalované {installed}, nejnovější {latest}.",
+        "CSpect update ▸ user chose to update to {name}.":
+            "Aktualizace CSpectu ▸ uživatel zvolil aktualizaci na {name}.",
+        "Could not list the MAME releases: {error}":
+            "Nepodařilo se načíst seznam verzí MAME: {error}",
+        "ERROR: Failed to launch MAME: {error}":
+            "CHYBA: nepodařilo se spustit MAME: {error}",
+        "ERROR: could not extract {name}: {error}":
+            "CHYBA: nepodařilo se rozbalit {name}: {error}",
+        "ERROR: hdfmonkey failed - A file can't be opened this is commonly caused by strange characters such as quotes and signs":
+            "CHYBA: hdfmonkey selhal - soubor nelze otevřít; obvykle to způsobují neobvyklé znaky jako uvozovky a symboly",
+        "ERROR: hdfmonkey failed - A file can't be opened: {command} this is commonly caused by strange characters such as quotes and signs":
+            "CHYBA: hdfmonkey selhal - soubor nelze otevřít: {command}; obvykle to způsobují neobvyklé znaky jako uvozovky a symboly",
+        "Failed to save configuration file with IOError: {error}":
+            "Nepodařilo se uložit konfigurační soubor (IOError): {error}",
+        "Found hdfmonkey alongside CSpect: {path}":
+            "hdfmonkey nalezen vedle CSpectu: {path}",
+        "MAME exited with code {code}.":
+            "MAME skončil s kódem {code}.",
+        "MAME install ▸ SUCCESS — MAME detected at: {path}":
+            "Instalace MAME ▸ ÚSPĚCH — MAME nalezen v: {path}",
+        "Pygame mode unavailable — run: pip install pygame-ce":
+            "Režim pygame není dostupný — spusťte: pip install pygame-ce",
+        "Remote unzip: fetching {path} from the image …":
+            "Vzdálené rozbalení: načítá se {path} z obrazu …",
+        "Remote zip: fetching {count} item(s) from the image …":
+            "Vzdálené zabalení: načítá se {count} položek z obrazu …",
+        "Saved configuration file.":
+            "Konfigurační soubor uložen.",
+        "UI language set to '{lang}' to match the system language — change it on the Settings tab.":
+            "Jazyk rozhraní nastaven na '{lang}' podle jazyka systému — změnit jej lze na kartě Nastavení.",
+        "ZX Next Unite update available: {latest} (installed {installed}).":
+            "K dispozici je aktualizace ZX Next Unite: {latest} (nainstalovaná {installed}).",
+        "ZX Next Unite update ▸ downloading {asset}…":
+            "Aktualizace ZX Next Unite ▸ stahuje se {asset}…",
+        "ZX Next Unite update: could not start {name}: {error}":
+            "Aktualizace ZX Next Unite: nepodařilo se spustit {name}: {error}",
+        "ZX Next Unite update: download FAILED: {error}":
+            "Aktualizace ZX Next Unite: stahování SELHALO: {error}",
+        "ZX Next Unite update: downloaded — start it any time: {path}":
+            "Aktualizace ZX Next Unite: stažena — spustit ji můžete kdykoli: {path}",
+        "ZX Next Unite update: starting {name} and closing…":
+            "Aktualizace ZX Next Unite: spouští se {name} a zavírá se…",
+        "ZX Next Unite update: unpacked to {path}":
+            "Aktualizace ZX Next Unite: rozbaleno do {path}",
         "Extracting {name} from the image, then starting CSpect…":
             "Rozbaluje se {name} z obrazu, poté se spustí CSpect…",
         "Start CSpect: {name} could not be read from the image, CSpect was not started.":
@@ -3893,6 +4243,76 @@ CATALOGS = {
         "Mouse Off": "Souris désactivée",
         "Disable ESC Key Off": "Désactiver la touche ÉCHAP : non",
         "Disable ESC Key On": "Désactiver la touche ÉCHAP : oui",
+        # ---- emulator update prompts (bodies + buttons) ----
+        "A newer version of MAME is available.\n\nInstalled: 0.{installed}\nLatest: {latest}  (0.{latest_num})\nPackage: {asset}\n\nDownload (~{size}) and update your MAME install now?\nThe existing files in the downloads MAME folder will be overwritten.":
+            "Une version plus récente de MAME est disponible.\n\nInstallée : 0.{installed}\nDernière : {latest}  (0.{latest_num})\nPaquet : {asset}\n\nTélécharger (~{size}) et mettre à jour votre installation MAME maintenant ?\nLes fichiers existants du dossier MAME seront écrasés.",
+        "Close and start {name}":
+            "Fermer et lancer {name}",
+        "Continue hdfmonkey standalone install":
+            "Continuer l'installation autonome de hdfmonkey",
+        "I've dropped the zip - try again":
+            "J'ai déposé le zip - réessayer",
+        "MAME release: {tag}\nPackage: {asset} ({arch})\n\nDownload (~{size}) and install it into the downloads folder?\nNote: the fully extracted install is large (~500 MB).":
+            "Version de MAME : {tag}\nPaquet : {asset} ({arch})\n\nTélécharger (~{size}) et l'installer dans le dossier de téléchargement ?\nNote : l'installation complète est volumineuse (~500 Mo).",
+        "Open download page":
+            "Ouvrir la page de téléchargement",
+        "Open downloads folder":
+            "Ouvrir le dossier de téléchargement",
+        "The new version was saved as:\n\n{path}\n\nClose ZX Next Unite now and start the new version ({name})?\nYour settings (hdfg.cfg) and downloads are picked up as-is —\nboth versions run from the same folder.":
+            "La nouvelle version a été enregistrée sous :\n\n{path}\n\nFermer ZX Next Unite maintenant et lancer la nouvelle version ({name}) ?\nVos réglages (hdfg.cfg) et téléchargements sont repris tels quels —\nles deux versions s'exécutent depuis le même dossier.",
+        "What's changed:":
+            "Nouveautés :",
+        # ---- emulator / config console (final batch) ----
+        "CSpect update check: {reason}.":
+            "Vérification de CSpect : {reason}.",
+        "CSpect update ▸ FAILED — {error}":
+            "Mise à jour de CSpect ▸ ÉCHEC — {error}",
+        "CSpect update ▸ newer build available: installed {installed}, latest {latest}.":
+            "Mise à jour de CSpect ▸ build plus récent disponible : installé {installed}, dernier {latest}.",
+        "CSpect update ▸ user chose to update to {name}.":
+            "Mise à jour de CSpect ▸ l'utilisateur a choisi de passer à {name}.",
+        "Could not list the MAME releases: {error}":
+            "Impossible de lister les versions de MAME : {error}",
+        "ERROR: Failed to launch MAME: {error}":
+            "ERREUR : impossible de lancer MAME : {error}",
+        "ERROR: could not extract {name}: {error}":
+            "ERREUR : impossible d'extraire {name} : {error}",
+        "ERROR: hdfmonkey failed - A file can't be opened this is commonly caused by strange characters such as quotes and signs":
+            "ERREUR : échec de hdfmonkey - impossible d'ouvrir un fichier ; cela vient généralement de caractères inhabituels comme les guillemets et les signes",
+        "ERROR: hdfmonkey failed - A file can't be opened: {command} this is commonly caused by strange characters such as quotes and signs":
+            "ERREUR : échec de hdfmonkey - impossible d'ouvrir un fichier : {command} ; cela vient généralement de caractères inhabituels comme les guillemets et les signes",
+        "Failed to save configuration file with IOError: {error}":
+            "Échec de l'enregistrement du fichier de configuration (IOError) : {error}",
+        "Found hdfmonkey alongside CSpect: {path}":
+            "hdfmonkey trouvé à côté de CSpect : {path}",
+        "MAME exited with code {code}.":
+            "MAME s'est terminé avec le code {code}.",
+        "MAME install ▸ SUCCESS — MAME detected at: {path}":
+            "Installation de MAME ▸ RÉUSSIE — MAME détecté dans : {path}",
+        "Pygame mode unavailable — run: pip install pygame-ce":
+            "Mode pygame indisponible — lancez : pip install pygame-ce",
+        "Remote unzip: fetching {path} from the image …":
+            "Décompression distante : récupération de {path} depuis l'image …",
+        "Remote zip: fetching {count} item(s) from the image …":
+            "Compression distante : récupération de {count} élément(s) depuis l'image …",
+        "Saved configuration file.":
+            "Fichier de configuration enregistré.",
+        "UI language set to '{lang}' to match the system language — change it on the Settings tab.":
+            "Langue de l'interface réglée sur '{lang}' pour correspondre au système — modifiable dans l'onglet Réglages.",
+        "ZX Next Unite update available: {latest} (installed {installed}).":
+            "Mise à jour de ZX Next Unite disponible : {latest} (installée {installed}).",
+        "ZX Next Unite update ▸ downloading {asset}…":
+            "Mise à jour de ZX Next Unite ▸ téléchargement de {asset}…",
+        "ZX Next Unite update: could not start {name}: {error}":
+            "Mise à jour de ZX Next Unite : impossible de lancer {name} : {error}",
+        "ZX Next Unite update: download FAILED: {error}":
+            "Mise à jour de ZX Next Unite : le téléchargement a ÉCHOUÉ : {error}",
+        "ZX Next Unite update: downloaded — start it any time: {path}":
+            "Mise à jour de ZX Next Unite : téléchargée — lancez-la quand vous voulez : {path}",
+        "ZX Next Unite update: starting {name} and closing…":
+            "Mise à jour de ZX Next Unite : lancement de {name} et fermeture…",
+        "ZX Next Unite update: unpacked to {path}":
+            "Mise à jour de ZX Next Unite : décompressée dans {path}",
         "Extracting {name} from the image, then starting CSpect…":
             "Extraction de {name} depuis l'image, puis lancement de CSpect…",
         "Start CSpect: {name} could not be read from the image, CSpect was not started.":

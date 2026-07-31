@@ -1381,9 +1381,9 @@ def build_unite_ops(
                 _allinone_pygame_disable(
                     f"{why}\nInstall with: pip install pygame-ce")
                 try:
-                    host.allinone_status_label.setText(
+                    host.allinone_status_label.setText(ui_tr_now(
                         "Pygame mode unavailable — run: pip install pygame-ce"
-                    )
+                    ))
                 except Exception:
                     pass
                 return
