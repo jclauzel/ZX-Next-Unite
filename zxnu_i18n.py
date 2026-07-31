@@ -535,6 +535,8 @@ CATALOGS = {
             "Iniciar CSpect con el archivo {name}",
         "Start MAME with file {name}":
             "Iniciar MAME con el archivo {name}",
+        "Start MAME: could not prepare the staging folder {path} ({error}).":
+            "Iniciar MAME: no se pudo preparar la carpeta temporal {path} ({error}).",
         "Send to SD Card and start MAME with file {name}":
             "Enviar a la tarjeta SD e iniciar MAME con el archivo {name}",
         "Extracting {name} from the image, then starting MAME…":
@@ -1348,6 +1350,8 @@ CATALOGS = {
             "Iniciar o CSpect com o ficheiro {name}",
         "Start MAME with file {name}":
             "Iniciar o MAME com o ficheiro {name}",
+        "Start MAME: could not prepare the staging folder {path} ({error}).":
+            "Iniciar o MAME: não foi possível preparar a pasta temporária {path} ({error}).",
         "Send to SD Card and start MAME with file {name}":
             "Enviar para o cartão SD e iniciar o MAME com o ficheiro {name}",
         "Extracting {name} from the image, then starting MAME…":
@@ -2159,6 +2163,8 @@ CATALOGS = {
             "Uruchom CSpect z plikiem {name}",
         "Start MAME with file {name}":
             "Uruchom MAME z plikiem {name}",
+        "Start MAME: could not prepare the staging folder {path} ({error}).":
+            "Uruchom MAME: nie udało się przygotować folderu tymczasowego {path} ({error}).",
         "Send to SD Card and start MAME with file {name}":
             "Wyślij na kartę SD i uruchom MAME z plikiem {name}",
         "Extracting {name} from the image, then starting MAME…":
@@ -2971,6 +2977,8 @@ CATALOGS = {
             "Запустить CSpect с файлом {name}",
         "Start MAME with file {name}":
             "Запустить MAME с файлом {name}",
+        "Start MAME: could not prepare the staging folder {path} ({error}).":
+            "Запуск MAME: не удалось подготовить временную папку {path} ({error}).",
         "Send to SD Card and start MAME with file {name}":
             "Отправить на SD-карту и запустить MAME с файлом {name}",
         "Extracting {name} from the image, then starting MAME…":
@@ -3782,6 +3790,8 @@ CATALOGS = {
             "Spustit CSpect se souborem {name}",
         "Start MAME with file {name}":
             "Spustit MAME se souborem {name}",
+        "Start MAME: could not prepare the staging folder {path} ({error}).":
+            "Spustit MAME: nepodařilo se připravit dočasnou složku {path} ({error}).",
         "Send to SD Card and start MAME with file {name}":
             "Odeslat na SD kartu a spustit MAME se souborem {name}",
         "Extracting {name} from the image, then starting MAME…":
@@ -4596,6 +4606,8 @@ CATALOGS = {
             "Lancer CSpect avec le fichier {name}",
         "Start MAME with file {name}":
             "Lancer MAME avec le fichier {name}",
+        "Start MAME: could not prepare the staging folder {path} ({error}).":
+            "Lancer MAME : impossible de préparer le dossier temporaire {path} ({error}).",
         "Send to SD Card and start MAME with file {name}":
             "Envoyer vers la carte SD et lancer MAME avec le fichier {name}",
         "Extracting {name} from the image, then starting MAME…":

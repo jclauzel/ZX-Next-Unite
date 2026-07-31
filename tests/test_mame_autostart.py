@@ -31,6 +31,7 @@ Run with: python tests/test_mame_autostart.py
 """
 import ast
 import os
+import re
 import sys
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -137,10 +138,40 @@ check("it launches the EXTRACTED host copy, not the in-image path",
       "_launch_mame_fn(local)" in seg_img)
 check("a failed extraction does not start MAME",
       "could not be read from the image" in seg_img)
-check("the temp copy is not deleted out from under a detached MAME",
-      "shutil.rmtree(tmp" in seg_img
-      and seg_img.count("shutil.rmtree(tmp") == 1,
-      "rmtree must only run on the failure path")
+# The copy must survive a successful launch (MAME is detached and opens it
+# after we return), so the only cleanup on that path is the failure branch.
+fail_at = seg_img.find("could not be read from the image")
+launch_at = seg_img.find("_launch_mame_fn(local)")
+check("the copy is not deleted out from under a detached MAME",
+      fail_at != -1 and launch_at != -1
+      and "shutil.rmtree(tmp, ignore_errors=True)" in seg_img[fail_at:launch_at],
+      "cleanup must sit on the failure path, before the launch")
+
+# ---- Flatpak MAME cannot see this process's /tmp -------------------------
+# Every Flatpak app gets a private /tmp, and --filesystem=host excludes /tmp
+# outright, so a mkdtemp() copy is invisible to Flatpak MAME. Both manifests
+# (ours and Flathub's org.mamedev.MAME) grant --filesystem=home instead.
+from zxnu_config import mame_autostart_staging_dir  # noqa: E402
+
+stage = mame_autostart_staging_dir()
+home = os.path.expanduser("~")
+check("the Flatpak staging dir lives under the user's home",
+      os.path.commonpath([os.path.abspath(stage), os.path.abspath(home)])
+      == os.path.abspath(home), stage)
+check("the Flatpak staging dir is NOT under /tmp",
+      not os.path.abspath(stage).replace("\\", "/").startswith("/tmp"), stage)
+check("the image extraction switches on the Flatpak setting",
+      "_mame_flatpak_enabled()" in seg_img,
+      "Flatpak MAME must not be handed a /tmp path")
+check("...and only then uses the home staging dir",
+      "mame_autostart_staging_dir()" in seg_img
+      and "tempfile.mkdtemp(prefix=\"zxnu-mame-\")" in seg_img,
+      "the non-Flatpak path should keep using a real temp dir")
+check("the staging dir is cleared so copies do not pile up under ~",
+      "shutil.rmtree(tmp, ignore_errors=True)" in seg_img[:fail_at],
+      "nothing under ~ is cleaned up by the OS")
+check("a staging dir that cannot be created is reported, not ignored",
+      "could not prepare the staging folder" in seg_img)
 
 # The local action must launch the LOCAL file, never the in-image copy.
 seg_loc = ops[ops.find("def _send_and_start_mame"):]
@@ -197,18 +228,25 @@ NEW_STRINGS = (
     "Send to SD Card and start MAME: the transfer failed, MAME was not started.",
     "Sending {name} to the SD card image, then starting MAME…",
     "MAME cannot load {name} directly; starting MAME without it.",
+    "Start MAME: could not prepare the staging folder {path} ({error}).",
 )
 missing = [(lg, s) for s in NEW_STRINGS for lg in CATALOGS if not CATALOGS[lg].get(s)]
 check("every new MAME string is translated in all languages",
       not missing, f"{len(missing)} gap(s): {missing[:3]}")
 broken = []
+sample = {"name": "beast.nex", "path": "/home/u/.cache", "error": "denied"}
 for s in NEW_STRINGS:
     for lg in CATALOGS:
+        translated = CATALOGS[lg].get(s) or s
         try:
-            (CATALOGS[lg].get(s) or s).format(name="beast.nex")
+            translated.format(**sample)
         except (KeyError, IndexError):
             broken.append((lg, s))
-check("every translation renders with its placeholder", not broken, str(broken[:3]))
+        # A translation that quietly drops a placeholder loses the detail the
+        # line exists to carry, which .format() alone would not catch.
+        if set(re.findall(r"\{(\w+)\}", translated)) != set(re.findall(r"\{(\w+)\}", s)):
+            broken.append((lg, s + "  [placeholder set differs]"))
+check("every translation renders with its placeholders", not broken, str(broken[:3]))
 
 print()
 if FAIL:

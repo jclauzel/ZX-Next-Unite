@@ -1162,6 +1162,28 @@ def mame_can_autostart(path):
     return bool(mame_autostart_argument(path))
 
 
+def mame_autostart_staging_dir():
+    """Where to put a file extracted from the SD image before handing it to
+    FLATPAK MAME.
+
+    The obvious ``tempfile.mkdtemp()`` is wrong here: Flatpak gives every app a
+    private ``/tmp``, and ``--filesystem=host`` deliberately excludes ``/tmp``
+    (it is one of Flatpak's reserved root directories), so a copy left there is
+    invisible to Flatpak MAME no matter what permissions it holds.
+
+    A path under the user's home works from both sides: this app's manifest
+    grants ``--filesystem=home`` (so the directory is written to the real home,
+    not a sandbox-private one) and Flathub's org.mamedev.MAME grants
+    ``--filesystem=home`` too, so it can read the file back.
+
+    One fixed directory, cleared before each use, rather than a fresh temp dir
+    per launch — nothing under ``~`` is cleaned up by the OS, so accumulating
+    copies would just leak disk space.
+    """
+    return os.path.join(os.path.expanduser("~"), ".cache",
+                        "zx-next-unite", "mame-autostart")
+
+
 def emulator_option_argument(options, index):
     """The command-line argument for entry *index* of an emulator option tuple
     (any of the ``CSPECT_*`` / ``MAME_*`` ``(label, argument)`` tuples above),

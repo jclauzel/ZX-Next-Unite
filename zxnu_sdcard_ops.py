@@ -2880,12 +2880,26 @@ def build_transfer_clipboard_ops(
         image still attached as -hard1, so anything the program loads from the
         SD card resolves as usual.
 
-        The temp copy is deliberately NOT deleted: MAME is launched detached
-        and opens the file after we return."""
+        The extracted copy is deliberately NOT deleted on success: MAME is
+        launched detached and opens the file after we return."""
         if not _right_disk_content() or not image_path:
             return
         name = os.path.basename(image_path)
-        tmp = tempfile.mkdtemp(prefix="zxnu-mame-")
+        if host._mame_flatpak_enabled():
+            # Flatpak MAME cannot see this process's /tmp, so stage the copy
+            # under the user's home instead — see mame_autostart_staging_dir().
+            tmp = mame_autostart_staging_dir()
+            shutil.rmtree(tmp, ignore_errors=True)
+            try:
+                os.makedirs(tmp, exist_ok=True)
+            except OSError as exc:
+                logging.exception("MAME auto-start staging dir unusable")
+                add_main_log_window(ui_tr_now(
+                    "Start MAME: could not prepare the staging folder {path} "
+                    "({error}).").format(path=tmp, error=exc))
+                return
+        else:
+            tmp = tempfile.mkdtemp(prefix="zxnu-mame-")
 
         def _go(ok):
             local = os.path.join(tmp, name)
