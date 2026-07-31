@@ -1120,6 +1120,48 @@ def cspect_can_autostart(path):
     return bool(path) and str(path).lower().endswith(CSPECT_AUTOSTART_EXTENSIONS)
 
 
+# File types MAME can load straight from the command line on the Next drivers,
+# grouped by the media switch that takes them. The extension lists come from
+# `mame -listmedia tbblue` (identical for specnext_ks1/ks2/ks3).
+#
+# Contrary to a widespread belief, a raw file needs NO software-list entry and
+# no copy into a software/<system> folder: `mame tbblue -snapshot <host path>`
+# boots an arbitrary .nex. The software-list route (hash/specnext_sd.xml) is
+# for hash-matched SD-card images, which is a different mechanism entirely and
+# cannot describe a file it has never seen. The path must be a HOST path — a
+# path inside the mounted image means nothing to MAME's file loader.
+#
+# MAME also accepts .wav/.flac as cassettes and .raw as a quickload; those are
+# deliberately left out. On an SD card such a name is far more likely to be
+# ordinary audio or generic data than a Spectrum tape, and the point of these
+# tables is to decide when the "start with this file" actions are worth
+# offering — same reason CSPECT_AUTOSTART_EXTENSIONS stops short of .txt.
+MAME_SNAPSHOT_EXTENSIONS = (".nex", ".sna", ".snx", ".snp", ".z80", ".sp",
+                            ".spg", ".zx", ".ach", ".frz", ".sem", ".sit")
+MAME_QUICKLOAD_EXTENSIONS = (".scr",)
+MAME_CASSETTE_EXTENSIONS = (".tap", ".tzx", ".blk")
+
+
+def mame_autostart_argument(path):
+    """The MAME media switch that loads *path* (``-snapshot`` / ``-quickload``
+    / ``-cassette``), or ``""`` when MAME cannot boot that file type."""
+    lowered = str(path or "").lower()
+    if not lowered:
+        return ""
+    if lowered.endswith(MAME_SNAPSHOT_EXTENSIONS):
+        return "-snapshot"
+    if lowered.endswith(MAME_QUICKLOAD_EXTENSIONS):
+        return "-quickload"
+    if lowered.endswith(MAME_CASSETTE_EXTENSIONS):
+        return "-cassette"
+    return ""
+
+
+def mame_can_autostart(path):
+    """True when *path* looks like something MAME can load directly."""
+    return bool(mame_autostart_argument(path))
+
+
 def emulator_option_argument(options, index):
     """The command-line argument for entry *index* of an emulator option tuple
     (any of the ``CSPECT_*`` / ``MAME_*`` ``(label, argument)`` tuples above),

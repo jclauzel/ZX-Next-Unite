@@ -8,10 +8,14 @@ a file straight into the emulator:
   * local explorer  -> "Send to SD Card and start CSpect with file X"
                        (upload into the image first, then start)
 
-Both end up appending the file to CSpect's command line, which CSpect resolves
-against the -mmc root:
+Both end up appending the file to CSpect's command line. CSpect resolves that
+trailing argument against its OWN working directory, not against the -mmc root
+— so it must be a host path, and a file living on the image has to be extracted
+to the host first (the bug this feature shipped with):
 
-    CSpect.exe … -zxnext -mmc=<image> games/foo.nex
+    CSpect.exe … -zxnext -mmc=<image> C:\\…\\extracted\\foo.nex
+
+See tests/test_mame_autostart.py for the MAME twin of these actions.
 
 Covered here: the extension gate that decides whether the actions are offered
 at all, and the source-level contract of the two menus (both must be gated on

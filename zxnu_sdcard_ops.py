@@ -1630,6 +1630,35 @@ def build_local_explorer_ops(
                 lambda: QTimer.singleShot(0, _send_and_start))
             menu.addSeparator()
 
+        # The MAME twin of the action above. Same shape, same reason for
+        # starting on the LOCAL file rather than the copy just written into
+        # the image: MAME cannot read a path inside the mounted image.
+        if (not is_dir and mame_can_autostart(file_path)
+                and _right_disk_content()
+                and host._mame_usable()
+                and getattr(host, "_launch_mame_fn", None)
+                and getattr(host, "image_upload_external_paths", None)):
+            def _send_and_start_mame(_p=file_path):
+                target = (host.diskimageexplorerpathinput.text() or "/").strip()
+                target = ("/" + target.strip("/")) if target.strip("/") else "/"
+
+                def _after(success):
+                    if not success:
+                        add_main_log_window(ui_tr_now(
+                            "Send to SD Card and start MAME: the transfer "
+                            "failed, MAME was not started."))
+                        return
+                    host._launch_mame_fn(_p)
+                add_main_log_window(ui_tr_now(
+                    "Sending {name} to the SD card image, then starting "
+                    "MAME…").format(name=os.path.basename(_p)))
+                host.image_upload_external_paths([_p], target, on_complete=_after)
+            menu.addAction(
+                ui_tr_now("Send to SD Card and start MAME with file {name}"
+                          ).format(name=name),
+                lambda: QTimer.singleShot(0, _send_and_start_mame))
+            menu.addSeparator()
+
         menu.addAction(action_copy_text)
         menu.addAction(action_copy_path)
         menu.addSeparator()
@@ -2841,6 +2870,40 @@ def build_transfer_clipboard_ops(
             [(image_path, False)], tmp, refresh_fn=lambda: None,
             on_complete=lambda okd: QTimer.singleShot(0, lambda: _go(okd)))
 
+    def _mame_start_from_image(image_path):
+        """Boot a file that lives INSIDE the mounted image with MAME.
+
+        Same constraint as the CSpect twin above: MAME loads the file through
+        its own file system, so an in-image path is meaningless to it and the
+        file has to exist on the host first. Extract it (and nothing else) to
+        a temp folder with hdfmonkey, then start MAME on that copy with the
+        image still attached as -hard1, so anything the program loads from the
+        SD card resolves as usual.
+
+        The temp copy is deliberately NOT deleted: MAME is launched detached
+        and opens the file after we return."""
+        if not _right_disk_content() or not image_path:
+            return
+        name = os.path.basename(image_path)
+        tmp = tempfile.mkdtemp(prefix="zxnu-mame-")
+
+        def _go(ok):
+            local = os.path.join(tmp, name)
+            if not ok or not os.path.isfile(local):
+                add_main_log_window(ui_tr_now(
+                    "Start MAME: {name} could not be read from the image, "
+                    "MAME was not started.").format(name=name))
+                shutil.rmtree(tmp, ignore_errors=True)
+                return
+            host._launch_mame_fn(local)
+
+        add_main_log_window(ui_tr_now(
+            "Extracting {name} from the image, then starting MAME…").format(
+                name=name))
+        image_get_paths_to_local(
+            [(image_path, False)], tmp, refresh_fn=lambda: None,
+            on_complete=lambda okd: QTimer.singleShot(0, lambda: _go(okd)))
+
     def _image_remote_zip(items):
         """'Remote Zip' on the image selection: get the items to a temp
         dir, zip them on the PC, upload <first item>.zip back into the
@@ -2881,8 +2944,9 @@ def build_transfer_clipboard_ops(
                     add_main_log_window(ui_tr_now(
                         "Remote zip cancelled — no zip was created."))
                 else:
-                    add_main_log_window(f"ERROR: could not build "
-                                        f"{zip_name}: {res['error']}")
+                    add_main_log_window(ui_tr_now(
+                        "ERROR: could not build {name}: {error}").format(
+                            name=zip_name, error=res["error"]))
                 return
             size = os.path.getsize(zip_local)
 
@@ -2929,13 +2993,14 @@ def build_transfer_clipboard_ops(
 
             selected_count = len(host.image_selected_paths)
 
-            # "Start CSpect with <file>" — top of the menu, and only when
-            # CSpect is actually installed and the row is a file CSpect can
-            # boot. CSpect takes the in-image path as its trailing argument,
-            # resolved against the -mmc root, so the file must already live on
-            # the mounted image (which it does: this is the image explorer).
+            # "Start <emulator> with <file>" — top of the menu, and only when
+            # that emulator is actually installed and the row is a file it can
+            # boot. Neither emulator can read the file from the image itself,
+            # so both helpers extract it to a temp folder on the host first
+            # and start the emulator on that copy.
             item_path = (name_item.data(IMG_PATH_ROLE) or "") \
                 if name_item is not None else ""
+            _emu_entry_added = False
             if (not is_dir and cspect_can_autostart(item_path)
                     and getattr(host, "_cspect_executable_path", None)
                     and getattr(host, "_launch_cspect_fn", None)):
@@ -2944,6 +3009,17 @@ def build_transfer_clipboard_ops(
                         name=os.path.basename(item_path)),
                     lambda p=item_path: QTimer.singleShot(
                         0, lambda: _cspect_start_from_image(p)))
+                _emu_entry_added = True
+            if (not is_dir and mame_can_autostart(item_path)
+                    and host._mame_usable()
+                    and getattr(host, "_launch_mame_fn", None)):
+                menu.addAction(
+                    ui_tr_now("Start MAME with file {name}").format(
+                        name=os.path.basename(item_path)),
+                    lambda p=item_path: QTimer.singleShot(
+                        0, lambda: _mame_start_from_image(p)))
+                _emu_entry_added = True
+            if _emu_entry_added:
                 menu.addSeparator()
 
             new_folder_label = "New Folder Here…" if is_dir else "New Folder…"

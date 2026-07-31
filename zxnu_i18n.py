@@ -417,6 +417,39 @@ CATALOGS = {
         "Mouse Off": "Ratón desactivado",
         "Disable ESC Key Off": "Desactivar tecla ESC: no",
         "Disable ESC Key On": "Desactivar tecla ESC: sí",
+        "ZX Next Unite update check: could not parse the versions (latest tag {tag}); skipping.":
+            "Comprobación de ZX Next Unite: no se pudieron interpretar las versiones (última etiqueta {tag}); se omite.",
+        "ZX Next Unite {latest} is available, but the release has no package for this platform — opening the releases page instead.":
+            "ZX Next Unite {latest} está disponible, pero la versión no incluye un paquete para esta plataforma; se abrirá la página de versiones.",
+        # ---- long guidance prompts (final) ----
+        "A newer version of CSpect is available on itch.io.\n\nInstalled: {installed}\nLatest: {latest}\n\nDownload and install the newest version now?":
+            "Hay una versión más reciente de CSpect en itch.io.\n\nInstalada: {installed}\nÚltima: {latest}\n\n¿Descargar e instalar ahora la más reciente?",
+        "CSpect update ▸ SUCCESS — {name} extracted to: {path}":
+            "Actualización de CSpect ▸ CORRECTA — {name} extraído en: {path}",
+        "CSpect update ▸ Starting download + install of {name} ({file}) from itch.io into {folder}.":
+            "Actualización de CSpect ▸ iniciando descarga e instalación de {name} ({file}) desde itch.io en {folder}.",
+        "ERROR: could not build {name}: {error}":
+            "ERROR: no se pudo crear {name}: {error}",
+        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} and follow \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
+            "MAME no puede arrancar: falta la ROM de arranque del ZX Spectrum Next (TBBLUE). Este paso es manual — consulta {url} y sigue \"Get TBBLUE (the Next 'boot ROM')\". Pon el archivo tbblue.zip en la carpeta roms de MAME (downloads\\mame\\roms) — NO lo extraigas — e inténtalo de nuevo. Debes usar una ROM adquirida legalmente y con licencia.",
+        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} → \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
+            "Instalación de MAME ▸ SIGUIENTE PASO (manual): añade la ROM de arranque TBBLUE. Consulta {url} → \"Get TBBLUE (the Next 'boot ROM')\". Pon el archivo tbblue.zip en la carpeta roms de MAME ({roms}) — NO lo extraigas. Debes usar una ROM adquirida legalmente y con licencia.",
+        "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
+            "Comando dot .sync5 de NextSync actualizado: v{old} -> v{new} — copia la nueva versión a tu Next (no puede desplegarse automáticamente).",
+        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
+            "CONSEJO: ¿sabías que si has comprado CSpect en itch.io puedes hacer una instalación completa de CSpect desde allí?\n\nInicia sesión en tu cuenta de itch.io en la pestaña itch.io, ve a CSpect y pulsa Instalar.\n\n¿Aún quieres instalar solo hdfmonkey, o prefieres cancelar y hacer la instalación completa de CSpect con itch.io?",
+        "The automatic hdfmonkey download from specnext.com failed — the forum may be asking for a login or an anti-robot confirmation before the download can start (see the log for details).\n\nYou can install it manually instead:\n1. Click 'Open download page' below (or browse to\n    {url} ).\n2. Download the hdfmonkey .zip file.\n3. Drop the downloaded .zip into this EXACT folder — the app has already created it, and the 'Open downloads folder' button below opens it so nothing needs to be typed:\n    {folder}\n4. Click \"I've dropped the zip - try again\".":
+            "La descarga automática de hdfmonkey desde specnext.com falló — puede que el foro pida iniciar sesión o una confirmación anti-robot antes de permitir la descarga (mira el registro para más detalles).\n\nPuedes instalarlo manualmente:\n1. Pulsa 'Open download page' abajo (o abre\n    {url} ).\n2. Descarga el archivo .zip de hdfmonkey.\n3. Copia el .zip descargado EXACTAMENTE en esta carpeta — la aplicación ya la ha creado, y el botón 'Open downloads folder' de abajo la abre para que no tengas que escribir nada:\n    {folder}\n4. Pulsa \"I've dropped the zip - try again\".",
+        "ZX Next Unite update: downloaded {name} to {folder}":
+            "Actualización de ZX Next Unite: {name} descargado en {folder}",
+        "ZX Next Unite update: downloaded {path} but could not unpack it: {error}":
+            "Actualización de ZX Next Unite: se descargó {path} pero no se pudo descomprimir: {error}",
+        "ZX Next Unite {latest} is available (you are running {installed}).\n\nYou appear to be running from source (git clone), so the\nrecommended way to update is:\n\n    git pull\n\ninstead of downloading the Windows binary.":
+            "ZX Next Unite {latest} está disponible (estás usando {installed}).\n\nParece que lo ejecutas desde el código fuente (git clone), así que la\nforma recomendada de actualizar es:\n\n    git pull\n\nen lugar de descargar el binario de Windows.",
+        "ZX Next Unite {latest} is available — download?\n\nInstalled: {installed}\nLatest: {latest}\nPackage: {asset} (~{size})\n\nThe new version is saved next to the current one — you choose\nwhen to switch (you'll be offered a restart after the download).":
+            "ZX Next Unite {latest} está disponible, ¿descargar?\n\nInstalada: {installed}\nÚltima: {latest}\nPaquete: {asset} (~{size})\n\nLa nueva versión se guarda junto a la actual — tú eliges\ncuándo cambiar (se te ofrecerá reiniciar tras la descarga).",
+        "ZX Next Unite {latest} is available — running from source, so update with 'git pull' instead of the Windows binary.":
+            "ZX Next Unite {latest} está disponible; como se ejecuta desde el código fuente, actualiza con 'git pull' en lugar del binario de Windows.",
         # ---- emulator update prompts (bodies + buttons) ----
         "A newer version of MAME is available.\n\nInstalled: 0.{installed}\nLatest: {latest}  (0.{latest_num})\nPackage: {asset}\n\nDownload (~{size}) and update your MAME install now?\nThe existing files in the downloads MAME folder will be overwritten.":
             "Hay una versión más reciente de MAME.\n\nInstalada: 0.{installed}\nÚltima: {latest}  (0.{latest_num})\nPaquete: {asset}\n\n¿Descargar (~{size}) y actualizar tu instalación de MAME ahora?\nLos archivos existentes en la carpeta MAME se sobrescribirán.",
@@ -500,6 +533,20 @@ CATALOGS = {
             "Enviando {name} a la imagen de la tarjeta SD y luego iniciando CSpect…",
         "Start CSpect with file {name}":
             "Iniciar CSpect con el archivo {name}",
+        "Start MAME with file {name}":
+            "Iniciar MAME con el archivo {name}",
+        "Send to SD Card and start MAME with file {name}":
+            "Enviar a la tarjeta SD e iniciar MAME con el archivo {name}",
+        "Extracting {name} from the image, then starting MAME…":
+            "Extrayendo {name} de la imagen y luego iniciando MAME…",
+        "Start MAME: {name} could not be read from the image, MAME was not started.":
+            "Iniciar MAME: no se pudo leer {name} de la imagen; MAME no se ha iniciado.",
+        "Send to SD Card and start MAME: the transfer failed, MAME was not started.":
+            "Enviar a la tarjeta SD e iniciar MAME: la transferencia falló; MAME no se ha iniciado.",
+        "Sending {name} to the SD card image, then starting MAME…":
+            "Enviando {name} a la imagen de la tarjeta SD y luego iniciando MAME…",
+        "MAME cannot load {name} directly; starting MAME without it.":
+            "MAME no puede cargar {name} directamente; se iniciará MAME sin ese archivo.",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Actualización de CSpect disponible",
@@ -1183,6 +1230,39 @@ CATALOGS = {
         "Mouse Off": "Rato desligado",
         "Disable ESC Key Off": "Desativar tecla ESC: não",
         "Disable ESC Key On": "Desativar tecla ESC: sim",
+        "ZX Next Unite update check: could not parse the versions (latest tag {tag}); skipping.":
+            "Verificação do ZX Next Unite: não foi possível interpretar as versões (etiqueta mais recente {tag}); a ignorar.",
+        "ZX Next Unite {latest} is available, but the release has no package for this platform — opening the releases page instead.":
+            "O ZX Next Unite {latest} está disponível, mas a versão não inclui um pacote para esta plataforma; será aberta a página de versões.",
+        # ---- long guidance prompts (final) ----
+        "A newer version of CSpect is available on itch.io.\n\nInstalled: {installed}\nLatest: {latest}\n\nDownload and install the newest version now?":
+            "Existe uma versão mais recente do CSpect no itch.io.\n\nInstalada: {installed}\nMais recente: {latest}\n\nTransferir e instalar agora a mais recente?",
+        "CSpect update ▸ SUCCESS — {name} extracted to: {path}":
+            "Atualização do CSpect ▸ CONCLUÍDA — {name} extraído para: {path}",
+        "CSpect update ▸ Starting download + install of {name} ({file}) from itch.io into {folder}.":
+            "Atualização do CSpect ▸ a iniciar transferência e instalação de {name} ({file}) do itch.io para {folder}.",
+        "ERROR: could not build {name}: {error}":
+            "ERRO: não foi possível criar {name}: {error}",
+        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} and follow \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
+            "O MAME não consegue arrancar: falta a ROM de arranque do ZX Spectrum Next (TBBLUE). Este passo é manual — consulta {url} e segue \"Get TBBLUE (the Next 'boot ROM')\". Coloca o ficheiro tbblue.zip na pasta roms do MAME (downloads\\mame\\roms) — NÃO o extraias — e tenta de novo. Tens de usar uma ROM adquirida legalmente e licenciada.",
+        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} → \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
+            "Instalação do MAME ▸ PASSO SEGUINTE (manual): adiciona a ROM de arranque TBBLUE. Consulta {url} → \"Get TBBLUE (the Next 'boot ROM')\". Coloca o ficheiro tbblue.zip na pasta roms do MAME ({roms}) — NÃO o extraias. Tens de usar uma ROM adquirida legalmente e licenciada.",
+        "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
+            "Comando dot .sync5 do NextSync atualizado: v{old} -> v{new} — copia a nova versão para o teu Next (não pode ser implantada automaticamente).",
+        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
+            "DICA: sabias que se compraste o CSpect no itch.io podes fazer uma instalação completa do CSpect a partir daí?\n\nInicia sessão na tua conta itch.io no separador itch.io, vai a CSpect e clica em Instalar.\n\nAinda queres instalar apenas o hdfmonkey, ou preferes cancelar e fazer a instalação completa do CSpect com o itch.io?",
+        "The automatic hdfmonkey download from specnext.com failed — the forum may be asking for a login or an anti-robot confirmation before the download can start (see the log for details).\n\nYou can install it manually instead:\n1. Click 'Open download page' below (or browse to\n    {url} ).\n2. Download the hdfmonkey .zip file.\n3. Drop the downloaded .zip into this EXACT folder — the app has already created it, and the 'Open downloads folder' button below opens it so nothing needs to be typed:\n    {folder}\n4. Click \"I've dropped the zip - try again\".":
+            "A transferência automática do hdfmonkey a partir de specnext.com falhou — o fórum pode estar a pedir início de sessão ou uma confirmação anti-robô antes de permitir a transferência (vê o registo para detalhes).\n\nPodes instalá-lo manualmente:\n1. Clica em 'Open download page' abaixo (ou abre\n    {url} ).\n2. Transfere o ficheiro .zip do hdfmonkey.\n3. Coloca o .zip transferido EXATAMENTE nesta pasta — a aplicação já a criou, e o botão 'Open downloads folder' abaixo abre-a para não teres de escrever nada:\n    {folder}\n4. Clica em \"I've dropped the zip - try again\".",
+        "ZX Next Unite update: downloaded {name} to {folder}":
+            "Atualização do ZX Next Unite: {name} transferido para {folder}",
+        "ZX Next Unite update: downloaded {path} but could not unpack it: {error}":
+            "Atualização do ZX Next Unite: {path} foi transferido mas não foi possível descompactá-lo: {error}",
+        "ZX Next Unite {latest} is available (you are running {installed}).\n\nYou appear to be running from source (git clone), so the\nrecommended way to update is:\n\n    git pull\n\ninstead of downloading the Windows binary.":
+            "O ZX Next Unite {latest} está disponível (estás a usar {installed}).\n\nParece que o executas a partir do código-fonte (git clone), por isso a\nforma recomendada de atualizar é:\n\n    git pull\n\nem vez de transferir o binário de Windows.",
+        "ZX Next Unite {latest} is available — download?\n\nInstalled: {installed}\nLatest: {latest}\nPackage: {asset} (~{size})\n\nThe new version is saved next to the current one — you choose\nwhen to switch (you'll be offered a restart after the download).":
+            "O ZX Next Unite {latest} está disponível — transferir?\n\nInstalada: {installed}\nMais recente: {latest}\nPacote: {asset} (~{size})\n\nA nova versão é guardada junto da atual — escolhes\nquando mudar (será oferecido um reinício após a transferência).",
+        "ZX Next Unite {latest} is available — running from source, so update with 'git pull' instead of the Windows binary.":
+            "O ZX Next Unite {latest} está disponível; como corre a partir do código-fonte, atualiza com 'git pull' em vez do binário de Windows.",
         # ---- emulator update prompts (bodies + buttons) ----
         "A newer version of MAME is available.\n\nInstalled: 0.{installed}\nLatest: {latest}  (0.{latest_num})\nPackage: {asset}\n\nDownload (~{size}) and update your MAME install now?\nThe existing files in the downloads MAME folder will be overwritten.":
             "Existe uma versão mais recente do MAME.\n\nInstalada: 0.{installed}\nMais recente: {latest}  (0.{latest_num})\nPacote: {asset}\n\nTransferir (~{size}) e atualizar a instalação do MAME agora?\nOs ficheiros existentes na pasta MAME serão substituídos.",
@@ -1266,6 +1346,20 @@ CATALOGS = {
             "A enviar {name} para a imagem do cartão SD e depois a iniciar o CSpect…",
         "Start CSpect with file {name}":
             "Iniciar o CSpect com o ficheiro {name}",
+        "Start MAME with file {name}":
+            "Iniciar o MAME com o ficheiro {name}",
+        "Send to SD Card and start MAME with file {name}":
+            "Enviar para o cartão SD e iniciar o MAME com o ficheiro {name}",
+        "Extracting {name} from the image, then starting MAME…":
+            "A extrair {name} da imagem e depois a iniciar o MAME…",
+        "Start MAME: {name} could not be read from the image, MAME was not started.":
+            "Iniciar o MAME: não foi possível ler {name} da imagem; o MAME não foi iniciado.",
+        "Send to SD Card and start MAME: the transfer failed, MAME was not started.":
+            "Enviar para o cartão SD e iniciar o MAME: a transferência falhou; o MAME não foi iniciado.",
+        "Sending {name} to the SD card image, then starting MAME…":
+            "A enviar {name} para a imagem do cartão SD e depois a iniciar o MAME…",
+        "MAME cannot load {name} directly; starting MAME without it.":
+            "O MAME não consegue carregar {name} diretamente; o MAME será iniciado sem esse ficheiro.",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Atualização do CSpect disponível",
@@ -1947,6 +2041,39 @@ CATALOGS = {
         "Mouse Off": "Mysz wyłączona",
         "Disable ESC Key Off": "Blokada klawisza ESC: wył.",
         "Disable ESC Key On": "Blokada klawisza ESC: wł.",
+        "ZX Next Unite update check: could not parse the versions (latest tag {tag}); skipping.":
+            "Sprawdzanie ZX Next Unite: nie udało się odczytać wersji (najnowszy tag {tag}) — pomijanie.",
+        "ZX Next Unite {latest} is available, but the release has no package for this platform — opening the releases page instead.":
+            "Dostępny jest ZX Next Unite {latest}, ale wydanie nie zawiera pakietu dla tej platformy — zostanie otwarta strona wydań.",
+        # ---- long guidance prompts (final) ----
+        "A newer version of CSpect is available on itch.io.\n\nInstalled: {installed}\nLatest: {latest}\n\nDownload and install the newest version now?":
+            "Na itch.io dostępna jest nowsza wersja CSpect.\n\nZainstalowana: {installed}\nNajnowsza: {latest}\n\nPobrać i zainstalować teraz najnowszą?",
+        "CSpect update ▸ SUCCESS — {name} extracted to: {path}":
+            "Aktualizacja CSpect ▸ SUKCES — {name} wypakowano do: {path}",
+        "CSpect update ▸ Starting download + install of {name} ({file}) from itch.io into {folder}.":
+            "Aktualizacja CSpect ▸ rozpoczynanie pobierania i instalacji {name} ({file}) z itch.io do {folder}.",
+        "ERROR: could not build {name}: {error}":
+            "BŁĄD: nie udało się utworzyć {name}: {error}",
+        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} and follow \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
+            "MAME nie może wystartować: brakuje ROM-u rozruchowego ZX Spectrum Next (TBBLUE). Ten krok jest ręczny — zobacz {url} i wykonaj \"Get TBBLUE (the Next 'boot ROM')\". Umieść plik tbblue.zip w folderze roms MAME (downloads\\mame\\roms) — NIE rozpakowuj go — i spróbuj ponownie. Musisz użyć legalnie nabytego, licencjonowanego ROM-u.",
+        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} → \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
+            "Instalacja MAME ▸ NASTĘPNY KROK (ręczny): dodaj ROM rozruchowy TBBLUE. Zobacz {url} → \"Get TBBLUE (the Next 'boot ROM')\". Umieść plik tbblue.zip w folderze roms MAME ({roms}) — NIE rozpakowuj go. Musisz użyć legalnie nabytego, licencjonowanego ROM-u.",
+        "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
+            "Polecenie dot .sync5 NextSync zaktualizowane: v{old} -> v{new} — skopiuj nową wersję na swojego Next (nie da się jej wdrożyć automatycznie).",
+        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
+            "WSKAZÓWKA: czy wiesz, że jeśli kupiłeś CSpect na itch.io, możesz wykonać pełną instalację CSpect właśnie stamtąd?\n\nZaloguj się na swoje konto itch.io w karcie itch.io, przejdź do CSpect i kliknij Zainstaluj.\n\nCzy nadal chcesz zainstalować tylko hdfmonkey, czy przerwać i wykonać pełną instalację CSpect przez itch.io?",
+        "The automatic hdfmonkey download from specnext.com failed — the forum may be asking for a login or an anti-robot confirmation before the download can start (see the log for details).\n\nYou can install it manually instead:\n1. Click 'Open download page' below (or browse to\n    {url} ).\n2. Download the hdfmonkey .zip file.\n3. Drop the downloaded .zip into this EXACT folder — the app has already created it, and the 'Open downloads folder' button below opens it so nothing needs to be typed:\n    {folder}\n4. Click \"I've dropped the zip - try again\".":
+            "Automatyczne pobranie hdfmonkey ze specnext.com nie powiodło się — forum może wymagać zalogowania lub potwierdzenia anty-robot przed rozpoczęciem pobierania (szczegóły w dzienniku).\n\nMożesz zainstalować go ręcznie:\n1. Kliknij 'Open download page' poniżej (albo otwórz\n    {url} ).\n2. Pobierz plik .zip hdfmonkey.\n3. Umieść pobrany .zip DOKŁADNIE w tym folderze — aplikacja już go utworzyła, a przycisk 'Open downloads folder' poniżej otwiera go, więc nic nie trzeba wpisywać:\n    {folder}\n4. Kliknij \"I've dropped the zip - try again\".",
+        "ZX Next Unite update: downloaded {name} to {folder}":
+            "Aktualizacja ZX Next Unite: pobrano {name} do {folder}",
+        "ZX Next Unite update: downloaded {path} but could not unpack it: {error}":
+            "Aktualizacja ZX Next Unite: pobrano {path}, ale nie udało się rozpakować: {error}",
+        "ZX Next Unite {latest} is available (you are running {installed}).\n\nYou appear to be running from source (git clone), so the\nrecommended way to update is:\n\n    git pull\n\ninstead of downloading the Windows binary.":
+            "Dostępny jest ZX Next Unite {latest} (używasz {installed}).\n\nWygląda na to, że uruchamiasz program ze źródeł (git clone), więc\nzalecany sposób aktualizacji to:\n\n    git pull\n\nzamiast pobierania binarium dla Windows.",
+        "ZX Next Unite {latest} is available — download?\n\nInstalled: {installed}\nLatest: {latest}\nPackage: {asset} (~{size})\n\nThe new version is saved next to the current one — you choose\nwhen to switch (you'll be offered a restart after the download).":
+            "Dostępny jest ZX Next Unite {latest} — pobrać?\n\nZainstalowana: {installed}\nNajnowsza: {latest}\nPakiet: {asset} (~{size})\n\nNowa wersja zapisywana jest obok obecnej — sam decydujesz,\nkiedy się przełączyć (po pobraniu zaproponujemy restart).",
+        "ZX Next Unite {latest} is available — running from source, so update with 'git pull' instead of the Windows binary.":
+            "Dostępny jest ZX Next Unite {latest} — program działa ze źródeł, więc zaktualizuj poleceniem 'git pull' zamiast pobierać binarium Windows.",
         # ---- emulator update prompts (bodies + buttons) ----
         "A newer version of MAME is available.\n\nInstalled: 0.{installed}\nLatest: {latest}  (0.{latest_num})\nPackage: {asset}\n\nDownload (~{size}) and update your MAME install now?\nThe existing files in the downloads MAME folder will be overwritten.":
             "Dostępna jest nowsza wersja MAME.\n\nZainstalowana: 0.{installed}\nNajnowsza: {latest}  (0.{latest_num})\nPakiet: {asset}\n\nPobrać (~{size}) i zaktualizować instalację MAME teraz?\nIstniejące pliki w folderze MAME zostaną nadpisane.",
@@ -2030,6 +2157,20 @@ CATALOGS = {
             "Wysyłanie {name} do obrazu karty SD, potem uruchomienie CSpect…",
         "Start CSpect with file {name}":
             "Uruchom CSpect z plikiem {name}",
+        "Start MAME with file {name}":
+            "Uruchom MAME z plikiem {name}",
+        "Send to SD Card and start MAME with file {name}":
+            "Wyślij na kartę SD i uruchom MAME z plikiem {name}",
+        "Extracting {name} from the image, then starting MAME…":
+            "Wypakowywanie {name} z obrazu, potem uruchomienie MAME…",
+        "Start MAME: {name} could not be read from the image, MAME was not started.":
+            "Uruchom MAME: nie udało się odczytać {name} z obrazu — MAME nie zostało uruchomione.",
+        "Send to SD Card and start MAME: the transfer failed, MAME was not started.":
+            "Wyślij na kartę SD i uruchom MAME: transfer nie powiódł się — MAME nie zostało uruchomione.",
+        "Sending {name} to the SD card image, then starting MAME…":
+            "Wysyłanie {name} do obrazu karty SD, potem uruchomienie MAME…",
+        "MAME cannot load {name} directly; starting MAME without it.":
+            "MAME nie może załadować {name} bezpośrednio — MAME zostanie uruchomione bez tego pliku.",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Dostępna aktualizacja CSpect",
@@ -2712,6 +2853,39 @@ CATALOGS = {
         "Mouse Off": "Мышь выкл.",
         "Disable ESC Key Off": "Блокировка ESC: выкл.",
         "Disable ESC Key On": "Блокировка ESC: вкл.",
+        "ZX Next Unite update check: could not parse the versions (latest tag {tag}); skipping.":
+            "Проверка ZX Next Unite: не удалось разобрать версии (последний тег {tag}) — пропуск.",
+        "ZX Next Unite {latest} is available, but the release has no package for this platform — opening the releases page instead.":
+            "Доступен ZX Next Unite {latest}, но в релизе нет пакета для этой платформы — откроется страница релизов.",
+        # ---- long guidance prompts (final) ----
+        "A newer version of CSpect is available on itch.io.\n\nInstalled: {installed}\nLatest: {latest}\n\nDownload and install the newest version now?":
+            "На itch.io доступна более новая версия CSpect.\n\nУстановлена: {installed}\nПоследняя: {latest}\n\nСкачать и установить новейшую версию сейчас?",
+        "CSpect update ▸ SUCCESS — {name} extracted to: {path}":
+            "Обновление CSpect ▸ УСПЕШНО — {name} распакован в: {path}",
+        "CSpect update ▸ Starting download + install of {name} ({file}) from itch.io into {folder}.":
+            "Обновление CSpect ▸ начало загрузки и установки {name} ({file}) с itch.io в {folder}.",
+        "ERROR: could not build {name}: {error}":
+            "ОШИБКА: не удалось создать {name}: {error}",
+        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} and follow \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
+            "MAME не может запуститься: отсутствует загрузочная ROM ZX Spectrum Next (TBBLUE). Этот шаг выполняется вручную — см. {url} и раздел \"Get TBBLUE (the Next 'boot ROM')\". Поместите файл tbblue.zip в папку roms MAME (downloads\\mame\\roms) — НЕ распаковывайте его — и повторите попытку. Используйте только легально приобретённую лицензионную ROM.",
+        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} → \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
+            "Установка MAME ▸ СЛЕДУЮЩИЙ ШАГ (вручную): добавьте загрузочную ROM TBBLUE. См. {url} → \"Get TBBLUE (the Next 'boot ROM')\". Поместите файл tbblue.zip в папку roms MAME ({roms}) — НЕ распаковывайте его. Используйте только легально приобретённую лицензионную ROM.",
+        "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
+            "Dot-команда NextSync .sync5 обновлена: v{old} -> v{new} — скопируйте новую сборку на Next (автоматическое развёртывание невозможно).",
+        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
+            "СОВЕТ: знали ли вы, что если CSpect куплен на itch.io, можно выполнить полную установку CSpect прямо оттуда?\n\nВойдите в свою учётную запись itch.io на вкладке itch.io, найдите CSpect и нажмите «Установить».\n\nВсё ещё установить только hdfmonkey или прервать и выполнить полную установку CSpect через itch.io?",
+        "The automatic hdfmonkey download from specnext.com failed — the forum may be asking for a login or an anti-robot confirmation before the download can start (see the log for details).\n\nYou can install it manually instead:\n1. Click 'Open download page' below (or browse to\n    {url} ).\n2. Download the hdfmonkey .zip file.\n3. Drop the downloaded .zip into this EXACT folder — the app has already created it, and the 'Open downloads folder' button below opens it so nothing needs to be typed:\n    {folder}\n4. Click \"I've dropped the zip - try again\".":
+            "Автоматическая загрузка hdfmonkey с specnext.com не удалась — форум может требовать входа или анти-робот подтверждения перед началом загрузки (подробности в журнале).\n\nМожно установить вручную:\n1. Нажмите 'Open download page' ниже (или откройте\n    {url} ).\n2. Скачайте .zip-файл hdfmonkey.\n3. Положите скачанный .zip ИМЕННО в эту папку — приложение уже создало её, а кнопка 'Open downloads folder' ниже открывает её, так что вводить ничего не нужно:\n    {folder}\n4. Нажмите \"I've dropped the zip - try again\".",
+        "ZX Next Unite update: downloaded {name} to {folder}":
+            "Обновление ZX Next Unite: {name} загружен в {folder}",
+        "ZX Next Unite update: downloaded {path} but could not unpack it: {error}":
+            "Обновление ZX Next Unite: {path} загружен, но распаковать не удалось: {error}",
+        "ZX Next Unite {latest} is available (you are running {installed}).\n\nYou appear to be running from source (git clone), so the\nrecommended way to update is:\n\n    git pull\n\ninstead of downloading the Windows binary.":
+            "Доступен ZX Next Unite {latest} (у вас {installed}).\n\nПохоже, вы запускаете программу из исходников (git clone), поэтому\nрекомендуемый способ обновления:\n\n    git pull\n\nвместо загрузки бинарника для Windows.",
+        "ZX Next Unite {latest} is available — download?\n\nInstalled: {installed}\nLatest: {latest}\nPackage: {asset} (~{size})\n\nThe new version is saved next to the current one — you choose\nwhen to switch (you'll be offered a restart after the download).":
+            "Доступен ZX Next Unite {latest} — скачать?\n\nУстановлена: {installed}\nПоследняя: {latest}\nПакет: {asset} (~{size})\n\nНовая версия сохраняется рядом с текущей — вы сами решаете,\nкогда переключиться (после загрузки будет предложен перезапуск).",
+        "ZX Next Unite {latest} is available — running from source, so update with 'git pull' instead of the Windows binary.":
+            "Доступен ZX Next Unite {latest} — запуск из исходников, поэтому обновляйтесь через 'git pull', а не бинарником для Windows.",
         # ---- emulator update prompts (bodies + buttons) ----
         "A newer version of MAME is available.\n\nInstalled: 0.{installed}\nLatest: {latest}  (0.{latest_num})\nPackage: {asset}\n\nDownload (~{size}) and update your MAME install now?\nThe existing files in the downloads MAME folder will be overwritten.":
             "Доступна более новая версия MAME.\n\nУстановлена: 0.{installed}\nПоследняя: {latest}  (0.{latest_num})\nПакет: {asset}\n\nСкачать (~{size}) и обновить установку MAME сейчас?\nСуществующие файлы в папке MAME будут перезаписаны.",
@@ -2795,6 +2969,20 @@ CATALOGS = {
             "Отправка {name} в образ SD-карты, затем запуск CSpect…",
         "Start CSpect with file {name}":
             "Запустить CSpect с файлом {name}",
+        "Start MAME with file {name}":
+            "Запустить MAME с файлом {name}",
+        "Send to SD Card and start MAME with file {name}":
+            "Отправить на SD-карту и запустить MAME с файлом {name}",
+        "Extracting {name} from the image, then starting MAME…":
+            "Извлечение {name} из образа, затем запуск MAME…",
+        "Start MAME: {name} could not be read from the image, MAME was not started.":
+            "Запуск MAME: не удалось прочитать {name} из образа — MAME не запущен.",
+        "Send to SD Card and start MAME: the transfer failed, MAME was not started.":
+            "Отправка на SD-карту и запуск MAME: передача не удалась — MAME не запущен.",
+        "Sending {name} to the SD card image, then starting MAME…":
+            "Отправка {name} в образ SD-карты, затем запуск MAME…",
+        "MAME cannot load {name} directly; starting MAME without it.":
+            "MAME не может загрузить {name} напрямую — MAME будет запущен без этого файла.",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Доступно обновление CSpect",
@@ -3476,6 +3664,39 @@ CATALOGS = {
         "Mouse Off": "Myš vypnuta",
         "Disable ESC Key Off": "Blokovat klávesu ESC: ne",
         "Disable ESC Key On": "Blokovat klávesu ESC: ano",
+        "ZX Next Unite update check: could not parse the versions (latest tag {tag}); skipping.":
+            "Kontrola ZX Next Unite: nepodařilo se rozpoznat verze (nejnovější značka {tag}) — přeskakuje se.",
+        "ZX Next Unite {latest} is available, but the release has no package for this platform — opening the releases page instead.":
+            "Je dostupný ZX Next Unite {latest}, ale vydání neobsahuje balíček pro tuto platformu — otevře se stránka vydání.",
+        # ---- long guidance prompts (final) ----
+        "A newer version of CSpect is available on itch.io.\n\nInstalled: {installed}\nLatest: {latest}\n\nDownload and install the newest version now?":
+            "Na itch.io je dostupná novější verze CSpectu.\n\nNainstalovaná: {installed}\nNejnovější: {latest}\n\nStáhnout a nainstalovat nejnovější verzi nyní?",
+        "CSpect update ▸ SUCCESS — {name} extracted to: {path}":
+            "Aktualizace CSpectu ▸ ÚSPĚCH — {name} rozbaleno do: {path}",
+        "CSpect update ▸ Starting download + install of {name} ({file}) from itch.io into {folder}.":
+            "Aktualizace CSpectu ▸ zahájení stažení a instalace {name} ({file}) z itch.io do {folder}.",
+        "ERROR: could not build {name}: {error}":
+            "CHYBA: nepodařilo se vytvořit {name}: {error}",
+        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} and follow \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
+            "MAME nemůže nastartovat: chybí zaváděcí ROM ZX Spectrum Next (TBBLUE). Tento krok je ruční — viz {url} a postup \"Get TBBLUE (the Next 'boot ROM')\". Vložte soubor tbblue.zip do složky roms MAME (downloads\\mame\\roms) — NEROZBALUJTE jej — a zkuste to znovu. Musíte použít legálně pořízenou licencovanou ROM.",
+        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} → \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
+            "Instalace MAME ▸ DALŠÍ KROK (ruční): přidejte zaváděcí ROM TBBLUE. Viz {url} → \"Get TBBLUE (the Next 'boot ROM')\". Vložte soubor tbblue.zip do složky roms MAME ({roms}) — NEROZBALUJTE jej. Musíte použít legálně pořízenou licencovanou ROM.",
+        "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
+            "Dot příkaz NextSync .sync5 aktualizován: v{old} -> v{new} — zkopírujte novou verzi na svůj Next (nelze ji nasadit automaticky).",
+        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
+            "TIP: věděli jste, že pokud máte CSpect zakoupený na itch.io, můžete odtud provést kompletní instalaci CSpectu?\n\nPřihlaste se ke svému účtu itch.io na kartě itch.io, přejděte na CSpect a klikněte na Instalovat.\n\nChcete přesto nainstalovat pouze hdfmonkey, nebo akci přerušit a provést kompletní instalaci CSpectu přes itch.io?",
+        "The automatic hdfmonkey download from specnext.com failed — the forum may be asking for a login or an anti-robot confirmation before the download can start (see the log for details).\n\nYou can install it manually instead:\n1. Click 'Open download page' below (or browse to\n    {url} ).\n2. Download the hdfmonkey .zip file.\n3. Drop the downloaded .zip into this EXACT folder — the app has already created it, and the 'Open downloads folder' button below opens it so nothing needs to be typed:\n    {folder}\n4. Click \"I've dropped the zip - try again\".":
+            "Automatické stažení hdfmonkey ze specnext.com selhalo — fórum může před zahájením stahování vyžadovat přihlášení nebo potvrzení proti robotům (podrobnosti v logu).\n\nMůžete jej nainstalovat ručně:\n1. Klikněte na 'Open download page' níže (nebo otevřete\n    {url} ).\n2. Stáhněte soubor .zip s hdfmonkey.\n3. Vložte stažený .zip PŘESNĚ do této složky — aplikace ji už vytvořila a tlačítko 'Open downloads folder' níže ji otevře, takže nic nemusíte psát:\n    {folder}\n4. Klikněte na \"I've dropped the zip - try again\".",
+        "ZX Next Unite update: downloaded {name} to {folder}":
+            "Aktualizace ZX Next Unite: {name} staženo do {folder}",
+        "ZX Next Unite update: downloaded {path} but could not unpack it: {error}":
+            "Aktualizace ZX Next Unite: {path} staženo, ale nepodařilo se rozbalit: {error}",
+        "ZX Next Unite {latest} is available (you are running {installed}).\n\nYou appear to be running from source (git clone), so the\nrecommended way to update is:\n\n    git pull\n\ninstead of downloading the Windows binary.":
+            "Je dostupný ZX Next Unite {latest} (používáte {installed}).\n\nZdá se, že program spouštíte ze zdrojů (git clone), takže\ndoporučený způsob aktualizace je:\n\n    git pull\n\nmísto stahování binárky pro Windows.",
+        "ZX Next Unite {latest} is available — download?\n\nInstalled: {installed}\nLatest: {latest}\nPackage: {asset} (~{size})\n\nThe new version is saved next to the current one — you choose\nwhen to switch (you'll be offered a restart after the download).":
+            "Je dostupný ZX Next Unite {latest} — stáhnout?\n\nNainstalovaná: {installed}\nNejnovější: {latest}\nBalíček: {asset} (~{size})\n\nNová verze se uloží vedle stávající — sami zvolíte,\nkdy přepnout (po stažení bude nabídnut restart).",
+        "ZX Next Unite {latest} is available — running from source, so update with 'git pull' instead of the Windows binary.":
+            "Je dostupný ZX Next Unite {latest} — běží ze zdrojů, takže aktualizujte příkazem 'git pull' místo stahování binárky pro Windows.",
         # ---- emulator update prompts (bodies + buttons) ----
         "A newer version of MAME is available.\n\nInstalled: 0.{installed}\nLatest: {latest}  (0.{latest_num})\nPackage: {asset}\n\nDownload (~{size}) and update your MAME install now?\nThe existing files in the downloads MAME folder will be overwritten.":
             "Je dostupná novější verze MAME.\n\nNainstalovaná: 0.{installed}\nNejnovější: {latest}  (0.{latest_num})\nBalíček: {asset}\n\nStáhnout (~{size}) a aktualizovat instalaci MAME nyní?\nStávající soubory ve složce MAME budou přepsány.",
@@ -3559,6 +3780,20 @@ CATALOGS = {
             "Odesílání {name} do obrazu SD karty, poté spuštění CSpectu…",
         "Start CSpect with file {name}":
             "Spustit CSpect se souborem {name}",
+        "Start MAME with file {name}":
+            "Spustit MAME se souborem {name}",
+        "Send to SD Card and start MAME with file {name}":
+            "Odeslat na SD kartu a spustit MAME se souborem {name}",
+        "Extracting {name} from the image, then starting MAME…":
+            "Rozbaluje se {name} z obrazu, poté se spustí MAME…",
+        "Start MAME: {name} could not be read from the image, MAME was not started.":
+            "Spustit MAME: {name} se nepodařilo načíst z obrazu — MAME nebyl spuštěn.",
+        "Send to SD Card and start MAME: the transfer failed, MAME was not started.":
+            "Odeslat na SD kartu a spustit MAME: přenos selhal — MAME nebyl spuštěn.",
+        "Sending {name} to the SD card image, then starting MAME…":
+            "Odesílání {name} do obrazu SD karty, poté spuštění MAME…",
+        "MAME cannot load {name} directly; starting MAME without it.":
+            "MAME nemůže {name} načíst přímo — MAME bude spuštěn bez tohoto souboru.",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "K dispozici je aktualizace CSpectu",
@@ -4243,6 +4478,39 @@ CATALOGS = {
         "Mouse Off": "Souris désactivée",
         "Disable ESC Key Off": "Désactiver la touche ÉCHAP : non",
         "Disable ESC Key On": "Désactiver la touche ÉCHAP : oui",
+        "ZX Next Unite update check: could not parse the versions (latest tag {tag}); skipping.":
+            "Vérification de ZX Next Unite : impossible d'analyser les versions (dernière étiquette {tag}) ; ignorée.",
+        "ZX Next Unite {latest} is available, but the release has no package for this platform — opening the releases page instead.":
+            "ZX Next Unite {latest} est disponible, mais la version ne contient aucun paquet pour cette plateforme — la page des versions va s'ouvrir.",
+        # ---- long guidance prompts (final) ----
+        "A newer version of CSpect is available on itch.io.\n\nInstalled: {installed}\nLatest: {latest}\n\nDownload and install the newest version now?":
+            "Une version plus récente de CSpect est disponible sur itch.io.\n\nInstallée : {installed}\nDernière : {latest}\n\nTélécharger et installer la plus récente maintenant ?",
+        "CSpect update ▸ SUCCESS — {name} extracted to: {path}":
+            "Mise à jour de CSpect ▸ RÉUSSIE — {name} extrait dans : {path}",
+        "CSpect update ▸ Starting download + install of {name} ({file}) from itch.io into {folder}.":
+            "Mise à jour de CSpect ▸ démarrage du téléchargement et de l'installation de {name} ({file}) depuis itch.io vers {folder}.",
+        "ERROR: could not build {name}: {error}":
+            "ERREUR : impossible de créer {name} : {error}",
+        "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) is missing. This step is manual — see {url} and follow \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder (downloads\\mame\\roms) — DON'T extract it — and try again. You must provide a legally acquired, licensed ROM.":
+            "MAME ne peut pas démarrer : la ROM de démarrage du ZX Spectrum Next (TBBLUE) est absente. Cette étape est manuelle — voir {url} et suivre \"Get TBBLUE (the Next 'boot ROM')\". Placez le fichier tbblue.zip dans le dossier roms de MAME (downloads\\mame\\roms) — NE l'extrayez PAS — puis réessayez. Vous devez fournir une ROM acquise légalement et sous licence.",
+        "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See {url} → \"Get TBBLUE (the Next 'boot ROM')\". Put the file tbblue.zip into MAME's roms folder ({roms}) — DON'T extract it. You must provide a legally acquired, licensed ROM.":
+            "Installation de MAME ▸ ÉTAPE SUIVANTE (manuelle) : ajoutez la ROM de démarrage TBBLUE. Voir {url} → \"Get TBBLUE (the Next 'boot ROM')\". Placez le fichier tbblue.zip dans le dossier roms de MAME ({roms}) — NE l'extrayez PAS. Vous devez fournir une ROM acquise légalement et sous licence.",
+        "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
+            "Commande dot .sync5 de NextSync mise à jour : v{old} -> v{new} — copiez la nouvelle version sur votre Next (le déploiement automatique est impossible).",
+        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
+            "ASTUCE : saviez-vous que si vous avez acheté CSpect sur itch.io, vous pouvez y faire une installation complète de CSpect ?\n\nConnectez-vous à votre compte itch.io dans l'onglet itch.io, allez sur CSpect et cliquez sur Installer.\n\nVoulez-vous quand même installer uniquement hdfmonkey, ou annuler et faire l'installation complète de CSpect via itch.io ?",
+        "The automatic hdfmonkey download from specnext.com failed — the forum may be asking for a login or an anti-robot confirmation before the download can start (see the log for details).\n\nYou can install it manually instead:\n1. Click 'Open download page' below (or browse to\n    {url} ).\n2. Download the hdfmonkey .zip file.\n3. Drop the downloaded .zip into this EXACT folder — the app has already created it, and the 'Open downloads folder' button below opens it so nothing needs to be typed:\n    {folder}\n4. Click \"I've dropped the zip - try again\".":
+            "Le téléchargement automatique de hdfmonkey depuis specnext.com a échoué — le forum demande peut-être une connexion ou une confirmation anti-robot avant de lancer le téléchargement (voir le journal pour les détails).\n\nVous pouvez l'installer manuellement :\n1. Cliquez sur 'Open download page' ci-dessous (ou ouvrez\n    {url} ).\n2. Téléchargez le fichier .zip de hdfmonkey.\n3. Déposez le .zip téléchargé EXACTEMENT dans ce dossier — l'application l'a déjà créé, et le bouton 'Open downloads folder' ci-dessous l'ouvre pour éviter toute saisie :\n    {folder}\n4. Cliquez sur \"I've dropped the zip - try again\".",
+        "ZX Next Unite update: downloaded {name} to {folder}":
+            "Mise à jour de ZX Next Unite : {name} téléchargé dans {folder}",
+        "ZX Next Unite update: downloaded {path} but could not unpack it: {error}":
+            "Mise à jour de ZX Next Unite : {path} téléchargé mais impossible à décompresser : {error}",
+        "ZX Next Unite {latest} is available (you are running {installed}).\n\nYou appear to be running from source (git clone), so the\nrecommended way to update is:\n\n    git pull\n\ninstead of downloading the Windows binary.":
+            "ZX Next Unite {latest} est disponible (vous utilisez {installed}).\n\nVous semblez l'exécuter depuis les sources (git clone), la\nméthode de mise à jour recommandée est donc :\n\n    git pull\n\nplutôt que de télécharger le binaire Windows.",
+        "ZX Next Unite {latest} is available — download?\n\nInstalled: {installed}\nLatest: {latest}\nPackage: {asset} (~{size})\n\nThe new version is saved next to the current one — you choose\nwhen to switch (you'll be offered a restart after the download).":
+            "ZX Next Unite {latest} est disponible — télécharger ?\n\nInstallée : {installed}\nDernière : {latest}\nPaquet : {asset} (~{size})\n\nLa nouvelle version est enregistrée à côté de l'actuelle — vous choisissez\nquand basculer (un redémarrage vous sera proposé après le téléchargement).",
+        "ZX Next Unite {latest} is available — running from source, so update with 'git pull' instead of the Windows binary.":
+            "ZX Next Unite {latest} est disponible — exécution depuis les sources, mettez à jour avec 'git pull' plutôt que le binaire Windows.",
         # ---- emulator update prompts (bodies + buttons) ----
         "A newer version of MAME is available.\n\nInstalled: 0.{installed}\nLatest: {latest}  (0.{latest_num})\nPackage: {asset}\n\nDownload (~{size}) and update your MAME install now?\nThe existing files in the downloads MAME folder will be overwritten.":
             "Une version plus récente de MAME est disponible.\n\nInstallée : 0.{installed}\nDernière : {latest}  (0.{latest_num})\nPaquet : {asset}\n\nTélécharger (~{size}) et mettre à jour votre installation MAME maintenant ?\nLes fichiers existants du dossier MAME seront écrasés.",
@@ -4326,6 +4594,20 @@ CATALOGS = {
             "Envoi de {name} vers l'image de la carte SD, puis lancement de CSpect…",
         "Start CSpect with file {name}":
             "Lancer CSpect avec le fichier {name}",
+        "Start MAME with file {name}":
+            "Lancer MAME avec le fichier {name}",
+        "Send to SD Card and start MAME with file {name}":
+            "Envoyer vers la carte SD et lancer MAME avec le fichier {name}",
+        "Extracting {name} from the image, then starting MAME…":
+            "Extraction de {name} depuis l'image, puis lancement de MAME…",
+        "Start MAME: {name} could not be read from the image, MAME was not started.":
+            "Lancer MAME : impossible de lire {name} depuis l'image, MAME n'a pas été lancé.",
+        "Send to SD Card and start MAME: the transfer failed, MAME was not started.":
+            "Envoyer vers la carte SD et lancer MAME : le transfert a échoué, MAME n'a pas été lancé.",
+        "Sending {name} to the SD card image, then starting MAME…":
+            "Envoi de {name} vers l'image de la carte SD, puis lancement de MAME…",
+        "MAME cannot load {name} directly; starting MAME without it.":
+            "MAME ne peut pas charger {name} directement ; MAME sera lancé sans ce fichier.",
         # ---- dialogs (message boxes) ----
         "CSpect update available":
             "Mise à jour de CSpect disponible",
