@@ -1837,6 +1837,21 @@ class MainWindow(QMainWindow):
         def enable_image_selection():
             self.imageinput.setDisabled(False)
             self.selectimage.setDisabled(False)
+            # The LOCAL explorer (left pane) needs no disk image: browsing the
+            # PC, filtering, zip/unzip and the "Start <emulator> with <file>"
+            # actions all work on their own. It is only greyed out here because
+            # set_all_buttons_disabled() is the same blunt lock used during
+            # transfers, so re-enable the local half in this resting state —
+            # otherwise no image (or no hdfmonkey) leaves the whole left pane
+            # dead and those actions unreachable.
+            # Everything image-side (the image tree, both transfer buttons, the
+            # in-image new-folder/rename/delete controls) deliberately stays
+            # disabled: there is nothing yet for them to act on.
+            for _local_widget in (self.zx_next_unite_diskdrive, self.filterlabel,
+                                  self.filtertext, self.treeview,
+                                  self.local_explorer_up_button,
+                                  self.local_explorer_refresh_button):
+                _local_widget.setDisabled(False)
             # The MAME group is gated on MAME + a valid image, not on hdfmonkey —
             # so refresh it here, the resting state used when the image explorer
             # is unavailable (e.g. hdfmonkey missing or a failed load). Keeps
