@@ -2056,6 +2056,9 @@ class MainWindow(QMainWindow):
         build_local_explorer_ops(
             self,
             add_main_log_window=add_main_log_window,
+            # Read via the getter hook: right_disk_image_explorer_content is a
+            # module global in zxnu_main, so the builder must not capture it.
+            _right_disk_content=lambda: right_disk_image_explorer_content,
             nextsync_refresh_explorer=nextsync_refresh_explorer,
             _nextsync_unique_path=lambda *a, **k: _nextsync_unique_path(*a, **k),
             _run_nextsync_import_task=lambda *a, **k: _run_nextsync_import_task(*a, **k),
