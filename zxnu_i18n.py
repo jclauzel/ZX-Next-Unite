@@ -535,6 +535,18 @@ CATALOGS = {
             "Iniciar CSpect con el archivo {name}",
         "Start MAME with file {name}":
             "Iniciar MAME con el archivo {name}",
+        "Could not start {emulator}":
+            "No se pudo iniciar {emulator}",
+        "Could not prepare a folder for {name}: {error}":
+            "No se pudo preparar una carpeta para {name}: {error}",
+        "Start {emulator}: {name} could not be downloaded from the Next, "
+        "{emulator} was not started.":
+            "Iniciar {emulator}: no se pudo descargar {name} del Next; "
+            "{emulator} no se ha iniciado.",
+        "Downloading {name} from the Next, then starting {emulator}…":
+            "Descargando {name} del Next y luego iniciando {emulator}…",
+        "Downloading {name}…":
+            "Descargando {name}…",
         "Start MAME: could not prepare the staging folder {path} ({error}).":
             "Iniciar MAME: no se pudo preparar la carpeta temporal {path} ({error}).",
         "Send to SD Card and start MAME with file {name}":
@@ -1350,6 +1362,18 @@ CATALOGS = {
             "Iniciar o CSpect com o ficheiro {name}",
         "Start MAME with file {name}":
             "Iniciar o MAME com o ficheiro {name}",
+        "Could not start {emulator}":
+            "Não foi possível iniciar o {emulator}",
+        "Could not prepare a folder for {name}: {error}":
+            "Não foi possível preparar uma pasta para {name}: {error}",
+        "Start {emulator}: {name} could not be downloaded from the Next, "
+        "{emulator} was not started.":
+            "Iniciar o {emulator}: não foi possível transferir {name} do Next; "
+            "o {emulator} não foi iniciado.",
+        "Downloading {name} from the Next, then starting {emulator}…":
+            "A transferir {name} do Next e depois a iniciar o {emulator}…",
+        "Downloading {name}…":
+            "A transferir {name}…",
         "Start MAME: could not prepare the staging folder {path} ({error}).":
             "Iniciar o MAME: não foi possível preparar a pasta temporária {path} ({error}).",
         "Send to SD Card and start MAME with file {name}":
@@ -2163,6 +2187,18 @@ CATALOGS = {
             "Uruchom CSpect z plikiem {name}",
         "Start MAME with file {name}":
             "Uruchom MAME z plikiem {name}",
+        "Could not start {emulator}":
+            "Nie udało się uruchomić {emulator}",
+        "Could not prepare a folder for {name}: {error}":
+            "Nie udało się przygotować folderu dla {name}: {error}",
+        "Start {emulator}: {name} could not be downloaded from the Next, "
+        "{emulator} was not started.":
+            "Uruchom {emulator}: nie udało się pobrać {name} z Nexta — "
+            "{emulator} nie został uruchomiony.",
+        "Downloading {name} from the Next, then starting {emulator}…":
+            "Pobieranie {name} z Nexta, potem uruchomienie {emulator}…",
+        "Downloading {name}…":
+            "Pobieranie {name}…",
         "Start MAME: could not prepare the staging folder {path} ({error}).":
             "Uruchom MAME: nie udało się przygotować folderu tymczasowego {path} ({error}).",
         "Send to SD Card and start MAME with file {name}":
@@ -2977,6 +3013,18 @@ CATALOGS = {
             "Запустить CSpect с файлом {name}",
         "Start MAME with file {name}":
             "Запустить MAME с файлом {name}",
+        "Could not start {emulator}":
+            "Не удалось запустить {emulator}",
+        "Could not prepare a folder for {name}: {error}":
+            "Не удалось подготовить папку для {name}: {error}",
+        "Start {emulator}: {name} could not be downloaded from the Next, "
+        "{emulator} was not started.":
+            "Запуск {emulator}: не удалось скачать {name} с Next — {emulator} "
+            "не запущен.",
+        "Downloading {name} from the Next, then starting {emulator}…":
+            "Загрузка {name} с Next, затем запуск {emulator}…",
+        "Downloading {name}…":
+            "Загрузка {name}…",
         "Start MAME: could not prepare the staging folder {path} ({error}).":
             "Запуск MAME: не удалось подготовить временную папку {path} ({error}).",
         "Send to SD Card and start MAME with file {name}":
@@ -3790,6 +3838,18 @@ CATALOGS = {
             "Spustit CSpect se souborem {name}",
         "Start MAME with file {name}":
             "Spustit MAME se souborem {name}",
+        "Could not start {emulator}":
+            "Nepodařilo se spustit {emulator}",
+        "Could not prepare a folder for {name}: {error}":
+            "Nepodařilo se připravit složku pro {name}: {error}",
+        "Start {emulator}: {name} could not be downloaded from the Next, "
+        "{emulator} was not started.":
+            "Spustit {emulator}: {name} se nepodařilo stáhnout z Nextu — "
+            "{emulator} nebyl spuštěn.",
+        "Downloading {name} from the Next, then starting {emulator}…":
+            "Stahuje se {name} z Nextu, poté se spustí {emulator}…",
+        "Downloading {name}…":
+            "Stahuje se {name}…",
         "Start MAME: could not prepare the staging folder {path} ({error}).":
             "Spustit MAME: nepodařilo se připravit dočasnou složku {path} ({error}).",
         "Send to SD Card and start MAME with file {name}":
@@ -4606,6 +4666,19 @@ CATALOGS = {
             "Lancer CSpect avec le fichier {name}",
         "Start MAME with file {name}":
             "Lancer MAME avec le fichier {name}",
+        "Could not start {emulator}":
+            "Impossible de lancer {emulator}",
+        "Could not prepare a folder for {name}: {error}":
+            "Impossible de préparer un dossier pour {name} : {error}",
+        "Start {emulator}: {name} could not be downloaded from the Next, "
+        "{emulator} was not started.":
+            "Lancer {emulator} : impossible de télécharger {name} depuis le "
+            "Next, {emulator} n'a pas été lancé.",
+        "Downloading {name} from the Next, then starting {emulator}…":
+            "Téléchargement de {name} depuis le Next, puis lancement de "
+            "{emulator}…",
+        "Downloading {name}…":
+            "Téléchargement de {name}…",
         "Start MAME: could not prepare the staging folder {path} ({error}).":
             "Lancer MAME : impossible de préparer le dossier temporaire {path} ({error}).",
         "Send to SD Card and start MAME with file {name}":

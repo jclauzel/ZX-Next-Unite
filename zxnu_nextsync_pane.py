@@ -772,6 +772,10 @@ def build_nextsync_pane(
             on_sort_changed=_re_on_sort_changed,
             extra_drives=extra_drives,
             on_extra_drives_changed=_re_on_extra_drives_changed,
+            # Same "Start <emulator> with <file>" entries as the SD Card tab and
+            # the classic explorer; the widget itself knows nothing about which
+            # emulators are installed.
+            emulator_entries=lambda path: emulator_autostart_entries(host, path),
             on_toast=lambda title, msg, variant="red": host._show_toast(
                 title, msg, variant=variant, duration_ms=9000))
         host._re_widget = widget

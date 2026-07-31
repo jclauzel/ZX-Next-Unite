@@ -11,6 +11,7 @@ through RemoteExplorerSignals and are applied here on the UI thread.
 """
 
 import html
+import logging
 import os
 import posixpath
 import shutil
@@ -244,11 +245,17 @@ class RemoteExplorerWidget(QWidget):
                  drain=None, on_sync_root_changed=None, remote_start_dir=None,
                  on_remote_cwd_changed=None, local_sort=None, next_sort=None,
                  on_sort_changed=None, on_toast=None, extra_drives=None,
-                 on_extra_drives_changed=None):
+                 on_extra_drives_changed=None, emulator_entries=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
         self._drain_raw = drain              # host closure: empty the queue, -> count
         self._log = log or (lambda s: None)
+        # host closure: path -> [EmulatorAutostart] for the emulators that are
+        # installed and can boot that file, so both panes can offer the same
+        # "Start <emulator> with <file>" entries as the SD Card tab. The widget
+        # deliberately does not know which emulators exist; without the hook it
+        # simply offers nothing.
+        self._emulator_entries = emulator_entries or (lambda path: [])
         self._on_sync_root_changed = on_sync_root_changed or (lambda p: None)
         # Surface Next-side failures ('F' replies / abandoned transfers) to the
         # user: on_toast(title, message, variant) pops a host toast.
@@ -1601,6 +1608,17 @@ class RemoteExplorerWidget(QWidget):
         if not self._connected:
             return
         menu = QMenu(self)
+        # "Start <emulator> with <file>" at the top, mirroring the SD Card tab's
+        # image pane: the file lives on the Next, so it is downloaded to the PC
+        # first and the emulator started on that copy (see
+        # _emulator_start_from_next). Offered for a single selected file only.
+        emu_next = []
+        _sel_now = self._selected_next_entries()
+        if len(_sel_now) == 1 and not _sel_now[0][1]:
+            for entry in self._emulator_entries(_sel_now[0][0]):
+                emu_next.append((menu.addAction(entry.label), entry))
+            if emu_next:
+                menu.addSeparator()
         act_new = menu.addAction(ui_tr_now("New Folder…"))
         act_get = menu.addAction(ui_tr_now("Download (:<-)"))
         act_size = menu.addAction(ui_tr_now("Get size"))
@@ -1629,6 +1647,10 @@ class RemoteExplorerWidget(QWidget):
         # duplicated ON the Next itself via the dot's rcpy (v5.2+).
         act_paste.setEnabled(bool(self._clip))
         chosen = menu.exec(self.next_view.viewport().mapToGlobal(pos))
+        for act, entry in emu_next:
+            if chosen == act:
+                self._emulator_start_from_next(_sel_now[0][0], entry)
+                return
         if chosen == act_new:
             self._new_folder()
         elif chosen == act_get:
@@ -2214,6 +2236,51 @@ class RemoteExplorerWidget(QWidget):
         return self._cwd if self._cwd.endswith("/") else self._cwd + "/"
 
     # ---- Remote Unzip file -------------------------------------------
+    def _emulator_start_from_next(self, remote_path, entry):
+        """Boot a file that lives ON THE NEXT in an emulator.
+
+        The emulator runs on the PC and knows nothing about the Next's storage,
+        so the file is downloaded first (same 'get' op as the Download action)
+        and the emulator started on that copy — the Next pane's counterpart to
+        the SD Card tab extracting from the image with hdfmonkey.
+
+        The copy is deliberately NOT deleted on success: the emulator is
+        launched detached and opens the file after we return. Which directory
+        it goes to is the emulator's business (entry.staging_dir), because
+        Flatpak MAME cannot see this process's /tmp.
+        """
+        if not self._connected or self._op_active:
+            return
+        name = posixpath.basename(remote_path.rstrip("/")) or remote_path
+        try:
+            tmp = entry.staging_dir()
+        except OSError as exc:
+            logging.exception("emulator staging dir unusable")
+            self._on_toast(
+                ui_tr_now("Could not start {emulator}").format(emulator=entry.name),
+                ui_tr_now("Could not prepare a folder for {name}: {error}")
+                .format(name=name, error=exc), "red")
+            return
+
+        def _started(ok, _fails):
+            local = os.path.join(tmp, name)
+            if not ok or not os.path.isfile(local):
+                shutil.rmtree(tmp, ignore_errors=True)
+                self._log(ui_tr_now(
+                    "Start {emulator}: {name} could not be downloaded from "
+                    "the Next, {emulator} was not started.").format(
+                        emulator=entry.name, name=name))
+                return
+            # Deferred so _end_operation fully unwinds before the launch.
+            QTimer.singleShot(0, lambda: entry.launch(local))
+
+        self._log(ui_tr_now(
+            "Downloading {name} from the Next, then starting {emulator}…")
+            .format(name=name, emulator=entry.name))
+        self._run_op(ui_tr_now("Downloading {name}…").format(name=name),
+                     lambda: self._enqueue(("get", remote_path, tmp)),
+                     on_done=_started)
+
     def _remote_unzip(self, zip_path):
         """Context menu 'Remote Unzip file' (a single selected remote .zip):
         stage 1 downloads the zip to a temp dir (normal cancellable op),
@@ -2601,6 +2668,15 @@ class RemoteExplorerWidget(QWidget):
         sel = [p for p in self._selected_local_paths() if p]
         has_sel = len(sel) > 0
         menu = QMenu(self)
+        # "Start <emulator> with <file>" at the top, for a single selected file
+        # the emulator can boot. These paths are already local, so they go
+        # straight to the launcher.
+        emu_local = []
+        if len(sel) == 1 and os.path.isfile(sel[0]):
+            for entry in self._emulator_entries(sel[0]):
+                emu_local.append((menu.addAction(entry.label), entry))
+            if emu_local:
+                menu.addSeparator()
         act_new = menu.addAction(ui_tr_now("New Folder…"))
         act_unzip = menu.addAction(ui_tr_now("Unzip file"))
         act_zip = menu.addAction(ui_tr_now("Zip"))
@@ -2626,6 +2702,10 @@ class RemoteExplorerWidget(QWidget):
         # copies/moves copied/cut LOCAL items into it.
         act_paste.setEnabled(bool(self._clip))
         chosen = menu.exec(self.local_view.viewport().mapToGlobal(pos))
+        for act, entry in emu_local:
+            if chosen == act:
+                QTimer.singleShot(0, lambda e=entry, p=sel[0]: e.launch(p))
+                return
         if chosen == act_new:
             self._local_new_folder()
         elif chosen == act_unzip:

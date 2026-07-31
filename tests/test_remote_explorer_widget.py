@@ -119,7 +119,8 @@ def make_widget(**kw):
         on_sort_changed=lambda which, v: calls["sorts"].append((which, v)),
         on_toast=lambda t, m, variant="red": calls["toasts"].append((t, m, variant)),
         extra_drives=kw.get("extra_drives"),
-        on_extra_drives_changed=calls["extra_drives"].append)
+        on_extra_drives_changed=calls["extra_drives"].append,
+        emulator_entries=kw.get("emulator_entries"))
     return w, calls
 
 
@@ -1154,6 +1155,73 @@ def test_compact_buttons_fit_translated_labels():
     w.deleteLater()
 
 
+def test_emulator_start_from_next():
+    """'Start <emulator> with <file>' on the NEXT pane.
+
+    The emulator runs on the PC and cannot read the Next's storage, so the file
+    must be downloaded first and the emulator started on THAT copy — the Next
+    pane's counterpart to the SD Card tab extracting from the image. Driven
+    through the real widget: the download is a normal queued 'get' op, so the
+    recorded queue and on_op_done() are enough to exercise the whole path.
+    """
+    print("\n== emulator auto-start from the Next pane ==")
+    from zxnu_workers import EmulatorAutostart
+
+    launched, staged = [], []
+    stage_root = tempfile.mkdtemp(dir=TMP)
+
+    def make_stage():
+        staged.append(stage_root)
+        return stage_root
+
+    entry = EmulatorAutostart("CSpect", "Start CSpect with file beast.nex",
+                              launched.append, make_stage)
+    w, calls = make_widget(emulator_entries=lambda p: [entry])
+    connect_widget(w, calls, listing=[(False, 4096, "beast.nex")])
+
+    # The download is queued against the emulator's own staging directory.
+    w._emulator_start_from_next("/beast.nex", entry)
+    q = list(calls["q"])
+    check("the Next-pane action queues a download",
+          any(c[0] == "get" and c[1] == "/beast.nex" for c in q), str(q))
+    check("...into the directory the emulator asked for",
+          staged == [stage_root] and any(len(c) > 2 and c[2] == stage_root
+                                         for c in q), str(q))
+    check("nothing is launched before the download finishes", launched == [])
+
+    # Finish the download with the file actually present, as the worker would.
+    open(os.path.join(stage_root, "beast.nex"), "wb").write(b"\x00" * 8)
+    w.on_op_done(True, "get", "/beast.nex")
+    QApplication.processEvents()          # the launch is deferred by one tick
+    check("the emulator is started once the file has arrived",
+          launched == [os.path.join(stage_root, "beast.nex")], str(launched))
+    check("it is started on the DOWNLOADED copy, not the Next path",
+          launched and not launched[0].startswith("/beast"), str(launched))
+    check("the copy survives the launch (the emulator is detached)",
+          os.path.isfile(os.path.join(stage_root, "beast.nex")))
+
+    # A failed download must not start anything and must clean up after itself.
+    launched.clear()
+    stage2 = tempfile.mkdtemp(dir=TMP)
+    entry2 = EmulatorAutostart("MAME", "Start MAME with file x.nex",
+                               launched.append, lambda: stage2)
+    w2, calls2 = make_widget(emulator_entries=lambda p: [entry2])
+    connect_widget(w2, calls2, listing=[(False, 10, "x.nex")])
+    w2._emulator_start_from_next("/x.nex", entry2)
+    w2.on_op_done(False, "get", "/x.nex")   # download failed
+    QApplication.processEvents()
+    check("a failed download starts nothing", launched == [], str(launched))
+    check("...and removes the staging directory", not os.path.isdir(stage2))
+    check("...and says so in the log",
+          any("could not be downloaded" in str(s) or "not started" in str(s)
+              for s in calls2["log"]), str(calls2["log"][-3:]))
+
+    # Without the host hook the widget must simply offer nothing, never crash.
+    w3, _ = make_widget()
+    check("no hook -> no entries (the widget knows no emulators itself)",
+          w3._emulator_entries("/anything.nex") == [])
+
+
 def main():
     logging.disable(logging.CRITICAL)
     app = QApplication(sys.argv)  # noqa: F841 — QWidget construction needs it
@@ -1180,6 +1248,7 @@ def main():
         test_idle_status_provider()
         test_idle_details_provider()
         test_compact_buttons_fit_translated_labels()
+        test_emulator_start_from_next()
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
