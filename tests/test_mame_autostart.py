@@ -125,10 +125,13 @@ if fn is not None:
           src.index("_auto_switch, _auto") < src.index("MAME_HARD_DISK_PARAMETER, mame_image"))
     check("an unsupported file does not silently vanish",
           "MAME cannot load {name} directly" in src)
-    # MAME boots the Next from the selected image, so one is required exactly
-    # as it always has been; the auto-start file is loaded on top of it.
-    check("an image is still required to launch",
+    # Launching the IMAGE still requires one (the Launch Mame button's job);
+    # running a downloaded FILE does not, so the Remote Explorer can boot a
+    # program fetched off the Next with no image mounted.
+    check("launching the image itself still requires an image",
           "Select a valid ZX Spectrum Next disk image" in src)
+    check("running a file is not gated on an image",
+          "and not _has_autostart" in src)
     check("only a real file is passed as -hard1",
           "os.path.isfile(mame_image)" in src,
           "'-hard1 <not a file>' is fatal in MAME, not a no-op")

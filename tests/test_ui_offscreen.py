@@ -1195,14 +1195,23 @@ def inspect_phase12():
         check("a shared launch-precondition check is exposed",
               blocker is not None)
         if blocker is not None:
-            # Both emulators boot the Next from the mounted image, so both
-            # require one — with or without a file to auto-start. That is how
-            # these launches have always worked and is deliberately unchanged;
-            # what changed is only that saying so is no longer silent.
-            check("with no image, CSpect reports itself blocked",
+            # Launching the IMAGE needs an image — that is the Launch CSpect /
+            # Launch Mame buttons' job, unchanged.
+            check("with no image, launching the image itself is blocked (CSpect)",
                   bool(blocker("CSpect")), repr(blocker("CSpect")))
-            check("with no image, MAME reports itself blocked",
+            check("with no image, launching the image itself is blocked (MAME)",
                   bool(blocker("MAME")), repr(blocker("MAME")))
+            # Launching a downloaded FILE does not: the Remote Explorer fetches
+            # a program off the Next to the local disk and runs it, with no SD
+            # image involved. Gating that on an image is what produced the
+            # "Could not start CSpect — load a disk image first" toast on a
+            # perfectly valid launch.
+            check("running a downloaded FILE is never gated on an image (CSpect)",
+                  blocker("CSpect", autostart=True) == "",
+                  repr(blocker("CSpect", autostart=True)))
+            check("running a downloaded FILE is never gated on an image (MAME)",
+                  blocker("MAME", autostart=True) == "",
+                  repr(blocker("MAME", autostart=True)))
             check("an unknown emulator is not reported as blocked",
                   blocker("Nonesuch") == "")
     finally:
