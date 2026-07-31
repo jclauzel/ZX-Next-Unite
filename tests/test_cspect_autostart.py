@@ -135,7 +135,8 @@ for label, marker in (
     check(f"the {label} action is gated on CSpect being installed",
           "_cspect_executable_path" in window, "no detection gate found")
     check(f"the {label} action is gated on a bootable extension",
-          "cspect_can_autostart" in window)
+          "emulator_offers_autostart" in window,
+          "narrowed to .nex: CSpect crashes on a .tap trailing argument")
 
 # It must be the FIRST entry of the image menu (asked for: top of the list).
 img_at = ops.find('ui_tr_now("Start CSpect with file {name}")')

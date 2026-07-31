@@ -212,7 +212,8 @@ for label, marker in (
           "_mame_usable()" in window,
           "must use _mame_usable() so Flatpak MAME counts too")
     check(f"the {label} action is gated on a loadable extension",
-          "mame_can_autostart" in window)
+          "emulator_offers_autostart" in window,
+          "narrowed to .nex, same gate as CSpect")
 
 # ---- the local pane offers BOTH a plain start and a send-then-start -------
 # Emulator-neutral: these entries are generated from the shared helper, so the

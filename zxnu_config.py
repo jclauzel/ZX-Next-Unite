@@ -1162,6 +1162,27 @@ def mame_can_autostart(path):
     return bool(mame_autostart_argument(path))
 
 
+# What the "Start <emulator> with <file>" actions actually OFFER — narrower
+# than what either emulator can technically be handed.
+#
+# CSpect CRASHES on a .tap passed as its trailing argument: observed exit
+# 0xC0000094 (integer divide by zero) on gplotter.tap and 0xE0434352 (unhandled
+# .NET exception) on sanxion128v3.tap, while every .nex launched normally. And
+# MAME's -cassette only INSERTS a tape — the user still has to LOAD "" — so it
+# is not a "start this file" experience either.
+#
+# The per-emulator tables above still describe what each emulator ACCEPTS
+# (that knowledge is correct and used to pick MAME's media switch); this is the
+# separate question of what is worth putting in a menu.
+EMULATOR_AUTOSTART_OFFER_EXTENSIONS = (".nex",)
+
+
+def emulator_offers_autostart(path):
+    """True when a "Start <emulator> with <file>" action should be offered."""
+    return bool(path) and str(path).lower().endswith(
+        EMULATOR_AUTOSTART_OFFER_EXTENSIONS)
+
+
 def mame_autostart_staging_dir():
     """Where to put a file extracted from the SD image before handing it to
     FLATPAK MAME.

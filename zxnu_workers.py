@@ -19,8 +19,9 @@ import time
 from collections import deque, namedtuple
 from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
                          UP_DIRECTORY, VERSION3, VERSION4,
-                         cspect_can_autostart, is_filetype_a_directory,
-                         mame_autostart_staging_dir, mame_can_autostart)
+                         cspect_can_autostart, emulator_offers_autostart,
+                         is_filetype_a_directory, mame_autostart_staging_dir,
+                         mame_can_autostart)
 from PySide6.QtCore import (
     QEvent, QObject, QPoint, QRect, QRunnable, QSize, QSortFilterProxyModel,
     QTimer, Qt, Signal, Slot,
@@ -109,7 +110,10 @@ def emulator_autostart_entries(host, path, is_dir=False):
     the SD image, or from the Next) do.
     """
     entries = []
-    if is_dir or not path:
+    # .nex only. Both emulators accept more than that in principle, but CSpect
+    # crashes outright on a .tap trailing argument and MAME merely inserts a
+    # tape without starting it — see EMULATOR_AUTOSTART_OFFER_EXTENSIONS.
+    if is_dir or not emulator_offers_autostart(path):
         return entries
     name = os.path.basename(str(path).rstrip("/\\")) or str(path)
 
