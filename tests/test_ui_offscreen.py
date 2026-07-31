@@ -45,6 +45,11 @@ Phases:
      arming the retro toggle then declines instead of crashing. Every phase
      blocks pygame (below), but this is the one that exercises that view.
                                                         (no hdfmonkey needed)
+ 12  SD Card tab with NO image loaded: the LOCAL (left) explorer must stay
+     usable — it browses the PC and its right-click menu carries the "Start
+     <emulator> with <file>" actions, neither of which needs an image. The
+     image-side half must stay disabled, so this pins a targeted fix rather
+     than "enable everything".                          (no hdfmonkey needed)
 
 Every phase cfg carries zxnu_update_check=false (except phase 7, which quits
 before the delayed check can fire) so the suite never talks to GitHub.
@@ -80,7 +85,7 @@ DROPSRC = os.path.join(SCRATCH, "dropsrc.txt")
 DELZONE = os.path.join(SCRATCH, "delzone")
 
 PHASE = int(sys.argv[1]) if len(sys.argv) > 1 else None
-ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 
 # Base cfg for the isolated app copy: update checks off (MAME/CSpect AND the
 # app's own GitHub release check) so no phase ever hits the network, and the
@@ -248,6 +253,12 @@ elif PHASE == 10:
         f.write("mame_update_check=false\ncspect_update_check=false\n"
                 "zxnu_update_check=false\ncontent_disclaimer_agreed=1\n")
     os.environ["ZX_NEXT_UNITE_UI_LANGUAGE"] = "es"
+elif PHASE == 12:
+    # No image loaded at all: the base cfg names no image, which is exactly
+    # the resting state this phase is about.
+    ensure_scratch(fresh=False)
+    with open(CFG, "w") as f:
+        f.write(BASE_CFG)
 elif PHASE == 11:
     # NextSync Remote Explorer with pygame absent (every phase blocks pygame —
     # see _NoPygame). The retro log needs pygame; the Remote Explorer's dual
@@ -1088,10 +1099,61 @@ def inspect_phase11():
     app.quit()
 
 
+def inspect_phase12():
+    """With NO disk image loaded, the SD Card tab's LOCAL explorer must stay
+    usable.
+
+    The left pane browses the PC: it needs neither an image nor hdfmonkey, and
+    its right-click menu carries the "Start <emulator> with <file>" actions,
+    which boot a local file with no transfer. It was greyed out all the same,
+    because the no-image resting state reuses set_all_buttons_disabled() — the
+    blunt lock meant for transfers — so the actions were unreachable until an
+    image happened to be loaded.
+
+    The image-side half must STILL be disabled here: with no image there is
+    nothing for it to act on, and that is what makes this a targeted fix rather
+    than "enable everything"."""
+    app = QApplication.instance()
+    win = find_win()
+    check("MainWindow found", win is not None)
+    if win is None:
+        app.quit()
+        return
+
+    # Guard the premise: this phase is only meaningful with no image loaded.
+    img = (win.imageinput.currentText() or "").strip().strip('"')
+    check("premise: no disk image is loaded", not img or not os.path.isfile(img),
+          f"imageinput={img!r}")
+
+    local_widgets = (
+        ("local file tree", win.treeview),
+        ("local Up button", win.local_explorer_up_button),
+        ("local Refresh button", win.local_explorer_refresh_button),
+        ("local filter box", win.filtertext),
+        ("local filter label", win.filterlabel),
+        ("local drive combo", win.zx_next_unite_diskdrive),
+    )
+    for label, w in local_widgets:
+        check(f"the {label} is usable without an image", w.isEnabled())
+
+    # The image picker itself must obviously stay reachable, or no image could
+    # ever be loaded.
+    check("the image picker is still reachable",
+          win.imageinput.isEnabled() and win.selectimage.isEnabled())
+
+    # ...and the image-dependent half stays disabled: this is a targeted fix.
+    for label, w in (("image tree", win.image_treeview),
+                     ("->image transfer button", win.button_to_image),
+                     ("->disk transfer button", win.button_to_disk),
+                     ("in-image new-folder button", win.button_new_folder)):
+        check(f"the {label} stays disabled with no image", not w.isEnabled())
+    app.quit()
+
+
 INSPECTORS = {1: inspect_phase1, 2: inspect_phase2, 3: inspect_phase3,
               4: inspect_phase4, 5: inspect_phase5, 6: inspect_phase6,
               7: inspect_phase7, 8: inspect_phase8, 9: inspect_phase9,
-              10: inspect_phase10, 11: inspect_phase11}
+              10: inspect_phase10, 11: inspect_phase11, 12: inspect_phase12}
 
 _orig_exec = QApplication.exec
 def _patched_exec(*_a):
