@@ -85,6 +85,16 @@ if fn is not None:
     # /tmp/... on POSIX).
     check("the auto-start argument is made an absolute host path",
           "os.path.abspath(autostart_file" in src)
+    # Running a downloaded FILE is not gated on a mounted image (the Remote
+    # Explorer fetches a program off the Next and runs it locally); launching
+    # the IMAGE itself still is. -mmc is then left out rather than passed with
+    # an empty value.
+    check("running a file is not gated on a mounted image",
+          "not _right_disk_content() and not _has_autostart" in src)
+    check("launching the image itself still requires one",
+          "Load a ZX Spectrum Next disk image first" in src)
+    check("-mmc is omitted entirely when there is no image",
+          "if mmc_path:" in src)
     check("no leading-slash stripping (host path, not an image path)",
           'autostart_file.strip().lstrip("/")' not in src)
 

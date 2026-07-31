@@ -254,7 +254,7 @@ def build_emulator_ops(
             # Toasts are best-effort UI; never let one break a launch path.
             logging.exception("could not show the launch-failure toast")
 
-    def _emulator_launch_blocker(emulator):
+    def _emulator_launch_blocker(emulator, autostart=False):
         """Why *emulator* cannot start right now, or "" when it can.
 
         Mirrors exactly what each launcher enforces, so callers that must do
@@ -262,10 +262,11 @@ def build_emulator_ops(
         file off the Next first — can ask up front instead of discovering it
         after a pointless transfer.
 
-        Both emulators boot the Next from the mounted SD image, so both need
-        one — with or without a file to auto-start. That has always been the
-        way these launches work and is deliberately left alone.
+        Launching the IMAGE needs an image; launching a downloaded FILE
+        (*autostart*) does not, and must not be gated on one.
         """
+        if autostart:
+            return ""
         if emulator == "CSpect":
             if _right_disk_content():
                 return ""
@@ -303,14 +304,17 @@ def build_emulator_ops(
         accept an argument. That bool is filtered out by the isinstance() check
         below rather than by a keyword-only signature, which Qt handles less
         predictably across PySide versions."""
-        # CSpect boots the Next from the mounted SD image, so it needs one.
-        # This used to be a bare `if` around the whole body with no else: with
-        # no image the call did nothing at all — no launch, no log, no toast.
-        # Harmless while the only caller was a button that was greyed out
-        # without an image, but the "Start CSpect with <file>" actions are
-        # reachable from the NextSync tab, where there is usually no image
-        # mounted, and there it looked like the action was simply broken.
-        if not _right_disk_content():
+        # Launching the IMAGE needs an image — that is the Launch CSpect
+        # button's job and is unchanged. Launching a FILE does not: the Remote
+        # Explorer downloads a program off the Next to the local disk and just
+        # runs it, with no SD image in the picture, so the image check must not
+        # stand in its way.
+        #
+        # (This was also a bare `if` around the whole body with no else, so
+        # with no image the call did nothing at all — no launch, no log, no
+        # toast. Hence the report of "the file downloads and nothing happens".)
+        _has_autostart = isinstance(autostart_file, str) and bool(autostart_file.strip())
+        if not _right_disk_content() and not _has_autostart:
             _emulator_launch_failed("CSpect", ui_tr_now(
                 "Load a ZX Spectrum Next disk image first — then CSpect can "
                 "boot it from the mounted SD card."))
@@ -366,9 +370,13 @@ def build_emulator_ops(
                 img_path = os.path.abspath(img_path)
         else:
             cspect_cwd = None
-        mmc_path = f'"{img_path}"' if img_path else img_path
-
-        cspect_arguments += " -mmc=" + mmc_path + " "
+        # With an image, -mmc mounts it as the SD card exactly as always. With
+        # none (running a downloaded file on its own), the switch is left out
+        # altogether rather than passed empty — "-mmc=" with no value is an
+        # argument CSpect has to make sense of, and there is nothing to mount.
+        mmc_path = f'"{img_path}"' if img_path else ""
+        if mmc_path:
+            cspect_arguments += " -mmc=" + mmc_path + " "
 
         # Auto-start file: a HOST path, appended as CSpect's trailing
         # argument. It is made absolute because CSpect may run from its
@@ -449,7 +457,11 @@ def build_emulator_ops(
         # hdfmonkey-produced listing, which is empty when hdfmonkey is
         # missing) — otherwise MAME could never be launched without hdfmonkey.
         _sel_image = host.imageinput.currentText().strip().strip('"')
-        if not (_sel_image and os.path.isfile(_sel_image)):
+        # As for CSpect: launching the IMAGE needs one, launching a downloaded
+        # FILE does not — the Remote Explorer runs it on its own, with no image
+        # in the picture. The -hard1 pair below is simply omitted then.
+        _has_autostart = isinstance(autostart_file, str) and bool(autostart_file.strip())
+        if not (_sel_image and os.path.isfile(_sel_image)) and not _has_autostart:
             _emulator_launch_failed("MAME", ui_tr_now(
                 "Select a valid ZX Spectrum Next disk image (.img/.hdf) "
                 "before launching MAME."))
