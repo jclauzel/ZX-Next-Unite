@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (QWidget, QLabel, QPushButton, QComboBox,
     QCompleter)
 
 from zxnu_config import *
+from zxnu_i18n import ui_tr_now
 from zxnu_api import *
 from zxnu_gallery import *
 from zxnu_media import *
@@ -1363,7 +1364,7 @@ def build_unite_ops(
         btn = host.allinone_pygame_button
         btn.blockSignals(True)
         btn.setChecked(False)
-        btn.setText("🎮 Retro")
+        btn.setText(ui_tr_now("🎮 Retro"))
         btn.blockSignals(False)
         btn.setEnabled(False)
         if reason:
@@ -1392,7 +1393,7 @@ def build_unite_ops(
                 _allinone_pygame_disable(f"Pygame init failed: {exc}")
                 return
             host._allinone_pygame_on = True
-            host.allinone_pygame_button.setText("🖼 Switch to 'Classic' view mode")
+            host.allinone_pygame_button.setText(ui_tr_now("🖼 Switch to 'Classic' view mode"))
             # The autocomplete dropdown is a top-level Qt.Tool window.  Shown
             # over the continuously-repainting pygame surface on Windows it
             # steals keyboard activation from the search box, so the user can
@@ -1418,7 +1419,7 @@ def build_unite_ops(
             _allinone_pygame_persist(True)
         else:
             host._allinone_pygame_on = False
-            host.allinone_pygame_button.setText("🎮 Retro")
+            host.allinone_pygame_button.setText(ui_tr_now("🎮 Retro"))
             # Back to Classic: restore the autocomplete completer, honouring
             # the global "Enable search autocompletion" setting.
             try:

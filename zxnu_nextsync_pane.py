@@ -539,14 +539,17 @@ def build_nextsync_pane(
         ok, err = host._re_bridge.start()
         if ok:
             add_nextsync_log_window(
-                f"NextSync HTTP bridge listening on port {port} "
-                "(routes: /status /ls /get /put /mkdir /rmdir /rmtree "
-                "/rm /ren /rcpy /rfsize /sum /free /drives)")
+                # The route list is an API contract, not prose: it stays
+                # verbatim outside the translated sentence.
+                ui_tr_now("NextSync HTTP bridge listening on port {port}"
+                          ).format(port=port)
+                + " (routes: /status /ls /get /put /mkdir /rmdir /rmtree "
+                  "/rm /ren /rcpy /rfsize /sum /free /drives)")
             if _token_on and _token:
-                add_nextsync_log_window(
+                add_nextsync_log_window(ui_tr_now(
                     "NextSync HTTP bridge: bearer-token protection is ON "
-                    f"(requests must carry the {NEXTSYNC_BRIDGE_TOKEN_HEADER} "
-                    "header; others get HTTP 401)")
+                    "(requests must carry the {header} header; others get "
+                    "HTTP 401)").format(header=NEXTSYNC_BRIDGE_TOKEN_HEADER))
             host._show_toast(
                 "NextSync HTTP bridge started",
                 ui_tr_now(
@@ -559,7 +562,8 @@ def build_nextsync_pane(
             # port: a targeted red error, exactly what happened and that
             # nothing was started.
             host._re_bridge = None
-            add_nextsync_log_window(f"NextSync HTTP bridge NOT started: {err}")
+            add_nextsync_log_window(ui_tr_now(
+                "NextSync HTTP bridge NOT started: {error}").format(error=err))
             host._show_toast(
                 "NextSync HTTP bridge not started",
                 ui_tr_now(
@@ -569,7 +573,8 @@ def build_nextsync_pane(
                 variant="red", duration_ms=12000)
         else:
             host._re_bridge = None
-            add_nextsync_log_window(f"NextSync HTTP bridge NOT started: {err}")
+            add_nextsync_log_window(ui_tr_now(
+                "NextSync HTTP bridge NOT started: {error}").format(error=err))
             host._show_toast("NextSync HTTP bridge not started", err,
                              variant="yellow", duration_ms=12000)
 
@@ -577,7 +582,7 @@ def build_nextsync_pane(
         bridge, host._re_bridge = host._re_bridge, None
         if bridge is not None:
             bridge.stop()
-            add_nextsync_log_window("NextSync HTTP bridge stopped.")
+            add_nextsync_log_window(ui_tr_now("NextSync HTTP bridge stopped."))
     host._nextsync_http_bridge_start = _nextsync_http_bridge_start
     host._nextsync_http_bridge_stop = _nextsync_http_bridge_stop
 
@@ -901,14 +906,18 @@ def build_nextsync_pane(
             # Gated on a real prior connection so a session that never got
             # one (e.g. a failing bind emitting disconnected) can't loop.
             add_nextsync_log_window(
-                "Remote explorer: the Next disconnected (BREAK / Bye) — "
-                "restarting the listen server; run '.sync5 -listen' on "
-                "your Next to reconnect.")
+                # '.sync5 -listen' is a literal the Next must receive verbatim,
+                # so it is interpolated rather than left inside the translation.
+                ui_tr_now("Remote explorer: the Next disconnected (BREAK / Bye) "
+                          "— restarting the listen server; run {command} on "
+                          "your Next to reconnect.").format(
+                              command="'.sync5 -listen'"))
             QTimer.singleShot(250, _re_auto_relisten)
             return
-        add_nextsync_log_window(
+        add_nextsync_log_window(ui_tr_now(
             "Remote explorer: the Next disconnected (BREAK / Bye). "
-            "Press 'Start Remote Explorer NextSync server' to accept a new connection.")
+            "Press 'Start Remote Explorer NextSync server' to accept a new "
+            "connection."))
         # Restore the button to "Start" (and pulse it, if still in view and a
         # sync root is set) so the user can accept a fresh connection.
         _re_update_start_button()
@@ -929,9 +938,10 @@ def build_nextsync_pane(
             host.nextsync_re_play_label.setVisible(False)
         except RuntimeError:
             pass
-        add_nextsync_log_window(
-            f"Remote explorer: port {port} is already in use — is another "
-            "ZX-Next-Unite (or NextSync server) already running?")
+        add_nextsync_log_window(ui_tr_now(
+            "Remote explorer: port {port} is already in use — is another "
+            "ZX-Next-Unite (or NextSync server) already running?").format(
+                port=port))
         host._show_toast(
             "NextSync server not started",
             ui_tr_now(
@@ -947,16 +957,17 @@ def build_nextsync_pane(
         # A sync root must be chosen first (the button is normally disabled
         # without one; this guards direct/programmatic calls).
         if not getattr(host, "_re_sync_root", ""):
-            add_nextsync_log_window(
+            add_nextsync_log_window(ui_tr_now(
                 "Set a sync root folder first: navigate to the folder in the "
                 "left local file explorer and press 'Set current folder as "
-                "new sync root folder'.")
+                "new sync root folder'."))
             return
         # Can't run the listen server while a normal sync is in progress —
         # both servers bind port 2048. Cancel with a clear advisory.
         t = getattr(host, "_nextsync_thread", None)
         if t is not None and t.is_alive():
-            add_nextsync_log_window("Stop the running sync before starting the remote server.")
+            add_nextsync_log_window(ui_tr_now(
+                "Stop the running sync before starting the remote server."))
             host._show_toast(
                 "Remote Explorer NextSync server not started",
                 "You have already started a Classic nextsync server, "
@@ -1126,8 +1137,9 @@ def build_nextsync_pane(
             for _name in sorted(_files):
                 sent.append(rdir + "/" + _name)
         if not sent:
-            add_nextsync_log_window(
-                f"Send via NextSync: nothing to send in {folder}.")
+            add_nextsync_log_window(ui_tr_now(
+                "Send via NextSync: nothing to send in {folder}.").format(
+                    folder=folder))
             return True
 
         def _done(ok, fails):
@@ -1158,8 +1170,9 @@ def build_nextsync_pane(
             return True
         if state != "queued":
             return False
-        add_nextsync_log_window(
-            f"Sending {folder} via Remote Explorer (-listen) → {cwd} …")
+        add_nextsync_log_window(ui_tr_now(
+            "Sending {folder} via Remote Explorer (-listen) → {target} …"
+        ).format(folder=folder, target=cwd))
         return True
 
     def _nextsync_re_toggle_server():
@@ -1197,9 +1210,12 @@ def build_nextsync_pane(
             host.nextsync_filterlabel.setVisible(False)
             host.nextsync_filtertext.setVisible(False)
             add_nextsync_log_window(
-                "Remote explorer: navigate to a folder in the left file explorer, "
-                "press 'Set current folder as new sync root folder', "
-                "click 'Start Remote Explorer NextSync server', then run '.sync5 -listen' on your Next.")
+                ui_tr_now(
+                    "Remote explorer: navigate to a folder in the left file "
+                    "explorer, press 'Set current folder as new sync root "
+                    "folder', click 'Start Remote Explorer NextSync server', "
+                    "then run {command} on your Next.").format(
+                        command="'.sync5 -listen'"))
         else:
             _nextsync_stop_listen_server()
             _re_stop_startbtn_pulse()   # leaving the RE view: drop the pulse
@@ -1280,7 +1296,7 @@ def build_nextsync_pane(
         btn = host.nextsync_pygame_button
         btn.blockSignals(True)
         btn.setChecked(False)
-        btn.setText("🎮 Retro")
+        btn.setText(ui_tr_now("🎮 Retro"))
         btn.blockSignals(False)
         btn.setEnabled(False)
         if reason:
@@ -1317,13 +1333,13 @@ def build_nextsync_pane(
                 _nextsync_pygame_disable(f"Pygame init failed: {exc}")
                 return
             host._nextsync_pygame_on = True
-            host.nextsync_pygame_button.setText("🖼 Switch to 'Classic' view mode")
+            host.nextsync_pygame_button.setText(ui_tr_now("🖼 Switch to 'Classic' view mode"))
             host.nextsync_log_stack.setCurrentWidget(widget)
             widget.start()
             _nextsync_pygame_persist(True)
         else:
             host._nextsync_pygame_on = False
-            host.nextsync_pygame_button.setText("🎮 Retro")
+            host.nextsync_pygame_button.setText(ui_tr_now("🎮 Retro"))
             if host._nextsync_retro_log is not None:
                 host._nextsync_retro_log.stop()
             host.nextsync_log_stack.setCurrentWidget(host.nextsync_log)

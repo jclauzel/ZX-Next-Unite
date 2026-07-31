@@ -35,11 +35,12 @@ import shlex
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
 import webbrowser
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from zxnu_config import *
 from zxnu_i18n import ui_tr_now
@@ -47,12 +48,126 @@ from zxnu_workers import *
 import zxnu_itchio
 
 
+# ── MAME self-extractor watchdog ─────────────────────────────────────────
+# MAME's official Windows package is a *GUI* 7-Zip self-extractor (the same
+# SFX stub in every release — 0288 and 0289 are byte-identical there). Given
+# "-o<dir> -y" it unpacks silently and exits 0 all by itself, which is why
+# driving it as a plain subprocess worked for years. It has one failure mode
+# though: when a file cannot be written — nearly always because MAME itself
+# is running, so mame.exe is locked — it reports the error in its progress
+# dialog and waits for a click on Close. The app launches it hidden
+# (CREATE_NO_WINDOW/SW_HIDE), so that click can never happen: the extraction
+# blocks forever, the install neither succeeds nor fails, and the orphaned
+# extractor keeps its own .exe locked, which is what made the *next* attempt
+# die with "[Errno 13] Permission denied" while re-downloading it.
+#
+# Hence: refuse to start when the target binary is locked, and never wait on
+# the extractor without a deadline. The stall window is what actually fires
+# (a real extraction writes continuously — ~5 s for the whole 574 MB here);
+# the absolute cap is only a backstop for a pathologically slow disk.
+MAME_SFX_STALL_SECONDS = 120
+MAME_SFX_TIMEOUT_SECONDS = 3600
+
+
+def _mame_dest_fingerprint(root):
+    """(file count, total bytes) below *root* — the cheap progress signal that
+    tells an extractor still writing files apart from one parked on a dialog.
+    Entries that vanish mid-walk simply don't count towards the total."""
+    count = 0
+    total = 0
+    for walk_root, _dirs, files in os.walk(root):
+        for name in files:
+            count += 1
+            try:
+                total += os.path.getsize(os.path.join(walk_root, name))
+            except OSError:
+                pass
+    return count, total
+
+
+def _mame_file_is_locked(path):
+    """True when *path* exists but cannot be opened for writing. On Windows a
+    running executable is exactly that, so this spots "MAME is still open"
+    before an extraction walks into it (a read-only file answers True too,
+    which is equally a reason not to start)."""
+    if not os.path.isfile(path):
+        return False
+    try:
+        with open(path, "r+b"):
+            return False
+    except OSError:
+        return True
+
+
+def _mame_extract_sfx(sfx_path, dest_root):
+    """Run the MAME self-extractor over *dest_root* and return once it has
+    unpacked everything.
+
+    Waits on it in slices, sampling :func:`_mame_dest_fingerprint` between
+    them: an extractor that is working writes files continuously, so a window
+    with no new bytes at all means it is parked on its hidden dialog and will
+    never come back. Raises RuntimeError on a stall, on the absolute timeout,
+    and on a non-zero exit — the caller turns that into the failure line and
+    the warning dialog."""
+    proc = subprocess.Popen(
+        [sfx_path, f"-o{dest_root}", "-y"],
+        cwd=dest_root,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        **subprocess_no_window_kwargs())
+    started = time.monotonic()
+    last_progress = started
+    seen = _mame_dest_fingerprint(dest_root)
+    while True:
+        try:
+            returncode = proc.wait(timeout=5)
+            break
+        except subprocess.TimeoutExpired:
+            pass
+        now = time.monotonic()
+        current = _mame_dest_fingerprint(dest_root)
+        if current != seen:
+            seen = current
+            last_progress = now
+        if (now - last_progress >= MAME_SFX_STALL_SECONDS
+                or now - started >= MAME_SFX_TIMEOUT_SECONDS):
+            _mame_sfx_kill(proc)
+            raise RuntimeError(
+                "the MAME self-extractor stopped unpacking files and was "
+                "cancelled. That happens when it cannot write one of the "
+                "files — most often because MAME is still running — and then "
+                "waits on a confirmation dialog that stays hidden. Close MAME "
+                "and start the install again. Some files may already have "
+                "been replaced, so re-running the install is the way to get a "
+                "consistent version.")
+    if returncode != 0:
+        raise RuntimeError(
+            f"the MAME self-extractor exited with status {returncode} — the "
+            "install is incomplete. Close MAME if it is running and try "
+            "again.")
+
+
+def _mame_sfx_kill(proc):
+    """Stop a self-extractor that has stopped making progress, and make sure
+    it is really gone: while it lives it holds a lock on its own .exe, and
+    that lock is what breaks the *following* download attempt."""
+    try:
+        proc.kill()
+    except OSError:
+        logging.exception(
+            "MAME install: could not kill the stalled self-extractor")
+    try:
+        proc.wait(timeout=30)
+    except (subprocess.TimeoutExpired, OSError):
+        logging.error(
+            "MAME install: the stalled self-extractor is still alive after "
+            "kill(); the next download will fall back to a fresh file name.")
+
+
 def build_emulator_ops(
     host,
     *,
     configuration_dictionary,
     save_configuration_file,
-    get_tuple_value,
     set_all_buttons_disabled,
     set_all_buttons_enabled,
     _update_mame_controls,
@@ -133,22 +248,21 @@ def build_emulator_ops(
             if not cspect_default_params:
                 cspect_default_params = CSPECT_DEFAULT_LAUNCH_PARAMETERS
             cspect_arguments = " " + cspect_default_params + " "
-            cspect_screensize_text = host.cspect_screensize.currentText()
-            cspect_sound_text = host.cspect_sound.currentText()
-            cspect_vsync_text = host.cspect_vsync.currentText()
-            cspect_joystick_text = host.cspect_joystick.currentText()
-            cspect_mouse_text = host.cspect_mouse.currentText()
-            cspect_frequency_text = host.cspect_frequency.currentText()
-
-            cspect_arguments += get_tuple_value(CSPECT_SCREEN_SIZES, cspect_screensize_text) + " "
-            cspect_arguments += get_tuple_value(CSPECT_SOUND, cspect_sound_text) + " "
-            cspect_arguments += get_tuple_value(CSPECT_SCREEN_SYNC, cspect_vsync_text) + " "
-            cspect_arguments += get_tuple_value(CSPECT_JOYSTICK, cspect_joystick_text) + " "
-            cspect_arguments += get_tuple_value(CSPECT_MOUSE, cspect_mouse_text) + " "
-            cspect_arguments += get_tuple_value(CSPECT_FREQUENCY, cspect_frequency_text) + " "
-            # ESC-key disable ("-esc"); "Disable ESC Key Off" (default) passes
-            # nothing so ESC still exits.
-            cspect_arguments += get_tuple_value(CSPECT_ESC, host.cspect_esc.currentText()) + " "
+            # Selections are read by INDEX: these combos show translated labels,
+            # so currentText() no longer identifies the entry (see
+            # emulator_option_argument).
+            for _cspect_combo, _cspect_opts in (
+                    (host.cspect_screensize, CSPECT_SCREEN_SIZES),
+                    (host.cspect_sound, CSPECT_SOUND),
+                    (host.cspect_vsync, CSPECT_SCREEN_SYNC),
+                    (host.cspect_joystick, CSPECT_JOYSTICK),
+                    (host.cspect_mouse, CSPECT_MOUSE),
+                    (host.cspect_frequency, CSPECT_FREQUENCY),
+                    # ESC-key disable ("-esc"); "Disable ESC Key Off" (default)
+                    # passes nothing so ESC still exits.
+                    (host.cspect_esc, CSPECT_ESC)):
+                cspect_arguments += emulator_option_argument(
+                    _cspect_opts, _cspect_combo.currentIndex()) + " "
 
             # When the CSpect copy in use is a bundled itch.io install under
             # downloads/cspect, it must be launched from its own folder so its
@@ -289,7 +403,9 @@ def build_emulator_ops(
         ):
             if _mame_combo is None:
                 continue
-            _mame_arg = get_tuple_value(_mame_opts, _mame_combo.currentText())
+            # By index, not label — the combo shows a translated one.
+            _mame_arg = emulator_option_argument(
+                _mame_opts, _mame_combo.currentIndex())
             if _mame_arg:
                 mame_argv += shlex.split(_mame_arg)
 
@@ -462,6 +578,105 @@ def build_emulator_ops(
         # show them (like the ZX Next Unite self-update prompt).
         return (*picked, str(release.get("body") or "").strip())
 
+    def _fetch_mame_releases(arch):
+        """Query the MAME releases list and return the recent releases that
+        ship a Windows build for this architecture, newest first (dicts — see
+        select_mame_release_assets). Raises on a network error or when none of
+        them carries a matching asset. Fetched inline like the latest-release
+        lookup above: it is one small JSON request behind a button press."""
+        req = urllib.request.Request(
+            f"{MAME_GITHUB_RELEASES_API}?per_page={MAME_RELEASE_FETCH_COUNT}",
+            headers={"User-Agent": ZXART_USER_AGENT,
+                     "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            releases = json.loads(resp.read().decode("utf-8", "replace"))
+        found = select_mame_release_assets(releases, arch)
+        if not found:
+            raise RuntimeError(
+                f"none of the recent MAME releases has a Windows {arch} build.")
+        return found
+
+    def _pick_mame_release(releases, title):
+        """Let the user choose which MAME release to install, newest
+        preselected — the same chooser the itch.io CSpect install shows when
+        several versions are downloadable. Returns the chosen release dict, or
+        None when cancelled (a lone choice needs no dialog)."""
+        if len(releases) == 1:
+            return releases[0]
+        labels = []
+        for entry in releases:
+            size = entry.get("size")
+            labels.append(
+                f"{entry['tag']}  —  {entry['asset_name']}"
+                + (f"  ({size / 1048576:.0f} MB)" if size else ""))
+        label, ok = QInputDialog.getItem(
+            host, title,
+            f"{len(releases)} recent MAME releases are available for this "
+            "machine.\nChoose the one to download and install\n"
+            "(the newest is selected by default):",
+            labels, 0, False)
+        if not ok or not label:
+            return None
+        return releases[labels.index(label)]
+
+    def _confirm_and_start_mame_install(release, arch, title):
+        """Show the chosen release's size/notes for a final confirmation, then
+        hand over to the download+extract worker."""
+        size = release.get("size")
+        size_txt = f"{size / 1048576:.0f} MB" if size else "about 90 MB"
+        box = QMessageBox(host)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle(title)
+        box.setText(
+            f"MAME release: {release['tag']}\n"
+            f"Package: {release['asset_name']} ({arch})\n\n"
+            f"Download (~{size_txt}) and install it into the downloads "
+            f"folder?\nNote: the fully extracted install is large (~500 MB).")
+        _attach_release_notes(box, release.get("notes"))
+        go = box.addButton("Download and install", QMessageBox.AcceptRole)
+        box.addButton("Cancel", QMessageBox.RejectRole)
+        box.setDefaultButton(go)
+        box.exec()
+        if box.clickedButton() is not go:
+            return
+        _start_mame_install(release["tag"], release["asset_name"],
+                            release["url"], size, size_txt,
+                            sha256=release.get("sha256"))
+
+    def _choose_and_install_mame(title):
+        """List the recent MAME releases, let the user pick one and install it.
+
+        Shared by the first-time install button and the update prompt's
+        "Choose another release…" escape hatch — the latter is also the way to
+        put an older build back and exercise the startup update check."""
+        if getattr(host, "_mame_installing", False):
+            return
+        arch = mame_windows_asset_arch()
+        if arch is None:
+            QMessageBox.information(
+                host, title,
+                "Automatic MAME installation is only available on 64-bit "
+                "Windows (x64 / arm64).\n\nDownload the official binaries for "
+                "your system from:\nhttps://www.mamedev.org/release.html")
+            return
+        add_main_log_window("Listing the available MAME releases…")
+        try:
+            releases = _fetch_mame_releases(arch)
+        except Exception as e:
+            add_main_log_window(f"Could not list the MAME releases: {e}")
+            logging.error(f"MAME release listing failed: {e}")
+            QMessageBox.warning(
+                host, title,
+                f"Could not list the available MAME releases.\n\n{e}\n\n"
+                "Check your internet connection, or download manually from "
+                "https://www.mamedev.org/release.html")
+            return
+        chosen = _pick_mame_release(releases, title)
+        if chosen is None:
+            add_main_log_window("MAME install ▸ release picker cancelled.")
+            return
+        _confirm_and_start_mame_install(chosen, arch, title)
+
     def _mame_install_job(url, asset_name, dest_root, mame_sig,
                           expected_sha256=None):
         """Worker-thread job: download the MAME self-extractor and unpack it.
@@ -469,8 +684,9 @@ def build_emulator_ops(
         Never touches Qt widgets — phase lines and the button's percentage
         are marshalled to the UI via *mame_sig* (queued). Streams the download
         to downloads/mame/<asset>, runs the SFX with '-o<dir> -y' to extract
-        in place, deletes the installer and returns the path to the installed
-        mame executable. Windows-only (the sole platform with an official
+        in place under the watchdog described at the top of this module,
+        deletes the installer and returns the path to the installed mame
+        executable. Windows-only (the sole platform with an official
         precompiled MAME binary). The caller keeps *mame_sig* alive for the
         duration."""
         def _phase(msg):
@@ -487,6 +703,39 @@ def build_emulator_ops(
 
         os.makedirs(dest_root, exist_ok=True)
         sfx_path = os.path.join(dest_root, asset_name)
+
+        # ── Phase 0: can what is already there actually be replaced? ──
+        # The extractor cannot ask (its dialog is hidden), so a locked
+        # mame.exe would cost an ~87 MB download and then stall. Both entry
+        # points — first install and the startup update offer — come through
+        # here, so one check covers them.
+        installed_exe = os.path.join(
+            dest_root,
+            MAME_EXECUTABLE_NAME
+            + (".exe" if platform.system() == "Windows" else ""))
+        if _mame_file_is_locked(installed_exe):
+            raise RuntimeError(
+                f"{os.path.basename(installed_exe)} cannot be replaced — it is "
+                "running, locked by another program, or read-only. Close MAME "
+                "(including any emulator window started from this app) and run "
+                "the install again.")
+
+        # A leftover installer from an earlier attempt has to go before the
+        # download can reuse its name; an app build without the watchdog below
+        # could orphan a still-running extractor, and Windows refuses to open
+        # a running image for writing. Falling back to a side-by-side name
+        # keeps even a stubborn leftover from blocking the install.
+        if os.path.exists(sfx_path):
+            try:
+                os.remove(sfx_path)
+            except OSError:
+                logging.exception(
+                    f"MAME install: could not remove the stale installer "
+                    f"{sfx_path}")
+                sfx_path = os.path.join(
+                    dest_root, f"{os.getpid()}-{asset_name}")
+                _phase("MAME install ▸ The previous installer is still locked; "
+                       f"downloading as {os.path.basename(sfx_path)} instead.")
 
         # ── Phase 1: download ──
         _phase(f"MAME install ▸ Downloading {asset_name} …")
@@ -534,12 +783,11 @@ def build_emulator_ops(
         # ── Phase 2: extract ──
         # MAME's Windows .exe is a 7-Zip self-extractor: "-o<dir> -y" unpacks
         # it silently (verified: no GUI, mame.exe lands at the top of <dir>).
+        # It runs under the watchdog documented at the top of this module —
+        # a hidden extractor that hits an unwritable file waits on a dialog
+        # nobody can see, so progress is sampled instead of blindly waited on.
         _phase("MAME install ▸ Extracting the archive (this can take a moment) …")
-        subprocess.run(
-            [sfx_path, f"-o{dest_root}", "-y"],
-            check=True, cwd=dest_root,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            **subprocess_no_window_kwargs())
+        _mame_extract_sfx(sfx_path, dest_root)
         _phase("MAME install ▸ Extraction finished; cleaning up the installer.")
         try:
             os.remove(sfx_path)
@@ -723,47 +971,11 @@ def build_emulator_ops(
             _on_mame_install_error)
 
     def install_mame():
-        """Detect, download and install the latest MAME (button handler)."""
-        if getattr(host, "_mame_installing", False):
-            return
-        arch = mame_windows_asset_arch()
-        if arch is None:
-            QMessageBox.information(
-                host, "Install MAME",
-                "Automatic MAME installation is only available on 64-bit "
-                "Windows (x64 / arm64).\n\nDownload the official binaries for "
-                "your system from:\nhttps://www.mamedev.org/release.html")
-            return
-        add_main_log_window("Detecting the latest MAME release…")
-        try:
-            tag, asset_name, url, size, sha256, notes = _fetch_latest_mame_asset(arch)
-        except Exception as e:
-            add_main_log_window(f"Could not detect the latest MAME release: {e}")
-            logging.error(f"MAME release detection failed: {e}")
-            QMessageBox.warning(
-                host, "Install MAME",
-                f"Could not detect the latest MAME release.\n\n{e}\n\n"
-                "Check your internet connection, or download manually from "
-                "https://www.mamedev.org/release.html")
-            return
-        size_txt = f"{size / 1048576:.0f} MB" if size else "about 90 MB"
-        box = QMessageBox(host)
-        box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("Install MAME")
-        box.setText(
-            f"Latest MAME detected: {tag}\n"
-            f"Package: {asset_name} ({arch})\n\n"
-            f"Download (~{size_txt}) and install it into the downloads "
-            f"folder?\nNote: the fully extracted install is large (~500 MB).")
-        _attach_release_notes(box, notes)
-        go = box.addButton("Download and install", QMessageBox.AcceptRole)
-        box.addButton("Cancel", QMessageBox.RejectRole)
-        box.setDefaultButton(go)
-        box.exec()
-        if box.clickedButton() is not go:
-            return
-        _start_mame_install(tag, asset_name, url, size, size_txt,
-                            sha256=sha256)
+        """Download and install a MAME release of the user's choosing (button
+        handler): the recent releases are listed with the newest preselected,
+        so this is both the first-time install and the way to pick a specific
+        build."""
+        _choose_and_install_mame("Install MAME")
 
     def _probe_mame_version_text(mame_path):
         """Ask an installed MAME binary for its version and return the raw
@@ -829,14 +1041,22 @@ def build_emulator_ops(
             "overwritten.")
         _attach_release_notes(box, info.get("notes"))
         upd = box.addButton("Update", QMessageBox.AcceptRole)
+        # Escape hatch to any other recent release — including an older one,
+        # which is how the update path itself can be exercised again.
+        other = box.addButton("Choose another release…", QMessageBox.ActionRole)
         box.addButton("Cancel", QMessageBox.RejectRole)
         box.setDefaultButton(upd)
         box.exec()
-        if box.clickedButton() is upd:
+        clicked = box.clickedButton()
+        if clicked is upd:
             add_main_log_window(
                 f"MAME update ▸ user chose to update to {tag}.")
             _start_mame_install(tag, asset_name, url, size, size_txt,
                                 sha256=info.get("sha256"))
+        elif clicked is other:
+            add_main_log_window(
+                "MAME update ▸ user chose to pick a release manually.")
+            _choose_and_install_mame("Choose a MAME release")
 
     def _check_mame_update_async():
         """At startup, if MAME is installed and the check is enabled, look up

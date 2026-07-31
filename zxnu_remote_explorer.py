@@ -36,13 +36,18 @@ from zxnu_config import (
     DEFAULT_COLOR_GENERAL_TEXT, hex_to_qcolor,
 )
 from zxnu_workers import (
-    DotDotFirstProxyModel, HdfProgressDialog, zip_create_with_dialog,
-    zip_extract_with_dialog, zip_unique_name,
+    CompactButton, DotDotFirstProxyModel, HdfProgressDialog,
+    zip_create_with_dialog, zip_extract_with_dialog, zip_unique_name,
 )
 
 # Roles carrying the remote entry's full posix path and its directory flag.
 RE_PATH_ROLE = Qt.UserRole + 1
 RE_ISDIR_ROLE = Qt.UserRole + 2
+
+
+# CompactButton (imported above from zxnu_workers) backs the Up / Refresh /
+# + Drive buttons in both navigation bars — it is shared with the SD Card
+# tab's explorer pair, whose rows mirror these.
 
 ARROW_BTN_W = 40
 
@@ -395,11 +400,9 @@ class RemoteExplorerWidget(QWidget):
 
         # Top bar: Up / Refresh + the name filter ("Search: … Filter by name…"),
         # mirroring the classic sync local explorer.
-        local_up = QPushButton("Up", self)
-        local_up.setMaximumWidth(48)
+        local_up = CompactButton("Up", self)
         local_up.clicked.connect(self._local_up)
-        local_refresh = QPushButton("Refresh", self)
-        local_refresh.setMaximumWidth(72)
+        local_refresh = CompactButton("Refresh", self, floor=72)
         local_refresh.setToolTip("Re-read the current local folder from disk")
         local_refresh.clicked.connect(self._local_refresh)
         self.local_filter_label = QLabel("Search: ", self)
@@ -539,11 +542,9 @@ class RemoteExplorerWidget(QWidget):
         self._idle_info_color = "#a6f0a6"
         self._idle_info_pt = 12
         self.next_path_label = QLabel("Next: (not connected)", self)
-        next_up = QPushButton("Up", self)
-        next_up.setMaximumWidth(48)
+        next_up = CompactButton("Up", self)
         next_up.clicked.connect(self._next_up)
-        refresh = QPushButton("Refresh", self)
-        refresh.setMaximumWidth(72)
+        refresh = CompactButton("Refresh", self, floor=72)
         refresh.clicked.connect(self.refresh)
         # Drive switcher: populated from the dot's getdrives reply on connect
         # (e.g. C and M). Disabled until the drives are known; stays a single
@@ -559,8 +560,7 @@ class RemoteExplorerWidget(QWidget):
         # "+": declare an extra drive letter the dot cannot discover on its
         # own (additional SD card readers / partitions). Only ever probed by
         # the USER switching to it - see _add_drive_clicked.
-        self.next_drive_add = QPushButton("+ Drive", self)
-        self.next_drive_add.setMaximumWidth(64)
+        self.next_drive_add = CompactButton("+ Drive", self, floor=64)
         self.next_drive_add.setToolTip(
             "Add a Next drive letter (D..P) for an additional SD card "
             "reader/partition the Next cannot report by itself. The drive is "

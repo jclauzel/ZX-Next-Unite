@@ -119,7 +119,8 @@ def build_nextsync_server_start(
         # Guard: don't start a second sync while one is already running
         t = getattr(host, "_nextsync_thread", None)
         if t is not None and t.is_alive():
-            add_nextsync_log_window("NextSync is already running — please wait for it to finish.")
+            add_nextsync_log_window(ui_tr_now(
+                "NextSync is already running — please wait for it to finish."))
             return
         try:
             # --- progress dialog ---
@@ -328,10 +329,12 @@ def build_nextsync_explorer_ops(
             return
         try:
             os.rename(file_path, new_path)
-            add_nextsync_log_window(f"{timestamp()} | Renamed: {file_path} -> {new_path}")
+            add_nextsync_log_window(f"{timestamp()} | " + ui_tr_now(
+                "Renamed: {old} -> {new}").format(old=file_path, new=new_path))
         except OSError as e:
             logging.error(f"Failed to rename {file_path} -> {new_path}: {e}", exc_info=True)
-            add_nextsync_log_window(f"{timestamp()} | Failed to rename {file_path}: {e}")
+            add_nextsync_log_window(f"{timestamp()} | " + ui_tr_now(
+                "Failed to rename {path}: {error}").format(path=file_path, error=e))
             QMessageBox.critical(host, ui_tr_now("Rename failed"), ui_tr_now("Could not rename:") + f"\n{file_path}\n\n{e}")
         finally:
             nextsync_refresh_explorer()
@@ -429,7 +432,8 @@ def build_nextsync_explorer_ops(
         Mirrors the paste logic: never overwrites (name clashes get a
         '-(copy)' suffix) and refreshes the explorer when done."""
         if not dest_dir or not os.path.isdir(dest_dir):
-            add_nextsync_log_window(f"{timestamp()} | Import failed: no valid destination folder.")
+            add_nextsync_log_window(f"{timestamp()} | " + ui_tr_now(
+                "Import failed: no valid destination folder."))
             return
 
         # Resolve sources to unique targets up front (quick, UI thread) so the
@@ -444,7 +448,9 @@ def build_nextsync_explorer_ops(
                 dest_abs = os.path.abspath(dest_dir)
                 # Guard against importing a folder into itself or a subfolder.
                 if dest_abs == src_abs or dest_abs.startswith(src_abs + os.sep):
-                    add_nextsync_log_window(f"{timestamp()} | Skipped {src}: cannot import a folder into itself.")
+                    add_nextsync_log_window(f"{timestamp()} | " + ui_tr_now(
+                        "Skipped {path}: cannot import a folder into itself."
+                    ).format(path=src))
                     continue
             base = os.path.basename(src.rstrip("/\\"))
             target = _nextsync_unique_path(os.path.join(dest_dir, base), src_is_dir)
@@ -752,12 +758,18 @@ def build_nextsync_server_job(
             else:
                 selected_nextsync_explorer_sync_root_directory = host.left_file_nextsync_explorer_selection_full_filename_path + "/"
 
-        add_nextsync_log_window ("Using " + selected_nextsync_explorer_sync_root_directory + " as sync root")
+        add_nextsync_log_window (ui_tr_now("Using {folder} as sync root").format(
+            folder=selected_nextsync_explorer_sync_root_directory))
 
         if not os.path.isfile(selected_nextsync_explorer_sync_root_directory + IGNOREFILE):
-            add_nextsync_log_window ("Warning! Ignore file " + IGNOREFILE + " not found in directory. All files will be synced, possibly including this file.")
+            add_nextsync_log_window (ui_tr_now(
+                "Warning! Ignore file {name} not found in directory. All files "
+                "will be synced, possibly including this file.").format(
+                    name=IGNOREFILE))
         if not os.path.isfile(selected_nextsync_explorer_sync_root_directory + SYNCPOINT):
-            add_nextsync_log_window ("Sync point file " + SYNCPOINT + " not found, syncing all files regardless of timestamp.")
+            add_nextsync_log_window (ui_tr_now(
+                "Sync point file {name} not found, syncing all files regardless "
+                "of timestamp.").format(name=SYNCPOINT))
 
         # Show the Start button straight away; the (potentially expensive)
         # recursive file scan runs on a worker thread and logs the
@@ -768,7 +780,11 @@ def build_nextsync_server_job(
 
         if not (selected_nextsync_explorer_sync_root_directory and os.path.isdir(selected_nextsync_explorer_sync_root_directory)):
             add_nextsync_log_window ("")
-            add_nextsync_log_window ("Navigate to a folder in the left local file explorer, press 'Set current folder as new sync root folder' to choose a sync root and then press the 'Start Classic NextSync server' button.")
+            add_nextsync_log_window (ui_tr_now(
+                "Navigate to a folder in the left local file explorer, press "
+                "'Set current folder as new sync root folder' to choose a sync "
+                "root and then press the 'Start Classic NextSync server' "
+                "button."))
             add_nextsync_log_window ("")
             return
 
@@ -800,12 +816,14 @@ def build_nextsync_server_job(
             count = _holder["count"]
             total = _holder["total"]
             if count < 10 and total < 100000:
-                severity = "Note"
+                severity = ui_tr_now("Note")
             elif count < 100 and total < 1000000:
-                severity = "Warning"
+                severity = ui_tr_now("Warning")
             else:
-                severity = "WARNING"
-            add_nextsync_log_window (f"{severity}: Ready to sync {count} files, {total/1024:.2f} kilobytes.")
+                severity = ui_tr_now("WARNING")
+            add_nextsync_log_window (ui_tr_now(
+                "{severity}: Ready to sync {count} files, {kb} kilobytes.").format(
+                    severity=severity, count=count, kb=f"{total/1024:.2f}"))
             add_nextsync_log_window ("")
 
         # Keep the worker (and its signals) alive until _on_scan_done runs,
@@ -815,28 +833,35 @@ def build_nextsync_server_job(
         host.threadpool.start(scan_worker)
 
     def nextsync_show_ip_info():
+        # Translated at the call site: these are the lines a user reads to find
+        # the address their Next must sync to. The addresses/host names
+        # themselves are data and are never touched.
         add_nextsync_log_window ("------------------------------------------", False)
-        add_nextsync_log_window ("NextSync server, protocol version: " + VERSION, False)
+        add_nextsync_log_window (
+            ui_tr_now("NextSync server, protocol version: {version}").format(
+                version=VERSION), False)
         add_nextsync_log_window ("", False)
         # detect_local_ipv4 never raises: a Linux box with no network route
         # used to crash the whole startup here on the raw 8.8.8.8 connect.
         hostname, aliases, ips, primary = detect_local_ipv4()
         if hostname:
-            add_nextsync_log_window ("Running on host:\n    " + str(hostname), False)
+            add_nextsync_log_window (
+                ui_tr_now("Running on host:") + "\n    " + str(hostname), False)
         if aliases:
-            add_nextsync_log_window ("Aliases:", False)
+            add_nextsync_log_window (ui_tr_now("Aliases:"), False)
             for x in aliases:
                 add_nextsync_log_window ("    " + str(x), False)
         if ips:
-            add_nextsync_log_window ("IP addresses:", False)
+            add_nextsync_log_window (ui_tr_now("IP addresses:"), False)
             for x in ips:
                 add_nextsync_log_window ("    " + str(x), False)
         if primary is not None:
-            add_nextsync_log_window ("Primary IP:\n    " + str(primary), False)
+            add_nextsync_log_window (
+                ui_tr_now("Primary IP:") + "\n    " + str(primary), False)
         elif not ips or ips[0].startswith("127"):
             add_nextsync_log_window (
-                "No network detected - connect to Wi-Fi/Ethernet to see "
-                "the address your Next should sync to.", False)
+                ui_tr_now("No network detected - connect to Wi-Fi/Ethernet to "
+                          "see the address your Next should sync to."), False)
 
     def nextsync_cancel_server_job():
         nextsync_hide_start_cancel_buttons()

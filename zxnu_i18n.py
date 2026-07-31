@@ -19,7 +19,11 @@ widget tooltip present in the catalog. What is deliberately NOT touched:
     / `"Unite!" in tabText`) in the monolith AND several pane modules, and
     mostly proper names anyway;
   * QComboBox item texts — many handlers compare `currentText()` against the
-    English literals (option values);
+    English literals (option values). The one exception is opt-in: a combo
+    marked with `mark_combo_items_translatable()` DOES get its items
+    translated, which is only safe once nothing reads its `currentText()` as
+    a key (the SD Card tab's CSpect/MAME option combos qualify — they are read
+    by index, see `emulator_option_argument`);
   * strings generated at runtime (log lines, toasts, message boxes, context
     menus built at popup time) — those keep English until their call sites
     adopt `ui_tr` in a later sitting.
@@ -121,6 +125,23 @@ def ui_tr_now(text):
 # Weak keys so destroyed widgets drop out on their own.
 _SRC_CACHE = WeakKeyDictionary()
 
+# Opt-in marker for QComboBox ITEM translation. Item texts are dispatch keys
+# across the app (see the module docstring), so the walk translates them only
+# for combos explicitly marked with this Qt property.
+TRANSLATABLE_ITEMS_PROPERTY = "zxnuTranslatableItems"
+
+
+def mark_combo_items_translatable(combo):
+    """Let :func:`translate_widget_tree` translate *combo*'s item texts.
+
+    Only mark a combo whose selection is read by INDEX — never one whose
+    ``currentText()`` is compared against an English literal or persisted as a
+    value, because the displayed text stops matching as soon as the UI is
+    translated. Returns *combo* so it can be marked inline.
+    """
+    combo.setProperty(TRANSLATABLE_ITEMS_PROPERTY, True)
+    return combo
+
 
 def _retranslate(widget, attr, getter, setter, lang):
     """Re-apply one text attribute of one widget for *lang*.
@@ -172,6 +193,15 @@ def translate_widget_tree(root, lang):
                 if le is not None:
                     _retranslate(le, "placeholder", le.placeholderText,
                                  le.setPlaceholderText, lang)
+                if w.property(TRANSLATABLE_ITEMS_PROPERTY):
+                    # Opt-in only (see TRANSLATABLE_ITEMS_PROPERTY). setItemText
+                    # changes no selection, so currentIndexChanged — the only
+                    # signal the marked combos connect — never fires here.
+                    for i in range(w.count()):
+                        _retranslate(w, f"item{i}",
+                                     lambda w=w, i=i: w.itemText(i),
+                                     lambda t, w=w, i=i: w.setItemText(i, t),
+                                     lang)
             # Tooltips on every widget type. The unbound form dodges any
             # instance attribute shadowing the method (it has happened).
             _retranslate(w, "tooltip", lambda w=w: QWidget.toolTip(w),
@@ -337,6 +367,7 @@ CATALOGS = {
         "Delete": "Eliminar",
         "Delete SyncIgnore File": "Eliminar archivo SyncIgnore",
         "Delete SyncPoint File": "Eliminar archivo SyncPoint",
+        "Disconnect": "Desconectar",
         "Download File": "Descargar archivo",
         "Download NextZXOS Image": "Descargar imagen NextZXOS",
         "Download and install HDF Monkey": "Descargar e instalar HDF Monkey",
@@ -366,6 +397,148 @@ CATALOGS = {
         "🔁  Send via NextSync": "🔁  Enviar por NextSync",
         "🕹  Launch CSpect": "🕹  Iniciar CSpect",
         "🕹  Launch Mame": "🕹  Iniciar Mame",
+        "🖼 Switch to 'Classic' view mode": "🖼 Cambiar a vista 'Clásica'",
+        # ---- emulator option combos (SD Card tab; selected by index) ----
+        "Screen Size X1": "Tamaño de pantalla X1",
+        "Screen Size X2": "Tamaño de pantalla X2",
+        "Screen Size X3": "Tamaño de pantalla X3",
+        "Screen Size X4": "Tamaño de pantalla X4",
+        "Fullscreen": "Pantalla completa",
+        "Sound On": "Sonido activado",
+        "Sound Off": "Sonido desactivado",
+        "Sound WASAPI": "Sonido WASAPI",
+        "Sound XAudio2": "Sonido XAudio2",
+        "Sound PortAudio": "Sonido PortAudio",
+        "VSync On": "VSync activado",
+        "VSync Off": "VSync desactivado",
+        "Joystick On": "Joystick activado",
+        "Joystick Off": "Joystick desactivado",
+        "Mouse On": "Ratón activado",
+        "Mouse Off": "Ratón desactivado",
+        "Disable ESC Key Off": "Desactivar tecla ESC: no",
+        "Disable ESC Key On": "Desactivar tecla ESC: sí",
+        # ---- itch.io item viewer + web-link labels ----
+        "About": "Acerca de",
+        "Open on {site}": "Abrir en {site}",
+        "Open {url}": "Abrir {url}",
+        "✓  Re-install": "✓  Reinstalar",
+        "⬇  Install": "⬇  Instalar",
+        "⬇  Installing…": "⬇  Instalando…",
+        "📂  Open download folder": "📂  Abrir carpeta de descargas",
+        # ---- gallery item viewer (Classic + Retro) ----
+        "🌐  Open on website": "🌐  Abrir en el sitio web",
+        "🌐  Open on {site}": "🌐  Abrir en {site}",
+        "📂  Open install folder": "📂  Abrir carpeta de instalación",
+        "🗑  Uninstall": "🗑  Desinstalar",
+        # ---- NextSync log lines (user-facing; protocol diagnostics stay English) ----
+        "(-send saves received files under: {folder})":
+            "(-send guarda los archivos recibidos en: {folder})",
+        "Aliases:":
+            "Alias:",
+        "Cancel requested — stopping after current file":
+            "Cancelación solicitada: se detendrá tras el archivo actual",
+        "Cannot create {path}: {error}":
+            "No se puede crear {path}: {error}",
+        "Closing connection":
+            "Cerrando la conexión",
+        "Connected by {address} port {port}":
+            "Conectado desde {address} puerto {port}",
+        "Disconnected":
+            "Desconectado",
+        "Existing-file policy: {policy} (change in Settings -> 'NextSync - when a sent file or directory exists locally').":
+            "Política para archivos existentes: {policy} (se cambia en Ajustes -> 'NextSync - when a sent file or directory exists locally').",
+        "Failed to rename {path}: {error}":
+            "No se pudo renombrar {path}: {error}",
+        "IP addresses:":
+            "Direcciones IP:",
+        "Import failed: no valid destination folder.":
+            "Error de importación: no hay una carpeta de destino válida.",
+        "Navigate to a folder in the left local file explorer, press 'Set current folder as new sync root folder' to choose a sync root and then press the 'Start Classic NextSync server' button.":
+            "Navega a una carpeta en el explorador local izquierdo, pulsa 'Set current folder as new sync root folder' para elegir la raíz de sincronización y luego pulsa el botón 'Start Classic NextSync server'.",
+        "NextSync HTTP bridge NOT started: {error}":
+            "El puente HTTP de NextSync NO se ha iniciado: {error}",
+        "NextSync HTTP bridge listening on port {port}":
+            "Puente HTTP de NextSync escuchando en el puerto {port}",
+        "NextSync HTTP bridge stopped.":
+            "Puente HTTP de NextSync detenido.",
+        "NextSync HTTP bridge: bearer-token protection is ON (requests must carry the {header} header; others get HTTP 401)":
+            "Puente HTTP de NextSync: la protección por token está ACTIVADA (las peticiones deben incluir la cabecera {header}; el resto recibe HTTP 401)",
+        "NextSync is already running — please wait for it to finish.":
+            "NextSync ya se está ejecutando: espera a que termine.",
+        "NextSync listening to port {port}":
+            "NextSync escuchando en el puerto {port}",
+        "NextSync server, protocol version: {version}":
+            "Servidor NextSync, versión del protocolo: {version}",
+        "No network detected - connect to Wi-Fi/Ethernet to see the address your Next should sync to.":
+            "No se detectó red: conéctate a Wi-Fi/Ethernet para ver la dirección con la que debe sincronizar tu Next.",
+        "Note":
+            "Nota",
+        "Nothing (more) to sync":
+            "No hay (más) nada que sincronizar",
+        "Now run one of these commands on your Next:":
+            "Ahora ejecuta uno de estos comandos en tu Next:",
+        "Primary IP:":
+            "IP principal:",
+        "Received {name} ({bytes} bytes)":
+            "Recibido {name} ({bytes} bytes)",
+        "Receiving files from the Next...":
+            "Recibiendo archivos desde el Next...",
+        "Receiving: {name} -> {path}":
+            "Recibiendo: {name} -> {path}",
+        "Remote explorer: connected to {address}":
+            "Explorador remoto: conectado a {address}",
+        "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
+            "Explorador remoto: navega a una carpeta en el explorador izquierdo, pulsa 'Set current folder as new sync root folder', haz clic en 'Start Remote Explorer NextSync server' y luego ejecuta {command} en tu Next.",
+        "Remote explorer: port {port} is already in use — is another ZX-Next-Unite (or NextSync server) already running?":
+            "Explorador remoto: el puerto {port} ya está en uso, ¿hay otro ZX-Next-Unite (o servidor NextSync) en ejecución?",
+        "Remote explorer: the Next disconnected (BREAK / Bye) — restarting the listen server; run {command} on your Next to reconnect.":
+            "Explorador remoto: el Next se desconectó (BREAK / Bye); reiniciando el servidor de escucha. Ejecuta {command} en tu Next para reconectar.",
+        "Remote explorer: the Next disconnected (BREAK / Bye). Press 'Start Remote Explorer NextSync server' to accept a new connection.":
+            "Explorador remoto: el Next se desconectó (BREAK / Bye). Pulsa 'Start Remote Explorer NextSync server' para aceptar una nueva conexión.",
+        "Remote explorer: waiting for {command} on port {port}…":
+            "Explorador remoto: esperando {command} en el puerto {port}…",
+        "Renamed: {old} -> {new}":
+            "Renombrado: {old} -> {new}",
+        "Running on host:":
+            "Ejecutándose en el equipo:",
+        "Saving incoming files under: {folder}":
+            "Guardando los archivos entrantes en: {folder}",
+        "Send via NextSync: nothing to send in {folder}.":
+            "Enviar por NextSync: no hay nada que enviar en {folder}.",
+        "Sending {folder} via Remote Explorer (-listen) → {target} …":
+            "Enviando {folder} por el Explorador remoto (-listen) → {target} …",
+        "Set a sync root folder first: navigate to the folder in the left local file explorer and press 'Set current folder as new sync root folder'.":
+            "Elige primero una carpeta raíz de sincronización: navega a ella en el explorador local izquierdo y pulsa 'Set current folder as new sync root folder'.",
+        "Skipped (already exists): {path}":
+            "Omitido (ya existe): {path}",
+        "Skipped {path}: cannot import a folder into itself.":
+            "Omitido {path}: no se puede importar una carpeta dentro de sí misma.",
+        "Stop the running sync before starting the remote server.":
+            "Detén la sincronización en curso antes de iniciar el servidor remoto.",
+        "Sync file list has {count} files.":
+            "La lista de sincronización tiene {count} archivos.",
+        "Sync point file {name} not found, syncing all files regardless of timestamp.":
+            "No se encontró el archivo de punto de sincronización {name}; se sincronizarán todos los archivos sin tener en cuenta la fecha.",
+        "Sync point updated with {count} received file(s)":
+            "Punto de sincronización actualizado con {count} archivo(s) recibido(s)",
+        "Upload connection closed":
+            "Conexión de subida cerrada",
+        "Upload finished, {count} file(s) received":
+            "Subida terminada, {count} archivo(s) recibido(s)",
+        "Using {folder} as sync root":
+            "Usando {folder} como raíz de sincronización",
+        "WARNING":
+            "AVISO",
+        "Warning":
+            "Aviso",
+        "Warning! Ignore file {name} not found in directory. All files will be synced, possibly including this file.":
+            "¡Atención! No se encontró el archivo de exclusiones {name} en la carpeta. Se sincronizarán todos los archivos, posiblemente incluido este.",
+        "{kb} kilobytes payload, {rate} kBps effective speed":
+            "{kb} kilobytes de datos útiles, velocidad efectiva {rate} kBps",
+        "{kb} kilobytes transferred in {seconds} seconds, {rate} kBps":
+            "{kb} kilobytes transferidos en {seconds} segundos, {rate} kBps",
+        "{severity}: Ready to sync {count} files, {kb} kilobytes.":
+            "{severity}: listo para sincronizar {count} archivos, {kb} kilobytes.",
         # ---- checkboxes ----
         "Alien Floyd's — animated background on all tabs (Retro/pygame)":
             "Alien Floyd's — fondo animado en todas las pestañas (Retro/pygame)",
@@ -454,6 +627,10 @@ CATALOGS = {
             "Vista previa de la imagen de fondo seleccionada.",
         "Open https://itch.io/ in your browser":
             "Abrir https://itch.io/ en tu navegador",
+        "Connect to itch.io using the API key above.":
+            "Conectar a itch.io con la clave API de arriba.",
+        "Disconnect from itch.io and clear the listed items.":
+            "Desconectar de itch.io y borrar los elementos listados.",
         "Open https://itch.io/user/settings/api-keys in your browser":
             "Abrir https://itch.io/user/settings/api-keys en tu navegador",
         "Color used for directory name entries in the image explorer.":
@@ -668,6 +845,7 @@ CATALOGS = {
         "Delete": "Eliminar",
         "Delete SyncIgnore File": "Eliminar ficheiro SyncIgnore",
         "Delete SyncPoint File": "Eliminar ficheiro SyncPoint",
+        "Disconnect": "Desligar",
         "Download File": "Transferir ficheiro",
         "Download NextZXOS Image": "Transferir imagem NextZXOS",
         "Download and install HDF Monkey": "Transferir e instalar o HDF Monkey",
@@ -697,6 +875,148 @@ CATALOGS = {
         "🔁  Send via NextSync": "🔁  Enviar via NextSync",
         "🕹  Launch CSpect": "🕹  Iniciar o CSpect",
         "🕹  Launch Mame": "🕹  Iniciar o Mame",
+        "🖼 Switch to 'Classic' view mode": "🖼 Mudar para vista 'Clássica'",
+        # ---- emulator option combos (SD Card tab; selected by index) ----
+        "Screen Size X1": "Tamanho do ecrã X1",
+        "Screen Size X2": "Tamanho do ecrã X2",
+        "Screen Size X3": "Tamanho do ecrã X3",
+        "Screen Size X4": "Tamanho do ecrã X4",
+        "Fullscreen": "Ecrã inteiro",
+        "Sound On": "Som ligado",
+        "Sound Off": "Som desligado",
+        "Sound WASAPI": "Som WASAPI",
+        "Sound XAudio2": "Som XAudio2",
+        "Sound PortAudio": "Som PortAudio",
+        "VSync On": "VSync ligado",
+        "VSync Off": "VSync desligado",
+        "Joystick On": "Joystick ligado",
+        "Joystick Off": "Joystick desligado",
+        "Mouse On": "Rato ligado",
+        "Mouse Off": "Rato desligado",
+        "Disable ESC Key Off": "Desativar tecla ESC: não",
+        "Disable ESC Key On": "Desativar tecla ESC: sim",
+        # ---- itch.io item viewer + web-link labels ----
+        "About": "Sobre",
+        "Open on {site}": "Abrir em {site}",
+        "Open {url}": "Abrir {url}",
+        "✓  Re-install": "✓  Reinstalar",
+        "⬇  Install": "⬇  Instalar",
+        "⬇  Installing…": "⬇  A instalar…",
+        "📂  Open download folder": "📂  Abrir pasta de transferências",
+        # ---- gallery item viewer (Classic + Retro) ----
+        "🌐  Open on website": "🌐  Abrir no site",
+        "🌐  Open on {site}": "🌐  Abrir em {site}",
+        "📂  Open install folder": "📂  Abrir pasta de instalação",
+        "🗑  Uninstall": "🗑  Desinstalar",
+        # ---- NextSync log lines (user-facing; protocol diagnostics stay English) ----
+        "(-send saves received files under: {folder})":
+            "(-send guarda os ficheiros recebidos em: {folder})",
+        "Aliases:":
+            "Aliases:",
+        "Cancel requested — stopping after current file":
+            "Cancelamento pedido: para após o ficheiro atual",
+        "Cannot create {path}: {error}":
+            "Não é possível criar {path}: {error}",
+        "Closing connection":
+            "A fechar a ligação",
+        "Connected by {address} port {port}":
+            "Ligado a partir de {address} porta {port}",
+        "Disconnected":
+            "Desligado",
+        "Existing-file policy: {policy} (change in Settings -> 'NextSync - when a sent file or directory exists locally').":
+            "Política para ficheiros existentes: {policy} (altera em Definições -> 'NextSync - when a sent file or directory exists locally').",
+        "Failed to rename {path}: {error}":
+            "Não foi possível renomear {path}: {error}",
+        "IP addresses:":
+            "Endereços IP:",
+        "Import failed: no valid destination folder.":
+            "Falha na importação: não há pasta de destino válida.",
+        "Navigate to a folder in the left local file explorer, press 'Set current folder as new sync root folder' to choose a sync root and then press the 'Start Classic NextSync server' button.":
+            "Navega até uma pasta no explorador local esquerdo, prime 'Set current folder as new sync root folder' para escolher a raiz de sincronização e depois prime o botão 'Start Classic NextSync server'.",
+        "NextSync HTTP bridge NOT started: {error}":
+            "A ponte HTTP do NextSync NÃO foi iniciada: {error}",
+        "NextSync HTTP bridge listening on port {port}":
+            "Ponte HTTP do NextSync a escutar na porta {port}",
+        "NextSync HTTP bridge stopped.":
+            "Ponte HTTP do NextSync parada.",
+        "NextSync HTTP bridge: bearer-token protection is ON (requests must carry the {header} header; others get HTTP 401)":
+            "Ponte HTTP do NextSync: a proteção por token está ATIVA (os pedidos têm de incluir o cabeçalho {header}; os restantes recebem HTTP 401)",
+        "NextSync is already running — please wait for it to finish.":
+            "O NextSync já está em execução: aguarda que termine.",
+        "NextSync listening to port {port}":
+            "NextSync a escutar na porta {port}",
+        "NextSync server, protocol version: {version}":
+            "Servidor NextSync, versão do protocolo: {version}",
+        "No network detected - connect to Wi-Fi/Ethernet to see the address your Next should sync to.":
+            "Nenhuma rede detetada: liga-te a Wi-Fi/Ethernet para veres o endereço com que o teu Next deve sincronizar.",
+        "Note":
+            "Nota",
+        "Nothing (more) to sync":
+            "Não há (mais) nada para sincronizar",
+        "Now run one of these commands on your Next:":
+            "Executa agora um destes comandos no teu Next:",
+        "Primary IP:":
+            "IP principal:",
+        "Received {name} ({bytes} bytes)":
+            "Recebido {name} ({bytes} bytes)",
+        "Receiving files from the Next...":
+            "A receber ficheiros do Next...",
+        "Receiving: {name} -> {path}":
+            "A receber: {name} -> {path}",
+        "Remote explorer: connected to {address}":
+            "Explorador remoto: ligado a {address}",
+        "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
+            "Explorador remoto: navega até uma pasta no explorador esquerdo, prime 'Set current folder as new sync root folder', clica em 'Start Remote Explorer NextSync server' e depois executa {command} no teu Next.",
+        "Remote explorer: port {port} is already in use — is another ZX-Next-Unite (or NextSync server) already running?":
+            "Explorador remoto: a porta {port} já está em uso — está outro ZX-Next-Unite (ou servidor NextSync) em execução?",
+        "Remote explorer: the Next disconnected (BREAK / Bye) — restarting the listen server; run {command} on your Next to reconnect.":
+            "Explorador remoto: o Next desligou-se (BREAK / Bye); a reiniciar o servidor de escuta. Executa {command} no teu Next para voltar a ligar.",
+        "Remote explorer: the Next disconnected (BREAK / Bye). Press 'Start Remote Explorer NextSync server' to accept a new connection.":
+            "Explorador remoto: o Next desligou-se (BREAK / Bye). Prime 'Start Remote Explorer NextSync server' para aceitar uma nova ligação.",
+        "Remote explorer: waiting for {command} on port {port}…":
+            "Explorador remoto: à espera de {command} na porta {port}…",
+        "Renamed: {old} -> {new}":
+            "Renomeado: {old} -> {new}",
+        "Running on host:":
+            "A executar no anfitrião:",
+        "Saving incoming files under: {folder}":
+            "A guardar os ficheiros recebidos em: {folder}",
+        "Send via NextSync: nothing to send in {folder}.":
+            "Enviar por NextSync: não há nada para enviar em {folder}.",
+        "Sending {folder} via Remote Explorer (-listen) → {target} …":
+            "A enviar {folder} pelo Explorador remoto (-listen) → {target} …",
+        "Set a sync root folder first: navigate to the folder in the left local file explorer and press 'Set current folder as new sync root folder'.":
+            "Escolhe primeiro uma pasta raiz de sincronização: navega até ela no explorador local esquerdo e prime 'Set current folder as new sync root folder'.",
+        "Skipped (already exists): {path}":
+            "Ignorado (já existe): {path}",
+        "Skipped {path}: cannot import a folder into itself.":
+            "Ignorado {path}: não é possível importar uma pasta para dentro de si própria.",
+        "Stop the running sync before starting the remote server.":
+            "Para a sincronização em curso antes de iniciar o servidor remoto.",
+        "Sync file list has {count} files.":
+            "A lista de sincronização tem {count} ficheiros.",
+        "Sync point file {name} not found, syncing all files regardless of timestamp.":
+            "O ficheiro de ponto de sincronização {name} não foi encontrado; serão sincronizados todos os ficheiros independentemente da data.",
+        "Sync point updated with {count} received file(s)":
+            "Ponto de sincronização atualizado com {count} ficheiro(s) recebido(s)",
+        "Upload connection closed":
+            "Ligação de envio fechada",
+        "Upload finished, {count} file(s) received":
+            "Envio concluído, {count} ficheiro(s) recebido(s)",
+        "Using {folder} as sync root":
+            "A usar {folder} como raiz de sincronização",
+        "WARNING":
+            "AVISO",
+        "Warning":
+            "Aviso",
+        "Warning! Ignore file {name} not found in directory. All files will be synced, possibly including this file.":
+            "Atenção! O ficheiro de exclusões {name} não foi encontrado na pasta. Todos os ficheiros serão sincronizados, possivelmente incluindo este.",
+        "{kb} kilobytes payload, {rate} kBps effective speed":
+            "{kb} kilobytes de dados úteis, velocidade efetiva {rate} kBps",
+        "{kb} kilobytes transferred in {seconds} seconds, {rate} kBps":
+            "{kb} kilobytes transferidos em {seconds} segundos, {rate} kBps",
+        "{severity}: Ready to sync {count} files, {kb} kilobytes.":
+            "{severity}: pronto para sincronizar {count} ficheiros, {kb} kilobytes.",
         # ---- checkboxes ----
         "Alien Floyd's — animated background on all tabs (Retro/pygame)":
             "Alien Floyd's — fundo animado em todos os separadores (Retro/pygame)",
@@ -785,6 +1105,10 @@ CATALOGS = {
             "Pré-visualização da imagem de fundo selecionada.",
         "Open https://itch.io/ in your browser":
             "Abrir https://itch.io/ no seu navegador",
+        "Connect to itch.io using the API key above.":
+            "Ligar ao itch.io com a chave API acima.",
+        "Disconnect from itch.io and clear the listed items.":
+            "Desligar do itch.io e limpar os itens listados.",
         "Open https://itch.io/user/settings/api-keys in your browser":
             "Abrir https://itch.io/user/settings/api-keys no seu navegador",
         "Color used for directory name entries in the image explorer.":
@@ -997,6 +1321,7 @@ CATALOGS = {
         "Delete": "Usuń",
         "Delete SyncIgnore File": "Usuń plik SyncIgnore",
         "Delete SyncPoint File": "Usuń plik SyncPoint",
+        "Disconnect": "Rozłącz",
         "Download File": "Pobierz plik",
         "Download NextZXOS Image": "Pobierz obraz NextZXOS",
         "Download and install HDF Monkey": "Pobierz i zainstaluj HDF Monkey",
@@ -1026,6 +1351,148 @@ CATALOGS = {
         "🔁  Send via NextSync": "🔁  Wyślij przez NextSync",
         "🕹  Launch CSpect": "🕹  Uruchom CSpect",
         "🕹  Launch Mame": "🕹  Uruchom Mame",
+        "🖼 Switch to 'Classic' view mode": "🖼 Przełącz na widok 'Klasyczny'",
+        # ---- emulator option combos (SD Card tab; selected by index) ----
+        "Screen Size X1": "Rozmiar ekranu X1",
+        "Screen Size X2": "Rozmiar ekranu X2",
+        "Screen Size X3": "Rozmiar ekranu X3",
+        "Screen Size X4": "Rozmiar ekranu X4",
+        "Fullscreen": "Pełny ekran",
+        "Sound On": "Dźwięk włączony",
+        "Sound Off": "Dźwięk wyłączony",
+        "Sound WASAPI": "Dźwięk WASAPI",
+        "Sound XAudio2": "Dźwięk XAudio2",
+        "Sound PortAudio": "Dźwięk PortAudio",
+        "VSync On": "VSync włączony",
+        "VSync Off": "VSync wyłączony",
+        "Joystick On": "Joystick włączony",
+        "Joystick Off": "Joystick wyłączony",
+        "Mouse On": "Mysz włączona",
+        "Mouse Off": "Mysz wyłączona",
+        "Disable ESC Key Off": "Blokada klawisza ESC: wył.",
+        "Disable ESC Key On": "Blokada klawisza ESC: wł.",
+        # ---- itch.io item viewer + web-link labels ----
+        "About": "Informacje",
+        "Open on {site}": "Otwórz w {site}",
+        "Open {url}": "Otwórz {url}",
+        "✓  Re-install": "✓  Zainstaluj ponownie",
+        "⬇  Install": "⬇  Zainstaluj",
+        "⬇  Installing…": "⬇  Instalowanie…",
+        "📂  Open download folder": "📂  Otwórz folder pobierania",
+        # ---- gallery item viewer (Classic + Retro) ----
+        "🌐  Open on website": "🌐  Otwórz w witrynie",
+        "🌐  Open on {site}": "🌐  Otwórz w {site}",
+        "📂  Open install folder": "📂  Otwórz folder instalacji",
+        "🗑  Uninstall": "🗑  Odinstaluj",
+        # ---- NextSync log lines (user-facing; protocol diagnostics stay English) ----
+        "(-send saves received files under: {folder})":
+            "(-send zapisuje odebrane pliki w: {folder})",
+        "Aliases:":
+            "Aliasy:",
+        "Cancel requested — stopping after current file":
+            "Zażądano anulowania — zatrzymanie po bieżącym pliku",
+        "Cannot create {path}: {error}":
+            "Nie można utworzyć {path}: {error}",
+        "Closing connection":
+            "Zamykanie połączenia",
+        "Connected by {address} port {port}":
+            "Połączono z {address} port {port}",
+        "Disconnected":
+            "Rozłączono",
+        "Existing-file policy: {policy} (change in Settings -> 'NextSync - when a sent file or directory exists locally').":
+            "Zasada dla istniejących plików: {policy} (zmień w Ustawieniach -> 'NextSync - when a sent file or directory exists locally').",
+        "Failed to rename {path}: {error}":
+            "Nie udało się zmienić nazwy {path}: {error}",
+        "IP addresses:":
+            "Adresy IP:",
+        "Import failed: no valid destination folder.":
+            "Import nie powiódł się: brak prawidłowego folderu docelowego.",
+        "Navigate to a folder in the left local file explorer, press 'Set current folder as new sync root folder' to choose a sync root and then press the 'Start Classic NextSync server' button.":
+            "Przejdź do folderu w lewym eksploratorze, naciśnij 'Set current folder as new sync root folder', aby wybrać katalog główny synchronizacji, a potem naciśnij 'Start Classic NextSync server'.",
+        "NextSync HTTP bridge NOT started: {error}":
+            "Mostek HTTP NextSync NIE został uruchomiony: {error}",
+        "NextSync HTTP bridge listening on port {port}":
+            "Mostek HTTP NextSync nasłuchuje na porcie {port}",
+        "NextSync HTTP bridge stopped.":
+            "Mostek HTTP NextSync zatrzymany.",
+        "NextSync HTTP bridge: bearer-token protection is ON (requests must carry the {header} header; others get HTTP 401)":
+            "Mostek HTTP NextSync: ochrona tokenem jest WŁĄCZONA (żądania muszą zawierać nagłówek {header}; pozostałe otrzymają HTTP 401)",
+        "NextSync is already running — please wait for it to finish.":
+            "NextSync już działa — poczekaj na zakończenie.",
+        "NextSync listening to port {port}":
+            "NextSync nasłuchuje na porcie {port}",
+        "NextSync server, protocol version: {version}":
+            "Serwer NextSync, wersja protokołu: {version}",
+        "No network detected - connect to Wi-Fi/Ethernet to see the address your Next should sync to.":
+            "Nie wykryto sieci — połącz się z Wi-Fi/Ethernet, aby zobaczyć adres, z którym ma synchronizować się Next.",
+        "Note":
+            "Uwaga",
+        "Nothing (more) to sync":
+            "Nie ma (już) nic do synchronizacji",
+        "Now run one of these commands on your Next:":
+            "Teraz uruchom jedno z tych poleceń na swoim Next:",
+        "Primary IP:":
+            "Główny adres IP:",
+        "Received {name} ({bytes} bytes)":
+            "Odebrano {name} ({bytes} bajtów)",
+        "Receiving files from the Next...":
+            "Odbieranie plików z Nexta...",
+        "Receiving: {name} -> {path}":
+            "Odbieranie: {name} -> {path}",
+        "Remote explorer: connected to {address}":
+            "Eksplorator zdalny: połączono z {address}",
+        "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
+            "Eksplorator zdalny: przejdź do folderu w lewym eksploratorze, naciśnij 'Set current folder as new sync root folder', kliknij 'Start Remote Explorer NextSync server', a następnie uruchom {command} na swoim Next.",
+        "Remote explorer: port {port} is already in use — is another ZX-Next-Unite (or NextSync server) already running?":
+            "Eksplorator zdalny: port {port} jest już zajęty — czy działa inny ZX-Next-Unite (lub serwer NextSync)?",
+        "Remote explorer: the Next disconnected (BREAK / Bye) — restarting the listen server; run {command} on your Next to reconnect.":
+            "Eksplorator zdalny: Next się rozłączył (BREAK / Bye) — ponowne uruchamianie serwera nasłuchu; uruchom {command} na Next, aby połączyć ponownie.",
+        "Remote explorer: the Next disconnected (BREAK / Bye). Press 'Start Remote Explorer NextSync server' to accept a new connection.":
+            "Eksplorator zdalny: Next się rozłączył (BREAK / Bye). Naciśnij 'Start Remote Explorer NextSync server', aby przyjąć nowe połączenie.",
+        "Remote explorer: waiting for {command} on port {port}…":
+            "Eksplorator zdalny: oczekiwanie na {command} na porcie {port}…",
+        "Renamed: {old} -> {new}":
+            "Zmieniono nazwę: {old} -> {new}",
+        "Running on host:":
+            "Działa na komputerze:",
+        "Saving incoming files under: {folder}":
+            "Zapisywanie przychodzących plików w: {folder}",
+        "Send via NextSync: nothing to send in {folder}.":
+            "Wyślij przez NextSync: nie ma czego wysłać w {folder}.",
+        "Sending {folder} via Remote Explorer (-listen) → {target} …":
+            "Wysyłanie {folder} przez Eksplorator zdalny (-listen) → {target} …",
+        "Set a sync root folder first: navigate to the folder in the left local file explorer and press 'Set current folder as new sync root folder'.":
+            "Najpierw wybierz folder główny synchronizacji: przejdź do niego w lewym eksploratorze i naciśnij 'Set current folder as new sync root folder'.",
+        "Skipped (already exists): {path}":
+            "Pominięto (już istnieje): {path}",
+        "Skipped {path}: cannot import a folder into itself.":
+            "Pominięto {path}: nie można zaimportować folderu do niego samego.",
+        "Stop the running sync before starting the remote server.":
+            "Zatrzymaj trwającą synchronizację przed uruchomieniem serwera zdalnego.",
+        "Sync file list has {count} files.":
+            "Lista synchronizacji zawiera {count} plików.",
+        "Sync point file {name} not found, syncing all files regardless of timestamp.":
+            "Nie znaleziono pliku punktu synchronizacji {name} — synchronizowane będą wszystkie pliki niezależnie od daty.",
+        "Sync point updated with {count} received file(s)":
+            "Punkt synchronizacji zaktualizowany o {count} odebranych plików",
+        "Upload connection closed":
+            "Połączenie wysyłania zamknięte",
+        "Upload finished, {count} file(s) received":
+            "Wysyłanie zakończone, odebrano {count} plik(ów)",
+        "Using {folder} as sync root":
+            "Używany katalog główny synchronizacji: {folder}",
+        "WARNING":
+            "OSTRZEŻENIE",
+        "Warning":
+            "Ostrzeżenie",
+        "Warning! Ignore file {name} not found in directory. All files will be synced, possibly including this file.":
+            "Uwaga! Nie znaleziono pliku wykluczeń {name} w katalogu. Zsynchronizowane zostaną wszystkie pliki, być może łącznie z tym.",
+        "{kb} kilobytes payload, {rate} kBps effective speed":
+            "{kb} kilobajtów danych, prędkość efektywna {rate} kBps",
+        "{kb} kilobytes transferred in {seconds} seconds, {rate} kBps":
+            "Przesłano {kb} kilobajtów w {seconds} s, {rate} kBps",
+        "{severity}: Ready to sync {count} files, {kb} kilobytes.":
+            "{severity}: gotowe do synchronizacji {count} plików, {kb} kilobajtów.",
         # ---- checkboxes ----
         "Alien Floyd's — animated background on all tabs (Retro/pygame)":
             "Alien Floyd's — animowane tło na wszystkich kartach (Retro/pygame)",
@@ -1114,6 +1581,10 @@ CATALOGS = {
             "Podgląd wybranego obrazu tła.",
         "Open https://itch.io/ in your browser":
             "Otwórz https://itch.io/ w przeglądarce",
+        "Connect to itch.io using the API key above.":
+            "Połącz z itch.io przy użyciu powyższego klucza API.",
+        "Disconnect from itch.io and clear the listed items.":
+            "Rozłącz z itch.io i wyczyść wyświetlone pozycje.",
         "Open https://itch.io/user/settings/api-keys in your browser":
             "Otwórz https://itch.io/user/settings/api-keys w przeglądarce",
         "Color used for directory name entries in the image explorer.":
@@ -1327,6 +1798,7 @@ CATALOGS = {
         "Delete": "Удалить",
         "Delete SyncIgnore File": "Удалить файл SyncIgnore",
         "Delete SyncPoint File": "Удалить файл SyncPoint",
+        "Disconnect": "Отключить",
         "Download File": "Скачать файл",
         "Download NextZXOS Image": "Скачать образ NextZXOS",
         "Download and install HDF Monkey": "Скачать и установить HDF Monkey",
@@ -1356,6 +1828,148 @@ CATALOGS = {
         "🔁  Send via NextSync": "🔁  Отправить через NextSync",
         "🕹  Launch CSpect": "🕹  Запустить CSpect",
         "🕹  Launch Mame": "🕹  Запустить Mame",
+        "🖼 Switch to 'Classic' view mode": "🖼 Вернуться к виду 'Классический'",
+        # ---- emulator option combos (SD Card tab; selected by index) ----
+        "Screen Size X1": "Размер экрана X1",
+        "Screen Size X2": "Размер экрана X2",
+        "Screen Size X3": "Размер экрана X3",
+        "Screen Size X4": "Размер экрана X4",
+        "Fullscreen": "Полный экран",
+        "Sound On": "Звук вкл.",
+        "Sound Off": "Звук выкл.",
+        "Sound WASAPI": "Звук WASAPI",
+        "Sound XAudio2": "Звук XAudio2",
+        "Sound PortAudio": "Звук PortAudio",
+        "VSync On": "VSync вкл.",
+        "VSync Off": "VSync выкл.",
+        "Joystick On": "Джойстик вкл.",
+        "Joystick Off": "Джойстик выкл.",
+        "Mouse On": "Мышь вкл.",
+        "Mouse Off": "Мышь выкл.",
+        "Disable ESC Key Off": "Блокировка ESC: выкл.",
+        "Disable ESC Key On": "Блокировка ESC: вкл.",
+        # ---- itch.io item viewer + web-link labels ----
+        "About": "Описание",
+        "Open on {site}": "Открыть на {site}",
+        "Open {url}": "Открыть {url}",
+        "✓  Re-install": "✓  Переустановить",
+        "⬇  Install": "⬇  Установить",
+        "⬇  Installing…": "⬇  Установка…",
+        "📂  Open download folder": "📂  Открыть папку загрузок",
+        # ---- gallery item viewer (Classic + Retro) ----
+        "🌐  Open on website": "🌐  Открыть на сайте",
+        "🌐  Open on {site}": "🌐  Открыть на {site}",
+        "📂  Open install folder": "📂  Открыть папку установки",
+        "🗑  Uninstall": "🗑  Удалить",
+        # ---- NextSync log lines (user-facing; protocol diagnostics stay English) ----
+        "(-send saves received files under: {folder})":
+            "(-send сохраняет полученные файлы в: {folder})",
+        "Aliases:":
+            "Псевдонимы:",
+        "Cancel requested — stopping after current file":
+            "Запрошена отмена — остановка после текущего файла",
+        "Cannot create {path}: {error}":
+            "Не удалось создать {path}: {error}",
+        "Closing connection":
+            "Закрытие соединения",
+        "Connected by {address} port {port}":
+            "Подключение с {address}, порт {port}",
+        "Disconnected":
+            "Отключено",
+        "Existing-file policy: {policy} (change in Settings -> 'NextSync - when a sent file or directory exists locally').":
+            "Правило для существующих файлов: {policy} (изменяется в Настройках -> 'NextSync - when a sent file or directory exists locally').",
+        "Failed to rename {path}: {error}":
+            "Не удалось переименовать {path}: {error}",
+        "IP addresses:":
+            "IP-адреса:",
+        "Import failed: no valid destination folder.":
+            "Импорт не удался: нет допустимой папки назначения.",
+        "Navigate to a folder in the left local file explorer, press 'Set current folder as new sync root folder' to choose a sync root and then press the 'Start Classic NextSync server' button.":
+            "Перейдите к папке в левом проводнике, нажмите 'Set current folder as new sync root folder', чтобы выбрать корень синхронизации, затем нажмите 'Start Classic NextSync server'.",
+        "NextSync HTTP bridge NOT started: {error}":
+            "HTTP-мост NextSync НЕ запущен: {error}",
+        "NextSync HTTP bridge listening on port {port}":
+            "HTTP-мост NextSync слушает порт {port}",
+        "NextSync HTTP bridge stopped.":
+            "HTTP-мост NextSync остановлен.",
+        "NextSync HTTP bridge: bearer-token protection is ON (requests must carry the {header} header; others get HTTP 401)":
+            "HTTP-мост NextSync: защита токеном ВКЛЮЧЕНА (запросы должны содержать заголовок {header}; остальные получат HTTP 401)",
+        "NextSync is already running — please wait for it to finish.":
+            "NextSync уже запущен — дождитесь завершения.",
+        "NextSync listening to port {port}":
+            "NextSync слушает порт {port}",
+        "NextSync server, protocol version: {version}":
+            "Сервер NextSync, версия протокола: {version}",
+        "No network detected - connect to Wi-Fi/Ethernet to see the address your Next should sync to.":
+            "Сеть не обнаружена — подключитесь к Wi-Fi/Ethernet, чтобы увидеть адрес для синхронизации с Next.",
+        "Note":
+            "Примечание",
+        "Nothing (more) to sync":
+            "Больше нечего синхронизировать",
+        "Now run one of these commands on your Next:":
+            "Теперь выполните одну из этих команд на Next:",
+        "Primary IP:":
+            "Основной IP:",
+        "Received {name} ({bytes} bytes)":
+            "Получено {name} ({bytes} байт)",
+        "Receiving files from the Next...":
+            "Получение файлов с Next...",
+        "Receiving: {name} -> {path}":
+            "Получение: {name} -> {path}",
+        "Remote explorer: connected to {address}":
+            "Удалённый проводник: подключено к {address}",
+        "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
+            "Удалённый проводник: перейдите к папке в левом проводнике, нажмите 'Set current folder as new sync root folder', затем 'Start Remote Explorer NextSync server' и выполните {command} на Next.",
+        "Remote explorer: port {port} is already in use — is another ZX-Next-Unite (or NextSync server) already running?":
+            "Удалённый проводник: порт {port} уже занят — возможно, запущен другой ZX-Next-Unite (или сервер NextSync)?",
+        "Remote explorer: the Next disconnected (BREAK / Bye) — restarting the listen server; run {command} on your Next to reconnect.":
+            "Удалённый проводник: Next отключился (BREAK / Bye) — перезапуск сервера прослушивания; выполните {command} на Next для повторного подключения.",
+        "Remote explorer: the Next disconnected (BREAK / Bye). Press 'Start Remote Explorer NextSync server' to accept a new connection.":
+            "Удалённый проводник: Next отключился (BREAK / Bye). Нажмите 'Start Remote Explorer NextSync server', чтобы принять новое подключение.",
+        "Remote explorer: waiting for {command} on port {port}…":
+            "Удалённый проводник: ожидание {command} на порту {port}…",
+        "Renamed: {old} -> {new}":
+            "Переименовано: {old} -> {new}",
+        "Running on host:":
+            "Запущено на хосте:",
+        "Saving incoming files under: {folder}":
+            "Входящие файлы сохраняются в: {folder}",
+        "Send via NextSync: nothing to send in {folder}.":
+            "Отправка через NextSync: в {folder} нечего отправлять.",
+        "Sending {folder} via Remote Explorer (-listen) → {target} …":
+            "Отправка {folder} через удалённый проводник (-listen) → {target} …",
+        "Set a sync root folder first: navigate to the folder in the left local file explorer and press 'Set current folder as new sync root folder'.":
+            "Сначала выберите корневую папку синхронизации: перейдите к ней в левом проводнике и нажмите 'Set current folder as new sync root folder'.",
+        "Skipped (already exists): {path}":
+            "Пропущено (уже существует): {path}",
+        "Skipped {path}: cannot import a folder into itself.":
+            "Пропущено {path}: нельзя импортировать папку саму в себя.",
+        "Stop the running sync before starting the remote server.":
+            "Остановите текущую синхронизацию перед запуском удалённого сервера.",
+        "Sync file list has {count} files.":
+            "В списке синхронизации {count} файлов.",
+        "Sync point file {name} not found, syncing all files regardless of timestamp.":
+            "Файл точки синхронизации {name} не найден — синхронизируются все файлы независимо от даты.",
+        "Sync point updated with {count} received file(s)":
+            "Точка синхронизации обновлена: получено файлов {count}",
+        "Upload connection closed":
+            "Соединение передачи закрыто",
+        "Upload finished, {count} file(s) received":
+            "Передача завершена, получено файлов: {count}",
+        "Using {folder} as sync root":
+            "Корень синхронизации: {folder}",
+        "WARNING":
+            "ВНИМАНИЕ",
+        "Warning":
+            "Предупреждение",
+        "Warning! Ignore file {name} not found in directory. All files will be synced, possibly including this file.":
+            "Внимание! Файл исключений {name} не найден в папке. Будут синхронизированы все файлы, возможно включая этот.",
+        "{kb} kilobytes payload, {rate} kBps effective speed":
+            "{kb} килобайт полезных данных, эффективная скорость {rate} кБ/с",
+        "{kb} kilobytes transferred in {seconds} seconds, {rate} kBps":
+            "Передано {kb} килобайт за {seconds} с, {rate} кБ/с",
+        "{severity}: Ready to sync {count} files, {kb} kilobytes.":
+            "{severity}: готово к синхронизации {count} файлов, {kb} килобайт.",
         # ---- checkboxes ----
         "Alien Floyd's — animated background on all tabs (Retro/pygame)":
             "Alien Floyd's — анимированный фон на всех вкладках (Retro/pygame)",
@@ -1444,6 +2058,10 @@ CATALOGS = {
             "Предпросмотр выбранного фонового изображения.",
         "Open https://itch.io/ in your browser":
             "Открыть https://itch.io/ в браузере",
+        "Connect to itch.io using the API key above.":
+            "Подключиться к itch.io с помощью ключа API выше.",
+        "Disconnect from itch.io and clear the listed items.":
+            "Отключиться от itch.io и очистить список элементов.",
         "Open https://itch.io/user/settings/api-keys in your browser":
             "Открыть https://itch.io/user/settings/api-keys в браузере",
         "Color used for directory name entries in the image explorer.":
@@ -1656,6 +2274,7 @@ CATALOGS = {
         "Delete": "Smazat",
         "Delete SyncIgnore File": "Smazat soubor SyncIgnore",
         "Delete SyncPoint File": "Smazat soubor SyncPoint",
+        "Disconnect": "Odpojit",
         "Download File": "Stáhnout soubor",
         "Download NextZXOS Image": "Stáhnout obraz NextZXOS",
         "Download and install HDF Monkey": "Stáhnout a nainstalovat HDF Monkey",
@@ -1685,6 +2304,148 @@ CATALOGS = {
         "🔁  Send via NextSync": "🔁  Odeslat přes NextSync",
         "🕹  Launch CSpect": "🕹  Spustit CSpect",
         "🕹  Launch Mame": "🕹  Spustit Mame",
+        "🖼 Switch to 'Classic' view mode": "🖼 Přepnout na zobrazení 'Klasické'",
+        # ---- emulator option combos (SD Card tab; selected by index) ----
+        "Screen Size X1": "Velikost obrazu X1",
+        "Screen Size X2": "Velikost obrazu X2",
+        "Screen Size X3": "Velikost obrazu X3",
+        "Screen Size X4": "Velikost obrazu X4",
+        "Fullscreen": "Celá obrazovka",
+        "Sound On": "Zvuk zapnut",
+        "Sound Off": "Zvuk vypnut",
+        "Sound WASAPI": "Zvuk WASAPI",
+        "Sound XAudio2": "Zvuk XAudio2",
+        "Sound PortAudio": "Zvuk PortAudio",
+        "VSync On": "VSync zapnut",
+        "VSync Off": "VSync vypnut",
+        "Joystick On": "Joystick zapnut",
+        "Joystick Off": "Joystick vypnut",
+        "Mouse On": "Myš zapnuta",
+        "Mouse Off": "Myš vypnuta",
+        "Disable ESC Key Off": "Blokovat klávesu ESC: ne",
+        "Disable ESC Key On": "Blokovat klávesu ESC: ano",
+        # ---- itch.io item viewer + web-link labels ----
+        "About": "O hře",
+        "Open on {site}": "Otevřít na {site}",
+        "Open {url}": "Otevřít {url}",
+        "✓  Re-install": "✓  Přeinstalovat",
+        "⬇  Install": "⬇  Nainstalovat",
+        "⬇  Installing…": "⬇  Instaluji…",
+        "📂  Open download folder": "📂  Otevřít složku stahování",
+        # ---- gallery item viewer (Classic + Retro) ----
+        "🌐  Open on website": "🌐  Otevřít na webu",
+        "🌐  Open on {site}": "🌐  Otevřít na {site}",
+        "📂  Open install folder": "📂  Otevřít složku instalace",
+        "🗑  Uninstall": "🗑  Odinstalovat",
+        # ---- NextSync log lines (user-facing; protocol diagnostics stay English) ----
+        "(-send saves received files under: {folder})":
+            "(-send ukládá přijaté soubory do: {folder})",
+        "Aliases:":
+            "Aliasy:",
+        "Cancel requested — stopping after current file":
+            "Vyžádáno zrušení — zastavení po aktuálním souboru",
+        "Cannot create {path}: {error}":
+            "Nelze vytvořit {path}: {error}",
+        "Closing connection":
+            "Zavírání spojení",
+        "Connected by {address} port {port}":
+            "Připojeno z {address} port {port}",
+        "Disconnected":
+            "Odpojeno",
+        "Existing-file policy: {policy} (change in Settings -> 'NextSync - when a sent file or directory exists locally').":
+            "Pravidlo pro existující soubory: {policy} (změníte v Nastavení -> 'NextSync - when a sent file or directory exists locally').",
+        "Failed to rename {path}: {error}":
+            "Nepodařilo se přejmenovat {path}: {error}",
+        "IP addresses:":
+            "IP adresy:",
+        "Import failed: no valid destination folder.":
+            "Import selhal: chybí platná cílová složka.",
+        "Navigate to a folder in the left local file explorer, press 'Set current folder as new sync root folder' to choose a sync root and then press the 'Start Classic NextSync server' button.":
+            "Přejděte do složky v levém průzkumníku, stiskněte 'Set current folder as new sync root folder' pro volbu kořene synchronizace a poté stiskněte tlačítko 'Start Classic NextSync server'.",
+        "NextSync HTTP bridge NOT started: {error}":
+            "HTTP most NextSync NEBYL spuštěn: {error}",
+        "NextSync HTTP bridge listening on port {port}":
+            "HTTP most NextSync naslouchá na portu {port}",
+        "NextSync HTTP bridge stopped.":
+            "HTTP most NextSync zastaven.",
+        "NextSync HTTP bridge: bearer-token protection is ON (requests must carry the {header} header; others get HTTP 401)":
+            "HTTP most NextSync: ochrana tokenem je ZAPNUTA (požadavky musí obsahovat hlavičku {header}; ostatní dostanou HTTP 401)",
+        "NextSync is already running — please wait for it to finish.":
+            "NextSync už běží — počkejte na dokončení.",
+        "NextSync listening to port {port}":
+            "NextSync naslouchá na portu {port}",
+        "NextSync server, protocol version: {version}":
+            "Server NextSync, verze protokolu: {version}",
+        "No network detected - connect to Wi-Fi/Ethernet to see the address your Next should sync to.":
+            "Nebyla zjištěna síť — připojte se k Wi-Fi/Ethernetu, abyste viděli adresu, se kterou má Next synchronizovat.",
+        "Note":
+            "Poznámka",
+        "Nothing (more) to sync":
+            "Není (už) co synchronizovat",
+        "Now run one of these commands on your Next:":
+            "Nyní na svém Nextu spusťte jeden z těchto příkazů:",
+        "Primary IP:":
+            "Hlavní IP:",
+        "Received {name} ({bytes} bytes)":
+            "Přijato {name} ({bytes} bajtů)",
+        "Receiving files from the Next...":
+            "Přijímání souborů z Nextu...",
+        "Receiving: {name} -> {path}":
+            "Přijímání: {name} -> {path}",
+        "Remote explorer: connected to {address}":
+            "Vzdálený průzkumník: připojeno k {address}",
+        "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
+            "Vzdálený průzkumník: přejděte do složky v levém průzkumníku, stiskněte 'Set current folder as new sync root folder', klikněte na 'Start Remote Explorer NextSync server' a pak na Nextu spusťte {command}.",
+        "Remote explorer: port {port} is already in use — is another ZX-Next-Unite (or NextSync server) already running?":
+            "Vzdálený průzkumník: port {port} je již obsazen — neběží už jiný ZX-Next-Unite (nebo server NextSync)?",
+        "Remote explorer: the Next disconnected (BREAK / Bye) — restarting the listen server; run {command} on your Next to reconnect.":
+            "Vzdálený průzkumník: Next se odpojil (BREAK / Bye) — restartuji naslouchací server; pro opětovné připojení spusťte na Nextu {command}.",
+        "Remote explorer: the Next disconnected (BREAK / Bye). Press 'Start Remote Explorer NextSync server' to accept a new connection.":
+            "Vzdálený průzkumník: Next se odpojil (BREAK / Bye). Stiskněte 'Start Remote Explorer NextSync server' pro přijetí nového spojení.",
+        "Remote explorer: waiting for {command} on port {port}…":
+            "Vzdálený průzkumník: čekání na {command} na portu {port}…",
+        "Renamed: {old} -> {new}":
+            "Přejmenováno: {old} -> {new}",
+        "Running on host:":
+            "Běží na počítači:",
+        "Saving incoming files under: {folder}":
+            "Příchozí soubory se ukládají do: {folder}",
+        "Send via NextSync: nothing to send in {folder}.":
+            "Odeslat přes NextSync: v {folder} není co odeslat.",
+        "Sending {folder} via Remote Explorer (-listen) → {target} …":
+            "Odesílání {folder} přes Vzdálený průzkumník (-listen) → {target} …",
+        "Set a sync root folder first: navigate to the folder in the left local file explorer and press 'Set current folder as new sync root folder'.":
+            "Nejprve zvolte kořenovou složku synchronizace: přejděte k ní v levém průzkumníku a stiskněte 'Set current folder as new sync root folder'.",
+        "Skipped (already exists): {path}":
+            "Přeskočeno (již existuje): {path}",
+        "Skipped {path}: cannot import a folder into itself.":
+            "Přeskočeno {path}: složku nelze importovat do sebe sama.",
+        "Stop the running sync before starting the remote server.":
+            "Před spuštěním vzdáleného serveru zastavte probíhající synchronizaci.",
+        "Sync file list has {count} files.":
+            "Seznam k synchronizaci obsahuje {count} souborů.",
+        "Sync point file {name} not found, syncing all files regardless of timestamp.":
+            "Soubor bodu synchronizace {name} nebyl nalezen — synchronizují se všechny soubory bez ohledu na datum.",
+        "Sync point updated with {count} received file(s)":
+            "Bod synchronizace aktualizován o {count} přijatých souborů",
+        "Upload connection closed":
+            "Spojení pro nahrávání uzavřeno",
+        "Upload finished, {count} file(s) received":
+            "Nahrávání dokončeno, přijato {count} souborů",
+        "Using {folder} as sync root":
+            "Kořen synchronizace: {folder}",
+        "WARNING":
+            "VAROVÁNÍ",
+        "Warning":
+            "Varování",
+        "Warning! Ignore file {name} not found in directory. All files will be synced, possibly including this file.":
+            "Pozor! Soubor výjimek {name} nebyl ve složce nalezen. Budou synchronizovány všechny soubory, možná včetně tohoto.",
+        "{kb} kilobytes payload, {rate} kBps effective speed":
+            "{kb} kilobajtů užitečných dat, efektivní rychlost {rate} kBps",
+        "{kb} kilobytes transferred in {seconds} seconds, {rate} kBps":
+            "Přeneseno {kb} kilobajtů za {seconds} s, {rate} kBps",
+        "{severity}: Ready to sync {count} files, {kb} kilobytes.":
+            "{severity}: připraveno k synchronizaci {count} souborů, {kb} kilobajtů.",
         # ---- checkboxes ----
         "Alien Floyd's — animated background on all tabs (Retro/pygame)":
             "Alien Floyd's — animované pozadí na všech kartách (Retro/pygame)",
@@ -1773,6 +2534,10 @@ CATALOGS = {
             "Náhled vybraného obrázku na pozadí.",
         "Open https://itch.io/ in your browser":
             "Otevřít https://itch.io/ v prohlížeči",
+        "Connect to itch.io using the API key above.":
+            "Připojit se k itch.io pomocí výše uvedeného klíče API.",
+        "Disconnect from itch.io and clear the listed items.":
+            "Odpojit se od itch.io a vymazat zobrazené položky.",
         "Open https://itch.io/user/settings/api-keys in your browser":
             "Otevřít https://itch.io/user/settings/api-keys v prohlížeči",
         "Color used for directory name entries in the image explorer.":
@@ -1988,6 +2753,7 @@ CATALOGS = {
         "Delete": "Supprimer",
         "Delete SyncIgnore File": "Supprimer le fichier SyncIgnore",
         "Delete SyncPoint File": "Supprimer le fichier SyncPoint",
+        "Disconnect": "Déconnecter",
         "Download File": "Télécharger le fichier",
         "Download NextZXOS Image": "Télécharger l'image NextZXOS",
         "Download and install HDF Monkey": "Télécharger et installer HDF Monkey",
@@ -2017,6 +2783,148 @@ CATALOGS = {
         "🔁  Send via NextSync": "🔁  Envoyer via NextSync",
         "🕹  Launch CSpect": "🕹  Lancer CSpect",
         "🕹  Launch Mame": "🕹  Lancer Mame",
+        "🖼 Switch to 'Classic' view mode": "🖼 Passer à la vue 'Classique'",
+        # ---- emulator option combos (SD Card tab; selected by index) ----
+        "Screen Size X1": "Taille d'écran X1",
+        "Screen Size X2": "Taille d'écran X2",
+        "Screen Size X3": "Taille d'écran X3",
+        "Screen Size X4": "Taille d'écran X4",
+        "Fullscreen": "Plein écran",
+        "Sound On": "Son activé",
+        "Sound Off": "Son désactivé",
+        "Sound WASAPI": "Son WASAPI",
+        "Sound XAudio2": "Son XAudio2",
+        "Sound PortAudio": "Son PortAudio",
+        "VSync On": "VSync activée",
+        "VSync Off": "VSync désactivée",
+        "Joystick On": "Joystick activé",
+        "Joystick Off": "Joystick désactivé",
+        "Mouse On": "Souris activée",
+        "Mouse Off": "Souris désactivée",
+        "Disable ESC Key Off": "Désactiver la touche ÉCHAP : non",
+        "Disable ESC Key On": "Désactiver la touche ÉCHAP : oui",
+        # ---- itch.io item viewer + web-link labels ----
+        "About": "À propos",
+        "Open on {site}": "Ouvrir sur {site}",
+        "Open {url}": "Ouvrir {url}",
+        "✓  Re-install": "✓  Réinstaller",
+        "⬇  Install": "⬇  Installer",
+        "⬇  Installing…": "⬇  Installation…",
+        "📂  Open download folder": "📂  Ouvrir le dossier de téléchargement",
+        # ---- gallery item viewer (Classic + Retro) ----
+        "🌐  Open on website": "🌐  Ouvrir sur le site",
+        "🌐  Open on {site}": "🌐  Ouvrir sur {site}",
+        "📂  Open install folder": "📂  Ouvrir le dossier d'installation",
+        "🗑  Uninstall": "🗑  Désinstaller",
+        # ---- NextSync log lines (user-facing; protocol diagnostics stay English) ----
+        "(-send saves received files under: {folder})":
+            "(-send enregistre les fichiers reçus dans : {folder})",
+        "Aliases:":
+            "Alias :",
+        "Cancel requested — stopping after current file":
+            "Annulation demandée — arrêt après le fichier en cours",
+        "Cannot create {path}: {error}":
+            "Impossible de créer {path} : {error}",
+        "Closing connection":
+            "Fermeture de la connexion",
+        "Connected by {address} port {port}":
+            "Connecté depuis {address} port {port}",
+        "Disconnected":
+            "Déconnecté",
+        "Existing-file policy: {policy} (change in Settings -> 'NextSync - when a sent file or directory exists locally').":
+            "Règle pour les fichiers existants : {policy} (modifiable dans Réglages -> 'NextSync - when a sent file or directory exists locally').",
+        "Failed to rename {path}: {error}":
+            "Échec du renommage de {path} : {error}",
+        "IP addresses:":
+            "Adresses IP :",
+        "Import failed: no valid destination folder.":
+            "Échec de l'import : aucun dossier de destination valide.",
+        "Navigate to a folder in the left local file explorer, press 'Set current folder as new sync root folder' to choose a sync root and then press the 'Start Classic NextSync server' button.":
+            "Accédez à un dossier dans l'explorateur local de gauche, appuyez sur 'Set current folder as new sync root folder' pour choisir la racine de synchronisation, puis sur le bouton 'Start Classic NextSync server'.",
+        "NextSync HTTP bridge NOT started: {error}":
+            "Passerelle HTTP NextSync NON démarrée : {error}",
+        "NextSync HTTP bridge listening on port {port}":
+            "Passerelle HTTP NextSync à l'écoute sur le port {port}",
+        "NextSync HTTP bridge stopped.":
+            "Passerelle HTTP NextSync arrêtée.",
+        "NextSync HTTP bridge: bearer-token protection is ON (requests must carry the {header} header; others get HTTP 401)":
+            "Passerelle HTTP NextSync : la protection par jeton est ACTIVÉE (les requêtes doivent porter l'en-tête {header} ; les autres reçoivent HTTP 401)",
+        "NextSync is already running — please wait for it to finish.":
+            "NextSync est déjà en cours — attendez la fin.",
+        "NextSync listening to port {port}":
+            "NextSync écoute sur le port {port}",
+        "NextSync server, protocol version: {version}":
+            "Serveur NextSync, version du protocole : {version}",
+        "No network detected - connect to Wi-Fi/Ethernet to see the address your Next should sync to.":
+            "Aucun réseau détecté — connectez-vous au Wi-Fi/Ethernet pour voir l'adresse avec laquelle votre Next doit se synchroniser.",
+        "Note":
+            "Note",
+        "Nothing (more) to sync":
+            "Plus rien à synchroniser",
+        "Now run one of these commands on your Next:":
+            "Exécutez maintenant l'une de ces commandes sur votre Next :",
+        "Primary IP:":
+            "IP principale :",
+        "Received {name} ({bytes} bytes)":
+            "Reçu {name} ({bytes} octets)",
+        "Receiving files from the Next...":
+            "Réception des fichiers depuis le Next...",
+        "Receiving: {name} -> {path}":
+            "Réception : {name} -> {path}",
+        "Remote explorer: connected to {address}":
+            "Explorateur distant : connecté à {address}",
+        "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
+            "Explorateur distant : accédez à un dossier dans l'explorateur de gauche, appuyez sur 'Set current folder as new sync root folder', cliquez sur 'Start Remote Explorer NextSync server', puis exécutez {command} sur votre Next.",
+        "Remote explorer: port {port} is already in use — is another ZX-Next-Unite (or NextSync server) already running?":
+            "Explorateur distant : le port {port} est déjà utilisé — un autre ZX-Next-Unite (ou serveur NextSync) tourne-t-il déjà ?",
+        "Remote explorer: the Next disconnected (BREAK / Bye) — restarting the listen server; run {command} on your Next to reconnect.":
+            "Explorateur distant : le Next s'est déconnecté (BREAK / Bye) — redémarrage du serveur d'écoute ; exécutez {command} sur votre Next pour vous reconnecter.",
+        "Remote explorer: the Next disconnected (BREAK / Bye). Press 'Start Remote Explorer NextSync server' to accept a new connection.":
+            "Explorateur distant : le Next s'est déconnecté (BREAK / Bye). Appuyez sur 'Start Remote Explorer NextSync server' pour accepter une nouvelle connexion.",
+        "Remote explorer: waiting for {command} on port {port}…":
+            "Explorateur distant : en attente de {command} sur le port {port}…",
+        "Renamed: {old} -> {new}":
+            "Renommé : {old} -> {new}",
+        "Running on host:":
+            "Exécuté sur l'hôte :",
+        "Saving incoming files under: {folder}":
+            "Enregistrement des fichiers entrants dans : {folder}",
+        "Send via NextSync: nothing to send in {folder}.":
+            "Envoi via NextSync : rien à envoyer dans {folder}.",
+        "Sending {folder} via Remote Explorer (-listen) → {target} …":
+            "Envoi de {folder} via l'Explorateur distant (-listen) → {target} …",
+        "Set a sync root folder first: navigate to the folder in the left local file explorer and press 'Set current folder as new sync root folder'.":
+            "Choisissez d'abord un dossier racine de synchronisation : accédez-y dans l'explorateur local de gauche et appuyez sur 'Set current folder as new sync root folder'.",
+        "Skipped (already exists): {path}":
+            "Ignoré (existe déjà) : {path}",
+        "Skipped {path}: cannot import a folder into itself.":
+            "Ignoré {path} : impossible d'importer un dossier dans lui-même.",
+        "Stop the running sync before starting the remote server.":
+            "Arrêtez la synchronisation en cours avant de démarrer le serveur distant.",
+        "Sync file list has {count} files.":
+            "La liste de synchronisation contient {count} fichiers.",
+        "Sync point file {name} not found, syncing all files regardless of timestamp.":
+            "Fichier de point de synchronisation {name} introuvable ; tous les fichiers seront synchronisés quelle que soit leur date.",
+        "Sync point updated with {count} received file(s)":
+            "Point de synchronisation mis à jour avec {count} fichier(s) reçu(s)",
+        "Upload connection closed":
+            "Connexion d'envoi fermée",
+        "Upload finished, {count} file(s) received":
+            "Envoi terminé, {count} fichier(s) reçu(s)",
+        "Using {folder} as sync root":
+            "Utilisation de {folder} comme racine de synchronisation",
+        "WARNING":
+            "AVERTISSEMENT",
+        "Warning":
+            "Avertissement",
+        "Warning! Ignore file {name} not found in directory. All files will be synced, possibly including this file.":
+            "Attention ! Le fichier d'exclusions {name} est introuvable dans le dossier. Tous les fichiers seront synchronisés, y compris peut-être celui-ci.",
+        "{kb} kilobytes payload, {rate} kBps effective speed":
+            "{kb} kilo-octets utiles, vitesse effective {rate} ko/s",
+        "{kb} kilobytes transferred in {seconds} seconds, {rate} kBps":
+            "{kb} kilo-octets transférés en {seconds} secondes, {rate} ko/s",
+        "{severity}: Ready to sync {count} files, {kb} kilobytes.":
+            "{severity} : prêt à synchroniser {count} fichiers, {kb} kilo-octets.",
         # ---- checkboxes ----
         "Alien Floyd's — animated background on all tabs (Retro/pygame)":
             "Alien Floyd's — fond animé sur tous les onglets (Rétro/pygame)",
@@ -2105,6 +3013,10 @@ CATALOGS = {
             "Aperçu de l'image de fond sélectionnée.",
         "Open https://itch.io/ in your browser":
             "Ouvrir https://itch.io/ dans votre navigateur",
+        "Connect to itch.io using the API key above.":
+            "Se connecter à itch.io avec la clé API ci-dessus.",
+        "Disconnect from itch.io and clear the listed items.":
+            "Se déconnecter d'itch.io et effacer les éléments listés.",
         "Open https://itch.io/user/settings/api-keys in your browser":
             "Ouvrir https://itch.io/user/settings/api-keys dans votre navigateur",
         "Color used for directory name entries in the image explorer.":

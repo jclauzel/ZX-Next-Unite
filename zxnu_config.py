@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.4.6"
+ZX_NEXT_UNITE_VERSION = "9.4.7"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -1106,6 +1106,24 @@ MAME_JOYSTICK = (("Joystick On", "-joystick"), ("Joystick Off", "-joystickprovid
 # "Disable ESC Key Off" (index 0) passes nothing so ESC still exits.
 MAME_ESC = (("Disable ESC Key Off", ""), ("Disable ESC Key On", "-confirm_quit"))
 
+
+def emulator_option_argument(options, index):
+    """The command-line argument for entry *index* of an emulator option tuple
+    (any of the ``CSPECT_*`` / ``MAME_*`` ``(label, argument)`` tuples above),
+    or ``""`` when the index is out of range.
+
+    Position — never the label — identifies the entry. The SD Card tab's option
+    combos show TRANSLATED labels, so ``currentText()`` no longer matches the
+    English tuple entry and a label lookup would silently return nothing,
+    dropping the option from the launch command line. The index is what
+    ``hdfg.cfg`` has always stored for these combos anyway, which makes it the
+    one stable key.
+    """
+    try:
+        return options[int(index)][1]
+    except (IndexError, TypeError, ValueError):
+        return ""
+
 # Options now driven by the MAME group combos above. They are stripped from any
 # user-edited command-line params at launch so the combo selections are the
 # single source of truth (never duplicated or in conflict). Flag options take no
@@ -1219,6 +1237,15 @@ def find_mame_executable():
 # pick the asset matching this CPU architecture, download it, and unpack it into
 # ``downloads/mame/`` (see the UI's install_mame flow and find_mame_in_downloads).
 MAME_GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/mamedev/mame/releases/latest"
+# The full release list (https://github.com/mamedev/mame/releases) behind the
+# install picker: rather than silently taking the newest build, the install
+# offers the recent releases so a specific one can be chosen — handy to put an
+# older MAME back and exercise the startup update check against it.
+MAME_GITHUB_RELEASES_API = "https://api.github.com/repos/mamedev/mame/releases"
+# How many recent releases that picker lists, and how many the API is asked
+# for: a few spare so releases without a Windows build still leave ten choices.
+MAME_RELEASE_PICKER_COUNT = 10
+MAME_RELEASE_FETCH_COUNT = 15
 
 
 def mame_windows_asset_arch():
@@ -1307,29 +1334,80 @@ def select_mame_release_asset(release, arch):
     and *arch* is a tag from :func:`mame_windows_asset_arch` (``"x64"`` /
     ``"arm64"``). MAME names the binary self-extractors ``mame<ver>b_<arch>.exe``
     (the ``b`` distinguishes them from the ``s`` source build), so match on that
-    suffix. Returns ``(tag_name, asset_name, download_url, size_bytes,
-    sha256_or_None)`` for the first match — the hash comes from the GitHub API's
-    per-asset ``digest`` field ("sha256:<hex>", None when the API doesn't
-    publish one) and lets the installer verify the download before running the
-    self-extractor. Returns ``None`` when the release carries no build for this
-    arch.
+    suffix. Up to and including 0.280 there was no arch in the name at all —
+    the single 64-bit Windows build was ``mame<ver>b_64bit.exe`` — so that
+    older spelling counts as an x64 build too, which keeps the install picker
+    able to reach back past the 0.281 rename (arm64 builds only start there,
+    and must never match it). Returns ``(tag_name, asset_name, download_url,
+    size_bytes, sha256_or_None)`` for the first match — the hash comes from the
+    GitHub API's per-asset ``digest`` field ("sha256:<hex>", None when the API
+    doesn't publish one) and lets the installer verify the download before
+    running the self-extractor. Returns ``None`` when the release carries no
+    build for this arch.
     """
     if not isinstance(release, dict) or not arch:
         return None
     tag = release.get("tag_name") or ""
-    suffix = f"b_{arch}.exe".lower()
-    for asset in release.get("assets") or []:
-        name = asset.get("name") or ""
-        url = asset.get("browser_download_url") or ""
-        if url and name.lower().endswith(suffix):
-            try:
-                size = int(asset.get("size") or 0)
-            except (TypeError, ValueError):
-                size = 0
-            digest = str(asset.get("digest") or "")
-            sha256 = digest[7:].lower() if digest.lower().startswith("sha256:") else None
-            return (tag, name, url, size, sha256)
+    suffixes = [f"b_{arch}.exe".lower()]
+    if arch == "x64":
+        suffixes.append("b_64bit.exe")
+    assets = release.get("assets") or []
+    for suffix in suffixes:
+        for asset in assets:
+            name = asset.get("name") or ""
+            url = asset.get("browser_download_url") or ""
+            if url and name.lower().endswith(suffix):
+                try:
+                    size = int(asset.get("size") or 0)
+                except (TypeError, ValueError):
+                    size = 0
+                digest = str(asset.get("digest") or "")
+                sha256 = (digest[7:].lower()
+                          if digest.lower().startswith("sha256:") else None)
+                return (tag, name, url, size, sha256)
     return None
+
+
+def select_mame_release_assets(releases, arch, limit=MAME_RELEASE_PICKER_COUNT):
+    """Pick this architecture's self-extractor out of every entry of a parsed
+    GitHub *releases* list, newest MAME first — the choices the install picker
+    offers so a specific build (not only the newest) can be installed.
+
+    *releases* is the decoded JSON list from ``MAME_GITHUB_RELEASES_API``.
+    Drafts and pre-releases are skipped, as is any release publishing no build
+    for *arch* (a source-only or half-uploaded release). Ordering is by MAME's
+    own version number rather than the API's chronological order, so a late
+    re-upload of an old release cannot jump the queue. At most *limit* entries
+    are returned (pass 0 for all of them).
+
+    Each entry is a dict carrying what the install flow needs: ``tag``,
+    ``asset_name``, ``url``, ``size``, ``sha256``, ``notes`` and ``version``
+    (the integer from :func:`parse_mame_version_number`, ``None`` when the tag
+    doesn't parse).
+    """
+    found = []
+    for release in releases or []:
+        if not isinstance(release, dict):
+            continue
+        if release.get("draft") or release.get("prerelease"):
+            continue
+        picked = select_mame_release_asset(release, arch)
+        if not picked:
+            continue
+        tag, asset_name, url, size, sha256 = picked
+        found.append({
+            "tag": tag,
+            "asset_name": asset_name,
+            "url": url,
+            "size": size,
+            "sha256": sha256,
+            "notes": str(release.get("body") or "").strip(),
+            "version": parse_mame_version_number(tag),
+        })
+    # Unparseable tags sort last rather than blowing up the comparison.
+    found.sort(key=lambda r: (r["version"] is not None, r["version"] or 0),
+               reverse=True)
+    return found[:limit] if limit else found
 
 
 def zxnu_optional_install_hint(package):

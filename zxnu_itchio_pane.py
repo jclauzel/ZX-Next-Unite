@@ -583,6 +583,10 @@ def build_itchio_pane(
             # (Unite! pygame mode, exposes an internal _buttons dict). These
             # helpers drive whichever one we got so opening works in both.
             def _itchio_label_button(_v, key, text):
+                # One chokepoint for BOTH viewers (Qt btn_<key>.setText and the
+                # pygame _buttons[key].label), so translating here covers every
+                # caller's label — Install / Re-install / Installing… etc.
+                text = ui_tr_now(text)
                 btn = getattr(_v, "btn_" + key, None)
                 if btn is not None:
                     try: btn.setText(text)
@@ -1136,12 +1140,16 @@ def build_itchio_pane(
             """Reflect the connected state on the Connect/Disconnect button."""
             host._itchio_connected = bool(state)
             try:
+                # ui_tr_now, not a bare literal: this runs on every connect /
+                # disconnect, long after translate_widget_tree walked the tree,
+                # so an untranslated label here would stick.
                 host.itchio_connect_button.setText(
-                    "Disconnect" if state else "Connect")
+                    ui_tr_now("Disconnect") if state else ui_tr_now("Connect"))
                 host.itchio_connect_button.setToolTip(
-                    "Disconnect from itch.io and clear the listed items."
+                    ui_tr_now("Disconnect from itch.io and clear the listed "
+                              "items.")
                     if state else
-                    "Connect to itch.io using the API key above.")
+                    ui_tr_now("Connect to itch.io using the API key above."))
             except RuntimeError:
                 pass
         host._itchio_set_connected = _itchio_set_connected

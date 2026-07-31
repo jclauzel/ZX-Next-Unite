@@ -23,6 +23,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QCheckBox, QDialog, QSizePolicy)
 
 from zxnu_config import *
+from zxnu_i18n import ui_tr_now
 
 
 def build_main_retro_log(
@@ -69,7 +70,7 @@ def build_main_retro_log(
         btn = host.main_pygame_button
         btn.blockSignals(True)
         btn.setChecked(False)
-        btn.setText("🎮 Retro")
+        btn.setText(ui_tr_now("🎮 Retro"))
         btn.blockSignals(False)
         btn.setEnabled(False)
         if reason:
@@ -106,13 +107,13 @@ def build_main_retro_log(
                 _main_pygame_disable(f"Pygame init failed: {exc}")
                 return
             host._main_pygame_on = True
-            host.main_pygame_button.setText("🖼 Switch to 'Classic' view mode")
+            host.main_pygame_button.setText(ui_tr_now("🖼 Switch to 'Classic' view mode"))
             host.main_log_stack.setCurrentWidget(widget)
             widget.start()
             _main_pygame_persist(True)
         else:
             host._main_pygame_on = False
-            host.main_pygame_button.setText("🎮 Retro")
+            host.main_pygame_button.setText(ui_tr_now("🎮 Retro"))
             if host._main_retro_log is not None:
                 host._main_retro_log.stop()
             host.main_log_stack.setCurrentWidget(host.listWidgetLog)
@@ -257,7 +258,7 @@ def build_help_retro_log(
         btn = host.help_pygame_button
         btn.blockSignals(True)
         btn.setChecked(False)
-        btn.setText("🎮 Retro")
+        btn.setText(ui_tr_now("🎮 Retro"))
         btn.blockSignals(False)
         btn.setEnabled(False)
         if reason:
@@ -292,13 +293,13 @@ def build_help_retro_log(
                 _help_pygame_disable(f"Pygame init failed: {exc}")
                 return
             host._help_pygame_on = True
-            host.help_pygame_button.setText("🖼 Switch to 'Classic' view mode")
+            host.help_pygame_button.setText(ui_tr_now("🖼 Switch to 'Classic' view mode"))
             host.help_log_stack.setCurrentWidget(widget)
             widget.start()
             _help_pygame_persist(True)
         else:
             host._help_pygame_on = False
-            host.help_pygame_button.setText("🎮 Retro")
+            host.help_pygame_button.setText(ui_tr_now("🎮 Retro"))
             if host._help_retro_log is not None:
                 host._help_retro_log.stop()
             host.help_log_stack.setCurrentWidget(host.listWidgetHelp)

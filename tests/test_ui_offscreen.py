@@ -38,6 +38,13 @@ Phases:
      locale forced to Spanish (ZX_NEXT_UNITE_UI_LANGUAGE=es), the app starts
      translated, persists ui_language=es once, and shows the 15 s advisory
      toast in the BOTTOM-LEFT corner (in Spanish).      (no hdfmonkey needed)
+ 11  NextSync Remote Explorer WITHOUT pygame: pygame drives the optional retro
+     log, and the two share the NextSync tab's stacked widget, so this proves
+     the dual explorer, its Up/Refresh/+ Drive buttons, the transfer arrows
+     and the server-control button all render with pygame absent — and that
+     arming the retro toggle then declines instead of crashing. Every phase
+     blocks pygame (below), but this is the one that exercises that view.
+                                                        (no hdfmonkey needed)
 
 Every phase cfg carries zxnu_update_check=false (except phase 7, which quits
 before the delayed check can fire) so the suite never talks to GitHub.
@@ -73,7 +80,7 @@ DROPSRC = os.path.join(SCRATCH, "dropsrc.txt")
 DELZONE = os.path.join(SCRATCH, "delzone")
 
 PHASE = int(sys.argv[1]) if len(sys.argv) > 1 else None
-ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
 
 # Base cfg for the isolated app copy: update checks off (MAME/CSpect AND the
 # app's own GitHub release check) so no phase ever hits the network, and the
@@ -234,6 +241,15 @@ elif PHASE == 10:
         f.write("mame_update_check=false\ncspect_update_check=false\n"
                 "zxnu_update_check=false\n")
     os.environ["ZX_NEXT_UNITE_UI_LANGUAGE"] = "es"
+elif PHASE == 11:
+    # NextSync Remote Explorer with pygame absent (every phase blocks pygame —
+    # see _NoPygame). The retro log needs pygame; the Remote Explorer's dual
+    # explorer must NOT, so it has to build and show all the same. The cfg
+    # pre-selects the Remote Explorer view so the tab opens straight into it,
+    # which is also how a user who last used it gets there.
+    ensure_scratch(fresh=False)
+    with open(CFG, "w") as f:
+        f.write(BASE_CFG + "nextsync_remote_explorer=true\n")
 elif PHASE in (6, 7):
     # Phase 6: dotn_last_version older than the bundled dotN -> the ".sync5
     # needs updating on your Next" advisory popup must fire, and the Settings
@@ -962,10 +978,113 @@ def inspect_phase10():
               str([c.text() for c in t.findChildren(QLabel)]))
     app.quit()
 
+def inspect_phase11():
+    """The NextSync Remote Explorer must render with pygame absent.
+
+    pygame drives the optional retro LOG, not the file manager, but both live
+    in the same QStackedWidget behind the same NextSync tab — so a pygame
+    import escaping into the Remote Explorer path would leave a user without
+    pygame-ce staring at an empty tab. Every phase here runs with pygame
+    blocked (see _NoPygame), so simply exercising the view proves it."""
+    from PySide6.QtWidgets import QTreeView
+    # Imported HERE, not at module scope: importing zxnu_* before runpy runs
+    # the app would cache them with the wrong argv[0]-derived cfg path (see
+    # find_hdfmonkey). By now the app has imported them itself.
+    from zxnu_workers import CompactButton
+    app = QApplication.instance()
+    win = find_win()
+    check("MainWindow found", win is not None)
+    if win is None:
+        app.quit()
+        return
+
+    # Guard the premise: if pygame were importable here the phase proves
+    # nothing, so assert the block is actually in force.
+    pygame_blocked = False
+    try:
+        import pygame            # noqa: F401
+    except Exception:
+        pygame_blocked = True
+    check("premise: pygame really is unavailable in this phase", pygame_blocked)
+
+    # Bring the NextSync tab to the front: children of a non-current tab are
+    # never isVisible(), so every visibility check below would be meaningless.
+    from zxnu_config import ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC
+    main_tabs = win._bg_widget.tab
+    idx = next((i for i in range(main_tabs.count())
+                if main_tabs.tabText(i) == ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC), None)
+    check("NextSync tab present", idx is not None,
+          str([main_tabs.tabText(i) for i in range(main_tabs.count())]))
+    if idx is None:
+        app.quit()
+        return
+    main_tabs.setCurrentIndex(idx)
+    check("the app window is shown", wait_until(win.isVisible, 20, "window shown"))
+
+    tabs = win.nextsync_mode_tabs
+    # Tab 0 = Remote Explorer. The cfg pre-selected it, but drive it explicitly
+    # so the phase does not depend on the restore having happened yet.
+    tabs.setCurrentIndex(0)
+    ok = wait_until(lambda: getattr(win, "_re_widget", None) is not None, 20,
+                    "Remote Explorer widget built")
+    check("Remote Explorer widget is built without pygame", ok)
+    re_widget = getattr(win, "_re_widget", None)
+    if re_widget is None:
+        app.quit()
+        return
+
+    check("the Remote Explorer is the visible page of the log stack",
+          win.nextsync_log_stack.currentWidget() is re_widget,
+          str(win.nextsync_log_stack.currentWidget()))
+    check("the Remote Explorer is actually visible", re_widget.isVisible())
+
+    # Both file panes: the local tree and the Next tree.
+    trees = re_widget.findChildren(QTreeView)
+    check("both explorer panes rendered", len(trees) >= 2, f"{len(trees)} trees")
+    check("both explorer panes are visible and have a width",
+          all(t.isVisible() and t.width() > 0 for t in trees),
+          str([(t.isVisible(), t.width()) for t in trees]))
+
+    # The navigation buttons (Up / Refresh / + Drive) and the transfer arrows.
+    labels = sorted(b.text() for b in re_widget.findChildren(CompactButton))
+    check("both navigation bars' buttons rendered",
+          labels == ["+ Drive", "Refresh", "Refresh", "Up", "Up"], str(labels))
+    check("the transfer arrow buttons rendered",
+          re_widget.btn_to_next.isVisible() and re_widget.btn_to_local.isVisible())
+    check("the Remote Explorer server-control button is shown",
+          win.nextsync_re_start_button.isVisible())
+    # The retro toggle is the one thing pygame owns: it is hidden in this view
+    # (and would be disabled anyway without pygame) — never a crash.
+    check("the retro-log toggle is hidden in Remote Explorer mode",
+          not win.nextsync_pygame_button.isVisible())
+
+    # Switching back to Classic must not need pygame either.
+    tabs.setCurrentIndex(1)
+    QCoreApplication.processEvents()
+    check("Classic view falls back to the plain list log without pygame",
+          win.nextsync_log_stack.currentWidget() is win.nextsync_log,
+          str(win.nextsync_log_stack.currentWidget()))
+    check("the retro toggle is back but cannot be armed without pygame",
+          win.nextsync_pygame_button.isVisible())
+    win.nextsync_pygame_button.setChecked(True)
+    QCoreApplication.processEvents()
+    check("arming the retro toggle without pygame declines instead of crashing",
+          not win.nextsync_pygame_button.isChecked()
+          and win.nextsync_log_stack.currentWidget() is win.nextsync_log,
+          f"checked={win.nextsync_pygame_button.isChecked()}")
+
+    # And back into the Remote Explorer once more (the widget is now cached).
+    tabs.setCurrentIndex(0)
+    QCoreApplication.processEvents()
+    check("returning to the Remote Explorer still shows it",
+          win.nextsync_log_stack.currentWidget() is re_widget)
+    app.quit()
+
+
 INSPECTORS = {1: inspect_phase1, 2: inspect_phase2, 3: inspect_phase3,
               4: inspect_phase4, 5: inspect_phase5, 6: inspect_phase6,
               7: inspect_phase7, 8: inspect_phase8, 9: inspect_phase9,
-              10: inspect_phase10}
+              10: inspect_phase10, 11: inspect_phase11}
 
 _orig_exec = QApplication.exec
 def _patched_exec(*_a):

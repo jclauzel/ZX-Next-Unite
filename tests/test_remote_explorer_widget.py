@@ -1079,6 +1079,77 @@ def test_arrow_pulse_and_overlay_resize():
     w.hide()
 
 
+def test_compact_buttons_fit_translated_labels():
+    """The two navigation bars' narrow buttons must follow their own label.
+
+    They used to carry a hard setMaximumWidth, so translating "Up" to "W górę"
+    or "Refresh" to "Обновить" truncated the caption. CompactButton re-derives
+    the cap from the text on every setText — which is exactly how
+    zxnu_i18n.translate_widget_tree re-labels the UI.
+    """
+    # Assertions stay font-agnostic on purpose: with no QT_QPA_FONTDIR the
+    # offscreen platform measures tofu boxes, so only relative widths hold.
+    print("\n== compact buttons fit their translated labels ==")
+    btn = rex.CompactButton("Up", floor=48)
+    check("a compact button is never narrower than its floor",
+          btn.maximumWidth() >= 48, str(btn.maximumWidth()))
+
+    # Every shipped translation of "Up" and "Refresh" must fit its button.
+    for floor, source, translations in (
+            (48, "Up", ["Subir", "W górę", "Вверх", "Nahoru", "Monter"]),
+            (72, "Refresh", ["Actualizar", "Atualizar", "Odśwież",
+                             "Обновить", "Obnovit", "Actualiser"])):
+        probe = rex.CompactButton(source, floor=floor)
+        english = probe.maximumWidth()
+        for text in translations:
+            probe.setText(text)
+            needed = probe.fontMetrics().horizontalAdvance(text)
+            check(f"{source!r} -> {text!r} is not truncated",
+                  probe.maximumWidth() >= needed and probe.maximumWidth() >= floor,
+                  f"cap={probe.maximumWidth()} text={needed}")
+        probe.setText(source)
+        check(f"{source!r} returns to its English width when the language does",
+              probe.maximumWidth() == english, str(probe.maximumWidth()))
+
+    # Neither explorer may go back to a hard cap: this bug was reported twice,
+    # once per tab, so guard the SD Card pane's navigation rows at the source
+    # (building that pane needs a full host, which this suite has no business
+    # assembling).
+    import ast
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    for fname in ("zxnu_remote_explorer.py", "zxnu_sdcard_explorer.py"):
+        tree = ast.parse(open(os.path.join(repo, fname), encoding="utf-8").read())
+        hard_capped = []
+        for node in ast.walk(tree):
+            # QPushButton("Up"|"Refresh"|"+ Drive") — the compact navigation
+            # buttons must be built as CompactButton instead.
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == "QPushButton" and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and node.args[0].value in ("Up", "Refresh", "+ Drive")):
+                hard_capped.append(node.args[0].value)
+        check(f"{fname} builds its Up/Refresh buttons as CompactButton",
+              not hard_capped, f"still plain QPushButton: {hard_capped}")
+
+    # And the real buttons in a live widget behave the same way.
+    w, _calls = make_widget()
+    compact = w.findChildren(rex.CompactButton)
+    labels = sorted(b.text() for b in compact)
+    check("both bars' Up/Refresh (+ Drive) are CompactButtons",
+          labels == ["+ Drive", "Refresh", "Refresh", "Up", "Up"], str(labels))
+    for button in compact:
+        if button.text() != "Up":
+            continue
+        before = button.maximumWidth()
+        button.setText("Вверх")            # what the Russian UI shows
+        check("a live Up button widens for the Russian label",
+              button.maximumWidth() > before
+              and button.maximumWidth()
+              >= button.fontMetrics().horizontalAdvance("Вверх"),
+              f"{before} -> {button.maximumWidth()}")
+    w.deleteLater()
+
+
 def main():
     logging.disable(logging.CRITICAL)
     app = QApplication(sys.argv)  # noqa: F841 — QWidget construction needs it
@@ -1104,6 +1175,7 @@ def main():
         test_arrow_pulse_and_overlay_resize()
         test_idle_status_provider()
         test_idle_details_provider()
+        test_compact_buttons_fit_translated_labels()
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")

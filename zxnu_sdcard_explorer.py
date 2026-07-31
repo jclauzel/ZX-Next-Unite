@@ -57,7 +57,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QProgressBar,
-    QPushButton,
     QStyle,
     QTreeView,
     QVBoxLayout,
@@ -66,7 +65,7 @@ from PySide6.QtWidgets import (
 
 from zxnu_config import (SETTING_EXPLORERPATH, SETTING_IMAGE_EXPLORERPATH,
                          is_filetype_a_directory)
-from zxnu_workers import DotDotFirstProxyModel, HdfTaskWorker
+from zxnu_workers import CompactButton, DotDotFirstProxyModel, HdfTaskWorker
 
 # ---------------------------------------------------------------------------
 # The disk image explorer is a lazily-populated tree: the image can be listed
@@ -190,13 +189,11 @@ class SdCardExplorerPane(QWidget):
         )
         self.local_file_explorer_path.editingFinished.connect(self._on_local_path_edited)
 
-        self.local_explorer_up_button = QPushButton("Up", self)
-        self.local_explorer_up_button.setMaximumWidth(48)
+        self.local_explorer_up_button = CompactButton("Up", self)
         self.local_explorer_up_button.setToolTip("Go up one folder in the local file explorer\n(same as double-clicking its '..' entry).")
         self.local_explorer_up_button.clicked.connect(self.local_explorer_up)
 
-        self.local_explorer_refresh_button = QPushButton("Refresh", self)
-        self.local_explorer_refresh_button.setMaximumWidth(72)
+        self.local_explorer_refresh_button = CompactButton("Refresh", self, floor=72)
         self.local_explorer_refresh_button.setToolTip("Re-read the current local folder from disk.")
         self.local_explorer_refresh_button.clicked.connect(self.local_explorer_refresh)
 
@@ -211,13 +208,11 @@ class SdCardExplorerPane(QWidget):
         local_path_row.addWidget(self.localexplorerlabel)
         local_path_row.addWidget(self.local_file_explorer_path, 1)
 
-        self.image_explorer_up_button = QPushButton("Up", self)
-        self.image_explorer_up_button.setMaximumWidth(48)
+        self.image_explorer_up_button = CompactButton("Up", self)
         self.image_explorer_up_button.setToolTip("Select the parent folder inside the SD card image\n(at the top level this returns the target to the image root).")
         self.image_explorer_up_button.clicked.connect(self.image_explorer_up)
 
-        self.image_explorer_refresh_button = QPushButton("Refresh", self)
-        self.image_explorer_refresh_button.setMaximumWidth(72)
+        self.image_explorer_refresh_button = CompactButton("Refresh", self, floor=72)
         self.image_explorer_refresh_button.setToolTip("Re-list the current image folder from the SD card image\n(runs 'hdfmonkey ls' again).")
         self.image_explorer_refresh_button.clicked.connect(self.image_explorer_refresh)
 

@@ -19,14 +19,58 @@ from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
                          UP_DIRECTORY, VERSION3, VERSION4,
                          is_filetype_a_directory)
 from PySide6.QtCore import (
-    QObject, QPoint, QRect, QRunnable, QSize, QSortFilterProxyModel, QTimer,
-    Qt, Signal, Slot,
+    QEvent, QObject, QPoint, QRect, QRunnable, QSize, QSortFilterProxyModel,
+    QTimer, Qt, Signal, Slot,
 )
 from PySide6.QtGui import QFontInfo
+# ui_tr_now translates the USER-FACING server log lines at their call sites
+# (session status, transfer progress, guidance). Protocol diagnostics —
+# packet/checksum/sequence/version lines — stay English on purpose so a log
+# pasted into a bug report still matches the docs and the .dot source.
+from zxnu_i18n import ui_tr_now
 from PySide6.QtWidgets import (
     QDialog, QFileSystemModel, QHBoxLayout, QLabel, QLayout, QProgressBar,
     QPushButton, QVBoxLayout,
 )
+
+
+class CompactButton(QPushButton):
+    """A toolbar button that stays only as wide as its own label.
+
+    Qt's style hands every QPushButton the same ~80 px minimum sizeHint
+    whatever it says, so the narrow buttons in the file explorers' navigation
+    rows (Up / Refresh / + Drive) have to be capped by hand to leave the filter
+    box and the path field their room. A *hard* cap is what truncated them the
+    moment zxnu_i18n swapped in a longer translation — "Up" becomes "W górę" /
+    "Вверх", "Refresh" becomes "Обновить" — so the cap is derived from the text
+    instead, and re-derived on every change that can alter its width: setText
+    (how translate_widget_tree re-labels the UI) and a font or style change
+    (the retro font-size setting, the app-wide stylesheet).
+
+    Shared by the Remote Explorer (zxnu_remote_explorer) and the SD Card tab's
+    explorer pair (zxnu_sdcard_explorer), whose navigation rows mirror it.
+    """
+
+    def __init__(self, text, parent=None, floor=48, padding=22):
+        self._fit_floor = floor
+        self._fit_padding = padding
+        super().__init__(text, parent)
+        self._fit_to_text()
+
+    def setText(self, text):
+        super().setText(text)
+        self._fit_to_text()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        # FontChange covers setFont; StyleChange catches the app-wide retro
+        # stylesheet being (re)applied with a different font size.
+        if event.type() in (QEvent.FontChange, QEvent.StyleChange):
+            self._fit_to_text()
+
+    def _fit_to_text(self):
+        needed = self.fontMetrics().horizontalAdvance(self.text()) + self._fit_padding
+        self.setMaximumWidth(max(self._fit_floor, needed))
 
 
 class FlowLayout(QLayout):
@@ -494,7 +538,10 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                 sig.error.emit(f"Remote explorer server error: {ex}")
             return
         srv.settimeout(1.0)
-        log(f"Remote explorer: waiting for '.sync5 -listen' on port {port}…")
+        # '.sync5 -listen' is interpolated, never translated: it is a command
+        # the user must type on the Next exactly as shown.
+        log(ui_tr_now("Remote explorer: waiting for {command} on port {port}…")
+            .format(command="'.sync5 -listen'", port=port))
 
         conn = None
         while not stop_event.is_set():
@@ -514,7 +561,8 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                 sig.error.emit("Connected client did not request -listen mode.")
                 return
             _re_sendpacket(conn, b"Listening", 0)
-            log(f"Remote explorer: connected to {addr[0]}")
+            log(ui_tr_now("Remote explorer: connected to {address}").format(
+                address=addr[0]))
             sig.connected.emit()
 
             put_data = b''
@@ -1902,12 +1950,19 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
             if cancel_flag is not None and cancel_flag.is_set():
                 working = False
                 break
-            log(f"{timestamp()} | NextSync listening to port {port}")
-            log(f"{timestamp()} | Now run one of these commands on your Next:" )
+            log(f"{timestamp()} | " + ui_tr_now(
+                "NextSync listening to port {port}").format(port=port))
+            log(f"{timestamp()} | " + ui_tr_now(
+                "Now run one of these commands on your Next:"))
+            # The two command lines are literals the Next must receive exactly:
+            # only the direction labels around them could be translated, and
+            # splitting them would break the aligned columns. Left verbatim.
             log(f"{timestamp()} |   PC  -> Next : .sync5   (or .sync5 -fast)")
             log(f"{timestamp()} |   Next -> PC  : .sync5 -send <file or directory>")
             if selected_nextsync_explorer_sync_root_directory:
-                log(f"{timestamp()} |   (-send saves received files under: {selected_nextsync_explorer_sync_root_directory})")
+                log(f"{timestamp()} |   " + ui_tr_now(
+                    "(-send saves received files under: {folder})").format(
+                        folder=selected_nextsync_explorer_sync_root_directory))
             totalbytes = 0
             payloadbytes = 0
             starttime = 0
@@ -1938,7 +1993,8 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                 # Make sure *nixes close the socket when we ask it to.
                 conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
                 f = getFileList(selected_nextsync_explorer_sync_root_directory, _always())
-                log(f'{timestamp()} | Sync file list has {len(f)} files.')
+                log(f"{timestamp()} | " + ui_tr_now(
+                    "Sync file list has {count} files.").format(count=len(f)))
                 knownfiles = []
                 if os.path.isfile(selected_nextsync_explorer_sync_root_directory + SYNCPOINT):
                     with open(selected_nextsync_explorer_sync_root_directory + SYNCPOINT) as kf:
@@ -1952,7 +2008,9 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                 starttime = time.time()
                 endtime = starttime
                 with conn:
-                    log(f'{timestamp()} | Connected by {addr[0]} port {addr[1]}')
+                    log(f"{timestamp()} | " + ui_tr_now(
+                        "Connected by {address} port {port}").format(
+                            address=addr[0], port=addr[1]))
                     # A client session is live: the sidebar's NextSync icon
                     # accelerates its packet animation while this is set
                     # (cleared when the session ends, and defensively in
@@ -1984,19 +2042,24 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                             # Sync4 upload mode: the Next pushes files to us.
                             # We frame inbound blocks ourselves here (the main
                             # recv(1024) loop can't frame length-prefixed data).
-                            log(f'{timestamp()} | Receiving files from the Next...')
+                            log(f"{timestamp()} | " + ui_tr_now("Receiving files from the Next..."))
                             sendpacket(conn, b"Send", 0)  # ack -> Next starts sending
                             packets += 1
                             upload_root = selected_nextsync_explorer_sync_root_directory or "./"
-                            log(f'{timestamp()} | Saving incoming files under: {upload_root}')
+                            log(f"{timestamp()} | " + ui_tr_now(
+                                "Saving incoming files under: {folder}").format(
+                                    folder=upload_root))
                             # How to treat incoming files/dirs that already exist
                             # locally. Read from the (persisted) setting; an
                             # "always in this sync" prompt choice overrides it
                             # for the rest of this transfer.
                             conflict_policy = _get_conflict_policy()
                             log(
-                                f"{timestamp()} | Existing-file policy: {conflict_policy} "
-                                "(change in Settings -> 'NextSync - when a sent file or directory exists locally').")
+                                f"{timestamp()} | " + ui_tr_now(
+                                    "Existing-file policy: {policy} (change in "
+                                    "Settings -> 'NextSync - when a sent file "
+                                    "or directory exists locally')."
+                                ).format(policy=conflict_policy))
                             expected_pkt = 0
                             cur_file = None
                             cur_name = None
@@ -2011,7 +2074,7 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                             while True:
                                 blk = recv_block(conn)
                                 if blk is None:
-                                    log(f'{timestamp()} | Upload connection closed')
+                                    log(f"{timestamp()} | " + ui_tr_now("Upload connection closed"))
                                     break
                                 if blk == 'BADCS':
                                     if verbose:
@@ -2061,7 +2124,9 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                                         # Don't create/truncate the local file: the incoming
                                         # data blocks are still acked but discarded (cur_file
                                         # is None), and this file is not counted/recorded.
-                                        log(f'{timestamp()} | Skipped (already exists): {cur_path}')
+                                        log(f"{timestamp()} | " + ui_tr_now(
+                                            "Skipped (already exists): {path}"
+                                        ).format(path=cur_path))
                                         if status_callback is not None:
                                             status_callback.emit(f"Skipping (exists)\n{cur_name}")
                                         sendpacket(conn, b"Ok", pktno, log=_vlog)
@@ -2075,11 +2140,15 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                                         try:
                                             cur_file = open(cur_path, 'wb')
                                         except OSError as ex:
-                                            log(f'{timestamp()} | Cannot create {cur_path}: {ex}')
+                                            log(f"{timestamp()} | " + ui_tr_now(
+                                                "Cannot create {path}: {error}"
+                                            ).format(path=cur_path, error=ex))
                                             cur_file = None
                                             sendpacket(conn, b"Err open", pktno, log=_vlog)
                                             break
-                                        log(f'{timestamp()} | Receiving: {cur_name} -> {cur_path}')
+                                        log(f"{timestamp()} | " + ui_tr_now(
+                                            "Receiving: {name} -> {path}"
+                                        ).format(name=cur_name, path=cur_path))
                                         if status_callback is not None:
                                             status_callback.emit(f"Receiving file\n{cur_name}")
                                         sendpacket(conn, b"Ok", pktno, log=_vlog)
@@ -2097,7 +2166,9 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                                         files_received += 1
                                         if cur_path and cur_path not in received_paths:
                                             received_paths.append(cur_path)
-                                        log(f'{timestamp()} | Received {cur_name} ({cur_bytes} bytes)')
+                                        log(f"{timestamp()} | " + ui_tr_now(
+                                            "Received {name} ({bytes} bytes)"
+                                        ).format(name=cur_name, bytes=cur_bytes))
                                     sendpacket(conn, b"Ok", pktno, log=_vlog)
                                 elif op == b'B':
                                     # Ack the bye with "Ok" (not "Later"): the Next's
@@ -2108,7 +2179,9 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                                     # hits its full timeout — the long stall before the dot
                                     # prints "All done". "Ok" lets it finish on the first try.
                                     sendpacket(conn, b"Ok", pktno, log=_vlog)
-                                    log(f'{timestamp()} | Upload finished, {files_received} file(s) received')
+                                    log(f"{timestamp()} | " + ui_tr_now(
+                                        "Upload finished, {count} file(s) received"
+                                    ).format(count=files_received))
                                     # If that single ack is lost/corrupted in transit (more
                                     # likely after a long directory send), the Next retransmits
                                     # the bye and would otherwise burn its full UART timeout
@@ -2156,7 +2229,9 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                                     if rp not in sp_known:
                                         sp_known.append(rp)
                                 update_syncpoint(upload_root, sp_known)
-                                log(f'{timestamp()} | Sync point updated with {len(received_paths)} received file(s)')
+                                log(f"{timestamp()} | " + ui_tr_now(
+                                    "Sync point updated with {count} received file(s)"
+                                ).format(count=len(received_paths)))
                             talking = False
                         elif data == b"Next" or data == b"Neex": # Really common mistransmit. Probably uart-esp..
                             if data == b"Neex":
@@ -2168,11 +2243,12 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                             _cancel_now = cancel_flag is not None and cancel_flag.is_set()
                             if fn >= len(f) or _cancel_now:
                                 if _cancel_now:
-                                    log(f"{timestamp()} | Cancel requested — stopping after current file")
+                                    log(f"{timestamp()} | " + ui_tr_now(
+                                        "Cancel requested — stopping after current file"))
                                     if status_callback is not None:
                                         status_callback.emit("Cancelled — finishing current file…")
                                 else:
-                                    log(f"{timestamp()} | Nothing (more) to sync")
+                                    log(f"{timestamp()} | " + ui_tr_now("Nothing (more) to sync"))
                                 packet = b'\x00\x00\x00\x00\x00' # end of.
                                 packets += 1
                                 sendpacket(conn, packet, 0, log=_vlog)
@@ -2233,7 +2309,7 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                             sendpacket(conn, str.encode("Back"), 0, log=_vlog)
                         elif data == b"Bye":
                             sendpacket(conn, str.encode("Later"), 0, log=_vlog)
-                            log(f"{timestamp()} | Closing connection")
+                            log(f"{timestamp()} | " + ui_tr_now("Closing connection"))
                             # Drain until the Next closes its side before we
                             # do: the hard (SO_LINGER-0) close below sends an
                             # RST that can otherwise clobber the just-queued
@@ -2269,11 +2345,17 @@ def run_classic_sync_server(sync_root, log, *, progress_callback=None,
                     endtime = time.time()
             _set_active(False)
             deltatime = endtime - starttime
-            log(f"{timestamp()} | {totalbytes/1024:.2f} kilobytes transferred in {deltatime:.2f} seconds, {(totalbytes/deltatime)/1024:.2f} kBps")
-            log(f"{timestamp()} | {payloadbytes/1024:.2f} kilobytes payload, {(payloadbytes/deltatime)/1024:.2f} kBps effective speed")
+            log(f"{timestamp()} | " + ui_tr_now(
+                "{kb} kilobytes transferred in {seconds} seconds, {rate} kBps"
+            ).format(kb=f"{totalbytes/1024:.2f}", seconds=f"{deltatime:.2f}",
+                     rate=f"{(totalbytes/deltatime)/1024:.2f}"))
+            log(f"{timestamp()} | " + ui_tr_now(
+                "{kb} kilobytes payload, {rate} kBps effective speed"
+            ).format(kb=f"{payloadbytes/1024:.2f}",
+                     rate=f"{(payloadbytes/deltatime)/1024:.2f}"))
             log(f"{timestamp()} | packets: {packets}, retries: {retries}, restarts: {restarts}, gee: {gee}")
 
-            log(f"{timestamp()} | Disconnected")
+            log(f"{timestamp()} | " + ui_tr_now("Disconnected"))
             log("")
             if force_sync_once or _sync_once() or (cancel_flag is not None and cancel_flag.is_set()):
                 working = False
