@@ -1594,11 +1594,26 @@ def build_local_explorer_ops(
             lambda: QTimer.singleShot(0, lambda: _local_zip_selection(
                 _local_explorer_selected_paths_or(file_path),
                 local_explorer_refresh, add_main_log_window)))
-        # "Send to SD Card and start CSpect with <file>" — top of the menu,
-        # offered only with CSpect installed, an image loaded, and a file
-        # CSpect can boot. It uploads into the folder the image explorer is
-        # showing and, once that succeeds, starts CSpect on the uploaded copy
-        # (the in-image path, which is what CSpect resolves against -mmc).
+        # "Start <emulator> with <file>" — very top of the menu, the same
+        # entries the NextSync tab's local explorers offer. These boot the
+        # local file as it is, with no transfer: the emulator reads it from
+        # the PC. The "Send to SD Card and start …" pair below does the other
+        # job — putting the file on the card first — so both are offered and
+        # the plain one comes first, being the cheaper of the two.
+        _emu_direct = emulator_autostart_entries(host, file_path, is_dir)
+        for _entry in _emu_direct:
+            menu.addAction(
+                _entry.label,
+                lambda _e=_entry: QTimer.singleShot(
+                    0, lambda: _e.launch(file_path)))
+        if _emu_direct:
+            menu.addSeparator()
+
+        # "Send to SD Card and start CSpect with <file>" — offered only with
+        # CSpect installed, an image loaded, and a file CSpect can boot. It
+        # uploads into the folder the image explorer is showing and, once that
+        # succeeds, starts CSpect on the local copy (a host path — see
+        # _cspect_start_from_image for why it cannot be the in-image one).
         if (not is_dir and cspect_can_autostart(file_path)
                 and _right_disk_content()
                 and getattr(host, "_cspect_executable_path", None)
