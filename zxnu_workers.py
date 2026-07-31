@@ -10,14 +10,17 @@ import fnmatch
 import glob
 import logging
 import platform
+import shutil
 import socket
 import struct
+import tempfile
 import threading
 import time
-from collections import deque
+from collections import deque, namedtuple
 from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
                          UP_DIRECTORY, VERSION3, VERSION4,
-                         is_filetype_a_directory)
+                         cspect_can_autostart, is_filetype_a_directory,
+                         mame_autostart_staging_dir, mame_can_autostart)
 from PySide6.QtCore import (
     QEvent, QObject, QPoint, QRect, QRunnable, QSize, QSortFilterProxyModel,
     QTimer, Qt, Signal, Slot,
@@ -71,6 +74,67 @@ class CompactButton(QPushButton):
     def _fit_to_text(self):
         needed = self.fontMetrics().horizontalAdvance(self.text()) + self._fit_padding
         self.setMaximumWidth(max(self._fit_floor, needed))
+
+
+# One emulator's "start this file" context-menu entry.
+#   name        "CSpect" / "MAME" — for composing messages about it
+#   label       the ready-to-use, already-translated menu label
+#   launch      call with a HOST path to boot the file
+#   staging_dir call to create and return a directory to put a host copy in,
+#               when the file is not already on the PC
+EmulatorAutostart = namedtuple("EmulatorAutostart",
+                               "name label launch staging_dir")
+
+
+def emulator_autostart_entries(host, path, is_dir=False):
+    """The "start <file> in an emulator" entries to offer for *path*.
+
+    One list, used by all five explorers that can hold a bootable file (the SD
+    Card tab's local and image panes, the NextSync tab's classic explorer, and
+    the Remote Explorer's local and Next panes) so they offer the same entries,
+    in the same order, under the same conditions. An emulator appears only when
+    it is actually available AND can boot that file type.
+
+    ``staging_dir`` is per-emulator rather than a plain ``mkdtemp()`` because
+    Flatpak MAME cannot see this process's /tmp — see the long explanation on
+    ``mame_autostart_staging_dir``. Callers that already hold a host path (a
+    local explorer) never need it; callers that must first fetch the file (from
+    the SD image, or from the Next) do.
+    """
+    entries = []
+    if is_dir or not path:
+        return entries
+    name = os.path.basename(str(path).rstrip("/\\")) or str(path)
+
+    def _tmp(prefix):
+        return lambda: tempfile.mkdtemp(prefix=prefix)
+
+    if (cspect_can_autostart(path)
+            and getattr(host, "_cspect_executable_path", None)
+            and getattr(host, "_launch_cspect_fn", None)):
+        entries.append(EmulatorAutostart(
+            "CSpect",
+            ui_tr_now("Start CSpect with file {name}").format(name=name),
+            host._launch_cspect_fn, _tmp("zxnu-cspect-")))
+
+    _mame_usable = getattr(host, "_mame_usable", None)
+    if (mame_can_autostart(path) and _mame_usable and _mame_usable()
+            and getattr(host, "_launch_mame_fn", None)):
+        def _mame_staging_dir():
+            _flatpak = getattr(host, "_mame_flatpak_enabled", None)
+            if not (_flatpak and _flatpak()):
+                return tempfile.mkdtemp(prefix="zxnu-mame-")
+            # Fixed directory under ~, cleared each time: nothing there is
+            # reaped by the OS, so a fresh one per launch would leak disk.
+            staged = mame_autostart_staging_dir()
+            shutil.rmtree(staged, ignore_errors=True)
+            os.makedirs(staged, exist_ok=True)
+            return staged
+        entries.append(EmulatorAutostart(
+            "MAME",
+            ui_tr_now("Start MAME with file {name}").format(name=name),
+            host._launch_mame_fn, _mame_staging_dir))
+    return entries
 
 
 class FlowLayout(QLayout):

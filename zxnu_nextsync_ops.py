@@ -295,6 +295,18 @@ def build_nextsync_explorer_ops(
         action_paste.triggered.connect(lambda: QTimer.singleShot(0, lambda: nextsync_paste_explorer_item(paste_dir)))
         action_rename.triggered.connect(lambda: QTimer.singleShot(0, lambda: nextsync_rename_explorer_item(file_path, name, is_dir)))
         action_delete.triggered.connect(lambda: QTimer.singleShot(0, lambda: nextsync_delete_explorer_item(file_path, name, is_dir)))
+        # "Start <emulator> with <file>" at the top, same as the SD Card tab
+        # and the Remote Explorer. These files are already on the PC, so there
+        # is nothing to fetch first — the launcher takes the path as it is.
+        _emu = emulator_autostart_entries(host, file_path, is_dir)
+        for _entry in _emu:
+            menu.addAction(
+                _entry.label,
+                lambda _e=_entry: QTimer.singleShot(
+                    0, lambda: _e.launch(file_path)))
+        if _emu:
+            menu.addSeparator()
+
         menu.addAction(action_copy_text)
         menu.addAction(action_copy_path)
         menu.addSeparator()
