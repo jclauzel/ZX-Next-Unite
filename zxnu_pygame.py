@@ -5898,16 +5898,18 @@ class PygameItemViewer(_Scene):
 
         # actions
         self._buttons = {k: _Button(k, "") for k in self._ACTION_ORDER}
-        self._buttons["open_web"].label = "🌐  Open on website"
-        self._buttons["download"].label = "⬇  Download"
-        self._buttons["send_sd"].label = "💾  Send to SD card"
-        self._buttons["launch_cspect"].label = "🕹  Launch CSpect"
-        self._buttons["launch_mame"].label = "🕹  Launch Mame"
-        self._buttons["send_ns"].label = "🔁  Send via NextSync"
+        # Labels are translated here, at viewer-construction time: pygame
+        # draws them itself, so translate_widget_tree never sees them.
+        self._buttons["open_web"].label = ui_tr_now("🌐  Open on website")
+        self._buttons["download"].label = ui_tr_now("⬇  Download")
+        self._buttons["send_sd"].label = ui_tr_now("💾  Send to SD card")
+        self._buttons["launch_cspect"].label = ui_tr_now("🕹  Launch CSpect")
+        self._buttons["launch_mame"].label = ui_tr_now("🕹  Launch Mame")
+        self._buttons["send_ns"].label = ui_tr_now("🔁  Send via NextSync")
         # Optional itch.io buttons — hidden until a caller wires them (mirrors
         # the Qt GalleryItemViewer's btn_uninstall / btn_open_folder).
-        self._buttons["uninstall"].label = "🗑  Uninstall"
-        self._buttons["open_folder"].label = "📂  Open install folder"
+        self._buttons["uninstall"].label = ui_tr_now("🗑  Uninstall")
+        self._buttons["open_folder"].label = ui_tr_now("📂  Open install folder")
 
         # hit-test rects (device px, recomputed each render)
         self._close_rect = None
@@ -5996,7 +5998,7 @@ class PygameItemViewer(_Scene):
                              cspect_enabled=False, mame_enabled=False,
                              cspect_tooltip="", mame_tooltip="", mame_label=""):
         if mame_label:
-            self._buttons["launch_mame"].label = mame_label
+            self._buttons["launch_mame"].label = ui_tr_now(mame_label)
         self._wire("launch_cspect", cspect_cb,
                    bool(cspect_enabled) and cspect_cb is not None, cspect_tooltip)
         self._wire("launch_mame", mame_cb,
@@ -6042,7 +6044,9 @@ class PygameItemViewer(_Scene):
             self.redraw()
             return
         import webbrowser
-        b.label = f"🌐  Open on {site_label}" if site_label else "🌐  Open on website"
+        # The site name is data; only the sentence around it is translated.
+        b.label = (ui_tr_now("🌐  Open on {site}").format(site=site_label)
+                   if site_label else ui_tr_now("🌐  Open on website"))
         b.tooltip = url
         b.visible = True
         b.enabled = True

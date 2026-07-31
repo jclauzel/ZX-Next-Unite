@@ -10,6 +10,7 @@ import sys
 import webbrowser
 
 from zxnu_config import *
+from zxnu_i18n import current_ui_language, translate_widget_tree, ui_tr_now
 from zxnu_media import *
 from PySide6.QtCore import QBuffer, QByteArray, QDir, QEvent, QIODevice, QObject, QRect, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFontInfo, QMovie, QPainter, QPixmap
@@ -1966,6 +1967,14 @@ class GalleryItemViewer(QWidget):
             # before the cycling timer reaches them.
             self._prefetch_all()
 
+        # This viewer is built when the user opens an item — long after the
+        # startup walk translated the main window — so nothing would ever
+        # translate its action buttons, labels and tooltips. Walk the finished
+        # subtree with the language currently in force. Labels the callers
+        # override later (set_emulator_actions, set_open_web_url, …) go through
+        # ui_tr_now at those call sites instead.
+        translate_widget_tree(self, current_ui_language())
+
     # ── public API ────────────────────────────────────────────────────────
 
     @staticmethod
@@ -2224,7 +2233,7 @@ class GalleryItemViewer(QWidget):
         self._cspect_enabled = bool(cspect_enabled) and cspect_cb is not None
         self._mame_enabled   = bool(mame_enabled) and mame_cb is not None
         if mame_label:
-            self.btn_launch_mame.setText(mame_label)
+            self.btn_launch_mame.setText(ui_tr_now(mame_label))
         self._wire_btn(self.btn_launch_cspect, cspect_cb,
                        self._cspect_enabled, cspect_tooltip)
         self._wire_btn(self.btn_launch_mame, mame_cb,
@@ -2239,7 +2248,7 @@ class GalleryItemViewer(QWidget):
         itch.io viewer to keep the local-folder shortcut while its three primary
         slots mirror GetIt/ZXDB (Install / Send to SD / Send via NextSync)."""
         if label:
-            self.btn_open_folder.setText(label)
+            self.btn_open_folder.setText(ui_tr_now(label))
         self._wire_btn(self.btn_open_folder, cb, cb is not None, tooltip)
         self.btn_open_folder.setVisible(cb is not None)
 
@@ -2251,7 +2260,7 @@ class GalleryItemViewer(QWidget):
         is true (the itch.io viewer keeps it hidden until the item is confirmed
         downloaded locally, then shows it).  Pass None to hide it."""
         if label:
-            self.btn_uninstall.setText(label)
+            self.btn_uninstall.setText(ui_tr_now(label))
         self._wire_btn(self.btn_uninstall, cb, cb is not None, tooltip)
         self.btn_uninstall.setVisible(cb is not None and bool(visible))
 
@@ -2274,14 +2283,18 @@ class GalleryItemViewer(QWidget):
             self.btn_open_web.setEnabled(False)
             self._web_btn.setVisible(False)
             return
-        label = f"🌐  Open on {site_label}" if site_label else "🌐  Open on website"
+        # The site name is data (ZXDB, zxArt, itch.io …) — only the sentence
+        # around it is translated.
+        label = (ui_tr_now("🌐  Open on {site}").format(site=site_label)
+                 if site_label else ui_tr_now("🌐  Open on website"))
         self.btn_open_web.setText(label)
         self.btn_open_web.setToolTip(url)
         self.btn_open_web.setVisible(True)
         self.btn_open_web.setEnabled(True)
         # Top-right globe link mirrors the same destination.
         self._web_btn.setToolTip(
-            f"Open on {site_label}" if site_label else f"Open {url}")
+            ui_tr_now("Open on {site}").format(site=site_label) if site_label
+            else ui_tr_now("Open {url}").format(url=url))
         self._web_btn.setVisible(True)
         def _go(_=False, _u=url):
             try:

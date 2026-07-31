@@ -410,8 +410,9 @@ from zxnu_wizard import build_wizard
 from zxnu_network import build_network_watch
 from zxnu_favorites_pane import (build_favorites_helpers,
     build_favorites_pane, build_favorites_ops)
-from zxnu_i18n import (normalize_ui_language, system_ui_language,
-                       translate_widget_tree, ui_tr, ui_tr_now)
+from zxnu_i18n import (mark_combo_items_translatable, normalize_ui_language,
+                       system_ui_language, translate_widget_tree, ui_tr,
+                       ui_tr_now)
 import zxnu_itchio
 # ----------------------------------------------------------------------
 
@@ -917,10 +918,10 @@ def _make_retro_toggle_button(window, flag_attr, status_cb=None, on_change=None)
                         pass
                 return
             setattr(window, flag_attr, True)
-            btn.setText("🖼 Switch to 'Classic' view mode")
+            btn.setText(ui_tr_now("🖼 Switch to 'Classic' view mode"))
         else:
             setattr(window, flag_attr, False)
-            btn.setText("🎮 Retro")
+            btn.setText(ui_tr_now("🎮 Retro"))
         if on_change is not None:
             try:
                 on_change(checked)
@@ -1578,15 +1579,6 @@ class MainWindow(QMainWindow):
                         pass  # receiver destroyed during shutdown
 
         self._Worker = Worker
-        def get_tuple_value(tuple_type, text_value):
-            if not tuple_type:  # empty tuple
-                return None
-
-            try:
-                index = next(i for i, v in enumerate(tuple_type) if v[0] == text_value)
-                return tuple_type[index][1]
-            except StopIteration:
-                return None  # value not found
 
         def get_int_value(str_value: str):
             if not str_value:
@@ -1936,7 +1928,6 @@ class MainWindow(QMainWindow):
             self,
             configuration_dictionary=configuration_dictionary,
             save_configuration_file=save_configuration_file,
-            get_tuple_value=get_tuple_value,
             set_all_buttons_disabled=set_all_buttons_disabled,
             set_all_buttons_enabled=set_all_buttons_enabled,
             _update_mame_controls=_update_mame_controls,
@@ -2899,14 +2890,14 @@ class MainWindow(QMainWindow):
 
         # "Install MAME" button — shown in place of "Launch Mame" when MAME is
         # missing, on platforms where the automatic install is supported (64-bit
-        # Windows). It detects the latest official release, downloads it and
-        # extracts it into downloads/mame; on success the Launch button (revealed
-        # by _on_mame_install_result) replaces it.
+        # Windows). It lists the recent official releases for this CPU, downloads
+        # the chosen one and extracts it into downloads/mame; on success the
+        # Launch button (revealed by _on_mame_install_result) replaces it.
         self.button_install_mame = QPushButton("⬇  Install MAME", self)
         self.button_install_mame.setToolTip(
-            "Detect the latest MAME release for this PC, then download and\n"
-            "install it into the downloads/mame folder. Requires an internet\n"
-            "connection (~90 MB download, ~500 MB installed).")
+            "List the recent MAME releases for this PC and install the one you\n"
+            "choose (the newest by default) into the downloads/mame folder.\n"
+            "Requires an internet connection (~90 MB download, ~500 MB installed).")
         self.button_install_mame.clicked.connect(install_mame)
         _mame_install_offered = (not _mame_available) and (mame_windows_asset_arch() is not None)
         self.button_install_mame.setVisible(_mame_install_offered)
@@ -3080,6 +3071,19 @@ class MainWindow(QMainWindow):
         self.cspect_group_layout.addWidget(self.cspect_esc)
 
         self.cspect_group_layout.addStretch(1)
+
+        # The CSpect/MAME option combos are the one place where the i18n walk
+        # may translate ITEM texts: every selection above is read back by index
+        # (emulator_option_argument) and persisted as an index, so no dispatch
+        # depends on the displayed label. The MAME machine combo is deliberately
+        # absent — its items are machine names passed straight to MAME.
+        for _option_combo in (self.cspect_screensize, self.cspect_sound,
+                              self.cspect_vsync, self.cspect_joystick,
+                              self.cspect_mouse, self.cspect_frequency,
+                              self.cspect_esc, self.mame_aspect,
+                              self.mame_sound, self.mame_mouse,
+                              self.mame_joystick, self.mame_esc):
+            mark_combo_items_translatable(_option_combo)
 
         # Hide the MAME group when neither of its buttons applies — i.e. MAME is
         # not installed and the in-app installer isn't offered on this platform

@@ -294,6 +294,7 @@ import tempfile
 from zxnu_config import (  # noqa: E402
     HDF_MONKEY_JJJS_SHA256,
     select_mame_release_asset,
+    select_mame_release_assets,
     sha256_of_file,
 )
 
@@ -322,6 +323,60 @@ check("mame asset picker: missing digest -> None sha",
       picked[4] is None, str(picked))
 check("mame asset picker: no matching arch -> None",
       select_mame_release_asset(_release, "arm64") is None)
+
+# Up to 0.280 the sole 64-bit Windows build was mame<ver>b_64bit.exe; the
+# x64/arm64 split (and arm64 builds at all) only arrived with 0.281.
+_legacy = {"tag_name": "mame0280", "assets": [
+    {"name": "mame0280b_64bit.exe", "browser_download_url": "https://x/old",
+     "size": 99},
+]}
+check("mame asset picker: pre-0.281 b_64bit.exe counts as the x64 build",
+      select_mame_release_asset(_legacy, "x64")
+      == ("mame0280", "mame0280b_64bit.exe", "https://x/old", 99, None),
+      str(select_mame_release_asset(_legacy, "x64")))
+check("mame asset picker: b_64bit.exe is never offered as arm64",
+      select_mame_release_asset(_legacy, "arm64") is None)
+
+def _rel(tag, arch_name=None, **extra):
+    body = {"tag_name": tag, "body": f"notes for {tag}"}
+    body.update(extra)
+    body["assets"] = ([] if arch_name is None else
+                      [{"name": arch_name, "browser_download_url": f"https://x/{tag}",
+                        "size": 1048576}])
+    return body
+
+# Deliberately out of order, with entries the picker must drop.
+_releases = [
+    _rel("mame0284", "mame0284b_x64.exe"),
+    _rel("mame0287", "mame0287b_x64.exe"),
+    _rel("mame0286", "mame0286b_arm64.exe"),          # no x64 build
+    _rel("mame0285", "mame0285b_x64.exe", draft=True),
+    _rel("mame0288", "mame0288b_x64.exe", prerelease=True),
+    _rel("mame0283", None),                            # source-only release
+    _rel("mame0282", "mame0282b_64bit.exe"),           # legacy spelling
+    "not a release dict",
+]
+_choices = select_mame_release_assets(_releases, "x64")
+check("mame release list: newest first, drafts/prereleases/non-x64 dropped",
+      [c["tag"] for c in _choices] == ["mame0287", "mame0284", "mame0282"],
+      str([c["tag"] for c in _choices]))
+check("mame release list: entries carry what the installer needs",
+      _choices[0]["asset_name"] == "mame0287b_x64.exe"
+      and _choices[0]["url"] == "https://x/mame0287"
+      and _choices[0]["version"] == 287
+      and _choices[0]["notes"] == "notes for mame0287",
+      str(_choices[0]))
+check("mame release list: limit caps the choices",
+      [c["tag"] for c in select_mame_release_assets(_releases, "x64", limit=2)]
+      == ["mame0287", "mame0284"])
+check("mame release list: limit=0 means every match",
+      len(select_mame_release_assets(_releases, "x64", limit=0)) == 3)
+check("mame release list: an unparseable tag sorts last instead of raising",
+      [c["tag"] for c in select_mame_release_assets(
+          [_rel("nightly", "namelessb_x64.exe"), _rel("mame0281", "mame0281b_x64.exe")],
+          "x64")] == ["mame0281", "nightly"])
+check("mame release list: nothing for this arch -> empty list",
+      select_mame_release_assets(_releases, "riscv") == [])
 
 # ---- app self-update asset picker + archive unpacker (zxnu_config) ---------
 import shutil
