@@ -417,6 +417,10 @@ CATALOGS = {
         "Mouse Off": "Ratón desactivado",
         "Disable ESC Key Off": "Desactivar tecla ESC: no",
         "Disable ESC Key On": "Desactivar tecla ESC: sí",
+        "Extracting {name} from the image, then starting CSpect…":
+            "Extrayendo {name} de la imagen y luego iniciando CSpect…",
+        "Start CSpect: {name} could not be read from the image, CSpect was not started.":
+            "Iniciar CSpect: no se pudo leer {name} de la imagen; CSpect no se ha iniciado.",
         # ---- CSpect auto-start actions (SD Card tab menus) ----
         "Send to SD Card and start CSpect with file {name}":
             "Enviar a la tarjeta SD e iniciar CSpect con el archivo {name}",
@@ -1109,6 +1113,10 @@ CATALOGS = {
         "Mouse Off": "Rato desligado",
         "Disable ESC Key Off": "Desativar tecla ESC: não",
         "Disable ESC Key On": "Desativar tecla ESC: sim",
+        "Extracting {name} from the image, then starting CSpect…":
+            "A extrair {name} da imagem e depois a iniciar o CSpect…",
+        "Start CSpect: {name} could not be read from the image, CSpect was not started.":
+            "Iniciar o CSpect: não foi possível ler {name} da imagem; o CSpect não foi iniciado.",
         # ---- CSpect auto-start actions (SD Card tab menus) ----
         "Send to SD Card and start CSpect with file {name}":
             "Enviar para o cartão SD e iniciar o CSpect com o ficheiro {name}",
@@ -1799,6 +1807,10 @@ CATALOGS = {
         "Mouse Off": "Mysz wyłączona",
         "Disable ESC Key Off": "Blokada klawisza ESC: wył.",
         "Disable ESC Key On": "Blokada klawisza ESC: wł.",
+        "Extracting {name} from the image, then starting CSpect…":
+            "Wypakowywanie {name} z obrazu, potem uruchomienie CSpect…",
+        "Start CSpect: {name} could not be read from the image, CSpect was not started.":
+            "Uruchom CSpect: nie udało się odczytać {name} z obrazu — CSpect nie został uruchomiony.",
         # ---- CSpect auto-start actions (SD Card tab menus) ----
         "Send to SD Card and start CSpect with file {name}":
             "Wyślij na kartę SD i uruchom CSpect z plikiem {name}",
@@ -2490,6 +2502,10 @@ CATALOGS = {
         "Mouse Off": "Мышь выкл.",
         "Disable ESC Key Off": "Блокировка ESC: выкл.",
         "Disable ESC Key On": "Блокировка ESC: вкл.",
+        "Extracting {name} from the image, then starting CSpect…":
+            "Извлечение {name} из образа, затем запуск CSpect…",
+        "Start CSpect: {name} could not be read from the image, CSpect was not started.":
+            "Запуск CSpect: не удалось прочитать {name} из образа — CSpect не запущен.",
         # ---- CSpect auto-start actions (SD Card tab menus) ----
         "Send to SD Card and start CSpect with file {name}":
             "Отправить на SD-карту и запустить CSpect с файлом {name}",
@@ -3180,6 +3196,10 @@ CATALOGS = {
         "Mouse Off": "Myš vypnuta",
         "Disable ESC Key Off": "Blokovat klávesu ESC: ne",
         "Disable ESC Key On": "Blokovat klávesu ESC: ano",
+        "Extracting {name} from the image, then starting CSpect…":
+            "Rozbaluje se {name} z obrazu, poté se spustí CSpect…",
+        "Start CSpect: {name} could not be read from the image, CSpect was not started.":
+            "Spustit CSpect: {name} se nepodařilo načíst z obrazu — CSpect nebyl spuštěn.",
         # ---- CSpect auto-start actions (SD Card tab menus) ----
         "Send to SD Card and start CSpect with file {name}":
             "Odeslat na SD kartu a spustit CSpect se souborem {name}",
@@ -3873,6 +3893,10 @@ CATALOGS = {
         "Mouse Off": "Souris désactivée",
         "Disable ESC Key Off": "Désactiver la touche ÉCHAP : non",
         "Disable ESC Key On": "Désactiver la touche ÉCHAP : oui",
+        "Extracting {name} from the image, then starting CSpect…":
+            "Extraction de {name} depuis l'image, puis lancement de CSpect…",
+        "Start CSpect: {name} could not be read from the image, CSpect was not started.":
+            "Lancer CSpect : impossible de lire {name} depuis l'image, CSpect n'a pas été lancé.",
         # ---- CSpect auto-start actions (SD Card tab menus) ----
         "Send to SD Card and start CSpect with file {name}":
             "Envoyer vers la carte SD et lancer CSpect avec le fichier {name}",

@@ -238,11 +238,17 @@ def build_emulator_ops(
     def launch_cspect(autostart_file=None):
         """Launch CSpect against the loaded SD image.
 
-        *autostart_file* is a path INSIDE that image (e.g. "games/foo.nex").
-        When given it is appended as CSpect's final argument, which makes
-        CSpect load and start it right after boot:
+        *autostart_file* is a HOST path to a file CSpect should load and start
+        right after boot; it is appended as CSpect's final argument:
 
-            CSpect.exe … -zxnext -mmc=<image> games/foo.nex
+            CSpect.exe … -zxnext -mmc=<image> C:\\tmp\\foo.nex
+
+        It must be a host path, NOT a path inside the mounted image: CSpect
+        resolves this argument against its own working directory, so an
+        in-image path sends it looking for <cspect dir>/<that path> and it
+        fails with "Could not find a part of the path". A caller that wants to
+        boot something living on the image has to extract it to the host first
+        (see _cspect_start_from_image in zxnu_sdcard_ops).
 
         Note the parameter is positional on purpose: this function is also a
         clicked() slot, and Qt passes the button's `checked` bool to slots that
@@ -304,13 +310,14 @@ def build_emulator_ops(
 
             cspect_arguments += " -mmc=" + mmc_path + " "
 
-            # Auto-start a file that lives on the mounted image. CSpect takes
-            # it as a trailing argument, resolved relative to the -mmc root, so
-            # the in-image path is used with its leading slash stripped.
+            # Auto-start file: a HOST path, appended as CSpect's trailing
+            # argument. It is made absolute because CSpect may run from its
+            # own folder (the bundled itch.io copy does), and always quoted —
+            # this goes through the shell and Next files live under paths with
+            # spaces often enough.
             if isinstance(autostart_file, str) and autostart_file.strip():
-                _auto = autostart_file.strip().lstrip("/")
-                cspect_arguments += (f'"{_auto}" ' if " " in _auto
-                                     else _auto + " ")
+                _auto = os.path.abspath(autostart_file.strip().strip('"'))
+                cspect_arguments += f'"{_auto}" '
 
             # The command that will actually be invoked: the bundled itch.io
             # copy by absolute path, otherwise the CSpect.exe resolved from the

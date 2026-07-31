@@ -1597,7 +1597,6 @@ def build_local_explorer_ops(
             def _send_and_start(_p=file_path):
                 target = (host.diskimageexplorerpathinput.text() or "/").strip()
                 target = ("/" + target.strip("/")) if target.strip("/") else "/"
-                in_image = (target.rstrip("/") + "/" + os.path.basename(_p))
 
                 def _after(success):
                     if not success:
@@ -1605,7 +1604,12 @@ def build_local_explorer_ops(
                             "Send to SD Card and start CSpect: the transfer "
                             "failed, CSpect was not started."))
                         return
-                    host._launch_cspect_fn(in_image)
+                    # CSpect is started on the LOCAL file, not on the copy just
+                    # written into the image: its trailing argument is resolved
+                    # against CSpect's working directory, so it must be a host
+                    # path. The image copy is what the program will find on the
+                    # SD card once it is running.
+                    host._launch_cspect_fn(_p)
                 add_main_log_window(ui_tr_now(
                     "Sending {name} to the SD card image, then starting "
                     "CSpect…").format(name=os.path.basename(_p)))
@@ -2790,6 +2794,42 @@ def build_transfer_clipboard_ops(
             [(zip_path, False)], tmp, refresh_fn=lambda: None,
             on_complete=lambda okd: QTimer.singleShot(0, lambda: _go(okd)))
 
+    def _cspect_start_from_image(image_path):
+        """Boot a file that lives INSIDE the mounted image with CSpect.
+
+        CSpect resolves its trailing file argument against its own working
+        directory — a HOST path — not against the -mmc root, so passing the
+        in-image path makes it look for <cspect dir>/<in-image path> and fail
+        with "Could not find a part of the path". The file therefore has to
+        exist on the host first: extract it (and nothing else) into a temp
+        folder with hdfmonkey, then start CSpect on that copy. The image stays
+        mounted as the SD card, so anything the program loads from the card
+        still resolves.
+
+        The temp copy is deliberately NOT deleted on completion: CSpect is
+        launched detached and reads the file after we return."""
+        if not _right_disk_content() or not image_path:
+            return
+        name = os.path.basename(image_path)
+        tmp = tempfile.mkdtemp(prefix="zxnu-cspect-")
+
+        def _go(ok):
+            local = os.path.join(tmp, name)
+            if not ok or not os.path.isfile(local):
+                add_main_log_window(ui_tr_now(
+                    "Start CSpect: {name} could not be read from the image, "
+                    "CSpect was not started.").format(name=name))
+                shutil.rmtree(tmp, ignore_errors=True)
+                return
+            host._launch_cspect_fn(local)
+
+        add_main_log_window(ui_tr_now(
+            "Extracting {name} from the image, then starting CSpect…").format(
+                name=name))
+        image_get_paths_to_local(
+            [(image_path, False)], tmp, refresh_fn=lambda: None,
+            on_complete=lambda okd: QTimer.singleShot(0, lambda: _go(okd)))
+
     def _image_remote_zip(items):
         """'Remote Zip' on the image selection: get the items to a temp
         dir, zip them on the PC, upload <first item>.zip back into the
@@ -2890,7 +2930,8 @@ def build_transfer_clipboard_ops(
                 menu.addAction(
                     ui_tr_now("Start CSpect with file {name}").format(
                         name=os.path.basename(item_path)),
-                    lambda p=item_path: host._launch_cspect_fn(p))
+                    lambda p=item_path: QTimer.singleShot(
+                        0, lambda: _cspect_start_from_image(p)))
                 menu.addSeparator()
 
             new_folder_label = "New Folder Here…" if is_dir else "New Folder…"
