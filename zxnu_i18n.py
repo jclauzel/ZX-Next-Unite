@@ -417,6 +417,71 @@ CATALOGS = {
         "Mouse Off": "Ratón desactivado",
         "Disable ESC Key Off": "Desactivar tecla ESC: no",
         "Disable ESC Key On": "Desactivar tecla ESC: sí",
+        # ---- SD Card tab: console + dialogs ----
+        "Confirm Deletion":
+            "Confirmar eliminación",
+        "Create":
+            "Crear",
+        "Create New Folder":
+            "Crear carpeta nueva",
+        "Created {name} in {folder} on the image ({count} file(s), {bytes} bytes).":
+            "Creado {name} en {folder} en la imagen ({count} archivo(s), {bytes} bytes).",
+        "Delete files from the image to free space, or switch to a larger image.\nLarger SD card images can be downloaded from:":
+            "Elimina archivos de la imagen para liberar espacio, o cambia a una imagen más grande.\nPuedes descargar imágenes de tarjeta SD más grandes desde:",
+        "Download":
+            "Descargar",
+        "Download failed: no valid destination folder.":
+            "Error de descarga: no hay una carpeta de destino válida.",
+        "Downloading {name} from {url}":
+            "Descargando {name} desde {url}",
+        "ERROR: hdfmonkey could not be found. Use the 'Download and install HDF Monkey' button (bottom right of the SD Card tab) to install it automatically, or do a full CSpect install from the itch.io tab, which also bundles hdfmonkey. It can also be installed manually from https://github.com/gasman/hdfmonkey — restart the app once installed.":
+            "ERROR: no se encontró hdfmonkey. Usa el botón 'Download and install HDF Monkey' (abajo a la derecha de la pestaña SD Card) para instalarlo automáticamente, o haz una instalación completa de CSpect desde la pestaña itch.io, que también incluye hdfmonkey. También se puede instalar manualmente desde https://github.com/gasman/hdfmonkey — reinicia la aplicación una vez instalado.",
+        "Extracted disk image: {path}":
+            "Imagen de disco extraída: {path}",
+        "Extracted {count} file(s) from {name} into {folder} on the image.":
+            "Extraído(s) {count} archivo(s) de {name} en {folder} en la imagen.",
+        "Failed downloading NextZXOS image: {error}":
+            "Error al descargar la imagen NextZXOS: {error}",
+        "Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.":
+            "Error al ejecutar hdfmonkey; asegúrate de que está instalado en el mismo directorio local que zx-next-unite.",
+        "Failed extracting NextZXOS image: {error}":
+            "Error al extraer la imagen NextZXOS: {error}",
+        "Failed loading image: {path}.":
+            "Error al cargar la imagen: {path}.",
+        "No SD-card disk image selected — pick or create a .img/.hdf at the top of this tab to unlock the emulator Launch buttons.":
+            "No hay ninguna imagen de tarjeta SD seleccionada: elige o crea un .img/.hdf en la parte superior de esta pestaña para desbloquear los botones de inicio del emulador.",
+        "Nothing to move: items are already in this folder.":
+            "Nada que mover: los elementos ya están en esta carpeta.",
+        "Only {free} MB free out of {total} MB ({used} % used, {pct} % free).":
+            "Solo {free} MB libres de {total} MB ({used} % usado, {pct} % libre).",
+        "Please load an image file first !":
+            "¡Carga primero un archivo de imagen!",
+        "Please load an image first!":
+            "¡Carga primero una imagen!",
+        "Please select an image file or folder first to delete!":
+            "¡Selecciona primero un archivo o carpeta de la imagen para eliminar!",
+        "Please select an image file or folder first to rename!":
+            "¡Selecciona primero un archivo o carpeta de la imagen para renombrar!",
+        "Remote unzip cancelled — the image is unchanged.":
+            "Descompresión remota cancelada: la imagen no se ha modificado.",
+        "Remote unzip: download from the image failed or was cancelled — the image is unchanged.":
+            "Descompresión remota: la descarga desde la imagen falló o se canceló; la imagen no se ha modificado.",
+        "Remote unzip: upload into the image failed or was cancelled.":
+            "Descompresión remota: la subida a la imagen falló o se canceló.",
+        "Remote zip cancelled — no zip was created.":
+            "Compresión remota cancelada: no se creó ningún zip.",
+        "Remote zip: download from the image failed or was cancelled — no zip was created.":
+            "Compresión remota: la descarga desde la imagen falló o se canceló; no se creó ningún zip.",
+        "Remote zip: upload into the image failed or was cancelled.":
+            "Compresión remota: la subida a la imagen falló o se canceló.",
+        "SD Image Nearly Full":
+            "Imagen SD casi llena",
+        "The SD card image is nearly full.":
+            "La imagen de la tarjeta SD está casi llena.",
+        "The hdfmonkey provided by the CSpect itch.io package is not executable. Make it executable by running:":
+            "El hdfmonkey incluido en el paquete de CSpect de itch.io no es ejecutable. Hazlo ejecutable ejecutando:",
+        "The image is completely full ({total} MB capacity, 0 MB free).":
+            "La imagen está completamente llena (capacidad {total} MB, 0 MB libres).",
         # ---- SD Card console: banner, detection, update checks ----
         "CSpect - by Mike Dailly http://cspect.org":
             "CSpect - por Mike Dailly http://cspect.org",
@@ -935,6 +1000,71 @@ CATALOGS = {
         "Mouse Off": "Rato desligado",
         "Disable ESC Key Off": "Desativar tecla ESC: não",
         "Disable ESC Key On": "Desativar tecla ESC: sim",
+        # ---- SD Card tab: console + dialogs ----
+        "Confirm Deletion":
+            "Confirmar eliminação",
+        "Create":
+            "Criar",
+        "Create New Folder":
+            "Criar nova pasta",
+        "Created {name} in {folder} on the image ({count} file(s), {bytes} bytes).":
+            "Criado {name} em {folder} na imagem ({count} ficheiro(s), {bytes} bytes).",
+        "Delete files from the image to free space, or switch to a larger image.\nLarger SD card images can be downloaded from:":
+            "Elimina ficheiros da imagem para libertar espaço, ou muda para uma imagem maior.\nPodes transferir imagens de cartão SD maiores a partir de:",
+        "Download":
+            "Transferir",
+        "Download failed: no valid destination folder.":
+            "Falha na transferência: não há pasta de destino válida.",
+        "Downloading {name} from {url}":
+            "A transferir {name} de {url}",
+        "ERROR: hdfmonkey could not be found. Use the 'Download and install HDF Monkey' button (bottom right of the SD Card tab) to install it automatically, or do a full CSpect install from the itch.io tab, which also bundles hdfmonkey. It can also be installed manually from https://github.com/gasman/hdfmonkey — restart the app once installed.":
+            "ERRO: o hdfmonkey não foi encontrado. Usa o botão 'Download and install HDF Monkey' (canto inferior direito do separador SD Card) para o instalar automaticamente, ou faz uma instalação completa do CSpect a partir do separador itch.io, que também inclui o hdfmonkey. Também pode ser instalado manualmente a partir de https://github.com/gasman/hdfmonkey — reinicia a aplicação depois de instalado.",
+        "Extracted disk image: {path}":
+            "Imagem de disco extraída: {path}",
+        "Extracted {count} file(s) from {name} into {folder} on the image.":
+            "Extraído(s) {count} ficheiro(s) de {name} para {folder} na imagem.",
+        "Failed downloading NextZXOS image: {error}":
+            "Falha ao transferir a imagem NextZXOS: {error}",
+        "Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.":
+            "Falha ao executar o hdfmonkey; certifica-te de que está instalado na mesma pasta local que o zx-next-unite.",
+        "Failed extracting NextZXOS image: {error}":
+            "Falha ao extrair a imagem NextZXOS: {error}",
+        "Failed loading image: {path}.":
+            "Falha ao carregar a imagem: {path}.",
+        "No SD-card disk image selected — pick or create a .img/.hdf at the top of this tab to unlock the emulator Launch buttons.":
+            "Nenhuma imagem de cartão SD selecionada: escolhe ou cria um .img/.hdf no topo deste separador para desbloquear os botões de arranque do emulador.",
+        "Nothing to move: items are already in this folder.":
+            "Nada para mover: os itens já estão nesta pasta.",
+        "Only {free} MB free out of {total} MB ({used} % used, {pct} % free).":
+            "Apenas {free} MB livres de {total} MB ({used} % usado, {pct} % livre).",
+        "Please load an image file first !":
+            "Carrega primeiro um ficheiro de imagem!",
+        "Please load an image first!":
+            "Carrega primeiro uma imagem!",
+        "Please select an image file or folder first to delete!":
+            "Seleciona primeiro um ficheiro ou pasta da imagem para eliminar!",
+        "Please select an image file or folder first to rename!":
+            "Seleciona primeiro um ficheiro ou pasta da imagem para renomear!",
+        "Remote unzip cancelled — the image is unchanged.":
+            "Descompressão remota cancelada: a imagem não foi alterada.",
+        "Remote unzip: download from the image failed or was cancelled — the image is unchanged.":
+            "Descompressão remota: a transferência a partir da imagem falhou ou foi cancelada; a imagem não foi alterada.",
+        "Remote unzip: upload into the image failed or was cancelled.":
+            "Descompressão remota: o envio para a imagem falhou ou foi cancelado.",
+        "Remote zip cancelled — no zip was created.":
+            "Compressão remota cancelada: não foi criado nenhum zip.",
+        "Remote zip: download from the image failed or was cancelled — no zip was created.":
+            "Compressão remota: a transferência a partir da imagem falhou ou foi cancelada; não foi criado nenhum zip.",
+        "Remote zip: upload into the image failed or was cancelled.":
+            "Compressão remota: o envio para a imagem falhou ou foi cancelado.",
+        "SD Image Nearly Full":
+            "Imagem SD quase cheia",
+        "The SD card image is nearly full.":
+            "A imagem do cartão SD está quase cheia.",
+        "The hdfmonkey provided by the CSpect itch.io package is not executable. Make it executable by running:":
+            "O hdfmonkey incluído no pacote CSpect do itch.io não é executável. Torna-o executável executando:",
+        "The image is completely full ({total} MB capacity, 0 MB free).":
+            "A imagem está completamente cheia (capacidade {total} MB, 0 MB livres).",
         # ---- SD Card console: banner, detection, update checks ----
         "CSpect - by Mike Dailly http://cspect.org":
             "CSpect - por Mike Dailly http://cspect.org",
@@ -1451,6 +1581,71 @@ CATALOGS = {
         "Mouse Off": "Mysz wyłączona",
         "Disable ESC Key Off": "Blokada klawisza ESC: wył.",
         "Disable ESC Key On": "Blokada klawisza ESC: wł.",
+        # ---- SD Card tab: console + dialogs ----
+        "Confirm Deletion":
+            "Potwierdź usunięcie",
+        "Create":
+            "Utwórz",
+        "Create New Folder":
+            "Utwórz nowy folder",
+        "Created {name} in {folder} on the image ({count} file(s), {bytes} bytes).":
+            "Utworzono {name} w {folder} na obrazie ({count} plik(ów), {bytes} bajtów).",
+        "Delete files from the image to free space, or switch to a larger image.\nLarger SD card images can be downloaded from:":
+            "Usuń pliki z obrazu, aby zwolnić miejsce, lub przełącz się na większy obraz.\nWiększe obrazy kart SD można pobrać z:",
+        "Download":
+            "Pobierz",
+        "Download failed: no valid destination folder.":
+            "Pobieranie nie powiodło się: brak prawidłowego folderu docelowego.",
+        "Downloading {name} from {url}":
+            "Pobieranie {name} z {url}",
+        "ERROR: hdfmonkey could not be found. Use the 'Download and install HDF Monkey' button (bottom right of the SD Card tab) to install it automatically, or do a full CSpect install from the itch.io tab, which also bundles hdfmonkey. It can also be installed manually from https://github.com/gasman/hdfmonkey — restart the app once installed.":
+            "BŁĄD: nie znaleziono hdfmonkey. Użyj przycisku 'Download and install HDF Monkey' (prawy dolny róg karty SD Card), aby zainstalować go automatycznie, albo wykonaj pełną instalację CSpect z karty itch.io, która również zawiera hdfmonkey. Można go też zainstalować ręcznie z https://github.com/gasman/hdfmonkey — po instalacji uruchom aplikację ponownie.",
+        "Extracted disk image: {path}":
+            "Wypakowano obraz dysku: {path}",
+        "Extracted {count} file(s) from {name} into {folder} on the image.":
+            "Wypakowano {count} plik(ów) z {name} do {folder} na obrazie.",
+        "Failed downloading NextZXOS image: {error}":
+            "Nie udało się pobrać obrazu NextZXOS: {error}",
+        "Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.":
+            "Nie udało się uruchomić hdfmonkey — upewnij się, że jest zainstalowany w tym samym katalogu co zx-next-unite.",
+        "Failed extracting NextZXOS image: {error}":
+            "Nie udało się wypakować obrazu NextZXOS: {error}",
+        "Failed loading image: {path}.":
+            "Nie udało się wczytać obrazu: {path}.",
+        "No SD-card disk image selected — pick or create a .img/.hdf at the top of this tab to unlock the emulator Launch buttons.":
+            "Nie wybrano obrazu karty SD — wybierz lub utwórz plik .img/.hdf u góry tej karty, aby odblokować przyciski uruchamiania emulatora.",
+        "Nothing to move: items are already in this folder.":
+            "Nie ma czego przenosić: elementy są już w tym folderze.",
+        "Only {free} MB free out of {total} MB ({used} % used, {pct} % free).":
+            "Tylko {free} MB wolnych z {total} MB ({used} % zajęte, {pct} % wolne).",
+        "Please load an image file first !":
+            "Najpierw wczytaj plik obrazu!",
+        "Please load an image first!":
+            "Najpierw wczytaj obraz!",
+        "Please select an image file or folder first to delete!":
+            "Najpierw wybierz plik lub folder obrazu do usunięcia!",
+        "Please select an image file or folder first to rename!":
+            "Najpierw wybierz plik lub folder obrazu do zmiany nazwy!",
+        "Remote unzip cancelled — the image is unchanged.":
+            "Zdalne rozpakowanie anulowane — obraz bez zmian.",
+        "Remote unzip: download from the image failed or was cancelled — the image is unchanged.":
+            "Zdalne rozpakowanie: pobieranie z obrazu nie powiodło się lub zostało anulowane — obraz bez zmian.",
+        "Remote unzip: upload into the image failed or was cancelled.":
+            "Zdalne rozpakowanie: wysyłanie do obrazu nie powiodło się lub zostało anulowane.",
+        "Remote zip cancelled — no zip was created.":
+            "Zdalne pakowanie anulowane — nie utworzono pliku zip.",
+        "Remote zip: download from the image failed or was cancelled — no zip was created.":
+            "Zdalne pakowanie: pobieranie z obrazu nie powiodło się lub zostało anulowane — nie utworzono pliku zip.",
+        "Remote zip: upload into the image failed or was cancelled.":
+            "Zdalne pakowanie: wysyłanie do obrazu nie powiodło się lub zostało anulowane.",
+        "SD Image Nearly Full":
+            "Obraz SD prawie pełny",
+        "The SD card image is nearly full.":
+            "Obraz karty SD jest prawie pełny.",
+        "The hdfmonkey provided by the CSpect itch.io package is not executable. Make it executable by running:":
+            "hdfmonkey dołączony do pakietu CSpect z itch.io nie jest wykonywalny. Nadaj mu prawo wykonywania poleceniem:",
+        "The image is completely full ({total} MB capacity, 0 MB free).":
+            "Obraz jest całkowicie pełny (pojemność {total} MB, 0 MB wolnych).",
         # ---- SD Card console: banner, detection, update checks ----
         "CSpect - by Mike Dailly http://cspect.org":
             "CSpect - autor: Mike Dailly http://cspect.org",
@@ -1968,6 +2163,71 @@ CATALOGS = {
         "Mouse Off": "Мышь выкл.",
         "Disable ESC Key Off": "Блокировка ESC: выкл.",
         "Disable ESC Key On": "Блокировка ESC: вкл.",
+        # ---- SD Card tab: console + dialogs ----
+        "Confirm Deletion":
+            "Подтвердите удаление",
+        "Create":
+            "Создать",
+        "Create New Folder":
+            "Создать новую папку",
+        "Created {name} in {folder} on the image ({count} file(s), {bytes} bytes).":
+            "Создан {name} в {folder} на образе ({count} файл(ов), {bytes} байт).",
+        "Delete files from the image to free space, or switch to a larger image.\nLarger SD card images can be downloaded from:":
+            "Удалите файлы из образа, чтобы освободить место, или выберите образ большего размера.\nОбразы SD-карт большего размера можно скачать здесь:",
+        "Download":
+            "Скачать",
+        "Download failed: no valid destination folder.":
+            "Загрузка не удалась: нет допустимой папки назначения.",
+        "Downloading {name} from {url}":
+            "Загрузка {name} с {url}",
+        "ERROR: hdfmonkey could not be found. Use the 'Download and install HDF Monkey' button (bottom right of the SD Card tab) to install it automatically, or do a full CSpect install from the itch.io tab, which also bundles hdfmonkey. It can also be installed manually from https://github.com/gasman/hdfmonkey — restart the app once installed.":
+            "ОШИБКА: hdfmonkey не найден. Нажмите кнопку 'Download and install HDF Monkey' (внизу справа на вкладке SD Card), чтобы установить его автоматически, или выполните полную установку CSpect со вкладки itch.io — она также включает hdfmonkey. Его можно установить и вручную с https://github.com/gasman/hdfmonkey — после установки перезапустите приложение.",
+        "Extracted disk image: {path}":
+            "Образ диска распакован: {path}",
+        "Extracted {count} file(s) from {name} into {folder} on the image.":
+            "Извлечено файлов: {count} из {name} в {folder} на образе.",
+        "Failed downloading NextZXOS image: {error}":
+            "Не удалось скачать образ NextZXOS: {error}",
+        "Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.":
+            "Не удалось запустить hdfmonkey — убедитесь, что он установлен в том же каталоге, что и zx-next-unite.",
+        "Failed extracting NextZXOS image: {error}":
+            "Не удалось распаковать образ NextZXOS: {error}",
+        "Failed loading image: {path}.":
+            "Не удалось загрузить образ: {path}.",
+        "No SD-card disk image selected — pick or create a .img/.hdf at the top of this tab to unlock the emulator Launch buttons.":
+            "Образ SD-карты не выбран — выберите или создайте .img/.hdf вверху этой вкладки, чтобы разблокировать кнопки запуска эмулятора.",
+        "Nothing to move: items are already in this folder.":
+            "Нечего перемещать: элементы уже в этой папке.",
+        "Only {free} MB free out of {total} MB ({used} % used, {pct} % free).":
+            "Свободно всего {free} МБ из {total} МБ ({used} % занято, {pct} % свободно).",
+        "Please load an image file first !":
+            "Сначала загрузите файл образа!",
+        "Please load an image first!":
+            "Сначала загрузите образ!",
+        "Please select an image file or folder first to delete!":
+            "Сначала выберите файл или папку образа для удаления!",
+        "Please select an image file or folder first to rename!":
+            "Сначала выберите файл или папку образа для переименования!",
+        "Remote unzip cancelled — the image is unchanged.":
+            "Удалённая распаковка отменена — образ не изменён.",
+        "Remote unzip: download from the image failed or was cancelled — the image is unchanged.":
+            "Удалённая распаковка: загрузка из образа не удалась или была отменена — образ не изменён.",
+        "Remote unzip: upload into the image failed or was cancelled.":
+            "Удалённая распаковка: запись в образ не удалась или была отменена.",
+        "Remote zip cancelled — no zip was created.":
+            "Удалённая упаковка отменена — zip не создан.",
+        "Remote zip: download from the image failed or was cancelled — no zip was created.":
+            "Удалённая упаковка: загрузка из образа не удалась или была отменена — zip не создан.",
+        "Remote zip: upload into the image failed or was cancelled.":
+            "Удалённая упаковка: запись в образ не удалась или была отменена.",
+        "SD Image Nearly Full":
+            "Образ SD почти заполнен",
+        "The SD card image is nearly full.":
+            "Образ SD-карты почти заполнен.",
+        "The hdfmonkey provided by the CSpect itch.io package is not executable. Make it executable by running:":
+            "hdfmonkey из пакета CSpect с itch.io не является исполняемым. Сделайте его исполняемым командой:",
+        "The image is completely full ({total} MB capacity, 0 MB free).":
+            "Образ полностью заполнен (объём {total} МБ, свободно 0 МБ).",
         # ---- SD Card console: banner, detection, update checks ----
         "CSpect - by Mike Dailly http://cspect.org":
             "CSpect - автор: Mike Dailly http://cspect.org",
@@ -2484,6 +2744,71 @@ CATALOGS = {
         "Mouse Off": "Myš vypnuta",
         "Disable ESC Key Off": "Blokovat klávesu ESC: ne",
         "Disable ESC Key On": "Blokovat klávesu ESC: ano",
+        # ---- SD Card tab: console + dialogs ----
+        "Confirm Deletion":
+            "Potvrdit smazání",
+        "Create":
+            "Vytvořit",
+        "Create New Folder":
+            "Vytvořit novou složku",
+        "Created {name} in {folder} on the image ({count} file(s), {bytes} bytes).":
+            "Vytvořeno {name} v {folder} na obrazu ({count} souborů, {bytes} bajtů).",
+        "Delete files from the image to free space, or switch to a larger image.\nLarger SD card images can be downloaded from:":
+            "Smažte soubory z obrazu pro uvolnění místa, nebo přejděte na větší obraz.\nVětší obrazy SD karet lze stáhnout z:",
+        "Download":
+            "Stáhnout",
+        "Download failed: no valid destination folder.":
+            "Stahování selhalo: chybí platná cílová složka.",
+        "Downloading {name} from {url}":
+            "Stahuje se {name} z {url}",
+        "ERROR: hdfmonkey could not be found. Use the 'Download and install HDF Monkey' button (bottom right of the SD Card tab) to install it automatically, or do a full CSpect install from the itch.io tab, which also bundles hdfmonkey. It can also be installed manually from https://github.com/gasman/hdfmonkey — restart the app once installed.":
+            "CHYBA: hdfmonkey nebyl nalezen. Použijte tlačítko 'Download and install HDF Monkey' (vpravo dole na kartě SD Card) pro automatickou instalaci, nebo proveďte plnou instalaci CSpectu z karty itch.io, která hdfmonkey rovněž obsahuje. Lze jej nainstalovat i ručně z https://github.com/gasman/hdfmonkey — po instalaci aplikaci restartujte.",
+        "Extracted disk image: {path}":
+            "Obraz disku rozbalen: {path}",
+        "Extracted {count} file(s) from {name} into {folder} on the image.":
+            "Rozbaleno {count} souborů z {name} do {folder} na obrazu.",
+        "Failed downloading NextZXOS image: {error}":
+            "Nepodařilo se stáhnout obraz NextZXOS: {error}",
+        "Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.":
+            "Nepodařilo se spustit hdfmonkey — ujistěte se, že je nainstalován ve stejném adresáři jako zx-next-unite.",
+        "Failed extracting NextZXOS image: {error}":
+            "Nepodařilo se rozbalit obraz NextZXOS: {error}",
+        "Failed loading image: {path}.":
+            "Nepodařilo se načíst obraz: {path}.",
+        "No SD-card disk image selected — pick or create a .img/.hdf at the top of this tab to unlock the emulator Launch buttons.":
+            "Není vybrán žádný obraz SD karty — nahoře na této kartě zvolte nebo vytvořte .img/.hdf, aby se odemkla tlačítka pro spuštění emulátoru.",
+        "Nothing to move: items are already in this folder.":
+            "Není co přesouvat: položky už v této složce jsou.",
+        "Only {free} MB free out of {total} MB ({used} % used, {pct} % free).":
+            "Volných jen {free} MB z {total} MB ({used} % využito, {pct} % volných).",
+        "Please load an image file first !":
+            "Nejprve načtěte soubor obrazu!",
+        "Please load an image first!":
+            "Nejprve načtěte obraz!",
+        "Please select an image file or folder first to delete!":
+            "Nejprve vyberte soubor nebo složku obrazu ke smazání!",
+        "Please select an image file or folder first to rename!":
+            "Nejprve vyberte soubor nebo složku obrazu k přejmenování!",
+        "Remote unzip cancelled — the image is unchanged.":
+            "Vzdálené rozbalení zrušeno — obraz je beze změny.",
+        "Remote unzip: download from the image failed or was cancelled — the image is unchanged.":
+            "Vzdálené rozbalení: stahování z obrazu selhalo nebo bylo zrušeno — obraz je beze změny.",
+        "Remote unzip: upload into the image failed or was cancelled.":
+            "Vzdálené rozbalení: nahrání do obrazu selhalo nebo bylo zrušeno.",
+        "Remote zip cancelled — no zip was created.":
+            "Vzdálené zabalení zrušeno — žádný zip nebyl vytvořen.",
+        "Remote zip: download from the image failed or was cancelled — no zip was created.":
+            "Vzdálené zabalení: stahování z obrazu selhalo nebo bylo zrušeno — žádný zip nebyl vytvořen.",
+        "Remote zip: upload into the image failed or was cancelled.":
+            "Vzdálené zabalení: nahrání do obrazu selhalo nebo bylo zrušeno.",
+        "SD Image Nearly Full":
+            "Obraz SD je téměř plný",
+        "The SD card image is nearly full.":
+            "Obraz SD karty je téměř plný.",
+        "The hdfmonkey provided by the CSpect itch.io package is not executable. Make it executable by running:":
+            "hdfmonkey dodaný v balíčku CSpect z itch.io není spustitelný. Nastavte mu právo spouštění příkazem:",
+        "The image is completely full ({total} MB capacity, 0 MB free).":
+            "Obraz je zcela plný (kapacita {total} MB, 0 MB volných).",
         # ---- SD Card console: banner, detection, update checks ----
         "CSpect - by Mike Dailly http://cspect.org":
             "CSpect - autor: Mike Dailly http://cspect.org",
@@ -3003,6 +3328,71 @@ CATALOGS = {
         "Mouse Off": "Souris désactivée",
         "Disable ESC Key Off": "Désactiver la touche ÉCHAP : non",
         "Disable ESC Key On": "Désactiver la touche ÉCHAP : oui",
+        # ---- SD Card tab: console + dialogs ----
+        "Confirm Deletion":
+            "Confirmer la suppression",
+        "Create":
+            "Créer",
+        "Create New Folder":
+            "Créer un nouveau dossier",
+        "Created {name} in {folder} on the image ({count} file(s), {bytes} bytes).":
+            "{name} créé dans {folder} sur l'image ({count} fichier(s), {bytes} octets).",
+        "Delete files from the image to free space, or switch to a larger image.\nLarger SD card images can be downloaded from:":
+            "Supprimez des fichiers de l'image pour libérer de l'espace, ou passez à une image plus grande.\nDes images de carte SD plus grandes peuvent être téléchargées depuis :",
+        "Download":
+            "Télécharger",
+        "Download failed: no valid destination folder.":
+            "Échec du téléchargement : aucun dossier de destination valide.",
+        "Downloading {name} from {url}":
+            "Téléchargement de {name} depuis {url}",
+        "ERROR: hdfmonkey could not be found. Use the 'Download and install HDF Monkey' button (bottom right of the SD Card tab) to install it automatically, or do a full CSpect install from the itch.io tab, which also bundles hdfmonkey. It can also be installed manually from https://github.com/gasman/hdfmonkey — restart the app once installed.":
+            "ERREUR : hdfmonkey est introuvable. Utilisez le bouton 'Download and install HDF Monkey' (en bas à droite de l'onglet SD Card) pour l'installer automatiquement, ou faites une installation complète de CSpect depuis l'onglet itch.io, qui inclut aussi hdfmonkey. Il peut également être installé manuellement depuis https://github.com/gasman/hdfmonkey — redémarrez l'application une fois installé.",
+        "Extracted disk image: {path}":
+            "Image disque extraite : {path}",
+        "Extracted {count} file(s) from {name} into {folder} on the image.":
+            "{count} fichier(s) extrait(s) de {name} vers {folder} sur l'image.",
+        "Failed downloading NextZXOS image: {error}":
+            "Échec du téléchargement de l'image NextZXOS : {error}",
+        "Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.":
+            "Échec de l'exécution de hdfmonkey ; vérifiez qu'il est installé dans le même dossier local que zx-next-unite.",
+        "Failed extracting NextZXOS image: {error}":
+            "Échec de l'extraction de l'image NextZXOS : {error}",
+        "Failed loading image: {path}.":
+            "Échec du chargement de l'image : {path}.",
+        "No SD-card disk image selected — pick or create a .img/.hdf at the top of this tab to unlock the emulator Launch buttons.":
+            "Aucune image de carte SD sélectionnée — choisissez ou créez un .img/.hdf en haut de cet onglet pour débloquer les boutons de lancement de l'émulateur.",
+        "Nothing to move: items are already in this folder.":
+            "Rien à déplacer : les éléments sont déjà dans ce dossier.",
+        "Only {free} MB free out of {total} MB ({used} % used, {pct} % free).":
+            "Seulement {free} Mo libres sur {total} Mo ({used} % utilisé, {pct} % libre).",
+        "Please load an image file first !":
+            "Chargez d'abord un fichier image !",
+        "Please load an image first!":
+            "Chargez d'abord une image !",
+        "Please select an image file or folder first to delete!":
+            "Sélectionnez d'abord un fichier ou dossier de l'image à supprimer !",
+        "Please select an image file or folder first to rename!":
+            "Sélectionnez d'abord un fichier ou dossier de l'image à renommer !",
+        "Remote unzip cancelled — the image is unchanged.":
+            "Décompression distante annulée — l'image est inchangée.",
+        "Remote unzip: download from the image failed or was cancelled — the image is unchanged.":
+            "Décompression distante : le téléchargement depuis l'image a échoué ou a été annulé — l'image est inchangée.",
+        "Remote unzip: upload into the image failed or was cancelled.":
+            "Décompression distante : l'envoi vers l'image a échoué ou a été annulé.",
+        "Remote zip cancelled — no zip was created.":
+            "Compression distante annulée — aucun zip n'a été créé.",
+        "Remote zip: download from the image failed or was cancelled — no zip was created.":
+            "Compression distante : le téléchargement depuis l'image a échoué ou a été annulé — aucun zip n'a été créé.",
+        "Remote zip: upload into the image failed or was cancelled.":
+            "Compression distante : l'envoi vers l'image a échoué ou a été annulé.",
+        "SD Image Nearly Full":
+            "Image SD presque pleine",
+        "The SD card image is nearly full.":
+            "L'image de la carte SD est presque pleine.",
+        "The hdfmonkey provided by the CSpect itch.io package is not executable. Make it executable by running:":
+            "Le hdfmonkey fourni par le paquet CSpect d'itch.io n'est pas exécutable. Rendez-le exécutable en lançant :",
+        "The image is completely full ({total} MB capacity, 0 MB free).":
+            "L'image est totalement pleine (capacité {total} Mo, 0 Mo libre).",
         # ---- SD Card console: banner, detection, update checks ----
         "CSpect - by Mike Dailly http://cspect.org":
             "CSpect - par Mike Dailly http://cspect.org",

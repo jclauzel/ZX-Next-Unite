@@ -83,7 +83,8 @@ def build_sdcard_utils(
     def delete_files_button_show_confirmation_buttons():
         if not host.image_selected_path:
             logging.info("Please select an image file or folder first to delete!")
-            add_main_log_window("Please select an image file or folder first to delete!")
+            add_main_log_window(ui_tr_now(
+                "Please select an image file or folder first to delete!"))
             return
         # When "Do not prompt for confirmation on deletion" is enabled, delete
         # straight away; otherwise ask for confirmation via a popup dialog.
@@ -116,7 +117,9 @@ def build_sdcard_utils(
             # when it exited cleanly — a genuine not-found / other failure is
             # already surfaced by execute_hdf_monkey.
             if hdfmonkeyexecresult.returncode == 0:
-                add_main_log_window("Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.")
+                add_main_log_window(ui_tr_now(
+                    "Failed executing hdfmonkey, please make sure it is "
+                    "installed in the same local directory as zx-next-unite."))
             return False
         except Exception as e:
             logging.error(f"Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.... {e}")
@@ -413,7 +416,9 @@ def build_sdcard_utils(
                             1200, lambda: _wiz.on_image_loaded())
                 else:
                     logging.error(f"Failed loading image :{host.right_disk_image_path}.")
-                    add_main_log_window(f"Failed loading image :{host.right_disk_image_path}.")
+                    add_main_log_window(ui_tr_now(
+                        "Failed loading image: {path}.").format(
+                            path=host.right_disk_image_path))
                     set_all_buttons_disabled()
                     enable_image_selection()
                     _update_image_usage_gauge("")
@@ -430,9 +435,9 @@ def build_sdcard_utils(
         # the Launch buttons stay greyed out (CSpect needs the mounted image
         # for -mmc=, MAME boots the image file directly), and the only other
         # hint is a hover tooltip on the disabled buttons.
-        add_main_log_window(
+        add_main_log_window(ui_tr_now(
             "No SD-card disk image selected — pick or create a .img/.hdf "
-            "at the top of this tab to unlock the emulator Launch buttons.")
+            "at the top of this tab to unlock the emulator Launch buttons."))
         # Same hint as a yellow advisory toast (see the helper for the
         # emulator-installed gating).
         _maybe_show_no_image_toast()
@@ -518,7 +523,7 @@ def build_sdcard_utils(
             host.button_create_directory_cancel.setVisible(True)
         else:
             logging.info("Please load an image file first !")
-            add_main_log_window("Please load an image file first !")
+            add_main_log_window(ui_tr_now("Please load an image file first !"))
 
         save_configuration_file()
 
@@ -535,7 +540,7 @@ def build_sdcard_utils(
             host.button_create_directory_cancel.setVisible(False)
         else:
             logging.info("Please load an image file first !")
-            add_main_log_window("Please load an image file first !")
+            add_main_log_window(ui_tr_now("Please load an image file first !"))
 
         save_configuration_file()
 
@@ -583,13 +588,13 @@ def build_sdcard_utils(
 
         if not _right_disk_content():
             logging.info("Please load an image file first !")
-            add_main_log_window("Please load an image file first !")
+            add_main_log_window(ui_tr_now("Please load an image file first !"))
             return
 
         nachars = "".join(DIRECTORY_CREATION_NOT_ALLOWED_CHARACTERS)
 
         dialog = QDialog(host)
-        dialog.setWindowTitle("Create New Folder")
+        dialog.setWindowTitle(ui_tr_now("Create New Folder"))
         dialog.setMinimumWidth(380)
         layout = QVBoxLayout(dialog)
 
@@ -608,7 +613,8 @@ def build_sdcard_utils(
         layout.addWidget(error_label)
 
         button_box = QDialogButtonBox(dialog)
-        create_button = button_box.addButton("Create", QDialogButtonBox.AcceptRole)
+        create_button = button_box.addButton(
+            ui_tr_now("Create"), QDialogButtonBox.AcceptRole)
         button_box.addButton("Cancel", QDialogButtonBox.RejectRole)
         layout.addWidget(button_box)
 
@@ -694,7 +700,8 @@ def build_sdcard_utils(
         dialog_layout.addWidget(download_progress)
 
         button_box = QDialogButtonBox(dialog)
-        download_button = button_box.addButton("Download", QDialogButtonBox.AcceptRole)
+        download_button = button_box.addButton(
+            ui_tr_now("Download"), QDialogButtonBox.AcceptRole)
         cancel_button = button_box.addButton("Cancel", QDialogButtonBox.RejectRole)
         dialog_layout.addWidget(button_box)
 
@@ -722,7 +729,8 @@ def build_sdcard_utils(
             download_progress.setVisible(True)
             download_progress.setValue(0)
 
-            add_main_log_window(f"Downloading {selected_label} from {selected_url}")
+            add_main_log_window(ui_tr_now("Downloading {name} from {url}").format(
+                name=selected_label, url=selected_url))
 
             try:
                 request = urllib.request.Request(
@@ -748,7 +756,9 @@ def build_sdcard_utils(
                 download_progress.setValue(100)
             except Exception as download_error:
                 logging.error(f"Failed downloading NextZXOS image: {download_error}")
-                add_main_log_window(f"Failed downloading NextZXOS image: {download_error}")
+                add_main_log_window(ui_tr_now(
+                    "Failed downloading NextZXOS image: {error}").format(
+                        error=download_error))
                 QMessageBox.critical(
                     dialog,
                     ui_tr_now("Download Failed"),
@@ -773,10 +783,14 @@ def build_sdcard_utils(
                         if image_members:
                             archive.extract(image_members[0], extract_dir)
                             image_to_load = os.path.join(extract_dir, image_members[0])
-                            add_main_log_window(f"Extracted disk image: {image_to_load}")
+                            add_main_log_window(ui_tr_now(
+                                "Extracted disk image: {path}").format(
+                                    path=image_to_load))
             except Exception as extract_error:
                 logging.error(f"Failed extracting NextZXOS image: {extract_error}")
-                add_main_log_window(f"Failed extracting NextZXOS image: {extract_error}")
+                add_main_log_window(ui_tr_now(
+                    "Failed extracting NextZXOS image: {error}").format(
+                        error=extract_error))
                 QMessageBox.critical(
                     dialog,
                     ui_tr_now("Extraction Failed"),
@@ -911,19 +925,26 @@ def build_sdcard_utils(
         used_pct = 100 - free_pct
         if free_pct < 10:
             if free_pct == 0:
-                space_line = f"The image is completely full ({total_mb} MB capacity, 0 MB free)."
+                space_line = ui_tr_now(
+                    "The image is completely full ({total} MB capacity, "
+                    "0 MB free).").format(total=total_mb)
             else:
-                space_line = (f"Only {free_mb} MB free out of {total_mb} MB "
-                              f"({used_pct:.1f} % used, {free_pct:.1f} % free).")
+                space_line = ui_tr_now(
+                    "Only {free} MB free out of {total} MB "
+                    "({used} % used, {pct} % free).").format(
+                        free=free_mb, total=total_mb,
+                        used=f"{used_pct:.1f}", pct=f"{free_pct:.1f}")
             msg = QMessageBox(host)
             msg.setIcon(QMessageBox.Warning)
-            msg.setWindowTitle("SD Image Nearly Full")
+            msg.setWindowTitle(ui_tr_now("SD Image Nearly Full"))
             msg.setText(
-                f"\u26a0\ufe0f  The SD card image is nearly full.\n\n"
-                f"{space_line}\n\n"
-                f"Delete files from the image to free space, or switch to a larger image.\n"
-                f"Larger SD card images can be downloaded from:\n"
-                f"https://zxnext.uk/hosted/"
+                "\u26a0\ufe0f  " + ui_tr_now(
+                    "The SD card image is nearly full.") + "\n\n"
+                + space_line + "\n\n"
+                + ui_tr_now(
+                    "Delete files from the image to free space, or switch to "
+                    "a larger image.\nLarger SD card images can be downloaded "
+                    "from:") + "\nhttps://zxnext.uk/hosted/"
             )
             msg.setStandardButtons(QMessageBox.Ok)
             msg.exec()
@@ -1034,9 +1055,9 @@ def build_sdcard_utils(
                     add_main_log_window(f"ERROR: Permission denied running hdfmonkey: {hdfmonkey_exe}")
                     if hdfmonkey_needs_exec_bit():
                         cmd = hdfmonkey_chmod_instruction(hdfmonkey_exe)
-                        add_main_log_window(
+                        add_main_log_window(ui_tr_now(
                             "The hdfmonkey provided by the CSpect itch.io package is not "
-                            "executable. Make it executable by running:")
+                            "executable. Make it executable by running:"))
                         add_main_log_window(f"    {cmd}")
 
         except (FileNotFoundError,subprocess.CalledProcessError) as ex:
@@ -1062,7 +1083,15 @@ def build_sdcard_utils(
                                       + (f" | stderr: {stderr_text}" if stderr_text else ""))
                 elif isinstance(ex, FileNotFoundError) or ex.returncode == 1:
                     logging.error(f"Failed executing hdfmonkey: {execution_cmd} - Once hdfmonkey is installed please close the application and restart it.")
-                    add_main_log_window("ERROR: hdfmonkey could not be found. Use the 'Download and install HDF Monkey' button (bottom right of the SD Card tab) to install it automatically, or do a full CSpect install from the itch.io tab, which also bundles hdfmonkey. It can also be installed manually from https://github.com/gasman/hdfmonkey — restart the app once installed.")
+                    add_main_log_window(ui_tr_now(
+                        "ERROR: hdfmonkey could not be found. Use the "
+                        "'Download and install HDF Monkey' button (bottom "
+                        "right of the SD Card tab) to install it "
+                        "automatically, or do a full CSpect install from the "
+                        "itch.io tab, which also bundles hdfmonkey. It can "
+                        "also be installed manually from "
+                        "https://github.com/gasman/hdfmonkey — restart the "
+                        "app once installed."))
                 elif ex.returncode == 255:
                     if execution_cmd is not None:
                         logging.error(f"ERROR: hdfmonkey failed - A file can't be opened: {execution_cmd} this is commonly caused by strange characters such as quotes and signs")
@@ -1158,7 +1187,7 @@ def build_image_edit_ops(
         selected = host.image_selected_paths or [(host.image_selected_path, host.image_selected_is_dir)]
 
         dialog = QDialog(host)
-        dialog.setWindowTitle("Confirm Deletion")
+        dialog.setWindowTitle(ui_tr_now("Confirm Deletion"))
         dialog.setMinimumWidth(420)
         layout = QVBoxLayout(dialog)
 
@@ -1207,12 +1236,14 @@ def build_image_edit_ops(
     def image_delete_files():
         if not _right_disk_content():
             logging.info("Please select an image file or folder first to delete!")
-            add_main_log_window("Please select an image file or folder first to delete!")
+            add_main_log_window(ui_tr_now(
+                "Please select an image file or folder first to delete!"))
             return
 
         if not host.image_selected_path:
             logging.info("Please select an image file or folder first to delete!")
-            add_main_log_window("Please select an image file or folder first to delete!")
+            add_main_log_window(ui_tr_now(
+                "Please select an image file or folder first to delete!"))
             return
 
         img_err = _check_image_writable(host.right_disk_image_path, check_free_space=False)
@@ -1337,7 +1368,8 @@ def build_image_edit_ops(
         the primary selection (single entry) and runs on a worker thread."""
         if not _right_disk_content() or not host.image_selected_path:
             logging.info("Please select an image file or folder first to rename!")
-            add_main_log_window("Please select an image file or folder first to rename!")
+            add_main_log_window(ui_tr_now(
+                "Please select an image file or folder first to rename!"))
             return
 
         src_path = host.image_selected_path.rstrip("/")
@@ -1477,11 +1509,13 @@ def build_local_explorer_ops(
             return
         try:
             os.rename(file_path, new_path)
-            add_main_log_window(f"Renamed: {file_path} -> {new_path}")
+            add_main_log_window(ui_tr_now("Renamed: {old} -> {new}").format(
+                old=file_path, new=new_path))
         except OSError as e:
             logging.error(f"Failed to rename {file_path} -> {new_path}: {e}",
                           exc_info=True)
-            add_main_log_window(f"Failed to rename {file_path}: {e}")
+            add_main_log_window(ui_tr_now(
+                "Failed to rename {path}: {error}").format(path=file_path, error=e))
             QMessageBox.critical(host, ui_tr_now("Rename failed"),
                                  ui_tr_now("Could not rename:") + f"\n{file_path}\n\n{e}")
         finally:
@@ -1812,7 +1846,8 @@ def build_local_explorer_ops(
         is called with a single bool (True only if the transfer finished without
         error or cancellation) — used by cut+paste to remove the source after."""
         if not dest_dir or not os.path.isdir(dest_dir):
-            add_main_log_window("Import failed: no valid destination folder.")
+            add_main_log_window(ui_tr_now(
+                "Import failed: no valid destination folder."))
             return
 
         items = []
@@ -1825,7 +1860,9 @@ def build_local_explorer_ops(
                 dest_abs = os.path.abspath(dest_dir)
                 # Guard against importing a folder into itself or a subfolder.
                 if dest_abs == src_abs or dest_abs.startswith(src_abs + os.sep):
-                    add_main_log_window(f"Skipped {src}: cannot import a folder into itself.")
+                    add_main_log_window(ui_tr_now(
+                        "Skipped {path}: cannot import a folder into itself."
+                    ).format(path=src))
                     continue
             base = os.path.basename(src.rstrip("/\\"))
             target = _nextsync_unique_path(os.path.join(dest_dir, base), src_is_dir)
@@ -1903,7 +1940,7 @@ def build_transfer_clipboard_ops(
 
         if not _right_disk_content():
             logging.warning("Please load an image file first !")
-            add_main_log_window("Please load an image file first !")
+            add_main_log_window(ui_tr_now("Please load an image file first !"))
             return
 
         set_all_buttons_disabled()
@@ -1966,11 +2003,12 @@ def build_transfer_clipboard_ops(
 
         if not _right_disk_content():
             logging.warning("Please load an image file first !")
-            add_main_log_window("Please load an image file first !")
+            add_main_log_window(ui_tr_now("Please load an image file first !"))
             return
 
         if not dest_dir or not os.path.isdir(dest_dir):
-            add_main_log_window("Download failed: no valid destination folder.")
+            add_main_log_window(ui_tr_now(
+                "Download failed: no valid destination folder."))
             return
 
         items = []
@@ -2191,7 +2229,7 @@ def build_transfer_clipboard_ops(
         copy finished without error or cancellation) so cut+paste can remove the
         source entries afterward."""
         if not _right_disk_content():
-            add_main_log_window("Please load an image file first !")
+            add_main_log_window(ui_tr_now("Please load an image file first !"))
             return
         img_err = _check_image_writable(host.right_disk_image_path)
         if img_err:
@@ -2381,7 +2419,8 @@ def build_transfer_clipboard_ops(
             # Cutting into the source's own image folder is a no-op move.
             if is_cut and img_paths and all(
                     (p.rstrip("/").rsplit("/", 1)[0] or "/") == target for p in img_paths):
-                add_main_log_window("Nothing to move: items are already in this folder.")
+                add_main_log_window(ui_tr_now(
+                    "Nothing to move: items are already in this folder."))
                 _explorer_clipboard_clear()
                 return
             def _after(success, _p=img_paths):
@@ -2476,7 +2515,7 @@ def build_transfer_clipboard_ops(
 
         if not _right_disk_content():
             logging.warning("Please load an image file first !")
-            add_main_log_window("Please load an image first!")
+            add_main_log_window(ui_tr_now("Please load an image first!"))
             return
 
         img_err = _check_image_writable(host.right_disk_image_path)
@@ -2534,7 +2573,7 @@ def build_transfer_clipboard_ops(
 
         if not _right_disk_content():
             logging.warning("Please load an image file first !")
-            add_main_log_window("Please load an image first!")
+            add_main_log_window(ui_tr_now("Please load an image first!"))
             return
 
         img_err = _check_image_writable(host.right_disk_image_path)
@@ -2666,9 +2705,9 @@ def build_transfer_clipboard_ops(
             local_zip = os.path.join(tmp, name)
             if not success or not os.path.isfile(local_zip):
                 shutil.rmtree(tmp, ignore_errors=True)
-                add_main_log_window("Remote unzip: download from the image "
-                                    "failed or was cancelled — the image "
-                                    "is unchanged.")
+                add_main_log_window(ui_tr_now(
+                    "Remote unzip: download from the image failed or was "
+                    "cancelled — the image is unchanged."))
                 return
             extract_dir = os.path.join(tmp, "_extracted")
             os.makedirs(extract_dir, exist_ok=True)
@@ -2677,8 +2716,8 @@ def build_transfer_clipboard_ops(
             if not res["ok"] or res["files"] == 0:
                 shutil.rmtree(tmp, ignore_errors=True)
                 if res["cancelled"]:
-                    add_main_log_window("Remote unzip cancelled — the "
-                                        "image is unchanged.")
+                    add_main_log_window(ui_tr_now(
+                        "Remote unzip cancelled — the image is unchanged."))
                 elif res["error"]:
                     add_main_log_window(f"ERROR: could not extract {name}: "
                                         f"{res['error']}")
@@ -2699,12 +2738,15 @@ def build_transfer_clipboard_ops(
                     extra = (f" ({skipped} unsafe "
                              f"{'entry' if skipped == 1 else 'entries'} "
                              "skipped)" if skipped else "")
-                    add_main_log_window(
-                        f"Extracted {res['files']} file(s) from {name} "
-                        f"into {dest_dir} on the image.{extra}")
+                    add_main_log_window(ui_tr_now(
+                        "Extracted {count} file(s) from {name} into {folder} "
+                        "on the image.").format(
+                            count=res["files"], name=name, folder=dest_dir)
+                        + extra)
                 else:
-                    add_main_log_window("Remote unzip: upload into the "
-                                        "image failed or was cancelled.")
+                    add_main_log_window(ui_tr_now(
+                        "Remote unzip: upload into the image failed or was "
+                        "cancelled."))
             image_upload_external_paths(tops, dest_dir, on_complete=_done)
 
         add_main_log_window(f"Remote unzip: fetching {zip_path} from "
@@ -2739,9 +2781,9 @@ def build_transfer_clipboard_ops(
         def _go(success):
             if not success:
                 shutil.rmtree(tmp, ignore_errors=True)
-                add_main_log_window("Remote zip: download from the image "
-                                    "failed or was cancelled — no zip was "
-                                    "created.")
+                add_main_log_window(ui_tr_now(
+                    "Remote zip: download from the image failed or was "
+                    "cancelled — no zip was created."))
                 return
             src_paths = [os.path.join(dl, e) for e in sorted(os.listdir(dl))]
             zip_local = os.path.join(tmp, zip_name)
@@ -2750,8 +2792,8 @@ def build_transfer_clipboard_ops(
             if not res["ok"]:
                 shutil.rmtree(tmp, ignore_errors=True)
                 if res["cancelled"]:
-                    add_main_log_window("Remote zip cancelled — no zip "
-                                        "was created.")
+                    add_main_log_window(ui_tr_now(
+                        "Remote zip cancelled — no zip was created."))
                 else:
                     add_main_log_window(f"ERROR: could not build "
                                         f"{zip_name}: {res['error']}")
@@ -2761,12 +2803,15 @@ def build_transfer_clipboard_ops(
             def _done(up_ok):
                 shutil.rmtree(tmp, ignore_errors=True)
                 if up_ok:
-                    add_main_log_window(
-                        f"Created {zip_name} in {dest_dir} on the image "
-                        f"({res['files']} file(s), {size:,} bytes).")
+                    add_main_log_window(ui_tr_now(
+                        "Created {name} in {folder} on the image "
+                        "({count} file(s), {bytes} bytes).").format(
+                            name=zip_name, folder=dest_dir,
+                            count=res["files"], bytes=f"{size:,}"))
                 else:
-                    add_main_log_window("Remote zip: upload into the "
-                                        "image failed or was cancelled.")
+                    add_main_log_window(ui_tr_now(
+                        "Remote zip: upload into the image failed or was "
+                        "cancelled."))
             image_upload_external_paths([zip_local], dest_dir,
                                         on_complete=_done)
 
