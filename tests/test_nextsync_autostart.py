@@ -131,9 +131,15 @@ check("the label names its emulator",
       str([e.label for e in entries]))
 check("launching passes the host path straight through",
       entries[0].launch("/tmp/x.nex") == ("cspect", "/tmp/x.nex"))
-check("a Windows path is labelled by base name, not the whole path",
-      "C:\\" not in emulator_autostart_entries(
-          both, "C:\\games\\beast.nex")[0].label)
+# Both separators, on EVERY platform: os.path.basename ignores "\" on POSIX,
+# so this failed on CI (Linux) while passing on every Windows dev machine.
+# The paths reaching the helper come from the Next as well as the local disk.
+for _sep_path in ("C:\\games\\beast.nex", "C:/GAMES/beast.nex",
+                  "/games/beast.nex", "beast.nex"):
+    _label = emulator_autostart_entries(both, _sep_path)[0].label
+    check(f"labelled by base name, not the whole path: {_sep_path!r}",
+          _label.endswith("beast.nex") and "games" not in _label.lower(),
+          _label)
 
 # ---- staging directories --------------------------------------------------
 # Only callers that must FETCH the file first use these (the SD image and the
