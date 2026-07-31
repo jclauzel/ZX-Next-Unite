@@ -87,7 +87,14 @@ ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
 # UI language pinned to English so the first-run OS-language adoption can't
 # translate the texts these phases compare (phase 10 covers that flow).
 BASE_CFG = ("mame_update_check=false\ncspect_update_check=false\n"
-            "zxnu_update_check=false\nui_language=en\n")
+            "zxnu_update_check=false\nui_language=en\n"
+            # The startup tab activation shows the one-time content disclaimer
+            # for the online panes. It is a MODAL dialog, so a phase that has
+            # not agreed to it blocks forever. (Before the tab titles were
+            # matched by prefix, a badge on the restored tab made that branch
+            # unreachable and the dialog never appeared — which is exactly the
+            # bug that left ZXDB uninitialised on restart.)
+            "content_disclaimer_agreed=1\n")
 
 
 def find_hdfmonkey():
@@ -239,7 +246,7 @@ elif PHASE == 10:
     ensure_scratch(fresh=False)
     with open(CFG, "w", encoding="utf-8") as f:
         f.write("mame_update_check=false\ncspect_update_check=false\n"
-                "zxnu_update_check=false\n")
+                "zxnu_update_check=false\ncontent_disclaimer_agreed=1\n")
     os.environ["ZX_NEXT_UNITE_UI_LANGUAGE"] = "es"
 elif PHASE == 11:
     # NextSync Remote Explorer with pygame absent (every phase blocks pygame —
@@ -266,7 +273,7 @@ elif PHASE in (6, 7):
                     + "delete_to_recycle_bin=false\n")
         else:
             f.write("mame_update_check=false\ncspect_update_check=false\n"
-                    "ui_language=en\n")
+                    "ui_language=en\ncontent_disclaimer_agreed=1\n")
 else:
     print(f"Unknown phase {PHASE}")
     sys.exit(2)

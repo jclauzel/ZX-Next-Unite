@@ -3719,11 +3719,11 @@ class MainWindow(QMainWindow):
                 current_title = wid_inner.tab.tabText(wid_inner.tab.currentIndex())
             except Exception:
                 return
-            if current_title == ZX_NEXT_UNITE_TAB_TITLE_GOOEY:
+            if current_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GOOEY):
                 # App restored onto the SD-card tab: kick off the idle glow now,
                 # since currentChanged wasn't connected during config restore.
                 _start_transfer_idle_animation()
-            elif current_title == ZX_NEXT_UNITE_TAB_TITLE_GETIT:
+            elif current_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GETIT):
                 _show_content_disclaimer()
                 self._getit_fetch_motd()
                 # Preserve any pending query (e.g. mirrored from an AllInOne
@@ -3732,15 +3732,20 @@ class MainWindow(QMainWindow):
                         and not self._getit_search_loading
                         and not self.getit_search_input.text().strip()):
                     self._getit_on_latest()
-            elif current_title == ZX_NEXT_UNITE_TAB_TITLE_ZXDB:
+            elif current_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ZXDB):
                 _show_content_disclaimer()
-                self._zxdb_on_tab_activated()
-            elif current_title == ZX_NEXT_UNITE_TAB_TITLE_ZXART:
+                # Restored straight onto ZXDB: the Unite! "Latest" fan-out
+                # above drives this pane too, and ZXDB's newest rows have no
+                # screenshots yet. Wait for that fetch, then load the pane's
+                # own (picture-bearing) first page — see the docstring on
+                # _zxdb_startup_initial_load.
+                self._zxdb_startup_initial_load()
+            elif current_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ZXART):
                 _show_content_disclaimer()
                 self._zxart_on_tab_activated()
-            elif current_title == ZX_NEXT_UNITE_TAB_TITLE_ALLINONE:
+            elif current_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE):
                 _show_content_disclaimer()
-            elif current_title == ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC:
+            elif current_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC):
                 # App restored directly onto the NextSync tab: start the Remote
                 # Explorer sub-tab animation (currentChanged wasn't connected yet)
                 # and auto-prepare so the Start button is ready.
