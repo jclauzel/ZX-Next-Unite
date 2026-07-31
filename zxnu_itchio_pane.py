@@ -791,15 +791,17 @@ def build_itchio_pane(
                 url = (_e.get("url") or "").strip()
                 box = QMessageBox(host)
                 box.setIcon(QMessageBox.Warning)
-                box.setWindowTitle("itch.io download")
-                box.setText(_msg or "The automated download failed.")
-                box.setInformativeText(
+                box.setWindowTitle(ui_tr_now("itch.io download"))
+                box.setText(_msg or ui_tr_now("The automated download failed."))
+                box.setInformativeText(ui_tr_now(
                     "You can download it manually from the itch.io page in "
-                    "your browser, then install it from the downloaded .zip.")
-                open_btn = (box.addButton("Open itch.io page", QMessageBox.ActionRole)
+                    "your browser, then install it from the downloaded .zip."))
+                open_btn = (box.addButton(ui_tr_now("Open itch.io page"),
+                                          QMessageBox.ActionRole)
                             if url else None)
-                pick_btn = box.addButton("Install from .zip…", QMessageBox.AcceptRole)
-                box.addButton("Close", QMessageBox.RejectRole)
+                pick_btn = box.addButton(
+                    ui_tr_now("Install from .zip…"), QMessageBox.AcceptRole)
+                box.addButton(ui_tr_now("Close"), QMessageBox.RejectRole)
                 box.exec()
                 clicked = box.clickedButton()
                 if open_btn is not None and clicked is open_btn:
@@ -928,10 +930,12 @@ def build_itchio_pane(
                     _itchio_refresh_install_buttons(_viewer, False)
                     return
                 reply = QMessageBox.question(
-                    host, "Uninstall",
-                    f"This is going to completely delete the files in {path} "
-                    "and its sub folders, so they will be unrecoverable.\n\n"
-                    "Are you sure want to continue?",
+                    host, ui_tr_now("Uninstall"),
+                    ui_tr_now(
+                        "This is going to completely delete the files in "
+                        "{path} and its sub folders, so they will be "
+                        "unrecoverable.\n\nAre you sure want to continue?"
+                    ).format(path=path),
                     QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
                 if reply != QMessageBox.Yes:
                     return

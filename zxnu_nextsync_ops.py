@@ -875,16 +875,24 @@ def build_nextsync_server_job(
         try:
             box = QMessageBox(host)
             box.setIcon(QMessageBox.Question)
-            box.setWindowTitle("File or directory exists")
-            box.setText("File or directory already exists locally.")
+            box.setWindowTitle(ui_tr_now("File or directory exists"))
+            box.setText(ui_tr_now("File or directory already exists locally."))
+            # The Settings label is quoted verbatim: it is what the user has to
+            # find in the UI, and that row is itself translated by the walk.
             box.setInformativeText(
                 f"{path}\n\n"
-                "Tip: set a default for this in Settings → "
-                "\"NextSync — when a sent file or directory exists locally\".")
-            b_ow_one = box.addButton("Overwrite local file (one time)", QMessageBox.AcceptRole)
-            b_ow_all = box.addButton("Overwrite local file (always in this sync)", QMessageBox.AcceptRole)
-            b_ig_one = box.addButton("Ignore (one time)", QMessageBox.RejectRole)
-            b_ig_all = box.addButton("Ignore (always in this sync)", QMessageBox.RejectRole)
+                + ui_tr_now("Tip: set a default for this in Settings → "
+                            "\"NextSync — when a sent file or directory exists "
+                            "locally\"."))
+            b_ow_one = box.addButton(
+                ui_tr_now("Overwrite local file (one time)"), QMessageBox.AcceptRole)
+            b_ow_all = box.addButton(
+                ui_tr_now("Overwrite local file (always in this sync)"),
+                QMessageBox.AcceptRole)
+            b_ig_one = box.addButton(
+                ui_tr_now("Ignore (one time)"), QMessageBox.RejectRole)
+            b_ig_all = box.addButton(
+                ui_tr_now("Ignore (always in this sync)"), QMessageBox.RejectRole)
             box.exec()
             clicked = box.clickedButton()
             if clicked is b_ow_one:

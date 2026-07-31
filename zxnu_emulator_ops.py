@@ -316,19 +316,24 @@ def build_emulator_ops(
             except subprocess.CalledProcessError as ex:
                 if ex.returncode == 1:
                     logging.error("CSpect.exe is not present in the same local directory as zx-next-unite.Please install it from http://cspect.org")
-                    add_main_log_window("ERROR: CSpect.exe is not present in the same local directory as zx-next-unite.Please install it from http://cspect.org")
+                    add_main_log_window(ui_tr_now(
+                        "ERROR: CSpect.exe is not present in the same local "
+                        "directory as zx-next-unite. Please install it from "
+                        "http://cspect.org"))
                 else:
                     logging.error(f"ERROR: Unknown shell execute error: {ex.returncode} - :{ex}")
                     add_main_log_window(f"ERROR: Unknown shell execute error: {ex.returncode} - :{ex}")
 
                 if platform.system() != "Windows":
                     logging.error("On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.")
-                    add_main_log_window("On MacOS and Linux mono is required as it runs under it. Please make sure mono is installed.")
+                    add_main_log_window(ui_tr_now(
+                        "On MacOS and Linux mono is required as it runs under "
+                        "it. Please make sure mono is installed."))
                     if os.environ.get("FLATPAK_ID"):
-                        add_main_log_window(
+                        add_main_log_window(ui_tr_now(
                             "Running as a Flatpak: mono must be installed on "
                             "the HOST system — the launch is delegated there "
-                            "via flatpak-spawn.")
+                            "via flatpak-spawn."))
 
             set_all_buttons_enabled()
 
@@ -341,9 +346,9 @@ def build_emulator_ops(
         # missing) — otherwise MAME could never be launched without hdfmonkey.
         _sel_image = host.imageinput.currentText().strip().strip('"')
         if not (_sel_image and os.path.isfile(_sel_image)):
-            add_main_log_window(
+            add_main_log_window(ui_tr_now(
                 "Select a valid ZX Spectrum Next disk image (.img/.hdf) "
-                "before launching MAME.")
+                "before launching MAME."))
             return
 
         # Flatpak mode (Linux) launches `flatpak run org.mamedev.MAME …`
@@ -353,7 +358,8 @@ def build_emulator_ops(
         mame_path = getattr(host, "_mame_executable_path", None)
         if not _flatpak and not mame_path:
             logging.error("MAME executable not found on PATH. Cannot launch MAME.")
-            add_main_log_window("ERROR: MAME executable not found on PATH. Cannot launch MAME.")
+            add_main_log_window(ui_tr_now(
+                "ERROR: MAME executable not found on PATH. Cannot launch MAME."))
             return
 
         # Pull the (possibly user-customised) command line from the cfg file,
@@ -633,7 +639,7 @@ def build_emulator_ops(
             f"Download (~{size_txt}) and install it into the downloads "
             f"folder?\nNote: the fully extracted install is large (~500 MB).")
         _attach_release_notes(box, release.get("notes"))
-        go = box.addButton("Download and install", QMessageBox.AcceptRole)
+        go = box.addButton(ui_tr_now("Download and install"), QMessageBox.AcceptRole)
         box.addButton("Cancel", QMessageBox.RejectRole)
         box.setDefaultButton(go)
         box.exec()
@@ -659,7 +665,7 @@ def build_emulator_ops(
                 "Windows (x64 / arm64).\n\nDownload the official binaries for "
                 "your system from:\nhttps://www.mamedev.org/release.html")
             return
-        add_main_log_window("Listing the available MAME releases…")
+        add_main_log_window(ui_tr_now("Listing the available MAME releases…"))
         try:
             releases = _fetch_mame_releases(arch)
         except Exception as e:
@@ -673,7 +679,8 @@ def build_emulator_ops(
             return
         chosen = _pick_mame_release(releases, title)
         if chosen is None:
-            add_main_log_window("MAME install ▸ release picker cancelled.")
+            add_main_log_window(ui_tr_now(
+                "MAME install ▸ release picker cancelled."))
             return
         _confirm_and_start_mame_install(chosen, arch, title)
 
@@ -851,9 +858,9 @@ def build_emulator_ops(
         # the detected path so the hint is right wherever the build unpacked.
         roms_dir = os.path.join(os.path.dirname(detected), "roms")
         add_main_log_window(f"MAME install ▸ SUCCESS — MAME detected at: {detected}")
-        add_main_log_window(
+        add_main_log_window(ui_tr_now(
             "MAME is ready to launch now — no restart needed. Use the "
-            "'🕹  Launch Mame' button.")
+            "'🕹  Launch Mame' button."))
         add_main_log_window(
             "MAME install ▸ NEXT STEP (manual): add the TBBLUE boot ROM. See "
             f"{MAME_INSTALL_WIKI_URL} → \"Get TBBLUE (the Next 'boot ROM')\". "
@@ -892,9 +899,9 @@ def build_emulator_ops(
                 host.button_install_mame.setText(ui_tr_now("⬇  Install MAME"))
             except RuntimeError:
                 pass
-            add_main_log_window(
+            add_main_log_window(ui_tr_now(
                 "MAME install ▸ FAILED — the download and extraction finished, "
-                "but no mame.exe could be found in downloads/mame.")
+                "but no mame.exe could be found in downloads/mame."))
             logging.error("MAME install: mame.exe not found after extraction.")
             try:
                 host._show_toast(
@@ -919,9 +926,9 @@ def build_emulator_ops(
         except RuntimeError:
             pass
         detail = err[1] if isinstance(err, (tuple, list)) and len(err) > 1 else err
-        add_main_log_window(
-            f"MAME install ▸ FAILED — {detail}. You can download it manually "
-            "from https://www.mamedev.org/release.html")
+        add_main_log_window(ui_tr_now(
+            "MAME install ▸ FAILED — {error}. You can download it manually "
+            "from https://www.mamedev.org/release.html").format(error=detail))
         logging.error(f"Failed to download/install MAME: {err}")
         try:
             QMessageBox.warning(
@@ -948,8 +955,9 @@ def build_emulator_ops(
             host.button_install_mame.setText("⬇  Installing MAME… 0%")
         except RuntimeError:
             pass
-        add_main_log_window(
-            f"MAME install ▸ Starting: {tag} ({asset_name}, ~{size_txt}).")
+        add_main_log_window(ui_tr_now(
+            "MAME install ▸ Starting: {tag} ({asset}, ~{size}).").format(
+                tag=tag, asset=asset_name, size=size_txt))
         # Channel for the worker's phase log lines + button percentage. It is
         # stored on self so it outlives this call: otherwise it would be
         # garbage-collected the moment we return, cancelling the queued emits
@@ -1030,7 +1038,7 @@ def build_emulator_ops(
         size_txt = f"{size / 1048576:.0f} MB" if size else "about 90 MB"
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("MAME update available")
+        box.setWindowTitle(ui_tr_now("MAME update available"))
         box.setText(
             "A newer version of MAME is available.\n\n"
             f"Installed: 0.{installed_num}\n"
@@ -1040,22 +1048,23 @@ def build_emulator_ops(
             "The existing files in the downloads MAME folder will be "
             "overwritten.")
         _attach_release_notes(box, info.get("notes"))
-        upd = box.addButton("Update", QMessageBox.AcceptRole)
+        upd = box.addButton(ui_tr_now("Update"), QMessageBox.AcceptRole)
         # Escape hatch to any other recent release — including an older one,
         # which is how the update path itself can be exercised again.
-        other = box.addButton("Choose another release…", QMessageBox.ActionRole)
+        other = box.addButton(
+            ui_tr_now("Choose another release…"), QMessageBox.ActionRole)
         box.addButton("Cancel", QMessageBox.RejectRole)
         box.setDefaultButton(upd)
         box.exec()
         clicked = box.clickedButton()
         if clicked is upd:
-            add_main_log_window(
-                f"MAME update ▸ user chose to update to {tag}.")
+            add_main_log_window(ui_tr_now(
+                "MAME update ▸ user chose to update to {tag}.").format(tag=tag))
             _start_mame_install(tag, asset_name, url, size, size_txt,
                                 sha256=info.get("sha256"))
         elif clicked is other:
-            add_main_log_window(
-                "MAME update ▸ user chose to pick a release manually.")
+            add_main_log_window(ui_tr_now(
+                "MAME update ▸ user chose to pick a release manually."))
             _choose_and_install_mame("Choose a MAME release")
 
     def _check_mame_update_async():
@@ -1111,14 +1120,14 @@ def build_emulator_ops(
                 installed_num = info.get("installed_num")
                 latest_num = info.get("latest_num")
                 if latest_num is None:
-                    add_main_log_window(
+                    add_main_log_window(ui_tr_now(
                         "MAME update check: could not determine the "
-                        "latest release; skipping.")
+                        "latest release; skipping."))
                     return
                 if installed_num is None:
-                    add_main_log_window(
+                    add_main_log_window(ui_tr_now(
                         "MAME update check: could not determine the installed "
-                        "MAME version; skipping.")
+                        "MAME version; skipping."))
                     return
                 if latest_num <= installed_num:
                     if info.get("patched"):
@@ -1139,9 +1148,9 @@ def build_emulator_ops(
         def _on_error(err):
             detail = err[1] if isinstance(err, (tuple, list)) and len(err) > 1 else err
             logging.info(f"MAME update check skipped: {detail}")
-            add_main_log_window(
+            add_main_log_window(ui_tr_now(
                 "MAME update check: could not reach the release site; "
-                "skipping.")
+                "skipping."))
 
         add_main_log_window(ui_tr_now("Checking for a newer MAME release…"))
         getit_run_in_thread(_job, _on_result, _on_error)
@@ -1198,7 +1207,7 @@ def build_emulator_ops(
             "choose Open." if is_app_bundle else "")
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("Update downloaded")
+        box.setWindowTitle(ui_tr_now("Update downloaded"))
         box.setText(
             "The new version was saved as:\n\n"
             f"{new_path}\n\n"
@@ -1206,7 +1215,7 @@ def build_emulator_ops(
             "Your settings (hdfg.cfg) and downloads are picked up as-is —\n"
             "both versions run from the same folder." + gatekeeper_note)
         yes = box.addButton(f"Close and start {name}", QMessageBox.AcceptRole)
-        box.addButton("Later", QMessageBox.RejectRole)
+        box.addButton(ui_tr_now("Later"), QMessageBox.RejectRole)
         box.setDefaultButton(yes)
         box.exec()
         if box.clickedButton() is not yes:
@@ -1319,7 +1328,8 @@ def build_emulator_ops(
                         f"ZX Next Unite update: unpacked to {runnable}")
                 _zxnu_offer_restart(runnable)
             elif holder["error"] == "cancelled":
-                add_main_log_window("ZX Next Unite update: download cancelled.")
+                add_main_log_window(ui_tr_now(
+                    "ZX Next Unite update: download cancelled."))
             elif os.path.isfile(dest):
                 # The package arrived but could not be unpacked — keep it
                 # so the user can extract it by hand.
@@ -1358,7 +1368,7 @@ def build_emulator_ops(
                 "update with 'git pull' instead of the Windows binary.")
             box = QMessageBox(host)
             box.setIcon(QMessageBox.Information)
-            box.setWindowTitle("ZX Next Unite update available")
+            box.setWindowTitle(ui_tr_now("ZX Next Unite update available"))
             box.setText(
                 f"ZX Next Unite {tag} is available "
                 f"(you are running {ZX_NEXT_UNITE_VERSION}).\n\n"
@@ -1367,8 +1377,9 @@ def build_emulator_ops(
                 "    git pull\n\n"
                 "instead of downloading the Windows binary.")
             _attach_notes(box)
-            openrel = box.addButton("Open the releases page", QMessageBox.AcceptRole)
-            box.addButton("Close", QMessageBox.RejectRole)
+            openrel = box.addButton(
+                ui_tr_now("Open the releases page"), QMessageBox.AcceptRole)
+            box.addButton(ui_tr_now("Close"), QMessageBox.RejectRole)
             box.setDefaultButton(openrel)
             box.exec()
             if box.clickedButton() is openrel:
@@ -1393,7 +1404,7 @@ def build_emulator_ops(
         size_txt = f"{size / 1048576:.0f} MB" if size else "?"
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("ZX Next Unite update available")
+        box.setWindowTitle(ui_tr_now("ZX Next Unite update available"))
         box.setText(
             f"ZX Next Unite {tag} is available — download?\n\n"
             f"Installed: {ZX_NEXT_UNITE_VERSION}\n"
@@ -1411,7 +1422,8 @@ def build_emulator_ops(
             _zxnu_download_update(tag, asset_name, url, size,
                                   expected_sha256=sha256)
         else:
-            add_main_log_window("ZX Next Unite update ▸ skipped by user.")
+            add_main_log_window(ui_tr_now(
+                "ZX Next Unite update ▸ skipped by user."))
 
     def _check_zxnu_update_async():
         """At startup, when the Settings toggle is on, look up this app's
@@ -1422,9 +1434,9 @@ def build_emulator_ops(
             # Sandboxed install: /app is read-only and updates arrive via
             # the Flatpak remote, so the in-app self-updater must stay out
             # of the way.
-            add_main_log_window(
+            add_main_log_window(ui_tr_now(
                 "ZX Next Unite update check: running as a Flatpak — "
-                "updates come from your software center, skipping.")
+                "updates come from your software center, skipping."))
             return
         pref = configuration_dictionary.get(
             SETTING_ZXNU_UPDATE_CHECK, "").strip().lower()
@@ -1460,9 +1472,9 @@ def build_emulator_ops(
         def _on_error(err):
             detail = err[1] if isinstance(err, (tuple, list)) and len(err) > 1 else err
             logging.info(f"ZXNU update check skipped: {detail}")
-            add_main_log_window(
+            add_main_log_window(ui_tr_now(
                 "ZX Next Unite update check: could not reach GitHub "
-                "(offline, or no release published yet); skipping.")
+                "(offline, or no release published yet); skipping."))
 
         add_main_log_window(ui_tr_now(
             "Checking for a newer ZX Next Unite release on GitHub…"))
@@ -1636,14 +1648,14 @@ def build_emulator_ops(
         latest_name = info.get("version_name") or "a newer build"
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("CSpect update available")
+        box.setWindowTitle(ui_tr_now("CSpect update available"))
         box.setText(
             "A newer version of CSpect is available on itch.io.\n\n"
             f"Installed: {installed_name}\n"
             f"Latest: {latest_name}\n\n"
             "Download and install the newest version now?")
         _attach_release_notes(box, info.get("notes"))
-        yes = box.addButton("Yes", QMessageBox.AcceptRole)
+        yes = box.addButton(ui_tr_now("Yes"), QMessageBox.AcceptRole)
         box.addButton("Cancel", QMessageBox.RejectRole)
         box.setDefaultButton(yes)
         box.exec()
@@ -1652,7 +1664,8 @@ def build_emulator_ops(
                 f"CSpect update ▸ user chose to update to {latest_name}.")
             _start_cspect_update_install(info)
         else:
-            add_main_log_window("CSpect update ▸ user cancelled the update.")
+            add_main_log_window(ui_tr_now(
+                "CSpect update ▸ user cancelled the update."))
 
     def _check_cspect_update_async():
         """At startup — once an itch.io API key is configured and the check is
@@ -1736,7 +1749,8 @@ def build_emulator_ops(
         def _on_error(err):
             detail = (err[1] if isinstance(err, (tuple, list)) and len(err) > 1
                       else err)
-            add_main_log_window(f"CSpect update check skipped: {detail}")
+            add_main_log_window(ui_tr_now(
+                "CSpect update check skipped: {reason}").format(reason=detail))
             logging.info(f"CSpect update check skipped: {detail}")
 
         add_main_log_window(ui_tr_now(
@@ -2049,7 +2063,7 @@ def build_hdfmonkey_install_ops(
         downloads_root = _hdfmonkey_downloads_root()
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle("hdfmonkey download failed")
+        box.setWindowTitle(ui_tr_now("hdfmonkey download failed"))
         box.setText(
             "The automatic hdfmonkey download from specnext.com failed — the "
             "forum may be asking for a login or an anti-robot confirmation "
@@ -2147,7 +2161,7 @@ def build_hdfmonkey_install_ops(
         download, so the user can choose the fuller route instead."""
         box = QMessageBox(host)
         box.setIcon(QMessageBox.Information)
-        box.setWindowTitle("Install hdfmonkey")
+        box.setWindowTitle(ui_tr_now("Install hdfmonkey"))
         box.setText(
             "TIP: Did you know that if you have purchased CSpect from "
             "itch.io you can do a full end-to-end CSpect install from "
