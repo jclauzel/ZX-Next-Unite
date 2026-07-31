@@ -2707,8 +2707,14 @@ class MainWindow(QMainWindow):
 
         self.listWidgetLog = QListWidget(self)
 
-        for l in INIT_LOG:
-            add_main_log_window(l)
+        # INIT_LOG is built at import time, before a language is known, so
+        # each line is translated here as it is emitted. The banner carries the
+        # version, so it goes through its own {version} template; the credit
+        # lines translate the prose around the names, which stay as written.
+        add_main_log_window(ui_tr_now("Welcome to ZX Next Unite {version}")
+                            .format(version=ZX_NEXT_UNITE_VERSION))
+        for l in INIT_LOG[1:]:
+            add_main_log_window(ui_tr_now(l))
 
         self.listWidgetHelp = QListWidget(self)
 
@@ -3797,7 +3803,8 @@ class MainWindow(QMainWindow):
         # (blocking) 'mame -version' probe returns on a worker thread.
         _mame_found_path = getattr(self, "_mame_executable_path", None)
         if _mame_found_path:
-            add_main_log_window(f"Using MAME under: {_mame_found_path}")
+            add_main_log_window(ui_tr_now("Using MAME under: {path}")
+                                .format(path=_mame_found_path))
 
             def _mame_version_probe(progress_callback=None, _p=_mame_found_path):
                 # First non-empty line of 'mame -version' output, e.g.
@@ -3820,7 +3827,8 @@ class MainWindow(QMainWindow):
 
             def _mame_version_log(line):
                 if line:
-                    add_main_log_window(f"MAME version: {line}")
+                    add_main_log_window(ui_tr_now("MAME version: {version}")
+                                        .format(version=line))
 
             _mame_ver_worker = self._Worker(_mame_version_probe)
             _mame_ver_worker.signals.result.connect(_mame_version_log)
@@ -3934,7 +3942,9 @@ class MainWindow(QMainWindow):
                 # The CSpect group was hidden at construction because no emulator
                 # was found; reveal it now that a bundled copy exists.
                 self.cspect_group.setVisible(True)
-                add_main_log_window(f"Using CSpect under downloads/cspect: {cspect_path}")
+                add_main_log_window(ui_tr_now(
+                    "Using CSpect under downloads/cspect: {path}"
+                ).format(path=cspect_path))
                 # Bind hdfmonkey to the copy bundled with THIS (newest) CSpect
                 # build. Each itch.io CSpect ships its own hdfmonkey under
                 # <build>/hdfmonkey/<platform>/, so after an update the matching
@@ -3948,7 +3958,9 @@ class MainWindow(QMainWindow):
 
             if hdfmonkey_path and not self._hdfmonkey_executable_path:
                 self._hdfmonkey_executable_path = hdfmonkey_path
-                add_main_log_window(f"Using hdfmonkey bundled with CSpect: {hdfmonkey_path}")
+                add_main_log_window(ui_tr_now(
+                    "Using hdfmonkey bundled with CSpect: {path}"
+                ).format(path=hdfmonkey_path))
                 # A bundled hdfmonkey makes the download/install wizard
                 # unnecessary; hide it and restore the image controls.
                 self.download_and_install_hdfmonkey_button.setVisible(False)
