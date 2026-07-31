@@ -505,6 +505,87 @@ def test_gallery_item_viewer():
               not missing, str(missing))
 
 
+def test_runtime_text_sweep():
+    """No widget text written AFTER startup may be a bare English literal.
+
+    This is the systematic form of the bug that kept recurring: a setText /
+    setToolTip / addAction / .label = firing on a user action, long after
+    translate_widget_tree walked the tree, so the catalogued translation is
+    never applied and the UI shows English. Construction-time writes are fine
+    (the walk covers them) — a call counts as RUNTIME when it sits in a
+    closure nested inside another function, or in a class method other than
+    __init__.
+
+    Only strings that ARE in the catalogs are failed: an uncatalogued one is a
+    translation-coverage gap, not a mechanism bug, and the app deliberately
+    leaves plenty of text English."""
+    import ast
+    import glob
+    print("\n== runtime text sweep ==")
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    setters = {"setText", "setToolTip", "setPlaceholderText", "setWindowTitle",
+               "setTitle", "setItemText", "addAction", "setFormat"}
+    # Helper METHODS that only ever run from __init__, so their widgets are
+    # part of the startup tree the walk translates. Verified by inspection;
+    # keep this list tiny and justified.
+    construction_helpers = {
+        ("zxnu_sdcard_explorer.py", "_build_grid"),
+        ("zxnu_sdcard_explorer.py", "_build_image_pane"),
+    }
+
+    def literal_of(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            return literal_of(node.left)
+        return None
+
+    offenders = []
+    for path in sorted(glob.glob(os.path.join(repo, "zxnu_*.py"))):
+        fname = os.path.basename(path)
+        if fname == "zxnu_i18n.py":
+            continue
+        tree = ast.parse(open(path, encoding="utf-8").read())
+
+        def walk(node, funcs, in_class):
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, ast.ClassDef):
+                    walk(child, funcs, True)
+                    continue
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    walk(child, funcs + [child.name], in_class)
+                    continue
+                if funcs:
+                    runtime = (len(funcs) >= 2
+                               or (in_class and funcs[-1] != "__init__"))
+                    if runtime and (fname, funcs[-1]) not in construction_helpers:
+                        text = None
+                        if isinstance(child, ast.Call):
+                            fn = (child.func.attr
+                                  if isinstance(child.func, ast.Attribute) else "")
+                            if fn in setters and child.args:
+                                i = 1 if fn == "setItemText" else 0
+                                if len(child.args) > i:
+                                    text = literal_of(child.args[i])
+                        elif isinstance(child, ast.Assign) and any(
+                                isinstance(t, ast.Attribute) and t.attr == "label"
+                                for t in child.targets):
+                            text = literal_of(child.value)
+                        if text and text.strip() and text in CATALOGS["fr"]:
+                            offenders.append(
+                                f"{fname}:{child.lineno} in {funcs[-1]}() "
+                                f"-> {text[:40]!r}")
+                walk(child, funcs, in_class)
+
+        walk(tree, [], False)
+
+    check("the sweep actually inspected the modules",
+          os.path.isfile(os.path.join(repo, "zxnu_main.py")))
+    check("no runtime text write bypasses ui_tr_now for a catalogued string",
+          not offenders,
+          f"{len(offenders)}: " + "; ".join(offenders[:5]))
+
+
 def main():
     QApplication(sys.argv)
     test_catalog_integrity()
@@ -515,6 +596,7 @@ def main():
     test_emulator_option_combos()
     test_log_line_placeholders()
     test_gallery_item_viewer()
+    test_runtime_text_sweep()
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
     sys.exit(0 if ok else 1)
 

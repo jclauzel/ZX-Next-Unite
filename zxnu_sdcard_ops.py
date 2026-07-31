@@ -670,7 +670,7 @@ def build_sdcard_utils(
         ]
 
         dialog = QDialog(host)
-        dialog.setWindowTitle("Download NextZXOS Image")
+        dialog.setWindowTitle(ui_tr_now("Download NextZXOS Image"))
         dialog.setMinimumWidth(480)
 
         dialog_layout = QVBoxLayout(dialog)
@@ -871,8 +871,9 @@ def build_sdcard_utils(
         gauge = host.image_usage_gauge
         if result is None:
             gauge.setValue(0)
-            gauge.setFormat("No image loaded")
-            gauge.setToolTip("No SD card image is currently loaded.")
+            gauge.setFormat(ui_tr_now("No image loaded"))
+            gauge.setToolTip(ui_tr_now(
+                "No SD card image is currently loaded."))
             gauge.setStyleSheet("")
             return
         free_pct, free_mb, total_mb = result
@@ -2821,7 +2822,7 @@ def build_transfer_clipboard_ops(
             if (selected_count <= 1 and not is_dir
                     and item_path.lower().endswith(".zip")):
                 menu.addAction(
-                    "Remote Unzip file",
+                    ui_tr_now("Remote Unzip file"),
                     lambda p=item_path: QTimer.singleShot(
                         0, lambda: _image_remote_unzip(p)))
             sel_items = (list(host.image_selected_paths)

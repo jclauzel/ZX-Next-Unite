@@ -1651,9 +1651,9 @@ class MainWindow(QMainWindow):
                 if right_disk_image_explorer_content:
                     self.button_start_cspect.setToolTip("")
                 else:
-                    self.button_start_cspect.setToolTip(
+                    self.button_start_cspect.setToolTip(ui_tr_now(
                         "Load a ZX Spectrum Next disk image first — then CSpect "
-                        "can boot it from the mounted SD card.")
+                        "can boot it from the mounted SD card."))
             except (RuntimeError, AttributeError):
                 pass
 
@@ -1670,9 +1670,9 @@ class MainWindow(QMainWindow):
                 if img and os.path.isfile(img):
                     self.button_start_mame.setToolTip("")
                 else:
-                    self.button_start_mame.setToolTip(
+                    self.button_start_mame.setToolTip(ui_tr_now(
                         "Select a ZX Spectrum Next disk image (.img/.hdf) first "
-                        "— then MAME can boot it as the Next's hard disk.")
+                        "— then MAME can boot it as the Next's hard disk."))
             except (RuntimeError, AttributeError):
                 pass
 

@@ -889,7 +889,7 @@ def build_emulator_ops(
         if not detected:
             try:
                 host.button_install_mame.setEnabled(True)
-                host.button_install_mame.setText("⬇  Install MAME")
+                host.button_install_mame.setText(ui_tr_now("⬇  Install MAME"))
             except RuntimeError:
                 pass
             add_main_log_window(
@@ -915,7 +915,7 @@ def build_emulator_ops(
         host._mame_installing = False
         try:
             host.button_install_mame.setEnabled(True)
-            host.button_install_mame.setText("⬇  Install MAME")
+            host.button_install_mame.setText(ui_tr_now("⬇  Install MAME"))
         except RuntimeError:
             pass
         detail = err[1] if isinstance(err, (tuple, list)) and len(err) > 1 else err
