@@ -1558,7 +1558,7 @@ for x in sys.argv[1:]:
               rejected. Example: -flask-connection-limit:5 ('=' also
               accepted).
         -forceexit / -forceexit=<host[:port]>
-            - One-shot: tell the Next connected in '.sync5 -listen' to close
+            - One-shot: tell the Next connected in '.sync5 -L' (-l or -listen) to close
               the connection and exit gracefully to BASIC, by calling the
               /forceexit route of an already-running HTTP bridge (default
               127.0.0.1:80 - this server's -w/-http, or the ZX-Next-Unite

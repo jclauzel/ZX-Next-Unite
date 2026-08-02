@@ -1004,7 +1004,7 @@ def build_settings_pane(
         host.settings_http_bridge_checkbox.setToolTip(
             "Starts a small self-hosted web server (Flask, port 80 by default —\n"
             "change it with the port box on the right) that republishes\n"
-            "the Remote Explorer's '.sync5 -listen' session as HTTP routes:\n"
+            "the Remote Explorer's '.sync5 -L' (-l or -listen) session as HTTP routes:\n"
             "/status /ls /get /put /mkdir /rmdir /rmtree /rm /ren /rcpy /rfsize /sum\n"
             "/forceexit /free /drives. A Spectrum Next running the built-in .http dot\n"
             "command (HTTP only, no TLS) — or curl, or a browser — can then\n"
@@ -1071,7 +1071,7 @@ def build_settings_pane(
     _http_conn_tip = (
         "Maximum number of HTTP requests the bridge serves concurrently\n"
         "(default 1). The recommended value is 1 to avoid concurrent\n"
-        "access: the '.sync5 -listen' session behind the bridge runs one\n"
+        "access: the '.sync5 -L' (-l or -listen) session behind the bridge runs one\n"
         "command at a time anyway, so extra requests are held until a\n"
         "slot frees rather than rejected. Saved to hdfg.cfg\n"
         f"({SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT}); a bridge already\n"

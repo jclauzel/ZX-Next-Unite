@@ -526,6 +526,18 @@ CATALOGS = {
             "Extrayendo {name} de la imagen y luego iniciando CSpect…",
         "Start CSpect: {name} could not be read from the image, CSpect was not started.":
             "Iniciar CSpect: no se pudo leer {name} de la imagen; CSpect no se ha iniciado.",
+        "Extracting {name} from the image, then sending it via NextSync…":
+            "Extrayendo {name} de la imagen y luego enviándolo por NextSync…",
+        "Send via NextSync: {name} could not be read from the image, nothing was sent.":
+            "Enviar por NextSync: no se pudo leer {name} de la imagen; no se ha enviado nada.",
+        "Send via NextSync {name}":
+            "Enviar {name} por NextSync",
+        "Start NextSync Remote Explorer":
+            "Iniciar el Remote Explorer de NextSync",
+        "Stop NextSync Remote Explorer":
+            "Detener el Remote Explorer de NextSync",
+        "Please select a sync root first on the NextSync Remote Explorer tab and retry.":
+            "Selecciona primero una carpeta raíz de sincronización en la pestaña Remote Explorer de NextSync y vuelve a intentarlo.",
         # ---- CSpect auto-start actions (SD Card tab menus) ----
         "Send to SD Card and start CSpect with file {name}":
             "Enviar a la tarjeta SD e iniciar CSpect con el archivo {name}",
@@ -1355,6 +1367,18 @@ CATALOGS = {
             "A extrair {name} da imagem e depois a iniciar o CSpect…",
         "Start CSpect: {name} could not be read from the image, CSpect was not started.":
             "Iniciar o CSpect: não foi possível ler {name} da imagem; o CSpect não foi iniciado.",
+        "Extracting {name} from the image, then sending it via NextSync…":
+            "A extrair {name} da imagem e depois a enviá-lo via NextSync…",
+        "Send via NextSync: {name} could not be read from the image, nothing was sent.":
+            "Enviar via NextSync: não foi possível ler {name} da imagem; nada foi enviado.",
+        "Send via NextSync {name}":
+            "Enviar {name} via NextSync",
+        "Start NextSync Remote Explorer":
+            "Iniciar o Remote Explorer do NextSync",
+        "Stop NextSync Remote Explorer":
+            "Parar o Remote Explorer do NextSync",
+        "Please select a sync root first on the NextSync Remote Explorer tab and retry.":
+            "Escolhe primeiro uma pasta raiz de sincronização no separador Remote Explorer do NextSync e tenta novamente.",
         # ---- CSpect auto-start actions (SD Card tab menus) ----
         "Send to SD Card and start CSpect with file {name}":
             "Enviar para o cartão SD e iniciar o CSpect com o ficheiro {name}",
@@ -2182,6 +2206,18 @@ CATALOGS = {
             "Wypakowywanie {name} z obrazu, potem uruchomienie CSpect…",
         "Start CSpect: {name} could not be read from the image, CSpect was not started.":
             "Uruchom CSpect: nie udało się odczytać {name} z obrazu — CSpect nie został uruchomiony.",
+        "Extracting {name} from the image, then sending it via NextSync…":
+            "Wypakowywanie {name} z obrazu, potem wysłanie przez NextSync…",
+        "Send via NextSync: {name} could not be read from the image, nothing was sent.":
+            "Wyślij przez NextSync: nie udało się odczytać {name} z obrazu — nic nie zostało wysłane.",
+        "Send via NextSync {name}":
+            "Wyślij {name} przez NextSync",
+        "Start NextSync Remote Explorer":
+            "Uruchom Remote Explorer NextSync",
+        "Stop NextSync Remote Explorer":
+            "Zatrzymaj Remote Explorer NextSync",
+        "Please select a sync root first on the NextSync Remote Explorer tab and retry.":
+            "Najpierw wybierz folder główny synchronizacji na karcie Remote Explorer NextSync i spróbuj ponownie.",
         # ---- CSpect auto-start actions (SD Card tab menus) ----
         "Send to SD Card and start CSpect with file {name}":
             "Wyślij na kartę SD i uruchom CSpect z plikiem {name}",
@@ -3010,6 +3046,18 @@ CATALOGS = {
             "Извлечение {name} из образа, затем запуск CSpect…",
         "Start CSpect: {name} could not be read from the image, CSpect was not started.":
             "Запуск CSpect: не удалось прочитать {name} из образа — CSpect не запущен.",
+        "Extracting {name} from the image, then sending it via NextSync…":
+            "Извлечение {name} из образа, затем отправка через NextSync…",
+        "Send via NextSync: {name} could not be read from the image, nothing was sent.":
+            "Отправка через NextSync: не удалось прочитать {name} из образа — ничего не отправлено.",
+        "Send via NextSync {name}":
+            "Отправить {name} через NextSync",
+        "Start NextSync Remote Explorer":
+            "Запустить Remote Explorer NextSync",
+        "Stop NextSync Remote Explorer":
+            "Остановить Remote Explorer NextSync",
+        "Please select a sync root first on the NextSync Remote Explorer tab and retry.":
+            "Сначала выберите корневую папку синхронизации на вкладке Remote Explorer NextSync и повторите попытку.",
         # ---- CSpect auto-start actions (SD Card tab menus) ----
         "Send to SD Card and start CSpect with file {name}":
             "Отправить на SD-карту и запустить CSpect с файлом {name}",
@@ -3837,6 +3885,18 @@ CATALOGS = {
             "Rozbaluje se {name} z obrazu, poté se spustí CSpect…",
         "Start CSpect: {name} could not be read from the image, CSpect was not started.":
             "Spustit CSpect: {name} se nepodařilo načíst z obrazu — CSpect nebyl spuštěn.",
+        "Extracting {name} from the image, then sending it via NextSync…":
+            "Rozbaluje se {name} z obrazu, poté se odešle přes NextSync…",
+        "Send via NextSync: {name} could not be read from the image, nothing was sent.":
+            "Odeslání přes NextSync: {name} se nepodařilo načíst z obrazu — nic nebylo odesláno.",
+        "Send via NextSync {name}":
+            "Odeslat {name} přes NextSync",
+        "Start NextSync Remote Explorer":
+            "Spustit Remote Explorer NextSync",
+        "Stop NextSync Remote Explorer":
+            "Zastavit Remote Explorer NextSync",
+        "Please select a sync root first on the NextSync Remote Explorer tab and retry.":
+            "Nejprve zvolte kořenovou složku synchronizace na kartě Remote Explorer NextSync a zkuste to znovu.",
         # ---- CSpect auto-start actions (SD Card tab menus) ----
         "Send to SD Card and start CSpect with file {name}":
             "Odeslat na SD kartu a spustit CSpect se souborem {name}",
@@ -4667,6 +4727,18 @@ CATALOGS = {
             "Extraction de {name} depuis l'image, puis lancement de CSpect…",
         "Start CSpect: {name} could not be read from the image, CSpect was not started.":
             "Lancer CSpect : impossible de lire {name} depuis l'image, CSpect n'a pas été lancé.",
+        "Extracting {name} from the image, then sending it via NextSync…":
+            "Extraction de {name} depuis l'image, puis envoi via NextSync…",
+        "Send via NextSync: {name} could not be read from the image, nothing was sent.":
+            "Envoi via NextSync : impossible de lire {name} depuis l'image, rien n'a été envoyé.",
+        "Send via NextSync {name}":
+            "Envoyer {name} via NextSync",
+        "Start NextSync Remote Explorer":
+            "Démarrer le Remote Explorer NextSync",
+        "Stop NextSync Remote Explorer":
+            "Arrêter le Remote Explorer NextSync",
+        "Please select a sync root first on the NextSync Remote Explorer tab and retry.":
+            "Choisissez d'abord un dossier racine de synchronisation dans l'onglet Remote Explorer NextSync, puis réessayez.",
         # ---- CSpect auto-start actions (SD Card tab menus) ----
         "Send to SD Card and start CSpect with file {name}":
             "Envoyer vers la carte SD et lancer CSpect avec le fichier {name}",
@@ -5221,6 +5293,14 @@ _TOAST_CATALOGS = {
         "NextSync HTTP bridge started": "Passerelle HTTP NextSync démarrée",
         "NextSync HTTP bridge not started": "Passerelle HTTP NextSync non démarrée",
         "Remote Explorer NextSync server not started": "Serveur NextSync du Remote Explorer non démarré",
+        "Next connected": "Next connecté",
+        "A Next is now connected to the NextSync Remote Explorer.":
+            "Un Next est maintenant connecté au Remote Explorer NextSync.",
+        "Next disconnected": "Next déconnecté",
+        "The Next disconnected from the NextSync Remote Explorer.":
+            "Le Next s'est déconnecté du Remote Explorer NextSync.",
+        "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
+            "Annulation — s'arrêtera une fois le transfert du fichier en cours terminé, afin d'éviter toute corruption de fichier…",
         "NextSync server started": "Serveur NextSync démarré",
         "You have started a Remote Explorer nextsync server already": "Un serveur NextSync Remote Explorer est déjà démarré",
         "✅  Sent via Remote Explorer": "✅  Envoyé via le Remote Explorer",
@@ -5264,14 +5344,14 @@ _TOAST_CATALOGS = {
             "Vous avez déjà démarré un serveur NextSync Remote Explorer, veuillez d'abord l'arrêter.",
         "You have already started a Classic nextsync server, please stop it first.":
             "Vous avez déjà démarré un serveur NextSync classique, veuillez d'abord l'arrêter.",
-        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -listen'.":
-            "Serveur actif sur le port {port}. Un Next avec la commande dot .http (ou curl) peut maintenant piloter le Next connecté en « .sync5 -listen ».",
+        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -L' (-l or -listen).":
+            "Serveur actif sur le port {port}. Un Next avec la commande dot .http (ou curl) peut maintenant piloter le Next connecté en « .sync5 -L » (-l ou -listen).",
         "You have specified to start the flask integration server but port {port} is already in use, the web server has not been started.":
             "Vous avez demandé le démarrage du serveur d'intégration Flask mais le port {port} est déjà utilisé, le serveur web n'a pas été démarré.",
-        "Start '.sync5 -listen' on your Next to connect!":
-            "Lancez « .sync5 -listen » sur votre Next pour vous connecter !",
-        "Start '.sync5 -listen' on your Next and retry again (canceling the upload / send process for now).":
-            "Lancez « .sync5 -listen » sur votre Next puis réessayez (envoi annulé pour le moment).",
+        "You can now start your Next {command} dot command.":
+            "Vous pouvez maintenant lancer la commande dot {command} sur votre Next.",
+        "Start '.sync5 -L' (-l or -listen) on your Next and retry again (canceling the upload / send process for now).":
+            "Lancez « .sync5 -L » (-l ou -listen) sur votre Next puis réessayez (envoi annulé pour le moment).",
         "file {path}": "fichier {path}",
         "{n} files:": "{n} fichiers :",
         "…and {n} more": "…et {n} de plus",
@@ -5326,6 +5406,14 @@ _TOAST_CATALOGS = {
         "NextSync HTTP bridge started": "Puente HTTP de NextSync iniciado",
         "NextSync HTTP bridge not started": "Puente HTTP de NextSync no iniciado",
         "Remote Explorer NextSync server not started": "Servidor NextSync del Remote Explorer no iniciado",
+        "Next connected": "Next conectado",
+        "A Next is now connected to the NextSync Remote Explorer.":
+            "Un Next está ahora conectado al Remote Explorer de NextSync.",
+        "Next disconnected": "Next desconectado",
+        "The Next disconnected from the NextSync Remote Explorer.":
+            "El Next se ha desconectado del Remote Explorer de NextSync.",
+        "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
+            "Cancelando — se detendrá cuando el archivo actual termine de transferirse, para evitar la corrupción de archivos…",
         "NextSync server started": "Servidor NextSync iniciado",
         "You have started a Remote Explorer nextsync server already": "Ya ha iniciado un servidor NextSync del Remote Explorer",
         "✅  Sent via Remote Explorer": "✅  Enviado mediante el Remote Explorer",
@@ -5369,14 +5457,14 @@ _TOAST_CATALOGS = {
             "Ya ha iniciado un servidor NextSync del Remote Explorer; deténgalo primero.",
         "You have already started a Classic nextsync server, please stop it first.":
             "Ya ha iniciado un servidor NextSync clásico; deténgalo primero.",
-        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -listen'.":
-            "Sirviendo en el puerto {port}. Un Next con el comando dot .http (o curl) ya puede controlar el Next conectado en «.sync5 -listen».",
+        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -L' (-l or -listen).":
+            "Sirviendo en el puerto {port}. Un Next con el comando dot .http (o curl) ya puede controlar el Next conectado en «.sync5 -L» (-l o -listen).",
         "You have specified to start the flask integration server but port {port} is already in use, the web server has not been started.":
             "Ha indicado iniciar el servidor de integración Flask pero el puerto {port} ya está en uso; el servidor web no se ha iniciado.",
-        "Start '.sync5 -listen' on your Next to connect!":
-            "¡Ejecute «.sync5 -listen» en su Next para conectar!",
-        "Start '.sync5 -listen' on your Next and retry again (canceling the upload / send process for now).":
-            "Ejecute «.sync5 -listen» en su Next y reintente (el envío se cancela por ahora).",
+        "You can now start your Next {command} dot command.":
+            "Ya puede ejecutar el comando dot {command} en su Next.",
+        "Start '.sync5 -L' (-l or -listen) on your Next and retry again (canceling the upload / send process for now).":
+            "Ejecute «.sync5 -L» (-l o -listen) en su Next y reintente (el envío se cancela por ahora).",
         "file {path}": "archivo {path}",
         "{n} files:": "{n} archivos:",
         "…and {n} more": "…y {n} más",
@@ -5431,6 +5519,14 @@ _TOAST_CATALOGS = {
         "NextSync HTTP bridge started": "Ponte HTTP NextSync iniciada",
         "NextSync HTTP bridge not started": "Ponte HTTP NextSync não iniciada",
         "Remote Explorer NextSync server not started": "Servidor NextSync do Remote Explorer não iniciado",
+        "Next connected": "Next ligado",
+        "A Next is now connected to the NextSync Remote Explorer.":
+            "Um Next está agora ligado ao Remote Explorer do NextSync.",
+        "Next disconnected": "Next desligado",
+        "The Next disconnected from the NextSync Remote Explorer.":
+            "O Next desligou-se do Remote Explorer do NextSync.",
+        "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
+            "A cancelar — vai parar quando o ficheiro atual acabar de ser transferido, para evitar a corrupção de ficheiros…",
         "NextSync server started": "Servidor NextSync iniciado",
         "You have started a Remote Explorer nextsync server already": "Já iniciou um servidor NextSync do Remote Explorer",
         "✅  Sent via Remote Explorer": "✅  Enviado através do Remote Explorer",
@@ -5474,14 +5570,14 @@ _TOAST_CATALOGS = {
             "Já iniciou um servidor NextSync do Remote Explorer; pare-o primeiro.",
         "You have already started a Classic nextsync server, please stop it first.":
             "Já iniciou um servidor NextSync clássico; pare-o primeiro.",
-        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -listen'.":
-            "A servir na porta {port}. Um Next com o comando dot .http (ou curl) já pode controlar o Next ligado em «.sync5 -listen».",
+        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -L' (-l or -listen).":
+            "A servir na porta {port}. Um Next com o comando dot .http (ou curl) já pode controlar o Next ligado em «.sync5 -L» (-l ou -listen).",
         "You have specified to start the flask integration server but port {port} is already in use, the web server has not been started.":
             "Indicou iniciar o servidor de integração Flask mas a porta {port} já está em uso; o servidor web não foi iniciado.",
-        "Start '.sync5 -listen' on your Next to connect!":
-            "Execute «.sync5 -listen» no seu Next para ligar!",
-        "Start '.sync5 -listen' on your Next and retry again (canceling the upload / send process for now).":
-            "Execute «.sync5 -listen» no seu Next e tente novamente (o envio é cancelado por agora).",
+        "You can now start your Next {command} dot command.":
+            "Já pode executar o comando dot {command} no seu Next.",
+        "Start '.sync5 -L' (-l or -listen) on your Next and retry again (canceling the upload / send process for now).":
+            "Execute «.sync5 -L» (-l ou -listen) no seu Next e tente novamente (o envio é cancelado por agora).",
         "file {path}": "ficheiro {path}",
         "{n} files:": "{n} ficheiros:",
         "…and {n} more": "…e mais {n}",
@@ -5536,6 +5632,14 @@ _TOAST_CATALOGS = {
         "NextSync HTTP bridge started": "Mostek HTTP NextSync uruchomiony",
         "NextSync HTTP bridge not started": "Mostek HTTP NextSync nie został uruchomiony",
         "Remote Explorer NextSync server not started": "Serwer NextSync Remote Explorera nie został uruchomiony",
+        "Next connected": "Next połączony",
+        "A Next is now connected to the NextSync Remote Explorer.":
+            "Next jest teraz połączony z Remote Explorerem NextSync.",
+        "Next disconnected": "Next rozłączony",
+        "The Next disconnected from the NextSync Remote Explorer.":
+            "Next rozłączył się z Remote Explorerem NextSync.",
+        "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
+            "Anulowanie — zatrzyma się, gdy bieżący plik zakończy przesyłanie, aby uniknąć uszkodzenia plików…",
         "NextSync server started": "Serwer NextSync uruchomiony",
         "You have started a Remote Explorer nextsync server already": "Serwer NextSync Remote Explorera jest już uruchomiony",
         "✅  Sent via Remote Explorer": "✅  Wysłano przez Remote Explorer",
@@ -5579,14 +5683,14 @@ _TOAST_CATALOGS = {
             "Serwer NextSync Remote Explorera jest już uruchomiony — najpierw go zatrzymaj.",
         "You have already started a Classic nextsync server, please stop it first.":
             "Klasyczny serwer NextSync jest już uruchomiony — najpierw go zatrzymaj.",
-        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -listen'.":
-            "Serwer działa na porcie {port}. Next z poleceniem dot .http (lub curl) może teraz sterować Nextem połączonym w „.sync5 -listen\".",
+        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -L' (-l or -listen).":
+            "Serwer działa na porcie {port}. Next z poleceniem dot .http (lub curl) może teraz sterować Nextem połączonym w „.sync5 -L\" (-l lub -listen).",
         "You have specified to start the flask integration server but port {port} is already in use, the web server has not been started.":
             "Wybrano uruchomienie serwera integracji Flask, ale port {port} jest już zajęty — serwer WWW nie został uruchomiony.",
-        "Start '.sync5 -listen' on your Next to connect!":
-            "Uruchom „.sync5 -listen\" na swoim Next, aby się połączyć!",
-        "Start '.sync5 -listen' on your Next and retry again (canceling the upload / send process for now).":
-            "Uruchom „.sync5 -listen\" na swoim Next i spróbuj ponownie (wysyłanie na razie anulowano).",
+        "You can now start your Next {command} dot command.":
+            "Możesz teraz uruchomić polecenie dot {command} na swoim Next.",
+        "Start '.sync5 -L' (-l or -listen) on your Next and retry again (canceling the upload / send process for now).":
+            "Uruchom „.sync5 -L\" (-l lub -listen) na swoim Next i spróbuj ponownie (wysyłanie na razie anulowano).",
         "file {path}": "plik {path}",
         "{n} files:": "{n} plików:",
         "…and {n} more": "…i {n} więcej",
@@ -5641,6 +5745,14 @@ _TOAST_CATALOGS = {
         "NextSync HTTP bridge started": "HTTP-мост NextSync запущен",
         "NextSync HTTP bridge not started": "HTTP-мост NextSync не запущен",
         "Remote Explorer NextSync server not started": "Сервер NextSync Remote Explorer не запущен",
+        "Next connected": "Next подключён",
+        "A Next is now connected to the NextSync Remote Explorer.":
+            "Next подключён к Remote Explorer NextSync.",
+        "Next disconnected": "Next отключён",
+        "The Next disconnected from the NextSync Remote Explorer.":
+            "Next отключился от Remote Explorer NextSync.",
+        "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
+            "Отмена — остановится, когда завершится передача текущего файла, чтобы избежать повреждения файлов…",
         "NextSync server started": "Сервер NextSync запущен",
         "You have started a Remote Explorer nextsync server already": "Сервер NextSync Remote Explorer уже запущен",
         "✅  Sent via Remote Explorer": "✅  Отправлено через Remote Explorer",
@@ -5684,14 +5796,14 @@ _TOAST_CATALOGS = {
             "Сервер NextSync Remote Explorer уже запущен — сначала остановите его.",
         "You have already started a Classic nextsync server, please stop it first.":
             "Классический сервер NextSync уже запущен — сначала остановите его.",
-        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -listen'.":
-            "Работает на порту {port}. Next с dot-командой .http (или curl) теперь может управлять Next, подключённым в «.sync5 -listen».",
+        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -L' (-l or -listen).":
+            "Работает на порту {port}. Next с dot-командой .http (или curl) теперь может управлять Next, подключённым в «.sync5 -L» (-l или -listen).",
         "You have specified to start the flask integration server but port {port} is already in use, the web server has not been started.":
             "Вы указали запустить сервер интеграции Flask, но порт {port} уже занят — веб-сервер не запущен.",
-        "Start '.sync5 -listen' on your Next to connect!":
-            "Запустите «.sync5 -listen» на вашем Next для подключения!",
-        "Start '.sync5 -listen' on your Next and retry again (canceling the upload / send process for now).":
-            "Запустите «.sync5 -listen» на вашем Next и повторите попытку (отправка пока отменена).",
+        "You can now start your Next {command} dot command.":
+            "Теперь можно запустить dot-команду {command} на вашем Next.",
+        "Start '.sync5 -L' (-l or -listen) on your Next and retry again (canceling the upload / send process for now).":
+            "Запустите «.sync5 -L» (-l или -listen) на вашем Next и повторите попытку (отправка пока отменена).",
         "file {path}": "файл {path}",
         "{n} files:": "{n} файлов:",
         "…and {n} more": "…и ещё {n}",
@@ -5746,6 +5858,14 @@ _TOAST_CATALOGS = {
         "NextSync HTTP bridge started": "HTTP most NextSync spuštěn",
         "NextSync HTTP bridge not started": "HTTP most NextSync nebyl spuštěn",
         "Remote Explorer NextSync server not started": "Server NextSync Remote Exploreru nebyl spuštěn",
+        "Next connected": "Next připojen",
+        "A Next is now connected to the NextSync Remote Explorer.":
+            "Next je nyní připojen k Remote Exploreru NextSync.",
+        "Next disconnected": "Next odpojen",
+        "The Next disconnected from the NextSync Remote Explorer.":
+            "Next se odpojil od Remote Exploreru NextSync.",
+        "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
+            "Rušení — zastaví se, jakmile se dokončí přenos aktuálního souboru, aby nedošlo k poškození souborů…",
         "NextSync server started": "Server NextSync spuštěn",
         "You have started a Remote Explorer nextsync server already": "Server NextSync Remote Exploreru už běží",
         "✅  Sent via Remote Explorer": "✅  Odesláno přes Remote Explorer",
@@ -5789,14 +5909,14 @@ _TOAST_CATALOGS = {
             "Server NextSync Remote Exploreru už běží — nejprve jej zastavte.",
         "You have already started a Classic nextsync server, please stop it first.":
             "Klasický server NextSync už běží — nejprve jej zastavte.",
-        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -listen'.":
-            "Běží na portu {port}. Next s dot příkazem .http (nebo curl) teď může ovládat Next připojený v „.sync5 -listen\".",
+        "Serving on port {port}. A Next with the .http dot command (or curl) can now drive the Next connected in '.sync5 -L' (-l or -listen).":
+            "Běží na portu {port}. Next s dot příkazem .http (nebo curl) teď může ovládat Next připojený v „.sync5 -L\" (-l nebo -listen).",
         "You have specified to start the flask integration server but port {port} is already in use, the web server has not been started.":
             "Zvolili jste spuštění integračního serveru Flask, ale port {port} je již obsazen — webový server nebyl spuštěn.",
-        "Start '.sync5 -listen' on your Next to connect!":
-            "Spusťte „.sync5 -listen\" na svém Nextu a připojte se!",
-        "Start '.sync5 -listen' on your Next and retry again (canceling the upload / send process for now).":
-            "Spusťte „.sync5 -listen\" na svém Nextu a zkuste to znovu (odesílání je zatím zrušeno).",
+        "You can now start your Next {command} dot command.":
+            "Nyní můžete spustit dot příkaz {command} na svém Nextu.",
+        "Start '.sync5 -L' (-l or -listen) on your Next and retry again (canceling the upload / send process for now).":
+            "Spusťte „.sync5 -L\" (-l nebo -listen) na svém Nextu a zkuste to znovu (odesílání je zatím zrušeno).",
         "file {path}": "soubor {path}",
         "{n} files:": "{n} souborů:",
         "…and {n} more": "…a {n} dalších",

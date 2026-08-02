@@ -137,7 +137,7 @@ class QueueBridgeHost:
         st = self.state()
         if not st.get("connected"):
             return {"ok": False, "http": 503,
-                    "error": "no Next is connected in '.sync5 -listen' mode"}
+                    "error": "no Next is connected in '.sync5 -L' (-l or -listen) mode"}
         if timeout is None:
             timeout = LONG_TIMEOUT if op in _LONG_OPS else DEFAULT_TIMEOUT
         with self._lock:
@@ -225,7 +225,7 @@ class NextSyncHttpBridge:
     Next parsing with ``.http``); append ``&json=1`` for JSON."""
 
     ROUTES_HELP = (
-        "NextSync HTTP bridge - drive the Next connected in '.sync5 -listen'\n"
+        "NextSync HTTP bridge - drive the Next connected in '.sync5 -L' (-l or -listen)\n"
         "Routes (text by default; append &json=1 for JSON):\n"
         "  GET  /status                     server + Next state, partitions\n"
         "  GET  /drives                     mounted drive letters\n"
