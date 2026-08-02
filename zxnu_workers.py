@@ -629,7 +629,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         # '.sync5 -listen' is interpolated, never translated: it is a command
         # the user must type on the Next exactly as shown.
         log(ui_tr_now("Remote explorer: waiting for {command} on port {port}…")
-            .format(command="'.sync5 -listen'", port=port))
+            .format(command="'.sync5 -L' (-l or -listen)", port=port))
 
         conn = None
         while not stop_event.is_set():
@@ -1369,6 +1369,17 @@ class HdfProgressDialog(QDialog):
         """Called when the worker confirms it stopped early."""
         self._action_label.setText("Cancelled.")
         self._file_label.setText("")
+
+    @Slot(str)
+    def set_cancel_note(self, text: str):
+        """Post-cancel status line ('Explanation\nDetail'). set_status is
+        deliberately muted once Cancel was pressed, so callers whose cancel
+        is graceful use this to say WHAT 'Cancelling…' is waiting for —
+        e.g. the Remote Explorer finishing the in-flight file so nothing
+        lands half-written on the Next."""
+        lines = text.split("\n", 1)
+        self._action_label.setText(lines[0])
+        self._file_label.setText(lines[1] if len(lines) > 1 else "")
 
     def done(self, result):
         # done() is the single funnel for accept()/reject()/close(), whereas

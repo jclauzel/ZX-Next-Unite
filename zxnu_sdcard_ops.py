@@ -1532,6 +1532,128 @@ def build_local_explorer_ops(
         finally:
             local_explorer_refresh()
 
+    def _local_send_via_nextsync(path, name, is_dir, cleanup=None):
+        """'Send via NextSync <name>' on the SD tab's local pane: push the
+        clicked file/folder to the connected Next through the live Remote
+        Explorer '.sync5 -listen' session, into the Next directory it
+        currently shows. Mirrors the gallery panes' _re_try_send_folder
+        (same toasts/log lines) but also takes single files; folders are
+        recreated top-down by the widget (mkdir before the puts into it).
+        *cleanup* (optional) runs exactly once, after the queued batch
+        ends OR on any early exit — the image explorer's send passes its
+        temp-download remover here, and the puts read the files until the
+        batch is done, so it must never fire earlier."""
+        cleanup = cleanup or (lambda: None)
+        widget = getattr(host, "_re_widget", None)
+        if widget is None:
+            cleanup()
+            return
+        target = widget.remote_cwd()
+        base = target if target.endswith("/") else target + "/"
+        # The remote paths the upload will create (kept in step with
+        # RemoteExplorerWidget._enqueue_dir_upload), for the success toast.
+        sent = []
+        if is_dir:
+            top = os.path.basename(os.path.normpath(path).rstrip("/\\")) or "dir"
+            for _root, _dirs, _files in os.walk(path):
+                _dirs.sort()
+                rel = os.path.relpath(_root, path).replace(os.sep, "/")
+                rdir = base + top if rel in (".", "") else base + top + "/" + rel
+                for _fname in sorted(_files):
+                    sent.append(rdir + "/" + _fname)
+            if not sent:
+                add_main_log_window(ui_tr_now(
+                    "Send via NextSync: nothing to send in {folder}.").format(
+                        folder=path))
+                cleanup()
+                return
+        else:
+            sent.append(base + name)
+
+        def _done(ok, fails):
+            cleanup()
+            if not ok:
+                # Failures were already red-toasted (with the per-file
+                # descriptions) by the Remote Explorer; a user cancel or a
+                # disconnect needs no success banner either way.
+                return
+            if len(sent) == 1:
+                body = ui_tr_now("file {path}").format(path=sent[0])
+            else:
+                body = (ui_tr_now("{n} files:").format(n=len(sent))
+                        + "\n" + "\n".join(sent[:5]))
+                if len(sent) > 5:
+                    body += "\n" + ui_tr_now("…and {n} more").format(
+                        n=len(sent) - 5)
+            host._show_toast("✅  Sent via Remote Explorer", body,
+                             variant="green", duration_ms=8000)
+
+        state = widget.send_local_paths(
+            [path], title="Sending via Remote Explorer…", on_done=_done)
+        if state == "busy":
+            host._show_toast(
+                "Remote Explorer is busy",
+                "Another transfer is still running — wait for it to "
+                "finish, then try again.",
+                variant="yellow", duration_ms=8000)
+            cleanup()
+            return
+        if state == "offline":
+            # The Next dropped off between the right-click and the click.
+            host._show_toast(
+                "You have started a Remote Explorer nextsync server already",
+                "Start '.sync5 -L' (-l or -listen) on your Next and retry "
+                "again (canceling the upload / send process for now).",
+                variant="yellow", duration_ms=30000)
+            cleanup()
+            return
+        if state != "queued":
+            cleanup()
+            return
+        add_main_log_window(ui_tr_now(
+            "Sending {folder} via Remote Explorer (-listen) → {target} …"
+        ).format(folder=path, target=target))
+
+    def _local_start_re_server():
+        """'Start NextSync Remote Explorer' on the SD tab's local pane:
+        bring the NextSync tab's '.sync5 -listen' server up without leaving
+        the SD tab. Mirrors the -start-remote-explorer-listener startup
+        hook: the Remote Explorer view is forced open first, so the widget
+        and the server closures the toggle talks to all exist (the
+        _re_open_restoring guard keeps the transient view switch out of
+        the saved settings), then the server starts through the shared
+        toggle — inheriting its remaining guards (the classic-server-
+        holds-port-2048 advisory)."""
+        if getattr(host, "_re_running", False):
+            return                      # started elsewhere meanwhile
+        if not getattr(host, "_re_sync_root", ""):
+            # The listen server refuses to start without a sync root; say
+            # so with a toast HERE instead of a log line on another tab.
+            host._show_toast(
+                "Remote Explorer NextSync server not started",
+                "Please select a sync root first on the NextSync Remote "
+                "Explorer tab and retry.",
+                variant="yellow", duration_ms=10000)
+            return
+        tabs = getattr(host, "nextsync_mode_tabs", None)
+        if tabs is not None and tabs.currentIndex() != 0:
+            host._re_open_restoring = True
+            try:
+                tabs.setCurrentIndex(0)     # tab 0 = Remote Explorer view
+            finally:
+                host._re_open_restoring = False
+        toggle = getattr(host, "_nextsync_re_toggle_server", None)
+        if toggle is not None:
+            toggle()
+
+    def _local_stop_re_server():
+        """'Stop NextSync Remote Explorer': say goodbye to a connected
+        Next, then shut the '.sync5 -listen' server down (the exposed stop
+        closure is idempotent and handles the in-flight transfer)."""
+        stop = getattr(host, "_nextsync_stop_listen_server_fn", None)
+        if stop is not None and getattr(host, "_re_running", False):
+            stop()
+
     # Copies the selected file to image
     def on_treeview_context_menu(pos):
         index = host.treeview.indexAt(pos)
@@ -1673,6 +1795,33 @@ def build_local_explorer_ops(
                           ).format(name=name),
                 lambda: QTimer.singleShot(0, _send_and_start_mame))
             menu.addSeparator()
+
+        # --- NextSync Remote Explorer (driven from the SD tab) ---
+        # "Send via NextSync <name>" — offered only while the NextSync tab's
+        # Remote Explorer '.sync5 -listen' session has a Next connected: the
+        # clicked file/folder goes over Wi-Fi into the Next directory the
+        # Remote Explorer currently shows, the same route as the gallery
+        # panes' "Send via NextSync" buttons. Below it the server itself is
+        # started/stopped (by RUNNING state, not connection: a listener
+        # waiting for its Next cannot be started twice — only stopped), so
+        # the whole round-trip works without leaving the SD tab.
+        _re_running = getattr(host, "_re_running", False)
+        if (_re_running
+                and getattr(getattr(host, "_re_widget", None),
+                            "_connected", False)):
+            menu.addAction(
+                ui_tr_now("Send via NextSync {name}").format(name=name),
+                lambda: QTimer.singleShot(0, lambda: _local_send_via_nextsync(
+                    file_path, name, is_dir)))
+        if _re_running:
+            menu.addAction(
+                ui_tr_now("Stop NextSync Remote Explorer"),
+                lambda: QTimer.singleShot(0, _local_stop_re_server))
+        else:
+            menu.addAction(
+                ui_tr_now("Start NextSync Remote Explorer"),
+                lambda: QTimer.singleShot(0, _local_start_re_server))
+        menu.addSeparator()
 
         menu.addAction(action_copy_text)
         menu.addAction(action_copy_path)
@@ -1987,9 +2136,15 @@ def build_local_explorer_ops(
         dlg.exec()
 
     # Consumed by bare name elsewhere in __init__ (re-bound at the call site).
+    # The three Remote Explorer helpers are also consumed by the IMAGE
+    # explorer's context menu (build_transfer_clipboard_ops), resolved via
+    # getattr at click time.
     host._deletes_go_to_recycle_bin = _deletes_go_to_recycle_bin
     host._local_delete_paths_async = _local_delete_paths_async
     host._local_make_directory = _local_make_directory
+    host._local_send_via_nextsync = _local_send_via_nextsync
+    host._local_start_re_server = _local_start_re_server
+    host._local_stop_re_server = _local_stop_re_server
     host.local_explorer_delete_selection = local_explorer_delete_selection
     host.local_explorer_import_external_paths = local_explorer_import_external_paths
     host.local_explorer_refresh = local_explorer_refresh
@@ -3001,6 +3156,44 @@ def build_transfer_clipboard_ops(
             items, dl, refresh_fn=lambda: None,
             on_complete=lambda okd: QTimer.singleShot(0, lambda: _go(okd)))
 
+    def _image_send_via_nextsync(image_path, is_dir):
+        """'Send via NextSync <name>' on the IMAGE explorer: the Next
+        cannot read from the mounted HDF, so the entry is first downloaded
+        from the image into a temp folder (hdfmonkey get, progress
+        dialog), then handed to the local pane's send handler — which
+        pushes it through the live Remote Explorer '.sync5 -listen'
+        session and removes the temp copy once the batch ends (the queued
+        puts read the files until then, hence the cleanup callback rather
+        than deleting here)."""
+        if not _right_disk_content():
+            return
+        name = image_path.rstrip("/").rsplit("/", 1)[-1] or "item"
+        tmp = tempfile.mkdtemp(prefix="zxnu_imgsend_")
+
+        def _cleanup():
+            shutil.rmtree(tmp, ignore_errors=True)
+
+        def _go(ok):
+            local = os.path.join(tmp, name)
+            if not ok or not os.path.exists(local):
+                _cleanup()
+                add_main_log_window(ui_tr_now(
+                    "Send via NextSync: {name} could not be read from the "
+                    "image, nothing was sent.").format(name=name))
+                return
+            send = getattr(host, "_local_send_via_nextsync", None)
+            if send is None:
+                _cleanup()
+                return
+            send(local, name, is_dir, cleanup=_cleanup)
+
+        add_main_log_window(ui_tr_now(
+            "Extracting {name} from the image, then sending it via "
+            "NextSync…").format(name=name))
+        image_get_paths_to_local(
+            [(image_path, is_dir)], tmp, refresh_fn=lambda: None,
+            on_complete=lambda okd: QTimer.singleShot(0, lambda: _go(okd)))
+
     def image_tree_context_menu(pos):
         # Right-click menu on the image explorer tree, mirroring the
         # "New Folder" and "Delete Files or Folder" buttons below it.
@@ -3050,6 +3243,35 @@ def build_transfer_clipboard_ops(
                 _emu_entry_added = True
             if _emu_entry_added:
                 menu.addSeparator()
+
+            # --- NextSync Remote Explorer (the local pane's section,
+            # mirrored) --- "Send via NextSync <name>" needs a connected
+            # Next; Start/Stop go by RUNNING state (a listener waiting for
+            # its Next cannot be started twice — only stopped). The item is
+            # staged from the image to a temp folder before the send. The
+            # handlers live in build_local_explorer_ops, resolved via
+            # getattr at click time.
+            _re_running = getattr(host, "_re_running", False)
+            if (item_path and _re_running
+                    and getattr(getattr(host, "_re_widget", None),
+                                "_connected", False)):
+                menu.addAction(
+                    ui_tr_now("Send via NextSync {name}").format(
+                        name=os.path.basename(item_path.rstrip("/"))
+                        or item_path),
+                    lambda p=item_path, d=is_dir: QTimer.singleShot(
+                        0, lambda: _image_send_via_nextsync(p, d)))
+            if _re_running:
+                menu.addAction(
+                    ui_tr_now("Stop NextSync Remote Explorer"),
+                    lambda: QTimer.singleShot(0, lambda: getattr(
+                        host, "_local_stop_re_server", lambda: None)()))
+            else:
+                menu.addAction(
+                    ui_tr_now("Start NextSync Remote Explorer"),
+                    lambda: QTimer.singleShot(0, lambda: getattr(
+                        host, "_local_start_re_server", lambda: None)()))
+            menu.addSeparator()
 
             new_folder_label = "New Folder Here…" if is_dir else "New Folder…"
             menu.addAction(new_folder_label, image_newfolder_dialog)

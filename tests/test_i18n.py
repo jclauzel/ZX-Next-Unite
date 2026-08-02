@@ -383,7 +383,7 @@ def test_log_line_placeholders():
     # a few older strings embed them, which is fine ONLY while every
     # translation reproduces the command exactly — a localised '.sync5' would
     # be a command the Next rejects.
-    commands = (".sync5 -listen", ".sync5 -send", ".sync5", ".http")
+    commands = (".sync5 -listen", ".sync5 -L", ".sync5 -send", ".sync5", ".http")
     mangled = []
     for src in templates:
         present = [c for c in commands if c in src]

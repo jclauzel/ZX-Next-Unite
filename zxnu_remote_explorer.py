@@ -558,7 +558,7 @@ class RemoteExplorerWidget(QWidget):
         # "C" with an explanatory tooltip when the dot predates getdrives.
         self.next_drive_combo = QComboBox(self)
         self.next_drive_combo.setToolTip(
-            "Next drive to browse (from '.sync5 -listen'). Switching drives "
+            "Next drive to browse (from '.sync5 -L'). Switching drives "
             "jumps to that drive's root; all transfers and file operations "
             "then target it. The Next reports C, M and its current drive; "
             "use + to add drives from extra SD readers/partitions.")
@@ -847,6 +847,13 @@ class RemoteExplorerWidget(QWidget):
         self._op_completed += int(drained or 0)
         self._cut_jobs.clear()
         self._log("Cancelling remote operation after the current transfer…")
+        # The dialog froze its status at a bare "Cancelling…" when the button
+        # was pressed (set_status is muted once cancelled), so spell out WHAT
+        # the wait is for: the in-flight file must land whole on the Next.
+        if self._op_dialog is not None:
+            self._op_dialog.set_cancel_note(ui_tr_now(
+                "Cancelling — will stop once the current file has finished "
+                "transferring, to avoid file corruption…"))
         # If nothing was in flight, we're already finished.
         if self._op_completed >= self._op_total:
             self._end_operation()
@@ -990,7 +997,7 @@ class RemoteExplorerWidget(QWidget):
                     return text
             except Exception:
                 pass
-        return "Next: (waiting for .sync5 -listen …)"
+        return "Next: (waiting for .sync5 -L (-l or -listen) …)"
 
     def set_idle_status_provider(self, provider):
         """Install the host's disconnected-state status callable (0-arg,

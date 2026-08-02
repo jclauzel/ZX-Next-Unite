@@ -4383,7 +4383,7 @@ def _zxnu_parse_start_re_listener_arg():
         # Strip our flag so QApplication doesn't try to interpret it.
         sys.argv[:] = rest
         print("-start-remote-explorer-listener: starting the Remote Explorer "
-              "'.sync5 -listen' server at startup.")
+              "'.sync5 -L' (-l or -listen) server at startup.")
 
 
 _zxnu_parse_start_re_listener_arg()

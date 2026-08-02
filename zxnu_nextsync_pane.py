@@ -405,7 +405,7 @@ def build_nextsync_pane(
     host.nextsync_mode_tabs.addTab("🔄 Classic sync")       # index 1
     host.nextsync_mode_tabs.setToolTip(
         "Remote Explorer: a dual-pane file explorer (local <-> Next).\n"
-        "Run '.sync5 -listen' on your Next, then transfer files with ->: / :<-,\n"
+        "Run '.sync5 -L' (-l or -listen) on your Next, then transfer files with ->: / :<-,\n"
         "drag & drop, or the right-click menu (New Folder / Rename / Delete).\n"
         "Classic: the traditional one-way NextSync push (PC -> Next).")
     # Default to the Classic tab (matches the historical default and the
@@ -555,7 +555,7 @@ def build_nextsync_pane(
                 ui_tr_now(
                     "Serving on port {port}. A Next with the .http dot "
                     "command (or curl) can now drive the Next connected in "
-                    "'.sync5 -listen'.").format(port=port),
+                    "'.sync5 -L' (-l or -listen).").format(port=port),
                 variant="green", duration_ms=6000)
         elif host._re_bridge.port_in_use:
             # Something (IIS? another server instance?) already owns the
@@ -660,7 +660,7 @@ def build_nextsync_pane(
         """The "Next:" pane label while DISCONNECTED, mirroring the start
         button's three states."""
         if host._re_running:
-            return "Next: (waiting for .sync5 -listen …)"
+            return "Next: (waiting for .sync5 -L (-l or -listen) …)"
         if not getattr(host, "_re_sync_root", ""):
             return "Next: Select a sync root folder"
         return "Next: Start NextSync server"
@@ -682,8 +682,8 @@ def build_nextsync_pane(
             except Exception:
                 return ""
             lines = ["The Next's files will appear here.",
-                     "Run '.sync5 -listen' on your Next to connect",
-                     "(short aliases: '.sync5 -l' or '-L').", ""]
+                     "Run '.sync5 -L' (-l or -listen) on your Next "
+                     "to connect.", ""]
             if hostname:
                 lines += ["Running on host:", f"    {hostname}"]
             if ips:
@@ -708,7 +708,7 @@ def build_nextsync_pane(
                               "the address:",
                               f"    .sync5 {addr}",
                               "then start the remote session any time with:",
-                              "    .sync5 -listen"]
+                              "    .sync5 -L   (-l or -listen)"]
             _re_ip_info_cache["text"] = "\n".join(lines)
             _re_ip_info_cache["t"] = now
         return _re_ip_info_cache["text"]
@@ -915,7 +915,7 @@ def build_nextsync_pane(
                 ui_tr_now("Remote explorer: the Next disconnected (BREAK / Bye) "
                           "— restarting the listen server; run {command} on "
                           "your Next to reconnect.").format(
-                              command="'.sync5 -listen'"))
+                              command="'.sync5 -L' (-l or -listen)"))
             QTimer.singleShot(250, _re_auto_relisten)
             return
         add_nextsync_log_window(ui_tr_now(
@@ -925,6 +925,27 @@ def build_nextsync_pane(
         # Restore the button to "Start" (and pulse it, if still in view and a
         # sync root is set) so the user can accept a fresh connection.
         _re_update_start_button()
+
+    def _re_notify_session_toast(connected):
+        """5 s toast whenever the Next connects to / disconnects from the
+        Remote Explorer '.sync5 -listen' session. The session lives on the
+        NextSync tab but the user may be anywhere in the app (the SD Card
+        explorers' 'Send via NextSync' actions hinge on this state), so
+        the state change is announced wherever they are. The worker also
+        emits 'disconnected' from its finally when a listener that never
+        saw a Next winds down (manual stop, failed bind) — gating on
+        _re_had_connection filters those out, exactly as the
+        auto-relisten does."""
+        if connected:
+            host._show_toast(
+                "Next connected",
+                "A Next is now connected to the NextSync Remote Explorer.",
+                variant="green", duration_ms=5000)
+        elif getattr(host, "_re_had_connection", False):
+            host._show_toast(
+                "Next disconnected",
+                "The Next disconnected from the NextSync Remote Explorer.",
+                variant="yellow", duration_ms=5000)
 
     def _nextsync_on_re_port_in_use(port):
         # The listen server could not bind: the port is already held, almost
@@ -994,6 +1015,13 @@ def build_nextsync_pane(
         # Reset the pane's server state when the Next hangs up on its own
         # (BREAK / Bye / dropped link), so the user must press Start again.
         host._re_sig.disconnected.connect(_nextsync_on_re_disconnected)
+        # Session toasts (5 s, every tab). AFTER _nextsync_on_re_disconnected:
+        # that handler only reads _re_had_connection, and the auto-relisten
+        # that resets it runs deferred — so the flag is still valid here.
+        host._re_sig.connected.connect(
+            lambda: _re_notify_session_toast(True))
+        host._re_sig.disconnected.connect(
+            lambda: _re_notify_session_toast(False))
         host._re_sig.listing.connect(widget.on_listing)
         host._re_sig.ls_failed.connect(widget.on_ls_failed)
         host._re_sig.got.connect(widget.on_got)
@@ -1032,9 +1060,14 @@ def build_nextsync_pane(
         host.nextsync_re_play_label.setText("▶  Remote Explorer NextSync server running")
         host.nextsync_re_play_label.setVisible(True)
         _re_start_play_pulse()
+        # 3 s confirmation (also the QMenu start path on the SD Card tab):
+        # the {command} is a Next-side literal, so it is interpolated rather
+        # than sitting inside the translatable template.
         host._show_toast("NextSync server started",
-                         "Start '.sync5 -listen' on your Next to connect!",
-                         variant="green", duration_ms=5000)
+                         ui_tr_now("You can now start your Next {command} "
+                                   "dot command.").format(
+                             command="'.sync5 -L' (-l or -listen)"),
+                         variant="green", duration_ms=3000)
 
     def _nextsync_stop_listen_server():
         # Ask the Next to leave -listen first: the worker delivers "Q" (quit)
@@ -1121,8 +1154,8 @@ def build_nextsync_pane(
             # proceed. 30 s so it survives the walk to the Next.
             host._show_toast(
                 "You have started a Remote Explorer nextsync server already",
-                "Start '.sync5 -listen' on your Next and retry again "
-                "(canceling the upload / send process for now).",
+                "Start '.sync5 -L' (-l or -listen) on your Next and retry "
+                "again (canceling the upload / send process for now).",
                 variant="yellow", duration_ms=30000)
             return True
         if not (folder and os.path.isdir(folder)):
@@ -1219,7 +1252,7 @@ def build_nextsync_pane(
                     "explorer, press 'Set current folder as new sync root "
                     "folder', click 'Start Remote Explorer NextSync server', "
                     "then run {command} on your Next.").format(
-                        command="'.sync5 -listen'"))
+                        command="'.sync5 -L' (-l or -listen)"))
         else:
             _nextsync_stop_listen_server()
             _re_stop_startbtn_pulse()   # leaving the RE view: drop the pulse
