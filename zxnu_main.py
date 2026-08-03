@@ -1196,15 +1196,19 @@ class MainWindow(QMainWindow):
                   and self._mame_flatpak_enabled()):
                 body += "\r\n" + ui_tr_now("Mame: via Flatpak ({app})").format(
                     app=MAME_FLATPAK_APP_ID)
-            # After a fresh itch.io CSpect install (one-shot flag), append the
-            # Windows-only reminder to install OpenAL 1.1 \u2014 CSpect has no sound
-            # on Windows without it (Linux/macOS ship OpenAL, so it's skipped
-            # there). The link is clickable and the toast stays up \u2265 1 minute.
+            # After a fresh itch.io CSpect install (one-shot flag), run the
+            # Windows-only OpenAL 1.1 check \u2014 CSpect has no sound on Windows
+            # without it (Linux/macOS ship OpenAL, so it's skipped there).
+            # is_openal_installed() is privilege-free (system DLL + read-only
+            # registry scan), so when the runtime IS present the user just
+            # gets a quiet confirmation \u2014 the warning toast and the guided
+            # install offer (_offer_openal_install, zxnu_emulator_ops) only
+            # appear when it is genuinely missing.
             _openal = (self._cspect_openal_notice_pending
                        and "CSpect" in found
                        and platform.system() == "Windows")
             self._cspect_openal_notice_pending = False
-            if _openal:
+            if _openal and not is_openal_installed():
                 rich_body = body.replace("\r\n", "<br>")
                 rich_body += "<br><br>" + ui_tr_now(
                     "\u26a0 On Windows, CSpect needs <b>OpenAL 1.1</b> "
@@ -1216,6 +1220,21 @@ class MainWindow(QMainWindow):
                     variant="green",
                     duration_ms=65000,
                     rich=True,
+                )
+                # The toast alone is easy to miss \u2014 actively offer the guided
+                # install (download oalinst.zip + run the official installer).
+                # Deferred a beat so the toast paints before the modal opens.
+                QTimer.singleShot(400, self._offer_openal_install)
+            elif _openal:
+                self.add_main_log_window(
+                    "OpenAL: runtime detected \u2014 CSpect sound is ready.")
+                body += "\r\n\r\n" + ui_tr_now(
+                    "OpenAL 1.1 detected \u2014 CSpect sound is ready.")
+                self._show_toast(
+                    "\u2705  CSpect installed",
+                    body,
+                    variant="green",
+                    duration_ms=8000,
                 )
             else:
                 self._show_toast(
@@ -2736,8 +2755,26 @@ class MainWindow(QMainWindow):
 
         self.listWidgetHelp = QListWidget(self)
 
-        for l in INIT_HELP:
-            add_help_content(l, False)
+        # Like INIT_LOG above, INIT_HELP is built at import time, before a
+        # language is known, so every line is translated as it is inserted.
+        # Unlike the log windows (append-only streams) the help is static
+        # CONTENT the widget-tree walk cannot reach, so a language switch
+        # rebuilds the whole list — clearing the retro console mirror first,
+        # which add_help_content would otherwise fill with duplicates.
+        def _repopulate_help():
+            self.listWidgetHelp.clear()
+            _help_retro = getattr(self, "_help_retro_log", None)
+            if _help_retro is not None:
+                try:
+                    _help_retro.clear()
+                except Exception:
+                    pass
+            add_help_content(ui_tr_now("Welcome to zx-next-unite {version} help")
+                             .format(version=ZX_NEXT_UNITE_VERSION), False)
+            for l in INIT_HELP[1:]:
+                add_help_content(ui_tr_now(l), False)
+        self._repopulate_help = _repopulate_help
+        _repopulate_help()
 
 
         # Height is governed by the explorers ⇄ log splitter (built below);
@@ -3510,6 +3547,9 @@ class MainWindow(QMainWindow):
         # every catalogued text in place (English restores the originals).
         def _i18n_apply(code):
             translate_widget_tree(self, normalize_ui_language(code))
+            # The Help tab is list CONTENT, not widget texts — the walk above
+            # cannot reach it, so it is rebuilt in the new language instead.
+            _repopulate_help()
             # A speaking wizard switches language mid-speech (zxnu_wizard.py).
             _wiz = getattr(self, "_wizard", None)
             if _wiz is not None:

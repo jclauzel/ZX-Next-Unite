@@ -562,6 +562,79 @@ def test_sdcard_console():
     set_current_ui_language(DEFAULT_UI_LANGUAGE)
 
 
+def test_help_tab():
+    """The Help ("?") tab renders INIT_HELP through ui_tr_now line by line
+    (zxnu_main._repopulate_help rebuilds it on every language switch), so
+    every prose line must exist in every catalog. Structural lines carry no
+    prose and stay English on purpose: blanks, ---- underlines, URL-only
+    lines, the 'API base URL : …' key/value rows and the proper-name section
+    headers. URLs, commands and file names inside a prose line must reach
+    the reader verbatim — a localised '.sync' or mangled link is worse than
+    an untranslated one."""
+    import re
+    print("\n== Help tab (INIT_HELP) ==")
+    from zxnu_config import INIT_HELP, ZX_NEXT_UNITE_VERSION
+
+    headers = {"hdfmonkey:", "NextSync:", "GetIt:", "ZXDB:", "zxArt:",
+               "Mame:", "CSpect:"}
+
+    def needs_translation(line):
+        s = line.strip()
+        if not s or set(s) <= {"-"}:
+            return False
+        if s.startswith("http") or s.startswith("API base URL"):
+            return False
+        return s not in headers
+
+    prose = [l for l in INIT_HELP[1:] if needs_translation(l)]
+    check("the help still carries a plausible amount of prose",
+          len(prose) >= 90, f"only {len(prose)}")
+
+    # INIT_HELP[0] is the banner WITH the version already interpolated, so it
+    # can never match a catalog key — the emitter must use the template.
+    banner = "Welcome to zx-next-unite {version} help"
+    check("the help banner constant is not itself a catalog key (template is used)",
+          INIT_HELP[0] not in CATALOGS["fr"]
+          and INIT_HELP[0] == f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help",
+          INIT_HELP[0])
+
+    url = re.compile(r"https?://\S+")
+    tokens = (".sync5", ".sync", ".http", "-send", "nextsync5.py",
+              "nextsync.py", "readme.txt", "syncignore.txt", "syncpoint.dat",
+              "tbblue.zip", "sudo apt-get install mono-complete", "hdfmonkey",
+              "{version}")
+    bad_urls, bad_tokens = [], []
+    for code, _n in UI_LANGUAGES:
+        if code == DEFAULT_UI_LANGUAGE:
+            continue
+        cat = CATALOGS[code]
+        missing = [l for l in prose + [banner] if l not in cat]
+        check(f"the whole help is translated in '{code}'",
+              not missing, f"{len(missing)}: {[m[:40] for m in missing[:3]]}")
+        for src in prose + [banner]:
+            translated = cat.get(src)
+            if translated is None:
+                continue          # already reported above
+            if url.findall(src) != url.findall(translated):
+                bad_urls.append(f"{code}: {src[:40]!r}")
+            for tok in tokens:
+                if tok in src and tok not in translated:
+                    bad_tokens.append(f"{code}: {tok} lost in {src[:34]!r}")
+    check("every URL survives the help translation verbatim",
+          not bad_urls, "; ".join(bad_urls[:4]))
+    check("commands/file names survive the help translation verbatim",
+          not bad_tokens, "; ".join(bad_tokens[:4]))
+
+    # The banner template must actually render, translated, with the version.
+    set_current_ui_language("fr")
+    rendered = ui_tr_now(banner).format(version=ZX_NEXT_UNITE_VERSION)
+    check("the help banner renders translated with the version intact",
+          ZX_NEXT_UNITE_VERSION in rendered and rendered != banner.format(
+              version=ZX_NEXT_UNITE_VERSION),
+          rendered)
+    set_current_ui_language(DEFAULT_UI_LANGUAGE)
+
+
 def test_runtime_text_sweep():
     """No widget text written AFTER startup may be a bare English literal.
 
@@ -654,6 +727,7 @@ def main():
     test_log_line_placeholders()
     test_gallery_item_viewer()
     test_sdcard_console()
+    test_help_tab()
     test_runtime_text_sweep()
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
     sys.exit(0 if ok else 1)

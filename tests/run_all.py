@@ -34,6 +34,7 @@ SUITES = [
     ("test_data_root.py",       240, None),
     ("test_hdfmonkey_discovery.py", 120, None),
     ("test_mame_install.py",     120, None),
+    ("test_openal_install.py",   120, None),
     ("test_startup_tab_activation.py", 120, None),
     ("test_cspect_autostart.py",  120, None),
     ("test_mame_autostart.py",   120, None),
