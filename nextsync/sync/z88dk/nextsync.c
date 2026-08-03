@@ -1061,6 +1061,13 @@ static char scratch[1280]; // outgoing block: 1024 file bytes + opcode + framing
 static char sendpath[256];
 static char cleancmd[256]; // command line with speed switches removed (never touch the OS buffer)
 
+// v5.6 clone hardening, hand-asm in uart.asm: BOTH byte budgets are full
+// (the head page tail brushes the $3F00 line, and every main-bank byte is
+// stack headroom), so the two helpers are ~75 bytes of asm instead of
+// ~150 of compiled C. See uart.asm for what they guarantee.
+extern void tail_copy(char *dst, char *src);
+extern unsigned char valid_server(char *fn) __z88dk_fastcall;
+
 // arglen = z88dk's measured command-line length (unused); rawcmd = pointer to
 // the unprocessed NextZXOS command tail (CRT_ENABLE_COMMANDLINE=2), which keeps
 // ':' intact for paths like "c:/foo".
@@ -1090,9 +1097,21 @@ int main(int arglen, char *rawcmd)
     // prompt for the rest of the BASIC session after the dot command exits.
     saved_scr_ct = *((unsigned char *)23692);
 
-    // Point cmdline at the raw NextZXOS command tail handed to us by the crt.
+    // Take a bounded PRIVATE copy of the command tail before any parsing.
+    // Genuine Next hardware leaves a 0x0D after the arguments, but clones
+    // do not all guarantee a terminator: on an N-Go the bytes after the
+    // tail can be garbage, the tokenizer (8-bit indices) then runs off
+    // through memory, and ".sync5 <ip>" showed the HELP instead of saving
+    // the config. tail_copy (head-page, free.c) caps at 254 bytes and
+    // forces a NUL — a well-behaved machine still sees exactly the old
+    // bytes (0x00/0x0D end the copy early). arglen stays unused: the crt
+    // measures it by scanning for the same terminator, so it is no more
+    // trustworthy than the buffer itself. sendpath doubles as the scratch:
+    // it is not filled until AFTER the parse below (and from cleancmd, not
+    // the raw line), so no new buffer is spent on this.
     (void)arglen;
-    cmdline = rawcmd;
+    tail_copy(sendpath, rawcmd);
+    cmdline = sendpath;
 
     // Strip speed/option switches into a private buffer (never write the OS
     // cmdline), then point cmdline at it so the normal parser sees the cleaned
@@ -1124,7 +1143,7 @@ int main(int arglen, char *rawcmd)
     // zxnu_config.py (and the help text below): the app compares it against
     // the cfg's dotn_last_version to advise the user to refresh the .sync5
     // copy on their Next after updating the app.
-    print("NextSync 5.5 Clauzel/Komppa");
+    print("NextSync 5.6 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -1195,7 +1214,7 @@ int main(int arglen, char *rawcmd)
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v5.5 Clauzel/Komppa\r"
+                "SYNC v5.6 Clauzel/Komppa\r"
                 ".SYNC5 [server] : save cfg\r"
                 ".SYNC5 : sync files from PC\r"
                 ".SYNC5 -send <file|dir> : to PC\r"
@@ -1215,6 +1234,17 @@ int main(int arglen, char *rawcmd)
 
         if (isserver)
         {
+            // Clone hardening, same N-Go failure family as the bounded copy
+            // above: a mangled tail must NEVER overwrite the saved config.
+            // valid_server (head-page, free.c) accepts host chars only
+            // (alnum . -), whole token, minimum 2 chars — junk like the
+            // lone 'n' a mangled tail produced is refused, not written.
+            if (!valid_server(fn))
+            {
+                conprint("Bad server name\r");
+                goto terminate;
+            }
+
             conprint("Setting server to:");
             conprint(fn);
             conprint("\r-> ");

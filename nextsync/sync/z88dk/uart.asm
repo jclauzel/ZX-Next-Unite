@@ -57,3 +57,86 @@ done:
     xor  a
     out  (0xfe), a       ; border back to black
     ret                  ; HL = count
+
+; --- v5.6 clone hardening (N-Go): hand asm because BOTH byte budgets are
+; --- full — the head page tail brushes the $3F00 line and every main-bank
+; --- byte is stack headroom, so ~150 bytes of compiled C become ~75 here.
+
+PUBLIC _tail_copy
+PUBLIC _valid_server
+
+; void tail_copy(char *dst, char *src)   [sdcc default convention]
+;   Bounded private copy of the OS command tail: hard 254-byte cap + forced
+;   NUL; 0x00/0x0D end the copy early. Clones do not guarantee a terminator
+;   after the tail, so nothing may parse the OS buffer directly.
+_tail_copy:
+    pop  de              ; return address
+    pop  hl              ; dst
+    pop  bc              ; src
+    push bc              ; caller pops its own args
+    push hl
+    push de
+    ld   a, b
+    or   c
+    jr   z, tc_term      ; NULL src -> just terminate dst
+    ld   e, 254          ; cap
+tc_loop:
+    ld   a, (bc)
+    or   a
+    jr   z, tc_term      ; 0x00 ends
+    cp   0x0d
+    jr   z, tc_term      ; 0x0D ends
+    ld   (hl), a
+    inc  hl
+    inc  bc
+    dec  e
+    jr   nz, tc_loop
+tc_term:
+    ld   (hl), 0
+    ret
+
+; unsigned char valid_server(char *fn) __z88dk_fastcall
+;   1 if fn is a plausible server name: host chars only (alnum . -), the
+;   WHOLE token valid, at least 2 chars — a mangled tail must never
+;   overwrite the saved config (the N-Go wrote a lone 'n' before this).
+_valid_server:
+    ld   d, h            ; DE = start of fn
+    ld   e, l
+vs_loop:
+    ld   a, (hl)
+    or   a
+    jr   z, vs_end       ; NUL: token scanned
+    cp   '.'
+    jr   z, vs_ok
+    cp   '-'
+    jr   z, vs_ok
+    cp   '0'
+    jr   c, vs_bad
+    cp   '9'+1
+    jr   c, vs_ok
+    cp   'A'
+    jr   c, vs_bad
+    cp   'Z'+1
+    jr   c, vs_ok
+    cp   'a'
+    jr   c, vs_bad
+    cp   'z'+1
+    jr   c, vs_ok
+vs_bad:
+    ld   hl, 0
+    ret
+vs_ok:
+    inc  hl
+    jr   vs_loop
+vs_end:
+    or   a               ; length = HL - DE, must be >= 2
+    sbc  hl, de
+    ld   a, h
+    or   a
+    jr   nz, vs_yes
+    ld   a, l
+    cp   2
+    jr   c, vs_bad
+vs_yes:
+    ld   hl, 1
+    ret

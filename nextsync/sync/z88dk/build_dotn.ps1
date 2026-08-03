@@ -156,6 +156,10 @@ Remove-Item rfsize_head -Force
 #   -subtype=dotn        emit a dotN (banked) command
 #   -create-app          run appmake to produce the final file
 Write-Host "Building syncdev (dotN)..."
+# The loader must allocate ONLY mmu4+mmu5 (allocation mask 0x30) — enforced
+# by DOTN_MAIN_ABSOLUTE_MASK in zpragma.inc; verify the "allocation mask"
+# notice below says 0x30, or the OS command-line bank at $C000-$FFFF gets
+# swapped away before main() runs (the N-Go ".sync5 <ip>" bug).
 $rc = Invoke-Zcc @("+zxn", "-startup=30", "-clib=sdcc_iy", "-SO3",
     "--max-allocs-per-node200000", "--opt-code-size", "@zproject.lst",
     "-o", "syncdev", "-pragma-include:zpragma.inc",
