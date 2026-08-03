@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.5.1"
+ZX_NEXT_UNITE_VERSION = "9.5.2"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -232,6 +232,16 @@ HDF_MONKEY_JJJS_ZIP_PASSWORD = b"jjjs"
 # top-level downloads folder). Also the name the manual-fallback message suggests
 # so find_hdfmonkey_jjjs_zip_in_downloads re-discovers a hand-placed copy.
 HDF_MONKEY_JJJS_ZIP_FILENAME = "hdfmonkey_jjjs.zip"
+
+# OpenAL 1.1 runtime (Windows only) — CSpect needs it for sound there. The
+# official installer ships zipped (oalinst.zip -> oalinst.exe); running the exe
+# triggers Windows' own UAC elevation prompt via its manifest, so the app never
+# needs to run elevated itself. See is_openal_installed() /
+# extract_oalinst_from_zip() below and the offer chain in zxnu_emulator_ops.
+OPENAL_WEBSITE_URL = "https://www.openal.org/"
+OPENAL_DOWNLOAD_URL = "https://www.openal.org/downloads/oalinst.zip"
+OPENAL_INSTALLER_ZIP_FILENAME = "oalinst.zip"
+OPENAL_INSTALLER_EXE_FILENAME = "oalinst.exe"
 
 SETTING_HDDFILE = "hddffile"
 SETTING_EXPLORERPATH = "explorerpath"
@@ -741,15 +751,15 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              (""),
              ("Introduction:"),
              ("--------"),
-             ("HdfmGooey was initialy created by emOOk and NextSync by Jari Komppa."),
+             ("HdfmGooey was initially created by em00k and NextSync by Jari Komppa."),
              ("A while back I rambled with the idea of an all in one bootstrapper transfer tool to"),
              ("avoid manipulating SD cards for the Spectrum Next and that was the initial idea of it."),
-             ("Last but not the least some source code was lost from HDFM Gooey and the tool was stuck back in that time,"),
-             ("with the agreement of emOOk I started a rewrite in Python and later with Jari"),
-             ("The point of using Python that would also provide MacOS and Linux portability."),
+             ("Last but not least some source code was lost from HDFM Gooey and the tool was stuck back in that time,"),
+             ("with the agreement of em00k I started a rewrite in Python and later with Jari."),
+             ("The point of using Python was that it would also provide MacOS and Linux portability."),
              ("Later down the line I then extended the NextSync functionality from Sync3 to Sync4."),
-             ("The new .snyc4 command for the Next can send Sync4 that therefore alow to send files and directories using -send command line option."),
-             ("There is as well a new nextsync5.py command line located at the root of the repository that support the new Sync4 protocol."),
+             ("The new .sync5 command for the Next speaks Sync4 and therefore allows sending files and directories using the -send command line option."),
+             ("There is as well a new nextsync5.py command line located at the root of the repository that supports the new Sync4 protocol."),
              ("Here we are now you have it!"),
              (""),
              (""),
@@ -772,15 +782,15 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("zx-next-unite is released under the MIT license. It is a Qt Application using PySide6 (Qt for Python) on top of Qt6, used under the GNU LGPL v3."),
              ("Please refer to the LICENSE and THIRD-PARTY-NOTICES.md files on github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE and https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md."),
              (""),
-             ("Pyside6 is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The pre-built release executables do include PySide6/Qt; since the app's full source code is published, they can be rebuilt with a modified Qt."),
+             ("PySide6 is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The pre-built release executables do include PySide6/Qt; since the app's full source code is published, they can be rebuilt with a modified Qt."),
              (""),
              ("zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org."),
              (""),
-             ("pygame-ce is distributed under the GNU LGPL v2.1 license and, like Pyside6, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions)."),
+             ("pygame-ce is distributed under the GNU LGPL v2.1 license and, like PySide6, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions)."),
              (""),
              ("zx-next-unite optionally uses itch-dl by Dragoon Aethis to power the itch.io tab (browsing and installing your itch.io collections). Many thanks to its author - see https://github.com/DragoonAethis/itch-dl."),
              (""),
-             ("itch-dl is distributed under the MIT license (Copyright (c) 2022 Dragoon Aethis) and, like Pyside6 and pygame-ce, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The itch.io tab is only shown when itch-dl is installed."),
+             ("itch-dl is distributed under the MIT license (Copyright (c) 2022 Dragoon Aethis) and, like PySide6 and pygame-ce, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The itch.io tab is only shown when itch-dl is installed."),
              (""),
              ("zx-next-unite optionally uses Flask by the Pallets team to power the NextSync HTTP bridge - the web server behind the Next's .http dot command that lets one Next drive another Next's SD card. Many thanks to its authors - see https://flask.palletsprojects.com and https://github.com/pallets/flask."),
              (""),
@@ -800,58 +810,56 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              (""),
              ("Setup & How to:"),
              ("---------------"),
-             ("Checkout main setup & demo video avaible at: https://youtu.be/-gUxV4fM1yo  (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )"),
+             ("Check out the main setup & demo video available at: https://youtu.be/-gUxV4fM1yo  (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )"),
              ("NextSync Head Over Heels demo: https://www.youtube.com/watch?v=D3_WqTPvjOE"),
              ("NextSync Night Knight demo: https://www.youtube.com/watch?v=eN1eMIqMCm4"),
              (""),
              ("hdfmonkey:"),
              ("----------"),
-             ("Is a required external component developped by Matt Westcott  that allows to browse the image."),
+             ("Is a required external component developed by Matt Westcott that allows browsing the image."),
              ("You will need to install it to get this application up and fully running."),
              (""),
-             ("If you are running the app on Windows and hdfmonkey in not present in the same directory,"),
-             ("you will see an error message in the main log Windows as it is missing."),
+             ("If hdfmonkey is not present you will see an error message in the main log window as it is missing."),
              (""),
-             ("If that is the case you will see a 'Download and Install button' bottom right,"),
-             ("once clicked it will try to fetch https://uto.speccy.org/downloads/hdfmonkey_windows.zip "),
-             ("and unzip hdfmonkey executable in the same directory."),
+             ("If that is the case you will see a 'Download and install HDF Monkey' button bottom right,"),
+             ("once clicked it will download a pre-compiled hdfmonkey build for your platform (Windows/Linux/macOS) and install it under the app's downloads folder."),
              ("If the above automated install is successful, you should then be able to select an image and navigate it."),
              (""),
-             ("On Mac/Linux you will need to install hdfmonkey manually based on the instructions for your platform that can be found at: https://github.com/gasman/hdfmonkey"),
+             ("hdfmonkey can also be installed manually based on the instructions for your platform that can be found at: https://github.com/gasman/hdfmonkey"),
              (""),
              ("NextSync:"),
              ("---------"),
              ("zx-next-unite implements the <Server> side code and protocol of NextSync by Jari Komppa."),
              ("It does not require any dot .sync modification and it uses the same very close python logic as nextsync.py."),
              (""),
-             ("Initial realease on specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8"),
-             ("As a result you will need to run the dot same .sync command on your Next as with the console version and the same network protocol."),
+             ("Initial release on specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8"),
+             ("As a result you will need to run the same dot .sync command on your Next as with the console version and the same network protocol."),
              (""),
              ("The latest release v1.2 of the .sync command can be found here https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 ."),
              (""),
-             ("You may follow the same instructions as the provided in the readme.txt of that release."),
-             ("On your Spectrum Next, clone or image copy the SYNC command that is located in the above release zip file into your next dot folder."),
-             ("Navigate to NextSync tab, select the root folder to sync on the left."),
-             ("Once you have selected the folder hit the 'prepare sync' button, check the Next Sync log Window on the right."),
-             ("First time you will run .sync on your will be prompter to select the <server> IP address, this machine running NextSync."),
-             ("From the log window pick the IP address from this machine you want to use and type it on your next."),
-             ("Then start the sync server on this maching using the Yes, start sync button and then run the .sync command on your Next."),
-             ("At this point your Spectrum Next will connect to your machine using a network socket and the files will be sent to your next."),
-             ("As it is your Next that will connect to this machine check your firewall alows inbound calls to this machine on port: 2048 by default." ),
+             ("You may follow the same instructions as provided in the readme.txt of that release."),
+             ("On your Spectrum Next, clone or image copy the SYNC command that is located in the above release zip file into your Next dot folder."),
+             ("Navigate to the NextSync tab, select the root folder to sync on the left."),
+             ("Once you have selected the folder hit the 'Prepare Classic NextSync server' button, check the NextSync log window on the right."),
+             ("The first time you run .sync on your Next you will be prompted to select the <server> IP address, this machine running NextSync."),
+             ("From the log window pick the IP address from this machine you want to use and type it on your Next."),
+             ("Then start the sync server on this machine using the 'Start Classic NextSync server' button and then run the .sync command on your Next."),
+             ("At this point your Spectrum Next will connect to your machine using a network socket and the files will be sent to your Next."),
+             ("As it is your Next that will connect to this machine check your firewall allows inbound calls to this machine on port: 2048 by default."),
              (""),
-             ("The same syncignore.txt and syncpoint.dat file logic applies and alows you to control the sync (please check Jari documentation)."),
+             ("The same syncignore.txt and syncpoint.dat file logic applies and allows you to control the sync (please check Jari's documentation)."),
              (""),
              ("NextSync source code can be found here: https://github.com/jarikomppa/specnext/tree/master/sync"),
              (""),
-             ("If you run in any type of issue using the NextSync integration please run first the Jari command line version to see if it works as expected."),
+             ("If you run into any type of issue using the NextSync integration please run first Jari's command line version to see if it works as expected."),
              (""),
              ("OpenAL sound engine (on Windows)"),
              ("--------------------------------"),
-             ("OpenAL library is required on Windows for CSpect to play sound, you may download it here: https://openal.org/"),
+             ("The OpenAL library is required on Windows for CSpect to play sound, you may download it here: https://openal.org/"),
              (""),
              ("Mono (on Linux & MacOS Only)"),
              ("-------"),
-             ("You will also need to install manualy mono-complete package for example using: sudo apt-get install mono-complete"),
+             ("You will also need to manually install the mono-complete package for example using: sudo apt-get install mono-complete"),
              (""),
              ("Third-Party Content Sources (GetIt / ZXDB / zxArt):"),
              ("----------------------------------------------------"),
@@ -862,7 +870,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              (""),
              ("GetIt:"),
              ("  GetIt is a community-maintained archive of ZX Spectrum Next software."),
-             ("  API base URL : https://www.specnext.com/getit/"),
+             (f"  API base URL : {GETIT_BASE_URL}"),
              ("  The application queries the GetIt API to list and search files, then"),
              ("  downloads them directly from the URLs returned by that API."),
              (""),
@@ -882,7 +890,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("  directly from the URLs returned by that API."),
              (""),
              ("Mame:"),
-             ("  Mame emulator brought to you by Hulob for the ZX Spectrum Next can be installed following this documentation: https://wiki.specnext.dev/MAME:Installing"),
+             ("  Mame emulator brought to you by Holub for the ZX Spectrum Next can be installed following this documentation: https://wiki.specnext.dev/MAME:Installing"),
              ("  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html"),
              ("  Put the file tbblue.zip that can be found here: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip into MAME's roms folder."),
              ("  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected."),
@@ -1759,6 +1767,11 @@ DOWNLOADS_HDFMONKEY_DIRNAME = os.path.join("downloads", "hdfmonkey")
 # Windows binaries. The self-extractor drops mame.exe and its support tree here.
 DOWNLOADS_MAME_DIRNAME = os.path.join("downloads", "mame")
 
+# Sub-directory (relative to the application directory) where the OpenAL
+# guided install (OPENAL_DOWNLOAD_URL) saves the official Windows installer
+# archive and unpacks oalinst.exe before launching it.
+DOWNLOADS_OPENAL_DIRNAME = os.path.join("downloads", "openal")
+
 
 def hdfmonkey_platform_dirs():
     """Return candidate ``(platform_dirname, exe_filename)`` pairs, in priority
@@ -2321,6 +2334,102 @@ def extract_hdfmonkey_from_jjjs_zip(outer_zip_path, dest_root,
     raise RuntimeError(
         f"Downloaded hdfmonkey archive has no build for this platform "
         f"({platform.system()} {platform.machine()}).")
+
+
+def _openal_in_add_remove_programs():
+    """True when an OpenAL entry exists in the Windows Add/Remove Programs
+    (Uninstall) registry keys — READ-ONLY registry access, which needs no
+    elevation for a standard user (only writing does). Covers an OpenAL
+    runtime registered by another game/installer even if its DLL was placed
+    somewhere unexpected. Split out so tests can stub it."""
+    try:
+        import winreg
+    except ImportError:
+        return False                    # non-Windows Python
+    uninstall = r"Microsoft\Windows\CurrentVersion\Uninstall"
+    roots = (
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE" + "\\" + uninstall),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node" + "\\" + uninstall),
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE" + "\\" + uninstall),
+    )
+    for root, path in roots:
+        try:
+            key = winreg.OpenKey(root, path)
+        except OSError:
+            continue
+        with key:
+            try:
+                count = winreg.QueryInfoKey(key)[0]
+            except OSError:
+                continue
+            for i in range(count):
+                try:
+                    with winreg.OpenKey(key, winreg.EnumKey(key, i)) as entry:
+                        name = winreg.QueryValueEx(entry, "DisplayName")[0]
+                except OSError:
+                    continue
+                if "openal" in str(name).lower():
+                    return True
+    return False
+
+
+def is_openal_installed(windir=None):
+    """True when the OpenAL 1.1 runtime CSpect needs for sound is present.
+
+    This is a Windows-only question: on Linux/macOS OpenAL comes from the
+    system, so every other platform returns True (nothing to install). The
+    checks are deliberately privilege-free — no elevation, no process
+    launches:
+
+      1. the router DLL the official oalinst.exe drops into the Windows
+         system folders (System32 for 64-bit, SysWOW64 for 32-bit; both are
+         checked, which also rides out WOW64 filesystem redirection);
+      2. a read-only scan of the Add/Remove Programs Uninstall keys for an
+         "OpenAL" DisplayName (see _openal_in_add_remove_programs).
+
+    ``windir`` overrides the Windows directory (tests)."""
+    if platform.system() != "Windows":
+        return True
+    windir = (windir or os.environ.get("SystemRoot")
+              or os.environ.get("windir") or r"C:\Windows")
+    for sub in ("System32", "SysWOW64"):
+        try:
+            if os.path.isfile(os.path.join(windir, sub, "OpenAL32.dll")):
+                return True
+        except OSError:
+            pass
+    try:
+        return _openal_in_add_remove_programs()
+    except Exception:
+        logging.exception("OpenAL Add/Remove Programs scan failed")
+        return False
+
+
+def extract_oalinst_from_zip(zip_path, dest_root):
+    """Extract the official OpenAL installer (oalinst.exe) out of a downloaded
+    ``OPENAL_DOWNLOAD_URL`` archive and return the full path to it.
+
+    The archive carries a single oalinst.exe (historically at the zip root,
+    but a sub-folder is tolerated); it is written flat into *dest_root*.
+    Raises ``RuntimeError`` when the archive holds no oalinst.exe; propagates
+    ``zipfile``/OS errors for the caller to report."""
+    with zipfile.ZipFile(zip_path) as zf:
+        member = None
+        for name in zf.namelist():
+            norm = name.replace("\\", "/").lower()
+            if norm.endswith("/"):
+                continue                # directory entry
+            if norm.rsplit("/", 1)[-1] == OPENAL_INSTALLER_EXE_FILENAME:
+                member = name
+                break
+        if member is None:
+            raise RuntimeError(
+                "Downloaded OpenAL archive does not contain oalinst.exe.")
+        os.makedirs(dest_root, exist_ok=True)
+        dest = os.path.join(dest_root, OPENAL_INSTALLER_EXE_FILENAME)
+        with zf.open(member) as src, open(dest, "wb") as out:
+            shutil.copyfileobj(src, out)
+    return dest
 
 
 FILTER_LABEL_TEXT = "Filter: "

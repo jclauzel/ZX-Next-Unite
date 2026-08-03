@@ -199,6 +199,13 @@ elif PHASE in (2, 3):
     # the HDF and pre-seeds the state whose startup restore is under test.
     if not os.path.isfile(HDF):
         skip("no test HDF (phase 1 did not run or was skipped)")
+    # A STALE HDF from an earlier session must not un-skip these phases: when
+    # hdfmonkey has since gone away (e.g. the itch.io CSpect install that
+    # bundled it was removed), the app cannot list the image, the assertions
+    # fail, and the missing-hdfmonkey install prompt — a modal — can hang the
+    # offscreen run until the phase timeout.
+    if not find_hdfmonkey():
+        skip("hdfmonkey not found (PATH or downloads/) — phases 2-3 need it")
     ensure_scratch(fresh=False)
     saved = "/games/sub" if PHASE == 2 else "/gone"
     with open(CFG, "w") as f:
@@ -233,6 +240,9 @@ elif PHASE == 8:
     # both the test HDF and hdfmonkey (skip cleanly like phases 2-3).
     if not os.path.isfile(HDF):
         skip("no test HDF (phase 1 did not run or was skipped)")
+    # Same stale-HDF guard as phases 2-3: loading the image needs hdfmonkey.
+    if not find_hdfmonkey():
+        skip("hdfmonkey not found (PATH or downloads/) — phase 8 loads the HDF")
     ensure_scratch(fresh=False)
     with open(CFG, "w") as f:
         f.write(BASE_CFG)

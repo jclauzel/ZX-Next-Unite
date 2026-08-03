@@ -371,6 +371,7 @@ CATALOGS = {
         "Download File": "Descargar archivo",
         "Download NextZXOS Image": "Descargar imagen NextZXOS",
         "Download and install HDF Monkey": "Descargar e instalar HDF Monkey",
+        "Download and install HDF Monkey and OpenAL": "Descargar e instalar HDF Monkey y OpenAL",
         "Generate": "Generar",
         "Get API key…": "Obtener clave API…",
         "Latest": "Novedades",
@@ -436,10 +437,10 @@ CATALOGS = {
             "Instalación de MAME ▸ SIGUIENTE PASO (manual): añade la ROM de arranque TBBLUE. Consulta {url} → \"Get TBBLUE (the Next 'boot ROM')\". Pon el archivo tbblue.zip en la carpeta roms de MAME ({roms}) — NO lo extraigas. Debes usar una ROM adquirida legalmente y con licencia.",
         "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
             "Comando dot .sync5 de NextSync actualizado: v{old} -> v{new} — copia la nueva versión a tu Next (no puede desplegarse automáticamente).",
-        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
-            "CONSEJO: ¿sabías que si has comprado CSpect en itch.io puedes hacer una instalación completa de CSpect desde allí?\n\nInicia sesión en tu cuenta de itch.io en la pestaña itch.io, ve a CSpect y pulsa Instalar.\n\n¿Aún quieres instalar solo hdfmonkey, o prefieres cancelar y hacer la instalación completa de CSpect con itch.io?",
+        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nCSpect ships with hdfmonkey bundled inside it, so that route needs no separate hdfmonkey install — the app finds and uses the bundled copy automatically.\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
+            "CONSEJO: ¿sabías que si has comprado CSpect en itch.io puedes hacer una instalación completa de CSpect desde allí?\n\nCSpect lleva hdfmonkey incluido en su interior, así que esa vía no necesita una instalación aparte de hdfmonkey — la aplicación encuentra y usa la copia incluida automáticamente.\n\nInicia sesión en tu cuenta de itch.io en la pestaña itch.io, ve a CSpect y pulsa Instalar.\n\n¿Aún quieres instalar solo hdfmonkey, o prefieres cancelar y hacer la instalación completa de CSpect con itch.io?",
         "The automatic hdfmonkey download from specnext.com failed — the forum may be asking for a login or an anti-robot confirmation before the download can start (see the log for details).\n\nYou can install it manually instead:\n1. Click 'Open download page' below (or browse to\n    {url} ).\n2. Download the hdfmonkey .zip file.\n3. Drop the downloaded .zip into this EXACT folder — the app has already created it, and the 'Open downloads folder' button below opens it so nothing needs to be typed:\n    {folder}\n4. Click \"I've dropped the zip - try again\".":
-            "La descarga automática de hdfmonkey desde specnext.com falló — puede que el foro pida iniciar sesión o una confirmación anti-robot antes de permitir la descarga (mira el registro para más detalles).\n\nPuedes instalarlo manualmente:\n1. Pulsa 'Open download page' abajo (o abre\n    {url} ).\n2. Descarga el archivo .zip de hdfmonkey.\n3. Copia el .zip descargado EXACTAMENTE en esta carpeta — la aplicación ya la ha creado, y el botón 'Open downloads folder' de abajo la abre para que no tengas que escribir nada:\n    {folder}\n4. Pulsa \"I've dropped the zip - try again\".",
+            "La descarga automática de hdfmonkey desde specnext.com falló — puede que el foro pida iniciar sesión o una confirmación anti-robot antes de permitir la descarga (mira el registro para más detalles).\n\nPuedes instalarlo manualmente:\n1. Pulsa 'Abrir la página de descarga' abajo (o abre\n    {url} ).\n2. Descarga el archivo .zip de hdfmonkey.\n3. Copia el .zip descargado EXACTAMENTE en esta carpeta — la aplicación ya la ha creado, y el botón 'Abrir la carpeta de descargas' de abajo la abre para que no tengas que escribir nada:\n    {folder}\n4. Pulsa \"Ya he puesto el zip: inténtalo de nuevo\".",
         "ZX Next Unite update: downloaded {name} to {folder}":
             "Actualización de ZX Next Unite: {name} descargado en {folder}",
         "ZX Next Unite update: downloaded {path} but could not unpack it: {error}":
@@ -693,7 +694,7 @@ CATALOGS = {
         "Downloading {name} from {url}":
             "Descargando {name} desde {url}",
         "ERROR: hdfmonkey could not be found. Use the 'Download and install HDF Monkey' button (bottom right of the SD Card tab) to install it automatically, or do a full CSpect install from the itch.io tab, which also bundles hdfmonkey. It can also be installed manually from https://github.com/gasman/hdfmonkey — restart the app once installed.":
-            "ERROR: no se encontró hdfmonkey. Usa el botón 'Download and install HDF Monkey' (abajo a la derecha de la pestaña SD Card) para instalarlo automáticamente, o haz una instalación completa de CSpect desde la pestaña itch.io, que también incluye hdfmonkey. También se puede instalar manualmente desde https://github.com/gasman/hdfmonkey — reinicia la aplicación una vez instalado.",
+            "ERROR: no se encontró hdfmonkey. Usa el botón 'Descargar e instalar HDF Monkey' (abajo a la derecha de la pestaña SD Card) para instalarlo automáticamente, o haz una instalación completa de CSpect desde la pestaña itch.io, que también incluye hdfmonkey. También se puede instalar manualmente desde https://github.com/gasman/hdfmonkey — reinicia la aplicación una vez instalado.",
         "Extracted disk image: {path}":
             "Imagen de disco extraída: {path}",
         "Extracted {count} file(s) from {name} into {folder} on the image.":
@@ -1056,6 +1057,246 @@ CATALOGS = {
             "🌐  Idioma ajustado a tu sistema",
         "The interface language was set to match your system language.\nYou can change it anytime in the Settings tab (\"Application language:\").":
             "El idioma de la interfaz se ha ajustado al idioma de tu sistema.\nPuedes cambiarlo cuando quieras en la pestaña Settings\n(«Idioma de la aplicación:»).",
+        # ---- Help tab (INIT_HELP; rebuilt per language by _repopulate_help) ----
+        "Welcome to zx-next-unite {version} help":
+            "Bienvenido a la ayuda de zx-next-unite {version}",
+        "Introduction:":
+            "Introducción:",
+        "HdfmGooey was initially created by em00k and NextSync by Jari Komppa.":
+            "HdfmGooey fue creado originalmente por em00k y NextSync por Jari Komppa.",
+        "A while back I rambled with the idea of an all in one bootstrapper transfer tool to":
+            "Hace un tiempo le daba vueltas a la idea de una herramienta de transferencia y arranque todo en uno para",
+        "avoid manipulating SD cards for the Spectrum Next and that was the initial idea of it.":
+            "evitar manipular tarjetas SD para el Spectrum Next, y esa fue su idea inicial.",
+        "Last but not least some source code was lost from HDFM Gooey and the tool was stuck back in that time,":
+            "Por último, pero no menos importante, parte del código fuente de HDFM Gooey se perdió y la herramienta quedó anclada en aquella época;",
+        "with the agreement of em00k I started a rewrite in Python and later with Jari.":
+            "con el acuerdo de em00k comencé una reescritura en Python y más tarde con Jari.",
+        "The point of using Python was that it would also provide MacOS and Linux portability.":
+            "La idea de usar Python era que además ofrecería portabilidad a MacOS y Linux.",
+        "Later down the line I then extended the NextSync functionality from Sync3 to Sync4.":
+            "Más adelante amplié la funcionalidad de NextSync de Sync3 a Sync4.",
+        "The new .sync5 command for the Next speaks Sync4 and therefore allows sending files and directories using the -send command line option.":
+            "El nuevo comando .sync5 para el Next habla Sync4 y por tanto permite enviar archivos y directorios usando la opción de línea de comandos -send.",
+        "There is as well a new nextsync5.py command line located at the root of the repository that supports the new Sync4 protocol.":
+            "También hay una nueva línea de comandos nextsync5.py, situada en la raíz del repositorio, que soporta el nuevo protocolo Sync4.",
+        "Here we are now you have it!":
+            "¡Aquí estamos, ya lo tienes!",
+        "Keyboard shortcuts":
+            "Atajos de teclado",
+        "The three file explorers (SD Card local, SD Card disk image and NextSync local) share these shortcuts. Copy / Cut / Paste work across all three explorers and also exchange with the operating-system clipboard (e.g. copy in Windows Explorer, paste into the disk image, and vice-versa):":
+            "Los tres exploradores de archivos (local de SD Card, imagen de disco de SD Card y local de NextSync) comparten estos atajos. Copiar / Cortar / Pegar funcionan entre los tres exploradores y también intercambian con el portapapeles del sistema operativo (p. ej., copia en el Explorador de Windows, pega en la imagen de disco, y viceversa):",
+        "    Ctrl+C  -  Copy the selected file(s)/folder(s) to the shared clipboard.":
+            "    Ctrl+C  -  Copiar los archivos/carpetas seleccionados al portapapeles compartido.",
+        "    Ctrl+X  -  Cut the selection (moved to the destination on the next paste).":
+            "    Ctrl+X  -  Cortar la selección (se mueve al destino en el siguiente pegado).",
+        "    Ctrl+V  -  Paste into the selected / currently shown folder.":
+            "    Ctrl+V  -  Pegar en la carpeta seleccionada o mostrada actualmente.",
+        "    F2      -  Rename the selected file or folder.":
+            "    F2      -  Renombrar el archivo o carpeta seleccionado.",
+        "    Delete  -  Delete the selected file or folder (disk-image & NextSync explorers).":
+            "    Delete  -  Eliminar el archivo o carpeta seleccionado (exploradores de imagen de disco y NextSync).",
+        "In the picture (gallery) item viewer (double-click an item in the GetIt, ZXDB, zxArt or itch.io tabs):":
+            "En el visor de elementos de imágenes (galería) (doble clic en un elemento de las pestañas GetIt, ZXDB, zxArt o itch.io):",
+        "    Esc           -  Close the viewer and return to the gallery.":
+            "    Esc           -  Cerrar el visor y volver a la galería.",
+        "    Left / Right  -  Show the previous / next screenshot.":
+            "    Left / Right  -  Mostrar la captura anterior / siguiente.",
+        "Third party license":
+            "Licencias de terceros",
+        "zx-next-unite is released under the MIT license. It is a Qt Application using PySide6 (Qt for Python) on top of Qt6, used under the GNU LGPL v3.":
+            "zx-next-unite se publica bajo la licencia MIT. Es una aplicación Qt que usa PySide6 (Qt para Python) sobre Qt6, utilizado bajo la GNU LGPL v3.",
+        "Please refer to the LICENSE and THIRD-PARTY-NOTICES.md files on github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE and https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.":
+            "Consulta los archivos LICENSE y THIRD-PARTY-NOTICES.md en github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE y https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.",
+        "PySide6 is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The pre-built release executables do include PySide6/Qt; since the app's full source code is published, they can be rebuilt with a modified Qt.":
+            "PySide6 no viene incluido al hacer una instalación manual de python y debe instalarse por separado (ver instrucciones de instalación). Los ejecutables precompilados de las releases sí incluyen PySide6/Qt; como el código fuente completo de la aplicación está publicado, pueden reconstruirse con un Qt modificado.",
+        "zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org.":
+            "zx-next-unite también usa pygame-ce (la edición comunitaria de pygame) para sus fondos animados y visualizaciones (p. ej., los efectos de 'Alien Floyd's'). Muchas gracias a las comunidades de pygame y pygame-ce - ver https://pyga.me y https://www.pygame.org.",
+        "pygame-ce is distributed under the GNU LGPL v2.1 license and, like PySide6, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions).":
+            "pygame-ce se distribuye bajo la licencia GNU LGPL v2.1 y, como PySide6, no viene incluido al hacer una instalación manual de python y debe instalarse por separado (ver instrucciones de instalación).",
+        "zx-next-unite optionally uses itch-dl by Dragoon Aethis to power the itch.io tab (browsing and installing your itch.io collections). Many thanks to its author - see https://github.com/DragoonAethis/itch-dl.":
+            "zx-next-unite usa opcionalmente itch-dl de Dragoon Aethis para la pestaña itch.io (navegar e instalar tus colecciones de itch.io). Muchas gracias a su autor - ver https://github.com/DragoonAethis/itch-dl.",
+        "itch-dl is distributed under the MIT license (Copyright (c) 2022 Dragoon Aethis) and, like PySide6 and pygame-ce, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The itch.io tab is only shown when itch-dl is installed.":
+            "itch-dl se distribuye bajo la licencia MIT (Copyright (c) 2022 Dragoon Aethis) y, como PySide6 y pygame-ce, no viene incluido al hacer una instalación manual de python y debe instalarse por separado (ver instrucciones de instalación). La pestaña itch.io solo se muestra cuando itch-dl está instalado.",
+        "zx-next-unite optionally uses Flask by the Pallets team to power the NextSync HTTP bridge - the web server behind the Next's .http dot command that lets one Next drive another Next's SD card. Many thanks to its authors - see https://flask.palletsprojects.com and https://github.com/pallets/flask.":
+            "zx-next-unite usa opcionalmente Flask, del equipo Pallets, para el puente HTTP de NextSync - el servidor web detrás del comando dot .http del Next que permite que un Next maneje la tarjeta SD de otro Next. Muchas gracias a sus autores - ver https://flask.palletsprojects.com y https://github.com/pallets/flask.",
+        "Flask is distributed under the BSD-3-Clause license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The HTTP bridge toggle in Settings is greyed out until Flask is installed.":
+            "Flask se distribuye bajo la licencia BSD-3-Clause y, como los demás paquetes opcionales, no viene incluido al hacer una instalación manual de python y debe instalarse por separado (ver instrucciones de instalación). El interruptor del puente HTTP en Settings está desactivado hasta que Flask esté instalado.",
+        "zx-next-unite optionally uses Send2Trash by Andrew Senetar and contributors (originally by Virgil Dupras) to send files deleted in the local file explorers to the system Recycle Bin / Trash instead of removing them permanently. Many thanks to its authors - see https://github.com/arsenetar/send2trash.":
+            "zx-next-unite usa opcionalmente Send2Trash, de Andrew Senetar y colaboradores (originalmente de Virgil Dupras), para enviar los archivos eliminados en los exploradores locales a la Papelera de reciclaje del sistema en lugar de borrarlos permanentemente. Muchas gracias a sus autores - ver https://github.com/arsenetar/send2trash.",
+        "Send2Trash is distributed under the BSD license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The 'Send deleted files to the Recycle Bin' toggle in Settings is greyed out until Send2Trash is installed.":
+            "Send2Trash se distribuye bajo la licencia BSD y, como los demás paquetes opcionales, no viene incluido al hacer una instalación manual de python y debe instalarse por separado (ver instrucciones de instalación). El interruptor 'Enviar los archivos eliminados a la Papelera' de Settings está desactivado hasta que Send2Trash esté instalado.",
+        "zx-next-unite's optional pre-compiled Windows binary is built with PyInstaller by the PyInstaller Development Team, which bundles the app and all of its dependencies into a single standalone executable. Many thanks to its authors - see https://pyinstaller.org and https://github.com/pyinstaller/pyinstaller.":
+            "El binario opcional precompilado de Windows de zx-next-unite se construye con PyInstaller, del PyInstaller Development Team, que empaqueta la aplicación y todas sus dependencias en un único ejecutable independiente. Muchas gracias a sus autores - ver https://pyinstaller.org y https://github.com/pyinstaller/pyinstaller.",
+        "PyInstaller is distributed under its GPL 2.0 license with a special exception that explicitly permits packaging applications of any license. It is a build-time tool only - used to produce the pre-compiled binary - and is not needed when running zx-next-unite from source with a manual python install.":
+            "PyInstaller se distribuye bajo su licencia GPL 2.0 con una excepción especial que permite explícitamente empaquetar aplicaciones de cualquier licencia. Es solo una herramienta de construcción - usada para producir el binario precompilado - y no se necesita al ejecutar zx-next-unite desde el código fuente con una instalación manual de python.",
+        "The pre-compiled Windows binary is additionally compressed with UPX (the Ultimate Packer for eXecutables) by Markus Oberhumer, Laszlo Molnar and John Reiser. Many thanks to its authors - see https://upx.github.io and https://github.com/upx/upx.":
+            "El binario precompilado de Windows se comprime además con UPX (the Ultimate Packer for eXecutables), de Markus Oberhumer, Laszlo Molnar y John Reiser. Muchas gracias a sus autores - ver https://upx.github.io y https://github.com/upx/upx.",
+        "UPX is distributed under its own liberal license (based on the GPL, with a special exception covering the compressed executables it produces). Like PyInstaller it is a build-time tool only and is not needed when running from source.":
+            "UPX se distribuye bajo su propia licencia liberal (basada en la GPL, con una excepción especial que cubre los ejecutables comprimidos que produce). Como PyInstaller, es solo una herramienta de construcción y no se necesita al ejecutar desde el código fuente.",
+        "Setup & How to:":
+            "Instalación y guía:",
+        "Check out the main setup & demo video available at: https://youtu.be/-gUxV4fM1yo  (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )":
+            "Mira el vídeo principal de instalación y demostración disponible en: https://youtu.be/-gUxV4fM1yo  (la instalación completa de python se cubre en el antiguo py-hdfm-gooey, ya que ZX-Next-Unite es una evolución de él : https://youtu.be/FJG-Z0DCIjQ )",
+        "NextSync Head Over Heels demo: https://www.youtube.com/watch?v=D3_WqTPvjOE":
+            "Demo de NextSync con Head Over Heels: https://www.youtube.com/watch?v=D3_WqTPvjOE",
+        "NextSync Night Knight demo: https://www.youtube.com/watch?v=eN1eMIqMCm4":
+            "Demo de NextSync con Night Knight: https://www.youtube.com/watch?v=eN1eMIqMCm4",
+        "Is a required external component developed by Matt Westcott that allows browsing the image.":
+            "Es un componente externo obligatorio desarrollado por Matt Westcott que permite navegar por la imagen.",
+        "You will need to install it to get this application up and fully running.":
+            "Tendrás que instalarlo para que esta aplicación funcione por completo.",
+        "If hdfmonkey is not present you will see an error message in the main log window as it is missing.":
+            "Si hdfmonkey no está presente verás un mensaje de error en la ventana de registro principal indicando que falta.",
+        "If that is the case you will see a 'Download and install HDF Monkey' button bottom right,":
+            "Si es el caso verás un botón 'Descargar e instalar HDF Monkey' abajo a la derecha;",
+        "once clicked it will download a pre-compiled hdfmonkey build for your platform (Windows/Linux/macOS) and install it under the app's downloads folder.":
+            "al pulsarlo descargará una compilación precompilada de hdfmonkey para tu plataforma (Windows/Linux/macOS) y la instalará en la carpeta downloads de la aplicación.",
+        "If the above automated install is successful, you should then be able to select an image and navigate it.":
+            "Si la instalación automática anterior tiene éxito, deberías poder seleccionar una imagen y navegar por ella.",
+        "hdfmonkey can also be installed manually based on the instructions for your platform that can be found at: https://github.com/gasman/hdfmonkey":
+            "hdfmonkey también puede instalarse manualmente siguiendo las instrucciones para tu plataforma disponibles en: https://github.com/gasman/hdfmonkey",
+        "zx-next-unite implements the <Server> side code and protocol of NextSync by Jari Komppa.":
+            "zx-next-unite implementa el código y protocolo del lado <servidor> de NextSync de Jari Komppa.",
+        "It does not require any dot .sync modification and it uses the same very close python logic as nextsync.py.":
+            "No requiere ninguna modificación del dot .sync y usa la misma lógica python, muy cercana, que nextsync.py.",
+        "Initial release on specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8":
+            "Publicación inicial en specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8",
+        "As a result you will need to run the same dot .sync command on your Next as with the console version and the same network protocol.":
+            "Por tanto tendrás que ejecutar el mismo comando dot .sync en tu Next que con la versión de consola y el mismo protocolo de red.",
+        "The latest release v1.2 of the .sync command can be found here https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 .":
+            "La última versión v1.2 del comando .sync puede encontrarse aquí https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 .",
+        "You may follow the same instructions as provided in the readme.txt of that release.":
+            "Puedes seguir las mismas instrucciones que se incluyen en el readme.txt de esa versión.",
+        "On your Spectrum Next, clone or image copy the SYNC command that is located in the above release zip file into your Next dot folder.":
+            "En tu Spectrum Next, clona o copia en la imagen el comando SYNC que se encuentra en el zip de esa versión dentro de tu carpeta dot del Next.",
+        "Navigate to the NextSync tab, select the root folder to sync on the left.":
+            "Ve a la pestaña NextSync y selecciona a la izquierda la carpeta raíz a sincronizar.",
+        "Once you have selected the folder hit the 'Prepare Classic NextSync server' button, check the NextSync log window on the right.":
+            "Una vez seleccionada la carpeta pulsa el botón 'Preparar servidor NextSync clásico' y comprueba la ventana de registro de NextSync a la derecha.",
+        "The first time you run .sync on your Next you will be prompted to select the <server> IP address, this machine running NextSync.":
+            "La primera vez que ejecutes .sync en tu Next se te pedirá seleccionar la dirección IP del <servidor>, esta máquina que ejecuta NextSync.",
+        "From the log window pick the IP address from this machine you want to use and type it on your Next.":
+            "En la ventana de registro elige la dirección IP de esta máquina que quieras usar y tecléala en tu Next.",
+        "Then start the sync server on this machine using the 'Start Classic NextSync server' button and then run the .sync command on your Next.":
+            "Después inicia el servidor de sincronización en esta máquina con el botón 'Iniciar servidor NextSync clásico' y ejecuta el comando .sync en tu Next.",
+        "At this point your Spectrum Next will connect to your machine using a network socket and the files will be sent to your Next.":
+            "En ese momento tu Spectrum Next se conectará a tu máquina mediante un socket de red y los archivos se enviarán a tu Next.",
+        "As it is your Next that will connect to this machine check your firewall allows inbound calls to this machine on port: 2048 by default.":
+            "Como es tu Next el que se conecta a esta máquina, comprueba que tu cortafuegos permite conexiones entrantes a esta máquina en el puerto: 2048 por defecto.",
+        "The same syncignore.txt and syncpoint.dat file logic applies and allows you to control the sync (please check Jari's documentation).":
+            "Se aplica la misma lógica de archivos syncignore.txt y syncpoint.dat, que te permite controlar la sincronización (consulta la documentación de Jari).",
+        "NextSync source code can be found here: https://github.com/jarikomppa/specnext/tree/master/sync":
+            "El código fuente de NextSync está aquí: https://github.com/jarikomppa/specnext/tree/master/sync",
+        "If you run into any type of issue using the NextSync integration please run first Jari's command line version to see if it works as expected.":
+            "Si tienes cualquier tipo de problema con la integración de NextSync, prueba primero la versión de línea de comandos de Jari para ver si funciona como se espera.",
+        "OpenAL sound engine (on Windows)":
+            "Motor de sonido OpenAL (en Windows)",
+        "The OpenAL library is required on Windows for CSpect to play sound, you may download it here: https://openal.org/":
+            "La biblioteca OpenAL es necesaria en Windows para que CSpect reproduzca sonido; puedes descargarla aquí: https://openal.org/",
+        "Mono (on Linux & MacOS Only)":
+            "Mono (solo en Linux y MacOS)",
+        "You will also need to manually install the mono-complete package for example using: sudo apt-get install mono-complete":
+            "También tendrás que instalar manualmente el paquete mono-complete, por ejemplo con: sudo apt-get install mono-complete",
+        "Third-Party Content Sources (GetIt / ZXDB / zxArt):":
+            "Fuentes de contenido de terceros (GetIt / ZXDB / zxArt):",
+        "zx-next-unite integrates three external databases to let you browse and download":
+            "zx-next-unite integra tres bases de datos externas para que puedas explorar y descargar",
+        "Spectrum-related software and artwork directly from within the application.":
+            "software y arte relacionados con el Spectrum directamente desde la aplicación.",
+        "The application consumes their public APIs — it does not host, mirror, or":
+            "La aplicación consume sus APIs públicas — no aloja, replica ni",
+        "redistribute any of the files itself.":
+            "redistribuye ninguno de los archivos por sí misma.",
+        "  GetIt is a community-maintained archive of ZX Spectrum Next software.":
+            "  GetIt es un archivo de software para ZX Spectrum Next mantenido por la comunidad.",
+        "  The application queries the GetIt API to list and search files, then":
+            "  La aplicación consulta la API de GetIt para listar y buscar archivos, y luego",
+        "  downloads them directly from the URLs returned by that API.":
+            "  los descarga directamente desde las URLs devueltas por esa API.",
+        "  ZXDB is an open-source database of ZX Spectrum and related software,":
+            "  ZXDB es una base de datos de código abierto de software de ZX Spectrum y afines,",
+        "  maintained by the community at https://github.com/zxdb/ZXDB .":
+            "  mantenida por la comunidad en https://github.com/zxdb/ZXDB .",
+        "  The application queries the ZXDB REST API for titles, releases, screenshots":
+            "  La aplicación consulta la API REST de ZXDB para títulos, ediciones, capturas",
+        "  and inlays, then downloads files directly from the URLs returned by that API.":
+            "  y carátulas, y luego descarga los archivos directamente desde las URLs devueltas por esa API.",
+        "  zxArt (https://zxart.ee) is a gallery and archive dedicated to ZX Spectrum":
+            "  zxArt (https://zxart.ee) es una galería y archivo dedicados al arte visual,",
+        "  visual art, music, and productions.":
+            "  la música y las producciones del ZX Spectrum.",
+        "  The application sends requests to the zxArt API to search productions and":
+            "  La aplicación envía peticiones a la API de zxArt para buscar producciones e",
+        "  pictures, retrieve metadata and preview images, and download productions":
+            "  imágenes, obtener metadatos y vistas previas, y descargar producciones",
+        "  directly from the URLs returned by that API.":
+            "  directamente desde las URLs devueltas por esa API.",
+        "  Mame emulator brought to you by Holub for the ZX Spectrum Next can be installed following this documentation: https://wiki.specnext.dev/MAME:Installing":
+            "  El emulador Mame llevado al ZX Spectrum Next por Holub puede instalarse siguiendo esta documentación: https://wiki.specnext.dev/MAME:Installing",
+        "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
+            "  Los paquetes binarios oficiales para Windows están aquí: https://www.mamedev.org/release.html",
+        "  Put the file tbblue.zip that can be found here: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip into MAME's roms folder.":
+            "  Coloca el archivo tbblue.zip, que puedes encontrar aquí: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip en la carpeta roms de MAME.",
+        "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
+            "  Nota importante: no extraigas el archivo tbblue.zip; MAME buscará el zip cuando se seleccione la máquina 'tbblue'.",
+        "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
+            "  CSpect, de Mike Dailly, es un emulador descargable para Windows, macOS y Linux",
+        "  Sites and links:":
+            "  Sitios y enlaces:",
+        "Legal disclaimer:":
+            "Aviso legal:",
+        "  The author of zx-next-unite does NOT distribute any files, ROMs, games,":
+            "  El autor de zx-next-unite NO distribuye archivos, ROMs, juegos,",
+        "  demos, graphics, music, or any other content obtained through these APIs.":
+            "  demos, gráficos, música ni ningún otro contenido obtenido a través de estas APIs.",
+        "  All content is served exclusively by the respective third-party services.":
+            "  Todo el contenido lo sirven exclusivamente los respectivos servicios de terceros.",
+        "  This application and author do not control third-party content.":
+            "  Esta aplicación y su autor no controlan el contenido de terceros.",
+        "  It is the sole responsibility of the end user to ensure that any content":
+            "  Es responsabilidad exclusiva del usuario final asegurarse de que cualquier contenido",
+        "  they download or use through this application complies with the applicable":
+            "  que descargue o use a través de esta aplicación cumple con los requisitos aplicables",
+        "  copyright, licensing, and legal requirements in their jurisdiction.":
+            "  de copyright, licencias y legislación de su jurisdicción.",
+        "  If in doubt, consult the terms of service of the relevant platform and":
+            "  En caso de duda, consulta los términos de servicio de la plataforma correspondiente y",
+        "  seek appropriate legal advice before downloading or using any content.":
+            "  busca asesoramiento legal apropiado antes de descargar o usar cualquier contenido.",
+        "  For inquiries you may reach out to me on my github page: https://github.com/jclauzel/ZX-Next-Unite":
+            "  Para consultas puedes escribirme en mi página de github: https://github.com/jclauzel/ZX-Next-Unite",
+        "Enjoy!":
+            "¡Que lo disfrutes!",
+        # ---- OpenAL guided install (CSpect sound on Windows) ----
+        "OpenAL 1.1 detected — CSpect sound is ready.":
+            "OpenAL 1.1 detectado — el sonido de CSpect está listo.",
+        "Install OpenAL?":
+            "¿Instalar OpenAL?",
+        ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
+         "for sound, and it was not detected on this machine — without "
+         "it CSpect runs silent.<br><br>"
+         "OpenAL is separate, third-party software — many thanks to its "
+         "authors: {url}<br><br>"
+         "Download the official installer (oalinst.exe) from openal.org "
+         "and run it now?<br><br>"
+         "Windows will ask for administrator approval when the installer "
+         "starts — the app itself never runs elevated."):
+            ("En Windows CSpect necesita la biblioteca de audio "
+             "<b>OpenAL 1.1</b> para el sonido, y no se ha detectado en "
+             "esta máquina — sin ella CSpect funciona sin audio.<br><br>"
+             "OpenAL es software independiente de terceros — muchas gracias "
+             "a sus autores: {url}<br><br>"
+             "¿Descargar el instalador oficial (oalinst.exe) de openal.org "
+             "y ejecutarlo ahora?<br><br>"
+             "Windows pedirá aprobación de administrador cuando arranque el "
+             "instalador — la propia aplicación nunca se ejecuta elevada."),
+        "Download and run the OpenAL installer":
+            "Descargar y ejecutar el instalador de OpenAL",
+        "Open openal.org":
+            "Abrir openal.org",
+        "The OpenAL download failed — see the log for details. You can install it manually from {url}":
+            "La descarga de OpenAL falló — consulta el registro para más detalles. Puedes instalarlo manualmente desde {url}",
     },
     "pt": {
         # ---- GetIt starter pack ----
@@ -1212,6 +1453,7 @@ CATALOGS = {
         "Download File": "Transferir ficheiro",
         "Download NextZXOS Image": "Transferir imagem NextZXOS",
         "Download and install HDF Monkey": "Transferir e instalar o HDF Monkey",
+        "Download and install HDF Monkey and OpenAL": "Transferir e instalar o HDF Monkey e o OpenAL",
         "Generate": "Gerar",
         "Get API key…": "Obter chave API…",
         "Latest": "Novidades",
@@ -1277,10 +1519,10 @@ CATALOGS = {
             "Instalação do MAME ▸ PASSO SEGUINTE (manual): adiciona a ROM de arranque TBBLUE. Consulta {url} → \"Get TBBLUE (the Next 'boot ROM')\". Coloca o ficheiro tbblue.zip na pasta roms do MAME ({roms}) — NÃO o extraias. Tens de usar uma ROM adquirida legalmente e licenciada.",
         "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
             "Comando dot .sync5 do NextSync atualizado: v{old} -> v{new} — copia a nova versão para o teu Next (não pode ser implantada automaticamente).",
-        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
-            "DICA: sabias que se compraste o CSpect no itch.io podes fazer uma instalação completa do CSpect a partir daí?\n\nInicia sessão na tua conta itch.io no separador itch.io, vai a CSpect e clica em Instalar.\n\nAinda queres instalar apenas o hdfmonkey, ou preferes cancelar e fazer a instalação completa do CSpect com o itch.io?",
+        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nCSpect ships with hdfmonkey bundled inside it, so that route needs no separate hdfmonkey install — the app finds and uses the bundled copy automatically.\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
+            "DICA: sabias que se compraste o CSpect no itch.io podes fazer uma instalação completa do CSpect a partir daí?\n\nO CSpect traz o hdfmonkey incluído, por isso essa via não precisa de uma instalação separada do hdfmonkey — a aplicação encontra e usa a cópia incluída automaticamente.\n\nInicia sessão na tua conta itch.io no separador itch.io, vai a CSpect e clica em Instalar.\n\nAinda queres instalar apenas o hdfmonkey, ou preferes cancelar e fazer a instalação completa do CSpect com o itch.io?",
         "The automatic hdfmonkey download from specnext.com failed — the forum may be asking for a login or an anti-robot confirmation before the download can start (see the log for details).\n\nYou can install it manually instead:\n1. Click 'Open download page' below (or browse to\n    {url} ).\n2. Download the hdfmonkey .zip file.\n3. Drop the downloaded .zip into this EXACT folder — the app has already created it, and the 'Open downloads folder' button below opens it so nothing needs to be typed:\n    {folder}\n4. Click \"I've dropped the zip - try again\".":
-            "A transferência automática do hdfmonkey a partir de specnext.com falhou — o fórum pode estar a pedir início de sessão ou uma confirmação anti-robô antes de permitir a transferência (vê o registo para detalhes).\n\nPodes instalá-lo manualmente:\n1. Clica em 'Open download page' abaixo (ou abre\n    {url} ).\n2. Transfere o ficheiro .zip do hdfmonkey.\n3. Coloca o .zip transferido EXATAMENTE nesta pasta — a aplicação já a criou, e o botão 'Open downloads folder' abaixo abre-a para não teres de escrever nada:\n    {folder}\n4. Clica em \"I've dropped the zip - try again\".",
+            "A transferência automática do hdfmonkey a partir de specnext.com falhou — o fórum pode estar a pedir início de sessão ou uma confirmação anti-robô antes de permitir a transferência (vê o registo para detalhes).\n\nPodes instalá-lo manualmente:\n1. Clica em 'Abrir a página de transferência' abaixo (ou abre\n    {url} ).\n2. Transfere o ficheiro .zip do hdfmonkey.\n3. Coloca o .zip transferido EXATAMENTE nesta pasta — a aplicação já a criou, e o botão 'Abrir a pasta de transferências' abaixo abre-a para não teres de escrever nada:\n    {folder}\n4. Clica em \"Já coloquei o zip - tenta de novo\".",
         "ZX Next Unite update: downloaded {name} to {folder}":
             "Atualização do ZX Next Unite: {name} transferido para {folder}",
         "ZX Next Unite update: downloaded {path} but could not unpack it: {error}":
@@ -1534,7 +1776,7 @@ CATALOGS = {
         "Downloading {name} from {url}":
             "A transferir {name} de {url}",
         "ERROR: hdfmonkey could not be found. Use the 'Download and install HDF Monkey' button (bottom right of the SD Card tab) to install it automatically, or do a full CSpect install from the itch.io tab, which also bundles hdfmonkey. It can also be installed manually from https://github.com/gasman/hdfmonkey — restart the app once installed.":
-            "ERRO: o hdfmonkey não foi encontrado. Usa o botão 'Download and install HDF Monkey' (canto inferior direito do separador SD Card) para o instalar automaticamente, ou faz uma instalação completa do CSpect a partir do separador itch.io, que também inclui o hdfmonkey. Também pode ser instalado manualmente a partir de https://github.com/gasman/hdfmonkey — reinicia a aplicação depois de instalado.",
+            "ERRO: o hdfmonkey não foi encontrado. Usa o botão 'Transferir e instalar o HDF Monkey' (canto inferior direito do separador SD Card) para o instalar automaticamente, ou faz uma instalação completa do CSpect a partir do separador itch.io, que também inclui o hdfmonkey. Também pode ser instalado manualmente a partir de https://github.com/gasman/hdfmonkey — reinicia a aplicação depois de instalado.",
         "Extracted disk image: {path}":
             "Imagem de disco extraída: {path}",
         "Extracted {count} file(s) from {name} into {folder} on the image.":
@@ -1897,6 +2139,246 @@ CATALOGS = {
             "🌐  Idioma ajustado ao seu sistema",
         "The interface language was set to match your system language.\nYou can change it anytime in the Settings tab (\"Application language:\").":
             "O idioma da interface foi ajustado ao idioma do seu sistema.\nPode alterá-lo quando quiser no separador Settings\n(«Idioma da aplicação:»).",
+        # ---- Help tab (INIT_HELP; rebuilt per language by _repopulate_help) ----
+        "Welcome to zx-next-unite {version} help":
+            "Bem-vindo à ajuda do zx-next-unite {version}",
+        "Introduction:":
+            "Introdução:",
+        "HdfmGooey was initially created by em00k and NextSync by Jari Komppa.":
+            "O HdfmGooey foi criado originalmente por em00k e o NextSync por Jari Komppa.",
+        "A while back I rambled with the idea of an all in one bootstrapper transfer tool to":
+            "Há uns tempos andava a matutar na ideia de uma ferramenta de transferência e arranque tudo-em-um para",
+        "avoid manipulating SD cards for the Spectrum Next and that was the initial idea of it.":
+            "evitar manusear cartões SD para o Spectrum Next, e essa foi a ideia inicial.",
+        "Last but not least some source code was lost from HDFM Gooey and the tool was stuck back in that time,":
+            "Por último, mas não menos importante, parte do código fonte do HDFM Gooey perdeu-se e a ferramenta ficou presa nessa época;",
+        "with the agreement of em00k I started a rewrite in Python and later with Jari.":
+            "com o acordo do em00k comecei uma reescrita em Python e mais tarde com o Jari.",
+        "The point of using Python was that it would also provide MacOS and Linux portability.":
+            "A vantagem de usar Python era que também traria portabilidade para MacOS e Linux.",
+        "Later down the line I then extended the NextSync functionality from Sync3 to Sync4.":
+            "Mais tarde estendi a funcionalidade do NextSync de Sync3 para Sync4.",
+        "The new .sync5 command for the Next speaks Sync4 and therefore allows sending files and directories using the -send command line option.":
+            "O novo comando .sync5 para o Next fala Sync4 e por isso permite enviar ficheiros e diretórios usando a opção de linha de comandos -send.",
+        "There is as well a new nextsync5.py command line located at the root of the repository that supports the new Sync4 protocol.":
+            "Há também uma nova linha de comandos nextsync5.py, na raiz do repositório, que suporta o novo protocolo Sync4.",
+        "Here we are now you have it!":
+            "E cá estamos, aqui o tens!",
+        "Keyboard shortcuts":
+            "Atalhos de teclado",
+        "The three file explorers (SD Card local, SD Card disk image and NextSync local) share these shortcuts. Copy / Cut / Paste work across all three explorers and also exchange with the operating-system clipboard (e.g. copy in Windows Explorer, paste into the disk image, and vice-versa):":
+            "Os três exploradores de ficheiros (local do SD Card, imagem de disco do SD Card e local do NextSync) partilham estes atalhos. Copiar / Cortar / Colar funcionam entre os três exploradores e também trocam com a área de transferência do sistema operativo (p. ex., copia no Explorador do Windows, cola na imagem de disco, e vice-versa):",
+        "    Ctrl+C  -  Copy the selected file(s)/folder(s) to the shared clipboard.":
+            "    Ctrl+C  -  Copiar os ficheiros/pastas selecionados para a área de transferência partilhada.",
+        "    Ctrl+X  -  Cut the selection (moved to the destination on the next paste).":
+            "    Ctrl+X  -  Cortar a seleção (movida para o destino no próximo colar).",
+        "    Ctrl+V  -  Paste into the selected / currently shown folder.":
+            "    Ctrl+V  -  Colar na pasta selecionada / atualmente mostrada.",
+        "    F2      -  Rename the selected file or folder.":
+            "    F2      -  Renomear o ficheiro ou pasta selecionado.",
+        "    Delete  -  Delete the selected file or folder (disk-image & NextSync explorers).":
+            "    Delete  -  Eliminar o ficheiro ou pasta selecionado (exploradores da imagem de disco e NextSync).",
+        "In the picture (gallery) item viewer (double-click an item in the GetIt, ZXDB, zxArt or itch.io tabs):":
+            "No visor de itens de imagens (galeria) (duplo clique num item dos separadores GetIt, ZXDB, zxArt ou itch.io):",
+        "    Esc           -  Close the viewer and return to the gallery.":
+            "    Esc           -  Fechar o visor e voltar à galeria.",
+        "    Left / Right  -  Show the previous / next screenshot.":
+            "    Left / Right  -  Mostrar a captura anterior / seguinte.",
+        "Third party license":
+            "Licenças de terceiros",
+        "zx-next-unite is released under the MIT license. It is a Qt Application using PySide6 (Qt for Python) on top of Qt6, used under the GNU LGPL v3.":
+            "O zx-next-unite é publicado sob a licença MIT. É uma aplicação Qt que usa PySide6 (Qt para Python) sobre Qt6, utilizado sob a GNU LGPL v3.",
+        "Please refer to the LICENSE and THIRD-PARTY-NOTICES.md files on github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE and https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.":
+            "Consulta os ficheiros LICENSE e THIRD-PARTY-NOTICES.md no github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE e https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.",
+        "PySide6 is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The pre-built release executables do include PySide6/Qt; since the app's full source code is published, they can be rebuilt with a modified Qt.":
+            "O PySide6 não vem incluído numa instalação manual de python e tem de ser instalado à parte (ver instruções de instalação). Os executáveis pré-compilados das releases incluem PySide6/Qt; como o código fonte completo da aplicação está publicado, podem ser reconstruídos com um Qt modificado.",
+        "zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org.":
+            "O zx-next-unite também usa pygame-ce (a edição comunitária do pygame) para os fundos animados e visualizações (p. ex., os efeitos 'Alien Floyd's'). Muito obrigado às comunidades pygame e pygame-ce - ver https://pyga.me e https://www.pygame.org.",
+        "pygame-ce is distributed under the GNU LGPL v2.1 license and, like PySide6, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions).":
+            "O pygame-ce é distribuído sob a licença GNU LGPL v2.1 e, como o PySide6, não vem incluído numa instalação manual de python e tem de ser instalado à parte (ver instruções de instalação).",
+        "zx-next-unite optionally uses itch-dl by Dragoon Aethis to power the itch.io tab (browsing and installing your itch.io collections). Many thanks to its author - see https://github.com/DragoonAethis/itch-dl.":
+            "O zx-next-unite usa opcionalmente o itch-dl de Dragoon Aethis para o separador itch.io (navegar e instalar as tuas coleções itch.io). Muito obrigado ao autor - ver https://github.com/DragoonAethis/itch-dl.",
+        "itch-dl is distributed under the MIT license (Copyright (c) 2022 Dragoon Aethis) and, like PySide6 and pygame-ce, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The itch.io tab is only shown when itch-dl is installed.":
+            "O itch-dl é distribuído sob a licença MIT (Copyright (c) 2022 Dragoon Aethis) e, como o PySide6 e o pygame-ce, não vem incluído numa instalação manual de python e tem de ser instalado à parte (ver instruções de instalação). O separador itch.io só aparece quando o itch-dl está instalado.",
+        "zx-next-unite optionally uses Flask by the Pallets team to power the NextSync HTTP bridge - the web server behind the Next's .http dot command that lets one Next drive another Next's SD card. Many thanks to its authors - see https://flask.palletsprojects.com and https://github.com/pallets/flask.":
+            "O zx-next-unite usa opcionalmente o Flask, da equipa Pallets, para a ponte HTTP do NextSync - o servidor web por trás do comando dot .http do Next que permite a um Next controlar o cartão SD de outro Next. Muito obrigado aos autores - ver https://flask.palletsprojects.com e https://github.com/pallets/flask.",
+        "Flask is distributed under the BSD-3-Clause license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The HTTP bridge toggle in Settings is greyed out until Flask is installed.":
+            "O Flask é distribuído sob a licença BSD-3-Clause e, como os outros pacotes opcionais, não vem incluído numa instalação manual de python e tem de ser instalado à parte (ver instruções de instalação). O interruptor da ponte HTTP em Settings fica desativado até o Flask estar instalado.",
+        "zx-next-unite optionally uses Send2Trash by Andrew Senetar and contributors (originally by Virgil Dupras) to send files deleted in the local file explorers to the system Recycle Bin / Trash instead of removing them permanently. Many thanks to its authors - see https://github.com/arsenetar/send2trash.":
+            "O zx-next-unite usa opcionalmente o Send2Trash, de Andrew Senetar e colaboradores (originalmente de Virgil Dupras), para enviar os ficheiros eliminados nos exploradores locais para a Reciclagem do sistema em vez de os remover permanentemente. Muito obrigado aos autores - ver https://github.com/arsenetar/send2trash.",
+        "Send2Trash is distributed under the BSD license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The 'Send deleted files to the Recycle Bin' toggle in Settings is greyed out until Send2Trash is installed.":
+            "O Send2Trash é distribuído sob a licença BSD e, como os outros pacotes opcionais, não vem incluído numa instalação manual de python e tem de ser instalado à parte (ver instruções de instalação). O interruptor 'Enviar os ficheiros eliminados para a Reciclagem' em Settings fica desativado até o Send2Trash estar instalado.",
+        "zx-next-unite's optional pre-compiled Windows binary is built with PyInstaller by the PyInstaller Development Team, which bundles the app and all of its dependencies into a single standalone executable. Many thanks to its authors - see https://pyinstaller.org and https://github.com/pyinstaller/pyinstaller.":
+            "O binário opcional pré-compilado para Windows do zx-next-unite é construído com o PyInstaller, do PyInstaller Development Team, que empacota a aplicação e todas as dependências num único executável autónomo. Muito obrigado aos autores - ver https://pyinstaller.org e https://github.com/pyinstaller/pyinstaller.",
+        "PyInstaller is distributed under its GPL 2.0 license with a special exception that explicitly permits packaging applications of any license. It is a build-time tool only - used to produce the pre-compiled binary - and is not needed when running zx-next-unite from source with a manual python install.":
+            "O PyInstaller é distribuído sob a sua licença GPL 2.0 com uma exceção especial que permite explicitamente empacotar aplicações de qualquer licença. É apenas uma ferramenta de build - usada para produzir o binário pré-compilado - e não é necessária ao executar o zx-next-unite a partir do código fonte com uma instalação manual de python.",
+        "The pre-compiled Windows binary is additionally compressed with UPX (the Ultimate Packer for eXecutables) by Markus Oberhumer, Laszlo Molnar and John Reiser. Many thanks to its authors - see https://upx.github.io and https://github.com/upx/upx.":
+            "O binário pré-compilado para Windows é ainda comprimido com o UPX (the Ultimate Packer for eXecutables), de Markus Oberhumer, Laszlo Molnar e John Reiser. Muito obrigado aos autores - ver https://upx.github.io e https://github.com/upx/upx.",
+        "UPX is distributed under its own liberal license (based on the GPL, with a special exception covering the compressed executables it produces). Like PyInstaller it is a build-time tool only and is not needed when running from source.":
+            "O UPX é distribuído sob a sua própria licença liberal (baseada na GPL, com uma exceção especial que cobre os executáveis comprimidos que produz). Como o PyInstaller, é apenas uma ferramenta de build e não é necessário ao executar a partir do código fonte.",
+        "Setup & How to:":
+            "Instalação e guia:",
+        "Check out the main setup & demo video available at: https://youtu.be/-gUxV4fM1yo  (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )":
+            "Vê o vídeo principal de instalação e demonstração disponível em: https://youtu.be/-gUxV4fM1yo  (a instalação completa de python é coberta no antigo py-hdfm-gooey, já que o ZX-Next-Unite é uma evolução dele : https://youtu.be/FJG-Z0DCIjQ )",
+        "NextSync Head Over Heels demo: https://www.youtube.com/watch?v=D3_WqTPvjOE":
+            "Demo do NextSync com Head Over Heels: https://www.youtube.com/watch?v=D3_WqTPvjOE",
+        "NextSync Night Knight demo: https://www.youtube.com/watch?v=eN1eMIqMCm4":
+            "Demo do NextSync com Night Knight: https://www.youtube.com/watch?v=eN1eMIqMCm4",
+        "Is a required external component developed by Matt Westcott that allows browsing the image.":
+            "É um componente externo obrigatório desenvolvido por Matt Westcott que permite navegar pela imagem.",
+        "You will need to install it to get this application up and fully running.":
+            "Terás de o instalar para pôr esta aplicação totalmente a funcionar.",
+        "If hdfmonkey is not present you will see an error message in the main log window as it is missing.":
+            "Se o hdfmonkey não estiver presente verás uma mensagem de erro na janela de registo principal a indicar que falta.",
+        "If that is the case you will see a 'Download and install HDF Monkey' button bottom right,":
+            "Se for o caso verás um botão 'Transferir e instalar o HDF Monkey' em baixo à direita;",
+        "once clicked it will download a pre-compiled hdfmonkey build for your platform (Windows/Linux/macOS) and install it under the app's downloads folder.":
+            "ao clicar, transfere uma build pré-compilada do hdfmonkey para a tua plataforma (Windows/Linux/macOS) e instala-a na pasta downloads da aplicação.",
+        "If the above automated install is successful, you should then be able to select an image and navigate it.":
+            "Se a instalação automática acima correr bem, deverás conseguir selecionar uma imagem e navegar por ela.",
+        "hdfmonkey can also be installed manually based on the instructions for your platform that can be found at: https://github.com/gasman/hdfmonkey":
+            "O hdfmonkey também pode ser instalado manualmente seguindo as instruções para a tua plataforma em: https://github.com/gasman/hdfmonkey",
+        "zx-next-unite implements the <Server> side code and protocol of NextSync by Jari Komppa.":
+            "O zx-next-unite implementa o código e protocolo do lado <servidor> do NextSync de Jari Komppa.",
+        "It does not require any dot .sync modification and it uses the same very close python logic as nextsync.py.":
+            "Não requer nenhuma modificação do dot .sync e usa a mesma lógica python, muito próxima, do nextsync.py.",
+        "Initial release on specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8":
+            "Lançamento inicial no specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8",
+        "As a result you will need to run the same dot .sync command on your Next as with the console version and the same network protocol.":
+            "Por isso terás de executar no teu Next o mesmo comando dot .sync que na versão de consola e com o mesmo protocolo de rede.",
+        "The latest release v1.2 of the .sync command can be found here https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 .":
+            "A última versão v1.2 do comando .sync está aqui https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 .",
+        "You may follow the same instructions as provided in the readme.txt of that release.":
+            "Podes seguir as mesmas instruções fornecidas no readme.txt dessa versão.",
+        "On your Spectrum Next, clone or image copy the SYNC command that is located in the above release zip file into your Next dot folder.":
+            "No teu Spectrum Next, clona ou copia para a imagem o comando SYNC que está no zip dessa versão para a pasta dot do teu Next.",
+        "Navigate to the NextSync tab, select the root folder to sync on the left.":
+            "Vai ao separador NextSync e seleciona à esquerda a pasta raiz a sincronizar.",
+        "Once you have selected the folder hit the 'Prepare Classic NextSync server' button, check the NextSync log window on the right.":
+            "Depois de selecionada a pasta carrega no botão 'Preparar servidor NextSync clássico' e verifica a janela de registo do NextSync à direita.",
+        "The first time you run .sync on your Next you will be prompted to select the <server> IP address, this machine running NextSync.":
+            "Na primeira vez que executares .sync no teu Next ser-te-á pedido para selecionar o endereço IP do <servidor>, esta máquina que corre o NextSync.",
+        "From the log window pick the IP address from this machine you want to use and type it on your Next.":
+            "Na janela de registo escolhe o endereço IP desta máquina que queres usar e escreve-o no teu Next.",
+        "Then start the sync server on this machine using the 'Start Classic NextSync server' button and then run the .sync command on your Next.":
+            "Depois inicia o servidor de sincronização nesta máquina com o botão 'Iniciar servidor NextSync clássico' e executa o comando .sync no teu Next.",
+        "At this point your Spectrum Next will connect to your machine using a network socket and the files will be sent to your Next.":
+            "Nesse momento o teu Spectrum Next liga-se à tua máquina através de um socket de rede e os ficheiros são enviados para o teu Next.",
+        "As it is your Next that will connect to this machine check your firewall allows inbound calls to this machine on port: 2048 by default.":
+            "Como é o teu Next que se liga a esta máquina, confirma que a firewall permite ligações de entrada a esta máquina na porta: 2048 por omissão.",
+        "The same syncignore.txt and syncpoint.dat file logic applies and allows you to control the sync (please check Jari's documentation).":
+            "Aplica-se a mesma lógica dos ficheiros syncignore.txt e syncpoint.dat, que te permite controlar a sincronização (consulta a documentação do Jari).",
+        "NextSync source code can be found here: https://github.com/jarikomppa/specnext/tree/master/sync":
+            "O código fonte do NextSync está aqui: https://github.com/jarikomppa/specnext/tree/master/sync",
+        "If you run into any type of issue using the NextSync integration please run first Jari's command line version to see if it works as expected.":
+            "Se tiveres qualquer tipo de problema com a integração NextSync, corre primeiro a versão de linha de comandos do Jari para ver se funciona como esperado.",
+        "OpenAL sound engine (on Windows)":
+            "Motor de som OpenAL (no Windows)",
+        "The OpenAL library is required on Windows for CSpect to play sound, you may download it here: https://openal.org/":
+            "A biblioteca OpenAL é necessária no Windows para o CSpect reproduzir som; podes transferi-la aqui: https://openal.org/",
+        "Mono (on Linux & MacOS Only)":
+            "Mono (apenas em Linux e MacOS)",
+        "You will also need to manually install the mono-complete package for example using: sudo apt-get install mono-complete":
+            "Também terás de instalar manualmente o pacote mono-complete, por exemplo com: sudo apt-get install mono-complete",
+        "Third-Party Content Sources (GetIt / ZXDB / zxArt):":
+            "Fontes de conteúdo de terceiros (GetIt / ZXDB / zxArt):",
+        "zx-next-unite integrates three external databases to let you browse and download":
+            "O zx-next-unite integra três bases de dados externas para poderes explorar e transferir",
+        "Spectrum-related software and artwork directly from within the application.":
+            "software e arte relacionados com o Spectrum diretamente a partir da aplicação.",
+        "The application consumes their public APIs — it does not host, mirror, or":
+            "A aplicação consome as APIs públicas deles — não aloja, replica nem",
+        "redistribute any of the files itself.":
+            "redistribui nenhum dos ficheiros por si própria.",
+        "  GetIt is a community-maintained archive of ZX Spectrum Next software.":
+            "  O GetIt é um arquivo de software para ZX Spectrum Next mantido pela comunidade.",
+        "  The application queries the GetIt API to list and search files, then":
+            "  A aplicação consulta a API do GetIt para listar e pesquisar ficheiros, e depois",
+        "  downloads them directly from the URLs returned by that API.":
+            "  transfere-os diretamente a partir dos URLs devolvidos por essa API.",
+        "  ZXDB is an open-source database of ZX Spectrum and related software,":
+            "  A ZXDB é uma base de dados de código aberto de software ZX Spectrum e afins,",
+        "  maintained by the community at https://github.com/zxdb/ZXDB .":
+            "  mantida pela comunidade em https://github.com/zxdb/ZXDB .",
+        "  The application queries the ZXDB REST API for titles, releases, screenshots":
+            "  A aplicação consulta a API REST da ZXDB para títulos, edições, capturas",
+        "  and inlays, then downloads files directly from the URLs returned by that API.":
+            "  e capas, e depois transfere os ficheiros diretamente dos URLs devolvidos por essa API.",
+        "  zxArt (https://zxart.ee) is a gallery and archive dedicated to ZX Spectrum":
+            "  O zxArt (https://zxart.ee) é uma galeria e arquivo dedicados à arte visual,",
+        "  visual art, music, and productions.":
+            "  música e produções do ZX Spectrum.",
+        "  The application sends requests to the zxArt API to search productions and":
+            "  A aplicação envia pedidos à API do zxArt para pesquisar produções e",
+        "  pictures, retrieve metadata and preview images, and download productions":
+            "  imagens, obter metadados e pré-visualizações, e transferir produções",
+        "  directly from the URLs returned by that API.":
+            "  diretamente a partir dos URLs devolvidos por essa API.",
+        "  Mame emulator brought to you by Holub for the ZX Spectrum Next can be installed following this documentation: https://wiki.specnext.dev/MAME:Installing":
+            "  O emulador Mame trazido ao ZX Spectrum Next por Holub pode ser instalado seguindo esta documentação: https://wiki.specnext.dev/MAME:Installing",
+        "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
+            "  Os pacotes binários oficiais para Windows estão aqui: https://www.mamedev.org/release.html",
+        "  Put the file tbblue.zip that can be found here: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip into MAME's roms folder.":
+            "  Coloca o ficheiro tbblue.zip, que encontras aqui: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip na pasta roms do MAME.",
+        "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
+            "  Nota importante: não extraias o ficheiro tbblue.zip; o MAME procura o zip quando a máquina 'tbblue' é selecionada.",
+        "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
+            "  O CSpect, de Mike Dailly, é um emulador transferível para Windows, macOS e Linux",
+        "  Sites and links:":
+            "  Sites e ligações:",
+        "Legal disclaimer:":
+            "Aviso legal:",
+        "  The author of zx-next-unite does NOT distribute any files, ROMs, games,":
+            "  O autor do zx-next-unite NÃO distribui ficheiros, ROMs, jogos,",
+        "  demos, graphics, music, or any other content obtained through these APIs.":
+            "  demos, gráficos, música nem qualquer outro conteúdo obtido através destas APIs.",
+        "  All content is served exclusively by the respective third-party services.":
+            "  Todo o conteúdo é servido exclusivamente pelos respetivos serviços de terceiros.",
+        "  This application and author do not control third-party content.":
+            "  Esta aplicação e o autor não controlam conteúdos de terceiros.",
+        "  It is the sole responsibility of the end user to ensure that any content":
+            "  É da exclusiva responsabilidade do utilizador final garantir que qualquer conteúdo",
+        "  they download or use through this application complies with the applicable":
+            "  que transfira ou use através desta aplicação cumpre os requisitos aplicáveis",
+        "  copyright, licensing, and legal requirements in their jurisdiction.":
+            "  de direitos de autor, licenciamento e legislação da sua jurisdição.",
+        "  If in doubt, consult the terms of service of the relevant platform and":
+            "  Em caso de dúvida, consulta os termos de serviço da plataforma em causa e",
+        "  seek appropriate legal advice before downloading or using any content.":
+            "  procura aconselhamento jurídico adequado antes de transferir ou usar qualquer conteúdo.",
+        "  For inquiries you may reach out to me on my github page: https://github.com/jclauzel/ZX-Next-Unite":
+            "  Para questões podes contactar-me na minha página do github: https://github.com/jclauzel/ZX-Next-Unite",
+        "Enjoy!":
+            "Diverte-te!",
+        # ---- OpenAL guided install (CSpect sound on Windows) ----
+        "OpenAL 1.1 detected — CSpect sound is ready.":
+            "OpenAL 1.1 detetado — o som do CSpect está pronto.",
+        "Install OpenAL?":
+            "Instalar o OpenAL?",
+        ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
+         "for sound, and it was not detected on this machine — without "
+         "it CSpect runs silent.<br><br>"
+         "OpenAL is separate, third-party software — many thanks to its "
+         "authors: {url}<br><br>"
+         "Download the official installer (oalinst.exe) from openal.org "
+         "and run it now?<br><br>"
+         "Windows will ask for administrator approval when the installer "
+         "starts — the app itself never runs elevated."):
+            ("No Windows o CSpect precisa da biblioteca de áudio "
+             "<b>OpenAL 1.1</b> para o som, e ela não foi detetada nesta "
+             "máquina — sem ela o CSpect corre sem áudio.<br><br>"
+             "O OpenAL é software independente de terceiros — muito "
+             "obrigado aos seus autores: {url}<br><br>"
+             "Transferir o instalador oficial (oalinst.exe) de openal.org e "
+             "executá-lo agora?<br><br>"
+             "O Windows pedirá aprovação de administrador quando o instalador "
+             "arrancar — a própria aplicação nunca corre elevada."),
+        "Download and run the OpenAL installer":
+            "Transferir e executar o instalador do OpenAL",
+        "Open openal.org":
+            "Abrir openal.org",
+        "The OpenAL download failed — see the log for details. You can install it manually from {url}":
+            "A transferência do OpenAL falhou — vê o registo para detalhes. Podes instalá-lo manualmente a partir de {url}",
     },
     "pl": {
         # ---- GetIt starter pack ----
@@ -2051,6 +2533,7 @@ CATALOGS = {
         "Download File": "Pobierz plik",
         "Download NextZXOS Image": "Pobierz obraz NextZXOS",
         "Download and install HDF Monkey": "Pobierz i zainstaluj HDF Monkey",
+        "Download and install HDF Monkey and OpenAL": "Pobierz i zainstaluj HDF Monkey i OpenAL",
         "Generate": "Generuj",
         "Get API key…": "Uzyskaj klucz API…",
         "Latest": "Najnowsze",
@@ -2116,10 +2599,10 @@ CATALOGS = {
             "Instalacja MAME ▸ NASTĘPNY KROK (ręczny): dodaj ROM rozruchowy TBBLUE. Zobacz {url} → \"Get TBBLUE (the Next 'boot ROM')\". Umieść plik tbblue.zip w folderze roms MAME ({roms}) — NIE rozpakowuj go. Musisz użyć legalnie nabytego, licencjonowanego ROM-u.",
         "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
             "Polecenie dot .sync5 NextSync zaktualizowane: v{old} -> v{new} — skopiuj nową wersję na swojego Next (nie da się jej wdrożyć automatycznie).",
-        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
-            "WSKAZÓWKA: czy wiesz, że jeśli kupiłeś CSpect na itch.io, możesz wykonać pełną instalację CSpect właśnie stamtąd?\n\nZaloguj się na swoje konto itch.io w karcie itch.io, przejdź do CSpect i kliknij Zainstaluj.\n\nCzy nadal chcesz zainstalować tylko hdfmonkey, czy przerwać i wykonać pełną instalację CSpect przez itch.io?",
+        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nCSpect ships with hdfmonkey bundled inside it, so that route needs no separate hdfmonkey install — the app finds and uses the bundled copy automatically.\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
+            "WSKAZÓWKA: czy wiesz, że jeśli kupiłeś CSpect na itch.io, możesz wykonać pełną instalację CSpect właśnie stamtąd?\n\nCSpect ma hdfmonkey dołączony w środku, więc ta droga nie wymaga osobnej instalacji hdfmonkey — aplikacja automatycznie znajduje i używa dołączonej kopii.\n\nZaloguj się na swoje konto itch.io w karcie itch.io, przejdź do CSpect i kliknij Zainstaluj.\n\nCzy nadal chcesz zainstalować tylko hdfmonkey, czy przerwać i wykonać pełną instalację CSpect przez itch.io?",
         "The automatic hdfmonkey download from specnext.com failed — the forum may be asking for a login or an anti-robot confirmation before the download can start (see the log for details).\n\nYou can install it manually instead:\n1. Click 'Open download page' below (or browse to\n    {url} ).\n2. Download the hdfmonkey .zip file.\n3. Drop the downloaded .zip into this EXACT folder — the app has already created it, and the 'Open downloads folder' button below opens it so nothing needs to be typed:\n    {folder}\n4. Click \"I've dropped the zip - try again\".":
-            "Automatyczne pobranie hdfmonkey ze specnext.com nie powiodło się — forum może wymagać zalogowania lub potwierdzenia anty-robot przed rozpoczęciem pobierania (szczegóły w dzienniku).\n\nMożesz zainstalować go ręcznie:\n1. Kliknij 'Open download page' poniżej (albo otwórz\n    {url} ).\n2. Pobierz plik .zip hdfmonkey.\n3. Umieść pobrany .zip DOKŁADNIE w tym folderze — aplikacja już go utworzyła, a przycisk 'Open downloads folder' poniżej otwiera go, więc nic nie trzeba wpisywać:\n    {folder}\n4. Kliknij \"I've dropped the zip - try again\".",
+            "Automatyczne pobranie hdfmonkey ze specnext.com nie powiodło się — forum może wymagać zalogowania lub potwierdzenia anty-robot przed rozpoczęciem pobierania (szczegóły w dzienniku).\n\nMożesz zainstalować go ręcznie:\n1. Kliknij 'Otwórz stronę pobierania' poniżej (albo otwórz\n    {url} ).\n2. Pobierz plik .zip hdfmonkey.\n3. Umieść pobrany .zip DOKŁADNIE w tym folderze — aplikacja już go utworzyła, a przycisk 'Otwórz folder pobierania' poniżej otwiera go, więc nic nie trzeba wpisywać:\n    {folder}\n4. Kliknij \"Wrzuciłem plik zip — spróbuj ponownie\".",
         "ZX Next Unite update: downloaded {name} to {folder}":
             "Aktualizacja ZX Next Unite: pobrano {name} do {folder}",
         "ZX Next Unite update: downloaded {path} but could not unpack it: {error}":
@@ -2373,7 +2856,7 @@ CATALOGS = {
         "Downloading {name} from {url}":
             "Pobieranie {name} z {url}",
         "ERROR: hdfmonkey could not be found. Use the 'Download and install HDF Monkey' button (bottom right of the SD Card tab) to install it automatically, or do a full CSpect install from the itch.io tab, which also bundles hdfmonkey. It can also be installed manually from https://github.com/gasman/hdfmonkey — restart the app once installed.":
-            "BŁĄD: nie znaleziono hdfmonkey. Użyj przycisku 'Download and install HDF Monkey' (prawy dolny róg karty SD Card), aby zainstalować go automatycznie, albo wykonaj pełną instalację CSpect z karty itch.io, która również zawiera hdfmonkey. Można go też zainstalować ręcznie z https://github.com/gasman/hdfmonkey — po instalacji uruchom aplikację ponownie.",
+            "BŁĄD: nie znaleziono hdfmonkey. Użyj przycisku 'Pobierz i zainstaluj HDF Monkey' (prawy dolny róg karty SD Card), aby zainstalować go automatycznie, albo wykonaj pełną instalację CSpect z karty itch.io, która również zawiera hdfmonkey. Można go też zainstalować ręcznie z https://github.com/gasman/hdfmonkey — po instalacji uruchom aplikację ponownie.",
         "Extracted disk image: {path}":
             "Wypakowano obraz dysku: {path}",
         "Extracted {count} file(s) from {name} into {folder} on the image.":
@@ -2736,6 +3219,247 @@ CATALOGS = {
             "🌐  Język dopasowany do systemu",
         "The interface language was set to match your system language.\nYou can change it anytime in the Settings tab (\"Application language:\").":
             "Język interfejsu został dopasowany do języka systemu.\nMożesz go zmienić w każdej chwili na karcie Settings\n(«Język aplikacji:»).",
+        # ---- Help tab (INIT_HELP; rebuilt per language by _repopulate_help) ----
+        "Welcome to zx-next-unite {version} help":
+            "Witaj w pomocy zx-next-unite {version}",
+        "Introduction:":
+            "Wprowadzenie:",
+        "HdfmGooey was initially created by em00k and NextSync by Jari Komppa.":
+            "HdfmGooey został pierwotnie stworzony przez em00k, a NextSync przez Jariego Komppę.",
+        "A while back I rambled with the idea of an all in one bootstrapper transfer tool to":
+            "Jakiś czas temu chodził mi po głowie pomysł narzędzia wszystko-w-jednym do transferu i uruchamiania, aby",
+        "avoid manipulating SD cards for the Spectrum Next and that was the initial idea of it.":
+            "uniknąć żonglowania kartami SD dla Spectrum Next — i taki był początkowy zamysł.",
+        "Last but not least some source code was lost from HDFM Gooey and the tool was stuck back in that time,":
+            "Na koniec, co nie mniej ważne, część kodu źródłowego HDFM Gooey zaginęła i narzędzie utknęło w tamtych czasach;",
+        "with the agreement of em00k I started a rewrite in Python and later with Jari.":
+            "za zgodą em00k zacząłem przepisywać je w Pythonie, a później dołączył Jari.",
+        "The point of using Python was that it would also provide MacOS and Linux portability.":
+            "Zaletą użycia Pythona było to, że zapewni też przenośność na MacOS i Linux.",
+        "Later down the line I then extended the NextSync functionality from Sync3 to Sync4.":
+            "Później rozszerzyłem funkcjonalność NextSync z Sync3 do Sync4.",
+        "The new .sync5 command for the Next speaks Sync4 and therefore allows sending files and directories using the -send command line option.":
+            "Nowe polecenie .sync5 dla Nexta mówi w Sync4, a więc pozwala wysyłać pliki i katalogi za pomocą opcji wiersza poleceń -send.",
+        "There is as well a new nextsync5.py command line located at the root of the repository that supports the new Sync4 protocol.":
+            "Jest też nowy program wiersza poleceń nextsync5.py, w katalogu głównym repozytorium, obsługujący nowy protokół Sync4.",
+        "Here we are now you have it!":
+            "I oto jesteśmy — proszę bardzo!",
+        "Keyboard shortcuts":
+            "Skróty klawiszowe",
+        "The three file explorers (SD Card local, SD Card disk image and NextSync local) share these shortcuts. Copy / Cut / Paste work across all three explorers and also exchange with the operating-system clipboard (e.g. copy in Windows Explorer, paste into the disk image, and vice-versa):":
+            "Trzy eksploratory plików (lokalny SD Card, obraz dysku SD Card i lokalny NextSync) współdzielą te skróty. Kopiuj / Wytnij / Wklej działają między wszystkimi trzema eksploratorami i wymieniają się też ze schowkiem systemu operacyjnego (np. skopiuj w Eksploratorze Windows, wklej do obrazu dysku i odwrotnie):",
+        "    Ctrl+C  -  Copy the selected file(s)/folder(s) to the shared clipboard.":
+            "    Ctrl+C  -  Kopiuje zaznaczone pliki/foldery do wspólnego schowka.",
+        "    Ctrl+X  -  Cut the selection (moved to the destination on the next paste).":
+            "    Ctrl+X  -  Wycina zaznaczenie (przeniesione do celu przy następnym wklejeniu).",
+        "    Ctrl+V  -  Paste into the selected / currently shown folder.":
+            "    Ctrl+V  -  Wkleja do zaznaczonego / aktualnie pokazanego folderu.",
+        "    F2      -  Rename the selected file or folder.":
+            "    F2      -  Zmienia nazwę zaznaczonego pliku lub folderu.",
+        "    Delete  -  Delete the selected file or folder (disk-image & NextSync explorers).":
+            "    Delete  -  Usuwa zaznaczony plik lub folder (eksploratory obrazu dysku i NextSync).",
+        "In the picture (gallery) item viewer (double-click an item in the GetIt, ZXDB, zxArt or itch.io tabs):":
+            "W przeglądarce elementów z obrazkami (galerii) (dwuklik na elemencie w kartach GetIt, ZXDB, zxArt lub itch.io):",
+        "    Esc           -  Close the viewer and return to the gallery.":
+            "    Esc           -  Zamyka przeglądarkę i wraca do galerii.",
+        "    Left / Right  -  Show the previous / next screenshot.":
+            "    Left / Right  -  Pokazuje poprzedni / następny zrzut ekranu.",
+        "Third party license":
+            "Licencje stron trzecich",
+        "zx-next-unite is released under the MIT license. It is a Qt Application using PySide6 (Qt for Python) on top of Qt6, used under the GNU LGPL v3.":
+            "zx-next-unite jest wydany na licencji MIT. To aplikacja Qt używająca PySide6 (Qt for Python) na Qt6, wykorzystywanym na licencji GNU LGPL v3.",
+        "Please refer to the LICENSE and THIRD-PARTY-NOTICES.md files on github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE and https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.":
+            "Zobacz pliki LICENSE i THIRD-PARTY-NOTICES.md na githubie: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE oraz https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.",
+        "PySide6 is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The pre-built release executables do include PySide6/Qt; since the app's full source code is published, they can be rebuilt with a modified Qt.":
+            "PySide6 nie jest dołączany przy ręcznej instalacji pythona i trzeba go zainstalować osobno (zobacz instrukcję instalacji). Prekompilowane wydania zawierają PySide6/Qt; ponieważ pełny kod źródłowy aplikacji jest opublikowany, można je zbudować ponownie ze zmodyfikowanym Qt.",
+        "zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org.":
+            "zx-next-unite używa też pygame-ce (społecznościowej edycji pygame) do animowanych teł i wizualizacji (np. efektów 'Alien Floyd's'). Wielkie dzięki dla społeczności pygame i pygame-ce - zobacz https://pyga.me i https://www.pygame.org.",
+        "pygame-ce is distributed under the GNU LGPL v2.1 license and, like PySide6, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions).":
+            "pygame-ce jest rozpowszechniany na licencji GNU LGPL v2.1 i, podobnie jak PySide6, nie jest dołączany przy ręcznej instalacji pythona — trzeba go zainstalować osobno (zobacz instrukcję instalacji).",
+        "zx-next-unite optionally uses itch-dl by Dragoon Aethis to power the itch.io tab (browsing and installing your itch.io collections). Many thanks to its author - see https://github.com/DragoonAethis/itch-dl.":
+            "zx-next-unite opcjonalnie używa itch-dl autorstwa Dragoon Aethis do obsługi karty itch.io (przeglądanie i instalowanie twoich kolekcji itch.io). Wielkie dzięki dla autora - zobacz https://github.com/DragoonAethis/itch-dl.",
+        "itch-dl is distributed under the MIT license (Copyright (c) 2022 Dragoon Aethis) and, like PySide6 and pygame-ce, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The itch.io tab is only shown when itch-dl is installed.":
+            "itch-dl jest rozpowszechniany na licencji MIT (Copyright (c) 2022 Dragoon Aethis) i, podobnie jak PySide6 i pygame-ce, nie jest dołączany przy ręcznej instalacji pythona — trzeba go zainstalować osobno (zobacz instrukcję instalacji). Karta itch.io pojawia się tylko, gdy itch-dl jest zainstalowany.",
+        "zx-next-unite optionally uses Flask by the Pallets team to power the NextSync HTTP bridge - the web server behind the Next's .http dot command that lets one Next drive another Next's SD card. Many thanks to its authors - see https://flask.palletsprojects.com and https://github.com/pallets/flask.":
+            "zx-next-unite opcjonalnie używa Flaska od zespołu Pallets do mostka HTTP NextSync - serwera web stojącego za poleceniem dot .http Nexta, które pozwala jednemu Nextowi sterować kartą SD drugiego. Wielkie dzięki dla autorów - zobacz https://flask.palletsprojects.com i https://github.com/pallets/flask.",
+        "Flask is distributed under the BSD-3-Clause license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The HTTP bridge toggle in Settings is greyed out until Flask is installed.":
+            "Flask jest rozpowszechniany na licencji BSD-3-Clause i, jak pozostałe opcjonalne pakiety, nie jest dołączany przy ręcznej instalacji pythona — trzeba go zainstalować osobno (zobacz instrukcję instalacji). Przełącznik mostka HTTP w Settings jest wyszarzony, dopóki Flask nie zostanie zainstalowany.",
+        "zx-next-unite optionally uses Send2Trash by Andrew Senetar and contributors (originally by Virgil Dupras) to send files deleted in the local file explorers to the system Recycle Bin / Trash instead of removing them permanently. Many thanks to its authors - see https://github.com/arsenetar/send2trash.":
+            "zx-next-unite opcjonalnie używa Send2Trash autorstwa Andrew Senetara i współtwórców (pierwotnie Virgila Duprasa), aby pliki usuwane w lokalnych eksploratorach trafiały do systemowego Kosza zamiast być usuwane bezpowrotnie. Wielkie dzięki dla autorów - zobacz https://github.com/arsenetar/send2trash.",
+        "Send2Trash is distributed under the BSD license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The 'Send deleted files to the Recycle Bin' toggle in Settings is greyed out until Send2Trash is installed.":
+            "Send2Trash jest rozpowszechniany na licencji BSD i, jak pozostałe opcjonalne pakiety, nie jest dołączany przy ręcznej instalacji pythona — trzeba go zainstalować osobno (zobacz instrukcję instalacji). Przełącznik 'Przenoś usuwane pliki do Kosza' w Settings jest wyszarzony, dopóki Send2Trash nie zostanie zainstalowany.",
+        "zx-next-unite's optional pre-compiled Windows binary is built with PyInstaller by the PyInstaller Development Team, which bundles the app and all of its dependencies into a single standalone executable. Many thanks to its authors - see https://pyinstaller.org and https://github.com/pyinstaller/pyinstaller.":
+            "Opcjonalny prekompilowany plik binarny Windows zx-next-unite jest budowany PyInstallerem od PyInstaller Development Team, który pakuje aplikację i wszystkie zależności w jeden samodzielny plik wykonywalny. Wielkie dzięki dla autorów - zobacz https://pyinstaller.org i https://github.com/pyinstaller/pyinstaller.",
+        "PyInstaller is distributed under its GPL 2.0 license with a special exception that explicitly permits packaging applications of any license. It is a build-time tool only - used to produce the pre-compiled binary - and is not needed when running zx-next-unite from source with a manual python install.":
+            "PyInstaller jest rozpowszechniany na licencji GPL 2.0 ze specjalnym wyjątkiem, który wprost pozwala pakować aplikacje na dowolnej licencji. To narzędzie wyłącznie do budowania - użyte do stworzenia prekompilowanego binarium - i nie jest potrzebne przy uruchamianiu zx-next-unite ze źródeł przy ręcznej instalacji pythona.",
+        "The pre-compiled Windows binary is additionally compressed with UPX (the Ultimate Packer for eXecutables) by Markus Oberhumer, Laszlo Molnar and John Reiser. Many thanks to its authors - see https://upx.github.io and https://github.com/upx/upx.":
+            "Prekompilowane binarium Windows jest dodatkowo kompresowane UPX-em (the Ultimate Packer for eXecutables) autorstwa Markusa Oberhumera, Laszlo Molnara i Johna Reisera. Wielkie dzięki dla autorów - zobacz https://upx.github.io i https://github.com/upx/upx.",
+        "UPX is distributed under its own liberal license (based on the GPL, with a special exception covering the compressed executables it produces). Like PyInstaller it is a build-time tool only and is not needed when running from source.":
+            "UPX jest rozpowszechniany na własnej liberalnej licencji (opartej na GPL, ze specjalnym wyjątkiem obejmującym skompresowane pliki wykonywalne, które tworzy). Jak PyInstaller, jest narzędziem wyłącznie do budowania i nie jest potrzebny przy uruchamianiu ze źródeł.",
+        "Setup & How to:":
+            "Instalacja i porady:",
+        "Check out the main setup & demo video available at: https://youtu.be/-gUxV4fM1yo  (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )":
+            "Obejrzyj główny film o instalacji i demo dostępny pod: https://youtu.be/-gUxV4fM1yo  (pełna instalacja pythona jest omówiona w starym py-hdfm-gooey, bo ZX-Next-Unite to jego ewolucja : https://youtu.be/FJG-Z0DCIjQ )",
+        "NextSync Head Over Heels demo: https://www.youtube.com/watch?v=D3_WqTPvjOE":
+            "Demo NextSync z Head Over Heels: https://www.youtube.com/watch?v=D3_WqTPvjOE",
+        "NextSync Night Knight demo: https://www.youtube.com/watch?v=eN1eMIqMCm4":
+            "Demo NextSync z Night Knight: https://www.youtube.com/watch?v=eN1eMIqMCm4",
+        "Is a required external component developed by Matt Westcott that allows browsing the image.":
+            "To wymagany zewnętrzny komponent stworzony przez Matta Westcotta, który umożliwia przeglądanie obrazu.",
+        "You will need to install it to get this application up and fully running.":
+            "Musisz go zainstalować, aby ta aplikacja działała w pełni.",
+        "If hdfmonkey is not present you will see an error message in the main log window as it is missing.":
+            "Jeśli hdfmonkey nie jest obecny, w głównym oknie dziennika zobaczysz komunikat o jego braku.",
+        "If that is the case you will see a 'Download and install HDF Monkey' button bottom right,":
+            "W takim wypadku zobaczysz przycisk 'Pobierz i zainstaluj HDF Monkey' w prawym dolnym rogu;",
+        "once clicked it will download a pre-compiled hdfmonkey build for your platform (Windows/Linux/macOS) and install it under the app's downloads folder.":
+            "po kliknięciu pobierze prekompilowaną wersję hdfmonkey dla twojej platformy (Windows/Linux/macOS) i zainstaluje ją w folderze downloads aplikacji.",
+        "If the above automated install is successful, you should then be able to select an image and navigate it.":
+            "Jeśli powyższa automatyczna instalacja się powiedzie, powinno się dać wybrać obraz i po nim nawigować.",
+        "hdfmonkey can also be installed manually based on the instructions for your platform that can be found at: https://github.com/gasman/hdfmonkey":
+            "hdfmonkey można też zainstalować ręcznie według instrukcji dla twojej platformy dostępnych pod: https://github.com/gasman/hdfmonkey",
+        "zx-next-unite implements the <Server> side code and protocol of NextSync by Jari Komppa.":
+            "zx-next-unite implementuje kod i protokół strony <serwera> NextSync Jariego Komppy.",
+        "It does not require any dot .sync modification and it uses the same very close python logic as nextsync.py.":
+            "Nie wymaga żadnych zmian w docie .sync i używa tej samej, bardzo zbliżonej logiki pythona co nextsync.py.",
+        "Initial release on specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8":
+            "Pierwsze wydanie na specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8",
+        "As a result you will need to run the same dot .sync command on your Next as with the console version and the same network protocol.":
+            "W związku z tym musisz uruchomić na swoim Nexcie to samo polecenie dot .sync co w wersji konsolowej i z tym samym protokołem sieciowym.",
+        "The latest release v1.2 of the .sync command can be found here https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 .":
+            "Najnowsze wydanie v1.2 polecenia .sync znajdziesz tutaj https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 .",
+        "You may follow the same instructions as provided in the readme.txt of that release.":
+            "Możesz postępować według tych samych instrukcji z pliku readme.txt tego wydania.",
+        "On your Spectrum Next, clone or image copy the SYNC command that is located in the above release zip file into your Next dot folder.":
+            "Na swoim Spectrum Next sklonuj lub skopiuj do obrazu polecenie SYNC z zipa tego wydania do folderu dot twojego Nexta.",
+        "Navigate to the NextSync tab, select the root folder to sync on the left.":
+            "Przejdź do karty NextSync i wybierz po lewej folder główny do synchronizacji.",
+        "Once you have selected the folder hit the 'Prepare Classic NextSync server' button, check the NextSync log window on the right.":
+            "Po wybraniu folderu naciśnij przycisk 'Przygotuj klasyczny serwer NextSync' i sprawdź okno dziennika NextSync po prawej.",
+        "The first time you run .sync on your Next you will be prompted to select the <server> IP address, this machine running NextSync.":
+            "Przy pierwszym uruchomieniu .sync na Nexcie zostaniesz poproszony o wybór adresu IP <serwera>, czyli tej maszyny z NextSync.",
+        "From the log window pick the IP address from this machine you want to use and type it on your Next.":
+            "Z okna dziennika wybierz adres IP tej maszyny, którego chcesz użyć, i wpisz go na swoim Nexcie.",
+        "Then start the sync server on this machine using the 'Start Classic NextSync server' button and then run the .sync command on your Next.":
+            "Następnie uruchom serwer synchronizacji na tej maszynie przyciskiem 'Uruchom klasyczny serwer NextSync' i wykonaj polecenie .sync na swoim Nexcie.",
+        "At this point your Spectrum Next will connect to your machine using a network socket and the files will be sent to your Next.":
+            "W tym momencie twój Spectrum Next połączy się z tą maszyną przez gniazdo sieciowe i pliki zostaną wysłane na twojego Nexta.",
+        "As it is your Next that will connect to this machine check your firewall allows inbound calls to this machine on port: 2048 by default.":
+            "Ponieważ to twój Next łączy się z tą maszyną, upewnij się, że zapora przepuszcza połączenia przychodzące do tej maszyny na porcie: domyślnie 2048.",
+        "The same syncignore.txt and syncpoint.dat file logic applies and allows you to control the sync (please check Jari's documentation).":
+            "Obowiązuje ta sama logika plików syncignore.txt i syncpoint.dat, pozwalająca sterować synchronizacją (zajrzyj do dokumentacji Jariego).",
+        "NextSync source code can be found here: https://github.com/jarikomppa/specnext/tree/master/sync":
+            "Kod źródłowy NextSync znajdziesz tutaj: https://github.com/jarikomppa/specnext/tree/master/sync",
+        "If you run into any type of issue using the NextSync integration please run first Jari's command line version to see if it works as expected.":
+            "Jeśli napotkasz jakikolwiek problem z integracją NextSync, uruchom najpierw wersję konsolową Jariego, aby sprawdzić, czy działa zgodnie z oczekiwaniami.",
+        "OpenAL sound engine (on Windows)":
+            "Silnik dźwięku OpenAL (w Windows)",
+        "The OpenAL library is required on Windows for CSpect to play sound, you may download it here: https://openal.org/":
+            "Biblioteka OpenAL jest wymagana w Windows, aby CSpect odtwarzał dźwięk; możesz ją pobrać tutaj: https://openal.org/",
+        "Mono (on Linux & MacOS Only)":
+            "Mono (tylko Linux i MacOS)",
+        "You will also need to manually install the mono-complete package for example using: sudo apt-get install mono-complete":
+            "Musisz też ręcznie zainstalować pakiet mono-complete, na przykład poleceniem: sudo apt-get install mono-complete",
+        "Third-Party Content Sources (GetIt / ZXDB / zxArt):":
+            "Źródła treści stron trzecich (GetIt / ZXDB / zxArt):",
+        "zx-next-unite integrates three external databases to let you browse and download":
+            "zx-next-unite integruje trzy zewnętrzne bazy danych, aby można było przeglądać i pobierać",
+        "Spectrum-related software and artwork directly from within the application.":
+            "oprogramowanie i grafikę związane ze Spectrum bezpośrednio z aplikacji.",
+        "The application consumes their public APIs — it does not host, mirror, or":
+            "Aplikacja korzysta z ich publicznych API — sama nie hostuje, nie mirroruje ani",
+        "redistribute any of the files itself.":
+            "nie redystrybuuje żadnych plików.",
+        "  GetIt is a community-maintained archive of ZX Spectrum Next software.":
+            "  GetIt to utrzymywane przez społeczność archiwum oprogramowania ZX Spectrum Next.",
+        "  The application queries the GetIt API to list and search files, then":
+            "  Aplikacja odpytuje API GetIt, aby wylistować i wyszukać pliki, a następnie",
+        "  downloads them directly from the URLs returned by that API.":
+            "  pobiera je bezpośrednio z adresów URL zwróconych przez to API.",
+        "  ZXDB is an open-source database of ZX Spectrum and related software,":
+            "  ZXDB to otwartoźródłowa baza danych oprogramowania ZX Spectrum i pokrewnych,",
+        "  maintained by the community at https://github.com/zxdb/ZXDB .":
+            "  utrzymywana przez społeczność pod https://github.com/zxdb/ZXDB .",
+        "  The application queries the ZXDB REST API for titles, releases, screenshots":
+            "  Aplikacja odpytuje REST API ZXDB o tytuły, wydania, zrzuty ekranu",
+        "  and inlays, then downloads files directly from the URLs returned by that API.":
+            "  i okładki, a następnie pobiera pliki bezpośrednio z adresów URL zwróconych przez to API.",
+        "  zxArt (https://zxart.ee) is a gallery and archive dedicated to ZX Spectrum":
+            "  zxArt (https://zxart.ee) to galeria i archiwum poświęcone sztuce wizualnej,",
+        "  visual art, music, and productions.":
+            "  muzyce i produkcjom ZX Spectrum.",
+        "  The application sends requests to the zxArt API to search productions and":
+            "  Aplikacja wysyła zapytania do API zxArt, aby wyszukiwać produkcje i",
+        "  pictures, retrieve metadata and preview images, and download productions":
+            "  obrazki, pobierać metadane i podglądy oraz pobierać produkcje",
+        "  directly from the URLs returned by that API.":
+            "  bezpośrednio z adresów URL zwróconych przez to API.",
+        "  Mame emulator brought to you by Holub for the ZX Spectrum Next can be installed following this documentation: https://wiki.specnext.dev/MAME:Installing":
+            "  Emulator Mame przeniesiony na ZX Spectrum Next przez Holuba można zainstalować według tej dokumentacji: https://wiki.specnext.dev/MAME:Installing",
+        "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
+            "  Oficjalne pakiety binarne dla Windows znajdziesz tutaj: https://www.mamedev.org/release.html",
+        "  Put the file tbblue.zip that can be found here: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip into MAME's roms folder.":
+            "  Umieść plik tbblue.zip, dostępny tutaj: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip w folderze roms MAME.",
+        "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
+            "  Ważna uwaga: nie rozpakowuj pliku tbblue.zip; MAME szuka zipa, gdy wybrana jest maszyna 'tbblue'.",
+        "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
+            "  CSpect Mike'a Dailly'ego to emulator do pobrania dla Windows, macOS i Linuksa",
+        "  Sites and links:":
+            "  Strony i odnośniki:",
+        "Legal disclaimer:":
+            "Zastrzeżenie prawne:",
+        "  The author of zx-next-unite does NOT distribute any files, ROMs, games,":
+            "  Autor zx-next-unite NIE rozpowszechnia żadnych plików, ROM-ów, gier,",
+        "  demos, graphics, music, or any other content obtained through these APIs.":
+            "  dem, grafik, muzyki ani innych treści pozyskanych przez te API.",
+        "  All content is served exclusively by the respective third-party services.":
+            "  Wszystkie treści są serwowane wyłącznie przez odpowiednie serwisy stron trzecich.",
+        "  This application and author do not control third-party content.":
+            "  Ta aplikacja i jej autor nie kontrolują treści stron trzecich.",
+        "  It is the sole responsibility of the end user to ensure that any content":
+            "  Wyłączną odpowiedzialnością użytkownika końcowego jest upewnienie się, że wszelkie treści,",
+        "  they download or use through this application complies with the applicable":
+            "  które pobiera lub używa poprzez tę aplikację, są zgodne z obowiązującymi",
+        "  copyright, licensing, and legal requirements in their jurisdiction.":
+            "  wymogami prawa autorskiego, licencji i przepisów jego jurysdykcji.",
+        "  If in doubt, consult the terms of service of the relevant platform and":
+            "  W razie wątpliwości zapoznaj się z warunkami usługi danej platformy i",
+        "  seek appropriate legal advice before downloading or using any content.":
+            "  zasięgnij odpowiedniej porady prawnej przed pobraniem lub użyciem jakichkolwiek treści.",
+        "  For inquiries you may reach out to me on my github page: https://github.com/jclauzel/ZX-Next-Unite":
+            "  W razie pytań możesz się ze mną skontaktować przez moją stronę github: https://github.com/jclauzel/ZX-Next-Unite",
+        "Enjoy!":
+            "Miłej zabawy!",
+        # ---- OpenAL guided install (CSpect sound on Windows) ----
+        "OpenAL 1.1 detected — CSpect sound is ready.":
+            "Wykryto OpenAL 1.1 — dźwięk CSpect jest gotowy.",
+        "Install OpenAL?":
+            "Zainstalować OpenAL?",
+        ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
+         "for sound, and it was not detected on this machine — without "
+         "it CSpect runs silent.<br><br>"
+         "OpenAL is separate, third-party software — many thanks to its "
+         "authors: {url}<br><br>"
+         "Download the official installer (oalinst.exe) from openal.org "
+         "and run it now?<br><br>"
+         "Windows will ask for administrator approval when the installer "
+         "starts — the app itself never runs elevated."):
+            ("W Windows CSpect potrzebuje do dźwięku biblioteki audio "
+             "<b>OpenAL 1.1</b>, a nie wykryto jej na tej maszynie — bez "
+             "niej CSpect działa bezgłośnie.<br><br>"
+             "OpenAL to osobne oprogramowanie stron trzecich — wielkie "
+             "dzięki dla jego autorów: {url}<br><br>"
+             "Pobrać oficjalny instalator (oalinst.exe) z openal.org i "
+             "uruchomić go teraz?<br><br>"
+             "Windows poprosi o zgodę administratora przy starcie "
+             "instalatora — sama aplikacja nigdy nie działa z podniesionymi "
+             "uprawnieniami."),
+        "Download and run the OpenAL installer":
+            "Pobierz i uruchom instalator OpenAL",
+        "Open openal.org":
+            "Otwórz openal.org",
+        "The OpenAL download failed — see the log for details. You can install it manually from {url}":
+            "Pobieranie OpenAL nie powiodło się — szczegóły w dzienniku. Możesz zainstalować go ręcznie z {url}",
     },
     "ru": {
         # ---- GetIt starter pack ----
@@ -2891,6 +3615,7 @@ CATALOGS = {
         "Download File": "Скачать файл",
         "Download NextZXOS Image": "Скачать образ NextZXOS",
         "Download and install HDF Monkey": "Скачать и установить HDF Monkey",
+        "Download and install HDF Monkey and OpenAL": "Скачать и установить HDF Monkey и OpenAL",
         "Generate": "Создать",
         "Get API key…": "Получить ключ API…",
         "Latest": "Новинки",
@@ -2956,10 +3681,10 @@ CATALOGS = {
             "Установка MAME ▸ СЛЕДУЮЩИЙ ШАГ (вручную): добавьте загрузочную ROM TBBLUE. См. {url} → \"Get TBBLUE (the Next 'boot ROM')\". Поместите файл tbblue.zip в папку roms MAME ({roms}) — НЕ распаковывайте его. Используйте только легально приобретённую лицензионную ROM.",
         "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
             "Dot-команда NextSync .sync5 обновлена: v{old} -> v{new} — скопируйте новую сборку на Next (автоматическое развёртывание невозможно).",
-        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
-            "СОВЕТ: знали ли вы, что если CSpect куплен на itch.io, можно выполнить полную установку CSpect прямо оттуда?\n\nВойдите в свою учётную запись itch.io на вкладке itch.io, найдите CSpect и нажмите «Установить».\n\nВсё ещё установить только hdfmonkey или прервать и выполнить полную установку CSpect через itch.io?",
+        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nCSpect ships with hdfmonkey bundled inside it, so that route needs no separate hdfmonkey install — the app finds and uses the bundled copy automatically.\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
+            "СОВЕТ: знали ли вы, что если CSpect куплен на itch.io, можно выполнить полную установку CSpect прямо оттуда?\n\nCSpect поставляется со встроенным hdfmonkey, поэтому при этом пути отдельная установка hdfmonkey не нужна — приложение автоматически находит и использует встроенную копию.\n\nВойдите в свою учётную запись itch.io на вкладке itch.io, найдите CSpect и нажмите «Установить».\n\nВсё ещё установить только hdfmonkey или прервать и выполнить полную установку CSpect через itch.io?",
         "The automatic hdfmonkey download from specnext.com failed — the forum may be asking for a login or an anti-robot confirmation before the download can start (see the log for details).\n\nYou can install it manually instead:\n1. Click 'Open download page' below (or browse to\n    {url} ).\n2. Download the hdfmonkey .zip file.\n3. Drop the downloaded .zip into this EXACT folder — the app has already created it, and the 'Open downloads folder' button below opens it so nothing needs to be typed:\n    {folder}\n4. Click \"I've dropped the zip - try again\".":
-            "Автоматическая загрузка hdfmonkey с specnext.com не удалась — форум может требовать входа или анти-робот подтверждения перед началом загрузки (подробности в журнале).\n\nМожно установить вручную:\n1. Нажмите 'Open download page' ниже (или откройте\n    {url} ).\n2. Скачайте .zip-файл hdfmonkey.\n3. Положите скачанный .zip ИМЕННО в эту папку — приложение уже создало её, а кнопка 'Open downloads folder' ниже открывает её, так что вводить ничего не нужно:\n    {folder}\n4. Нажмите \"I've dropped the zip - try again\".",
+            "Автоматическая загрузка hdfmonkey с specnext.com не удалась — форум может требовать входа или анти-робот подтверждения перед началом загрузки (подробности в журнале).\n\nМожно установить вручную:\n1. Нажмите 'Открыть страницу загрузки' ниже (или откройте\n    {url} ).\n2. Скачайте .zip-файл hdfmonkey.\n3. Положите скачанный .zip ИМЕННО в эту папку — приложение уже создало её, а кнопка 'Открыть папку загрузок' ниже открывает её, так что вводить ничего не нужно:\n    {folder}\n4. Нажмите \"Я положил zip — попробовать снова\".",
         "ZX Next Unite update: downloaded {name} to {folder}":
             "Обновление ZX Next Unite: {name} загружен в {folder}",
         "ZX Next Unite update: downloaded {path} but could not unpack it: {error}":
@@ -3213,7 +3938,7 @@ CATALOGS = {
         "Downloading {name} from {url}":
             "Загрузка {name} с {url}",
         "ERROR: hdfmonkey could not be found. Use the 'Download and install HDF Monkey' button (bottom right of the SD Card tab) to install it automatically, or do a full CSpect install from the itch.io tab, which also bundles hdfmonkey. It can also be installed manually from https://github.com/gasman/hdfmonkey — restart the app once installed.":
-            "ОШИБКА: hdfmonkey не найден. Нажмите кнопку 'Download and install HDF Monkey' (внизу справа на вкладке SD Card), чтобы установить его автоматически, или выполните полную установку CSpect со вкладки itch.io — она также включает hdfmonkey. Его можно установить и вручную с https://github.com/gasman/hdfmonkey — после установки перезапустите приложение.",
+            "ОШИБКА: hdfmonkey не найден. Нажмите кнопку 'Скачать и установить HDF Monkey' (внизу справа на вкладке SD Card), чтобы установить его автоматически, или выполните полную установку CSpect со вкладки itch.io — она также включает hdfmonkey. Его можно установить и вручную с https://github.com/gasman/hdfmonkey — после установки перезапустите приложение.",
         "Extracted disk image: {path}":
             "Образ диска распакован: {path}",
         "Extracted {count} file(s) from {name} into {folder} on the image.":
@@ -3576,6 +4301,247 @@ CATALOGS = {
             "🌐  Язык подобран по вашей системе",
         "The interface language was set to match your system language.\nYou can change it anytime in the Settings tab (\"Application language:\").":
             "Язык интерфейса установлен по языку вашей системы.\nЕго можно в любой момент изменить на вкладке Settings\n(«Язык приложения:»).",
+        # ---- Help tab (INIT_HELP; rebuilt per language by _repopulate_help) ----
+        "Welcome to zx-next-unite {version} help":
+            "Добро пожаловать в справку zx-next-unite {version}",
+        "Introduction:":
+            "Введение:",
+        "HdfmGooey was initially created by em00k and NextSync by Jari Komppa.":
+            "HdfmGooey изначально создал em00k, а NextSync — Jari Komppa.",
+        "A while back I rambled with the idea of an all in one bootstrapper transfer tool to":
+            "Когда-то я вынашивал идею инструмента «всё в одном» для переноса и запуска, чтобы",
+        "avoid manipulating SD cards for the Spectrum Next and that was the initial idea of it.":
+            "не возиться с SD-картами для Spectrum Next — с этого всё и началось.",
+        "Last but not least some source code was lost from HDFM Gooey and the tool was stuck back in that time,":
+            "И не в последнюю очередь: часть исходного кода HDFM Gooey была утеряна, и инструмент застрял в том времени;",
+        "with the agreement of em00k I started a rewrite in Python and later with Jari.":
+            "с согласия em00k я начал переписывать его на Python, позже к работе подключился Jari.",
+        "The point of using Python was that it would also provide MacOS and Linux portability.":
+            "Смысл выбора Python был в том, что он заодно даст переносимость на MacOS и Linux.",
+        "Later down the line I then extended the NextSync functionality from Sync3 to Sync4.":
+            "Позже я расширил функциональность NextSync с Sync3 до Sync4.",
+        "The new .sync5 command for the Next speaks Sync4 and therefore allows sending files and directories using the -send command line option.":
+            "Новая команда .sync5 для Next говорит на Sync4 и потому позволяет отправлять файлы и каталоги параметром командной строки -send.",
+        "There is as well a new nextsync5.py command line located at the root of the repository that supports the new Sync4 protocol.":
+            "Есть также новая консольная утилита nextsync5.py в корне репозитория, поддерживающая новый протокол Sync4.",
+        "Here we are now you have it!":
+            "Вот мы и здесь — пользуйтесь!",
+        "Keyboard shortcuts":
+            "Горячие клавиши",
+        "The three file explorers (SD Card local, SD Card disk image and NextSync local) share these shortcuts. Copy / Cut / Paste work across all three explorers and also exchange with the operating-system clipboard (e.g. copy in Windows Explorer, paste into the disk image, and vice-versa):":
+            "Три файловых менеджера (локальный SD Card, образ диска SD Card и локальный NextSync) используют одни и те же сочетания. Копировать / Вырезать / Вставить работают между всеми тремя менеджерами и обмениваются с буфером обмена операционной системы (например, скопируйте в Проводнике Windows, вставьте в образ диска, и наоборот):",
+        "    Ctrl+C  -  Copy the selected file(s)/folder(s) to the shared clipboard.":
+            "    Ctrl+C  -  Скопировать выбранные файлы/папки в общий буфер обмена.",
+        "    Ctrl+X  -  Cut the selection (moved to the destination on the next paste).":
+            "    Ctrl+X  -  Вырезать выделение (переносится в место назначения при следующей вставке).",
+        "    Ctrl+V  -  Paste into the selected / currently shown folder.":
+            "    Ctrl+V  -  Вставить в выбранную / текущую папку.",
+        "    F2      -  Rename the selected file or folder.":
+            "    F2      -  Переименовать выбранный файл или папку.",
+        "    Delete  -  Delete the selected file or folder (disk-image & NextSync explorers).":
+            "    Delete  -  Удалить выбранный файл или папку (менеджеры образа диска и NextSync).",
+        "In the picture (gallery) item viewer (double-click an item in the GetIt, ZXDB, zxArt or itch.io tabs):":
+            "В просмотрщике элементов с картинками (галерее) (двойной щелчок по элементу на вкладках GetIt, ZXDB, zxArt или itch.io):",
+        "    Esc           -  Close the viewer and return to the gallery.":
+            "    Esc           -  Закрыть просмотрщик и вернуться в галерею.",
+        "    Left / Right  -  Show the previous / next screenshot.":
+            "    Left / Right  -  Показать предыдущий / следующий снимок экрана.",
+        "Third party license":
+            "Лицензии третьих сторон",
+        "zx-next-unite is released under the MIT license. It is a Qt Application using PySide6 (Qt for Python) on top of Qt6, used under the GNU LGPL v3.":
+            "zx-next-unite выпускается под лицензией MIT. Это Qt-приложение на PySide6 (Qt for Python) поверх Qt6, используемого по GNU LGPL v3.",
+        "Please refer to the LICENSE and THIRD-PARTY-NOTICES.md files on github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE and https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.":
+            "См. файлы LICENSE и THIRD-PARTY-NOTICES.md на github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE и https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.",
+        "PySide6 is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The pre-built release executables do include PySide6/Qt; since the app's full source code is published, they can be rebuilt with a modified Qt.":
+            "PySide6 не входит в ручную установку python и ставится отдельно (см. инструкцию по установке). Готовые сборки релизов включают PySide6/Qt; поскольку полный исходный код приложения опубликован, их можно пересобрать с изменённым Qt.",
+        "zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org.":
+            "zx-next-unite также использует pygame-ce (общественную редакцию pygame) для анимированных фонов и визуализаций (например, эффектов 'Alien Floyd's'). Большое спасибо сообществам pygame и pygame-ce - см. https://pyga.me и https://www.pygame.org.",
+        "pygame-ce is distributed under the GNU LGPL v2.1 license and, like PySide6, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions).":
+            "pygame-ce распространяется по лицензии GNU LGPL v2.1 и, как и PySide6, не входит в ручную установку python — ставится отдельно (см. инструкцию по установке).",
+        "zx-next-unite optionally uses itch-dl by Dragoon Aethis to power the itch.io tab (browsing and installing your itch.io collections). Many thanks to its author - see https://github.com/DragoonAethis/itch-dl.":
+            "zx-next-unite опционально использует itch-dl от Dragoon Aethis для вкладки itch.io (просмотр и установка ваших коллекций itch.io). Большое спасибо автору - см. https://github.com/DragoonAethis/itch-dl.",
+        "itch-dl is distributed under the MIT license (Copyright (c) 2022 Dragoon Aethis) and, like PySide6 and pygame-ce, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The itch.io tab is only shown when itch-dl is installed.":
+            "itch-dl распространяется по лицензии MIT (Copyright (c) 2022 Dragoon Aethis) и, как PySide6 и pygame-ce, не входит в ручную установку python — ставится отдельно (см. инструкцию по установке). Вкладка itch.io видна, только когда itch-dl установлен.",
+        "zx-next-unite optionally uses Flask by the Pallets team to power the NextSync HTTP bridge - the web server behind the Next's .http dot command that lets one Next drive another Next's SD card. Many thanks to its authors - see https://flask.palletsprojects.com and https://github.com/pallets/flask.":
+            "zx-next-unite опционально использует Flask от команды Pallets для HTTP-моста NextSync - веб-сервера за dot-командой .http, позволяющей одному Next управлять SD-картой другого Next. Большое спасибо авторам - см. https://flask.palletsprojects.com и https://github.com/pallets/flask.",
+        "Flask is distributed under the BSD-3-Clause license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The HTTP bridge toggle in Settings is greyed out until Flask is installed.":
+            "Flask распространяется по лицензии BSD-3-Clause и, как остальные необязательные пакеты, не входит в ручную установку python — ставится отдельно (см. инструкцию по установке). Переключатель HTTP-моста в Settings недоступен, пока Flask не установлен.",
+        "zx-next-unite optionally uses Send2Trash by Andrew Senetar and contributors (originally by Virgil Dupras) to send files deleted in the local file explorers to the system Recycle Bin / Trash instead of removing them permanently. Many thanks to its authors - see https://github.com/arsenetar/send2trash.":
+            "zx-next-unite опционально использует Send2Trash от Andrew Senetar и соавторов (изначально Virgil Dupras), чтобы файлы, удалённые в локальных менеджерах, отправлялись в системную Корзину, а не удалялись безвозвратно. Большое спасибо авторам - см. https://github.com/arsenetar/send2trash.",
+        "Send2Trash is distributed under the BSD license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The 'Send deleted files to the Recycle Bin' toggle in Settings is greyed out until Send2Trash is installed.":
+            "Send2Trash распространяется по лицензии BSD и, как остальные необязательные пакеты, не входит в ручную установку python — ставится отдельно (см. инструкцию по установке). Переключатель 'Отправлять удалённые файлы в Корзину' в Settings недоступен, пока Send2Trash не установлен.",
+        "zx-next-unite's optional pre-compiled Windows binary is built with PyInstaller by the PyInstaller Development Team, which bundles the app and all of its dependencies into a single standalone executable. Many thanks to its authors - see https://pyinstaller.org and https://github.com/pyinstaller/pyinstaller.":
+            "Необязательный предсобранный двоичный файл Windows для zx-next-unite собирается PyInstaller от PyInstaller Development Team, который упаковывает приложение и все зависимости в один автономный исполняемый файл. Большое спасибо авторам - см. https://pyinstaller.org и https://github.com/pyinstaller/pyinstaller.",
+        "PyInstaller is distributed under its GPL 2.0 license with a special exception that explicitly permits packaging applications of any license. It is a build-time tool only - used to produce the pre-compiled binary - and is not needed when running zx-next-unite from source with a manual python install.":
+            "PyInstaller распространяется по своей лицензии GPL 2.0 со специальным исключением, прямо разрешающим упаковывать приложения под любой лицензией. Это инструмент только для сборки - им создаётся предсобранный двоичный файл - и он не нужен при запуске zx-next-unite из исходников с ручной установкой python.",
+        "The pre-compiled Windows binary is additionally compressed with UPX (the Ultimate Packer for eXecutables) by Markus Oberhumer, Laszlo Molnar and John Reiser. Many thanks to its authors - see https://upx.github.io and https://github.com/upx/upx.":
+            "Предсобранный двоичный файл Windows дополнительно сжат UPX (the Ultimate Packer for eXecutables) от Markus Oberhumer, Laszlo Molnar и John Reiser. Большое спасибо авторам - см. https://upx.github.io и https://github.com/upx/upx.",
+        "UPX is distributed under its own liberal license (based on the GPL, with a special exception covering the compressed executables it produces). Like PyInstaller it is a build-time tool only and is not needed when running from source.":
+            "UPX распространяется по собственной либеральной лицензии (на основе GPL, со специальным исключением для создаваемых им сжатых исполняемых файлов). Как и PyInstaller, это инструмент только для сборки, не нужный при запуске из исходников.",
+        "Setup & How to:":
+            "Установка и инструкции:",
+        "Check out the main setup & demo video available at: https://youtu.be/-gUxV4fM1yo  (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )":
+            "Посмотрите основное видео по установке и демонстрации: https://youtu.be/-gUxV4fM1yo  (полная установка python разобрана в старом py-hdfm-gooey, ведь ZX-Next-Unite — его эволюция : https://youtu.be/FJG-Z0DCIjQ )",
+        "NextSync Head Over Heels demo: https://www.youtube.com/watch?v=D3_WqTPvjOE":
+            "Демо NextSync с Head Over Heels: https://www.youtube.com/watch?v=D3_WqTPvjOE",
+        "NextSync Night Knight demo: https://www.youtube.com/watch?v=eN1eMIqMCm4":
+            "Демо NextSync с Night Knight: https://www.youtube.com/watch?v=eN1eMIqMCm4",
+        "Is a required external component developed by Matt Westcott that allows browsing the image.":
+            "Это обязательный внешний компонент от Matt Westcott, позволяющий просматривать образ.",
+        "You will need to install it to get this application up and fully running.":
+            "Его нужно установить, чтобы приложение заработало полностью.",
+        "If hdfmonkey is not present you will see an error message in the main log window as it is missing.":
+            "Если hdfmonkey отсутствует, в главном окне журнала появится сообщение об ошибке о его отсутствии.",
+        "If that is the case you will see a 'Download and install HDF Monkey' button bottom right,":
+            "В этом случае справа внизу появится кнопка 'Скачать и установить HDF Monkey';",
+        "once clicked it will download a pre-compiled hdfmonkey build for your platform (Windows/Linux/macOS) and install it under the app's downloads folder.":
+            "по нажатию она скачает готовую сборку hdfmonkey для вашей платформы (Windows/Linux/macOS) и установит её в папку downloads приложения.",
+        "If the above automated install is successful, you should then be able to select an image and navigate it.":
+            "Если автоматическая установка прошла успешно, вы сможете выбрать образ и перемещаться по нему.",
+        "hdfmonkey can also be installed manually based on the instructions for your platform that can be found at: https://github.com/gasman/hdfmonkey":
+            "hdfmonkey можно также установить вручную по инструкциям для вашей платформы: https://github.com/gasman/hdfmonkey",
+        "zx-next-unite implements the <Server> side code and protocol of NextSync by Jari Komppa.":
+            "zx-next-unite реализует код и протокол стороны <сервера> NextSync от Jari Komppa.",
+        "It does not require any dot .sync modification and it uses the same very close python logic as nextsync.py.":
+            "Он не требует изменений dot-команды .sync и использует ту же, очень близкую, python-логику, что и nextsync.py.",
+        "Initial release on specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8":
+            "Первый анонс на specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8",
+        "As a result you will need to run the same dot .sync command on your Next as with the console version and the same network protocol.":
+            "Поэтому на вашем Next нужно запускать ту же dot-команду .sync, что и с консольной версией, и с тем же сетевым протоколом.",
+        "The latest release v1.2 of the .sync command can be found here https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 .":
+            "Последний выпуск v1.2 команды .sync можно найти здесь https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 .",
+        "You may follow the same instructions as provided in the readme.txt of that release.":
+            "Можете следовать тем же инструкциям из readme.txt этого выпуска.",
+        "On your Spectrum Next, clone or image copy the SYNC command that is located in the above release zip file into your Next dot folder.":
+            "На вашем Spectrum Next склонируйте или скопируйте в образ команду SYNC из zip-архива этого выпуска в папку dot вашего Next.",
+        "Navigate to the NextSync tab, select the root folder to sync on the left.":
+            "Перейдите на вкладку NextSync и слева выберите корневую папку для синхронизации.",
+        "Once you have selected the folder hit the 'Prepare Classic NextSync server' button, check the NextSync log window on the right.":
+            "Выбрав папку, нажмите кнопку 'Подготовить классический сервер NextSync' и посмотрите окно журнала NextSync справа.",
+        "The first time you run .sync on your Next you will be prompted to select the <server> IP address, this machine running NextSync.":
+            "При первом запуске .sync на вашем Next вас попросят выбрать IP-адрес <сервера> — этой машины с NextSync.",
+        "From the log window pick the IP address from this machine you want to use and type it on your Next.":
+            "В окне журнала выберите нужный IP-адрес этой машины и введите его на вашем Next.",
+        "Then start the sync server on this machine using the 'Start Classic NextSync server' button and then run the .sync command on your Next.":
+            "Затем запустите сервер синхронизации на этой машине кнопкой 'Запустить классический сервер NextSync' и выполните команду .sync на вашем Next.",
+        "At this point your Spectrum Next will connect to your machine using a network socket and the files will be sent to your Next.":
+            "В этот момент ваш Spectrum Next подключится к машине через сетевой сокет, и файлы будут отправлены на ваш Next.",
+        "As it is your Next that will connect to this machine check your firewall allows inbound calls to this machine on port: 2048 by default.":
+            "Так как именно ваш Next подключается к этой машине, проверьте, что брандмауэр пропускает входящие подключения к этой машине на порт: по умолчанию 2048.",
+        "The same syncignore.txt and syncpoint.dat file logic applies and allows you to control the sync (please check Jari's documentation).":
+            "Действует та же логика файлов syncignore.txt и syncpoint.dat, позволяющая управлять синхронизацией (см. документацию Jari).",
+        "NextSync source code can be found here: https://github.com/jarikomppa/specnext/tree/master/sync":
+            "Исходный код NextSync находится здесь: https://github.com/jarikomppa/specnext/tree/master/sync",
+        "If you run into any type of issue using the NextSync integration please run first Jari's command line version to see if it works as expected.":
+            "Если с интеграцией NextSync возникают любые проблемы, сначала запустите консольную версию Jari и убедитесь, что она работает как ожидается.",
+        "OpenAL sound engine (on Windows)":
+            "Звуковой движок OpenAL (в Windows)",
+        "The OpenAL library is required on Windows for CSpect to play sound, you may download it here: https://openal.org/":
+            "Библиотека OpenAL нужна в Windows, чтобы CSpect воспроизводил звук; скачать можно здесь: https://openal.org/",
+        "Mono (on Linux & MacOS Only)":
+            "Mono (только Linux и MacOS)",
+        "You will also need to manually install the mono-complete package for example using: sudo apt-get install mono-complete":
+            "Также нужно вручную установить пакет mono-complete, например командой: sudo apt-get install mono-complete",
+        "Third-Party Content Sources (GetIt / ZXDB / zxArt):":
+            "Сторонние источники контента (GetIt / ZXDB / zxArt):",
+        "zx-next-unite integrates three external databases to let you browse and download":
+            "zx-next-unite объединяет три внешние базы данных, чтобы просматривать и скачивать",
+        "Spectrum-related software and artwork directly from within the application.":
+            "софт и графику, связанные со Spectrum, прямо из приложения.",
+        "The application consumes their public APIs — it does not host, mirror, or":
+            "Приложение обращается к их публичным API — оно само не хранит, не зеркалирует и",
+        "redistribute any of the files itself.":
+            "не распространяет никакие файлы.",
+        "  GetIt is a community-maintained archive of ZX Spectrum Next software.":
+            "  GetIt — поддерживаемый сообществом архив программ для ZX Spectrum Next.",
+        "  The application queries the GetIt API to list and search files, then":
+            "  Приложение запрашивает у API GetIt список и поиск файлов, затем",
+        "  downloads them directly from the URLs returned by that API.":
+            "  скачивает их напрямую по URL, возвращённым этим API.",
+        "  ZXDB is an open-source database of ZX Spectrum and related software,":
+            "  ZXDB — база данных с открытым кодом о программах ZX Spectrum и родственных,",
+        "  maintained by the community at https://github.com/zxdb/ZXDB .":
+            "  поддерживаемая сообществом на https://github.com/zxdb/ZXDB .",
+        "  The application queries the ZXDB REST API for titles, releases, screenshots":
+            "  Приложение запрашивает у REST API ZXDB названия, издания, снимки экрана",
+        "  and inlays, then downloads files directly from the URLs returned by that API.":
+            "  и обложки, затем скачивает файлы напрямую по URL, возвращённым этим API.",
+        "  zxArt (https://zxart.ee) is a gallery and archive dedicated to ZX Spectrum":
+            "  zxArt (https://zxart.ee) — галерея и архив, посвящённые визуальному искусству,",
+        "  visual art, music, and productions.":
+            "  музыке и продукциям ZX Spectrum.",
+        "  The application sends requests to the zxArt API to search productions and":
+            "  Приложение шлёт запросы к API zxArt для поиска продукций и",
+        "  pictures, retrieve metadata and preview images, and download productions":
+            "  картинок, получения метаданных и превью, а также скачивания продукций",
+        "  directly from the URLs returned by that API.":
+            "  напрямую по URL, возвращённым этим API.",
+        "  Mame emulator brought to you by Holub for the ZX Spectrum Next can be installed following this documentation: https://wiki.specnext.dev/MAME:Installing":
+            "  Эмулятор Mame, принесённый на ZX Spectrum Next Holub, устанавливается по этой документации: https://wiki.specnext.dev/MAME:Installing",
+        "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
+            "  Официальные двоичные пакеты для Windows находятся здесь: https://www.mamedev.org/release.html",
+        "  Put the file tbblue.zip that can be found here: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip into MAME's roms folder.":
+            "  Положите файл tbblue.zip, который можно взять здесь: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip в папку roms MAME.",
+        "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
+            "  Важное замечание: не распаковывайте файл tbblue.zip; MAME ищет именно zip, когда выбрана машина 'tbblue'.",
+        "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
+            "  CSpect от Mike Dailly — скачиваемый эмулятор для Windows, macOS и Linux",
+        "  Sites and links:":
+            "  Сайты и ссылки:",
+        "Legal disclaimer:":
+            "Правовая оговорка:",
+        "  The author of zx-next-unite does NOT distribute any files, ROMs, games,":
+            "  Автор zx-next-unite НЕ распространяет никакие файлы, ROM'ы, игры,",
+        "  demos, graphics, music, or any other content obtained through these APIs.":
+            "  демо, графику, музыку и любой другой контент, получаемый через эти API.",
+        "  All content is served exclusively by the respective third-party services.":
+            "  Весь контент отдают исключительно соответствующие сторонние сервисы.",
+        "  This application and author do not control third-party content.":
+            "  Это приложение и его автор не контролируют сторонний контент.",
+        "  It is the sole responsibility of the end user to ensure that any content":
+            "  Исключительно конечный пользователь отвечает за то, чтобы любой контент,",
+        "  they download or use through this application complies with the applicable":
+            "  скачанный или используемый через это приложение, соответствовал применимым",
+        "  copyright, licensing, and legal requirements in their jurisdiction.":
+            "  требованиям авторского права, лицензий и законодательства его юрисдикции.",
+        "  If in doubt, consult the terms of service of the relevant platform and":
+            "  В случае сомнений изучите условия обслуживания соответствующей платформы и",
+        "  seek appropriate legal advice before downloading or using any content.":
+            "  при необходимости получите юридическую консультацию до скачивания или использования контента.",
+        "  For inquiries you may reach out to me on my github page: https://github.com/jclauzel/ZX-Next-Unite":
+            "  По вопросам можно написать мне на моей странице github: https://github.com/jclauzel/ZX-Next-Unite",
+        "Enjoy!":
+            "Приятного пользования!",
+        # ---- OpenAL guided install (CSpect sound on Windows) ----
+        "OpenAL 1.1 detected — CSpect sound is ready.":
+            "OpenAL 1.1 обнаружен — звук CSpect готов.",
+        "Install OpenAL?":
+            "Установить OpenAL?",
+        ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
+         "for sound, and it was not detected on this machine — without "
+         "it CSpect runs silent.<br><br>"
+         "OpenAL is separate, third-party software — many thanks to its "
+         "authors: {url}<br><br>"
+         "Download the official installer (oalinst.exe) from openal.org "
+         "and run it now?<br><br>"
+         "Windows will ask for administrator approval when the installer "
+         "starts — the app itself never runs elevated."):
+            ("В Windows для звука CSpect нужна аудиобиблиотека "
+             "<b>OpenAL 1.1</b>, а на этой машине она не обнаружена — без "
+             "неё CSpect работает беззвучно.<br><br>"
+             "OpenAL — отдельное стороннее программное обеспечение; большое "
+             "спасибо его авторам: {url}<br><br>"
+             "Скачать официальный установщик (oalinst.exe) с openal.org и "
+             "запустить его сейчас?<br><br>"
+             "Windows запросит подтверждение администратора при запуске "
+             "установщика — само приложение никогда не работает с "
+             "повышенными правами."),
+        "Download and run the OpenAL installer":
+            "Скачать и запустить установщик OpenAL",
+        "Open openal.org":
+            "Открыть openal.org",
+        "The OpenAL download failed — see the log for details. You can install it manually from {url}":
+            "Не удалось скачать OpenAL — подробности в журнале. Можно установить его вручную с {url}",
     },
     "cs": {
         # ---- GetIt starter pack ----
@@ -3730,6 +4696,7 @@ CATALOGS = {
         "Download File": "Stáhnout soubor",
         "Download NextZXOS Image": "Stáhnout obraz NextZXOS",
         "Download and install HDF Monkey": "Stáhnout a nainstalovat HDF Monkey",
+        "Download and install HDF Monkey and OpenAL": "Stáhnout a nainstalovat HDF Monkey a OpenAL",
         "Generate": "Vygenerovat",
         "Get API key…": "Získat klíč API…",
         "Latest": "Novinky",
@@ -3795,10 +4762,10 @@ CATALOGS = {
             "Instalace MAME ▸ DALŠÍ KROK (ruční): přidejte zaváděcí ROM TBBLUE. Viz {url} → \"Get TBBLUE (the Next 'boot ROM')\". Vložte soubor tbblue.zip do složky roms MAME ({roms}) — NEROZBALUJTE jej. Musíte použít legálně pořízenou licencovanou ROM.",
         "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
             "Dot příkaz NextSync .sync5 aktualizován: v{old} -> v{new} — zkopírujte novou verzi na svůj Next (nelze ji nasadit automaticky).",
-        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
-            "TIP: věděli jste, že pokud máte CSpect zakoupený na itch.io, můžete odtud provést kompletní instalaci CSpectu?\n\nPřihlaste se ke svému účtu itch.io na kartě itch.io, přejděte na CSpect a klikněte na Instalovat.\n\nChcete přesto nainstalovat pouze hdfmonkey, nebo akci přerušit a provést kompletní instalaci CSpectu přes itch.io?",
+        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nCSpect ships with hdfmonkey bundled inside it, so that route needs no separate hdfmonkey install — the app finds and uses the bundled copy automatically.\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
+            "TIP: věděli jste, že pokud máte CSpect zakoupený na itch.io, můžete odtud provést kompletní instalaci CSpectu?\n\nCSpect má hdfmonkey přibalený uvnitř, takže tato cesta nevyžaduje samostatnou instalaci hdfmonkey — aplikace přibalenou kopii automaticky najde a použije.\n\nPřihlaste se ke svému účtu itch.io na kartě itch.io, přejděte na CSpect a klikněte na Instalovat.\n\nChcete přesto nainstalovat pouze hdfmonkey, nebo akci přerušit a provést kompletní instalaci CSpectu přes itch.io?",
         "The automatic hdfmonkey download from specnext.com failed — the forum may be asking for a login or an anti-robot confirmation before the download can start (see the log for details).\n\nYou can install it manually instead:\n1. Click 'Open download page' below (or browse to\n    {url} ).\n2. Download the hdfmonkey .zip file.\n3. Drop the downloaded .zip into this EXACT folder — the app has already created it, and the 'Open downloads folder' button below opens it so nothing needs to be typed:\n    {folder}\n4. Click \"I've dropped the zip - try again\".":
-            "Automatické stažení hdfmonkey ze specnext.com selhalo — fórum může před zahájením stahování vyžadovat přihlášení nebo potvrzení proti robotům (podrobnosti v logu).\n\nMůžete jej nainstalovat ručně:\n1. Klikněte na 'Open download page' níže (nebo otevřete\n    {url} ).\n2. Stáhněte soubor .zip s hdfmonkey.\n3. Vložte stažený .zip PŘESNĚ do této složky — aplikace ji už vytvořila a tlačítko 'Open downloads folder' níže ji otevře, takže nic nemusíte psát:\n    {folder}\n4. Klikněte na \"I've dropped the zip - try again\".",
+            "Automatické stažení hdfmonkey ze specnext.com selhalo — fórum může před zahájením stahování vyžadovat přihlášení nebo potvrzení proti robotům (podrobnosti v logu).\n\nMůžete jej nainstalovat ručně:\n1. Klikněte na 'Otevřít stránku stahování' níže (nebo otevřete\n    {url} ).\n2. Stáhněte soubor .zip s hdfmonkey.\n3. Vložte stažený .zip PŘESNĚ do této složky — aplikace ji už vytvořila a tlačítko 'Otevřít složku stahování' níže ji otevře, takže nic nemusíte psát:\n    {folder}\n4. Klikněte na \"Zip jsem vložil - zkusit znovu\".",
         "ZX Next Unite update: downloaded {name} to {folder}":
             "Aktualizace ZX Next Unite: {name} staženo do {folder}",
         "ZX Next Unite update: downloaded {path} but could not unpack it: {error}":
@@ -4052,7 +5019,7 @@ CATALOGS = {
         "Downloading {name} from {url}":
             "Stahuje se {name} z {url}",
         "ERROR: hdfmonkey could not be found. Use the 'Download and install HDF Monkey' button (bottom right of the SD Card tab) to install it automatically, or do a full CSpect install from the itch.io tab, which also bundles hdfmonkey. It can also be installed manually from https://github.com/gasman/hdfmonkey — restart the app once installed.":
-            "CHYBA: hdfmonkey nebyl nalezen. Použijte tlačítko 'Download and install HDF Monkey' (vpravo dole na kartě SD Card) pro automatickou instalaci, nebo proveďte plnou instalaci CSpectu z karty itch.io, která hdfmonkey rovněž obsahuje. Lze jej nainstalovat i ručně z https://github.com/gasman/hdfmonkey — po instalaci aplikaci restartujte.",
+            "CHYBA: hdfmonkey nebyl nalezen. Použijte tlačítko 'Stáhnout a nainstalovat HDF Monkey' (vpravo dole na kartě SD Card) pro automatickou instalaci, nebo proveďte plnou instalaci CSpectu z karty itch.io, která hdfmonkey rovněž obsahuje. Lze jej nainstalovat i ručně z https://github.com/gasman/hdfmonkey — po instalaci aplikaci restartujte.",
         "Extracted disk image: {path}":
             "Obraz disku rozbalen: {path}",
         "Extracted {count} file(s) from {name} into {folder} on the image.":
@@ -4415,6 +5382,246 @@ CATALOGS = {
             "🌐  Jazyk nastaven podle vašeho systému",
         "The interface language was set to match your system language.\nYou can change it anytime in the Settings tab (\"Application language:\").":
             "Jazyk rozhraní byl nastaven podle jazyka vašeho systému.\nKdykoli ho můžete změnit na kartě Settings\n(«Jazyk aplikace:»).",
+        # ---- Help tab (INIT_HELP; rebuilt per language by _repopulate_help) ----
+        "Welcome to zx-next-unite {version} help":
+            "Vítejte v nápovědě zx-next-unite {version}",
+        "Introduction:":
+            "Úvod:",
+        "HdfmGooey was initially created by em00k and NextSync by Jari Komppa.":
+            "HdfmGooey původně vytvořil em00k a NextSync Jari Komppa.",
+        "A while back I rambled with the idea of an all in one bootstrapper transfer tool to":
+            "Před časem jsem si pohrával s myšlenkou nástroje vše-v-jednom pro přenos a spouštění, aby",
+        "avoid manipulating SD cards for the Spectrum Next and that was the initial idea of it.":
+            "nebylo nutné přehazovat SD karty pro Spectrum Next — a to byl původní záměr.",
+        "Last but not least some source code was lost from HDFM Gooey and the tool was stuck back in that time,":
+            "V neposlední řadě se část zdrojového kódu HDFM Gooey ztratila a nástroj zůstal uvězněný v té době;",
+        "with the agreement of em00k I started a rewrite in Python and later with Jari.":
+            "se souhlasem em00k jsem začal s přepisem do Pythonu a později se přidal Jari.",
+        "The point of using Python was that it would also provide MacOS and Linux portability.":
+            "Smyslem použití Pythonu bylo, že zároveň přinese přenositelnost na MacOS a Linux.",
+        "Later down the line I then extended the NextSync functionality from Sync3 to Sync4.":
+            "Později jsem rozšířil funkčnost NextSync ze Sync3 na Sync4.",
+        "The new .sync5 command for the Next speaks Sync4 and therefore allows sending files and directories using the -send command line option.":
+            "Nový příkaz .sync5 pro Next mluví protokolem Sync4, a proto umožňuje posílat soubory a adresáře volbou příkazové řádky -send.",
+        "There is as well a new nextsync5.py command line located at the root of the repository that supports the new Sync4 protocol.":
+            "K dispozici je také nový nástroj příkazové řádky nextsync5.py v kořeni repozitáře, který podporuje nový protokol Sync4.",
+        "Here we are now you have it!":
+            "A jsme tady — máte to mít!",
+        "Keyboard shortcuts":
+            "Klávesové zkratky",
+        "The three file explorers (SD Card local, SD Card disk image and NextSync local) share these shortcuts. Copy / Cut / Paste work across all three explorers and also exchange with the operating-system clipboard (e.g. copy in Windows Explorer, paste into the disk image, and vice-versa):":
+            "Tři průzkumníky souborů (místní SD Card, obraz disku SD Card a místní NextSync) sdílejí tyto zkratky. Kopírovat / Vyjmout / Vložit fungují napříč všemi třemi průzkumníky a vyměňují si obsah i se schránkou operačního systému (např. zkopírujte v Průzkumníku Windows, vložte do obrazu disku a naopak):",
+        "    Ctrl+C  -  Copy the selected file(s)/folder(s) to the shared clipboard.":
+            "    Ctrl+C  -  Zkopírovat vybrané soubory/složky do sdílené schránky.",
+        "    Ctrl+X  -  Cut the selection (moved to the destination on the next paste).":
+            "    Ctrl+X  -  Vyjmout výběr (přesune se do cíle při příštím vložení).",
+        "    Ctrl+V  -  Paste into the selected / currently shown folder.":
+            "    Ctrl+V  -  Vložit do vybrané / právě zobrazené složky.",
+        "    F2      -  Rename the selected file or folder.":
+            "    F2      -  Přejmenovat vybraný soubor nebo složku.",
+        "    Delete  -  Delete the selected file or folder (disk-image & NextSync explorers).":
+            "    Delete  -  Smazat vybraný soubor nebo složku (průzkumníky obrazu disku a NextSync).",
+        "In the picture (gallery) item viewer (double-click an item in the GetIt, ZXDB, zxArt or itch.io tabs):":
+            "V prohlížeči položek s obrázky (galerii) (dvojklik na položku na kartách GetIt, ZXDB, zxArt nebo itch.io):",
+        "    Esc           -  Close the viewer and return to the gallery.":
+            "    Esc           -  Zavřít prohlížeč a vrátit se do galerie.",
+        "    Left / Right  -  Show the previous / next screenshot.":
+            "    Left / Right  -  Zobrazit předchozí / další snímek obrazovky.",
+        "Third party license":
+            "Licence třetích stran",
+        "zx-next-unite is released under the MIT license. It is a Qt Application using PySide6 (Qt for Python) on top of Qt6, used under the GNU LGPL v3.":
+            "zx-next-unite je vydán pod licencí MIT. Je to Qt aplikace používající PySide6 (Qt for Python) nad Qt6, užívaným pod GNU LGPL v3.",
+        "Please refer to the LICENSE and THIRD-PARTY-NOTICES.md files on github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE and https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.":
+            "Viz soubory LICENSE a THIRD-PARTY-NOTICES.md na githubu: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE a https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.",
+        "PySide6 is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The pre-built release executables do include PySide6/Qt; since the app's full source code is published, they can be rebuilt with a modified Qt.":
+            "PySide6 není součástí ruční instalace pythonu a je třeba jej nainstalovat zvlášť (viz pokyny k instalaci). Předkompilovaná sestavení releasů PySide6/Qt obsahují; protože je zveřejněn celý zdrojový kód aplikace, lze je znovu sestavit s upraveným Qt.",
+        "zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org.":
+            "zx-next-unite používá také pygame-ce (komunitní edici pygame) pro animovaná pozadí a vizualizace (např. efekty 'Alien Floyd's'). Velké díky komunitám pygame a pygame-ce - viz https://pyga.me a https://www.pygame.org.",
+        "pygame-ce is distributed under the GNU LGPL v2.1 license and, like PySide6, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions).":
+            "pygame-ce je šířen pod licencí GNU LGPL v2.1 a stejně jako PySide6 není součástí ruční instalace pythonu — instaluje se zvlášť (viz pokyny k instalaci).",
+        "zx-next-unite optionally uses itch-dl by Dragoon Aethis to power the itch.io tab (browsing and installing your itch.io collections). Many thanks to its author - see https://github.com/DragoonAethis/itch-dl.":
+            "zx-next-unite volitelně používá itch-dl od Dragoon Aethis pro kartu itch.io (procházení a instalace vašich sbírek itch.io). Velké díky autorovi - viz https://github.com/DragoonAethis/itch-dl.",
+        "itch-dl is distributed under the MIT license (Copyright (c) 2022 Dragoon Aethis) and, like PySide6 and pygame-ce, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The itch.io tab is only shown when itch-dl is installed.":
+            "itch-dl je šířen pod licencí MIT (Copyright (c) 2022 Dragoon Aethis) a stejně jako PySide6 a pygame-ce není součástí ruční instalace pythonu — instaluje se zvlášť (viz pokyny k instalaci). Karta itch.io se zobrazí, jen když je itch-dl nainstalován.",
+        "zx-next-unite optionally uses Flask by the Pallets team to power the NextSync HTTP bridge - the web server behind the Next's .http dot command that lets one Next drive another Next's SD card. Many thanks to its authors - see https://flask.palletsprojects.com and https://github.com/pallets/flask.":
+            "zx-next-unite volitelně používá Flask od týmu Pallets pro HTTP most NextSync - webový server za dot příkazem .http, který umožňuje jednomu Nextu ovládat SD kartu druhého Nextu. Velké díky autorům - viz https://flask.palletsprojects.com a https://github.com/pallets/flask.",
+        "Flask is distributed under the BSD-3-Clause license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The HTTP bridge toggle in Settings is greyed out until Flask is installed.":
+            "Flask je šířen pod licencí BSD-3-Clause a stejně jako ostatní volitelné balíčky není součástí ruční instalace pythonu — instaluje se zvlášť (viz pokyny k instalaci). Přepínač HTTP mostu v Settings je nedostupný, dokud není Flask nainstalován.",
+        "zx-next-unite optionally uses Send2Trash by Andrew Senetar and contributors (originally by Virgil Dupras) to send files deleted in the local file explorers to the system Recycle Bin / Trash instead of removing them permanently. Many thanks to its authors - see https://github.com/arsenetar/send2trash.":
+            "zx-next-unite volitelně používá Send2Trash od Andrewa Senetara a přispěvatelů (původně Virgil Dupras), aby soubory smazané v místních průzkumnících putovaly do systémového Koše místo trvalého odstranění. Velké díky autorům - viz https://github.com/arsenetar/send2trash.",
+        "Send2Trash is distributed under the BSD license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The 'Send deleted files to the Recycle Bin' toggle in Settings is greyed out until Send2Trash is installed.":
+            "Send2Trash je šířen pod licencí BSD a stejně jako ostatní volitelné balíčky není součástí ruční instalace pythonu — instaluje se zvlášť (viz pokyny k instalaci). Přepínač 'Přesouvat smazané soubory do Koše' v Settings je nedostupný, dokud není Send2Trash nainstalován.",
+        "zx-next-unite's optional pre-compiled Windows binary is built with PyInstaller by the PyInstaller Development Team, which bundles the app and all of its dependencies into a single standalone executable. Many thanks to its authors - see https://pyinstaller.org and https://github.com/pyinstaller/pyinstaller.":
+            "Volitelný předkompilovaný binární soubor pro Windows se sestavuje nástrojem PyInstaller od PyInstaller Development Team, který zabalí aplikaci a všechny závislosti do jediného samostatného spustitelného souboru. Velké díky autorům - viz https://pyinstaller.org a https://github.com/pyinstaller/pyinstaller.",
+        "PyInstaller is distributed under its GPL 2.0 license with a special exception that explicitly permits packaging applications of any license. It is a build-time tool only - used to produce the pre-compiled binary - and is not needed when running zx-next-unite from source with a manual python install.":
+            "PyInstaller je šířen pod licencí GPL 2.0 se zvláštní výjimkou, která výslovně dovoluje balit aplikace s jakoukoli licencí. Je to nástroj jen pro sestavení - vytváří předkompilovaný binární soubor - a při spouštění zx-next-unite ze zdrojáků s ruční instalací pythonu není potřeba.",
+        "The pre-compiled Windows binary is additionally compressed with UPX (the Ultimate Packer for eXecutables) by Markus Oberhumer, Laszlo Molnar and John Reiser. Many thanks to its authors - see https://upx.github.io and https://github.com/upx/upx.":
+            "Předkompilovaný binární soubor pro Windows je navíc komprimován nástrojem UPX (the Ultimate Packer for eXecutables) od Markuse Oberhumera, Laszla Molnara a Johna Reisera. Velké díky autorům - viz https://upx.github.io a https://github.com/upx/upx.",
+        "UPX is distributed under its own liberal license (based on the GPL, with a special exception covering the compressed executables it produces). Like PyInstaller it is a build-time tool only and is not needed when running from source.":
+            "UPX je šířen pod vlastní liberální licencí (založenou na GPL, se zvláštní výjimkou pro komprimované spustitelné soubory, které vytváří). Stejně jako PyInstaller je to nástroj jen pro sestavení a při spouštění ze zdrojáků není potřeba.",
+        "Setup & How to:":
+            "Instalace a návody:",
+        "Check out the main setup & demo video available at: https://youtu.be/-gUxV4fM1yo  (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )":
+            "Podívejte se na hlavní video s instalací a ukázkou: https://youtu.be/-gUxV4fM1yo  (úplná instalace pythonu je popsána ve starém py-hdfm-gooey, protože ZX-Next-Unite je jeho evolucí : https://youtu.be/FJG-Z0DCIjQ )",
+        "NextSync Head Over Heels demo: https://www.youtube.com/watch?v=D3_WqTPvjOE":
+            "Demo NextSync s Head Over Heels: https://www.youtube.com/watch?v=D3_WqTPvjOE",
+        "NextSync Night Knight demo: https://www.youtube.com/watch?v=eN1eMIqMCm4":
+            "Demo NextSync s Night Knight: https://www.youtube.com/watch?v=eN1eMIqMCm4",
+        "Is a required external component developed by Matt Westcott that allows browsing the image.":
+            "Je to povinná externí komponenta od Matta Westcotta, která umožňuje procházet obraz.",
+        "You will need to install it to get this application up and fully running.":
+            "Budete jej muset nainstalovat, aby tato aplikace plně fungovala.",
+        "If hdfmonkey is not present you will see an error message in the main log window as it is missing.":
+            "Pokud hdfmonkey chybí, uvidíte v hlavním okně protokolu chybovou zprávu, že není k dispozici.",
+        "If that is the case you will see a 'Download and install HDF Monkey' button bottom right,":
+            "V takovém případě uvidíte vpravo dole tlačítko 'Stáhnout a nainstalovat HDF Monkey';",
+        "once clicked it will download a pre-compiled hdfmonkey build for your platform (Windows/Linux/macOS) and install it under the app's downloads folder.":
+            "po kliknutí stáhne předkompilované sestavení hdfmonkey pro vaši platformu (Windows/Linux/macOS) a nainstaluje je do složky downloads aplikace.",
+        "If the above automated install is successful, you should then be able to select an image and navigate it.":
+            "Pokud výše uvedená automatická instalace uspěje, měli byste být schopni vybrat obraz a procházet jej.",
+        "hdfmonkey can also be installed manually based on the instructions for your platform that can be found at: https://github.com/gasman/hdfmonkey":
+            "hdfmonkey lze nainstalovat i ručně podle pokynů pro vaši platformu na: https://github.com/gasman/hdfmonkey",
+        "zx-next-unite implements the <Server> side code and protocol of NextSync by Jari Komppa.":
+            "zx-next-unite implementuje kód a protokol strany <serveru> NextSync od Jariho Komppy.",
+        "It does not require any dot .sync modification and it uses the same very close python logic as nextsync.py.":
+            "Nevyžaduje žádnou úpravu dot příkazu .sync a používá stejnou, velmi blízkou python logiku jako nextsync.py.",
+        "Initial release on specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8":
+            "První vydání na specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8",
+        "As a result you will need to run the same dot .sync command on your Next as with the console version and the same network protocol.":
+            "Proto budete muset na svém Nextu spustit stejný dot příkaz .sync jako u konzolové verze a se stejným síťovým protokolem.",
+        "The latest release v1.2 of the .sync command can be found here https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 .":
+            "Nejnovější vydání v1.2 příkazu .sync najdete zde https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 .",
+        "You may follow the same instructions as provided in the readme.txt of that release.":
+            "Můžete postupovat podle stejných pokynů z readme.txt daného vydání.",
+        "On your Spectrum Next, clone or image copy the SYNC command that is located in the above release zip file into your Next dot folder.":
+            "Na svém Spectrum Next naklonujte nebo do obrazu zkopírujte příkaz SYNC ze zipu daného vydání do složky dot vašeho Nextu.",
+        "Navigate to the NextSync tab, select the root folder to sync on the left.":
+            "Přejděte na kartu NextSync a vlevo vyberte kořenovou složku k synchronizaci.",
+        "Once you have selected the folder hit the 'Prepare Classic NextSync server' button, check the NextSync log window on the right.":
+            "Po výběru složky stiskněte tlačítko 'Připravit klasický server NextSync' a sledujte okno protokolu NextSync vpravo.",
+        "The first time you run .sync on your Next you will be prompted to select the <server> IP address, this machine running NextSync.":
+            "Při prvním spuštění .sync na vašem Nextu budete vyzváni k volbě IP adresy <serveru> — tohoto počítače s NextSync.",
+        "From the log window pick the IP address from this machine you want to use and type it on your Next.":
+            "V okně protokolu si vyberte IP adresu tohoto počítače, kterou chcete použít, a napište ji na svém Nextu.",
+        "Then start the sync server on this machine using the 'Start Classic NextSync server' button and then run the .sync command on your Next.":
+            "Poté spusťte synchronizační server na tomto počítači tlačítkem 'Spustit klasický server NextSync' a na svém Nextu spusťte příkaz .sync.",
+        "At this point your Spectrum Next will connect to your machine using a network socket and the files will be sent to your Next.":
+            "V tu chvíli se váš Spectrum Next připojí k tomuto počítači síťovým socketem a soubory se odešlou na váš Next.",
+        "As it is your Next that will connect to this machine check your firewall allows inbound calls to this machine on port: 2048 by default.":
+            "Protože se k tomuto počítači připojuje váš Next, zkontrolujte, že firewall povoluje příchozí spojení na tento počítač na portu: výchozí 2048.",
+        "The same syncignore.txt and syncpoint.dat file logic applies and allows you to control the sync (please check Jari's documentation).":
+            "Platí stejná logika souborů syncignore.txt a syncpoint.dat, kterou synchronizaci řídíte (viz dokumentace Jariho).",
+        "NextSync source code can be found here: https://github.com/jarikomppa/specnext/tree/master/sync":
+            "Zdrojový kód NextSync najdete zde: https://github.com/jarikomppa/specnext/tree/master/sync",
+        "If you run into any type of issue using the NextSync integration please run first Jari's command line version to see if it works as expected.":
+            "Narazíte-li s integrací NextSync na jakýkoli problém, spusťte nejdřív Jariho konzolovou verzi a ověřte, že funguje, jak má.",
+        "OpenAL sound engine (on Windows)":
+            "Zvukový engine OpenAL (ve Windows)",
+        "The OpenAL library is required on Windows for CSpect to play sound, you may download it here: https://openal.org/":
+            "Knihovna OpenAL je ve Windows nutná, aby CSpect přehrával zvuk; stáhnout ji můžete zde: https://openal.org/",
+        "Mono (on Linux & MacOS Only)":
+            "Mono (pouze Linux a MacOS)",
+        "You will also need to manually install the mono-complete package for example using: sudo apt-get install mono-complete":
+            "Budete také muset ručně nainstalovat balíček mono-complete, například přes: sudo apt-get install mono-complete",
+        "Third-Party Content Sources (GetIt / ZXDB / zxArt):":
+            "Zdroje obsahu třetích stran (GetIt / ZXDB / zxArt):",
+        "zx-next-unite integrates three external databases to let you browse and download":
+            "zx-next-unite propojuje tři externí databáze, abyste mohli procházet a stahovat",
+        "Spectrum-related software and artwork directly from within the application.":
+            "software a grafiku spojené se Spectrem přímo z aplikace.",
+        "The application consumes their public APIs — it does not host, mirror, or":
+            "Aplikace využívá jejich veřejná API — sama nehostuje, nezrcadlí ani",
+        "redistribute any of the files itself.":
+            "žádné soubory dále nešíří.",
+        "  GetIt is a community-maintained archive of ZX Spectrum Next software.":
+            "  GetIt je komunitou udržovaný archiv softwaru pro ZX Spectrum Next.",
+        "  The application queries the GetIt API to list and search files, then":
+            "  Aplikace se dotazuje API GetIt na výpis a hledání souborů a poté",
+        "  downloads them directly from the URLs returned by that API.":
+            "  je stahuje přímo z URL vrácených tímto API.",
+        "  ZXDB is an open-source database of ZX Spectrum and related software,":
+            "  ZXDB je open-source databáze softwaru ZX Spectrum a příbuzných strojů,",
+        "  maintained by the community at https://github.com/zxdb/ZXDB .":
+            "  udržovaná komunitou na https://github.com/zxdb/ZXDB .",
+        "  The application queries the ZXDB REST API for titles, releases, screenshots":
+            "  Aplikace se dotazuje REST API ZXDB na tituly, vydání, snímky obrazovky",
+        "  and inlays, then downloads files directly from the URLs returned by that API.":
+            "  a obaly a poté stahuje soubory přímo z URL vrácených tímto API.",
+        "  zxArt (https://zxart.ee) is a gallery and archive dedicated to ZX Spectrum":
+            "  zxArt (https://zxart.ee) je galerie a archiv věnované vizuálnímu umění,",
+        "  visual art, music, and productions.":
+            "  hudbě a produkcím ZX Spectrum.",
+        "  The application sends requests to the zxArt API to search productions and":
+            "  Aplikace posílá požadavky na API zxArt pro hledání produkcí a",
+        "  pictures, retrieve metadata and preview images, and download productions":
+            "  obrázků, získání metadat a náhledů a stahování produkcí",
+        "  directly from the URLs returned by that API.":
+            "  přímo z URL vrácených tímto API.",
+        "  Mame emulator brought to you by Holub for the ZX Spectrum Next can be installed following this documentation: https://wiki.specnext.dev/MAME:Installing":
+            "  Emulátor Mame, který na ZX Spectrum Next přinesl Holub, nainstalujete podle této dokumentace: https://wiki.specnext.dev/MAME:Installing",
+        "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
+            "  Oficiální binární balíčky pro Windows najdete zde: https://www.mamedev.org/release.html",
+        "  Put the file tbblue.zip that can be found here: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip into MAME's roms folder.":
+            "  Soubor tbblue.zip, který najdete zde: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip vložte do složky roms MAME.",
+        "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
+            "  Důležitá poznámka: soubor tbblue.zip nerozbalujte; MAME hledá zip, když je vybrán stroj 'tbblue'.",
+        "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
+            "  CSpect Mika Daillyho je stažitelný emulátor pro Windows, macOS a Linux",
+        "  Sites and links:":
+            "  Weby a odkazy:",
+        "Legal disclaimer:":
+            "Právní upozornění:",
+        "  The author of zx-next-unite does NOT distribute any files, ROMs, games,":
+            "  Autor zx-next-unite NEŠÍŘÍ žádné soubory, ROMy, hry,",
+        "  demos, graphics, music, or any other content obtained through these APIs.":
+            "  dema, grafiku, hudbu ani jiný obsah získaný přes tato API.",
+        "  All content is served exclusively by the respective third-party services.":
+            "  Veškerý obsah poskytují výhradně příslušné služby třetích stran.",
+        "  This application and author do not control third-party content.":
+            "  Tato aplikace ani autor obsah třetích stran nekontrolují.",
+        "  It is the sole responsibility of the end user to ensure that any content":
+            "  Je výhradní odpovědností koncového uživatele zajistit, aby jakýkoli obsah,",
+        "  they download or use through this application complies with the applicable":
+            "  který přes tuto aplikaci stáhne nebo použije, vyhovoval platným",
+        "  copyright, licensing, and legal requirements in their jurisdiction.":
+            "  požadavkům autorského práva, licencí a předpisů jeho jurisdikce.",
+        "  If in doubt, consult the terms of service of the relevant platform and":
+            "  V případě pochybností si prostudujte podmínky služby dané platformy a",
+        "  seek appropriate legal advice before downloading or using any content.":
+            "  před stažením či použitím jakéhokoli obsahu vyhledejte vhodnou právní radu.",
+        "  For inquiries you may reach out to me on my github page: https://github.com/jclauzel/ZX-Next-Unite":
+            "  S dotazy se na mě můžete obrátit na mé stránce github: https://github.com/jclauzel/ZX-Next-Unite",
+        "Enjoy!":
+            "Užijte si to!",
+        # ---- OpenAL guided install (CSpect sound on Windows) ----
+        "OpenAL 1.1 detected — CSpect sound is ready.":
+            "OpenAL 1.1 nalezen — zvuk CSpectu je připraven.",
+        "Install OpenAL?":
+            "Nainstalovat OpenAL?",
+        ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
+         "for sound, and it was not detected on this machine — without "
+         "it CSpect runs silent.<br><br>"
+         "OpenAL is separate, third-party software — many thanks to its "
+         "authors: {url}<br><br>"
+         "Download the official installer (oalinst.exe) from openal.org "
+         "and run it now?<br><br>"
+         "Windows will ask for administrator approval when the installer "
+         "starts — the app itself never runs elevated."):
+            ("Ve Windows potřebuje CSpect pro zvuk audio knihovnu "
+             "<b>OpenAL 1.1</b>, a ta na tomto počítači nebyla nalezena — "
+             "bez ní běží CSpect potichu.<br><br>"
+             "OpenAL je samostatný software třetí strany — velké díky jeho "
+             "autorům: {url}<br><br>"
+             "Stáhnout oficiální instalátor (oalinst.exe) z openal.org a "
+             "spustit jej nyní?<br><br>"
+             "Windows si při startu instalátoru vyžádá schválení správce — "
+             "samotná aplikace nikdy neběží se zvýšenými právy."),
+        "Download and run the OpenAL installer":
+            "Stáhnout a spustit instalátor OpenAL",
+        "Open openal.org":
+            "Otevřít openal.org",
+        "The OpenAL download failed — see the log for details. You can install it manually from {url}":
+            "Stažení OpenAL selhalo — podrobnosti najdete v protokolu. Můžete jej nainstalovat ručně z {url}",
     },
     "fr": {
         # ---- GetIt starter pack ----
@@ -4572,6 +5779,7 @@ CATALOGS = {
         "Download File": "Télécharger le fichier",
         "Download NextZXOS Image": "Télécharger l'image NextZXOS",
         "Download and install HDF Monkey": "Télécharger et installer HDF Monkey",
+        "Download and install HDF Monkey and OpenAL": "Télécharger et installer HDF Monkey et OpenAL",
         "Generate": "Générer",
         "Get API key…": "Obtenir une clé API…",
         "Latest": "Nouveautés",
@@ -4637,10 +5845,10 @@ CATALOGS = {
             "Installation de MAME ▸ ÉTAPE SUIVANTE (manuelle) : ajoutez la ROM de démarrage TBBLUE. Voir {url} → \"Get TBBLUE (the Next 'boot ROM')\". Placez le fichier tbblue.zip dans le dossier roms de MAME ({roms}) — NE l'extrayez PAS. Vous devez fournir une ROM acquise légalement et sous licence.",
         "NextSync .sync5 dot command updated: v{old} -> v{new} — please copy the new build to your Next (it cannot be deployed automatically).":
             "Commande dot .sync5 de NextSync mise à jour : v{old} -> v{new} — copiez la nouvelle version sur votre Next (le déploiement automatique est impossible).",
-        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
-            "ASTUCE : saviez-vous que si vous avez acheté CSpect sur itch.io, vous pouvez y faire une installation complète de CSpect ?\n\nConnectez-vous à votre compte itch.io dans l'onglet itch.io, allez sur CSpect et cliquez sur Installer.\n\nVoulez-vous quand même installer uniquement hdfmonkey, ou annuler et faire l'installation complète de CSpect via itch.io ?",
+        "TIP: Did you know that if you have purchased CSpect from itch.io you can do a full end-to-end CSpect install from there?\n\nCSpect ships with hdfmonkey bundled inside it, so that route needs no separate hdfmonkey install — the app finds and uses the bundled copy automatically.\n\nSimply log into your itch.io account in the itch.io tab, navigate to CSpect and click Install.\n\nDo you still want to install hdfmonkey only, or abort and then make an end-to-end install of CSpect using itch.io?":
+            "ASTUCE : saviez-vous que si vous avez acheté CSpect sur itch.io, vous pouvez y faire une installation complète de CSpect ?\n\nCSpect embarque hdfmonkey, cette voie ne nécessite donc aucune installation séparée de hdfmonkey — l'application trouve et utilise automatiquement la copie embarquée.\n\nConnectez-vous à votre compte itch.io dans l'onglet itch.io, allez sur CSpect et cliquez sur Installer.\n\nVoulez-vous quand même installer uniquement hdfmonkey, ou annuler et faire l'installation complète de CSpect via itch.io ?",
         "The automatic hdfmonkey download from specnext.com failed — the forum may be asking for a login or an anti-robot confirmation before the download can start (see the log for details).\n\nYou can install it manually instead:\n1. Click 'Open download page' below (or browse to\n    {url} ).\n2. Download the hdfmonkey .zip file.\n3. Drop the downloaded .zip into this EXACT folder — the app has already created it, and the 'Open downloads folder' button below opens it so nothing needs to be typed:\n    {folder}\n4. Click \"I've dropped the zip - try again\".":
-            "Le téléchargement automatique de hdfmonkey depuis specnext.com a échoué — le forum demande peut-être une connexion ou une confirmation anti-robot avant de lancer le téléchargement (voir le journal pour les détails).\n\nVous pouvez l'installer manuellement :\n1. Cliquez sur 'Open download page' ci-dessous (ou ouvrez\n    {url} ).\n2. Téléchargez le fichier .zip de hdfmonkey.\n3. Déposez le .zip téléchargé EXACTEMENT dans ce dossier — l'application l'a déjà créé, et le bouton 'Open downloads folder' ci-dessous l'ouvre pour éviter toute saisie :\n    {folder}\n4. Cliquez sur \"I've dropped the zip - try again\".",
+            "Le téléchargement automatique de hdfmonkey depuis specnext.com a échoué — le forum demande peut-être une connexion ou une confirmation anti-robot avant de lancer le téléchargement (voir le journal pour les détails).\n\nVous pouvez l'installer manuellement :\n1. Cliquez sur 'Ouvrir la page de téléchargement' ci-dessous (ou ouvrez\n    {url} ).\n2. Téléchargez le fichier .zip de hdfmonkey.\n3. Déposez le .zip téléchargé EXACTEMENT dans ce dossier — l'application l'a déjà créé, et le bouton 'Ouvrir le dossier de téléchargement' ci-dessous l'ouvre pour éviter toute saisie :\n    {folder}\n4. Cliquez sur \"J'ai déposé le zip - réessayer\".",
         "ZX Next Unite update: downloaded {name} to {folder}":
             "Mise à jour de ZX Next Unite : {name} téléchargé dans {folder}",
         "ZX Next Unite update: downloaded {path} but could not unpack it: {error}":
@@ -4895,7 +6103,7 @@ CATALOGS = {
         "Downloading {name} from {url}":
             "Téléchargement de {name} depuis {url}",
         "ERROR: hdfmonkey could not be found. Use the 'Download and install HDF Monkey' button (bottom right of the SD Card tab) to install it automatically, or do a full CSpect install from the itch.io tab, which also bundles hdfmonkey. It can also be installed manually from https://github.com/gasman/hdfmonkey — restart the app once installed.":
-            "ERREUR : hdfmonkey est introuvable. Utilisez le bouton 'Download and install HDF Monkey' (en bas à droite de l'onglet SD Card) pour l'installer automatiquement, ou faites une installation complète de CSpect depuis l'onglet itch.io, qui inclut aussi hdfmonkey. Il peut également être installé manuellement depuis https://github.com/gasman/hdfmonkey — redémarrez l'application une fois installé.",
+            "ERREUR : hdfmonkey est introuvable. Utilisez le bouton 'Télécharger et installer HDF Monkey' (en bas à droite de l'onglet SD Card) pour l'installer automatiquement, ou faites une installation complète de CSpect depuis l'onglet itch.io, qui inclut aussi hdfmonkey. Il peut également être installé manuellement depuis https://github.com/gasman/hdfmonkey — redémarrez l'application une fois installé.",
         "Extracted disk image: {path}":
             "Image disque extraite : {path}",
         "Extracted {count} file(s) from {name} into {folder} on the image.":
@@ -5258,6 +6466,247 @@ CATALOGS = {
             "🌐  Langue adaptée à votre système",
         "The interface language was set to match your system language.\nYou can change it anytime in the Settings tab (\"Application language:\").":
             "La langue de l'interface a été réglée sur celle de votre système.\nVous pouvez la changer à tout moment dans l'onglet Settings\n(« Langue de l'application : »).",
+        # ---- Help tab (INIT_HELP; rebuilt per language by _repopulate_help) ----
+        "Welcome to zx-next-unite {version} help":
+            "Bienvenue dans l'aide de zx-next-unite {version}",
+        "Introduction:":
+            "Introduction :",
+        "HdfmGooey was initially created by em00k and NextSync by Jari Komppa.":
+            "HdfmGooey a été créé à l'origine par em00k et NextSync par Jari Komppa.",
+        "A while back I rambled with the idea of an all in one bootstrapper transfer tool to":
+            "Il y a quelque temps, je caressais l'idée d'un outil tout-en-un de transfert et d'amorçage pour",
+        "avoid manipulating SD cards for the Spectrum Next and that was the initial idea of it.":
+            "éviter de manipuler les cartes SD du Spectrum Next, et c'était l'idée de départ.",
+        "Last but not least some source code was lost from HDFM Gooey and the tool was stuck back in that time,":
+            "Enfin, et ce n'est pas le moindre, une partie du code source de HDFM Gooey a été perdue et l'outil est resté figé à cette époque ;",
+        "with the agreement of em00k I started a rewrite in Python and later with Jari.":
+            "avec l'accord d'em00k j'ai entamé une réécriture en Python, rejoint plus tard par Jari.",
+        "The point of using Python was that it would also provide MacOS and Linux portability.":
+            "L'intérêt de Python était d'apporter aussi la portabilité MacOS et Linux.",
+        "Later down the line I then extended the NextSync functionality from Sync3 to Sync4.":
+            "Plus tard, j'ai étendu la fonctionnalité NextSync de Sync3 à Sync4.",
+        "The new .sync5 command for the Next speaks Sync4 and therefore allows sending files and directories using the -send command line option.":
+            "La nouvelle commande .sync5 pour le Next parle Sync4 et permet donc d'envoyer fichiers et répertoires avec l'option de ligne de commande -send.",
+        "There is as well a new nextsync5.py command line located at the root of the repository that supports the new Sync4 protocol.":
+            "Il existe aussi un nouvel outil en ligne de commande nextsync5.py, à la racine du dépôt, qui prend en charge le nouveau protocole Sync4.",
+        "Here we are now you have it!":
+            "Et voilà, c'est à vous !",
+        "Keyboard shortcuts":
+            "Raccourcis clavier",
+        "The three file explorers (SD Card local, SD Card disk image and NextSync local) share these shortcuts. Copy / Cut / Paste work across all three explorers and also exchange with the operating-system clipboard (e.g. copy in Windows Explorer, paste into the disk image, and vice-versa):":
+            "Les trois explorateurs de fichiers (local SD Card, image disque SD Card et local NextSync) partagent ces raccourcis. Copier / Couper / Coller fonctionnent entre les trois explorateurs et échangent aussi avec le presse-papiers du système d'exploitation (p. ex. copiez dans l'Explorateur Windows, collez dans l'image disque, et inversement) :",
+        "    Ctrl+C  -  Copy the selected file(s)/folder(s) to the shared clipboard.":
+            "    Ctrl+C  -  Copier les fichiers/dossiers sélectionnés vers le presse-papiers partagé.",
+        "    Ctrl+X  -  Cut the selection (moved to the destination on the next paste).":
+            "    Ctrl+X  -  Couper la sélection (déplacée vers la destination au prochain collage).",
+        "    Ctrl+V  -  Paste into the selected / currently shown folder.":
+            "    Ctrl+V  -  Coller dans le dossier sélectionné / actuellement affiché.",
+        "    F2      -  Rename the selected file or folder.":
+            "    F2      -  Renommer le fichier ou dossier sélectionné.",
+        "    Delete  -  Delete the selected file or folder (disk-image & NextSync explorers).":
+            "    Delete  -  Supprimer le fichier ou dossier sélectionné (explorateurs image disque et NextSync).",
+        "In the picture (gallery) item viewer (double-click an item in the GetIt, ZXDB, zxArt or itch.io tabs):":
+            "Dans la visionneuse d'éléments en images (galerie) (double-clic sur un élément des onglets GetIt, ZXDB, zxArt ou itch.io) :",
+        "    Esc           -  Close the viewer and return to the gallery.":
+            "    Esc           -  Fermer la visionneuse et revenir à la galerie.",
+        "    Left / Right  -  Show the previous / next screenshot.":
+            "    Left / Right  -  Afficher la capture précédente / suivante.",
+        "Third party license":
+            "Licences tierces",
+        "zx-next-unite is released under the MIT license. It is a Qt Application using PySide6 (Qt for Python) on top of Qt6, used under the GNU LGPL v3.":
+            "zx-next-unite est publié sous licence MIT. C'est une application Qt utilisant PySide6 (Qt for Python) au-dessus de Qt6, utilisé sous GNU LGPL v3.",
+        "Please refer to the LICENSE and THIRD-PARTY-NOTICES.md files on github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE and https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.":
+            "Consultez les fichiers LICENSE et THIRD-PARTY-NOTICES.md sur github : https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE et https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.",
+        "PySide6 is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The pre-built release executables do include PySide6/Qt; since the app's full source code is published, they can be rebuilt with a modified Qt.":
+            "PySide6 n'est pas inclus lors d'une installation python manuelle et doit être installé séparément (voir les instructions d'installation). Les exécutables précompilés des releases incluent PySide6/Qt ; le code source complet de l'application étant publié, ils peuvent être reconstruits avec un Qt modifié.",
+        "zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org.":
+            "zx-next-unite utilise aussi pygame-ce (l'édition communautaire de pygame) pour ses fonds animés et visualisations (p. ex. les effets 'Alien Floyd's'). Un grand merci aux communautés pygame et pygame-ce - voir https://pyga.me et https://www.pygame.org.",
+        "pygame-ce is distributed under the GNU LGPL v2.1 license and, like PySide6, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions).":
+            "pygame-ce est distribué sous licence GNU LGPL v2.1 et, comme PySide6, n'est pas inclus lors d'une installation python manuelle — il s'installe séparément (voir les instructions d'installation).",
+        "zx-next-unite optionally uses itch-dl by Dragoon Aethis to power the itch.io tab (browsing and installing your itch.io collections). Many thanks to its author - see https://github.com/DragoonAethis/itch-dl.":
+            "zx-next-unite utilise en option itch-dl de Dragoon Aethis pour l'onglet itch.io (parcourir et installer vos collections itch.io). Un grand merci à son auteur - voir https://github.com/DragoonAethis/itch-dl.",
+        "itch-dl is distributed under the MIT license (Copyright (c) 2022 Dragoon Aethis) and, like PySide6 and pygame-ce, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The itch.io tab is only shown when itch-dl is installed.":
+            "itch-dl est distribué sous licence MIT (Copyright (c) 2022 Dragoon Aethis) et, comme PySide6 et pygame-ce, n'est pas inclus lors d'une installation python manuelle — il s'installe séparément (voir les instructions d'installation). L'onglet itch.io n'apparaît que lorsque itch-dl est installé.",
+        "zx-next-unite optionally uses Flask by the Pallets team to power the NextSync HTTP bridge - the web server behind the Next's .http dot command that lets one Next drive another Next's SD card. Many thanks to its authors - see https://flask.palletsprojects.com and https://github.com/pallets/flask.":
+            "zx-next-unite utilise en option Flask, de l'équipe Pallets, pour le pont HTTP NextSync - le serveur web derrière la commande dot .http du Next qui permet à un Next de piloter la carte SD d'un autre Next. Un grand merci à ses auteurs - voir https://flask.palletsprojects.com et https://github.com/pallets/flask.",
+        "Flask is distributed under the BSD-3-Clause license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The HTTP bridge toggle in Settings is greyed out until Flask is installed.":
+            "Flask est distribué sous licence BSD-3-Clause et, comme les autres paquets optionnels, n'est pas inclus lors d'une installation python manuelle — il s'installe séparément (voir les instructions d'installation). L'interrupteur du pont HTTP dans Settings reste grisé tant que Flask n'est pas installé.",
+        "zx-next-unite optionally uses Send2Trash by Andrew Senetar and contributors (originally by Virgil Dupras) to send files deleted in the local file explorers to the system Recycle Bin / Trash instead of removing them permanently. Many thanks to its authors - see https://github.com/arsenetar/send2trash.":
+            "zx-next-unite utilise en option Send2Trash, d'Andrew Senetar et contributeurs (à l'origine Virgil Dupras), pour envoyer les fichiers supprimés dans les explorateurs locaux vers la Corbeille du système au lieu de les effacer définitivement. Un grand merci à ses auteurs - voir https://github.com/arsenetar/send2trash.",
+        "Send2Trash is distributed under the BSD license and, like the other optional packages, is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The 'Send deleted files to the Recycle Bin' toggle in Settings is greyed out until Send2Trash is installed.":
+            "Send2Trash est distribué sous licence BSD et, comme les autres paquets optionnels, n'est pas inclus lors d'une installation python manuelle — il s'installe séparément (voir les instructions d'installation). L'interrupteur 'Envoyer les fichiers supprimés à la Corbeille' dans Settings reste grisé tant que Send2Trash n'est pas installé.",
+        "zx-next-unite's optional pre-compiled Windows binary is built with PyInstaller by the PyInstaller Development Team, which bundles the app and all of its dependencies into a single standalone executable. Many thanks to its authors - see https://pyinstaller.org and https://github.com/pyinstaller/pyinstaller.":
+            "Le binaire Windows précompilé optionnel de zx-next-unite est construit avec PyInstaller, du PyInstaller Development Team, qui regroupe l'application et toutes ses dépendances en un seul exécutable autonome. Un grand merci à ses auteurs - voir https://pyinstaller.org et https://github.com/pyinstaller/pyinstaller.",
+        "PyInstaller is distributed under its GPL 2.0 license with a special exception that explicitly permits packaging applications of any license. It is a build-time tool only - used to produce the pre-compiled binary - and is not needed when running zx-next-unite from source with a manual python install.":
+            "PyInstaller est distribué sous sa licence GPL 2.0 avec une exception spéciale autorisant explicitement l'empaquetage d'applications sous n'importe quelle licence. C'est un outil de build uniquement - servant à produire le binaire précompilé - inutile pour lancer zx-next-unite depuis les sources avec une installation python manuelle.",
+        "The pre-compiled Windows binary is additionally compressed with UPX (the Ultimate Packer for eXecutables) by Markus Oberhumer, Laszlo Molnar and John Reiser. Many thanks to its authors - see https://upx.github.io and https://github.com/upx/upx.":
+            "Le binaire Windows précompilé est en outre compressé avec UPX (the Ultimate Packer for eXecutables), de Markus Oberhumer, Laszlo Molnar et John Reiser. Un grand merci à ses auteurs - voir https://upx.github.io et https://github.com/upx/upx.",
+        "UPX is distributed under its own liberal license (based on the GPL, with a special exception covering the compressed executables it produces). Like PyInstaller it is a build-time tool only and is not needed when running from source.":
+            "UPX est distribué sous sa propre licence libérale (basée sur la GPL, avec une exception spéciale couvrant les exécutables compressés qu'il produit). Comme PyInstaller, c'est un outil de build uniquement, inutile pour une exécution depuis les sources.",
+        "Setup & How to:":
+            "Installation et guide :",
+        "Check out the main setup & demo video available at: https://youtu.be/-gUxV4fM1yo  (and the full python install is covered in the old py-hdfm-gooey since ZX-Next-Unite is an evolution of it : https://youtu.be/FJG-Z0DCIjQ )":
+            "Regardez la vidéo principale d'installation et de démonstration disponible ici : https://youtu.be/-gUxV4fM1yo  (l'installation python complète est couverte dans l'ancien py-hdfm-gooey, ZX-Next-Unite en étant une évolution : https://youtu.be/FJG-Z0DCIjQ )",
+        "NextSync Head Over Heels demo: https://www.youtube.com/watch?v=D3_WqTPvjOE":
+            "Démo NextSync avec Head Over Heels : https://www.youtube.com/watch?v=D3_WqTPvjOE",
+        "NextSync Night Knight demo: https://www.youtube.com/watch?v=eN1eMIqMCm4":
+            "Démo NextSync avec Night Knight : https://www.youtube.com/watch?v=eN1eMIqMCm4",
+        "Is a required external component developed by Matt Westcott that allows browsing the image.":
+            "C'est un composant externe obligatoire développé par Matt Westcott qui permet de parcourir l'image.",
+        "You will need to install it to get this application up and fully running.":
+            "Vous devrez l'installer pour que cette application fonctionne pleinement.",
+        "If hdfmonkey is not present you will see an error message in the main log window as it is missing.":
+            "Si hdfmonkey est absent, un message d'erreur signalant son absence apparaît dans la fenêtre de journal principale.",
+        "If that is the case you will see a 'Download and install HDF Monkey' button bottom right,":
+            "Dans ce cas, un bouton 'Télécharger et installer HDF Monkey' apparaît en bas à droite ;",
+        "once clicked it will download a pre-compiled hdfmonkey build for your platform (Windows/Linux/macOS) and install it under the app's downloads folder.":
+            "un clic télécharge une version précompilée de hdfmonkey pour votre plateforme (Windows/Linux/macOS) et l'installe dans le dossier downloads de l'application.",
+        "If the above automated install is successful, you should then be able to select an image and navigate it.":
+            "Si l'installation automatique ci-dessus réussit, vous devriez pouvoir sélectionner une image et y naviguer.",
+        "hdfmonkey can also be installed manually based on the instructions for your platform that can be found at: https://github.com/gasman/hdfmonkey":
+            "hdfmonkey peut aussi être installé manuellement en suivant les instructions pour votre plateforme : https://github.com/gasman/hdfmonkey",
+        "zx-next-unite implements the <Server> side code and protocol of NextSync by Jari Komppa.":
+            "zx-next-unite implémente le code et le protocole côté <serveur> de NextSync de Jari Komppa.",
+        "It does not require any dot .sync modification and it uses the same very close python logic as nextsync.py.":
+            "Il ne nécessite aucune modification du dot .sync et reprend la même logique python, très proche, que nextsync.py.",
+        "Initial release on specnext: https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8":
+            "Annonce initiale sur specnext : https://www.specnext.com/forum/viewtopic.php?f=17&t=1715&fbclid=IwAR1njrmr-wEU0DndAxBjO64K_NwY0E2zbqJVaVfiytHE2-A0eL8HWYeDKf8",
+        "As a result you will need to run the same dot .sync command on your Next as with the console version and the same network protocol.":
+            "Vous devrez donc exécuter sur votre Next la même commande dot .sync qu'avec la version console, avec le même protocole réseau.",
+        "The latest release v1.2 of the .sync command can be found here https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 .":
+            "La dernière version v1.2 de la commande .sync se trouve ici https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2 .",
+        "You may follow the same instructions as provided in the readme.txt of that release.":
+            "Vous pouvez suivre les mêmes instructions que celles du readme.txt de cette version.",
+        "On your Spectrum Next, clone or image copy the SYNC command that is located in the above release zip file into your Next dot folder.":
+            "Sur votre Spectrum Next, clonez ou copiez dans l'image la commande SYNC présente dans le zip de cette version vers le dossier dot de votre Next.",
+        "Navigate to the NextSync tab, select the root folder to sync on the left.":
+            "Allez dans l'onglet NextSync et sélectionnez à gauche le dossier racine à synchroniser.",
+        "Once you have selected the folder hit the 'Prepare Classic NextSync server' button, check the NextSync log window on the right.":
+            "Une fois le dossier sélectionné, cliquez sur le bouton 'Préparer le serveur NextSync classique' et surveillez la fenêtre de journal NextSync à droite.",
+        "The first time you run .sync on your Next you will be prompted to select the <server> IP address, this machine running NextSync.":
+            "Au premier lancement de .sync sur votre Next, il vous sera demandé de choisir l'adresse IP du <serveur>, cette machine qui exécute NextSync.",
+        "From the log window pick the IP address from this machine you want to use and type it on your Next.":
+            "Dans la fenêtre de journal, repérez l'adresse IP de cette machine à utiliser et saisissez-la sur votre Next.",
+        "Then start the sync server on this machine using the 'Start Classic NextSync server' button and then run the .sync command on your Next.":
+            "Démarrez ensuite le serveur de synchronisation sur cette machine avec le bouton 'Démarrer le serveur NextSync classique' puis lancez la commande .sync sur votre Next.",
+        "At this point your Spectrum Next will connect to your machine using a network socket and the files will be sent to your Next.":
+            "À ce moment, votre Spectrum Next se connecte à votre machine via un socket réseau et les fichiers sont envoyés vers votre Next.",
+        "As it is your Next that will connect to this machine check your firewall allows inbound calls to this machine on port: 2048 by default.":
+            "Comme c'est votre Next qui se connecte à cette machine, vérifiez que votre pare-feu autorise les connexions entrantes vers cette machine sur le port : 2048 par défaut.",
+        "The same syncignore.txt and syncpoint.dat file logic applies and allows you to control the sync (please check Jari's documentation).":
+            "La même logique des fichiers syncignore.txt et syncpoint.dat s'applique et vous permet de contrôler la synchronisation (consultez la documentation de Jari).",
+        "NextSync source code can be found here: https://github.com/jarikomppa/specnext/tree/master/sync":
+            "Le code source de NextSync se trouve ici : https://github.com/jarikomppa/specnext/tree/master/sync",
+        "If you run into any type of issue using the NextSync integration please run first Jari's command line version to see if it works as expected.":
+            "En cas de problème avec l'intégration NextSync, lancez d'abord la version en ligne de commande de Jari pour vérifier qu'elle fonctionne comme prévu.",
+        "OpenAL sound engine (on Windows)":
+            "Moteur audio OpenAL (sous Windows)",
+        "The OpenAL library is required on Windows for CSpect to play sound, you may download it here: https://openal.org/":
+            "La bibliothèque OpenAL est requise sous Windows pour que CSpect joue le son ; téléchargez-la ici : https://openal.org/",
+        "Mono (on Linux & MacOS Only)":
+            "Mono (Linux et MacOS uniquement)",
+        "You will also need to manually install the mono-complete package for example using: sudo apt-get install mono-complete":
+            "Vous devrez aussi installer manuellement le paquet mono-complete, par exemple avec : sudo apt-get install mono-complete",
+        "Third-Party Content Sources (GetIt / ZXDB / zxArt):":
+            "Sources de contenu tierces (GetIt / ZXDB / zxArt) :",
+        "zx-next-unite integrates three external databases to let you browse and download":
+            "zx-next-unite intègre trois bases de données externes pour parcourir et télécharger",
+        "Spectrum-related software and artwork directly from within the application.":
+            "logiciels et créations liés au Spectrum directement depuis l'application.",
+        "The application consumes their public APIs — it does not host, mirror, or":
+            "L'application consomme leurs API publiques — elle n'héberge, ne réplique ni",
+        "redistribute any of the files itself.":
+            "ne redistribue aucun fichier elle-même.",
+        "  GetIt is a community-maintained archive of ZX Spectrum Next software.":
+            "  GetIt est une archive de logiciels ZX Spectrum Next maintenue par la communauté.",
+        "  The application queries the GetIt API to list and search files, then":
+            "  L'application interroge l'API GetIt pour lister et chercher les fichiers, puis",
+        "  downloads them directly from the URLs returned by that API.":
+            "  les télécharge directement depuis les URL renvoyées par cette API.",
+        "  ZXDB is an open-source database of ZX Spectrum and related software,":
+            "  ZXDB est une base de données open source des logiciels ZX Spectrum et apparentés,",
+        "  maintained by the community at https://github.com/zxdb/ZXDB .":
+            "  maintenue par la communauté sur https://github.com/zxdb/ZXDB .",
+        "  The application queries the ZXDB REST API for titles, releases, screenshots":
+            "  L'application interroge l'API REST de ZXDB pour les titres, éditions, captures",
+        "  and inlays, then downloads files directly from the URLs returned by that API.":
+            "  et jaquettes, puis télécharge les fichiers directement depuis les URL renvoyées par cette API.",
+        "  zxArt (https://zxart.ee) is a gallery and archive dedicated to ZX Spectrum":
+            "  zxArt (https://zxart.ee) est une galerie et une archive dédiées à l'art visuel,",
+        "  visual art, music, and productions.":
+            "  la musique et les productions ZX Spectrum.",
+        "  The application sends requests to the zxArt API to search productions and":
+            "  L'application envoie des requêtes à l'API zxArt pour chercher productions et",
+        "  pictures, retrieve metadata and preview images, and download productions":
+            "  images, récupérer métadonnées et aperçus, et télécharger les productions",
+        "  directly from the URLs returned by that API.":
+            "  directement depuis les URL renvoyées par cette API.",
+        "  Mame emulator brought to you by Holub for the ZX Spectrum Next can be installed following this documentation: https://wiki.specnext.dev/MAME:Installing":
+            "  L'émulateur Mame porté sur ZX Spectrum Next par Holub s'installe en suivant cette documentation : https://wiki.specnext.dev/MAME:Installing",
+        "  Official Windows Binary Packages can be found here: https://www.mamedev.org/release.html":
+            "  Les paquets binaires Windows officiels se trouvent ici : https://www.mamedev.org/release.html",
+        "  Put the file tbblue.zip that can be found here: https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip into MAME's roms folder.":
+            "  Placez le fichier tbblue.zip, disponible ici : https://github.com/Threetwosevensixseven/NexCreator/raw/master/bootroms/tbblue.zip dans le dossier roms de MAME.",
+        "  Important note: Don't extract the tbblue.zip file; MAME will look for the zip file when the 'tbblue' machine is selected.":
+            "  Note importante : ne décompressez pas le fichier tbblue.zip ; MAME cherche le zip quand la machine 'tbblue' est sélectionnée.",
+        "  Mike Dailly's CSpect is a downloadable emulator for Windows, macOS, and Linux":
+            "  CSpect, de Mike Dailly, est un émulateur téléchargeable pour Windows, macOS et Linux",
+        "  Sites and links:":
+            "  Sites et liens :",
+        "Legal disclaimer:":
+            "Avertissement légal :",
+        "  The author of zx-next-unite does NOT distribute any files, ROMs, games,":
+            "  L'auteur de zx-next-unite ne distribue AUCUN fichier, ROM, jeu,",
+        "  demos, graphics, music, or any other content obtained through these APIs.":
+            "  démo, graphisme, musique ni aucun autre contenu obtenu via ces API.",
+        "  All content is served exclusively by the respective third-party services.":
+            "  Tout le contenu est servi exclusivement par les services tiers respectifs.",
+        "  This application and author do not control third-party content.":
+            "  Cette application et son auteur ne contrôlent pas les contenus tiers.",
+        "  It is the sole responsibility of the end user to ensure that any content":
+            "  Il relève de la seule responsabilité de l'utilisateur final de s'assurer que tout contenu",
+        "  they download or use through this application complies with the applicable":
+            "  téléchargé ou utilisé via cette application respecte les exigences applicables",
+        "  copyright, licensing, and legal requirements in their jurisdiction.":
+            "  en matière de droit d'auteur, de licences et de législation de sa juridiction.",
+        "  If in doubt, consult the terms of service of the relevant platform and":
+            "  En cas de doute, consultez les conditions d'utilisation de la plateforme concernée et",
+        "  seek appropriate legal advice before downloading or using any content.":
+            "  demandez un avis juridique approprié avant de télécharger ou d'utiliser tout contenu.",
+        "  For inquiries you may reach out to me on my github page: https://github.com/jclauzel/ZX-Next-Unite":
+            "  Pour toute question, contactez-moi sur ma page github : https://github.com/jclauzel/ZX-Next-Unite",
+        "Enjoy!":
+            "Amusez-vous bien !",
+        # ---- OpenAL guided install (CSpect sound on Windows) ----
+        "OpenAL 1.1 detected — CSpect sound is ready.":
+            "OpenAL 1.1 détecté — le son de CSpect est prêt.",
+        "Install OpenAL?":
+            "Installer OpenAL ?",
+        ("On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
+         "for sound, and it was not detected on this machine — without "
+         "it CSpect runs silent.<br><br>"
+         "OpenAL is separate, third-party software — many thanks to its "
+         "authors: {url}<br><br>"
+         "Download the official installer (oalinst.exe) from openal.org "
+         "and run it now?<br><br>"
+         "Windows will ask for administrator approval when the installer "
+         "starts — the app itself never runs elevated."):
+            ("Sous Windows, CSpect a besoin de la bibliothèque audio "
+             "<b>OpenAL 1.1</b> pour le son, et elle n'a pas été détectée "
+             "sur cette machine — sans elle CSpect reste muet.<br><br>"
+             "OpenAL est un logiciel tiers distinct — un grand merci à ses "
+             "auteurs : {url}<br><br>"
+             "Télécharger l'installateur officiel (oalinst.exe) depuis "
+             "openal.org et le lancer maintenant ?<br><br>"
+             "Windows demandera une approbation administrateur au lancement "
+             "de l'installateur — l'application elle-même ne s'exécute "
+             "jamais avec des droits élevés."),
+        "Download and run the OpenAL installer":
+            "Télécharger et lancer l'installateur OpenAL",
+        "Open openal.org":
+            "Ouvrir openal.org",
+        "The OpenAL download failed — see the log for details. You can install it manually from {url}":
+            "Le téléchargement d'OpenAL a échoué — voir le journal pour les détails. Vous pouvez l'installer manuellement depuis {url}",
     },
 }
 

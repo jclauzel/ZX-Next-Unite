@@ -38,8 +38,9 @@ import threading
 import time
 import urllib.request
 import webbrowser
+import zipfile
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from zxnu_config import *
@@ -1986,6 +1987,165 @@ def build_emulator_ops(
         )
     host._wire_viewer_emulators = _wire_viewer_emulators
 
+    # ── OpenAL 1.1 guided install (CSpect sound on Windows) ──────────────
+    # After an itch.io CSpect install, zxnu_main's detection toast checks
+    # is_openal_installed() (privilege-free: system DLL + read-only registry
+    # scan) and calls _offer_openal_install when the runtime is missing. The
+    # chain mirrors the hdfmonkey one: two individually-logged steps, and the
+    # elevation is done by oalinst.exe's own UAC manifest — the app itself
+    # never runs elevated.
+    def _openal_downloads_root():
+        root = os.path.join(ZXNU_DATA_ROOT, DOWNLOADS_OPENAL_DIRNAME)
+        os.makedirs(root, exist_ok=True)
+        return root
+
+    def _download_openal_zip():
+        """STEP 1 — fetch the official installer archive (OPENAL_DOWNLOAD_URL)
+        into downloads/openal/, reusing an already-downloaded copy when one is
+        present (offline retry). Returns the zip path, or None on failure."""
+        downloads_root = _openal_downloads_root()
+        dest_zip = os.path.join(downloads_root, OPENAL_INSTALLER_ZIP_FILENAME)
+        try:
+            if os.path.getsize(dest_zip) > 0 and zipfile.is_zipfile(dest_zip):
+                add_main_log_window(
+                    f"OpenAL: using the already-downloaded archive at "
+                    f"{dest_zip}.")
+                return dest_zip
+        except OSError:
+            pass
+        add_main_log_window(
+            f"OpenAL: [1/2] downloading the installer from "
+            f"{OPENAL_DOWNLOAD_URL} ...")
+        logging.info(f"OpenAL download: requesting {OPENAL_DOWNLOAD_URL}")
+        try:
+            req = urllib.request.Request(
+                OPENAL_DOWNLOAD_URL, headers={"User-Agent": ZXART_USER_AGENT})
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = resp.read()
+        except Exception as e:
+            add_main_log_window(
+                f"OpenAL: download failed — {e}. You can install it manually "
+                f"from {OPENAL_WEBSITE_URL}")
+            logging.error(f"OpenAL download error: {e}")
+            return None
+        # A genuine zip starts with the 'PK' magic — anything else is an
+        # error/HTML page that would only fail later in the extract step.
+        if data[:2] != b"PK":
+            add_main_log_window(
+                f"OpenAL: the server did not return a zip archive. You can "
+                f"install it manually from {OPENAL_WEBSITE_URL}")
+            logging.error("OpenAL download: response is not a zip")
+            return None
+        try:
+            with open(dest_zip, "wb") as f:
+                f.write(data)
+        except OSError as e:
+            add_main_log_window(f"OpenAL: could not save {dest_zip} — {e}")
+            logging.error(f"OpenAL download save error: {e}")
+            return None
+        add_main_log_window(
+            f"OpenAL: downloaded {len(data):,} bytes to {dest_zip}.")
+        return dest_zip
+
+    def _openal_install_failed_box():
+        box = QMessageBox(host)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle(ui_tr_now("Download Failed"))
+        # Rich text so the manual-install link is clickable.
+        box.setTextFormat(Qt.RichText)
+        box.setText(ui_tr_now(
+            "The OpenAL download failed — see the log for details. You can "
+            "install it manually from {url}").format(
+                url=f'<a href="{OPENAL_WEBSITE_URL}">{OPENAL_WEBSITE_URL}</a>'))
+        box.exec()
+
+    def _run_openal_installer():
+        """STEP 2 — unpack oalinst.exe next to the zip and launch it. The
+        installer is run interactively on purpose (the user sees and approves
+        what is being installed); Windows shows its own UAC prompt for it.
+        Returns True once the installer has been launched."""
+        zip_path = _download_openal_zip()
+        if not zip_path:
+            _openal_install_failed_box()
+            return False
+        add_main_log_window(
+            f"OpenAL: [2/2] extracting the installer from {zip_path} ...")
+        try:
+            exe_path = extract_oalinst_from_zip(
+                zip_path, _openal_downloads_root())
+        except Exception as e:
+            add_main_log_window(f"OpenAL: could not extract oalinst.exe — {e}")
+            logging.error(f"OpenAL extract error: {e}")
+            _openal_install_failed_box()
+            return False
+        try:
+            os.startfile(exe_path)
+        except Exception as e:
+            add_main_log_window(
+                f"OpenAL: could not launch {exe_path} ({e}). Run it manually "
+                f"from that location.")
+            logging.error(f"OpenAL launch error: {e}")
+            _openal_install_failed_box()
+            return False
+        add_main_log_window(
+            "OpenAL: installer launched — follow its prompts (Windows will "
+            "ask for administrator approval). CSpect sound works once it "
+            "finishes; no app restart is needed.")
+        logging.info(f"OpenAL: launched installer {exe_path}")
+        return True
+
+    def _offer_openal_install():
+        """Ask before touching the network or launching an installer: CSpect
+        was just installed from itch.io on Windows and no OpenAL 1.1 runtime
+        was detected — offer the guided install, a browser fallback, or
+        nothing. UI thread only."""
+        box = QMessageBox(host)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle(ui_tr_now("Install OpenAL?"))
+        # Rich text so the openal.org link is clickable right in the dialog
+        # (QMessageBox opens it in the default browser). OpenAL is
+        # third-party software, so the dialog says so, credits its authors,
+        # and only proceeds on an explicit accept.
+        box.setTextFormat(Qt.RichText)
+        box.setText(ui_tr_now(
+            "On Windows CSpect needs the <b>OpenAL 1.1</b> audio library "
+            "for sound, and it was not detected on this machine — without "
+            "it CSpect runs silent.<br><br>"
+            "OpenAL is separate, third-party software — many thanks to its "
+            "authors: {url}<br><br>"
+            "Download the official installer (oalinst.exe) from openal.org "
+            "and run it now?<br><br>"
+            "Windows will ask for administrator approval when the installer "
+            "starts — the app itself never runs elevated.").format(
+                url='<a href="https://www.openal.org/">'
+                    "https://www.openal.org/</a>"))
+        install_btn = box.addButton(
+            ui_tr_now("Download and run the OpenAL installer"),
+            QMessageBox.AcceptRole)
+        site_btn = box.addButton(
+            ui_tr_now("Open openal.org"), QMessageBox.ActionRole)
+        box.addButton(ui_tr_now("Cancel"), QMessageBox.RejectRole)
+        box.setDefaultButton(install_btn)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is install_btn:
+            return _run_openal_installer()
+        if clicked is site_btn:
+            try:
+                webbrowser.open(OPENAL_WEBSITE_URL)
+            except Exception as e:
+                add_main_log_window(
+                    f"OpenAL: could not open the browser ({e}).")
+            add_main_log_window(
+                f"OpenAL: download the installer from {OPENAL_WEBSITE_URL} — "
+                f"CSpect has no sound on Windows until it is installed.")
+            return False
+        add_main_log_window(
+            f"OpenAL: skipped — CSpect will have no sound on Windows until "
+            f"OpenAL 1.1 is installed from {OPENAL_WEBSITE_URL}.")
+        return False
+    host._offer_openal_install = _offer_openal_install
+
     # Expose the closures the rest of __init__ wires to widgets by bare name
     # (re-bound to bare locals at the call site). launch_cspect/launch_mame
     # are already exposed above as host._launch_cspect_fn/_launch_mame_fn.
@@ -2196,6 +2356,18 @@ def build_hdfmonkey_install_ops(
         # one) showing where the binary landed on disk.
         host._show_hdfmonkey_installed_toast(hdfmonkey_path)
 
+        # Windows only: when the OpenAL 1.1 runtime CSpect needs for sound is
+        # also missing (the button label promised "and OpenAL" in that case),
+        # chain straight into the guided OpenAL install offer
+        # (build_emulator_ops). Deferred a beat so the toast paints before
+        # the modal opens. is_openal_installed() is always True on
+        # Linux/macOS, where OpenAL ships with the OS.
+        if not is_openal_installed():
+            add_main_log_window(
+                "OpenAL: not detected — offering the guided install "
+                "(CSpect has no sound on Windows without it).")
+            QTimer.singleShot(400, host._offer_openal_install)
+
         # Reload the currently-selected image straight away so the file
         # explorer repopulates without the user having to reopen it via
         # "Select NextZXOS disk Image". The extract succeeded and
@@ -2337,6 +2509,9 @@ def build_hdfmonkey_install_ops(
             "TIP: Did you know that if you have purchased CSpect from "
             "itch.io you can do a full end-to-end CSpect install from "
             "there?\n\n"
+            "CSpect ships with hdfmonkey bundled inside it, so that route "
+            "needs no separate hdfmonkey install — the app finds and uses "
+            "the bundled copy automatically.\n\n"
             "Simply log into your itch.io account in the itch.io tab, "
             "navigate to CSpect and click Install.\n\n"
             "Do you still want to install hdfmonkey only, or abort and then "
@@ -2352,6 +2527,18 @@ def build_hdfmonkey_install_ops(
         return False
 
     def show_hdf_monkey_download_and_install_buttons():
+        # The button doubles as the OpenAL entry point: on Windows, when the
+        # OpenAL 1.1 runtime CSpect needs for sound is missing too, the
+        # standalone install chain also offers it afterwards (see
+        # _finish_hdfmonkey_install), and the label says so up front.
+        # is_openal_installed() is always True on Linux/macOS (system
+        # OpenAL), so the label stays plain there.
+        if not is_openal_installed():
+            host.download_and_install_hdfmonkey_button.setText(
+                ui_tr_now("Download and install HDF Monkey and OpenAL"))
+        else:
+            host.download_and_install_hdfmonkey_button.setText(
+                ui_tr_now("Download and install HDF Monkey"))
         host.download_and_install_hdfmonkey_button.setVisible(True)
         host.button_new_folder.setVisible(False)
         host.button_rename.setVisible(False)
