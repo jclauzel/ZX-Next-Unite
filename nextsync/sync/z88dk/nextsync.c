@@ -1061,6 +1061,13 @@ static char scratch[1280]; // outgoing block: 1024 file bytes + opcode + framing
 static char sendpath[256];
 static char cleancmd[256]; // command line with speed switches removed (never touch the OS buffer)
 
+// v5.6 clone hardening, hand-asm in uart.asm: BOTH byte budgets are full
+// (the head page tail brushes the $3F00 line, and every main-bank byte is
+// stack headroom), so the two helpers are ~75 bytes of asm instead of
+// ~150 of compiled C. See uart.asm for what they guarantee.
+extern void tail_copy(char *dst, char *src);
+extern unsigned char valid_server(char *fn) __z88dk_fastcall;
+
 // arglen = z88dk's measured command-line length (unused); rawcmd = pointer to
 // the unprocessed NextZXOS command tail (CRT_ENABLE_COMMANDLINE=2), which keeps
 // ':' intact for paths like "c:/foo".
@@ -1095,25 +1102,15 @@ int main(int arglen, char *rawcmd)
     // do not all guarantee a terminator: on an N-Go the bytes after the
     // tail can be garbage, the tokenizer (8-bit indices) then runs off
     // through memory, and ".sync5 <ip>" showed the HELP instead of saving
-    // the config. A hard 254-byte cap plus a forced NUL restores every
-    // invariant the parsers assume, whatever the launcher hands over —
-    // and a well-behaved machine still sees exactly the old bytes (0x00 /
-    // 0x0D end the copy early). arglen stays unused: the crt measures it
-    // by scanning for the same terminator, so it is no more trustworthy
-    // than the buffer itself. sendpath doubles as the scratch: it is not
-    // filled until AFTER the parse below (and from cleancmd, not the raw
-    // line), so no new buffer is spent on this.
+    // the config. tail_copy (head-page, free.c) caps at 254 bytes and
+    // forces a NUL — a well-behaved machine still sees exactly the old
+    // bytes (0x00/0x0D end the copy early). arglen stays unused: the crt
+    // measures it by scanning for the same terminator, so it is no more
+    // trustworthy than the buffer itself. sendpath doubles as the scratch:
+    // it is not filled until AFTER the parse below (and from cleancmd, not
+    // the raw line), so no new buffer is spent on this.
     (void)arglen;
-    {
-        unsigned char rl = 0;
-        if (rawcmd)
-            while (rl < 254 && rawcmd[rl] && rawcmd[rl] != 0xd)
-            {
-                sendpath[rl] = rawcmd[rl];
-                rl++;
-            }
-        sendpath[rl] = 0;
-    }
+    tail_copy(sendpath, rawcmd);
     cmdline = sendpath;
 
     // Strip speed/option switches into a private buffer (never write the OS
@@ -1238,13 +1235,15 @@ int main(int arglen, char *rawcmd)
         if (isserver)
         {
             // Clone hardening, same N-Go failure family as the bounded copy
-            // above: with no terminator after the args, garbage can butt
-            // right against the name. A server name is printable ASCII —
-            // cut at the first byte that is not.
-            unsigned char tl = 0;
-            while (fn[tl] >= 33 && fn[tl] <= 126) tl++;
-            fn[tl] = 0;
-            len = tl;
+            // above: a mangled tail must NEVER overwrite the saved config.
+            // valid_server (head-page, free.c) accepts host chars only
+            // (alnum . -), whole token, minimum 2 chars — junk like the
+            // lone 'n' a mangled tail produced is refused, not written.
+            if (!valid_server(fn))
+            {
+                conprint("Bad server name\r");
+                goto terminate;
+            }
 
             conprint("Setting server to:");
             conprint(fn);
