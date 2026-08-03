@@ -27,6 +27,18 @@
 // that quarter-KB back.
 #pragma output REGISTER_SP = 0xc000
 
+// Allocate ONLY mmu4+mmu5 for the main bank — make the loader match the
+// memory model documented above. Without this, appmake's dotn loader claims
+// every page from CRT_ORG_MAIN to the top (allocation mask 0xf0), so
+// NextZXOS maps FRESH banks over $C000-$FFFF before main() runs. On
+// machines whose BASIC editor keeps the typed line in that region (N-Go
+// clones), the command-tail buffer the OS handed us was swapped away
+// mid-launch: the v5.6 diag build showed ptr=$E1D0 pointing at another
+// bank's tokenized BASIC, which is why ".sync5 <ip>" parsed garbage.
+// Marking mmu6+mmu7 "absolute" leaves the OS banks — and the command
+// tail — in place.
+#pragma output DOTN_MAIN_ABSOLUTE_MASK = 0xc0
+
 // Hand main() the unprocessed command line (len in 1st arg, pointer in 2nd) so
 // the app can do its own parsing and keep ':' in paths like "c:/foo".
 #pragma output CRT_ENABLE_COMMANDLINE = 2
