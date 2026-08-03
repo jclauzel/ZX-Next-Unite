@@ -1090,9 +1090,31 @@ int main(int arglen, char *rawcmd)
     // prompt for the rest of the BASIC session after the dot command exits.
     saved_scr_ct = *((unsigned char *)23692);
 
-    // Point cmdline at the raw NextZXOS command tail handed to us by the crt.
+    // Take a bounded PRIVATE copy of the command tail before any parsing.
+    // Genuine Next hardware leaves a 0x0D after the arguments, but clones
+    // do not all guarantee a terminator: on an N-Go the bytes after the
+    // tail can be garbage, the tokenizer (8-bit indices) then runs off
+    // through memory, and ".sync5 <ip>" showed the HELP instead of saving
+    // the config. A hard 254-byte cap plus a forced NUL restores every
+    // invariant the parsers assume, whatever the launcher hands over —
+    // and a well-behaved machine still sees exactly the old bytes (0x00 /
+    // 0x0D end the copy early). arglen stays unused: the crt measures it
+    // by scanning for the same terminator, so it is no more trustworthy
+    // than the buffer itself. sendpath doubles as the scratch: it is not
+    // filled until AFTER the parse below (and from cleancmd, not the raw
+    // line), so no new buffer is spent on this.
     (void)arglen;
-    cmdline = rawcmd;
+    {
+        unsigned char rl = 0;
+        if (rawcmd)
+            while (rl < 254 && rawcmd[rl] && rawcmd[rl] != 0xd)
+            {
+                sendpath[rl] = rawcmd[rl];
+                rl++;
+            }
+        sendpath[rl] = 0;
+    }
+    cmdline = sendpath;
 
     // Strip speed/option switches into a private buffer (never write the OS
     // cmdline), then point cmdline at it so the normal parser sees the cleaned
@@ -1124,7 +1146,7 @@ int main(int arglen, char *rawcmd)
     // zxnu_config.py (and the help text below): the app compares it against
     // the cfg's dotn_last_version to advise the user to refresh the .sync5
     // copy on their Next after updating the app.
-    print("NextSync 5.5 Clauzel/Komppa");
+    print("NextSync 5.6 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -1195,7 +1217,7 @@ int main(int arglen, char *rawcmd)
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v5.5 Clauzel/Komppa\r"
+                "SYNC v5.6 Clauzel/Komppa\r"
                 ".SYNC5 [server] : save cfg\r"
                 ".SYNC5 : sync files from PC\r"
                 ".SYNC5 -send <file|dir> : to PC\r"
@@ -1215,6 +1237,15 @@ int main(int arglen, char *rawcmd)
 
         if (isserver)
         {
+            // Clone hardening, same N-Go failure family as the bounded copy
+            // above: with no terminator after the args, garbage can butt
+            // right against the name. A server name is printable ASCII —
+            // cut at the first byte that is not.
+            unsigned char tl = 0;
+            while (fn[tl] >= 33 && fn[tl] <= 126) tl++;
+            fn[tl] = 0;
+            len = tl;
+
             conprint("Setting server to:");
             conprint(fn);
             conprint("\r-> ");
