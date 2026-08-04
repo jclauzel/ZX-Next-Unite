@@ -16,6 +16,8 @@ SECTION code_compiler
 PUBLIC _receive
 PUBLIC _zx_keyrow
 
+EXTERN _inbuf        ; nextsync.c's 2 KB receive buffer - receive()'s hard wall
+
 ; unsigned char zx_keyrow(unsigned char highbyte) __z88dk_fastcall
 ;   L = highbyte : the high 8 bits of the ULA keyboard port (low byte is 0xFE),
 ;                  which selects one keyboard half-row.
@@ -31,15 +33,32 @@ _zx_keyrow:
     ret                  ; HL = row bits (L significant)
 
 ; unsigned short receive(char *b) __z88dk_fastcall
-;   HL = b (destination buffer)
+;   HL = b (destination: always inside inbuf - every caller drains into
+;           inbuf[2048] at some offset; nothing else may be passed here)
 ;   -> HL = number of bytes received
+;
+;   v5.7: the drain is HARD-BOUNDED at inbuf+2048. The protocol paces the
+;   peer (one acked ~2 KB frame in flight), which is why the unbounded
+;   drain never bit in practice - but a hostile/buggy peer, an ESP reset
+;   burst or an emulated UART that never reads empty could push the write
+;   past inbuf into scratch and on toward the ~165-byte stack gap (the
+;   sibling ZXNextRemote .nex had exactly that failure on real hardware).
+;   Excess bytes stay in the FIFO for the next call; every call site
+;   already loops. Budget check costs ~15 T/byte extra: ~108 T/byte total,
+;   still inside the 140 T budget of 2 Mbaud at 28 MHz.
 _receive:
-    ld   d, h            ; DE = destination buffer
-    ld   e, l
-    ld   hl, 0           ; HL = running count
+    ex   de, hl          ; DE = destination buffer
+    ld   hl, _inbuf + 2048
+    or   a
+    sbc  hl, de          ; HL = room left in inbuf from b
+    jr   c, rx_none      ; b past the end (broken caller): store nothing
+    push hl              ; keep the starting budget for the count math
     ld   bc, 0x133b      ; UART Tx/status port
 
 nextbyte:
+    ld   a, h
+    or   l
+    jr   z, done         ; budget spent -> leave the rest in the FIFO
     in   a, (c)          ; read status @ 0x133b
     and  0x01
     jr   z, done         ; bit0 clear -> nothing waiting, finished
@@ -49,14 +68,22 @@ nextbyte:
     and  0x07
     out  (0xfe), a       ; flash the border with the low bits
     inc  de              ; advance the buffer
-    inc  hl              ; count++
+    dec  hl              ; budget--
     dec  b               ; B: 0x14 -> 0x13  (back to status)
     jp   nextbyte
 
 done:
     xor  a
     out  (0xfe), a       ; border back to black
-    ret                  ; HL = count
+    pop  de              ; DE = starting budget
+    ex   de, hl          ; HL = starting budget, DE = remaining
+    or   a
+    sbc  hl, de          ; HL = bytes actually stored
+    ret
+
+rx_none:
+    ld   hl, 0
+    ret
 
 ; --- v5.6 clone hardening (N-Go): hand asm because BOTH byte budgets are
 ; --- full — the head page tail brushes the $3F00 line and every main-bank
