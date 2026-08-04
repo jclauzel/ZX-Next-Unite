@@ -29,7 +29,7 @@ ZX_NEXT_UNITE_VERSION = "9.5.3"
 # startup dotN-updated advisory compares this against the dotn_last_version
 # persisted in hdfg.cfg, so the user is told to refresh the copy on their
 # Next (which the app cannot deploy automatically).
-ZX_NEXT_UNITE_DOTN_VERSION = "5.6"
+ZX_NEXT_UNITE_DOTN_VERSION = "5.7"
 # Self-update check (Settings toggle, default on): the app's own releases.
 ZXNU_GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/jclauzel/ZX-Next-Unite/releases/latest"
 ZXNU_GITHUB_RELEASES_PAGE = "https://github.com/jclauzel/ZX-Next-Unite/releases"

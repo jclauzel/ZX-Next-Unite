@@ -1056,7 +1056,8 @@ extern void listen_rfsize(char *arg, unsigned char *inbuf, unsigned char *scratc
 // allocated and mapped. They are only used from main() and its callees, one
 // invocation at a time, so static is safe.
 static char fn[256];
-static char inbuf[2048];
+char inbuf[2048];          // NOT static: uart.asm's receive() hard-bounds its
+                           // drain at the link-time constant _inbuf+2048 (v5.7)
 static char scratch[1280]; // outgoing block: 1024 file bytes + opcode + framing (~1030 max)
 static char sendpath[256];
 static char cleancmd[256]; // command line with speed switches removed (never touch the OS buffer)
@@ -1143,7 +1144,7 @@ int main(int arglen, char *rawcmd)
     // zxnu_config.py (and the help text below): the app compares it against
     // the cfg's dotn_last_version to advise the user to refresh the .sync5
     // copy on their Next after updating the app.
-    print("NextSync 5.6 Clauzel/Komppa");
+    print("NextSync 5.7 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -1214,7 +1215,7 @@ int main(int arglen, char *rawcmd)
             // Probably asking for help (or no usable config to sync from).
             conprint(
                //12345678901234567890123456789012
-                "SYNC v5.6 Clauzel/Komppa\r"
+                "SYNC v5.7 Clauzel/Komppa\r"
                 ".SYNC5 [server] : save cfg\r"
                 ".SYNC5 : sync files from PC\r"
                 ".SYNC5 -send <file|dir> : to PC\r"
