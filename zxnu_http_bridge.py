@@ -75,7 +75,14 @@ def flask_available():
     except (ImportError, ValueError):
         return False
 DEFAULT_TIMEOUT = 45.0     # quick verbs: one poll round-trip + margin
-LONG_TIMEOUT = 900.0       # get/put/rcpy/rfsize/rmtree can move real data
+# get/put/rcpy/rfsize/rmtree can move real data. Deliberately just UNDER
+# the patience of the strictest known client (ZXNextRemote gives a relayed
+# transfer 300 s to produce its first byte): whoever gives up first decides
+# what the user sees, and a 504 naming the stalled op beats silence. It
+# costs nothing real — a relay that needs longer than the client will wait
+# has already failed from the client's seat. Raise BOTH together if the
+# bridge ever streams instead of collect-then-respond.
+LONG_TIMEOUT = 270.0
 _LONG_OPS = ("get", "put", "rcpy", "rfsize", "rmtree")
 
 
@@ -92,15 +99,35 @@ def fmt_size(nbytes):
 
 class BridgeReply:
     """The result sink a bridge command carries through a host's command
-    queue. The executor calls :meth:`put` exactly once with the result dict;
-    the HTTP thread blocks in :meth:`wait`. Hosts detect a bridge command by
-    ``isinstance(cmd[-1], BridgeReply)``."""
+    queue. The executor calls :meth:`put` with the result dict; the HTTP
+    thread blocks in :meth:`wait`. Hosts detect a bridge command by
+    ``isinstance(cmd[-1], BridgeReply)``.
+
+    :meth:`put` is IDEMPOTENT — the first result wins and later ones are
+    dropped. That is what lets an executor blanket-resolve every reply it
+    might still owe when a session dies (see ``_fail_inflight`` in
+    zxnu_workers.py) without any risk of overwriting a real answer that
+    the HTTP thread has not collected yet. Before that guarantee existed,
+    an exception raised mid-command left the reply unresolved forever and
+    the HTTP caller blocked for the whole bridge timeout, receiving no
+    bytes and no status — the "transfer wedges on the Nth file" bug."""
 
     def __init__(self):
         self._q = queue.Queue()
+        self._lock = threading.Lock()
+        self._done = False
 
     def put(self, result):
+        with self._lock:
+            if self._done:
+                return False
+            self._done = True
         self._q.put(dict(result))
+        return True
+
+    @property
+    def resolved(self):
+        return self._done
 
     def wait(self, timeout):
         try:
