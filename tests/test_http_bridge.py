@@ -372,8 +372,104 @@ def main():
     phase_b()
     print()
     phase_token()
+    print()
+    phase_trace()
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
     sys.exit(0 if ok else 1)
+
+
+def phase_trace():
+    """-v request tracing + the in-flight gauge.
+
+    These are the "who is stuck?" diagnostics: with tracing on, every
+    request and its answer is logged with the live in-flight count, the
+    body size and the elapsed time; the gauge itself is tracked whether
+    or not tracing is on, so /status can always report it."""
+    lines = []
+
+    class _SlowAdapter:
+        def state(self):
+            return {"listening": True, "connected": False,
+                    "current": "", "drives": []}
+
+        def run(self, op, a1="", a2="", body=None, timeout=None):
+            return {"ok": False, "http": 503, "error": "no next"}
+
+    port = 18084
+    bridge = NextSyncHttpBridge(_SlowAdapter(), port=port, verbose=True,
+                                log=lines.append)
+    okd, err = bridge.start()
+    check("TRACE bridge started", okd, err)
+    try:
+        check("trace: idle gauge reads zero", bridge.inflight == 0,
+              bridge.inflight)
+        st, _ = http(port, "/help")
+        check("trace: request served", st == 200, st)
+
+        req = [ln for ln in lines if ln.startswith("HTTP -> ")]
+        resp = [ln for ln in lines if ln.startswith("HTTP <- ")]
+        check("trace: the request was logged", len(req) == 1, req)
+        check("trace: with the in-flight count and the path",
+              bool(req) and req[0].startswith("HTTP -> [1] GET /help"), req)
+        check("trace: the response was logged", len(resp) == 1, resp)
+        check("trace: with status, size and elapsed time",
+              bool(resp) and "200 GET /help (" in resp[0]
+              and " bytes, " in resp[0] and resp[0].rstrip().endswith("s)"),
+              resp)
+        check("trace: the gauge came back to zero", bridge.inflight == 0,
+              bridge.inflight)
+
+        # /status reports the gauge (excluding itself) for a UI to show.
+        st, body = http(port, "/status?json=1")
+        payload = json.loads(body)
+        check("trace: /status carries the in-flight count",
+              payload.get("inflight") == 0, payload.get("inflight"))
+        check("trace: /status carries the busy list", payload.get("busy") == [],
+              payload.get("busy"))
+    finally:
+        bridge.stop()
+
+    # The stall watchdog names a request that outlives its threshold, and
+    # it does so with tracing OFF — that is the point of it.
+    quiet = []
+    hold = threading.Event()
+
+    class _HangAdapter:
+        def state(self):
+            return {"listening": True, "connected": True,
+                    "current": "C", "drives": ["C"]}
+
+        def run(self, op, a1="", a2="", body=None, timeout=None):
+            hold.wait(6.0)
+            return {"ok": False, "http": 504, "error": "timed out"}
+
+    port2 = 18085
+    b2 = NextSyncHttpBridge(_HangAdapter(), port=port2, log=quiet.append)
+    b2.SLOW_AFTER = 0.5
+    b2.SLOW_EVERY = 0.5
+    b2._WATCH_TICK = 0.2
+    okd, err = b2.start()
+    check("WATCH bridge started", okd, err)
+    try:
+        th = threading.Thread(
+            target=lambda: http(port2, "/ls?path=/"), daemon=True)
+        th.start()
+        seen = wait_until(
+            lambda: any("still waiting" in ln for ln in quiet), timeout=5.0)
+        check("watchdog: a stuck request is named while it hangs", seen,
+              [ln for ln in quiet][-3:])
+        check("watchdog: the gauge shows it in flight", b2.inflight >= 1,
+              b2.inflight)
+        busy = b2.inflight_detail()
+        check("watchdog: inflight_detail names the request",
+              bool(busy) and "/ls" in busy[0][1], busy)
+        hold.set()
+        th.join(timeout=10)
+        check("watchdog: gauge empties once it finishes",
+              wait_until(lambda: b2.inflight == 0, timeout=5.0), b2.inflight)
+    finally:
+        hold.set()
+        b2.stop()
 
 
 if __name__ == "__main__":
