@@ -12,9 +12,13 @@
 # and the indirection costs more than the twenty lines it would save.
 name: test
 
+# push is limited to main on purpose: with `branches: ["**"]` every PR
+# branch runs the suite TWICE, once for the push and once for the pull
+# request. This pairing gates every PR and re-gates main after each merge,
+# for half the runs.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
     paths-ignore:
       - "**/*.md"
       - "flatpak/**"
