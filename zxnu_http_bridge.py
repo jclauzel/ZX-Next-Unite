@@ -548,17 +548,23 @@ class NextSyncHttpBridge:
             with self._inflight_lock:
                 entry = self._inflight.pop(rid, None)
                 n = len(self._inflight)
-            if self._verbose:
-                elapsed = time.monotonic() - entry[2] if entry else 0.0
-                # A streamed body has no length to report yet; everything the
-                # bridge serves today is a complete in-memory response.
-                if resp.direct_passthrough:
-                    size = "streamed"
-                else:
-                    size = f"{len(resp.get_data()):,} bytes"
-                self._log(f"HTTP <- [{n}] {resp.status_code} "
-                          f"{request.method} {request.path} "
-                          f"({size}, {elapsed:.1f}s)")
+            elapsed = time.monotonic() - entry[2] if entry else 0.0
+            # A streamed body has no length to report yet; everything the
+            # bridge serves today is a complete in-memory response.
+            if resp.direct_passthrough:
+                size = "streamed"
+            else:
+                size = f"{len(resp.get_data()):,} bytes"
+            # ALWAYS logged, not just under -v: the request line alone says
+            # what was ASKED, never whether it was answered, and "did the
+            # bridge reply?" is the first question every stalled transfer
+            # raises. One line per request, carrying the status, the body
+            # size, how long it took and how many requests are still in
+            # flight — the last of which is the live gauge, visible without
+            # having to know where to look for it.
+            self._log(f"HTTP bridge: {resp.status_code} {request.method} "
+                      f"{request.path} ({size}, {elapsed:.1f}s"
+                      + (f", {n} still in flight)" if n else ")"))
             return resp
 
         @app.teardown_request

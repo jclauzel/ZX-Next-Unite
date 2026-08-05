@@ -407,7 +407,7 @@ def phase_trace():
         check("trace: request served", st == 200, st)
 
         req = [ln for ln in lines if ln.startswith("HTTP -> ")]
-        resp = [ln for ln in lines if ln.startswith("HTTP <- ")]
+        resp = [ln for ln in lines if ln.startswith("HTTP bridge: 200")]
         check("trace: the request was logged", len(req) == 1, req)
         check("trace: with the in-flight count and the path",
               bool(req) and req[0].startswith("HTTP -> [1] GET /help"), req)
@@ -467,6 +467,15 @@ def phase_trace():
         th.join(timeout=10)
         check("watchdog: gauge empties once it finishes",
               wait_until(lambda: b2.inflight == 0, timeout=5.0), b2.inflight)
+        # The OUTCOME line is unconditional: "was it answered, and with
+        # what?" is the first question a stalled transfer raises, and the
+        # user should not need to have enabled tracing beforehand.
+        done = [ln for ln in quiet if ln.startswith("HTTP bridge: ")
+                and " GET /ls" in ln]
+        check("outcome line is logged with tracing OFF", bool(done), quiet[-3:])
+        check("outcome line carries the status code and timing",
+              bool(done) and "504 GET /ls" in done[-1] and "s)" in done[-1],
+              done)
     finally:
         hold.set()
         b2.stop()
