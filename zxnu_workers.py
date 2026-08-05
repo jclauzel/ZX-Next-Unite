@@ -465,6 +465,13 @@ def _re_recv_block(conn):
 #: walk, its own retry backoff), not the time a whole transfer takes.
 RE_REPLY_TIMEOUT = 60.0
 
+#: Seconds of TOTAL silence from a connected Next before we conclude it is
+#: gone. The peer drives the session and polls continuously when idle (every
+#: second or two), so silence is unambiguous — but keep this well clear of
+#: that cadence: a spurious disconnect drops a session that was merely busy.
+#: Only counted between commands; a command's reply has its own timeout.
+PEER_SILENCE_LIMIT = 45.0
+
 
 def _re_reply_call(conn, handler, timeout=None):
     """:func:`_re_recv_reply` under a per-command socket timeout.
@@ -702,6 +709,14 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
 
         with conn:
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            try:
+                # Belt and braces to the silence timer below: the OS will
+                # eventually reap a half-open socket by itself. Its default
+                # schedule is hours, so this is a backstop, never the
+                # mechanism.
+                conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            except OSError:
+                pass
             # The Next opens the session with the "Listen" handshake keyword.
             data = conn.recv(1024)
             if data != b"Listen":
@@ -734,16 +749,37 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             rmtree_jobs = {}   # job id -> {'root': path, 'fails': 0}
             rmtree_seq = 0
 
+            # Dead-peer detection. A Next that is switched off (or unplugged,
+            # or whose Wi-Fi drops) never sends a FIN: the socket simply goes
+            # quiet, and recv() times out forever while the UI keeps claiming
+            # a Next is connected — reported after a machine sat "connected"
+            # to a Next that had been off for hours.
+            #
+            # No probe is needed to notice, because THE NEXT DRIVES: an idle
+            # peer polls us every second or two (the dot's idle throttle,
+            # ZXNextRemote's is faster), so silence is itself the signal. The
+            # timer only runs HERE, between commands — a command's own reply
+            # is read inside _re_reply_call, which has its own timeout — so a
+            # slow operation can never be mistaken for a dead peer.
+            last_rx = time.monotonic()
             while not stop_event.is_set():
                 try:
                     conn.settimeout(1.0)
                     data = conn.recv(1024)
                 except socket.timeout:
+                    if time.monotonic() - last_rx >= PEER_SILENCE_LIMIT:
+                        log(ui_tr_now(
+                            "Remote explorer: no word from the Next for "
+                            "{seconds}s — assuming it is gone (powered off? "
+                            "Wi-Fi dropped?)").format(
+                                seconds=int(PEER_SILENCE_LIMIT)))
+                        break
                     continue
                 except OSError:
                     break
                 if not data:
                     break
+                last_rx = time.monotonic()
 
                 # A put in flight is served by the Next pulling the bytes with
                 # "Get"/"Gee" (or asking to resend with "Retry"/"Restart"). A newer

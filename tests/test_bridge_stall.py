@@ -38,7 +38,7 @@ import time
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from PySide6.QtCore import QCoreApplication                      # noqa: E402
+from PySide6.QtCore import QCoreApplication, Qt                  # noqa: E402
 import zxnu_workers                                              # noqa: E402
 from zxnu_workers import (RemoteExplorerSignals,                 # noqa: E402
                           run_remote_listen_server)
@@ -103,14 +103,29 @@ def start_session(cmd_q, stop):
     app = QCoreApplication.instance() or QCoreApplication(sys.argv)  # noqa: F841
     sig = RemoteExplorerSignals()
     state = {"connected": False, "errors": []}
-    sig.connected.connect(lambda: state.update(connected=True))
-    sig.disconnected.connect(lambda: state.update(connected=False))
-    sig.error.connect(lambda m: state["errors"].append(m))
+    # DirectConnection: no Qt event loop runs in this thread, so a queued
+    # connection would never deliver and every state assertion would pass
+    # vacuously (which is exactly what happened the first time).
+    sig.connected.connect(lambda: state.update(connected=True),
+                          Qt.DirectConnection)
+    sig.disconnected.connect(lambda: state.update(connected=False),
+                             Qt.DirectConnection)
+    sig.error.connect(lambda m: state["errors"].append(m), Qt.DirectConnection)
+    sig.log.connect(lambda m: state["errors"].append(m), Qt.DirectConnection)
     th = threading.Thread(
         target=run_remote_listen_server,
         args=(sig, cmd_q, stop), kwargs={"port": PORT}, daemon=True)
     th.start()
     return th, state
+
+
+def wait_until(fn, timeout=5.0):
+    end = time.time() + timeout
+    while time.time() < end:
+        if fn():
+            return True
+        time.sleep(0.05)
+    return False
 
 
 def connect_dot():
@@ -210,6 +225,46 @@ def test_dropped_link_resolves_caller():
         zxnu_workers.RE_REPLY_TIMEOUT = 60.0
 
 
+def test_silent_peer_is_reaped():
+    """A Next that is switched off never sends a FIN — the socket just goes
+    quiet. Before this, the session sat "connected" forever and the UI kept
+    claiming a Next was attached (reported after a machine had been off for
+    hours). The peer drives the session and polls continuously when idle,
+    so silence is the signal; no probe is needed."""
+    zxnu_workers.PEER_SILENCE_LIMIT = 2.0
+    zxnu_workers.RE_REPLY_TIMEOUT = 5.0
+    cmd_q, stop = queue.Queue(), threading.Event()
+    th, state = start_session(cmd_q, stop)
+    dot = connect_dot()
+    try:
+        # Behave normally first, so this is a live session going quiet
+        # rather than one that never started.
+        dot.sendall(b"Poll")
+        check("silent: a poll is answered while alive",
+              len(rx_payload(dot)) >= 1)
+        check("silent: session reports connected", state["connected"] is True)
+
+        # ...and now the Next "loses power": no FIN, no RST, just silence.
+        t0 = time.time()
+        ended = wait_until(lambda: state["connected"] is False, timeout=20.0)
+        waited = time.time() - t0
+        check("silent: the dead peer IS noticed", ended, state)
+        check("silent: noticed at about the limit, not forever",
+              waited < 12.0, f"{waited:.1f}s")
+        check("silent: it says why, in the log",
+              any("no word from the Next" in e for e in state["errors"]),
+              state["errors"][-1:])
+    finally:
+        stop.set()
+        try:
+            dot.close()
+        except OSError:
+            pass
+        th.join(timeout=10)
+        zxnu_workers.PEER_SILENCE_LIMIT = 45.0
+        zxnu_workers.RE_REPLY_TIMEOUT = 60.0
+
+
 def test_long_timeout_under_client_patience():
     """The bridge must give up BEFORE its strictest client does, or the user
     sees silence instead of a 504 naming the stalled operation."""
@@ -226,5 +281,6 @@ if __name__ == "__main__":
     test_long_timeout_under_client_patience()
     test_stall_resolves_and_session_survives()
     test_dropped_link_resolves_caller()
+    test_silent_peer_is_reaped()
     print("\nRESULT: " + ("ALL PASS" if ok else "FAILURES"))
     sys.exit(0 if ok else 1)
