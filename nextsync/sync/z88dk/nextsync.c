@@ -1144,7 +1144,7 @@ int main(int arglen, char *rawcmd)
     // zxnu_config.py (and the help text below): the app compares it against
     // the cfg's dotn_last_version to advise the user to refresh the .sync5
     // copy on their Next after updating the app.
-    print("NextSync 5.7 Clauzel/Komppa");
+    print("NextSync 5.7.1 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -1213,9 +1213,11 @@ int main(int arglen, char *rawcmd)
         if ((len && fn[0] == '-') || ((!len || !isserver) && filehandle == 0))
         {
             // Probably asking for help (or no usable config to sync from).
+            // No version/author line here: the banner printed at startup
+            // (a few lines up) already shows both, and this screen is only
+            // ever reached after it.
             conprint(
                //12345678901234567890123456789012
-                "SYNC v5.7 Clauzel/Komppa\r"
                 ".SYNC5 [server] : save cfg\r"
                 ".SYNC5 : sync files from PC\r"
                 ".SYNC5 -send <file|dir> : to PC\r"
@@ -1492,9 +1494,16 @@ connbreak:
                         if (plen && fn[plen - 1] == '/') { plen--; fn[plen] = 0; }
                         send_dir(fn, plen, inbuf, scratch, inbuf);
                     }
+                    // The terminal 'B' is what tells the server the item is
+                    // complete. Its ack MATTERS: when it never arrives (the
+                    // server stopped reading - a wedged bridge, a dropped
+                    // link), send_block_rt burns all 12 retries and gives
+                    // up, and printing "get done" there actively misled
+                    // debugging - the Next looked like it had succeeded
+                    // while the PC side had nothing. Report what happened.
                     scratch[2] = 'B';
-                    send_block_rt(scratch, 1, inbuf);
-                    vprint("get done");
+                    vprint(send_block_rt(scratch, 1, inbuf) ? "get failed"
+                                                            : "get done");
                 }
                 else if (op == 'P')
                 {
