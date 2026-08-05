@@ -459,10 +459,50 @@ def _re_recv_block(conn):
     return (payload, rest[-1])
 
 
+#: Seconds a single command's reply may go quiet before we give up on it.
+#: Generous on purpose — this is the gap BETWEEN blocks, and the Next can
+#: legitimately pause for seconds (SD seeks, the directory re-open/skip
+#: walk, its own retry backoff), not the time a whole transfer takes.
+RE_REPLY_TIMEOUT = 60.0
+
+
+def _re_reply_call(conn, handler, timeout=None):
+    """:func:`_re_recv_reply` under a per-command socket timeout.
+
+    The session loop parks the socket at a 1 s timeout so an idle poll
+    cycle stays responsive (see ``conn.settimeout(1.0)`` in the loop head).
+    That is far too short to read a command's REPLY, and a ``socket.timeout``
+    raised inside ``_re_recv_reply`` used to escape the entire session loop
+    — ``socket.timeout`` is an ``OSError`` subclass, so it landed in the
+    session-level handler, killed the ``-listen`` session AND skipped the
+    ``reply.put(...)`` that the HTTP caller was blocked on. The caller then
+    waited out the whole bridge timeout for bytes that were never coming:
+    the "tree copy wedges on the Nth file, the dot says done, the app sees
+    nothing" bug. rcpy/rfsize had carried this fix inline for a while; now
+    every command shares it, so a stall fails ONE command and the session
+    lives on.
+
+    ``timeout`` defaults to :data:`RE_REPLY_TIMEOUT` read at CALL time, so
+    the test suite can shorten it without waiting out a real minute."""
+    try:
+        conn.settimeout(RE_REPLY_TIMEOUT if timeout is None else timeout)
+        return _re_recv_reply(conn, handler)
+    except socket.timeout:
+        return False
+    finally:
+        try:
+            conn.settimeout(1.0)     # back to the responsive idle cadence
+        except OSError:
+            pass
+
+
 def _re_recv_reply(conn, handler):
     """Read the framed blocks the Next pushes in reply to a command, acking each
     with "Ok". handler(payload) returns True to stop. Returns True on clean
-    completion, False on drop."""
+    completion, False on drop.
+
+    Call it through :func:`_re_reply_call`, never directly: on its own it
+    inherits whatever socket timeout the session loop last set (1 s)."""
     expected = 0
     while True:
         blk = _re_recv_block(conn)
@@ -610,6 +650,25 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
     def log(msg):
         sig.log.emit(msg)
 
+    # Bridge sinks this session still owes an answer to. An HTTP caller is
+    # BLOCKED on each of these, so every exit path — clean quit, dropped
+    # connection, or an exception nobody predicted — has to resolve them,
+    # or the caller waits out its whole timeout receiving neither bytes nor
+    # a status. BridgeReply.put is idempotent, so resolving one that has
+    # already answered is a no-op; the list is pruned as it goes, and in
+    # practice holds at most the running command plus a pending put.
+    owed = []
+
+    def _owe(r):
+        if r is not None:
+            owed[:] = [x for x in owed if not x.resolved]
+            owed.append(r)
+
+    def _fail_owed(err):
+        for r in owed:
+            r.put({'ok': False, 'error': err})
+        owed[:] = []
+
     srv = None
     try:
         try:
@@ -728,6 +787,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                     # the last element: fill that instead of emitting signals
                     # (bridge traffic must be silent to the Remote Explorer UI).
                     reply = cmd[-1] if isinstance(cmd[-1], BridgeReply) else None
+                    _owe(reply)          # an HTTP thread is blocked on this
                     if op == "rmtree":
                         # Recursive folder delete: open a walk job and start with
                         # the root's listing (handled below, on this same poll).
@@ -779,7 +839,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                                     _e.append((bool(flags & 1), size, name))
                             return False
                         _re_sendpacket(conn, b"L" + path.encode(), 0)
-                        if _re_recv_reply(conn, _h):
+                        if _re_reply_call(conn, _h):
                             if st['failed']:
                                 if reply:
                                     reply.put({'ok': False,
@@ -840,7 +900,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                                 return True
                             return False
                         _re_sendpacket(conn, b"G" + remote.encode(), 0)
-                        ok = _re_recv_reply(conn, _h)
+                        ok = _re_reply_call(conn, _h)
                         if st['f']:
                             st['f'].close()
                         if reply:
@@ -878,7 +938,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             _r['ok'] = (payload[0:1] == b'O')
                             return True
                         _re_sendpacket(conn, opc + path.encode(), 0)
-                        if _re_recv_reply(conn, _h):
+                        if _re_reply_call(conn, _h):
                             if reply:
                                 reply.put({'ok': bool(res['ok'])})
                             else:
@@ -913,7 +973,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                                     _e.append((bool(flags & 1), name))
                             return False
                         _re_sendpacket(conn, b"L" + path.encode(), 0)
-                        if _re_recv_reply(conn, _h):
+                        if _re_reply_call(conn, _h):
                             subs = []
                             if not st['failed']:
                                 base = path.rstrip("/")
@@ -948,7 +1008,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             _r['ok'] = (payload[0:1] == b'O')
                             return True
                         _re_sendpacket(conn, opc + path.encode(), 0)
-                        if _re_recv_reply(conn, _h):
+                        if _re_reply_call(conn, _h):
                             job = rmtree_jobs.get(jid)
                             if job is not None:
                                 if not res['ok']:
@@ -986,7 +1046,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         # kill the session like other commands' drops would:
                         # drives is an optional nicety, so degrade instead.
                         try:
-                            got_reply = _re_recv_reply(conn, _h)
+                            got_reply = _re_reply_call(conn, _h)
                         except socket.timeout:
                             got_reply = False
                         if got_reply and res['cur']:
@@ -1024,7 +1084,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             return True
                         _re_sendpacket(conn, b"Z" + drv.encode(), 0)
                         try:
-                            got_reply = _re_recv_reply(conn, _h)
+                            got_reply = _re_reply_call(conn, _h)
                         except socket.timeout:
                             got_reply = False
                         if got_reply and res['blocks'] is not None:
@@ -1068,16 +1128,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             return True
                         _re_sendpacket(conn, b"C" + src.encode() + b"\x00" +
                                        dst.encode(), 0)
-                        try:
-                            conn.settimeout(60.0)
-                            got_reply = _re_recv_reply(conn, _h)
-                        except socket.timeout:
-                            got_reply = False
-                        finally:
-                            try:
-                                conn.settimeout(1.0)
-                            except OSError:
-                                pass
+                        got_reply = _re_reply_call(conn, _h)
                         if got_reply and res['ok'] is not None:
                             if reply:
                                 reply.put({'ok': bool(res['ok']),
@@ -1119,16 +1170,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                                 }
                             return True         # 'O' or 'F' both end the reply
                         _re_sendpacket(conn, b"S" + path.encode(), 0)
-                        try:
-                            conn.settimeout(60.0)
-                            got_reply = _re_recv_reply(conn, _h)
-                        except socket.timeout:
-                            got_reply = False
-                        finally:
-                            try:
-                                conn.settimeout(1.0)
-                            except OSError:
-                                pass
+                        got_reply = _re_reply_call(conn, _h)
                         if reply:
                             if res['data'] is not None:
                                 reply.put({'ok': True, **res['data']})
@@ -1151,7 +1193,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             return True
                         # 'V' + old + NUL + new, in one length-framed block.
                         _re_sendpacket(conn, b"V" + old.encode() + b"\x00" + new.encode(), 0)
-                        if _re_recv_reply(conn, _h):
+                        if _re_reply_call(conn, _h):
                             if reply:
                                 reply.put({'ok': bool(res['ok'])})
                             else:
@@ -1183,7 +1225,19 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                     _re_sendpacket(conn, b"I", 0)   # keep the Next polling
     except OSError as ex:
         sig.error.emit(f"Remote explorer server error: {ex}")
+        _fail_owed(f"the -listen session ended: {ex}")
+    except Exception as ex:                                   # noqa: BLE001
+        # Never let an unforeseen error strand a blocked HTTP caller in
+        # silence: report it, answer whoever is waiting, then re-raise so
+        # the failure still reaches the log/crash handler.
+        logging.exception("Remote explorer server: unhandled error")
+        sig.error.emit(f"Remote explorer server error: {ex}")
+        _fail_owed(f"the -listen session failed: {ex}")
+        raise
     finally:
+        # Clean exits owe answers too — a "quit" mid-transfer, the Next
+        # dropping the link, or the user stopping the server.
+        _fail_owed("the -listen session ended before the command finished")
         if srv is not None:
             try:
                 srv.close()

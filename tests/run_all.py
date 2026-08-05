@@ -44,6 +44,7 @@ SUITES = [
     ("test_classic_sync.py",    180, None),
     ("test_listen.py",          120, None),
     ("test_remote_listen.py",   120, None),
+    ("test_bridge_stall.py",    180, None),
     ("test_remote_explorer_widget.py", 180, None),
     ("test_http_bridge.py",     240, "flask"),
     ("test_retro_log_widget.py", 120, None),
