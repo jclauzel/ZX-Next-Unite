@@ -981,6 +981,8 @@ def build_settings_pane(
         # the bridge; the token field + Generate button also need the token
         # toggle itself to be on. (hasattr guards the first call, which can
         # precede the token widgets' construction below.)
+        if hasattr(host, "settings_http_verbose_checkbox"):
+            host.settings_http_verbose_checkbox.setEnabled(on)
         if hasattr(host, "settings_http_token_checkbox"):
             host.settings_http_token_checkbox.setEnabled(on)
             token_on = on and host.settings_http_token_checkbox.isChecked()
@@ -1171,6 +1173,29 @@ def build_settings_pane(
     host.settings_http_token_generate_btn.clicked.connect(
         lambda: _http_token_generate())
 
+    def settings_http_verbose_statechanged():
+        configuration_dictionary[SETTING_NEXTSYNC_HTTP_VERBOSE] = (
+            "true" if host.settings_http_verbose_checkbox.isChecked() else "false")
+        save_configuration_file()
+        _http_bridge_restart_if_running()
+
+    host.settings_http_verbose_checkbox = QCheckBox("Trace bridge requests")
+    host.settings_http_verbose_checkbox.setChecked(False)
+    host.settings_http_verbose_checkbox.setEnabled(False)
+    host.settings_http_verbose_checkbox.setToolTip(
+        "Log every HTTP request and its answer to the NextSync console:\n"
+        "  HTTP -> [1] GET /get?path=/games/a.tap\n"
+        "  HTTP <- [1] 200 GET /get (12,345 bytes, 4.2s)\n"
+        "The number in brackets is how many requests are in flight. This is\n"
+        "the nextsync5.py -v view, and what to turn on when a transfer seems\n"
+        "to hang: it shows whether the bridge answered or is still working.\n"
+        "A request that outlives 15s is announced even with this OFF\n"
+        "(\"HTTP .. still waiting\"), so a wedge is visible either way.\n"
+        f"Saved to hdfg.cfg ({SETTING_NEXTSYNC_HTTP_VERBOSE}); a running\n"
+        "bridge is bounced when you change it. Off by default (it is chatty).")
+    host.settings_http_verbose_checkbox.stateChanged.connect(
+        lambda _s: settings_http_verbose_statechanged())
+
     _http_token_row = QHBoxLayout()
     _http_token_row.addWidget(host.settings_http_token_checkbox)
     _http_token_row.addSpacing(8)
@@ -1180,6 +1205,10 @@ def build_settings_pane(
     _http_bridge_vbox = QVBoxLayout()
     _http_bridge_vbox.addLayout(_http_bridge_row)
     _http_bridge_vbox.addLayout(_http_token_row)
+    _http_verbose_row = QHBoxLayout()
+    _http_verbose_row.addWidget(host.settings_http_verbose_checkbox)
+    _http_verbose_row.addStretch(1)
+    _http_bridge_vbox.addLayout(_http_verbose_row)
     grid_tab_Settings.addLayout(_http_bridge_vbox, 41, 0, 1, 2)
     host._http_port_widgets_set_enabled = _http_port_widgets_set_enabled
 

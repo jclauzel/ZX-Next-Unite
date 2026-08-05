@@ -302,6 +302,14 @@ def build_config_io(
             host.settings_http_conn_spinbox.setValue(_http_conn)
             host.settings_http_conn_spinbox.blockSignals(False)
 
+            # HTTP bridge request tracing (-v equivalent).
+            _http_verbose = configuration_dictionary.get(
+                SETTING_NEXTSYNC_HTTP_VERBOSE, "").strip().lower() in (
+                    "true", "1", "yes", "on")
+            host.settings_http_verbose_checkbox.blockSignals(True)
+            host.settings_http_verbose_checkbox.setChecked(_http_verbose)
+            host.settings_http_verbose_checkbox.blockSignals(False)
+
             # HTTP bridge bearer-token protection (checkbox + persisted
             # token). The deferred bridge start above reads both straight
             # from the config dict, so only the widgets need syncing.

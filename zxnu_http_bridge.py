@@ -57,6 +57,7 @@ import shutil
 import socket
 import tempfile
 import threading
+import time
 
 DEFAULT_PORT = 80          # .http's default; HTTP only (no TLS on the Next)
 
@@ -309,6 +310,25 @@ class NextSyncHttpBridge:
         # connection_limit may be >1.
         self._put_spool = {}
         self._spool_lock = threading.Lock()
+        # In-flight request registry: rid -> [method, path, start, last_note].
+        # Every request is tracked whether or not -v is on, because the two
+        # things it powers are worth having always: the live count (exposed
+        # on /status and to the UI) and the stall watchdog below. Guarded by
+        # its own lock — connection_limit may be >1.
+        self._inflight = {}
+        self._inflight_lock = threading.Lock()
+        self._req_seq = 0
+        self._watch_stop = None
+        self._watch_thread = None
+
+    # A request still unanswered after SLOW_AFTER seconds is announced, then
+    # re-announced every SLOW_EVERY, until it finishes. This is the "who is
+    # stuck?" answer: a relay that is merely slow keeps ticking (the client
+    # shows its own wait badge meanwhile), while one that is truly wedged
+    # says so in the console instead of failing silently minutes later.
+    SLOW_AFTER = 15.0
+    SLOW_EVERY = 15.0
+    _WATCH_TICK = 5.0
 
     # Hard cap on a single chunked upload's declared size: everything is
     # assembled in memory before the one-shot push to the Next (just like a
@@ -316,6 +336,41 @@ class NextSyncHttpBridge:
     MAX_SPOOL = 256 * 1024 * 1024
 
     # ------------------------------------------------------------------
+    @property
+    def inflight(self):
+        """How many HTTP requests are being served right now. A UI can poll
+        this for a live gauge; /status reports it too."""
+        with self._inflight_lock:
+            return len(self._inflight)
+
+    def inflight_detail(self):
+        """[(seconds_running, "GET /get?path=…"), …], longest-waiting first —
+        what a gauge shows when the user asks "stuck on WHAT?"."""
+        now = time.monotonic()
+        with self._inflight_lock:
+            rows = [(now - v[2], f"{v[0]} {v[1]}") for v in self._inflight.values()]
+        rows.sort(key=lambda r: -r[0])
+        return rows
+
+    def _watch_inflight(self):
+        """Announce requests that outlive SLOW_AFTER (see the constants)."""
+        while not self._watch_stop.is_set():
+            self._watch_stop.wait(self._WATCH_TICK)
+            if self._watch_stop.is_set():
+                break
+            now = time.monotonic()
+            with self._inflight_lock:
+                snapshot = [(rid, list(v)) for rid, v in self._inflight.items()]
+            for rid, (method, path, start, noted) in snapshot:
+                elapsed = now - start
+                if elapsed < self.SLOW_AFTER or elapsed - noted < self.SLOW_EVERY:
+                    continue
+                with self._inflight_lock:
+                    if rid not in self._inflight:
+                        continue          # finished while we were looking
+                    self._inflight[rid][3] = elapsed
+                self._log(f"HTTP .. still waiting {elapsed:.0f}s: {method} {path}")
+
     @property
     def running(self):
         return self._server is not None
@@ -400,6 +455,12 @@ class NextSyncHttpBridge:
         self._thread = threading.Thread(target=server.serve_forever,
                                         daemon=True, name="zxnu-http-bridge")
         self._thread.start()
+        # Stall watchdog: names any request still unanswered after
+        # SLOW_AFTER seconds, so a wedge is visible while it happens.
+        self._watch_stop = threading.Event()
+        self._watch_thread = threading.Thread(
+            target=self._watch_inflight, daemon=True, name="zxnu-http-watch")
+        self._watch_thread.start()
         self._log(f"HTTP bridge: serving on port {self._port} "
                   f"(max {self._connection_limit} concurrent "
                   f"connection{'s' if self._connection_limit != 1 else ''})")
@@ -414,6 +475,11 @@ class NextSyncHttpBridge:
                 pass
             self._log("HTTP bridge: stopped")
         self._thread = None
+        if self._watch_stop is not None:
+            self._watch_stop.set()
+        self._watch_thread = None
+        with self._inflight_lock:
+            self._inflight.clear()
         with self._spool_lock:
             self._put_spool.clear()   # drop any unfinished chunked uploads
 
@@ -455,25 +521,55 @@ class NextSyncHttpBridge:
                     status=401, mimetype="application/json")
             return Response(f"ERR {msg}\n", status=401, mimetype="text/plain")
 
-        if self._verbose:
-            # -v troubleshooting: one log line per request with its payload,
-            # and one per response with status + body preview.
-            @app.before_request
-            def _trace_request():          # noqa: ANN202
+        # ---- in-flight tracking (always) + -v tracing --------------------
+        # Registered unconditionally: the live count and the stall watchdog
+        # are diagnostics you want available the moment something wedges,
+        # not after reproducing it with a flag flipped. Only the per-request
+        # log lines are gated on -v.
+        @app.before_request
+        def _track_request():              # noqa: ANN202
+            path = request.full_path.rstrip("?")
+            with self._inflight_lock:
+                self._req_seq += 1
+                rid = self._req_seq
+                self._inflight[rid] = [request.method, path, time.monotonic(), 0.0]
+                n = len(self._inflight)
+            request.environ["zxnu.rid"] = rid
+            if self._verbose:
+                line = f"HTTP -> [{n}] {request.method} {path}"
                 body = request.get_data(cache=True)
-                line = f"HTTP > {request.method} {request.full_path.rstrip('?')}"
                 if body:
                     line += f" payload: {self._peek(body)}"
                 self._log(line)
 
-            @app.after_request
-            def _trace_response(resp):     # noqa: ANN202
-                preview = "(streamed)"
-                if not resp.direct_passthrough:
-                    preview = self._peek(resp.get_data())
-                self._log(f"HTTP < {resp.status_code} "
-                          f"{request.method} {request.path} {preview}")
-                return resp
+        @app.after_request
+        def _trace_response(resp):         # noqa: ANN202
+            rid = request.environ.get("zxnu.rid")
+            with self._inflight_lock:
+                entry = self._inflight.pop(rid, None)
+                n = len(self._inflight)
+            if self._verbose:
+                elapsed = time.monotonic() - entry[2] if entry else 0.0
+                # A streamed body has no length to report yet; everything the
+                # bridge serves today is a complete in-memory response.
+                if resp.direct_passthrough:
+                    size = "streamed"
+                else:
+                    size = f"{len(resp.get_data()):,} bytes"
+                self._log(f"HTTP <- [{n}] {resp.status_code} "
+                          f"{request.method} {request.path} "
+                          f"({size}, {elapsed:.1f}s)")
+            return resp
+
+        @app.teardown_request
+        def _untrack_request(_exc=None):   # noqa: ANN202
+            # after_request is skipped when the view raises, so the registry
+            # is swept here too — a leaked entry would haunt the gauge and
+            # the watchdog forever.
+            rid = request.environ.get("zxnu.rid") if request else None
+            if rid is not None:
+                with self._inflight_lock:
+                    self._inflight.pop(rid, None)
 
         def wants_json():
             return (request.args.get("json") in ("1", "true", "yes")
@@ -546,17 +642,24 @@ class NextSyncHttpBridge:
             listening = bool(st.get("listening"))
             connected = bool(st.get("connected"))
             parts = len(drives) if drives else 0
+            # /status is itself in flight while it answers; report the OTHER
+            # requests, which is what "is something stuck?" actually asks.
+            busy = self.inflight_detail()[1:]
             payload = {"ok": True, "listening": listening,
                        "connected": connected,
                        "current": st.get("current") or "",
-                       "drives": list(drives or []), "partitions": parts}
+                       "drives": list(drives or []), "partitions": parts,
+                       "inflight": len(busy),
+                       "busy": [{"seconds": round(s, 1), "request": r}
+                                for s, r in busy]}
             return answer(payload, [
                 f"listening: {'yes' if listening else 'no'}",
                 f"connected: {'yes' if connected else 'no'}",
                 f"current: {st.get('current') or '-'}",
                 f"drives: {' '.join(drives) if drives else '-'}",
                 f"partitions: {parts}",
-            ])
+                f"inflight: {len(busy)}",
+            ] + [f"busy: {s:.0f}s {r}" for s, r in busy])
 
         # ---- drives / free -------------------------------------------
         @app.route("/drives")

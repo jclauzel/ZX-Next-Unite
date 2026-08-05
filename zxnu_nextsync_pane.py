@@ -535,6 +535,9 @@ def build_nextsync_pane(
                             _re_bridge_session_state),
             port=port, connection_limit=conn_limit,
             auth_token=_token if (_token_on and _token) else None,
+            verbose=(configuration_dictionary.get(
+                SETTING_NEXTSYNC_HTTP_VERBOSE, "").strip().lower()
+                in ("true", "1", "yes", "on")),
             log=lambda s: add_nextsync_log_window(str(s)))
         ok, err = host._re_bridge.start()
         if ok:
