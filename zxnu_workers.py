@@ -324,6 +324,12 @@ class DotDotFirstProxyModel(QSortFilterProxyModel):
         # Size is logical column 1.
         if isinstance(source_model, QFileSystemModel) and left.column() == 1:
             return source_model.size(left) < source_model.size(right)
+        # Date Modified (logical column 3): compare the real QDateTime, not the
+        # "yyyy-MM-dd HH:mm" display string — the string happens to sort right
+        # up to the minute, but the datetime keeps seconds and never depends on
+        # what the display format is changed to later.
+        if isinstance(source_model, QFileSystemModel) and left.column() == 3:
+            return source_model.lastModified(left) < source_model.lastModified(right)
         return super().lessThan(left, right)
 
     def filterAcceptsRow(self, source_row, source_parent):

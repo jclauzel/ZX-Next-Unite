@@ -53,12 +53,14 @@ RE_ISDIR_ROLE = Qt.UserRole + 2
 ARROW_BTN_W = 40
 
 # Sort persistence. Each pane's sort is stored as "<key>:<asc|desc>" where key is
-# name/size/type. The two panes place those columns differently, so the key<->
-# visible-column mappings differ: the local (QFileSystemModel) columns are
-# Name(0)/Size(1)/Type(2); the Next (QStandardItemModel) columns are
-# Name(0)/Type(1)/Size(2).
-RE_SORT_KEYS = ("name", "size", "type")
-RE_LOCAL_SORT_COL = {"name": 0, "size": 1, "type": 2}
+# name/size/type (+ modified, local pane only). The two panes place those columns
+# differently, so the key<->visible-column mappings differ: the local
+# (QFileSystemModel) columns are Name(0)/Size(1)/Type(2)/Modified(3); the Next
+# (QStandardItemModel) columns are Name(0)/Type(1)/Size(2) — the wire listing
+# carries no timestamp, so the Next pane has no Modified column and a stray
+# "modified" in its saved sort falls back to name via the .get() lookups.
+RE_SORT_KEYS = ("name", "size", "type", "modified")
+RE_LOCAL_SORT_COL = {"name": 0, "size": 1, "type": 2, "modified": 3}
 RE_LOCAL_SORT_KEY = {v: k for k, v in RE_LOCAL_SORT_COL.items()}
 RE_NEXT_SORT_COL = {"name": 0, "type": 1, "size": 2}
 RE_NEXT_SORT_KEY = {v: k for k, v in RE_NEXT_SORT_COL.items()}
@@ -137,6 +139,17 @@ class ColoredFileSystemModel(QFileSystemModel):
             if self.isDir(index) or self.fileName(index) == "..":
                 return "DIR"
             return _ext_type_text(self.fileName(index))
+        if (role == Qt.ItemDataRole.DisplayRole and index.isValid()
+                and index.column() == 3):
+            # Modified column: a fixed ISO-style stamp instead of the OS-locale
+            # short form, so a column of dates lines up and reads at a glance
+            # (the whole point is spotting which files a sync just touched).
+            # Blank for the ".." row; folders keep their real mtime. Sorting
+            # compares the actual QDateTime (DotDotFirstProxyModel.lessThan),
+            # never this string.
+            if self.fileName(index) == "..":
+                return ""
+            return self.lastModified(index).toString("yyyy-MM-dd HH:mm")
         if role == Qt.ItemDataRole.ForegroundRole and index.isValid():
             c = self._colours
             if self.fileName(index) == "..":  # the parent ".." up-entry
@@ -148,6 +161,8 @@ class ColoredFileSystemModel(QFileSystemModel):
             if col == 2:                       # Type
                 return c["dir_type"] if is_dir else c["file_ext"]
             if col == 1 and not is_dir:        # Size (blank for folders)
+                return c["file_size"]
+            if col == 3:                       # Modified (same tint as Size)
                 return c["file_size"]
             return None                        # let the view use its default
         return super().data(index, role)
@@ -380,12 +395,16 @@ class RemoteExplorerWidget(QWidget):
         self.local_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.local_view.setUniformRowHeights(True)
         self.local_view.setSortingEnabled(True)
-        # Show Name / Type / Size (hide Date Modified) and, like the SD-card image
-        # tree, order them Name, Type, Size — QFileSystemModel's native order is
-        # Name(0), Size(1), Type(2), so swap the last two visually.
-        self.local_view.hideColumn(3)
+        # Show Name / Type / Size / Modified, ordering the first three like the
+        # SD-card image tree — QFileSystemModel's native order is Name(0),
+        # Size(1), Type(2), Date Modified(3), so swap Size/Type visually and let
+        # Modified sit last. The Modified column is the point of the local pane
+        # during a sync session: it shows at a glance which files just changed
+        # on this side (the Next pane cannot mirror it — the wire listing
+        # carries no timestamp).
         self.local_view.header().swapSections(1, 2)
         self.local_view.setColumnWidth(0, 250)
+        self.local_view.setColumnWidth(3, 130)
         # Persist the chosen sort: react to header clicks, and apply the saved one
         # now (guarded so applying it doesn't count as a user change).
         self.local_view.header().sortIndicatorChanged.connect(self._on_local_sort_changed)
