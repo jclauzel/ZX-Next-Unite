@@ -485,6 +485,27 @@ def build_sdcard_utils(
             except Exception:
                 pass
 
+        # And into the Remote Explorer view's mini log (both siblings),
+        # so bridge/server activity is traceable without flipping to the
+        # Classic tab. Bounded: a long session must not grow it forever.
+        mini = getattr(host, "_re_mini_log", None)
+        if mini is not None:
+            try:
+                if from_top:
+                    mini.insertItem(0, string_to_log)
+                else:
+                    mini.addItem(string_to_log)
+                while mini.count() > 500:
+                    mini.takeItem(mini.count() - 1)
+            except Exception:
+                pass
+        mini_r = getattr(host, "_re_mini_retro", None)
+        if mini_r is not None:
+            try:
+                mini_r.append(string_to_log)
+            except Exception:
+                pass
+
     def add_help_content(string_to_log:str, from_top:bool = True):
 
         newItem = QListWidgetItem()

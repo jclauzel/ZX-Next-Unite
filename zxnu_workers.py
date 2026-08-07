@@ -586,7 +586,15 @@ def _re_relname_under(remote, name):
 
 
 def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
-                             max_payload=1024):
+                             max_payload=512):
+    # max_payload is 512, not the protocol's 1024 cap: ZXNextRemote's bench
+    # testing found Next CLONES (N-Go) corrupt >512-byte continuous UART
+    # bursts at the Medium/Fast rates — deterministically, close checksums —
+    # and its own server dropped to 512-byte data chunks for exactly that.
+    # A put served from here with 1024-byte frames hit the same wall
+    # (2026-08-07: "put FAIL ... r1" on the N-Go, dead session, bridge 502).
+    # Real Nexts and the dot are indifferent; the cost is one extra 5-byte
+    # frame header per KB.
     """Run the NextSync ``.sync5 -listen`` remote file server in a worker thread.
 
     Waits for a Next running ``.sync5 -listen`` to connect, then drives it from
@@ -779,11 +787,30 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             "{seconds}s — assuming it is gone (powered off? "
                             "Wi-Fi dropped?)").format(
                                 seconds=int(PEER_SILENCE_LIMIT)))
+                        logging.warning(
+                            "Remote explorer: peer silent for %ss — "
+                            "assuming it is gone", int(PEER_SILENCE_LIMIT))
                         break
                     continue
-                except OSError:
+                # The two breaks below used to be SILENT: a session that
+                # died here (the Next's ESP resetting the TCP link, a
+                # Wi-Fi drop surfacing as ConnectionReset, …) left no
+                # trace anywhere — the UI just started blinking for a
+                # reconnect and the user was left guessing WHO hung up.
+                # Name the reason, in the console AND the file log.
+                except OSError as ex:
+                    log(ui_tr_now(
+                        "Remote explorer: connection error from the Next "
+                        "({error}) — session over.").format(error=ex))
+                    logging.warning(
+                        "Remote explorer: connection error from the Next: %s",
+                        ex)
                     break
                 if not data:
+                    log(ui_tr_now(
+                        "Remote explorer: the Next closed the connection."))
+                    logging.info(
+                        "Remote explorer: the Next closed the connection.")
                     break
                 last_rx = time.monotonic()
 

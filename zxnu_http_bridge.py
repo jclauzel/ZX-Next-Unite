@@ -310,6 +310,12 @@ class NextSyncHttpBridge:
         # connection_limit may be >1.
         self._put_spool = {}
         self._spool_lock = threading.Lock()
+        # Ranged /get relay cache: the last file pulled from the Next, kept
+        # for slice serving (ZXNextRemote's overrun-proof retry pulls ~90
+        # slices per 115KB — one dot-speed relay, then RAM). One entry:
+        # any off=0 request refreshes it, serving the final slice drops it.
+        self._get_cache = {"path": None, "data": b""}
+        self._get_cache_lock = threading.Lock()
         # In-flight request registry: rid -> [method, path, start, last_note].
         # Every request is tracked whether or not -v is on, because the two
         # things it powers are worth having always: the live count (exposed
@@ -482,6 +488,8 @@ class NextSyncHttpBridge:
             self._inflight.clear()
         with self._spool_lock:
             self._put_spool.clear()   # drop any unfinished chunked uploads
+        with self._get_cache_lock:
+            self._get_cache = {"path": None, "data": b""}
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -548,6 +556,8 @@ class NextSyncHttpBridge:
             with self._inflight_lock:
                 entry = self._inflight.pop(rid, None)
                 n = len(self._inflight)
+            if request.environ.get("zxnu.trace_quiet"):
+                return resp        # mid-file ranged slice: tracked, unlogged
             elapsed = time.monotonic() - entry[2] if entry else 0.0
             # A streamed body has no length to report yet; everything the
             # bridge serves today is a complete in-memory response.
@@ -719,20 +729,65 @@ class NextSyncHttpBridge:
             v = need(("path", "file"))
             if not v:
                 return bad("missing ?path=")
-            res = run("get", v[0])
-            if not res.get("ok"):
-                return fail(res, f"get {v[0]}")
-            name = os.path.basename(v[0].rstrip("/"))
-            data = res.get("data") or b""
-            if request.args.get("b64") in ("1", "true", "yes"):
-                # Base64 body: 7-bit-safe for CSpect's emulated ESP, where
-                # the caller adds .http's -7 flag to decode it back.
-                return Response(base64.b64encode(data) + b"\n",
-                                mimetype="text/plain")
-            return Response(
-                data, mimetype="application/octet-stream",
-                headers={"Content-Disposition":
-                         f'attachment; filename="{name}"'})
+            path = v[0]
+            name = os.path.basename(path.rstrip("/"))
+            b64 = request.args.get("b64") in ("1", "true", "yes")
+            off_arg = request.args.get("off")
+            if off_arg is None:
+                res = run("get", path)
+                if not res.get("ok"):
+                    return fail(res, f"get {path}")
+                data = res.get("data") or b""
+                if b64:
+                    # Base64 body: 7-bit-safe for CSpect's emulated ESP, where
+                    # the caller adds .http's -7 flag to decode it back.
+                    return Response(base64.b64encode(data) + b"\n",
+                                    mimetype="text/plain")
+                return Response(
+                    data, mimetype="application/octet-stream",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="{name}"'})
+            # ---- ranged slices (ZXNextRemote 0.7.10's overrun-proof retry).
+            # &off=&len= serve windows of ONE relay, cached bridge-side: a
+            # client whose UART cannot survive a streamed body (FIFO overrun
+            # during its SD writes) pulls the file in verified bites while
+            # the far Next still streams it only once. EOF for the client is
+            # a short slice; X-Total-Size rides along for the curious.
+            try:
+                off = int(off_arg)
+                ln = int(request.args.get("len") or "1280")
+            except ValueError:
+                return bad("off/len must be integers")
+            if off < 0 or not (1 <= ln <= 16384):
+                return bad("off/len out of range")
+            with self._get_cache_lock:
+                c = self._get_cache
+                data = c["data"] if (off and c["path"] == path) else None
+            if data is None:
+                # A fresh file (off=0) — or an evicted cache: relay anew.
+                res = run("get", path)
+                if not res.get("ok"):
+                    return fail(res, f"get {path}")
+                data = res.get("data") or b""
+                with self._get_cache_lock:
+                    self._get_cache = {"path": path, "data": data}
+            chunk = bytes(data[off:off + ln])
+            done = off + ln >= len(data)
+            if done:
+                with self._get_cache_lock:
+                    if self._get_cache["path"] == path:
+                        self._get_cache = {"path": None, "data": b""}
+            elif off and not self._verbose:
+                # ~90 mid-file slices would bury the console: only the
+                # relay (off=0) and the final slice keep their trace line.
+                request.environ["zxnu.trace_quiet"] = True
+            headers = {"X-Total-Size": str(len(data))}
+            if b64:
+                return Response(base64.b64encode(chunk) + b"\n",
+                                mimetype="text/plain", headers=headers)
+            headers["Content-Disposition"] = f'attachment; filename="{name}"'
+            return Response(chunk, mimetype="application/octet-stream",
+                            headers=headers)
 
         def _put_append(path, body):
             """Chunked upload for callers that cannot send a whole file in
