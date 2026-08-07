@@ -147,9 +147,19 @@ class ColoredFileSystemModel(QFileSystemModel):
             # Blank for the ".." row; folders keep their real mtime. Sorting
             # compares the actual QDateTime (DotDotFirstProxyModel.lessThan),
             # never this string.
+            #
+            # toLocalTime() is load-bearing: QDateTime.toString() prints the
+            # time in whatever spec the QDateTime CARRIES, and Qt has shipped
+            # file-time stamps in both LocalTime and UTC specs across
+            # versions/platforms (Windows file times are UTC FILETIMEs
+            # underneath). Displaying a UTC-spec'd stamp raw shifts every
+            # date by the timezone offset — hours off, silently. Converting
+            # explicitly is a no-op when the stamp is already local and the
+            # correct wall-clock everywhere else.
             if self.fileName(index) == "..":
                 return ""
-            return self.lastModified(index).toString("yyyy-MM-dd HH:mm")
+            return (self.lastModified(index)
+                    .toLocalTime().toString("yyyy-MM-dd HH:mm"))
         if role == Qt.ItemDataRole.ForegroundRole and index.isValid():
             c = self._colours
             if self.fileName(index) == "..":  # the parent ".." up-entry

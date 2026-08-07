@@ -940,6 +940,34 @@ def test_sync_root_and_local_pane():
           w._browse_dir() == root.replace("\\", "/"))
 
 
+def test_modified_column_local_time():
+    """The Modified column must show the OS-LOCAL wall time. QDateTime's
+    toString prints whatever spec the stamp carries, and Qt has shipped
+    file times in both LocalTime and UTC specs — a UTC-spec'd stamp shown
+    raw is hours off (the 9.5.6 hardware report). The expectation is
+    computed with datetime.fromtimestamp, the OS-local reference. On a
+    UTC-offset machine (the dev box) this FAILS if UTC ever leaks; on a
+    UTC-zone runner it still pins the formatting path."""
+    import datetime
+
+    root = tdir("mt_root")
+    f = tfile(root, "stamped.txt")
+    # A fixed local wall moment (mktime = local tuple -> epoch), so the
+    # expectation is deterministic and not "now"-flaky.
+    when = time.mktime((2026, 1, 15, 10, 30, 0, 0, 0, -1))
+    os.utime(f, (when, when))
+
+    w, _calls = make_widget(local_start_dir=root)
+    select_local(w, f)                 # waits out the async population
+    six = w.local_model.index(f)
+    shown = w.local_model.data(six.siblingAtColumn(3),
+                               Qt.ItemDataRole.DisplayRole)
+    expect = datetime.datetime.fromtimestamp(
+        os.path.getmtime(f)).strftime("%Y-%m-%d %H:%M")
+    check("Modified column shows the OS-local wall time",
+          shown == expect, f"shown={shown!r} expected={expect!r}")
+
+
 def test_local_file_operations():
     root = tdir("lop_root")
     w, calls = make_widget(local_start_dir=root)
@@ -1306,6 +1334,7 @@ def main():
         test_rcpy_precheck_and_background()
         test_cancel_and_disconnect_mid_op()
         test_sync_root_and_local_pane()
+        test_modified_column_local_time()
         test_local_file_operations()
         test_drag_and_drop()
         test_arrow_pulse_and_overlay_resize()
