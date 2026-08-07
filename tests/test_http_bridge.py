@@ -152,6 +152,28 @@ def phase_a():
     st, body = http(HTTP_A, "/get?path=/games/lev")
     check("A /get folder -> 400", st == 400 and b"folder" in body, body)
 
+    # Ranged slices (ZXNextRemote 0.7.10's overrun-proof retry): &off=&len=
+    # windows of one cached relay; EOF = a short slice; the cache drops
+    # once the end is served and a mid-file cache miss recovers by
+    # re-relaying.
+    got = b""
+    ok_slices = True
+    while True:
+        st, part = http(HTTP_A, f"/get?path=boot.bas&off={len(got)}&len=16")
+        ok_slices = ok_slices and st == 200
+        got += part
+        if len(part) < 16:
+            break
+    check("A /get ranged reassembles", ok_slices and got == filebytes,
+          (ok_slices, len(got)))
+    st, part = http(HTTP_A, "/get?path=boot.bas&off=13&len=16")
+    check("A /get ranged cache-miss recovers",
+          st == 200 and part == filebytes[13:29], part)
+    st, part = http(HTTP_A, "/get?path=boot.bas&off=999&len=16")
+    check("A /get ranged past EOF -> empty", st == 200 and part == b"", part)
+    st, part = http(HTTP_A, "/get?path=boot.bas&off=-1&len=16")
+    check("A /get ranged bad off -> 400", st == 400, (st, part))
+
     st, body = http(HTTP_A, "/put?path=/ho/up2.bin", body=b"\x01\x02" * 100)
     check("A /put", st == 200 and b"OK put /ho/up2.bin (200 bytes)" in body, body)
 

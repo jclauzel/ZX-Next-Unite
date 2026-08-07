@@ -395,6 +395,35 @@ def main():
         print(f"FAIL idle-stop: alive={t2.is_alive()} after {dt:.2f}s")
         ok = False
 
+    # ── a peer that hangs up must be NAMED, not a silent break ─────────
+    # The empty-recv and OSError exits used to break without a word: the
+    # session just "blinked reconnecting" and nobody knew who hung up
+    # (the N-Go tree-copy report). Close the socket right after the
+    # handshake and require the reason line + the disconnected signal.
+    sig3 = RemoteExplorerSignals()
+    logs3, disc3 = [], []
+    sig3.log.connect(logs3.append, Qt.DirectConnection)
+    sig3.disconnected.connect(lambda: disc3.append(1), Qt.DirectConnection)
+    stop3 = threading.Event()
+    t3 = threading.Thread(target=run_remote_listen_server,
+                          args=(sig3, queue.Queue(), stop3, PORT + 2),
+                          daemon=True)
+    t3.start()
+    time.sleep(0.3)
+    s3 = socket.create_connection(("127.0.0.1", PORT + 2), timeout=5)
+    s3.sendall(b"Listen")
+    assert rx_payload(s3) == b"Listening"
+    s3.close()                            # FIN with no Bye, mid-session
+    t3.join(timeout=5)
+    stop3.set()
+    if (not t3.is_alive() and disc3
+            and any("closed the connection" in ln for ln in logs3)):
+        print("PASS hangup: peer FIN is named in the log + disconnected")
+    else:
+        print("FAIL hangup: alive=", t3.is_alive(), "disc=", disc3,
+              "logs=", logs3)
+        ok = False
+
     shutil.rmtree(tmp, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
     sys.exit(0 if ok else 1)

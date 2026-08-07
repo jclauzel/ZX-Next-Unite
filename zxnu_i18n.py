@@ -851,8 +851,14 @@ CATALOGS = {
             "Recibiendo: {name} -> {path}",
         "Remote explorer: connected to {address}":
             "Explorador remoto: conectado a {address}",
+        "Remote explorer: connection error from the Next ({error}) — session over.":
+            "Explorador remoto: error de conexión con el Next ({error}); sesión terminada.",
+        "Remote explorer: the Next closed the connection.":
+            "Explorador remoto: el Next cerró la conexión.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Explorador remoto: sin noticias del Next durante {seconds}s: se da por perdido (¿apagado? ¿Wi-Fi caído?)",
+        "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
+            "Explorador remoto: el servidor sigue ejecutándose en segundo plano; deténlo desde la vista Remote Explorer.",
         "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
             "Explorador remoto: navega a una carpeta en el explorador izquierdo, pulsa 'Set current folder as new sync root folder', haz clic en 'Start Remote Explorer NextSync server' y luego ejecuta {command} en tu Next.",
         "Remote explorer: port {port} is already in use — is another ZX-Next-Unite (or NextSync server) already running?":
@@ -1935,8 +1941,14 @@ CATALOGS = {
             "A receber: {name} -> {path}",
         "Remote explorer: connected to {address}":
             "Explorador remoto: ligado a {address}",
+        "Remote explorer: connection error from the Next ({error}) — session over.":
+            "Explorador remoto: erro de ligação com o Next ({error}); sessão terminada.",
+        "Remote explorer: the Next closed the connection.":
+            "Explorador remoto: o Next fechou a ligação.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Explorador remoto: sem resposta do Next há {seconds}s: assume-se que desapareceu (desligado? Wi-Fi caiu?)",
+        "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
+            "Explorador remoto: o servidor continua a correr em segundo plano; pára-o na vista Remote Explorer.",
         "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
             "Explorador remoto: navega até uma pasta no explorador esquerdo, prime 'Set current folder as new sync root folder', clica em 'Start Remote Explorer NextSync server' e depois executa {command} no teu Next.",
         "Remote explorer: port {port} is already in use — is another ZX-Next-Unite (or NextSync server) already running?":
@@ -3017,8 +3029,14 @@ CATALOGS = {
             "Odbieranie: {name} -> {path}",
         "Remote explorer: connected to {address}":
             "Eksplorator zdalny: połączono z {address}",
+        "Remote explorer: connection error from the Next ({error}) — session over.":
+            "Eksplorator zdalny: błąd połączenia z Nextem ({error}) — sesja zakończona.",
+        "Remote explorer: the Next closed the connection.":
+            "Eksplorator zdalny: Next zamknął połączenie.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Eksplorator zdalny: brak sygnału od Nexta od {seconds}s — uznano za utracony (wyłączony? zerwane Wi-Fi?)",
+        "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
+            "Eksplorator zdalny: serwer nadal działa w tle — zatrzymaj go w widoku Remote Explorer.",
         "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
             "Eksplorator zdalny: przejdź do folderu w lewym eksploratorze, naciśnij 'Set current folder as new sync root folder', kliknij 'Start Remote Explorer NextSync server', a następnie uruchom {command} na swoim Next.",
         "Remote explorer: port {port} is already in use — is another ZX-Next-Unite (or NextSync server) already running?":
@@ -4101,8 +4119,14 @@ CATALOGS = {
             "Получение: {name} -> {path}",
         "Remote explorer: connected to {address}":
             "Удалённый проводник: подключено к {address}",
+        "Remote explorer: connection error from the Next ({error}) — session over.":
+            "Удалённый проводник: ошибка соединения с Next ({error}) — сеанс завершён.",
+        "Remote explorer: the Next closed the connection.":
+            "Удалённый проводник: Next закрыл соединение.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Удалённый проводник: от Next нет данных {seconds}с — считаем, что он пропал (выключен? пропал Wi-Fi?)",
+        "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
+            "Удалённый проводник: сервер продолжает работать в фоне — остановите его в виде Remote Explorer.",
         "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
             "Удалённый проводник: перейдите к папке в левом проводнике, нажмите 'Set current folder as new sync root folder', затем 'Start Remote Explorer NextSync server' и выполните {command} на Next.",
         "Remote explorer: port {port} is already in use — is another ZX-Next-Unite (or NextSync server) already running?":
@@ -5184,8 +5208,14 @@ CATALOGS = {
             "Přijímání: {name} -> {path}",
         "Remote explorer: connected to {address}":
             "Vzdálený průzkumník: připojeno k {address}",
+        "Remote explorer: connection error from the Next ({error}) — session over.":
+            "Vzdálený průzkumník: chyba spojení s Nextem ({error}) — relace ukončena.",
+        "Remote explorer: the Next closed the connection.":
+            "Vzdálený průzkumník: Next ukončil spojení.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Vzdálený průzkumník: od Nextu {seconds}s nic nepřišlo — považuje se za ztracený (vypnutý? spadla Wi-Fi?)",
+        "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
+            "Vzdálený průzkumník: server dál běží na pozadí — zastavte ho v pohledu Remote Explorer.",
         "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
             "Vzdálený průzkumník: přejděte do složky v levém průzkumníku, stiskněte 'Set current folder as new sync root folder', klikněte na 'Start Remote Explorer NextSync server' a pak na Nextu spusťte {command}.",
         "Remote explorer: port {port} is already in use — is another ZX-Next-Unite (or NextSync server) already running?":
@@ -6270,8 +6300,14 @@ CATALOGS = {
             "Réception : {name} -> {path}",
         "Remote explorer: connected to {address}":
             "Explorateur distant : connecté à {address}",
+        "Remote explorer: connection error from the Next ({error}) — session over.":
+            "Explorateur distant : erreur de connexion avec le Next ({error}) — session terminée.",
+        "Remote explorer: the Next closed the connection.":
+            "Explorateur distant : le Next a fermé la connexion.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Explorateur distant : plus de nouvelles du Next depuis {seconds}s — considéré comme perdu (éteint ? Wi-Fi coupé ?)",
+        "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
+            "Explorateur distant : le serveur continue de tourner en arrière-plan — arrêtez-le depuis la vue Remote Explorer.",
         "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
             "Explorateur distant : accédez à un dossier dans l'explorateur de gauche, appuyez sur 'Set current folder as new sync root folder', cliquez sur 'Start Remote Explorer NextSync server', puis exécutez {command} sur votre Next.",
         "Remote explorer: port {port} is already in use — is another ZX-Next-Unite (or NextSync server) already running?":

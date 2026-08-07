@@ -1061,10 +1061,15 @@ def inspect_phase11():
         app.quit()
         return
 
-    check("the Remote Explorer is the visible page of the log stack",
-          win.nextsync_log_stack.currentWidget() is re_widget,
+    # The stack page is the CONTAINER (explorer + mini log) since the RE
+    # view grew its own log strip; the explorer widget lives inside it.
+    check("the Remote Explorer container is the visible page of the log stack",
+          win.nextsync_log_stack.currentWidget() is win._re_container
+          and re_widget.parent() is win._re_container,
           str(win.nextsync_log_stack.currentWidget()))
     check("the Remote Explorer is actually visible", re_widget.isVisible())
+    check("the mini log is built and visible below the panes",
+          win._re_mini_log is not None and win._re_mini_log.isVisible())
 
     # Both file panes: the local tree and the Next tree.
     trees = re_widget.findChildren(QTreeView)
@@ -1105,7 +1110,8 @@ def inspect_phase11():
     tabs.setCurrentIndex(0)
     QCoreApplication.processEvents()
     check("returning to the Remote Explorer still shows it",
-          win.nextsync_log_stack.currentWidget() is re_widget)
+          win.nextsync_log_stack.currentWidget() is win._re_container
+          and re_widget.isVisible())
     app.quit()
 
 

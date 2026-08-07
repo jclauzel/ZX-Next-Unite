@@ -35,7 +35,7 @@ from PySide6.QtGui import (QKeySequence)
 from PySide6.QtWidgets import (QWidget, QLabel, QPushButton, QCheckBox,
     QComboBox, QLineEdit, QHBoxLayout, QVBoxLayout, QProgressBar, QTreeView,
     QFileSystemModel, QGroupBox, QRadioButton, QButtonGroup, QListWidget,
-    QTabBar, QStackedWidget, QAbstractItemView)
+    QTabBar, QStackedWidget, QAbstractItemView, QMenu, QApplication)
 
 from zxnu_http_bridge import NextSyncHttpBridge, QueueBridgeHost
 from zxnu_network import detect_local_ipv4
@@ -430,6 +430,10 @@ def build_nextsync_pane(
     host._re_stop = None
     host._re_queue = None
     host._re_sig = None
+    host._re_mini_log = None       # Remote Explorer mini log (list side)
+    host._re_mini_retro = None     # ...and its lazy retro sibling
+    host._re_mini_stack = None
+    host._re_container = None      # RE widget + mini log, one stack entry
     host._re_running = False
     host._re_pulse_timer = None            # green "running" pulse (play label)
     host._re_start_btn_pulse_timer = None  # yellow "start me" pulse (start button)
@@ -757,6 +761,45 @@ def build_nextsync_pane(
         except Exception:
             pass
 
+    def _re_mini_sync_mode():
+        # Keep the Remote Explorer's mini log on the same Classic/Retro
+        # side as the big log window. The retro sibling is built lazily
+        # (pygame only spins up if the user actually uses Retro mode) and
+        # seeded from the mini list, newest-first source read bottom-up.
+        stack = getattr(host, "_re_mini_stack", None)
+        if stack is None:
+            return
+        if getattr(host, "_nextsync_pygame_on", False):
+            if host._re_mini_retro is None:
+                try:
+                    from zxnu_pygame import RetroLogWidget
+                    mini_r = RetroLogWidget(
+                        scrollable=True, follow_tail=True, context_copy=True,
+                        font_px=getattr(host, "_retro_log_font_size",
+                                        DEFAULT_RETRO_LOG_FONT_SIZE))
+                    mini_r.set_font_step_cb(
+                        lambda d: host._step_retro_log_font(d))
+                    try:
+                        mini_r.enable_background(
+                            getattr(host, "_nextsync_pygame_anim", True))
+                        mini_r.set_text_color(
+                            qcolor_to_hex(host.img_color_retro_log))
+                    except Exception:
+                        pass
+                    for i in range(host._re_mini_log.count() - 1, -1, -1):
+                        mini_r.append(host._re_mini_log.item(i).text())
+                    host._re_mini_retro = mini_r
+                    stack.addWidget(mini_r)
+                except Exception:
+                    logging.exception("Remote Explorer mini retro log failed")
+                    return                    # pygame missing: stay classic
+            stack.setCurrentWidget(host._re_mini_retro)
+            host._re_mini_retro.start()
+        else:
+            if getattr(host, "_re_mini_retro", None) is not None:
+                host._re_mini_retro.stop()
+            stack.setCurrentWidget(host._re_mini_log)
+
     def _nextsync_build_remote_explorer():
         if host._re_widget is not None:
             return host._re_widget
@@ -782,7 +825,46 @@ def build_nextsync_pane(
             on_toast=lambda title, msg, variant="red": host._show_toast(
                 title, msg, variant=variant, duration_ms=9000))
         host._re_widget = widget
-        host.nextsync_log_stack.addWidget(widget)
+        # ---- mini log under the explorer panes (2026-08-07): tracing the
+        # bridge/server activity used to require flipping to the Classic
+        # tab — which, before the same-day fix, even stopped the server.
+        # This is the same stream (add_nextsync_log_window mirrors into
+        # it), newest first like the classic list, right-click to copy,
+        # with a retro sibling that follows the Classic/Retro toggle.
+        container = QWidget()
+        _lay = QVBoxLayout(container)
+        _lay.setContentsMargins(0, 0, 0, 0)
+        _lay.setSpacing(4)
+        _lay.addWidget(widget, 1)
+        mini = QListWidget(container)
+        mini.setContextMenuPolicy(Qt.CustomContextMenu)
+
+        def _re_mini_menu(pos):
+            menu = QMenu(mini)
+            item = mini.itemAt(pos)
+            if item is not None:
+                menu.addAction(
+                    ui_tr_now("Copy"),
+                    lambda: QApplication.clipboard().setText(item.text()))
+            menu.addAction(
+                ui_tr_now("Copy all text"),
+                lambda: QApplication.clipboard().setText("\n".join(
+                    mini.item(i).text() for i in range(mini.count()))))
+            menu.exec(mini.mapToGlobal(pos))
+        mini.customContextMenuRequested.connect(_re_mini_menu)
+        # Seed with the classic log's story so far (it shows newest-first;
+        # same order here).
+        for i in range(min(host.nextsync_log.count(), 200)):
+            mini.addItem(host.nextsync_log.item(i).text())
+        mini_stack = QStackedWidget(container)
+        mini_stack.setFixedHeight(110)
+        mini_stack.addWidget(mini)
+        _lay.addWidget(mini_stack)
+        host._re_mini_log = mini
+        host._re_mini_stack = mini_stack
+        host._re_container = container
+        host.nextsync_log_stack.addWidget(container)
+        _re_mini_sync_mode()
         _re_apply_item_colors()          # tint to the user's configured colours
         # Sync the cached sync root with whatever the widget restored (a saved
         # path enables Start; first run leaves it disabled).
@@ -1224,8 +1306,10 @@ def build_nextsync_pane(
 
     def _nextsync_toggle_remote_explorer(checked):
         if checked:
-            widget = _nextsync_build_remote_explorer()
-            host.nextsync_log_stack.setCurrentWidget(widget)
+            _nextsync_build_remote_explorer()
+            # The stack entry is the container (explorer + mini log).
+            host.nextsync_log_stack.setCurrentWidget(host._re_container)
+            _re_mini_sync_mode()
             # Swap the normal sync controls for the dedicated server control.
             host.nextsync_prepare_server.setVisible(False)
             host.nextsync_start_server.setVisible(False)
@@ -1249,16 +1333,35 @@ def build_nextsync_pane(
             host.nextsync_fileexplorer_and_buttons_container.setVisible(False)
             host.nextsync_filterlabel.setVisible(False)
             host.nextsync_filtertext.setVisible(False)
-            add_nextsync_log_window(
-                ui_tr_now(
-                    "Remote explorer: navigate to a folder in the left file "
-                    "explorer, press 'Set current folder as new sync root "
-                    "folder', click 'Start Remote Explorer NextSync server', "
-                    "then run {command} on your Next.").format(
-                        command="'.sync5 -L' (-l or -listen)"))
+            # The full walkthrough is for the EMPTY state only: with a sync
+            # root already set (or the server already running) it read like
+            # the app had forgotten the root it was actively using.
+            if (not getattr(host, "_re_sync_root", "")
+                    and not getattr(host, "_re_running", False)):
+                add_nextsync_log_window(
+                    ui_tr_now(
+                        "Remote explorer: navigate to a folder in the left file "
+                        "explorer, press 'Set current folder as new sync root "
+                        "folder', click 'Start Remote Explorer NextSync server', "
+                        "then run {command} on your Next.").format(
+                            command="'.sync5 -L' (-l or -listen)"))
         else:
-            _nextsync_stop_listen_server()
+            # The listen server SURVIVES leaving the Remote Explorer view
+            # (2026-08-07). Stopping it here sent a protocol 'Q' — or, with
+            # a transfer in flight, a force-close after the goodbye grace —
+            # every time the user flipped to the Classic tab to watch the
+            # console… which is exactly where the HTTP bridge lines print.
+            # The bridge rides this same session, so a peek at the log
+            # killed the peer's connection ("Server quit." / "put FAIL
+            # link down r1" on the Next) and every later bridge call
+            # answered 503, looking like a phantom server crash. Stopping
+            # is now only ever explicit: the Start/Stop button, the SD
+            # tab's context menu, or app exit.
             _re_stop_startbtn_pulse()   # leaving the RE view: drop the pulse
+            if getattr(host, "_re_running", False):
+                add_nextsync_log_window(ui_tr_now(
+                    "Remote explorer: server keeps running in the "
+                    "background — stop it from the Remote Explorer view."))
             # Restore the log view that matches the current retro/classic
             # choice — NOT always the classic list. Forcing the list here
             # while retro mode is on desyncs the retro toggle: the button
@@ -1377,6 +1480,7 @@ def build_nextsync_pane(
             host.nextsync_pygame_button.setText(ui_tr_now("🖼 Switch to 'Classic' view mode"))
             host.nextsync_log_stack.setCurrentWidget(widget)
             widget.start()
+            _re_mini_sync_mode()       # the RE view's mini log follows
             _nextsync_pygame_persist(True)
         else:
             host._nextsync_pygame_on = False
@@ -1384,6 +1488,7 @@ def build_nextsync_pane(
             if host._nextsync_retro_log is not None:
                 host._nextsync_retro_log.stop()
             host.nextsync_log_stack.setCurrentWidget(host.nextsync_log)
+            _re_mini_sync_mode()       # the RE view's mini log follows
             _nextsync_pygame_persist(False)
 
     host.nextsync_pygame_button.toggled.connect(_nextsync_on_pygame_toggled)
