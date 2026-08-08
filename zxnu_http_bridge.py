@@ -783,11 +783,35 @@ class NextSyncHttpBridge:
                 request.environ["zxnu.trace_quiet"] = True
             headers = {"X-Total-Size": str(len(data))}
             if b64:
-                return Response(base64.b64encode(chunk) + b"\n",
-                                mimetype="text/plain", headers=headers)
-            headers["Content-Disposition"] = f'attachment; filename="{name}"'
-            return Response(chunk, mimetype="application/octet-stream",
-                            headers=headers)
+                body = base64.b64encode(chunk) + b"\n"
+                mimetype = "text/plain"
+            else:
+                headers["Content-Disposition"] = \
+                    f'attachment; filename="{name}"'
+                mimetype = "application/octet-stream"
+                body = chunk
+            # PACED writes (ZXNextRemote 0.7.15's hardware round): the
+            # Next's UART RX FIFO is 512 bytes with no flow control
+            # behind it, and its client must drain a continuous burst
+            # mid-flight or lose the tail — hardware showed slices
+            # starving at ~one espframe-ring's worth at Medium
+            # (1.152 Mbaud, 4.4 ms of FIFO grace; remy's .http never
+            # sees this only because it stays at 115200 = 44 ms). So a
+            # slice is sent as ≤256-byte TCP pushes with a breather in
+            # between: each push fits the FIFO whole even if the client
+            # naps through it. Adds ~20 ms per KB slice — invisible next
+            # to the relay. Content-Length is set explicitly because a
+            # streamed response has no automatic one and the client
+            # VERIFIES it per slice.
+            headers["Content-Length"] = str(len(body))
+
+            def paced(payload=body):
+                for i in range(0, len(payload), 256):
+                    yield payload[i:i + 256]
+                    time.sleep(0.005)
+
+            return Response(paced(), mimetype=mimetype, headers=headers,
+                            direct_passthrough=True)
 
         def _put_append(path, body):
             """Chunked upload for callers that cannot send a whole file in
