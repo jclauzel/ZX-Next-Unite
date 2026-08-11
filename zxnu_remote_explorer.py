@@ -1481,6 +1481,40 @@ class RemoteExplorerWidget(QWidget):
             self.refresh()
         self._op_step_done(f"Uploaded {posixpath.basename(remote.rstrip('/')) or remote}")
 
+    # The exact guidance the user sees when a remote write is refused by the
+    # far side's OS protection. A constant so the toast, the log and the tests
+    # speak with one voice.
+    OSP_TITLE = "🛡  Remote OS protection"
+    OSP_MESSAGE = (
+        "Write access appears to be blocked in the remote operating system. "
+        "If you are using ZX Next Remote as the listener, please check its "
+        "\"OS protection\" setting and customise the restricted directory "
+        "list if appropriate."
+    )
+
+    def on_os_protected(self, op, path):
+        """A remote WRITE (mkdir/rmdir/rm/rename/copy) was refused by the far
+        side's OS protection. Retrying — or grinding through the rest of a
+        batch — would only repeat the refusal, so stop the operation and say
+        exactly what to check: the block is on the OTHER machine's settings,
+        not here."""
+        self._log(f"{op} {path}: BLOCKED by remote OS protection")
+        self._on_toast(self.OSP_TITLE, self.OSP_MESSAGE, "red")
+        self._record_op_failure(
+            f"{op} blocked by remote OS protection: "
+            f"{posixpath.basename(path.rstrip('/')) or path}")
+        # Stop the batch like a user cancel: drop what is still queued (an
+        # in-flight transfer finishes on its own) and delete no further move
+        # sources. Force _op_quiet_failures off so the end-of-op toast lists
+        # this even inside the paste precheck.
+        if self._op_active and not self._op_cancelled:
+            self._op_cancelled = True
+            self._op_quiet_failures = False
+            drained = self._drain_raw() if self._drain_raw else 0
+            self._op_completed += int(drained or 0)
+            self._cut_jobs.clear()
+        self._op_step_done()
+
     def on_op_done(self, ok, op, path):
         self._log(f"{op} {path}: {'ok' if ok else 'FAILED'}")
         # A failed mkdir usually just means the folder already exists, so the many

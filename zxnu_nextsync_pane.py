@@ -1112,6 +1112,7 @@ def build_nextsync_pane(
         host._re_sig.got.connect(widget.on_got)
         host._re_sig.put_done.connect(widget.on_put_done)
         host._re_sig.op_done.connect(widget.on_op_done)
+        host._re_sig.os_protected.connect(widget.on_os_protected)
         host._re_sig.drives.connect(widget.on_drives)
         host._re_sig.free_space.connect(widget.on_free_space)
         host._re_sig.fsize.connect(widget.on_fsize)
