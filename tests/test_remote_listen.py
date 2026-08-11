@@ -132,10 +132,18 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
                 buf += d
             cap['put'] = (arg, buf)
         elif op == b'V':                     # ren: arg is "old\x00new"
-            cap['ren'] = arg
-            push(b'O', 0)
+            # A protecting ZXNextRemote listener refuses a write whose src OR
+            # dst is under a protected root with 'F' + "OSP" (0.9.0).
+            if arg.split("\x00", 1)[0].startswith("/sys") or \
+               arg.split("\x00", 1)[-1].startswith("/sys"):
+                push(b'FOSP', 0)
+            else:
+                cap['ren'] = arg
+                push(b'O', 0)
         elif op == b'X':
-            if arg_np.startswith("/del"):
+            if arg_np.startswith("/sys"):
+                push(b'FOSP', 0)             # OS-protected rm refusal
+            elif arg_np.startswith("/del"):
                 # rm against the mock fs; "locked.txt" simulates an esxDOS
                 # delete failure (read-only/open file).
                 parent, name = fs_parent(fs, arg_np)
@@ -149,7 +157,9 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
             else:
                 push(b'O', 0)
         elif op == b'R':
-            if arg_np.startswith("/del"):
+            if arg_np.startswith("/sys"):
+                push(b'FOSP', 0)             # OS-protected rmdir refusal
+            elif arg_np.startswith("/del"):
                 # esxDOS semantics: rmdir only removes an EMPTY directory.
                 parent, name = fs_parent(fs, arg_np)
                 node = parent.get(name) if parent is not None else None
@@ -161,7 +171,10 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
             else:
                 push(b'O', 0)
         elif op == b'M':
-            push(b'O', 0)
+            if arg_np.startswith("/sys"):
+                push(b'FOSP', 0)             # OS-protected mkdir refusal
+            else:
+                push(b'O', 0)
         elif op == b'W':
             # getdrives (dot v5.1+): 'O' + current drive letter + mounted letters.
             push(b'OC' + b"CM", 0)
@@ -214,7 +227,8 @@ def main():
           "del3": {"m1.txt": b"M1", "msub": {"m2.txt": b"M2"}}}
     cap = {}
     got = {'listing': None, 'gets': [], 'put': None, 'puts': [], 'ops': [],
-           'ls_failed': [], 'drives': None, 'free': [], 'fsize': [], 'hb': []}
+           'ls_failed': [], 'drives': None, 'free': [], 'fsize': [], 'hb': [],
+           'osp': []}
 
     sig = RemoteExplorerSignals()
     sig.listing.connect(lambda p, e: got.update(listing=(p, e)), Qt.DirectConnection)
@@ -222,6 +236,7 @@ def main():
     sig.got.connect(lambda r, l: got['gets'].append((r, l)), Qt.DirectConnection)
     sig.put_done.connect(lambda ok, r: (got.update(put=(ok, r)), got['puts'].append((ok, r))), Qt.DirectConnection)
     sig.op_done.connect(lambda ok, o, p: got['ops'].append((ok, o, p)), Qt.DirectConnection)
+    sig.os_protected.connect(lambda o, p: got['osp'].append((o, p)), Qt.DirectConnection)
     sig.drives.connect(lambda cur, ls: got.update(drives=(cur, list(ls))), Qt.DirectConnection)
     sig.free_space.connect(lambda d, n: got['free'].append((d, n)), Qt.DirectConnection)
     sig.fsize.connect(lambda p, d: got['fsize'].append((p, d)), Qt.DirectConnection)
@@ -247,7 +262,15 @@ def main():
               ("fsize", "/games/lev"),              # tree size incl. 48-bit hi
               ("fsize", "/gone"),                   # missing path -> 'F' -> None
               ("rmtree", "M:/del3"),                # drive-prefixed recursive delete
-              ("rename", "/ho/a.txt", "/ho/b.txt"), ("quit",)]:
+              ("rename", "/ho/a.txt", "/ho/b.txt"),
+              # OS protection (0.9.0): a protecting listener refuses these with
+              # 'F' + "OSP"; the worker must raise os_protected, NOT a plain
+              # op_done(False), and the stream must stay in sync afterwards.
+              ("mkdir", "/sys/evil"),               # protected mkdir -> OSP
+              ("rm", "/sys/config/boot"),           # protected rm    -> OSP
+              ("rename", "/games/x", "/sys/x"),     # protected dst   -> OSP
+              ("ls", "/"),                          # proves the stream survived
+              ("quit",)]:
         cmd_q.put(c)
 
     t = threading.Thread(target=run_remote_listen_server, args=(sig, cmd_q, stop, PORT), daemon=True)
@@ -371,6 +394,20 @@ def main():
         print("PASS lsfail:", got['ls_failed'])
     else:
         print("FAIL lsfail:", got['ls_failed']); ok = False
+    # OS protection (0.9.0): each protected write raised os_protected(op, path)
+    # and NOT a plain op_done(False) — and the marker was never mistaken for a
+    # normal failure. The trailing ls "/" still succeeded, proving the OSP 'F'
+    # blocks did not desync the stream.
+    if (got['osp'] == [("mkdir", "/sys/evil"), ("rm", "/sys/config/boot"),
+                       ("rename", "/games/x")]
+            and not any(o[2] and str(o[2]).startswith("/sys") for o in got['ops'])):
+        print("PASS osprot:", got['osp'])
+    else:
+        print("FAIL osprot:", got['osp'], "ops:", got['ops']); ok = False
+    if got['listing'] and got['listing'][0] == "/":
+        print("PASS osprot-sync: stream survived the OSP refusals")
+    else:
+        print("FAIL osprot-sync:", got['listing']); ok = False
 
     # ── unconnected listener must stop promptly on the stop event ──────
     # The pane's stop path skips the 10 s "Q" goodbye grace when no Next

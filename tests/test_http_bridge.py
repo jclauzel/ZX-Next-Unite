@@ -29,6 +29,7 @@ HTTP_A = 18080
 HTTP_B = 18081
 HTTP_TOK1 = 18082
 HTTP_TOK2 = 18083
+HTTP_OSP = 18084
 
 ok = True
 
@@ -388,12 +389,54 @@ def phase_token():
         bridge2.stop()
 
 
+def phase_osprot():
+    """OS protection (0.9.0): a write refused by the far side's OS protection
+    reaches the adapter as {'ok': False, 'http': 401, 'error': 'os-protected: …'}
+    (the worker maps ZXNextRemote's 'F'+OSP marker to that). The bridge must
+    relay it as HTTP 401 with the 'os-protected' body — distinct from the
+    bearer-token 401 — so the ZXNextRemote HTTP client can name it. The dotN
+    is never involved; a plain Next simply never produces this."""
+    print("=== phase OSPROT: write refusal -> 401 os-protected ===")
+    from zxnu_workers import RE_OSP_ERROR
+
+    class _OspAdapter:
+        def state(self):
+            return {"listening": True, "connected": True,
+                    "current": "C", "drives": ["C"]}
+
+        def run(self, op, a1="", a2="", body=None, timeout=None):
+            # Reads are always allowed; writes into a protected root are 401.
+            if op in ("mkdir", "rmdir", "rm", "ren", "rcpy", "put"):
+                return {"ok": False, "http": 401, "error": RE_OSP_ERROR}
+            return {"ok": True}
+
+    bridge = NextSyncHttpBridge(_OspAdapter(), port=HTTP_OSP)
+    okd, err = bridge.start()
+    check("OSPROT bridge started", okd, err)
+    try:
+        for path, verb in (("/mkdir?path=/sys/x", "mkdir"),
+                           ("/rm?path=/sys/x", "rm"),
+                           ("/rmdir?path=/sys/x", "rmdir")):
+            st, body = http(HTTP_OSP, path)
+            check(f"{verb} in a protected root -> 401", st == 401, (st, body[:40]))
+            check(f"{verb} 401 body says os-protected",
+                  b"os-protected" in body, body[:60])
+        # A read verb the same adapter allows still succeeds -> the guard is
+        # the write refusal, not a blanket block.
+        st, body = http(HTTP_OSP, "/free?drive=C&json=1")
+        check("a read verb is unaffected", st == 200, (st, body[:40]))
+    finally:
+        bridge.stop()
+
+
 def main():
     phase_a()
     print()
     phase_b()
     print()
     phase_token()
+    print()
+    phase_osprot()
     print()
     phase_trace()
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")

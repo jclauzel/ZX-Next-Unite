@@ -424,6 +424,11 @@ class RemoteExplorerSignals(QObject):
     got          = Signal(str, str)       # (remote, local_path) a "get" finished
     put_done     = Signal(bool, str)      # (ok, remote) a "put" finished
     op_done      = Signal(bool, str, str) # (ok, op, path) mkdir/rmdir/rm result
+    # (op, path): a WRITE was refused by the far side's OS protection
+    # (a ZXNextRemote listener, 0.9.0). Distinct from op_done so the UI can
+    # stop the whole batch and explain WHERE the setting lives, instead of
+    # counting one generic failure and pressing on.
+    os_protected = Signal(str, str)
     # (current, letters): the Next's default drive + every mounted drive letter,
     # e.g. ("C", ["C", "M"]). ("", []) when the dot predates the 'W' command.
     drives       = Signal(str, object)
@@ -459,6 +464,28 @@ def _re_checksums(payload):
         c0 = (c0 ^ x) & 0xff
         c1 = (c1 + c0) & 0xff
     return c0, c1
+
+
+# ZXNextRemote's "OS protection" refusal marker (0.9.0): a listener that
+# guards its OS folders answers a blocked WRITE with an 'F' status block
+# carrying these three bytes after the 'F'. We surface it as a distinct,
+# actionable message instead of a generic failure; the dotN never sends
+# it, so an ordinary Next just fails the way it always did. The message
+# is deliberately explicit about WHERE the setting lives — the block is
+# on the far machine, not here.
+RE_OSP_MARK = b"OSP"
+RE_OSP_ERROR = (
+    "os-protected: write access is blocked in the remote operating "
+    "system. If the far side is ZX Next Remote, check its \"OS protection\" "
+    "setting and customise the restricted directory list if appropriate."
+)
+
+
+def _re_is_osp(payload):
+    """True if a reply PAYLOAD (block minus framing) is ZXNextRemote's
+    OS-protection write refusal: 'F' followed by the OSP marker."""
+    return (payload[0:1] == b"F" and
+            payload[1:1 + len(RE_OSP_MARK)] == RE_OSP_MARK)
 
 
 def _re_is_fail_block(data):
@@ -1044,14 +1071,20 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                     elif op in ("mkdir", "rmdir", "rm"):
                         opc = {"mkdir": b"M", "rmdir": b"R", "rm": b"X"}[op]
                         path = cmd[1]
-                        res = {'ok': None}
+                        res = {'ok': None, 'osp': False}
 
                         def _h(payload, _r=res):
                             _r['ok'] = (payload[0:1] == b'O')
+                            _r['osp'] = _re_is_osp(payload)
                             return True
                         _re_sendpacket(conn, opc + path.encode(), 0)
                         if _re_reply_call(conn, _h):
-                            if reply:
+                            if res['osp'] and reply:
+                                reply.put({'ok': False, 'error': RE_OSP_ERROR,
+                                           'http': 401})
+                            elif res['osp']:
+                                sig.os_protected.emit(op, path)
+                            elif reply:
                                 reply.put({'ok': bool(res['ok'])})
                             else:
                                 sig.op_done.emit(bool(res['ok']), op, path)
@@ -1114,10 +1147,11 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         # command the UI enqueued.
                         jid, path = cmd[1], cmd[2]
                         opc = b"X" if op == "rmtree_rm" else b"R"
-                        res = {'ok': None}
+                        res = {'ok': None, 'osp': False}
 
                         def _h(payload, _r=res):
                             _r['ok'] = (payload[0:1] == b'O')
+                            _r['osp'] = _re_is_osp(payload)
                             return True
                         _re_sendpacket(conn, opc + path.encode(), 0)
                         if _re_reply_call(conn, _h):
@@ -1125,13 +1159,32 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             if job is not None:
                                 if not res['ok']:
                                     job['fails'] += 1
-                                    log(f"delete: could not remove {path}")
-                                if op == "rmtree_rmdir" and path == job['root']:
+                                    job['osp'] = job.get('osp') or res['osp']
+                                    log(f"delete: could not remove {path}"
+                                        + (" (remote OS protection)"
+                                           if res['osp'] else ""))
+                                # A protected member ends the whole tree delete
+                                # now: the rest would only repeat the refusal.
+                                root_done = (op == "rmtree_rmdir" and
+                                             path == job['root'])
+                                if res['osp'] or root_done:
+                                    if res['osp']:
+                                        # abandon the queued remainder of THIS job
+                                        local_cmds = deque(
+                                            c for c in local_cmds
+                                            if not (len(c) > 1 and c[1] == jid))
                                     rmtree_jobs.pop(jid, None)
-                                    if job.get('reply'):
+                                    if job.get('osp') and job.get('reply'):
+                                        job['reply'].put(
+                                            {'ok': False, 'error': RE_OSP_ERROR,
+                                             'http': 401})
+                                    elif job.get('osp'):
+                                        sig.os_protected.emit("delete", job['root'])
+                                    elif job.get('reply'):
                                         job['reply'].put({'ok': job['fails'] == 0})
                                     else:
-                                        sig.op_done.emit(job['fails'] == 0, "delete", path)
+                                        sig.op_done.emit(job['fails'] == 0,
+                                                         "delete", job['root'])
                         else:
                             job = rmtree_jobs.pop(jid, None)
                             if job is not None and job.get('reply'):
@@ -1224,7 +1277,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         # op_done - the UI counts one per queued command, so
                         # even the old-dot fallback must complete the op.
                         src, dst = cmd[1], cmd[2]
-                        res = {'ok': None, 'files': 0}
+                        res = {'ok': None, 'files': 0, 'osp': False}
 
                         def _h(payload, _r=res):
                             if payload[0:1] == b'D':
@@ -1237,11 +1290,17 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                                     "copy", payload[1:].decode(errors='replace'))
                                 return False
                             _r['ok'] = (payload[0:1] == b'O')
+                            _r['osp'] = _re_is_osp(payload)
                             return True
                         _re_sendpacket(conn, b"C" + src.encode() + b"\x00" +
                                        dst.encode(), 0)
                         got_reply = _re_reply_call(conn, _h)
-                        if got_reply and res['ok'] is not None:
+                        if got_reply and res['osp'] and reply:
+                            reply.put({'ok': False, 'files': res['files'],
+                                       'error': RE_OSP_ERROR, 'http': 401})
+                        elif got_reply and res['osp']:
+                            sig.os_protected.emit("copy", dst)
+                        elif got_reply and res['ok'] is not None:
                             if reply:
                                 reply.put({'ok': bool(res['ok']),
                                            'files': res['files']} if res['ok'] else
@@ -1298,15 +1357,21 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                             sig.fsize.emit(path, res['data'])
                     elif op == "rename":
                         old, new = cmd[1], cmd[2]
-                        res = {'ok': None}
+                        res = {'ok': None, 'osp': False}
 
                         def _h(payload, _r=res):
                             _r['ok'] = (payload[0:1] == b'O')
+                            _r['osp'] = _re_is_osp(payload)
                             return True
                         # 'V' + old + NUL + new, in one length-framed block.
                         _re_sendpacket(conn, b"V" + old.encode() + b"\x00" + new.encode(), 0)
                         if _re_reply_call(conn, _h):
-                            if reply:
+                            if res['osp'] and reply:
+                                reply.put({'ok': False, 'error': RE_OSP_ERROR,
+                                           'http': 401})
+                            elif res['osp']:
+                                sig.os_protected.emit("rename", old)
+                            elif reply:
                                 reply.put({'ok': bool(res['ok'])})
                             else:
                                 sig.op_done.emit(bool(res['ok']), "rename", old)

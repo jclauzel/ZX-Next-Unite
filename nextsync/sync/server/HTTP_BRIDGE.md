@@ -515,6 +515,14 @@ curl "http://localhost/rfsize?path=/games&json=1"
   unless you enable the bearer token** — run it on your own LAN only. See
   **[Security](#security--treat-it-as-a-lan-only-file-server)** above for the
   `ZXNEXTUNITE-BRIDGE-TOKEN` option and why the transport is still clear text.
+* **`401` with an `os-protected` body** (distinct from the bearer-token
+  `401`): the connected Next is **ZX Next Remote** acting as the listener
+  with its *OS protection* setting on, and the write verb (`/put`, `/mkdir`,
+  `/rmdir`, `/rm`, `/ren`, `/rcpy`) targeted one of the folders it guards.
+  Read verbs (`/ls`, `/get`) are never blocked. The fix is on that machine —
+  adjust its OS-protection setting or its protected-folder list. The bridge
+  itself does not implement this guard, and the `.sync5` dotN never triggers
+  it; it is purely a property of a ZX Next Remote listener.
 * Long operations (`/get`, `/put`, `/rcpy`, `/rfsize`, `/rmtree`) wait up to
   15 minutes; quick verbs time out after 45 s (`504`).
 * Wire protocol: unchanged. The bridge simply queues the same commands the

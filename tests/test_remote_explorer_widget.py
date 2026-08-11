@@ -1265,6 +1265,41 @@ def test_select_all_skips_updir():
     check("local pane Ctrl-A leaves '..' out", ".." not in lsel, repr(lsel))
 
 
+def test_os_protection_stops_and_explains():
+    """A remote WRITE refused by the far side's OS protection (a ZXNextRemote
+    listener, 0.9.0) must STOP the batch and toast the actionable message —
+    not count one generic failure and grind through the rest."""
+    print("\n== remote OS protection: stop + explain ==")
+    root = tdir("osp_root")
+    drained = {"n": 0}
+
+    def drain_hook():
+        drained["n"] += 1
+        return 1          # pretend one queued command was dropped
+    w, calls = make_widget(local_start_dir=root, drain=drain_hook)
+    connect_widget(w, calls)
+
+    # Stand up a two-command batch (delete two files), then have the FIRST
+    # come back OS-protected. The op must end immediately, draining the rest.
+    fa = tfile(root, "a.bin")
+    fb = tfile(root, "b.bin")
+    select_local(w, fa, fb)
+    w._put_selected()
+    check("two writes queued", w._op_total == 2 and w._op_active)
+    calls["toasts"].clear()
+
+    w.on_os_protected("put", "/sys/a.bin")
+    check("OS-protection toast fired, red",
+          len(calls["toasts"]) == 1
+          and calls["toasts"][0][2] == "red")
+    check("toast message names the OS protection setting",
+          "OS protection" in calls["toasts"][0][1]
+          and "restricted directory" in calls["toasts"][0][1])
+    check("the rest of the batch was drained and the op ended",
+          drained["n"] == 1 and not w._op_active and w.isEnabled())
+    check("the block is logged", logged(calls, "BLOCKED by remote OS protection"))
+
+
 def test_emulator_start_from_next():
     """'Start <emulator> with <file>' on the NEXT pane.
 
@@ -1417,6 +1452,7 @@ def main():
         test_compact_buttons_fit_translated_labels()
         test_emulator_start_from_next()
         test_select_all_skips_updir()
+        test_os_protection_stops_and_explains()
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
