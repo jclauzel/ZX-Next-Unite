@@ -65,7 +65,8 @@ from PySide6.QtWidgets import (
 
 from zxnu_config import (SETTING_EXPLORERPATH, SETTING_IMAGE_EXPLORERPATH,
                          is_filetype_a_directory)
-from zxnu_workers import CompactButton, DotDotFirstProxyModel, HdfTaskWorker
+from zxnu_workers import (CompactButton, DotDotFirstProxyModel,
+                          HdfTaskWorker, bind_select_all_except_updir)
 
 # ---------------------------------------------------------------------------
 # The disk image explorer is a lazily-populated tree: the image can be listed
@@ -134,6 +135,13 @@ class SdCardExplorerPane(QWidget):
         self.treeview.setColumnWidth(0, 250)
         self.treeview.doubleClicked.connect(self._on_local_double_clicked)
         self.treeview.clicked.connect(self._on_local_clicked)
+        # Ctrl-A selects the folder's CONTENTS — never the ".." parent row
+        # pinned on top (a select-all fed into delete/drag must not smuggle
+        # the folder above in).
+        bind_select_all_except_updir(
+            self.treeview,
+            lambda ix: self.model.fileName(
+                self.proxy_model.mapToSource(ix)) == "..")
         # Context menu / key handling / drag & drop are operation-layer glue
         # and stay wired by MainWindow onto these widgets (via its aliases).
 

@@ -38,7 +38,8 @@ from zxnu_config import (
 )
 from zxnu_workers import (
     CompactButton, DotDotFirstProxyModel, HdfProgressDialog,
-    zip_create_with_dialog, zip_extract_with_dialog, zip_unique_name,
+    bind_select_all_except_updir, zip_create_with_dialog,
+    zip_extract_with_dialog, zip_unique_name,
 )
 
 # Roles carrying the remote entry's full posix path and its directory flag.
@@ -405,6 +406,8 @@ class RemoteExplorerWidget(QWidget):
         self.local_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.local_view.setUniformRowHeights(True)
         self.local_view.setSortingEnabled(True)
+        # Ctrl-A selects the folder's contents, never the ".." parent row.
+        bind_select_all_except_updir(self.local_view, self._is_local_updir)
         # Show Name / Type / Size / Modified, ordering the first three like the
         # SD-card image tree — QFileSystemModel's native order is Name(0),
         # Size(1), Type(2), Date Modified(3), so swap Size/Type visually and let
@@ -538,6 +541,9 @@ class RemoteExplorerWidget(QWidget):
         self.next_view.setUniformRowHeights(True)
         self.next_view.setRootIsDecorated(False)
         self.next_view.setColumnWidth(0, 250)
+        # Ctrl-A selects the listing's contents, never the ".." parent row.
+        bind_select_all_except_updir(
+            self.next_view, lambda ix: ix.data(RE_PATH_ROLE) == "..")
         # The Next model is rebuilt on every listing, so instead of Qt's view sort
         # (which would sort the Size column as text and unpin "..") we sort the
         # entries ourselves in _rebuild_next_rows and just drive the header: make
