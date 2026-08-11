@@ -23,8 +23,8 @@ from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
                          is_filetype_a_directory, mame_autostart_staging_dir,
                          mame_can_autostart)
 from PySide6.QtCore import (
-    QEvent, QObject, QPoint, QRect, QRunnable, QSize, QSortFilterProxyModel,
-    QTimer, Qt, Signal, Slot,
+    QEvent, QItemSelection, QItemSelectionModel, QObject, QPoint, QRect,
+    QRunnable, QSize, QSortFilterProxyModel, QTimer, Qt, Signal, Slot,
 )
 from PySide6.QtGui import QFontInfo
 # ui_tr_now translates the USER-FACING server log lines at their call sites
@@ -343,6 +343,37 @@ class DotDotFirstProxyModel(QSortFilterProxyModel):
             return True
         name = source_model.fileName(index)
         return pattern.lower() in name.lower()
+
+def bind_select_all_except_updir(view, is_updir):
+    """Make the view's Select All (Ctrl-A, or any programmatic selectAll)
+    leave the ".." parent-directory row OUT of the selection: selecting
+    "everything here" never means "and also the folder above" — a
+    selection fed into delete/copy/drag must not smuggle the parent in.
+
+    ``is_updir`` receives a column-0 view index (proxy-level where the
+    view has a proxy) and answers whether it is the ".." row. The
+    override is assigned as an instance attribute — the same duck-punch
+    pattern the drag-and-drop hooks already use; Shiboken resolves
+    virtual calls through the instance, so Qt's own Ctrl-A handling
+    lands here too. Only top-level rows under the current root are
+    checked: DotDotFirstProxyModel pins ".." there, and an expanded
+    subfolder never shows one."""
+    base_select_all = type(view).selectAll
+
+    def _select_all_except_updir():
+        base_select_all(view)
+        model = view.model()
+        root = view.rootIndex()
+        last_col = max(0, model.columnCount(root) - 1)
+        for row in range(model.rowCount(root)):
+            ix = model.index(row, 0, root)
+            if is_updir(ix):
+                view.selectionModel().select(
+                    QItemSelection(ix, model.index(row, last_col, root)),
+                    QItemSelectionModel.Deselect)
+
+    view.selectAll = _select_all_except_updir
+
 
 class WorkerSignals(QObject):
 

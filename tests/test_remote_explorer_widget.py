@@ -34,6 +34,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from PySide6.QtCore import QItemSelectionModel, QMimeData, QPointF, Qt, QUrl
 from PySide6.QtGui import QColor, QDropEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 import zxnu_remote_explorer as rex
@@ -1191,6 +1192,57 @@ def test_compact_buttons_fit_translated_labels():
     w.deleteLater()
 
 
+def test_select_all_skips_updir():
+    """Ctrl-A (and programmatic selectAll) selects a listing's CONTENTS,
+    never the ".." parent row pinned on top — on BOTH panes. A select-all
+    fed into delete/copy/drag must not smuggle the folder above in."""
+    print("\n== Select All skips the '..' row ==")
+
+    # -- Next pane: below drive root, so the '..' row exists --------------
+    w, calls = make_widget()
+    connect_widget(w, calls)
+    w.on_listing("/GAMES", [(False, 10, "a.tap"), (False, 20, "b.tap"),
+                            (True, 0, "SUB")])
+    names = [w.next_model.item(r, 0).text()
+             for r in range(w.next_model.rowCount())]
+    check("next pane fixture shows '..' + 3 entries",
+          len(names) == 4 and ".." in names, repr(names))
+    QTest.keyClick(w.next_view, Qt.Key_A, Qt.ControlModifier)
+    sel = [ix.data(RE_PATH_ROLE)
+           for ix in w.next_view.selectionModel().selectedRows(0)]
+    check("next pane Ctrl-A selects the three entries", len(sel) == 3,
+          repr(sel))
+    check("next pane Ctrl-A leaves '..' out", ".." not in sel, repr(sel))
+    w.next_view.clearSelection()
+    w.next_view.selectAll()
+    sel = [ix.data(RE_PATH_ROLE)
+           for ix in w.next_view.selectionModel().selectedRows(0)]
+    check("next pane selectAll() skips '..' too",
+          len(sel) == 3 and ".." not in sel, repr(sel))
+
+    # -- local pane: a real folder with a parent --------------------------
+    root = tdir("ctrla_root")
+    for n in ("one.txt", "two.txt"):
+        tfile(root, n)
+    os.mkdir(os.path.join(root, "sub"))
+    w, calls = make_widget(local_start_dir=root)
+    lroot = w.local_view.rootIndex()
+    deadline = time.monotonic() + 10.0
+    while (time.monotonic() < deadline
+           and w.local_proxy.rowCount(lroot) < 4):
+        QApplication.processEvents()
+        time.sleep(0.02)
+    lnames = [w.local_proxy.index(r, 0, lroot).data()
+              for r in range(w.local_proxy.rowCount(lroot))]
+    check("local pane fixture shows '..' + 3 entries",
+          len(lnames) == 4 and ".." in lnames, repr(lnames))
+    QTest.keyClick(w.local_view, Qt.Key_A, Qt.ControlModifier)
+    lsel = [ix.data() for ix in w.local_view.selectionModel().selectedRows(0)]
+    check("local pane Ctrl-A selects the three entries", len(lsel) == 3,
+          repr(lsel))
+    check("local pane Ctrl-A leaves '..' out", ".." not in lsel, repr(lsel))
+
+
 def test_emulator_start_from_next():
     """'Start <emulator> with <file>' on the NEXT pane.
 
@@ -1342,6 +1394,7 @@ def main():
         test_idle_details_provider()
         test_compact_buttons_fit_translated_labels()
         test_emulator_start_from_next()
+        test_select_all_skips_updir()
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")

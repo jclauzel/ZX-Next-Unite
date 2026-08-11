@@ -527,7 +527,14 @@ def build_sdcard_utils(
     def set_treeview_properties():
         host.treeview.setSortingEnabled(True)
         host.treeview.sortByColumn(0, Qt.SortOrder.AscendingOrder)
-        host.treeview.setSelectionMode(QAbstractItemView.SingleSelection)
+        # ExtendedSelection, NOT SingleSelection: SdCardExplorerPane builds
+        # the local tree multi-select (multi-item drags, Ctrl-A) and this
+        # refresh hook runs after every navigation — the old SingleSelection
+        # here silently downgraded the tree moments after construction,
+        # which is exactly why Ctrl-A "did nothing" on the SD Card tab.
+        # The classic NextSync tree below never opted into multi-select,
+        # so its line keeps the Qt default it always had.
+        host.treeview.setSelectionMode(QAbstractItemView.ExtendedSelection)
         host.nextsync_treeview.setSortingEnabled(True)
         host.nextsync_treeview.sortByColumn(0, Qt.SortOrder.AscendingOrder)
         host.nextsync_treeview.setSelectionMode(QAbstractItemView.SingleSelection)
