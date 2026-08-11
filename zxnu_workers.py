@@ -16,6 +16,7 @@ import struct
 import tempfile
 import threading
 import time
+import weakref
 from collections import deque, namedtuple
 from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
                          UP_DIRECTORY, VERSION3, VERSION4,
@@ -357,10 +358,21 @@ def bind_select_all_except_updir(view, is_updir):
     virtual calls through the instance, so Qt's own Ctrl-A handling
     lands here too. Only top-level rows under the current root are
     checked: DotDotFirstProxyModel pins ".." there, and an expanded
-    subfolder never shows one."""
+    subfolder never shows one.
+
+    The closure holds the view only WEAKLY: ``view.selectAll = closure``
+    capturing ``view`` strongly would make every bound view a reference
+    cycle through its own __dict__, leaving the C++/Python teardown
+    order to the cycle collector — exactly the class of
+    platform-dependent shutdown crash Shiboken widgets must not be
+    exposed to."""
     base_select_all = type(view).selectAll
+    view_ref = weakref.ref(view)
 
     def _select_all_except_updir():
+        view = view_ref()
+        if view is None:
+            return
         base_select_all(view)
         model = view.model()
         root = view.rootIndex()
