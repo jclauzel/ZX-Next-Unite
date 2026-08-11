@@ -16,10 +16,15 @@ This file exercises the helper on the SD-card local pane's exact
 construction (QFileSystemModel + DotDotFirstProxyModel + QTreeView); the
 Remote Explorer's two panes are covered on the real widget in
 test_remote_explorer_widget.py."""
+import faulthandler
 import os
 import sys
 import tempfile
 import time
+
+# stderr is unbuffered; a native Qt crash would otherwise eat the buffered
+# stdout and with it any clue of which check was running (seen once on CI).
+faulthandler.enable()
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")

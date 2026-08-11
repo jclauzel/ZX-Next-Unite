@@ -19,11 +19,18 @@ only after confirmation), the rcpy free-space precheck, sync-root handling,
 local file operations (new folder/rename/delete/copy-paste/zip round-trip)
 and drag & drop entry points."""
 import logging
+import faulthandler
 import os
 import shutil
 import sys
 import tempfile
 import time
+
+# A native crash inside Qt loses the BUFFERED stdout of this process (a CI
+# run died exactly that way, leaving no clue which check it was in); the
+# faulthandler traceback goes to stderr, which is unbuffered, so the crash
+# point survives into the log.
+faulthandler.enable()
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 # The compact-button checks print translated labels ("W górę", "Вверх"), which
@@ -1207,6 +1214,11 @@ def test_select_all_skips_updir():
              for r in range(w.next_model.rowCount())]
     check("next pane fixture shows '..' + 3 entries",
           len(names) == 4 and ".." in names, repr(names))
+    # Key events go to a SHOWN widget: this suite normally never shows its
+    # widgets, but synthesising keystrokes at a never-realised view is the
+    # kind of corner offscreen Qt is allowed to dislike.
+    w.show()
+    QApplication.processEvents()
     QTest.keyClick(w.next_view, Qt.Key_A, Qt.ControlModifier)
     sel = [ix.data(RE_PATH_ROLE)
            for ix in w.next_view.selectionModel().selectedRows(0)]
@@ -1226,16 +1238,26 @@ def test_select_all_skips_updir():
         tfile(root, n)
     os.mkdir(os.path.join(root, "sub"))
     w, calls = make_widget(local_start_dir=root)
-    lroot = w.local_view.rootIndex()
+
+    # Re-fetch the root index on EVERY poll: QFileSystemModel populates
+    # asynchronously and each directoryLoaded invalidates proxy indexes,
+    # so a root index captured once and reused across processEvents()
+    # dangles — rowCount(stale index) was an access violation that took
+    # a CI run (and its buffered stdout) with it.
+    def lrows():
+        return w.local_proxy.rowCount(w.local_view.rootIndex())
+
     deadline = time.monotonic() + 10.0
-    while (time.monotonic() < deadline
-           and w.local_proxy.rowCount(lroot) < 4):
+    while time.monotonic() < deadline and lrows() < 4:
         QApplication.processEvents()
         time.sleep(0.02)
+    lroot = w.local_view.rootIndex()
     lnames = [w.local_proxy.index(r, 0, lroot).data()
               for r in range(w.local_proxy.rowCount(lroot))]
     check("local pane fixture shows '..' + 3 entries",
           len(lnames) == 4 and ".." in lnames, repr(lnames))
+    w.show()
+    QApplication.processEvents()
     QTest.keyClick(w.local_view, Qt.Key_A, Qt.ControlModifier)
     lsel = [ix.data() for ix in w.local_view.selectionModel().selectedRows(0)]
     check("local pane Ctrl-A selects the three entries", len(lsel) == 3,
