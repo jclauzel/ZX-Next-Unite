@@ -699,8 +699,14 @@ CATALOGS = {
             "Imagen de disco extraída: {path}",
         "Extracted {count} file(s) from {name} into {folder} on the image.":
             "Extraído(s) {count} archivo(s) de {name} en {folder} en la imagen.",
+        "Extracting image... %p%":
+            "Extrayendo imagen... %p%",
         "Failed downloading NextZXOS image: {error}":
             "Error al descargar la imagen NextZXOS: {error}",
+        "Load Failed":
+            "Error de carga",
+        "The image was extracted but could not be loaded:":
+            "La imagen se extrajo pero no se pudo cargar:",
         "Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.":
             "Error al ejecutar hdfmonkey; asegúrate de que está instalado en el mismo directorio local que zx-next-unite.",
         "Failed extracting NextZXOS image: {error}":
@@ -1789,8 +1795,14 @@ CATALOGS = {
             "Imagem de disco extraída: {path}",
         "Extracted {count} file(s) from {name} into {folder} on the image.":
             "Extraído(s) {count} ficheiro(s) de {name} para {folder} na imagem.",
+        "Extracting image... %p%":
+            "Extraindo imagem... %p%",
         "Failed downloading NextZXOS image: {error}":
             "Falha ao transferir a imagem NextZXOS: {error}",
+        "Load Failed":
+            "Falha ao carregar",
+        "The image was extracted but could not be loaded:":
+            "A imagem foi extraída mas não pôde ser carregada:",
         "Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.":
             "Falha ao executar o hdfmonkey; certifica-te de que está instalado na mesma pasta local que o zx-next-unite.",
         "Failed extracting NextZXOS image: {error}":
@@ -2877,8 +2889,14 @@ CATALOGS = {
             "Wypakowano obraz dysku: {path}",
         "Extracted {count} file(s) from {name} into {folder} on the image.":
             "Wypakowano {count} plik(ów) z {name} do {folder} na obrazie.",
+        "Extracting image... %p%":
+            "Wypakowywanie obrazu... %p%",
         "Failed downloading NextZXOS image: {error}":
             "Nie udało się pobrać obrazu NextZXOS: {error}",
+        "Load Failed":
+            "Błąd wczytywania",
+        "The image was extracted but could not be loaded:":
+            "Obraz został wypakowany, ale nie udało się go wczytać:",
         "Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.":
             "Nie udało się uruchomić hdfmonkey — upewnij się, że jest zainstalowany w tym samym katalogu co zx-next-unite.",
         "Failed extracting NextZXOS image: {error}":
@@ -3967,8 +3985,14 @@ CATALOGS = {
             "Образ диска распакован: {path}",
         "Extracted {count} file(s) from {name} into {folder} on the image.":
             "Извлечено файлов: {count} из {name} в {folder} на образе.",
+        "Extracting image... %p%":
+            "Извлечение образа... %p%",
         "Failed downloading NextZXOS image: {error}":
             "Не удалось скачать образ NextZXOS: {error}",
+        "Load Failed":
+            "Ошибка загрузки",
+        "The image was extracted but could not be loaded:":
+            "Образ был распакован, но не удалось его загрузить:",
         "Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.":
             "Не удалось запустить hdfmonkey — убедитесь, что он установлен в том же каталоге, что и zx-next-unite.",
         "Failed extracting NextZXOS image: {error}":
@@ -5056,8 +5080,14 @@ CATALOGS = {
             "Obraz disku rozbalen: {path}",
         "Extracted {count} file(s) from {name} into {folder} on the image.":
             "Rozbaleno {count} souborů z {name} do {folder} na obrazu.",
+        "Extracting image... %p%":
+            "Rozbalování obrazu... %p%",
         "Failed downloading NextZXOS image: {error}":
             "Nepodařilo se stáhnout obraz NextZXOS: {error}",
+        "Load Failed":
+            "Načtení selhalo",
+        "The image was extracted but could not be loaded:":
+            "Obraz byl rozbalen, ale nepodařilo se jej načíst:",
         "Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.":
             "Nepodařilo se spustit hdfmonkey — ujistěte se, že je nainstalován ve stejném adresáři jako zx-next-unite.",
         "Failed extracting NextZXOS image: {error}":
@@ -6148,8 +6178,14 @@ CATALOGS = {
             "Image disque extraite : {path}",
         "Extracted {count} file(s) from {name} into {folder} on the image.":
             "{count} fichier(s) extrait(s) de {name} vers {folder} sur l'image.",
+        "Extracting image... %p%":
+            "Extraction de l'image... %p%",
         "Failed downloading NextZXOS image: {error}":
             "Échec du téléchargement de l'image NextZXOS : {error}",
+        "Load Failed":
+            "Échec du chargement",
+        "The image was extracted but could not be loaded:":
+            "L'image a été extraite mais n'a pas pu être chargée :",
         "Failed executing hdfmonkey, please make sure it is installed in the same local directory as zx-next-unite.":
             "Échec de l'exécution de hdfmonkey ; vérifiez qu'il est installé dans le même dossier local que zx-next-unite.",
         "Failed extracting NextZXOS image: {error}":

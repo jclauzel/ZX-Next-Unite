@@ -800,22 +800,68 @@ def build_sdcard_utils(
                 download_progress.setVisible(False)
                 return
 
-            # Extract the disk image from the downloaded archive so it can be loaded
+            logging.info(f"Downloaded NextZXOS image archive to {save_path}")
+
+            # Extract the disk image from the downloaded archive so it can be
+            # loaded. The archive's own folder layout is deliberately ignored:
+            # the image lands NEXT TO the zip, NAMED AFTER IT
+            # (cspect-next-2gb-fresh.zip -> cspect-next-2gb-fresh.img) — the
+            # stock archives keep their image under a fixed internal folder
+            # (2gb/cspect-next-2gb.img), so honouring it meant a renamed
+            # download produced no artifact carrying the chosen name (the
+            # reported "it didn't extract"), and every download of the same
+            # size silently overwrote the previous one through that fixed
+            # path. Extraction is chunked with the events pumped so a 2 GB
+            # inflate shows progress instead of freezing the whole UI for its
+            # duration — the freeze is the prime suspect for the reported
+            # never-diagnosed post-extract crash, and every stage now also
+            # writes the file log so a future failure leaves a trace.
             image_to_load = save_path
             try:
                 if zipfile.is_zipfile(save_path):
-                    extract_dir = os.path.dirname(save_path)
                     with zipfile.ZipFile(save_path) as archive:
                         image_members = [
-                            name for name in archive.namelist()
-                            if name.lower().endswith((".img", ".hdf"))
+                            info for info in archive.infolist()
+                            if info.filename.lower().endswith((".img", ".hdf"))
                         ]
                         if image_members:
-                            archive.extract(image_members[0], extract_dir)
-                            image_to_load = os.path.join(extract_dir, image_members[0])
+                            member = image_members[0]
+                            target = os.path.join(
+                                os.path.dirname(save_path),
+                                os.path.splitext(os.path.basename(save_path))[0]
+                                + os.path.splitext(member.filename)[1].lower())
+                            logging.info(
+                                f"Extracting {member.filename} "
+                                f"({member.file_size} bytes) to {target}")
+                            download_progress.setValue(0)
+                            download_progress.setFormat(
+                                ui_tr_now("Extracting image... %p%"))
+                            extracted = 0
+                            with archive.open(member) as src, \
+                                    open(target, "wb") as dst:
+                                while True:
+                                    chunk = src.read(4 * 1024 * 1024)
+                                    if not chunk:
+                                        break
+                                    dst.write(chunk)
+                                    extracted += len(chunk)
+                                    if member.file_size:
+                                        download_progress.setValue(min(
+                                            int(extracted * 100 / member.file_size),
+                                            100))
+                                    QApplication.processEvents()
+                            image_to_load = target
                             add_main_log_window(ui_tr_now(
                                 "Extracted disk image: {path}").format(
                                     path=image_to_load))
+                            logging.info(f"Extracted disk image: {image_to_load}")
+                        else:
+                            # No .img/.hdf inside: fall through with the zip
+                            # itself (load_image will report it cannot read
+                            # it) — but say so in the log rather than nothing.
+                            logging.warning(
+                                f"No .img/.hdf member found in {save_path}; "
+                                "loading the archive path as-is")
             except Exception as extract_error:
                 logging.error(f"Failed extracting NextZXOS image: {extract_error}")
                 add_main_log_window(ui_tr_now(
@@ -830,30 +876,50 @@ def build_sdcard_utils(
                 cancel_button.setEnabled(True)
                 image_combo.setEnabled(True)
                 download_progress.setVisible(False)
+                download_progress.setFormat("%p%")
                 return
 
             dialog.accept()
 
-            global right_disk_image_explorer_path
-            global right_disk_image_path
+            # Selecting + loading can only fail unexpectedly from here on —
+            # and the dialog is already gone, so an uncaught exception used
+            # to leave the user staring at an unchanged window with nothing
+            # in any log (the reported symptom). Catch, log, and SAY it.
+            try:
+                global right_disk_image_explorer_path
+                global right_disk_image_path
 
-            # Select the downloaded image into the image input
-            host.imageinput.setCurrentText(normalize_sd_image_path(image_to_load))
-            configuration_dictionary[SETTING_HDDFILE] = host.imageinput.currentText()
+                # Select the downloaded image into the image input
+                logging.info(f"Selecting downloaded image: {image_to_load}")
+                host.imageinput.setCurrentText(normalize_sd_image_path(image_to_load))
+                configuration_dictionary[SETTING_HDDFILE] = host.imageinput.currentText()
 
-            right_disk_image_explorer_path = []
-            _set_right_disk_content([])
-            right_disk_image_path = ""
-            _set_right_disk_selected([])
-            image_clear_model()
+                right_disk_image_explorer_path = []
+                _set_right_disk_content([])
+                right_disk_image_path = ""
+                _set_right_disk_selected([])
+                image_clear_model()
 
-            # Now try to load it
-            def _on_loaded(success):
-                if success:
-                    save_configuration_file()
-                    if host.settings_warn_image_nearly_full_checkbox.isChecked():
-                        _warn_if_image_nearly_full(host.right_disk_image_path)
-            load_image(_on_loaded)
+                # Now try to load it
+                def _on_loaded(success):
+                    if success:
+                        logging.info(f"Downloaded image loaded: "
+                                     f"{host.right_disk_image_path}")
+                        save_configuration_file()
+                        if host.settings_warn_image_nearly_full_checkbox.isChecked():
+                            _warn_if_image_nearly_full(host.right_disk_image_path)
+                load_image(_on_loaded)
+            except Exception as select_error:
+                logging.error(
+                    f"Failed selecting/loading the downloaded image: {select_error}")
+                add_main_log_window(ui_tr_now(
+                    "Failed loading image: {path}.").format(path=image_to_load))
+                QMessageBox.critical(
+                    host,
+                    ui_tr_now("Load Failed"),
+                    ui_tr_now("The image was extracted but could not be loaded:")
+                    + f"\n{select_error}"
+                )
 
         download_button.clicked.connect(do_download)
 

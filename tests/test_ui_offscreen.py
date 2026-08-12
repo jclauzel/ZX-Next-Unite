@@ -85,7 +85,7 @@ DROPSRC = os.path.join(SCRATCH, "dropsrc.txt")
 DELZONE = os.path.join(SCRATCH, "delzone")
 
 PHASE = int(sys.argv[1]) if len(sys.argv) > 1 else None
-ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
 
 # Base cfg for the isolated app copy: update checks off (MAME/CSpect AND the
 # app's own GitHub release check) so no phase ever hits the network, and the
@@ -269,6 +269,24 @@ elif PHASE == 12:
     ensure_scratch(fresh=False)
     with open(CFG, "w") as f:
         f.write(BASE_CFG)
+elif PHASE == 13:
+    # REGRESSION (reported): the "Download NextZXOS Image" wizard downloaded
+    # the zip but the user saw no extracted image, no path selected, and no
+    # load — because the extracted image kept the ARCHIVE's internal path
+    # (2gb/cspect-next-2gb.img), so a renamed save produced no artifact
+    # carrying the chosen name, every download overwrote the same hidden
+    # file, and the 2 GB single-call extract froze the UI. The wizard must
+    # now extract the image NEXT TO the zip NAMED AFTER IT. The phase feeds
+    # the wizard a locally built zip (urlopen patched — no network) whose
+    # image member sits under the stock archives' internal folder layout.
+    import zipfile as _zf
+    ensure_scratch(fresh=False)
+    with open(CFG, "w") as f:
+        f.write(BASE_CFG)
+    DLZIP_SRC = os.path.join(SCRATCH, "wizard-feed.zip")
+    with _zf.ZipFile(DLZIP_SRC, "w", _zf.ZIP_DEFLATED) as z:
+        z.writestr("2gb/cspect-next-2gb.img", b"\x00" * 65536)
+        z.writestr("2gb/version.txt", "test feed")
 elif PHASE == 11:
     # NextSync Remote Explorer with pygame absent (every phase blocks pygame —
     # see _NoPygame). The retro log needs pygame; the Remote Explorer's dual
@@ -1235,10 +1253,98 @@ def inspect_phase12():
     app.quit()
 
 
+def inspect_phase13():
+    """The Download-NextZXOS-Image wizard, fed a local zip through a patched
+    urlopen and a renamed save target: the image must be extracted NEXT TO
+    the zip NAMED AFTER IT (not at the archive's internal 2gb/... path),
+    selected into the image input, and no error box may appear."""
+    from PySide6.QtWidgets import (QDialog, QFileDialog, QMessageBox,
+                                   QPushButton)
+    app = QApplication.instance()
+    win = find_win()
+    check("MainWindow found", win is not None)
+    if win is None:
+        app.quit(); return
+
+    wait_until(lambda: not getattr(win, "_emulator_scan_pending", False),
+               what="emulator scan settled")
+
+    feed = os.path.join(SCRATCH, "wizard-feed.zip")
+    save_as = os.path.join(SCRATCH, "my-renamed-download.zip")
+    expected_img = os.path.join(SCRATCH, "my-renamed-download.img")
+    for stale in (save_as, expected_img,
+                  os.path.join(SCRATCH, "2gb", "cspect-next-2gb.img")):
+        if os.path.isfile(stale):
+            os.remove(stale)
+
+    boxes = []
+    def _record(kind):
+        def fn(*a, **k):
+            boxes.append((kind, a[2] if len(a) > 2 else "?"))
+            return QMessageBox.StandardButton.Ok
+        return staticmethod(fn)
+    QMessageBox.critical = _record("critical")
+    QMessageBox.warning = _record("warning")
+    QFileDialog.getSaveFileName = staticmethod(
+        lambda *a, **k: (save_as, "Zip Archives (*.zip)"))
+
+    class _FeedResponse:
+        def __init__(self):
+            self._f = open(feed, "rb")
+            self._size = os.path.getsize(feed)
+        def __enter__(self): return self
+        def __exit__(self, *exc): self._f.close(); return False
+        def read(self, n=-1): return self._f.read(n)
+        def getheader(self, name, default=None):
+            return (str(self._size)
+                    if name.lower() == "content-length" else default)
+    import urllib.request
+    urllib.request.urlopen = lambda *a, **k: _FeedResponse()
+
+    def click_download():
+        dlg = next((w for w in app.topLevelWidgets()
+                    if isinstance(w, QDialog) and w.isVisible()
+                    and "Download NextZXOS" in w.windowTitle()), None)
+        check("wizard dialog opened", dlg is not None)
+        if dlg is None:
+            return
+        btn = next((b for b in dlg.findChildren(QPushButton)
+                    if b.text() == "Download"), None)
+        check("wizard has a Download button", btn is not None)
+        if btn is not None:
+            btn.click()
+
+    QTimer.singleShot(300, click_download)
+    win.download_nextzxos_image()
+
+    check("the zip landed at the RENAMED save path", os.path.isfile(save_as))
+    check("the image is extracted NEXT TO the zip, NAMED AFTER IT",
+          os.path.isfile(expected_img),
+          expected_img)
+    check("the archive's internal folder path is NOT recreated",
+          not os.path.isfile(os.path.join(SCRATCH, "2gb",
+                                          "cspect-next-2gb.img")))
+    check("the extracted image is selected into the image input",
+          win.imageinput.currentText()
+          and os.path.normcase(win.imageinput.currentText().strip('"'))
+          == os.path.normcase(expected_img),
+          win.imageinput.currentText())
+    check("no error box appeared", not boxes, str(boxes))
+    # The feed image is not a real FAT volume, so the automatic load is
+    # allowed to FAIL — the wizard's contract ends at "selected and load
+    # attempted". Let the async load settle so it cannot outlive the app.
+    settle_end = time.monotonic() + 1.5
+    while time.monotonic() < settle_end:
+        QCoreApplication.processEvents()
+        time.sleep(0.02)
+    app.quit()
+
+
 INSPECTORS = {1: inspect_phase1, 2: inspect_phase2, 3: inspect_phase3,
               4: inspect_phase4, 5: inspect_phase5, 6: inspect_phase6,
               7: inspect_phase7, 8: inspect_phase8, 9: inspect_phase9,
-              10: inspect_phase10, 11: inspect_phase11, 12: inspect_phase12}
+              10: inspect_phase10, 11: inspect_phase11, 12: inspect_phase12,
+              13: inspect_phase13}
 
 _orig_exec = QApplication.exec
 def _patched_exec(*_a):
