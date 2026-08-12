@@ -296,11 +296,15 @@ elif PHASE == 14:
     # is a no-op, and when it arrives within the opening half-second the
     # dropdown is put straight back up. The phantom itself needs real
     # cursor geometry, so this phase drives the GUARD directly.
+    # NO hddffile on purpose: the startup load of a cfg image would pop
+    # the MODAL missing-hdfmonkey install prompt on a runner without
+    # hdfmonkey (CI) before the inspector could suppress it — the phases
+    # 2-3 lesson, which cost this phase a 900 s hang on its first CI
+    # run. The inspector fakes the loaded state directly instead.
     ensure_scratch(fresh=False)
     with open(CFG, "w") as f:
         f.write(BASE_CFG
-                + "image_history=C:/imgs/one.img|C:/imgs/two.img\n"
-                + "hddffile=C:/imgs/one.img\n")
+                + "image_history=C:/imgs/one.img|C:/imgs/two.img\n")
 elif PHASE == 11:
     # NextSync Remote Explorer with pygame absent (every phase blocks pygame —
     # see _NoPygame). The retro log needs pygame; the Remote Explorer's dual
@@ -1283,6 +1287,12 @@ def inspect_phase13():
     wait_until(lambda: not getattr(win, "_emulator_scan_pending", False),
                what="emulator scan settled")
 
+    # A runner without hdfmonkey (CI) answers the wizard's automatic load
+    # with the MODAL install prompt — a headless run can never click it
+    # away, so the phase hung 900 s on its first CI outing. The app's own
+    # once-flag suppresses the prompt.
+    win._hdfmonkey_prompt_shown = True
+
     feed = os.path.join(SCRATCH, "wizard-feed.zip")
     save_as = os.path.join(SCRATCH, "my-renamed-download.zip")
     expected_img = os.path.join(SCRATCH, "my-renamed-download.img")
@@ -1370,9 +1380,16 @@ def inspect_phase14():
                what="emulator scan settled")
 
     combo = win.imageinput
-    # The cfg's hddffile cannot really load (no such file), so mark it as
-    # the loaded image by hand — the guard compares against this.
-    win.right_disk_image_path = "C:\\imgs\\one.img"
+    # A runner without hdfmonkey (CI) turns any load into the MODAL
+    # install prompt — a headless run can never click it away. The
+    # genuine-pick check below DOES load, so suppress the prompt via the
+    # app's own once-flag before anything can trigger it.
+    win._hdfmonkey_prompt_shown = True
+    # No image is really loaded (the history paths don't exist), so mark
+    # history entry 0 as the loaded image by hand — taken from the combo
+    # itself so the guard's normalized comparison matches on every
+    # platform (normalize keeps '/' on POSIX, flips to '\' on Windows).
+    win.right_disk_image_path = combo.itemText(0)
     combo.setCurrentIndex(0)
     win.diskimageexplorerpathinput.setText("(sentinel)")
 
