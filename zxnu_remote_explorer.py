@@ -583,6 +583,10 @@ class RemoteExplorerWidget(QWidget):
         # set_idle_details_style so the panel follows them live.
         self._idle_info_color = "#a6f0a6"
         self._idle_info_pt = 12
+        # Top-bar label: the idle status while disconnected, the drive's free
+        # space while connected. The PATH itself lives in next_path_edit at
+        # the bottom of the pane since the UX pass that aligned it with the
+        # local pane's sync-root box (both panes: bar / tree / path row).
         self.next_path_label = QLabel("Next: (not connected)", self)
         next_up = CompactButton("Up", self)
         next_up.clicked.connect(self._next_up)
@@ -623,7 +627,16 @@ class RemoteExplorerWidget(QWidget):
         next_box.addLayout(next_bar)
         next_box.addWidget(self.next_view)
 
-        # Next-side toolbar: New Folder / Rename / Delete
+        # Under the tree, mirroring the local pane's sync-root row: the Next
+        # path box (type a folder, ENTER lists it) with the New Folder /
+        # Rename / Delete toolbar to its right.
+        self.next_path_edit = QLineEdit(self)
+        self.next_path_edit.setPlaceholderText("Next folder...")
+        self.next_path_edit.setToolTip(
+            "The Next folder shown above. Type a path (e.g. /games or "
+            "m:/data) and press Enter to jump to it.")
+        self.next_path_edit.setEnabled(False)
+        self.next_path_edit.returnPressed.connect(self._on_next_path_edit)
         self.btn_new_folder = QPushButton("New Folder", self)
         self.btn_new_folder.clicked.connect(self._new_folder)
         self.btn_rename = QPushButton("Rename", self)
@@ -632,10 +645,10 @@ class RemoteExplorerWidget(QWidget):
         self.btn_delete.clicked.connect(self._delete_selected)
         next_tools = QHBoxLayout()
         next_tools.setContentsMargins(0, 0, 0, 0)
+        next_tools.addWidget(self.next_path_edit, 1)
         next_tools.addWidget(self.btn_new_folder)
         next_tools.addWidget(self.btn_rename)
         next_tools.addWidget(self.btn_delete)
-        next_tools.addStretch(1)
         next_box.addLayout(next_tools)
         next_container = QWidget(self)
         next_container.setLayout(next_box)
@@ -1099,12 +1112,15 @@ class RemoteExplorerWidget(QWidget):
     def _set_connected(self, on):
         self._connected = on
         for w in (self.btn_to_next, self.btn_to_local, self.btn_new_folder,
-                  self.btn_rename, self.btn_delete, self.next_view):
+                  self.btn_rename, self.btn_delete, self.next_view,
+                  self.next_path_edit):
             w.setEnabled(on)
         if not on:
             self.next_model.removeRows(0, self.next_model.rowCount())
             self.next_path_label.setText(self._idle_status_text())
             self.next_path_label.setToolTip("")
+            self.next_path_edit.setText("")
+            self.next_path_edit.setModified(False)
             self._free_space.clear()   # a reconnect re-reads it
             self._drives = []
             self._default_drive = ""
@@ -1222,17 +1238,16 @@ class RemoteExplorerWidget(QWidget):
         return "#e03131"           # red: nearly full
 
     def _update_next_path_label(self):
-        """Path label = cwd + the cached free space of its drive (if known).
+        """Top label = the cached free space of the cwd's drive (if known);
+        bottom path box = the cwd itself (mirroring the local pane's row).
         The free-space figure is bold and traffic-light coloured (see
         _free_color) so a filling-up card is visible at a glance."""
         free = self._free_space.get(self._cwd_drive())
         if free is not None:
             # Rich text so only the free-space part is coloured; the label
-            # auto-detects HTML. &nbsp; keeps the double-space look that the
-            # plain-text form used (rich text collapses runs of spaces).
+            # auto-detects HTML.
             self.next_path_label.setText(
-                f"Next: {html.escape(self._cwd)}&nbsp;&nbsp;—&nbsp;&nbsp;"
-                f"<b><span style=\"color: {self._free_color(free)};\">"
+                f"Next: <b><span style=\"color: {self._free_color(free)};\">"
                 f"{html.escape(self._fmt_free(free))} free</span></b>")
             self.next_path_label.setToolTip(
                 f"Free space on drive {self._cwd_drive()}: {free} bytes "
@@ -1242,8 +1257,13 @@ class RemoteExplorerWidget(QWidget):
                 "· red: below 100 MB.\nRe-read after every transfer, "
                 "delete, rename or copy, so the figure tracks the card.")
         else:
-            self.next_path_label.setText(f"Next: {self._cwd}")
+            self.next_path_label.setText("Next: connected")
             self.next_path_label.setToolTip("")
+        # Never stomp a path the user is midway through typing: setText only
+        # while the box carries no uncommitted edit (isModified is cleared by
+        # setText and by _on_next_path_edit committing).
+        if not self.next_path_edit.isModified():
+            self.next_path_edit.setText(self._cwd)
 
     def _known_drives(self):
         """Every drive the combo offers: the dot-reported set plus the
@@ -1656,6 +1676,33 @@ class RemoteExplorerWidget(QWidget):
             self._cwd = _re_norm_dir(
                 posixpath.dirname(self._cwd.rstrip("/")) or "/")
             self.refresh()
+
+    def _on_next_path_edit(self):
+        """ENTER in the Next path box: jump the pane to the typed folder.
+
+        A typed drive letter is checked against the known set first —
+        merely opening a path on an unmounted drive CRASHES the dot (the
+        hardware rule '+ Drive' warns about), so an unknown letter is
+        refused with a pointer at '+ Drive' instead of being probed. A
+        folder that turns out not to exist is handled like any dead
+        listing (on_listing_failed backs off to the drive root)."""
+        if not self._connected:
+            return
+        raw = (self.next_path_edit.text() or "").strip().strip('"')
+        self.next_path_edit.setModified(False)
+        if not raw:
+            self.next_path_edit.setText(self._cwd)
+            return
+        path = _norm_remote_dir(raw)
+        drive = _re_drive_of(path)
+        known = self._known_drives()
+        if drive and known and drive not in known:
+            self._log(f"Unknown Next drive {drive}: — use '+ Drive' to add "
+                      "an extra SD reader/partition letter first.")
+            self.next_path_edit.setText(self._cwd)
+            return
+        self._cwd = path
+        self.refresh()
 
     def _next_double_clicked(self, index):
         item = self.next_model.itemFromIndex(index.siblingAtColumn(0))
