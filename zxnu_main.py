@@ -964,6 +964,20 @@ def _apply_completer_fix_to_children(widget: QWidget):
 IMAGE_DRAG_MIME = "application/x-zxnu-image-paths"
 
 
+class _ImagePathCombo(QComboBox):
+    """The SD-image path box. showPopup stamps WHEN the history dropdown
+    opened, so the activation wiring can tell a real pick from the Windows
+    "phantom activation" — the very click that opens the dropdown also
+    "activating" the current entry when the (long-path-widened) popup lands
+    under the cursor. Reported as: the history list appeared and instantly
+    vanished while the already-loaded image reloaded. See the
+    imageinput.activated wiring in MainWindow.setupUI."""
+
+    def showPopup(self):
+        self._popup_shown_at = time.monotonic()
+        super().showPopup()
+
+
 class _CompleterPopupHider(QtCore.QObject):
     """Hide a manually-shown autocomplete popup when its line edit loses focus.
 
@@ -2309,7 +2323,7 @@ class MainWindow(QMainWindow):
         self.horizontal16 = QHBoxLayout()
 
 
-        self.imageinput = QComboBox()
+        self.imageinput = _ImagePathCombo()
         self.imageinput.setEditable(True)
         self.imageinput.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.imageinput.setToolTip(
@@ -2321,8 +2335,28 @@ class MainWindow(QMainWindow):
         self.imageinput.lineEdit().setPlaceholderText("SD card image path...")
         # Pressing Enter in the editable field triggers a load attempt
         self.imageinput.lineEdit().returnPressed.connect(lambda: load_image())
-        # Selecting an item from the history dropdown loads it immediately
-        self.imageinput.activated.connect(lambda _index: load_image())
+
+        # Selecting an item from the history dropdown loads it immediately —
+        # UNLESS the activation is the opening click's own echo. On Windows
+        # the click that OPENS the dropdown can also "activate" the current
+        # entry (the popup, widened by long history paths, lands under the
+        # cursor): the list flashed shut while the already-loaded image
+        # reloaded (reported). Two guards: activating the image that is
+        # ALREADY loaded is a no-op (there is nothing to load), and when
+        # that no-op arrives within the opening half-second — the phantom's
+        # signature — the dropdown is put straight back up, so the user
+        # gets the list the click asked for.
+        def _image_history_activated(index):
+            picked = normalize_sd_image_path(self.imageinput.itemText(index))
+            loaded = normalize_sd_image_path(
+                (getattr(self, "right_disk_image_path", "") or "").strip())
+            if picked and picked == loaded:
+                opened_at = getattr(self.imageinput, "_popup_shown_at", 0.0)
+                if time.monotonic() - opened_at < 0.5:
+                    QTimer.singleShot(0, self.imageinput.showPopup)
+                return
+            load_image()
+        self.imageinput.activated.connect(_image_history_activated)
         self.selectimage = QPushButton("ToDisk", self)
         self.selectimage.setText("Select NextZXOS disk Image")
         # (was `self.selectimage.toolTip = "..."` — a plain attribute that

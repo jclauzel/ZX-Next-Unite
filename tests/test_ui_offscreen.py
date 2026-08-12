@@ -85,7 +85,7 @@ DROPSRC = os.path.join(SCRATCH, "dropsrc.txt")
 DELZONE = os.path.join(SCRATCH, "delzone")
 
 PHASE = int(sys.argv[1]) if len(sys.argv) > 1 else None
-ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
 
 # Base cfg for the isolated app copy: update checks off (MAME/CSpect AND the
 # app's own GitHub release check) so no phase ever hits the network, and the
@@ -287,6 +287,20 @@ elif PHASE == 13:
     with _zf.ZipFile(DLZIP_SRC, "w", _zf.ZIP_DEFLATED) as z:
         z.writestr("2gb/cspect-next-2gb.img", b"\x00" * 65536)
         z.writestr("2gb/version.txt", "test feed")
+elif PHASE == 14:
+    # REGRESSION (reported): clicking the image-history dropdown arrow
+    # populated the list and instantly closed it again, reloading the
+    # already-loaded image — on Windows the opening click's own release
+    # can "activate" the current entry when the (long-path-widened) popup
+    # lands under the cursor. The fix: activating the ALREADY-LOADED image
+    # is a no-op, and when it arrives within the opening half-second the
+    # dropdown is put straight back up. The phantom itself needs real
+    # cursor geometry, so this phase drives the GUARD directly.
+    ensure_scratch(fresh=False)
+    with open(CFG, "w") as f:
+        f.write(BASE_CFG
+                + "image_history=C:/imgs/one.img|C:/imgs/two.img\n"
+                + "hddffile=C:/imgs/one.img\n")
 elif PHASE == 11:
     # NextSync Remote Explorer with pygame absent (every phase blocks pygame —
     # see _NoPygame). The retro log needs pygame; the Remote Explorer's dual
@@ -1340,11 +1354,69 @@ def inspect_phase13():
     app.quit()
 
 
+def inspect_phase14():
+    """The image-history dropdown's phantom-activation guard: activating
+    the ALREADY-LOADED entry right after the popup opened must not reload
+    and must put the popup back up; activating a DIFFERENT entry must
+    load it. The Windows phantom itself needs real cursor geometry, so the
+    guard is driven directly via the combo's activated signal."""
+    app = QApplication.instance()
+    win = find_win()
+    check("MainWindow found", win is not None)
+    if win is None:
+        app.quit(); return
+
+    wait_until(lambda: not getattr(win, "_emulator_scan_pending", False),
+               what="emulator scan settled")
+
+    combo = win.imageinput
+    # The cfg's hddffile cannot really load (no such file), so mark it as
+    # the loaded image by hand — the guard compares against this.
+    win.right_disk_image_path = "C:\\imgs\\one.img"
+    combo.setCurrentIndex(0)
+    win.diskimageexplorerpathinput.setText("(sentinel)")
+
+    # Phantom: activation of the loaded entry, popup freshly opened.
+    combo._popup_shown_at = time.monotonic()
+    combo.activated.emit(0)
+    ok = wait_until(lambda: combo.view().isVisible(), timeout=5,
+                    what="popup re-shown after phantom")
+    check("phantom activation re-opens the dropdown", ok)
+    check("phantom activation does not reload",
+          win.diskimageexplorerpathinput.text() == "(sentinel)",
+          win.diskimageexplorerpathinput.text())
+    combo.hidePopup()
+
+    # Same no-op pick long after opening: no reload AND no re-open.
+    combo._popup_shown_at = time.monotonic() - 5.0
+    combo.activated.emit(0)
+    settle_end = time.monotonic() + 0.7
+    while time.monotonic() < settle_end:
+        QCoreApplication.processEvents()
+        time.sleep(0.02)
+    check("late no-op pick neither reloads nor re-opens",
+          win.diskimageexplorerpathinput.text() == "(sentinel)"
+          and not combo.view().isVisible())
+
+    # Genuine pick of a DIFFERENT entry loads it (timing irrelevant).
+    combo._popup_shown_at = time.monotonic()
+    combo.setCurrentIndex(1)
+    combo.activated.emit(1)
+    check("picking another entry loads it",
+          win.diskimageexplorerpathinput.text() != "(sentinel)",
+          win.diskimageexplorerpathinput.text())
+    settle_end = time.monotonic() + 1.0
+    while time.monotonic() < settle_end:
+        QCoreApplication.processEvents()
+        time.sleep(0.02)
+    app.quit()
+
+
 INSPECTORS = {1: inspect_phase1, 2: inspect_phase2, 3: inspect_phase3,
               4: inspect_phase4, 5: inspect_phase5, 6: inspect_phase6,
               7: inspect_phase7, 8: inspect_phase8, 9: inspect_phase9,
               10: inspect_phase10, 11: inspect_phase11, 12: inspect_phase12,
-              13: inspect_phase13}
+              13: inspect_phase13, 14: inspect_phase14}
 
 _orig_exec = QApplication.exec
 def _patched_exec(*_a):
