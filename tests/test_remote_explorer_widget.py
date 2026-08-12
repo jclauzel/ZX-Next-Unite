@@ -275,6 +275,8 @@ def test_initial_and_connection_state():
     check("starts disconnected", not w._connected
           and not w.btn_to_next.isEnabled() and not w.next_view.isEnabled())
     check("waiting label", "waiting for .sync5" in w.next_path_label.text())
+    check("Next path box empty and disabled while disconnected",
+          not w.next_path_edit.isEnabled() and w.next_path_edit.text() == "")
     check("start dir committed as sync root",
           w.sync_root() == root.replace("\\", "/")
           and calls["sync_root"] == [root.replace("\\", "/")])
@@ -282,7 +284,8 @@ def test_initial_and_connection_state():
           w.local_path_edit.text() == root.replace("\\", "/"))
 
     w.on_connected()
-    check("connect enables the pane", w._connected and w.btn_to_next.isEnabled())
+    check("connect enables the pane", w._connected and w.btn_to_next.isEnabled()
+          and w.next_path_edit.isEnabled())
     check("connect asks drives then lists /",
           drain(calls) == [("drives",), ("ls", "/")])
 
@@ -295,17 +298,21 @@ def test_initial_and_connection_state():
     check("drives logged", logged(calls, "Next drives: C M"))
 
     w.on_free_space("C", 300 * 1024 * 1024)
-    check("free space in path label", "300.0 MB free" in w.next_path_label.text()
+    check("free space in top label", "300.0 MB free" in w.next_path_label.text()
           and "#2fb344" in w.next_path_label.text())
+    check("the path lives in the bottom box, not the top label",
+          w.next_path_edit.text() == "/")
     w.on_free_space("C", None)
     check("failed free query clears the figure",
-          w.next_path_label.text() == "Next: /")
+          w.next_path_label.text() == "Next: connected")
 
     w.on_disconnected()
     check("disconnect clears pane", not w._connected
           and w.next_model.rowCount() == 0
           and not w.next_drive_combo.isEnabled()
-          and w.next_drive_combo.count() == 0)
+          and w.next_drive_combo.count() == 0
+          and w.next_path_edit.text() == ""
+          and not w.next_path_edit.isEnabled())
 
     # Old dot: no getdrives reply -> lone implicit drive, switcher disabled.
     w.on_connected()
@@ -391,7 +398,7 @@ def test_listing_and_rendering():
     w.on_listing("/GAMES", [(False, 10, "a.tap")])
     check("subdir listing pins ..", next_names(w) == ["..", "a.tap"])
     check("subdir cwd persisted", calls["remote_cwd"] == ["/GAMES"])
-    check("path label follows", w.next_path_label.text() == "Next: /GAMES")
+    check("path box follows", w.next_path_edit.text() == "/GAMES")
 
     # Colours: push a custom file colour, the existing row re-tints in place.
     w.set_item_colors({"file_name": QColor("#804020"), "bogus": QColor("red"),
@@ -432,6 +439,28 @@ def test_navigation():
     w._cwd = "/games"
     check("_in_cwd nested", w._in_cwd("/games/x.tap")
           and not w._in_cwd("/games/sub/y.tap") and not w._in_cwd("/other"))
+
+    # Typed navigation: the path box is the fourth way to move (after
+    # double-click, Up and the drive combo) — ENTER lists the typed folder.
+    calls["q"].clear()
+    w.next_path_edit.setText("games/sub")
+    w._on_next_path_edit()
+    check("typed relative path navigates absolute",
+          w._cwd == "/games/sub" and drain(calls) == [("ls", "/games/sub")])
+    w.next_path_edit.setText("M:data\\deep")
+    w._on_next_path_edit()
+    check("typed drive path normalises and navigates",
+          w._cwd == "M:/data/deep" and drain(calls) == [("ls", "M:/data/deep")])
+    w.next_path_edit.setText("D:/nope")
+    w._on_next_path_edit()
+    check("unknown drive letter refused (dot-crash guard)",
+          w._cwd == "M:/data/deep" and drain(calls) == []
+          and logged(calls, "Unknown Next drive D")
+          and w.next_path_edit.text() == "M:/data/deep")
+    w.next_path_edit.setText("   ")
+    w._on_next_path_edit()
+    check("blank entry restores the cwd",
+          drain(calls) == [] and w.next_path_edit.text() == "M:/data/deep")
 
 
 def test_drive_switching():
