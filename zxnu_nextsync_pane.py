@@ -21,6 +21,7 @@ ever rebinding it first. See CLAUDE.md and the memory
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import platform
@@ -731,15 +732,46 @@ def build_nextsync_pane(
                 pass
         _re_update_start_button()
 
-    def _re_on_remote_cwd_changed(path):
+    def _re_on_remote_cwd_changed(path, addr=None):
         # The widget reports the Next-side folder it's now showing. Persist it
         # so the next (re)connect jumps straight back to it (fires only when
-        # the folder actually changes, so this stays cheap).
+        # the folder — or the machine — actually changes, so this stays
+        # cheap). Since 9.5.14 the report carries the active peer's ADDRESS:
+        # each machine gets its own entry in a JSON map, so the Next that
+        # lived in /A and the N-Go that lived in /SYS each come back to
+        # their own folder (a vanished folder fails its first listing and
+        # the widget drops to root by itself). The generic key stays as the
+        # fallback for machines never seen before.
         try:
             configuration_dictionary[SETTING_NEXTSYNC_REMOTE_CWD] = (path or "/")
+            if addr:
+                try:
+                    _map = json.loads(str(configuration_dictionary.get(
+                        SETTING_RE_REMOTE_CWDS, "") or "{}"))
+                    if not isinstance(_map, dict):
+                        _map = {}
+                except (ValueError, TypeError):
+                    _map = {}
+                _map.pop(str(addr), None)      # re-insert = newest
+                _map[str(addr)] = (path or "/")
+                while len(_map) > 24:          # keep the cfg tidy: oldest out
+                    _map.pop(next(iter(_map)))
+                configuration_dictionary[SETTING_RE_REMOTE_CWDS] = (
+                    json.dumps(_map, separators=(",", ":")))
             save_configuration_file()
         except Exception:
             pass
+
+    def _re_remote_cwd_for(addr):
+        # The restore half: this machine's remembered folder, or None so the
+        # widget falls back to the generic last-folder.
+        try:
+            _map = json.loads(str(configuration_dictionary.get(
+                SETTING_RE_REMOTE_CWDS, "") or "{}"))
+            _v = _map.get(str(addr), "") if isinstance(_map, dict) else ""
+            return _v if isinstance(_v, str) and _v else None
+        except (ValueError, TypeError):
+            return None
 
     def _re_on_sort_changed(which, value):
         # The widget reports a new column sort ("<key>:<asc|desc>") for one of
@@ -814,6 +846,7 @@ def build_nextsync_pane(
             drain=_re_drain, on_sync_root_changed=_re_on_sync_root_changed,
             remote_start_dir=remote_cwd,
             on_remote_cwd_changed=_re_on_remote_cwd_changed,
+            remote_cwd_for=_re_remote_cwd_for,
             local_sort=local_sort, next_sort=next_sort,
             on_sort_changed=_re_on_sort_changed,
             extra_drives=extra_drives,

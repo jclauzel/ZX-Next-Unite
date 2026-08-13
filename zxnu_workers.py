@@ -1600,9 +1600,13 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             with plock:
                 peers[sid]['thread'] = th
             th.start()
+            # Roster BEFORE connected (9.5.14): the widget's on_connected
+            # consults the active peer's ADDRESS for its per-machine
+            # remembered folder, so the roster must already be in its
+            # hands — cross-thread queued signals preserve this order.
+            _emit_peers()
             if first:
                 sig.connected.emit()   # 0 -> 1: "a Next is available"
-            _emit_peers()
     except Exception as ex:                                   # noqa: BLE001
         # Never die silently: report, then re-raise so the failure still
         # reaches the log/crash handler.

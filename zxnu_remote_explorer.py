@@ -271,7 +271,8 @@ class RemoteExplorerWidget(QWidget):
                  drain=None, on_sync_root_changed=None, remote_start_dir=None,
                  on_remote_cwd_changed=None, local_sort=None, next_sort=None,
                  on_sort_changed=None, on_toast=None, extra_drives=None,
-                 on_extra_drives_changed=None, emulator_entries=None):
+                 on_extra_drives_changed=None, emulator_entries=None,
+                 remote_cwd_for=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
         self._drain_raw = drain              # host closure: empty the queue, -> count
@@ -289,7 +290,14 @@ class RemoteExplorerWidget(QWidget):
         # Persist/restore the Next-side folder across (re)connections: on connect
         # we jump back to the last folder browsed, and every listing reports the
         # new folder to the host so it can save it (see on_connected/on_listing).
-        self._on_remote_cwd_changed = on_remote_cwd_changed or (lambda p: None)
+        # Since 9.5.14 both directions are PER-MACHINE: the report carries the
+        # active peer's address, and remote_cwd_for(addr) answers with that
+        # machine's remembered folder (the generic remote_start_dir stays as
+        # the fallback for a machine never seen before).
+        self._on_remote_cwd_changed = (on_remote_cwd_changed or
+                                       (lambda p, a=None: None))
+        self._remote_cwd_for = remote_cwd_for
+        self._remote_cwd_addr = None         # last addr a folder was reported for
         self._remote_start_dir = _norm_remote_dir(remote_start_dir)
         # Per-pane sort (column + direction), restored from the config and saved
         # via on_sort_changed(which, "<key>:<asc|desc>") whenever the user clicks
@@ -1148,11 +1156,26 @@ class RemoteExplorerWidget(QWidget):
         self._update_idle_info_overlay()
 
     # ---- worker signal slots (UI thread) ------------------------------
+    def _active_addr(self):
+        """The ACTIVE peer's address, from the worker's roster (multi-Next).
+        None while no roster arrived — the worker emits the roster before
+        connected, so on_connected always has it."""
+        for _sid, _addr in self._peer_map:
+            if _sid == self._peer_active:
+                return _addr
+        return None
+
     def on_connected(self):
         self._set_connected(True)
-        # Jump straight back to the folder we were last browsing. If it's gone,
-        # the listing fails and on_ls_failed() drops us back to the root.
-        self._cwd = self._remote_start_dir or "/"
+        # Jump straight back to the folder we were last browsing. Per-machine
+        # first (9.5.14): THIS Next's remembered folder — keyed by its
+        # address, fed by the host — wins; the generic last-folder covers a
+        # machine never seen before. If the folder is gone, the listing
+        # fails and on_ls_failed() drops us back to the root.
+        _addr = self._active_addr()
+        _saved = (self._remote_cwd_for(_addr)
+                  if (_addr and self._remote_cwd_for) else None)
+        self._cwd = _saved or self._remote_start_dir or "/"
         # Ask which drives are mounted (dot v5.1+) before the first listing so
         # the drive switcher fills in as the pane appears.
         self._enqueue(("drives",))
@@ -1503,11 +1526,15 @@ class RemoteExplorerWidget(QWidget):
 
     def _remember_remote_cwd(self, path):
         """Record the current Next folder for restore-on-reconnect, notifying the
-        host (which persists it) only when it actually changes."""
+        host (which persists it, per machine since 9.5.14) only when the folder
+        — or the MACHINE it belongs to — actually changes: two Nexts sitting on
+        the same path must still each get their own entry."""
         norm = _norm_remote_dir(path)
-        if norm != self._remote_start_dir:
+        addr = self._active_addr()
+        if norm != self._remote_start_dir or addr != self._remote_cwd_addr:
             self._remote_start_dir = norm
-            self._on_remote_cwd_changed(norm)
+            self._remote_cwd_addr = addr
+            self._on_remote_cwd_changed(norm, addr)
 
     # ==================================================================
     #  column sort (persisted per pane; default Name ascending)
