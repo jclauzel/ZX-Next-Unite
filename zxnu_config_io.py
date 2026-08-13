@@ -26,7 +26,7 @@ import logging
 import os
 
 from PySide6.QtCore import (Qt, QTimer)
-from PySide6.QtGui import (QPixmap)
+from PySide6.QtGui import (QGuiApplication, QPixmap)
 
 from zxnu_config import *
 from zxnu_i18n import ui_tr_now
@@ -628,6 +628,48 @@ def build_config_io(
                     if not getattr(host, "_re_running", False):
                         host._nextsync_re_toggle_server()
                 QTimer.singleShot(0, _autostart_re_listener)
+
+            # ---- the last-look UX restore (9.5.14): size first, then the
+            # remembered monitor, then the explorer column widths — the
+            # window is not shown yet, so all of it lands before first
+            # paint. The Remote Explorer panes restore in the pane builder
+            # (they do not exist yet); anything missing or garbled leaves
+            # the defaults exactly as before the feature.
+            _win_pref = str(configuration_dictionary.get(
+                SETTING_WINDOW_SIZE, "")).strip()
+            if "x" in _win_pref:
+                try:
+                    _win_w, _win_h = (int(_v) for _v in
+                                      _win_pref.split("x")[:2])
+                    if _win_w >= 640 and _win_h >= 480:
+                        host.resize(_win_w, _win_h)
+                except (TypeError, ValueError):
+                    pass
+            _scr_pref = str(configuration_dictionary.get(
+                SETTING_WINDOW_SCREEN, "")).strip()
+            if _scr_pref:
+                for _scr in QGuiApplication.screens():
+                    if _scr.name() != _scr_pref:
+                        continue
+                    # Centre on the remembered monitor, clamped to it — a
+                    # monitor that shrank (or a saved size that outgrew
+                    # it) must not park the window off-screen. A monitor
+                    # that is GONE simply falls through to Qt's default
+                    # placement on the primary.
+                    _av = _scr.availableGeometry()
+                    _fit_w = min(host.width(), _av.width())
+                    _fit_h = min(host.height(), _av.height())
+                    host.resize(_fit_w, _fit_h)
+                    host.move(_av.x() + (_av.width() - _fit_w) // 2,
+                              _av.y() + (_av.height() - _fit_h) // 2)
+                    break
+            for _cols_key, _cols_attr in (
+                (SETTING_SDCARD_TREE_COLS, "treeview"),
+                (SETTING_IMAGE_TREE_COLS, "image_treeview"),
+            ):
+                apply_tree_column_widths(
+                    getattr(host, _cols_attr, None),
+                    configuration_dictionary.get(_cols_key, ""))
 
             # Restore the saved splitter positions (SD Card explorers ⇄
             # log, GetIt results ⇄ MOTD). The window is not shown yet, so
