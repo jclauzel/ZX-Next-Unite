@@ -1477,7 +1477,10 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                   'emit_peers': _emit_peers}
 
         while not stop_event.is_set():
-            # Reap ended sessions; hand the baton on if the active died.
+            # Reap ended sessions; hand the baton on if the active died —
+            # to the LAST-CONNECTED survivor (max sid), the machine the
+            # user most recently brought to the party (field request:
+            # min() handed it to the oldest, which read as arbitrary).
             with plock:
                 dead = [d for d, p in peers.items()
                         if p['thread'] is not None
@@ -1485,7 +1488,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                 for d in dead:
                     del peers[d]
                 if state['active'] not in peers:
-                    state['active'] = min(peers) if peers else None
+                    state['active'] = max(peers) if peers else None
             if dead:
                 _emit_peers()
             if state['had_any'] and not peers:

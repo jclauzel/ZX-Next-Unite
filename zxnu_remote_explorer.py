@@ -1202,6 +1202,11 @@ class RemoteExplorerWidget(QWidget):
         if self._op_active:
             self._log("Connection ended; stopped the running operation.")
             self._end_operation()
+        # The roster died with the worker: forget it, so a fresh worker's
+        # sids can never collide with stale ones (the auto-relisten spins
+        # a new worker whose sequence restarts at 1).
+        self._peer_map = []
+        self._peer_active = None
 
     def on_peers(self, payload):
         """The worker's connected-Nexts roster (multi-Next, option B):
@@ -1216,6 +1221,21 @@ class RemoteExplorerWidget(QWidget):
         except (TypeError, ValueError):
             return
         prev = self._peer_active
+        # The baton is leaving `prev` (a user pick answered, or that Next
+        # just disconnected): persist the folder ON SCREEN under the OLD
+        # machine's address RIGHT NOW, from the roster we still hold —
+        # the listing-time save covers confirmed navigations, this covers
+        # the departure itself, so a machine that leaves mid-browse still
+        # comes back to where it was.
+        if prev is not None and active != prev and self._connected:
+            _old_addr = None
+            for _sid, _addr in self._peer_map:
+                if _sid == prev:
+                    _old_addr = _addr
+                    break
+            if _old_addr:
+                self._on_remote_cwd_changed(_norm_remote_dir(self._cwd),
+                                            _old_addr)
         self._peer_active = active
         self._peer_guard = True
         try:
@@ -1225,7 +1245,10 @@ class RemoteExplorerWidget(QWidget):
                 if sid == active:
                     self.next_machine_combo.setCurrentIndex(
                         self.next_machine_combo.count() - 1)
-            self.next_machine_combo.setVisible(len(plist) >= 2)
+            # Visible whenever ANY Next is on the line (field request: a
+            # lone machine still shows WHO the pane drives); hidden only
+            # while the roster is empty.
+            self.next_machine_combo.setVisible(len(plist) >= 1)
         finally:
             self._peer_guard = False
         if active is not None and prev is not None and active != prev:
