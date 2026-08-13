@@ -93,9 +93,14 @@ PUBLIC _tail_copy
 PUBLIC _valid_server
 
 ; void tail_copy(char *dst, char *src)   [sdcc default convention]
-;   Bounded private copy of the OS command tail: hard 254-byte cap + forced
+;   Bounded private copy of the OS command tail: hard 158-byte cap + forced
 ;   NUL; 0x00/0x0D end the copy early. Clones do not guarantee a terminator
 ;   after the tail, so nothing may parse the OS buffer directly.
+;   254 -> 158 (5.7.3): a real tail is a typed BASIC line (well under 100
+;   chars), and the cap bounds cleancmd downstream, whose 256 -> 160
+;   shrink bought back the main-bank stack headroom the Busy branch had
+;   eaten - the -anim state sat 98 bytes under REGISTER_SP and every deep
+;   call scrambled the flock (the 2026-08-13 hardware round).
 _tail_copy:
     pop  de              ; return address
     pop  hl              ; dst
@@ -106,7 +111,7 @@ _tail_copy:
     ld   a, b
     or   c
     jr   z, tc_term      ; NULL src -> just terminate dst
-    ld   e, 254          ; cap
+    ld   e, 158          ; cap (bounds cleancmd[160], see header note)
 tc_loop:
     ld   a, (bc)
     or   a

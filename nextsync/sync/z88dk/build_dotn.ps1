@@ -97,6 +97,13 @@ $rc = Invoke-Zcc @("+zxn", "-startup=30", "-clib=sdcc_iy", "-SO3",
     "--max-allocs-per-node200000", "--opt-code-size",
     "-pragma-include:zpragma.inc", "-a", "anim.c", "-o", "anim_head")
 if ($rc -ne 0) { throw "anim.c asm generation failed (exit $rc)." }
+# NOTE data/bss are NOT retargeted — deliberately, twice over (5.7.3):
+# the head page's top is the crt's load/exit-stack territory
+# (DOTN_REGISTER_SP, $4000 down), so state parked there gets stomped
+# during load; and main-bank DATA sits safely LOW anyway. anim.c's
+# statics all carry explicit initializers for exactly that reason —
+# they are data, far below the run stack, instead of tail-of-bss where
+# the 5.7.2 hardware round proved the stack grazes (see anim.c).
 (Get-Content anim_head) `
     -replace '^\s*SECTION\s+code_compiler\s*$', "`tSECTION code_dot" `
     -replace '^\s*SECTION\s+rodata_compiler\s*$', "`tSECTION rodata_dot" |
@@ -166,6 +173,43 @@ $rc = Invoke-Zcc @("+zxn", "-startup=30", "-clib=sdcc_iy", "-SO3",
     "-subtype=dotn", "-Cz--clean", "-create-app", "-m")
 if ($rc -ne 0) { throw "zcc build failed (exit $rc)." }
 if (-not (Test-Path syncdev)) { throw "build produced no 'syncdev' file." }
+
+# --- stack-headroom guard (5.7.3) ---------------------------------------------
+# REGISTER_SP is $C000 (zpragma.inc) and the C stack grows DOWN into the
+# main-bank bss tail — zpragma's "THE budget to check after every build",
+# now checked BY every build. The calibration is hardware-proven, not
+# guessed: 5.7.1 ran clean with 156 bytes of headroom (bss tail $BF64),
+# and 5.7.2's +~60 bytes of code shifted the tail to $BFD2 (46 bytes) —
+# at which point every real call chain overwrote the -anim state and the
+# flock turned to incoherent static on screen. So the dot's true working
+# depth lies between those: demand at least 5.7.1's proven floor.
+$m = Select-String -Path syncdev.map -Pattern '__BSS_END_head\s*=\s*\$([0-9A-Fa-f]+)' |
+    Select-Object -First 1
+if ($null -eq $m) { throw "syncdev.map: __BSS_END_head not found." }
+$bssTail = [Convert]::ToInt32($m.Matches[0].Groups[1].Value, 16)
+$headroom = 0xC000 - $bssTail
+Write-Host ("stack headroom: REGISTER_SP `$C000 - __BSS_END `$" +
+    ("{0:X4}" -f $bssTail) + " = $headroom bytes (5.7.1's proven floor: 156)")
+if ($headroom -lt 150) {
+    throw ("Only $headroom bytes between __BSS_END and REGISTER_SP - the " +
+           "C stack grazes bss on hardware below ~150 (the 5.7.2 -anim " +
+           "scramble). Shrink main-bank buffers or code until the map " +
+           "clears the floor.")
+}
+# The head page's TOP is the crt's load/exit-stack territory
+# (DOTN_REGISTER_SP $4000 down, minus the parked command line): keep our
+# head sections out of it. appmake warns at $3F0F; fail there too.
+foreach ($sec in '__rodata_dot_tail', '__data_dot_tail', '__bss_dot_tail') {
+    $m = Select-String -Path syncdev.map -Pattern ($sec + '\s*=\s*\$([0-9A-Fa-f]+)') |
+        Select-Object -First 1
+    if ($m) {
+        $v = [Convert]::ToInt32($m.Matches[0].Groups[1].Value, 16)
+        if ($v -gt 0x3F0F) {
+            throw ("$sec = `$" + ("{0:X4}" -f $v) +
+                   " - inside the crt's divmmc stack zone (>`$3F0F).")
+        }
+    }
+}
 
 # --- deploy ------------------------------------------------------------------
 New-Item -ItemType Directory -Force -Path "..\server\dot" | Out-Null
