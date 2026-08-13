@@ -121,7 +121,10 @@ def make_widget(**kw):
         drain=kw.get("drain"),
         on_sync_root_changed=calls["sync_root"].append,
         remote_start_dir=kw.get("remote_start_dir"),
-        on_remote_cwd_changed=calls["remote_cwd"].append,
+        # (path, addr) since the per-machine folders: the widget reports the
+        # active peer's address too. The tests only assert on the PATH, so
+        # the recorder keeps storing just that.
+        on_remote_cwd_changed=lambda p, a=None: calls["remote_cwd"].append(p),
         local_sort=kw.get("local_sort"),
         next_sort=kw.get("next_sort"),
         on_sort_changed=lambda which, v: calls["sorts"].append((which, v)),

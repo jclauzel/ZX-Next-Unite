@@ -626,6 +626,13 @@ class RemoteExplorerWidget(QWidget):
         # peers signal (on_peers). Every other connected Next stays on the
         # line, idling, and keeps its place.
         self._peer_active = None
+        self._peer_map = []            # [(sid, addr)] — the last roster; MUST
+                                       # exist from birth: on_connected reads
+                                       # it via _active_addr, and only the
+                                       # live app guarantees a roster arrived
+                                       # first (the widget test calls
+                                       # on_connected directly — the missing
+                                       # init was CI failure #31717960490)
         self._peer_guard = False
         self.next_machine_combo = QComboBox(self)
         self.next_machine_combo.setToolTip(
