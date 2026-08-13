@@ -549,6 +549,53 @@ RE_REPLY_TIMEOUT = 60.0
 PEER_SILENCE_LIMIT = 45.0
 
 
+def _re_turn_away_newcomers(srv, log):
+    """Sweep the listen socket's backlog while a session is live.
+
+    A second Next running ``.sync5 -L`` against a server already serving
+    one (2026-08-13 hardware round): the listen socket keeps its backlog,
+    so the OS silently completes the newcomer's TCP connect, its dot sends
+    the raw ``Listen`` handshake and then waits for a ``Listening`` that
+    never comes — a long hang ending in the dot's misleading *"Server too
+    old (-listen)"*. So the session loop calls this once per turn: any
+    queued newcomer is accepted, its handshake read, answered with a
+    framed **"Busy"** and closed. A busy-aware client (dotN 5.7.2+,
+    ZXNextRemote 0.9.5+) prints the truth — *"Server busy"* — while a
+    stock dot still prints its old message but INSTANTLY: the hang is
+    gone for every client either way. Also the first brick of the
+    planned multi-Next listener: this is the accept-while-busy plumbing.
+
+    ``log`` is the session's closure (run_remote_listen_server's local,
+    emitting sig.log) — passed in because this helper lives outside it.
+    """
+    while True:
+        try:
+            srv.settimeout(0)                      # non-blocking probe
+            conn2, addr2 = srv.accept()
+        except (BlockingIOError, socket.timeout, OSError):
+            return
+        finally:
+            srv.settimeout(1.0)
+        try:
+            with conn2:
+                conn2.settimeout(1.0)
+                try:
+                    data = conn2.recv(64)
+                except OSError:
+                    data = b""
+                if data.startswith(b"Listen"):
+                    _re_sendpacket(conn2, b"Busy", 0)
+                log(ui_tr_now(
+                    "Remote explorer: turned away a second Next at "
+                    "{address} — a session is already active (Busy).")
+                    .format(address=addr2[0]))
+                logging.info(
+                    "Remote explorer: turned away newcomer %s (busy)",
+                    addr2[0])
+        except OSError:
+            pass
+
+
 def _re_reply_call(conn, handler, timeout=None):
     """:func:`_re_recv_reply` under a per-command socket timeout.
 
@@ -847,6 +894,9 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             # slow operation can never be mistaken for a dead peer.
             last_rx = time.monotonic()
             while not stop_event.is_set():
+                # A second Next knocking mid-session gets a prompt framed
+                # "Busy" instead of a silent backlog hang (see the helper).
+                _re_turn_away_newcomers(srv, log)
                 try:
                     conn.settimeout(1.0)
                     data = conn.recv(1024)

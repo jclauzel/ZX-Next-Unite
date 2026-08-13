@@ -1144,7 +1144,7 @@ int main(int arglen, char *rawcmd)
     // zxnu_config.py (and the help text below): the app compares it against
     // the cfg's dotn_last_version to advise the user to refresh the .sync5
     // copy on their Next after updating the app.
-    print("NextSync 5.7.1 Clauzel/Komppa");
+    print("NextSync 5.7.2 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -1404,6 +1404,18 @@ connbreak:
         // "Listening"; an old server replies "Error" and we bail out (Sync3/
         // Sync4 handshakes are never affected).
         cipxfer("Listen", 6, inbuf, &len, &dp);
+        if (len >= 9 && checksum(dp, len - 3) == 0 && memcmp(dp, "Busy", 4) == 0)
+        {
+            // 5.7.2: a busy-aware server (ZX-Next-Unite's Remote Explorer,
+            // ZXNextRemote's Listener) is already serving ANOTHER Next and
+            // said so by name. Before this reply existed the newcomer sat in
+            // the server's TCP backlog until its own timeout ran out - then
+            // blamed the server's age ("Server too old") for what was merely
+            // a taken seat.
+            print("Server busy: another Next");
+            print("is connected");
+            goto closeconn;
+        }
         if (len < 12 || checksum(dp, len - 3) != 0 || memcmp(dp, "Listening", 9) != 0)
         {
             print("Server too old (-listen)");
