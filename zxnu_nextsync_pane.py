@@ -825,6 +825,17 @@ def build_nextsync_pane(
             on_toast=lambda title, msg, variant="red": host._show_toast(
                 title, msg, variant=variant, duration_ms=9000))
         host._re_widget = widget
+        # The last-look UX restore (9.5.14) for these lazily-built panes:
+        # config_io's startup restore cannot reach them (they may not be
+        # created for hours, or ever), so the saved column widths apply
+        # here, the moment the trees exist. Capture stays central — the
+        # save hook reads the live trees whenever the widget exists.
+        apply_tree_column_widths(
+            widget.local_view,
+            configuration_dictionary.get(SETTING_RE_LOCAL_COLS, ""))
+        apply_tree_column_widths(
+            widget.next_view,
+            configuration_dictionary.get(SETTING_RE_NEXT_COLS, ""))
         # ---- mini log under the explorer panes (2026-08-07): tracing the
         # bridge/server activity used to require flipping to the Classic
         # tab — which, before the same-day fix, even stopped the server.

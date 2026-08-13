@@ -1966,6 +1966,48 @@ class MainWindow(QMainWindow):
                 if clean and clean not in history_items:
                     history_items.append(clean)
             configuration_dictionary[SETTING_IMAGE_HISTORY] = "|".join(history_items)
+
+            # ---- the last-look UX capture (9.5.14): the monitor, window
+            # size and explorer column widths as they stand RIGHT NOW, so
+            # the closeEvent save carries the shutdown truth and the next
+            # start restores the look the user left. The Remote Explorer
+            # widget is built lazily — while it has never been opened this
+            # run, its previously saved widths survive untouched (the keys
+            # are only overwritten when a live tree can answer).
+            try:
+                _win = self.window()
+                _handle = _win.windowHandle()
+                _scr = _handle.screen() if _handle is not None else None
+                if _scr is not None:
+                    configuration_dictionary[SETTING_WINDOW_SCREEN] = _scr.name()
+                configuration_dictionary[SETTING_WINDOW_SIZE] = (
+                    f"{_win.width()}x{_win.height()}")
+            except RuntimeError:
+                pass                    # window mid-teardown: keep saved
+
+            def _tree_cols(_tree):
+                if _tree is None or _tree.model() is None:
+                    return None
+                _hdr = _tree.header()
+                return ",".join(str(_hdr.sectionSize(_i))
+                                for _i in range(_hdr.count()))
+
+            _re_w = getattr(self, "_re_widget", None)
+            for _cols_key, _cols_tree in (
+                (SETTING_SDCARD_TREE_COLS, getattr(self, "treeview", None)),
+                (SETTING_IMAGE_TREE_COLS,
+                 getattr(self, "image_treeview", None)),
+                (SETTING_RE_LOCAL_COLS,
+                 getattr(_re_w, "local_view", None) if _re_w else None),
+                (SETTING_RE_NEXT_COLS,
+                 getattr(_re_w, "next_view", None) if _re_w else None),
+            ):
+                try:
+                    _cols_val = _tree_cols(_cols_tree)
+                except RuntimeError:
+                    _cols_val = None    # widget mid-teardown: keep saved
+                if _cols_val:
+                    configuration_dictionary[_cols_key] = _cols_val
             #save_configuration_file()
 
         # ── Emulator ops (extracted to zxnu_emulator_ops.py): the CSpect/MAME

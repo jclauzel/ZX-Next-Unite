@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.5.13"
+ZX_NEXT_UNITE_VERSION = "9.5.14"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -350,6 +350,17 @@ SETTING_SDCARD_SPLITTER        = "sdcard_splitter_sizes"   # "top,bottom" pane h
 SETTING_GETIT_SPLITTER         = "getit_splitter_sizes"    # "top,bottom" pane heights (px) of the GetIt results ⇄ MOTD splitter
 SETTING_HELP_PYGAME_LOG        = "help_pygame_log"         # "true" => retro 8-bit pygame console on the "?" Help tab, else classic list
 SETTING_RETRO_LOG_FONT_SIZE    = "retro_log_font_size"    # int point size for the retro 8-bit log windows (SD Card + NextSync)
+# ---- the last-look UX set (9.5.14): captured at every save (so the final
+# closeEvent save carries the shutdown truth), restored before first paint —
+# the user returns to the monitor, window size and explorer layouts they
+# left. Column widths are "w1,w2,..." px strings; anything missing or
+# garbled leaves Qt's defaults untouched.
+SETTING_WINDOW_SCREEN          = "window_screen"           # QScreen.name() the window sat on at shutdown
+SETTING_WINDOW_SIZE            = "window_size"             # "WxH" px of the main window at shutdown
+SETTING_SDCARD_TREE_COLS       = "sdcard_tree_columns"     # SD Card utility: LOCAL explorer column widths
+SETTING_IMAGE_TREE_COLS        = "image_tree_columns"      # SD Card utility: IMAGE explorer column widths
+SETTING_RE_LOCAL_COLS          = "re_local_tree_columns"   # Remote Explorer: local pane column widths
+SETTING_RE_NEXT_COLS           = "re_next_tree_columns"    # Remote Explorer: Next pane column widths
 SETTING_ITCHIO_API_KEY         = "itchio_api_key"          # str: personal itch.io API key (https://itch.io/user/settings/api-keys)
 SETTING_SHOW_ITCHIO_TAB        = "show_itchio_tab"         # "false" => hide the itch.io tab (default shown when itch-dl is installed)
 SETTING_ITCHIO_VIEW_MODE       = "itchio_view_mode"        # "gallery" (default) or "table"
@@ -930,7 +941,27 @@ SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_
 SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_DELETE_TO_RECYCLE_BIN,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
-SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED)
+SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
+SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS)
+
+
+def apply_tree_column_widths(tree, pref):
+    """Apply a saved ``"w1,w2,..."`` column-width string to a QTreeView.
+
+    The restore half of the last-look UX set (9.5.14). Forgiving on
+    purpose: a missing/garbled value leaves Qt's defaults exactly as
+    before the feature existed, extra widths beyond the model's columns
+    are ignored by Qt, and widths under 24 px are skipped so a stray 0
+    can never vanish a column for good."""
+    if tree is None:
+        return
+    try:
+        widths = [int(v) for v in str(pref).split(",") if v.strip()]
+    except (TypeError, ValueError):
+        return
+    for i, w in enumerate(widths):
+        if w >= 24:
+            tree.setColumnWidth(i, w)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30
