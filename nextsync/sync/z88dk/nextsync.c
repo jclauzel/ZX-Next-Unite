@@ -1060,7 +1060,13 @@ char inbuf[2048];          // NOT static: uart.asm's receive() hard-bounds its
                            // drain at the link-time constant _inbuf+2048 (v5.7)
 static char scratch[1280]; // outgoing block: 1024 file bytes + opcode + framing (~1030 max)
 static char sendpath[256];
-static char cleancmd[256]; // command line with speed switches removed (never touch the OS buffer)
+static char cleancmd[160]; // command line with speed switches removed (never
+                           // touch the OS buffer). 256 -> 160 in 5.7.3: the
+                           // source is tail_copy's 158-cap private copy (a
+                           // typed BASIC line, never near 160), and the 96
+                           // bytes bought back the main-bank stack headroom
+                           // the Busy branch had eaten (see anim.c's state
+                           // comment for the hardware evidence).
 
 // v5.6 clone hardening, hand-asm in uart.asm: BOTH byte budgets are full
 // (the head page tail brushes the $3F00 line, and every main-bank byte is
@@ -1103,7 +1109,7 @@ int main(int arglen, char *rawcmd)
     // do not all guarantee a terminator: on an N-Go the bytes after the
     // tail can be garbage, the tokenizer (8-bit indices) then runs off
     // through memory, and ".sync5 <ip>" showed the HELP instead of saving
-    // the config. tail_copy (head-page, free.c) caps at 254 bytes and
+    // the config. tail_copy (uart.asm) caps at 158 bytes and
     // forces a NUL — a well-behaved machine still sees exactly the old
     // bytes (0x00/0x0D end the copy early). arglen stays unused: the crt
     // measures it by scanning for the same terminator, so it is no more
@@ -1144,7 +1150,7 @@ int main(int arglen, char *rawcmd)
     // zxnu_config.py (and the help text below): the app compares it against
     // the cfg's dotn_last_version to advise the user to refresh the .sync5
     // copy on their Next after updating the app.
-    print("NextSync 5.7.2 Clauzel/Komppa");
+    print("NextSync 5.7.3 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -1413,7 +1419,6 @@ connbreak:
             // blamed the server's age ("Server too old") for what was merely
             // a taken seat.
             print("Server busy: another Next");
-            print("is connected");
             goto closeconn;
         }
         if (len < 12 || checksum(dp, len - 3) != 0 || memcmp(dp, "Listening", 9) != 0)

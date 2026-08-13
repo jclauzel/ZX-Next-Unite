@@ -164,14 +164,29 @@ static const unsigned short ufo_mask[16] = {
     0b0000000000000000
 };
 
-static unsigned short spx[N_SPR];   // 0..319 (9-bit sprite X)
-static unsigned char  spy[N_SPR];   // 0..255
-static unsigned char  spd[N_SPR];   // horizontal speed
-static unsigned char  sdir[N_SPR];  // 0 = moving right, 1 = left
-static unsigned char  sturn[3];     // birds only: >0 = turn tween countdown
-static unsigned char  g_frame;
-static unsigned char  last_frame;   // FRAMES value of the last real tick
-static unsigned char  saved_r15;
+// EVERY piece of state below carries an EXPLICIT initializer on purpose
+// (5.7.3): initialized statics are DATA, and main-bank data sits LOW —
+// thousands of bytes below the C stack — while uninitialized statics
+// land in bss, whose TAIL is the run-stack's territory (REGISTER_SP is
+// $C000 and the stack grows DOWN into it). The 5.7.2 hardware round
+// proved how thin that territory is: ~60 bytes of new code shifted the
+// whole bss block up until this state sat 98 bytes under SP, every real
+// call chain — each esxDOS call of a transfer — stomped the sprite
+// positions, and the -anim flock turned to incoherent static while
+// everything else kept working (5.7.1 had the same state a
+// hardware-proven-safe 208 bytes down). The head page is NOT an
+// alternative home: its top is the crt's own load/exit-stack territory
+// (DOTN_REGISTER_SP, $4000 down). build_dotn.ps1 now guards the map's
+// __BSS_END against REGISTER_SP so a too-thin layout can never ship
+// again.
+static unsigned short spx[N_SPR] = {0};  // 0..319 (9-bit sprite X)
+static unsigned char  spy[N_SPR] = {0};  // 0..255
+static unsigned char  spd[N_SPR] = {0};  // horizontal speed
+static unsigned char  sdir[N_SPR] = {0}; // 0 = moving right, 1 = left
+static unsigned char  sturn[3] = {0};    // birds: >0 = turn tween countdown
+static unsigned char  g_frame = 0;
+static unsigned char  last_frame = 0;    // FRAMES value of the last real tick
+static unsigned char  saved_r15 = 0;
 static unsigned char  g_anim_on = 0;
 
 // FRAMES (sysvar 23672): incremented at 50 Hz by the ROM's IM1 interrupt
@@ -390,8 +405,10 @@ extern char g_verbose;   // the -v flag (nextsync.c); spinner is part of -v
 // code is always safe - both stay mapped while the dot runs.
 extern const unsigned char spin_glyphs[30];
 
-static unsigned char spin_phase;   // BYTE OFFSET of the pose on screen (0/6/12/18)
-static unsigned char spin_frame;   // FRAMES value of the last pose change
+// Explicit initializers: same story as the flock state above — DATA sits
+// low in the main bank, top-of-bss is run-stack territory.
+static unsigned char spin_phase = 0; // BYTE OFFSET of the pose (0/6/12/18)
+static unsigned char spin_frame = 0; // FRAMES value of the last pose change
 
 // spin(1): advance one pose (frame-locked); spin(0): blank the cell.
 // One function, not three - every head-page byte is precious here.
