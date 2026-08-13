@@ -361,6 +361,7 @@ SETTING_SDCARD_TREE_COLS       = "sdcard_tree_columns"     # SD Card utility: LO
 SETTING_IMAGE_TREE_COLS        = "image_tree_columns"      # SD Card utility: IMAGE explorer column widths
 SETTING_RE_LOCAL_COLS          = "re_local_tree_columns"   # Remote Explorer: local pane column widths
 SETTING_RE_NEXT_COLS           = "re_next_tree_columns"    # Remote Explorer: Next pane column widths
+SETTING_RE_REMOTE_CWDS         = "re_remote_cwds"          # JSON {"ip": "/last/folder"} per connected Next (multi-Next; capped at 24, oldest out)
 SETTING_ITCHIO_API_KEY         = "itchio_api_key"          # str: personal itch.io API key (https://itch.io/user/settings/api-keys)
 SETTING_SHOW_ITCHIO_TAB        = "show_itchio_tab"         # "false" => hide the itch.io tab (default shown when itch-dl is installed)
 SETTING_ITCHIO_VIEW_MODE       = "itchio_view_mode"        # "gallery" (default) or "table"
@@ -942,7 +943,7 @@ SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_P
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_DELETE_TO_RECYCLE_BIN,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
 SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
-SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS)
+SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS, SETTING_RE_REMOTE_CWDS)
 
 
 def apply_tree_column_widths(tree, pref):
