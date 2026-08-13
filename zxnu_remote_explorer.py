@@ -613,10 +613,24 @@ class RemoteExplorerWidget(QWidget):
             "remembered and offered automatically next time.")
         self.next_drive_add.setEnabled(False)
         self.next_drive_add.clicked.connect(self._add_drive_clicked)
+        # Machine switcher (multi-Next, option B): WHICH connected Next this
+        # pane drives. Hidden until a second Next joins; fed by the worker's
+        # peers signal (on_peers). Every other connected Next stays on the
+        # line, idling, and keeps its place.
+        self._peer_active = None
+        self._peer_guard = False
+        self.next_machine_combo = QComboBox(self)
+        self.next_machine_combo.setToolTip(
+            "Which connected Next this pane drives. Other connected Nexts "
+            "stay on the line (idling) and keep their place; switching "
+            "re-reads the chosen machine's drives and listing.")
+        self.next_machine_combo.setVisible(False)
+        self.next_machine_combo.activated.connect(self._on_machine_pick)
         next_bar = QHBoxLayout()
         next_bar.setContentsMargins(0, 0, 0, 0)
         next_bar.addWidget(next_up)
         next_bar.addWidget(refresh)
+        next_bar.addWidget(self.next_machine_combo)
         next_bar.addWidget(self.next_drive_combo)
         next_bar.addWidget(self.next_drive_add)
         next_bar.addWidget(self.next_path_label, 1)
@@ -1158,6 +1172,61 @@ class RemoteExplorerWidget(QWidget):
         if self._op_active:
             self._log("Connection ended; stopped the running operation.")
             self._end_operation()
+
+    def on_peers(self, payload):
+        """The worker's connected-Nexts roster (multi-Next, option B):
+        ``(active_sid, [(sid, address), ...])``. Rebuilds the machine combo
+        (hidden below two Nexts) and, when the ACTIVE session changed — a
+        user pick answered, or the active Next left and the worker handed
+        the baton on — drops the pane content and re-reads the new
+        machine's drives and listing: what was on screen belonged to a
+        different SD card."""
+        try:
+            active, plist = payload
+        except (TypeError, ValueError):
+            return
+        prev = self._peer_active
+        self._peer_active = active
+        self._peer_guard = True
+        try:
+            self.next_machine_combo.clear()
+            for sid, addr in plist:
+                self.next_machine_combo.addItem(f"{addr} #{sid}", sid)
+                if sid == active:
+                    self.next_machine_combo.setCurrentIndex(
+                        self.next_machine_combo.count() - 1)
+            self.next_machine_combo.setVisible(len(plist) >= 2)
+        finally:
+            self._peer_guard = False
+        if active is not None and prev is not None and active != prev:
+            # The baton moved: this pane now drives a DIFFERENT machine.
+            self._set_connected(False)     # drop the old card's listing
+            self.on_connected()            # drives + listing of the new one
+
+    def _on_machine_pick(self, index):
+        """User picked a Next in the machine combo: hand the baton over.
+        The switch is applied by the worker and confirmed back through the
+        peers signal, which is where the refresh happens — this only sends
+        the request (and refuses it mid-operation: the commands still
+        queued belong to the machine they were built for)."""
+        if self._peer_guard:
+            return
+        sid = self.next_machine_combo.itemData(index)
+        if sid is None or sid == self._peer_active:
+            return
+        if self._op_active or self._precheck is not None:
+            self._log("Finish the running operation before switching Next.")
+            self._peer_guard = True
+            try:
+                for i in range(self.next_machine_combo.count()):
+                    if (self.next_machine_combo.itemData(i)
+                            == self._peer_active):
+                        self.next_machine_combo.setCurrentIndex(i)
+                        break
+            finally:
+                self._peer_guard = False
+            return
+        self._enqueue_raw(("select_next", sid))
 
     def on_drives(self, current, letters):
         """getdrives result: ``current`` is the dot's default drive letter and

@@ -418,6 +418,11 @@ class RemoteExplorerSignals(QObject):
     feeds it commands via a queue and receives results through these."""
     connected    = Signal()               # a Next connected in -listen mode
     disconnected = Signal()               # the listen session ended
+    # (active_sid, [(sid, address), ...]): the connected-Nexts roster,
+    # emitted on every join, leave and baton switch (multi-Next, option
+    # B). active_sid is the session the shared command queue currently
+    # feeds; None only while no Next is connected.
+    peers        = Signal(object)
     # (path, entries) where entries is a list of (is_dir: bool, size: int, name: str)
     listing      = Signal(str, object)    # result of an "ls"
     ls_failed    = Signal(str)            # an "ls" path could not be opened on the Next (gone)
@@ -548,52 +553,10 @@ RE_REPLY_TIMEOUT = 60.0
 #: Only counted between commands; a command's reply has its own timeout.
 PEER_SILENCE_LIMIT = 45.0
 
-
-def _re_turn_away_newcomers(srv, log):
-    """Sweep the listen socket's backlog while a session is live.
-
-    A second Next running ``.sync5 -L`` against a server already serving
-    one (2026-08-13 hardware round): the listen socket keeps its backlog,
-    so the OS silently completes the newcomer's TCP connect, its dot sends
-    the raw ``Listen`` handshake and then waits for a ``Listening`` that
-    never comes — a long hang ending in the dot's misleading *"Server too
-    old (-listen)"*. So the session loop calls this once per turn: any
-    queued newcomer is accepted, its handshake read, answered with a
-    framed **"Busy"** and closed. A busy-aware client (dotN 5.7.2+,
-    ZXNextRemote 0.9.5+) prints the truth — *"Server busy"* — while a
-    stock dot still prints its old message but INSTANTLY: the hang is
-    gone for every client either way. Also the first brick of the
-    planned multi-Next listener: this is the accept-while-busy plumbing.
-
-    ``log`` is the session's closure (run_remote_listen_server's local,
-    emitting sig.log) — passed in because this helper lives outside it.
-    """
-    while True:
-        try:
-            srv.settimeout(0)                      # non-blocking probe
-            conn2, addr2 = srv.accept()
-        except (BlockingIOError, socket.timeout, OSError):
-            return
-        finally:
-            srv.settimeout(1.0)
-        try:
-            with conn2:
-                conn2.settimeout(1.0)
-                try:
-                    data = conn2.recv(64)
-                except OSError:
-                    data = b""
-                if data.startswith(b"Listen"):
-                    _re_sendpacket(conn2, b"Busy", 0)
-                log(ui_tr_now(
-                    "Remote explorer: turned away a second Next at "
-                    "{address} — a session is already active (Busy).")
-                    .format(address=addr2[0]))
-                logging.info(
-                    "Remote explorer: turned away newcomer %s (busy)",
-                    addr2[0])
-        except OSError:
-            pass
+#: How many Nexts may sit on the listen server at once (option B). One
+#: past the cap gets the framed "Busy" turn-away -- the option-A reply,
+#: kept as the over-capacity answer.
+RE_MAX_PEERS = 4
 
 
 def _re_reply_call(conn, handler, timeout=None):
@@ -702,99 +665,32 @@ def _re_relname_under(remote, name):
     return name
 
 
-def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
-                             max_payload=512):
-    # max_payload is 512, not the protocol's 1024 cap: ZXNextRemote's bench
-    # testing found Next CLONES (N-Go) corrupt >512-byte continuous UART
-    # bursts at the Medium/Fast rates — deterministically, close checksums —
-    # and its own server dropped to 512-byte data chunks for exactly that.
-    # A put served from here with 1024-byte frames hit the same wall
-    # (2026-08-07: "put FAIL ... r1" on the N-Go, dead session, bridge 502).
-    # Real Nexts and the dot are indifferent; the cost is one extra 5-byte
-    # frame header per KB.
-    """Run the NextSync ``.sync5 -listen`` remote file server in a worker thread.
+def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
+                max_payload):
+    """One connected Next's ``-listen`` session (multi-Next, option B).
 
-    Waits for a Next running ``.sync5 -listen`` to connect, then drives it from
-    commands pulled off ``cmd_queue`` (a queue.Queue), emitting results through
-    ``sig`` (a RemoteExplorerSignals). Commands are tuples:
-        ("ls",    remote_path)
-        ("get",   remote_path, local_dest_dir)
-        ("put",   local_file,  remote_path)
-        ("mkdir", remote_path)
-        ("rmdir", remote_path)
-        ("rm",    remote_path)
-        ("rmtree", remote_path)   -> recursive folder delete (see below)
-        ("drives",)               -> query mounted drives (see below)
-        ("free",  drive_letter)   -> query a partition's free space (see below)
-        ("rcpy",  src, dst)       -> copy locally ON the Next (see below)
-        ("fsize", remote_path)    -> total size of a file/tree (see below)
-        ("rename", old_path, new_path)
-        ("mark",  token)          -> echoes back via sig.marked once reached
-        ("quit",)
-    ``stop_event`` (threading.Event) ends the session/thread.
-
-    ``mark`` is a client-side barrier: it touches nothing on the Next, it just
-    emits ``marked(token)`` the moment the queue drains down to it. Because the
-    queue is a single-consumer FIFO, everything enqueued before the marker has
-    finished by then -- the UI uses this to know a cut/move's transfer completed
-    before deleting the source.
-
-    ``rmtree`` deletes a whole folder on the Next: esxDOS rmdir only removes
-    *empty* directories, so the worker walks the tree itself over the ordinary
-    protocol -- ls each directory, rm its files, recurse into its sub-folders,
-    then rmdir it once empty (bottom-up). The walk runs as internally queued
-    sub-commands served one per "Poll", exactly like user commands, and reports
-    a single op_done(ok, "delete", root) when the root folder is gone (ok only
-    if every file and folder inside deleted cleanly). A user cancel drains the
-    host queue only, so an rmtree already underway finishes on its own -- same
-    "stop after the current item" semantics as a cancelled transfer.
-
-    ``drives`` sends the 'W' (getdrives) command; the Next replies with one
-    status block 'O' + <current drive letter> + <mounted letters>, emitted as
-    ``drives(current, [letters])``. Every remote path in the other commands may
-    carry a drive prefix ("M:/games"); a path without one lands on the dot's
-    current drive, so nothing changes for pre-drive-aware flows. A dot older
-    than v5.1 ignores the unknown 'W' and just re-polls: its raw "Poll" fails
-    the block parse, ``drives("", [])`` is emitted as the fallback, and the
-    stray bytes are re-synced by the outer loop's catch-all idle reply.
-
-    ``free`` sends the 'Z' command (dot v5.2+) with an optional drive letter
-    ("" = the dot's current drive); the Next replies with one status block
-    'O' + 4 bytes little-endian = free 512-byte blocks (F_GETFREE), or 'F'
-    when the drive can't be measured, emitted as ``free_space(drive, bytes)``
-    (bytes None on failure / pre-v5.2 dots, which degrade exactly like
-    ``drives``).
-
-    ``rcpy`` sends the 'C' command (dot v5.2+) with the source and destination
-    paths NUL-separated (like ``rename``); the whole copy - a file or a
-    recursive directory tree, across partitions too - runs ON the Next, no
-    data through the PC. The Next pushes 'D' progress blocks (a named one per
-    file, empty keepalives every 64KB inside big files) and ends with one
-    'O'/'F', reported as ``op_done(ok, "copy", src)``. The reply socket
-    timeout is temporarily widened: SD-card copies are slow and the
-    keepalives only bound the gaps to ~64KB of local I/O.
-
-    ``fsize`` sends the 'S' command (rfsize, dot v5.2+): the Next measures a
-    file or a whole directory tree (rcpy's "will it fit" companion), pushing
-    'D' progress blocks (one per directory + keepalives) and a terminal
-    'O' + [4B files][4B dirs][4B size_lo][2B size_hi] or 'F'. Reported as
-    ``op_done(ok, "size", path)`` followed by ``fsize(path, data)`` (data
-    None on failure). Socket timeout widened like ``rcpy``.
-
-    This is the app-side twin of nextsync5.py's listen_session: same wire
-    protocol, but driven by the UI queue and reporting via Qt signals instead of
-    a console CLI. It never touches the Sync3/Sync4 sync paths.
+    The body is run_remote_listen_server's original single session, moved
+    verbatim and now run one thread per connected Next. Only the ACTIVE
+    session (shared['state']['active']) pops the shared host/bridge
+    command queue; every other session merely answers its Next's polls
+    with the idle reply, so the link stays warm while the user works a
+    different machine -- the Next itself never knows it is benched.
+    ``my_q`` carries session-directed commands (today: the broadcast
+    "quit"); a ("select_next", sid) popped from the shared queue moves
+    the baton and is answered with an idle. Each session owns its owed
+    bridge sinks, its put/rmtree state and its silence timer, exactly as
+    the single session always did.
     """
+    peers = shared['peers']
+    plock = shared['lock']
+    state = shared['state']
+    _emit_peers = shared['emit_peers']
+
     def log(msg):
         sig.log.emit(msg)
 
-    # Bridge sinks this session still owes an answer to. An HTTP caller is
-    # BLOCKED on each of these, so every exit path — clean quit, dropped
-    # connection, or an exception nobody predicted — has to resolve them,
-    # or the caller waits out its whole timeout receiving neither bytes nor
-    # a status. BridgeReply.put is idempotent, so resolving one that has
-    # already answered is a no-op; the list is pruned as it goes, and in
-    # practice holds at most the running command plus a pending put.
+    # Bridge sinks THIS session still owes an answer to (BridgeReply.put
+    # is idempotent; the list is pruned as it goes).
     owed = []
 
     def _owe(r):
@@ -807,57 +703,19 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             r.put({'ok': False, 'error': err})
         owed[:] = []
 
-    srv = None
+    def _pop_shared():
+        # Atomic "am I active? then take one": two sessions polling at
+        # once must never race the roster check against the pop.
+        with plock:
+            if state['active'] != sid:
+                return None
+            try:
+                return cmd_queue.get_nowait()
+            except queue.Empty:
+                return None
+
     try:
-        try:
-            srv = bind_listen_socket(port)
-        except OSError as ex:
-            # Port already taken - almost always another ZX-Next-Unite (or a
-            # standalone NextSync server) already listening on it. Signal the UI
-            # to warn (yellow toast) instead of failing with a cryptic error, and
-            # bail cleanly so the Next just sees "no server" rather than us
-            # half-starting.
-            if is_address_in_use(ex):
-                sig.port_in_use.emit(port)
-            else:
-                sig.error.emit(f"Remote explorer server error: {ex}")
-            return
-        srv.settimeout(1.0)
-        # '.sync5 -listen' is interpolated, never translated: it is a command
-        # the user must type on the Next exactly as shown.
-        log(ui_tr_now("Remote explorer: waiting for {command} on port {port}…")
-            .format(command="'.sync5 -L' (-l or -listen)", port=port))
-
-        conn = None
-        while not stop_event.is_set():
-            try:
-                conn, addr = srv.accept()
-                break
-            except socket.timeout:
-                continue
-        if conn is None:
-            return
-
         with conn:
-            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            try:
-                # Belt and braces to the silence timer below: the OS will
-                # eventually reap a half-open socket by itself. Its default
-                # schedule is hours, so this is a backstop, never the
-                # mechanism.
-                conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-            except OSError:
-                pass
-            # The Next opens the session with the "Listen" handshake keyword.
-            data = conn.recv(1024)
-            if data != b"Listen":
-                sig.error.emit("Connected client did not request -listen mode.")
-                return
-            _re_sendpacket(conn, b"Listening", 0)
-            log(ui_tr_now("Remote explorer: connected to {address}").format(
-                address=addr[0]))
-            sig.connected.emit()
-
             put_data = b''
             put_ofs = 0
             put_pkt = 0
@@ -894,9 +752,6 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             # slow operation can never be mistaken for a dead peer.
             last_rx = time.monotonic()
             while not stop_event.is_set():
-                # A second Next knocking mid-session gets a prompt framed
-                # "Busy" instead of a silent backlog hang (see the helper).
-                _re_turn_away_newcomers(srv, log)
                 try:
                     conn.settimeout(1.0)
                     data = conn.recv(1024)
@@ -966,10 +821,23 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                     if local_cmds:
                         cmd = local_cmds.popleft()
                     else:
+                        # Session-directed first (the broadcast "quit"),
+                        # then -- only while THIS session holds the baton
+                        # -- the shared host/bridge queue.
                         try:
-                            cmd = cmd_queue.get_nowait()
+                            cmd = my_q.get_nowait()
                         except queue.Empty:
+                            cmd = _pop_shared()
+                        if cmd is None:
                             _re_sendpacket(conn, b"I", 0)   # idle
+                            continue
+                        if cmd[0] == "select_next":
+                            # The baton moves; this Next idles on.
+                            with plock:
+                                if cmd[1] in peers:
+                                    state['active'] = cmd[1]
+                            _emit_peers()
+                            _re_sendpacket(conn, b"I", 0)
                             continue
                     op = cmd[0]
                     # A command from the HTTP bridge carries its result sink as
@@ -988,6 +856,13 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                         reply = None
                     if op == "quit":
                         _re_sendpacket(conn, b"Q", 0)
+                        # Stop is for EVERYONE: tell every OTHER
+                        # session's Next to leave at its next poll too.
+                        with plock:
+                            _others = [p['q'] for s2, p in peers.items()
+                                       if s2 != sid]
+                        for _q2 in _others:
+                            _q2.put(("quit",))
                         # A bridge-driven quit (/forceexit) must fill its reply
                         # BEFORE we break: the HTTP thread is blocked on it.
                         if reply is not None:
@@ -1455,21 +1330,293 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         _fail_owed(f"the -listen session ended: {ex}")
     except Exception as ex:                                   # noqa: BLE001
         # Never let an unforeseen error strand a blocked HTTP caller in
-        # silence: report it, answer whoever is waiting, then re-raise so
-        # the failure still reaches the log/crash handler.
-        logging.exception("Remote explorer server: unhandled error")
+        # silence: report it, answer whoever is waiting. (No re-raise --
+        # one session dying must not take the whole server down.)
+        logging.exception("Remote explorer session: unhandled error")
         sig.error.emit(f"Remote explorer server error: {ex}")
         _fail_owed(f"the -listen session failed: {ex}")
-        raise
     finally:
-        # Clean exits owe answers too — a "quit" mid-transfer, the Next
+        # Clean exits owe answers too -- a "quit" mid-transfer, the Next
         # dropping the link, or the user stopping the server.
         _fail_owed("the -listen session ended before the command finished")
+        try:
+            conn.close()
+        except OSError:
+            pass
+
+
+def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
+                             max_payload=512):
+    # max_payload is 512, not the protocol's 1024 cap: ZXNextRemote's bench
+    # testing found Next CLONES (N-Go) corrupt >512-byte continuous UART
+    # bursts at the Medium/Fast rates — deterministically, close checksums —
+    # and its own server dropped to 512-byte data chunks for exactly that.
+    # A put served from here with 1024-byte frames hit the same wall
+    # (2026-08-07: "put FAIL ... r1" on the N-Go, dead session, bridge 502).
+    # Real Nexts and the dot are indifferent; the cost is one extra 5-byte
+    # frame header per KB.
+    """Run the NextSync ``.sync5 -listen`` remote file server in a worker thread.
+
+    Waits for a Next running ``.sync5 -listen`` to connect, then drives it from
+    commands pulled off ``cmd_queue`` (a queue.Queue), emitting results through
+    ``sig`` (a RemoteExplorerSignals). Commands are tuples:
+        ("ls",    remote_path)
+        ("get",   remote_path, local_dest_dir)
+        ("put",   local_file,  remote_path)
+        ("mkdir", remote_path)
+        ("rmdir", remote_path)
+        ("rm",    remote_path)
+        ("rmtree", remote_path)   -> recursive folder delete (see below)
+        ("drives",)               -> query mounted drives (see below)
+        ("free",  drive_letter)   -> query a partition's free space (see below)
+        ("rcpy",  src, dst)       -> copy locally ON the Next (see below)
+        ("fsize", remote_path)    -> total size of a file/tree (see below)
+        ("rename", old_path, new_path)
+        ("mark",  token)          -> echoes back via sig.marked once reached
+        ("quit",)
+    ``stop_event`` (threading.Event) ends the session/thread.
+
+    ``mark`` is a client-side barrier: it touches nothing on the Next, it just
+    emits ``marked(token)`` the moment the queue drains down to it. Because the
+    queue is a single-consumer FIFO, everything enqueued before the marker has
+    finished by then -- the UI uses this to know a cut/move's transfer completed
+    before deleting the source.
+
+    ``rmtree`` deletes a whole folder on the Next: esxDOS rmdir only removes
+    *empty* directories, so the worker walks the tree itself over the ordinary
+    protocol -- ls each directory, rm its files, recurse into its sub-folders,
+    then rmdir it once empty (bottom-up). The walk runs as internally queued
+    sub-commands served one per "Poll", exactly like user commands, and reports
+    a single op_done(ok, "delete", root) when the root folder is gone (ok only
+    if every file and folder inside deleted cleanly). A user cancel drains the
+    host queue only, so an rmtree already underway finishes on its own -- same
+    "stop after the current item" semantics as a cancelled transfer.
+
+    ``drives`` sends the 'W' (getdrives) command; the Next replies with one
+    status block 'O' + <current drive letter> + <mounted letters>, emitted as
+    ``drives(current, [letters])``. Every remote path in the other commands may
+    carry a drive prefix ("M:/games"); a path without one lands on the dot's
+    current drive, so nothing changes for pre-drive-aware flows. A dot older
+    than v5.1 ignores the unknown 'W' and just re-polls: its raw "Poll" fails
+    the block parse, ``drives("", [])`` is emitted as the fallback, and the
+    stray bytes are re-synced by the outer loop's catch-all idle reply.
+
+    ``free`` sends the 'Z' command (dot v5.2+) with an optional drive letter
+    ("" = the dot's current drive); the Next replies with one status block
+    'O' + 4 bytes little-endian = free 512-byte blocks (F_GETFREE), or 'F'
+    when the drive can't be measured, emitted as ``free_space(drive, bytes)``
+    (bytes None on failure / pre-v5.2 dots, which degrade exactly like
+    ``drives``).
+
+    ``rcpy`` sends the 'C' command (dot v5.2+) with the source and destination
+    paths NUL-separated (like ``rename``); the whole copy - a file or a
+    recursive directory tree, across partitions too - runs ON the Next, no
+    data through the PC. The Next pushes 'D' progress blocks (a named one per
+    file, empty keepalives every 64KB inside big files) and ends with one
+    'O'/'F', reported as ``op_done(ok, "copy", src)``. The reply socket
+    timeout is temporarily widened: SD-card copies are slow and the
+    keepalives only bound the gaps to ~64KB of local I/O.
+
+    ``fsize`` sends the 'S' command (rfsize, dot v5.2+): the Next measures a
+    file or a whole directory tree (rcpy's "will it fit" companion), pushing
+    'D' progress blocks (one per directory + keepalives) and a terminal
+    'O' + [4B files][4B dirs][4B size_lo][2B size_hi] or 'F'. Reported as
+    ``op_done(ok, "size", path)`` followed by ``fsize(path, data)`` (data
+    None on failure). Socket timeout widened like ``rcpy``.
+
+    This is the app-side twin of nextsync5.py's listen_session: same wire
+    protocol, but driven by the UI queue and reporting via Qt signals instead of
+    a console CLI. It never touches the Sync3/Sync4 sync paths.
+    """
+    def log(msg):
+        sig.log.emit(msg)
+
+    srv = None
+    try:
+        try:
+            srv = bind_listen_socket(port)
+        except OSError as ex:
+            # Port already taken - almost always another ZX-Next-Unite (or a
+            # standalone NextSync server) already listening on it. Signal the UI
+            # to warn (yellow toast) instead of failing with a cryptic error, and
+            # bail cleanly so the Next just sees "no server" rather than us
+            # half-starting.
+            if is_address_in_use(ex):
+                sig.port_in_use.emit(port)
+            else:
+                sig.error.emit(f"Remote explorer server error: {ex}")
+            return
+        srv.settimeout(1.0)
+        # '.sync5 -listen' is interpolated, never translated: it is a command
+        # the user must type on the Next exactly as shown.
+        log(ui_tr_now("Remote explorer: waiting for {command} on port {port}…")
+            .format(command="'.sync5 -L' (-l or -listen)", port=port))
+
+        # ---- the multi-Next roster (option B) --------------------------
+        # One session thread per connected Next (_re_session), a shared
+        # roster, and ONE active session that the host/bridge command
+        # queue feeds. The accept loop below is also the reaper: it runs
+        # on the listen socket's 1 s timeout, notices ended sessions,
+        # hands the baton on when the active one dies, and -- preserving
+        # the single-session lifecycle the pane's auto-relisten relies on
+        # -- RETURNS once at least one Next connected and the last of
+        # them has gone (the finally emits disconnected, the pane
+        # relistens). Commands never wait on this loop: the active
+        # session pops the shared queue directly on every poll.
+        peers = {}                     # sid -> {'addr', 'q', 'thread'}
+        plock = threading.Lock()
+        state = {'active': None, 'seq': 0, 'had_any': False}
+
+        def _emit_peers():
+            with plock:
+                payload = (state['active'],
+                           [(s, p['addr']) for s, p in sorted(peers.items())])
+            sig.peers.emit(payload)
+
+        shared = {'peers': peers, 'lock': plock, 'state': state,
+                  'emit_peers': _emit_peers}
+
+        while not stop_event.is_set():
+            # Reap ended sessions; hand the baton on if the active died.
+            with plock:
+                dead = [d for d, p in peers.items()
+                        if p['thread'] is not None
+                        and not p['thread'].is_alive()]
+                for d in dead:
+                    del peers[d]
+                if state['active'] not in peers:
+                    state['active'] = min(peers) if peers else None
+            if dead:
+                _emit_peers()
+            if state['had_any'] and not peers:
+                return                 # last Next gone -> disconnected
+
+            try:
+                conn, addr = srv.accept()
+            except socket.timeout:
+                continue
+
+            # The Next opens with the raw "Listen" handshake keyword.
+            # READ IT PATIENTLY (2026-08-13 field report): the old code
+            # did ONE recv on a socket that had inherited the listen
+            # socket's 1 s timeout and demanded the whole keyword in one
+            # piece -- over the ESP's Wi-Fi TCP the keyword can arrive
+            # split, arrive late (the dot's CIPSEND round-trip alone can
+            # eat the second), or a connect-retry probe can close without
+            # a byte. Every one of those read as "did not request -listen
+            # mode" AND KILLED THE WHOLE SERVER, which the pane then
+            # relistened -- the "server stops by itself" console loop.
+            # Now: 10 s window, accumulate to 6 bytes, and NO outcome
+            # here brings the server down.
+            try:
+                conn.settimeout(10.0)
+                conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                try:
+                    # Belt and braces to the per-session silence timer:
+                    # the OS eventually reaps half-open sockets itself.
+                    conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                except OSError:
+                    pass
+                data = b""
+                while len(data) < 6:
+                    chunk = conn.recv(1024)
+                    if not chunk:
+                        break
+                    data += chunk
+            except OSError:
+                # Timeout or reset mid-handshake: a probe, not a peer.
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+                continue
+            if not data:
+                # Connected and closed without a word -- the ESP's
+                # connect-retry does this. Not an error, not a log line:
+                # the real attempt is right behind it.
+                logging.info("Remote explorer: silent probe from %s",
+                             addr[0])
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+                continue
+            if data[:6] != b"Listen":
+                # A classic-sync (or unknown) client: refuse THIS
+                # connection but keep serving -- Classic Sync has its own
+                # server and the pane keeps the two off one port anyway.
+                sig.error.emit("Connected client did not request -listen mode.")
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+                continue
+            with plock:
+                full = len(peers) >= RE_MAX_PEERS
+            if full:
+                # Over capacity: the option-A turn-away. Busy-aware dots
+                # (5.7.2+) print "Server busy"; older ones fail fast.
+                try:
+                    _re_sendpacket(conn, b"Busy", 0)
+                except OSError:
+                    pass
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+                log(ui_tr_now(
+                    "Remote explorer: turned away a second Next at "
+                    "{address} — a session is already active (Busy).")
+                    .format(address=addr[0]))
+                logging.info(
+                    "Remote explorer: turned away newcomer %s (busy)",
+                    addr[0])
+                continue
+
+            try:
+                _re_sendpacket(conn, b"Listening", 0)
+            except OSError:
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+                continue
+            log(ui_tr_now("Remote explorer: connected to {address}").format(
+                address=addr[0]))
+            with plock:
+                state['seq'] += 1
+                sid = state['seq']
+                my_q = queue.Queue()
+                first = not peers
+                peers[sid] = {'addr': addr[0], 'q': my_q, 'thread': None}
+                if state['active'] is None:
+                    state['active'] = sid
+                state['had_any'] = True
+            th = threading.Thread(
+                target=_re_session,
+                args=(sid, conn, addr, my_q, sig, cmd_queue, stop_event,
+                      shared, max_payload),
+                daemon=True)
+            with plock:
+                peers[sid]['thread'] = th
+            th.start()
+            if first:
+                sig.connected.emit()   # 0 -> 1: "a Next is available"
+            _emit_peers()
+    except Exception as ex:                                   # noqa: BLE001
+        # Never die silently: report, then re-raise so the failure still
+        # reaches the log/crash handler.
+        logging.exception("Remote explorer server: unhandled error")
+        sig.error.emit(f"Remote explorer server error: {ex}")
+        raise
+    finally:
         if srv is not None:
             try:
                 srv.close()
             except OSError:
                 pass
+        # Sessions notice stop_event/socket death on their own 1 s
+        # cadence; the port above is already free for a relisten.
         sig.disconnected.emit()
 
 
