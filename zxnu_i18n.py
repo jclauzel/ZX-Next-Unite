@@ -863,6 +863,8 @@ CATALOGS = {
             "Explorador remoto: el Next cerró la conexión.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Explorador remoto: sin noticias del Next durante {seconds}s: se da por perdido (¿apagado? ¿Wi-Fi caído?)",
+        "Remote explorer: turned away a second Next at {address} — a session is already active (Busy).":
+            "Explorador remoto: se rechazó un segundo Next desde {address}: ya hay una sesión activa (Busy).",
         "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
             "Explorador remoto: el servidor sigue ejecutándose en segundo plano; deténlo desde la vista Remote Explorer.",
         "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
@@ -1959,6 +1961,8 @@ CATALOGS = {
             "Explorador remoto: o Next fechou a ligação.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Explorador remoto: sem resposta do Next há {seconds}s: assume-se que desapareceu (desligado? Wi-Fi caiu?)",
+        "Remote explorer: turned away a second Next at {address} — a session is already active (Busy).":
+            "Explorador remoto: recusou-se um segundo Next em {address}: já há uma sessão ativa (Busy).",
         "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
             "Explorador remoto: o servidor continua a correr em segundo plano; pára-o na vista Remote Explorer.",
         "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
@@ -3053,6 +3057,8 @@ CATALOGS = {
             "Eksplorator zdalny: Next zamknął połączenie.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Eksplorator zdalny: brak sygnału od Nexta od {seconds}s — uznano za utracony (wyłączony? zerwane Wi-Fi?)",
+        "Remote explorer: turned away a second Next at {address} — a session is already active (Busy).":
+            "Eksplorator zdalny: odrzucono drugiego Nexta z {address} — sesja jest już aktywna (Busy).",
         "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
             "Eksplorator zdalny: serwer nadal działa w tle — zatrzymaj go w widoku Remote Explorer.",
         "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
@@ -4149,6 +4155,8 @@ CATALOGS = {
             "Удалённый проводник: Next закрыл соединение.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Удалённый проводник: от Next нет данных {seconds}с — считаем, что он пропал (выключен? пропал Wi-Fi?)",
+        "Remote explorer: turned away a second Next at {address} — a session is already active (Busy).":
+            "Удалённый проводник: второй Next с {address} отклонён — сеанс уже активен (Busy).",
         "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
             "Удалённый проводник: сервер продолжает работать в фоне — остановите его в виде Remote Explorer.",
         "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
@@ -5244,6 +5252,8 @@ CATALOGS = {
             "Vzdálený průzkumník: Next ukončil spojení.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Vzdálený průzkumník: od Nextu {seconds}s nic nepřišlo — považuje se za ztracený (vypnutý? spadla Wi-Fi?)",
+        "Remote explorer: turned away a second Next at {address} — a session is already active (Busy).":
+            "Vzdálený průzkumník: druhý Next z {address} byl odmítnut — relace už běží (Busy).",
         "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
             "Vzdálený průzkumník: server dál běží na pozadí — zastavte ho v pohledu Remote Explorer.",
         "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
@@ -6342,6 +6352,8 @@ CATALOGS = {
             "Explorateur distant : le Next a fermé la connexion.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Explorateur distant : plus de nouvelles du Next depuis {seconds}s — considéré comme perdu (éteint ? Wi-Fi coupé ?)",
+        "Remote explorer: turned away a second Next at {address} — a session is already active (Busy).":
+            "Explorateur distant : un second Next depuis {address} a été refusé — une session est déjà active (Busy).",
         "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
             "Explorateur distant : le serveur continue de tourner en arrière-plan — arrêtez-le depuis la vue Remote Explorer.",
         "Remote explorer: navigate to a folder in the left file explorer, press 'Set current folder as new sync root folder', click 'Start Remote Explorer NextSync server', then run {command} on your Next.":
