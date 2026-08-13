@@ -1131,6 +1131,8 @@ def build_nextsync_pane(
                                         drives=list(ls) if ls else None),
             Qt.DirectConnection)
         host._re_sig.marked.connect(widget.on_marked)
+        # Multi-Next roster (option B): the machine combo + switch refresh.
+        host._re_sig.peers.connect(widget.on_peers)
         host._re_sig.log.connect(lambda s: add_nextsync_log_window(str(s)))
         host._re_sig.error.connect(widget.on_error)
         host._re_sig.error.connect(lambda s: add_nextsync_log_window("Remote explorer: " + str(s)))

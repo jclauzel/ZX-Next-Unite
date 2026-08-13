@@ -1,16 +1,23 @@
-"""Regression test: a second Next knocking mid-session is turned away
-with a framed "Busy" — promptly — and the live session never notices.
+"""Multi-Next listen server (option B) + the turn-away and handshake fixes.
 
-The bug this locks down (2026-08-13, two-machine hardware round): the
-Remote Explorer listen server accepts ONE connection and then serves it,
-but the listening socket keeps its backlog — so a second '.sync5 -L'
-completed its TCP connect silently, sent "Listen", and waited for a
-"Listening" that never came. The dot hung for its whole timeout and then
-printed the only failure line it has for that branch, the misleading
-"Server too old (-listen)". The fix sweeps the backlog once per session
-turn and answers a framed "Busy": busy-aware clients (dotN 5.7.2+,
-ZXNextRemote 0.9.5+) print the truth, and even a stock dot now fails
-instantly instead of hanging.
+What this locks down, in the order the hardware taught it:
+
+* A second '.sync5 -L' used to sit in the TCP backlog until its timeout
+  and then blame the server's age. Option A answered a framed "Busy";
+  option B goes further: the second Next gets a REAL session and a combo
+  in the UI switches which machine the command queue drives. "Busy" is
+  now the over-capacity answer (RE_MAX_PEERS).
+* Only the ACTIVE session pops the shared command queue; benched
+  sessions answer their Next's polls with the idle reply. A
+  ("select_next", sid) hands the baton over.
+* The handshake is read PATIENTLY (2026-08-13 field report): the old
+  single recv on a 1 s-inherited timeout misread a split/late "Listen"
+  (or an ESP connect-retry probe that closed silently) as "did not
+  request -listen mode" AND EXITED THE WHOLE SERVER — the "Remote
+  Explorer server stops by itself" console loop. Split keywords and
+  silent probes must both leave the server serving.
+* The active Next leaving hands the baton to a survivor without a
+  disconnected signal; only the LAST one leaving ends the worker.
 
 Run with: python test_listen_busy.py
 """
@@ -25,6 +32,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PySide6.QtCore import QCoreApplication, Qt                  # noqa: E402
+import zxnu_workers                                              # noqa: E402
 from zxnu_workers import (RemoteExplorerSignals,                 # noqa: E402
                           run_remote_listen_server)
 
@@ -39,8 +47,16 @@ def check(name, cond, detail=""):
         ok = False
 
 
+def frame(payload, pkt=0):
+    c0 = c1 = 0
+    for b in payload:
+        c0 ^= b
+        c1 = (c1 + c0) & 0xFF
+    return ((len(payload) + 5).to_bytes(2, "big") + bytes(payload) +
+            bytes([c0, c1, pkt & 0xFF]))
+
+
 def rx_payload(sock, timeout=10.0):
-    """Read one framed block, returning its payload."""
     sock.settimeout(timeout)
     hdr = b""
     while len(hdr) < 2:
@@ -58,23 +74,12 @@ def rx_payload(sock, timeout=10.0):
     return rest[:-3]
 
 
-def start_session(cmd_q, stop):
-    app = QCoreApplication.instance() or QCoreApplication(sys.argv)  # noqa: F841
-    sig = RemoteExplorerSignals()
-    state = {"connected": False, "logs": []}
-    sig.connected.connect(lambda: state.update(connected=True),
-                          Qt.DirectConnection)
-    sig.disconnected.connect(lambda: state.update(connected=False),
-                             Qt.DirectConnection)
-    sig.log.connect(lambda m: state["logs"].append(m), Qt.DirectConnection)
-    th = threading.Thread(
-        target=run_remote_listen_server,
-        args=(sig, cmd_q, stop), kwargs={"port": PORT}, daemon=True)
-    th.start()
-    return th, state
+def poll(sock, timeout=10.0):
+    sock.sendall(b"Poll")
+    return rx_payload(sock, timeout)
 
 
-def wait_until(fn, timeout=5.0):
+def wait_until(fn, timeout=8.0):
     end = time.time() + timeout
     while time.time() < end:
         if fn():
@@ -83,8 +88,24 @@ def wait_until(fn, timeout=5.0):
     return False
 
 
-def connect_dot():
-    """Play the dot far enough to be a connected peer."""
+def start_session(cmd_q, stop):
+    app = QCoreApplication.instance() or QCoreApplication(sys.argv)  # noqa: F841
+    sig = RemoteExplorerSignals()
+    state = {"connected": 0, "disconnected": 0, "peers": [], "logs": []}
+    sig.connected.connect(lambda: state.update(
+        connected=state["connected"] + 1), Qt.DirectConnection)
+    sig.disconnected.connect(lambda: state.update(
+        disconnected=state["disconnected"] + 1), Qt.DirectConnection)
+    sig.peers.connect(lambda p: state["peers"].append(p), Qt.DirectConnection)
+    sig.log.connect(lambda m: state["logs"].append(m), Qt.DirectConnection)
+    th = threading.Thread(
+        target=run_remote_listen_server,
+        args=(sig, cmd_q, stop), kwargs={"port": PORT}, daemon=True)
+    th.start()
+    return th, state
+
+
+def connect_next(handshake=b"Listen"):
     end = time.time() + 5.0
     while time.time() < end:
         try:
@@ -94,69 +115,108 @@ def connect_dot():
             time.sleep(0.05)
     else:
         raise AssertionError("listen server never came up")
-    s.sendall(b"Listen")
-    assert rx_payload(s) == b"Listening"
+    if handshake:
+        s.sendall(handshake)
     return s
 
 
-def test_second_next_turned_away():
+def test_multi_next():
     cmd_q, stop = queue.Queue(), threading.Event()
     th, state = start_session(cmd_q, stop)
-    dot = connect_dot()
-    second = None
+    socks = []
     try:
-        # The FIRST Next is a live, served session.
-        dot.sendall(b"Poll")
-        check("busy: first Next is served", len(rx_payload(dot)) >= 1)
+        # ---- a silent probe must not kill the server ------------------
+        probe = connect_next(handshake=b"")
+        probe.close()
 
-        # A SECOND Next knocks while the first is connected. Keep the
-        # first one polling meanwhile — the sweep runs once per session
-        # turn, and a session turn needs traffic or a 1 s timeout.
-        second = socket.create_connection(("127.0.0.1", PORT), timeout=5)
-        second.sendall(b"Listen")
+        # ---- first Next: normal session -------------------------------
+        a = connect_next()
+        socks.append(a)
+        check("first Next gets Listening", rx_payload(a) == b"Listening")
+        check("connected fired once",
+              wait_until(lambda: state["connected"] == 1))
+        check("probe did not kill the server (still serving)",
+              len(poll(a)) >= 1)
 
-        t0 = time.time()
-        deadline = time.time() + 10.0
-        payload = None
-        while time.time() < deadline and payload is None:
-            dot.sendall(b"Poll")
-            rx_payload(dot)                    # keep the session turning
+        # ---- split handshake: "Lis" + "ten" ---------------------------
+        b = connect_next(handshake=b"Lis")
+        socks.append(b)
+        time.sleep(0.3)
+        b.sendall(b"ten")
+        check("split handshake still gets Listening",
+              rx_payload(b) == b"Listening")
+        check("no second connected signal (roster grew instead)",
+              state["connected"] == 1)
+        check("roster shows two Nexts with #1 active",
+              wait_until(lambda: state["peers"] and
+                         state["peers"][-1][0] == 1 and
+                         len(state["peers"][-1][1]) == 2),
+              state["peers"][-1:])
+
+        # ---- only the ACTIVE session pops the queue -------------------
+        cmd_q.put(("mkdir", "/from-active"))
+        check("benched Next polls idle", poll(b) == b"I")
+        got = poll(a)
+        check("active Next receives the command", got[0:1] == b"M", got)
+        a.sendall(frame(b"O"))
+        rx_payload(a)                        # the server's ack
+
+        # ---- select_next hands the baton over -------------------------
+        cmd_q.put(("select_next", 2))
+        check("switch answered with an idle to whoever polled it",
+              poll(a) == b"I")
+        check("roster now shows #2 active",
+              wait_until(lambda: state["peers"] and
+                         state["peers"][-1][0] == 2),
+              state["peers"][-1:])
+        cmd_q.put(("mkdir", "/from-new-active"))
+        check("old active now polls idle", poll(a) == b"I")
+        got = poll(b)
+        check("new active receives the command", got[0:1] == b"M", got)
+        b.sendall(frame(b"O"))
+        rx_payload(b)
+
+        # ---- over capacity: the option-A Busy turn-away ---------------
+        extras = []
+        for _ in range(zxnu_workers.RE_MAX_PEERS - 2):
+            e = connect_next()
+            extras.append(e)
+            socks.append(e)
+            assert rx_payload(e) == b"Listening"
+        over = connect_next()
+        socks.append(over)
+        check("one past the cap gets the framed Busy",
+              rx_payload(over) == b"Busy")
+
+        # ---- the active Next leaving hands the baton on ---------------
+        b.close()                            # active (#2) hangs up
+        check("baton moves to a survivor, no disconnected",
+              wait_until(lambda: state["peers"] and
+                         state["peers"][-1][0] not in (None, 2)) and
+              state["disconnected"] == 0,
+              state["peers"][-1:])
+
+        # ---- last one leaving ends the worker (pane relistens) --------
+        for s in socks:
             try:
-                second.settimeout(0.3)
-                payload = rx_payload(second, timeout=0.3)
-            except (socket.timeout, AssertionError):
-                payload = None
-        waited = time.time() - t0
-
-        check("busy: the newcomer gets a framed Busy", payload == b"Busy",
-              payload)
-        check("busy: promptly, not after a dot-sized timeout",
-              waited < 5.0, f"{waited:.1f}s")
-        # The Busy bytes reach the client a beat before the worker thread
-        # executes its log line — poll briefly instead of racing it.
-        check("busy: the server said so in its log",
-              wait_until(lambda: any("turned away" in m
-                                     for m in state["logs"])),
-              state["logs"][-1:])
-
-        # ...and the LIVE session never noticed a thing.
-        dot.sendall(b"Poll")
-        check("busy: first session still served afterwards",
-              len(rx_payload(dot)) >= 1)
-        check("busy: first session still reports connected",
-              state["connected"] is True)
+                s.close()
+            except OSError:
+                pass
+        socks = []
+        check("worker exits when the last Next leaves",
+              wait_until(lambda: not th.is_alive(), timeout=10.0))
+        check("disconnected fired exactly once", state["disconnected"] == 1)
     finally:
         stop.set()
-        for s in (dot, second):
+        for s in socks:
             try:
-                if s is not None:
-                    s.close()
+                s.close()
             except OSError:
                 pass
         th.join(timeout=10)
 
 
 if __name__ == "__main__":
-    test_second_next_turned_away()
+    test_multi_next()
     print("\nRESULT: " + ("ALL PASS" if ok else "FAILURES"))
     sys.exit(0 if ok else 1)
