@@ -610,13 +610,28 @@ def build_config_io(
                 finally:
                     host._re_open_restoring = False
 
+            # Settings: "Automatically start Remote Explorer server on
+            # startup". Restore the checkbox silently (its change handler
+            # saves + guards; a restore must do neither) …
+            _re_auto_pref = str(configuration_dictionary.get(
+                SETTING_NEXTSYNC_RE_AUTOSTART, "") or "").strip().lower()
+            _re_auto_on = _re_auto_pref in ("true", "1", "yes")
+            _re_auto_cb = getattr(host, "settings_re_autostart_checkbox", None)
+            if _re_auto_cb is not None:
+                _re_auto_cb.blockSignals(True)
+                _re_auto_cb.setChecked(_re_auto_on)
+                _re_auto_cb.blockSignals(False)
+
             # -start-remote-explorer-listener: the command-line switch asks
-            # for the '.sync5 -listen' server to be running from startup.
-            # Force the Remote Explorer view open (without persisting it —
-            # this run only, hence the _re_open_restoring guard) and start
-            # the server once the event loop is up, so the toasts, log
-            # pane and server closures it talks to all exist by then.
-            if _zxnu_start_re_listener() and hasattr(host, "nextsync_mode_tabs"):
+            # for the '.sync5 -listen' server to be running from startup —
+            # and since 9.5.16 the Settings autostart checkbox asks for the
+            # same thing persistently. Force the Remote Explorer view open
+            # (without persisting it — this run only, hence the
+            # _re_open_restoring guard) and start the server once the event
+            # loop is up, so the toasts, log pane and server closures it
+            # talks to all exist by then.
+            if ((_zxnu_start_re_listener() or _re_auto_on)
+                    and hasattr(host, "nextsync_mode_tabs")):
                 if host.nextsync_mode_tabs.currentIndex() != 0:
                     host._re_open_restoring = True
                     try:
@@ -625,8 +640,20 @@ def build_config_io(
                         host._re_open_restoring = False
 
                 def _autostart_re_listener():
-                    if not getattr(host, "_re_running", False):
-                        host._nextsync_re_toggle_server()
+                    if getattr(host, "_re_running", False):
+                        return
+                    # The sync root the checkbox was gated on can be gone by
+                    # now (folder deleted/renamed since). The listen guard
+                    # would refuse with only a log line — say it visibly
+                    # too, the same advisory the Settings tick shows.
+                    if not getattr(host, "_re_sync_root", ""):
+                        host._show_toast(
+                            "Remote Explorer autostart not enabled",
+                            "Define a sync root folder first, on the "
+                            "NextSync tab's Remote Explorer view.",
+                            variant="yellow", duration_ms=5000)
+                        return
+                    host._nextsync_re_toggle_server()
                 QTimer.singleShot(0, _autostart_re_listener)
 
             # ---- the last-look UX restore (9.5.14): size first, then the

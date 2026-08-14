@@ -1130,6 +1130,38 @@ def test_local_file_operations():
           and any("Unzip complete" in t[0] for t in calls["toasts"]))
 
 
+def test_local_open_with_shell():
+    """Context-menu 'Open' on the local pane: the selected item goes to the
+    OS shell's associated application. The hand-off itself is faked — the
+    test asserts WHAT is handed over and that a refusal is reported, without
+    launching anything on the test machine."""
+    root = tdir("open_root")
+    w, calls = make_widget(local_start_dir=root)
+    page = tfile(root, "page.html", b"<html></html>")
+    opened = []
+    orig = rex.open_path_with_system_shell
+    rex.open_path_with_system_shell = lambda p: (opened.append(p), True)[1]
+    try:
+        w._local_open_selected()
+        check("no selection -> nothing handed to the shell", opened == [])
+        select_local(w, page)
+        w._local_open_selected()
+        check("Open hands the selected item to the OS shell",
+              len(opened) == 1 and samepath(opened[0], page), str(opened))
+        rex.open_path_with_system_shell = lambda p: False
+        w._local_open_selected()
+        check("a refused open is reported in the log",
+              logged(calls, "could not open"), str(calls["log"]))
+    finally:
+        rex.open_path_with_system_shell = orig
+    # The real helper's existence guard needs no OS: a vanished path answers
+    # False before any shell is involved.
+    from zxnu_config import open_path_with_system_shell
+    check("helper refuses a vanished path without touching the shell",
+          open_path_with_system_shell(os.path.join(root, "gone.html")) is False
+          and open_path_with_system_shell("") is False)
+
+
 def test_drag_and_drop():
     root = tdir("dnd_root")
     w, calls = make_widget(local_start_dir=root)
@@ -1521,6 +1553,7 @@ def main():
         test_sync_root_and_local_pane()
         test_modified_column_local_time()
         test_local_file_operations()
+        test_local_open_with_shell()
         test_drag_and_drop()
         test_arrow_pulse_and_overlay_resize()
         test_idle_status_provider()

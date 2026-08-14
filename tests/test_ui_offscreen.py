@@ -565,12 +565,12 @@ def inspect_phase1():
     def spos(w):
         i = lay.indexOf(w)
         return None if i < 0 else lay.getItemPosition(i)[:2]
-    check("general-text swatch at settings (23,1)",
-          spos(win.settings_btn_color_general_text) == (24, 1), str(spos(win.settings_btn_color_general_text)))
-    check("retro-log swatch right under it (25,1)",
-          spos(win.settings_btn_color_retro_log) == (25, 1), str(spos(win.settings_btn_color_retro_log)))
-    check("retro font combo pushed to (26,1)",
-          spos(win.settings_retro_log_font_combo) == (26, 1), str(spos(win.settings_retro_log_font_combo)))
+    check("general-text swatch at settings (25,1)",
+          spos(win.settings_btn_color_general_text) == (25, 1), str(spos(win.settings_btn_color_general_text)))
+    check("retro-log swatch right under it (26,1)",
+          spos(win.settings_btn_color_retro_log) == (26, 1), str(spos(win.settings_btn_color_retro_log)))
+    check("retro font combo pushed to (27,1)",
+          spos(win.settings_retro_log_font_combo) == (27, 1), str(spos(win.settings_retro_log_font_combo)))
     check("default retro color is phosphor green",
           win.img_color_retro_log.name().lower() == "#78ff8c", win.img_color_retro_log.name())
     check("default swatch shows phosphor green",
@@ -861,6 +861,42 @@ def inspect_phase6():
     check("no-prompt checkbox above it (5,0)",
           spos(win.settings_no_prompt_on_deletion_checkbox) == (5, 0),
           str(spos(win.settings_no_prompt_on_deletion_checkbox)))
+    # The RE-autostart toggle owns row 7 (freed by shifting every row that
+    # was ≥ 7 down one — 9.5.16); the send-conflict row sits right under it.
+    ac = win.settings_re_autostart_checkbox
+    check("RE-autostart toggle at settings (7,0)", spos(ac) == (7, 0),
+          str(spos(ac)))
+    check("send-conflict combo pushed to (8,1)",
+          spos(win.settings_nextsync_send_conflict_combo) == (8, 1),
+          str(spos(win.settings_nextsync_send_conflict_combo)))
+    check("RE-autostart default off", not ac.isChecked())
+    # Ticking it WITHOUT a sync root must refuse: the box reverts to off
+    # (with a toast advising to set one) and nothing lands in the cfg.
+    ac.setChecked(True)
+    QCoreApplication.processEvents()
+    check("RE-autostart tick without a sync root reverts to off",
+          not ac.isChecked())
+    check("...and is not persisted",
+          not any(l.startswith("nextsync_re_autostart=true")
+                  for l in cfg_lines()),
+          str([l for l in cfg_lines()
+               if l.startswith("nextsync_re_autostart")]))
+    # With a sync root on record the tick sticks and persists.
+    win._re_sync_root = os.path.dirname(CFG)
+    ac.setChecked(True)
+    QCoreApplication.processEvents()
+    check("RE-autostart tick with a sync root sticks", ac.isChecked())
+    check("...and persists to cfg",
+          "nextsync_re_autostart=true" in cfg_lines(),
+          str([l for l in cfg_lines()
+               if l.startswith("nextsync_re_autostart")]))
+    win._re_sync_root = ""
+    ac.setChecked(False)
+    QCoreApplication.processEvents()
+    check("unticking persists off", "nextsync_re_autostart=false" in cfg_lines(),
+          str([l for l in cfg_lines()
+               if l.startswith("nextsync_re_autostart")]))
+
     if rb.isEnabled():
         check("cfg 'false' restored as unchecked (recycle)", not rb.isChecked())
         rb.setChecked(True)

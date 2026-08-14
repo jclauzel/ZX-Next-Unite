@@ -1771,6 +1771,17 @@ def build_local_explorer_ops(
         is_dir = host.model.isDir(source_index)
         # A new folder lands inside a folder, or in a file's parent folder.
         new_dir_target = file_path if is_dir else os.path.dirname(file_path)
+        # "Open" hands the clicked item to the OS shell (associated app for
+        # a file, file manager for a folder). Deferred like the launchers so
+        # the menu's grab is released before anything appears on screen.
+        action_open = QAction(ui_tr_now("Open"), host.treeview)
+
+        def _open_with_shell(_p=file_path, _n=name):
+            if not open_path_with_system_shell(_p):
+                add_main_log_window(ui_tr_now(
+                    "Open: the system could not open {name}.").format(name=_n))
+        action_open.triggered.connect(
+            lambda: QTimer.singleShot(0, _open_with_shell))
         action_copy_text = QAction(ui_tr_now("Copy text to clipboard"), host.treeview)
         action_copy_path = QAction(ui_tr_now("Copy path to clipboard"), host.treeview)
         action_copy = QAction(ui_tr_now("Copy"), host.treeview)
@@ -1917,6 +1928,8 @@ def build_local_explorer_ops(
                 lambda: QTimer.singleShot(0, _local_start_re_server))
         menu.addSeparator()
 
+        menu.addAction(action_open)
+        menu.addSeparator()
         menu.addAction(action_copy_text)
         menu.addAction(action_copy_path)
         menu.addSeparator()

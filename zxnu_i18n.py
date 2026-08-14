@@ -291,7 +291,10 @@ CATALOGS = {
          'partition). Selecting a drive that is not mounted CRASHES the Next.'):
             ('Añade solo una unidad que exista de verdad en tu Next (un lector SD o '
              'partición adicional). Seleccionar una unidad no montada BLOQUEA el Next.'),
+        'Open': 'Abrir',
         'Open in {source}': 'Abrir en {source}',
+        'Open: the system could not open {name}.':
+            'Abrir: el sistema no pudo abrir {name}.',
         'Open on website (zxart.ee)': 'Abrir en el sitio web (zxart.ee)',
         'Open on website (zxinfo.dk)': 'Abrir en el sitio web (zxinfo.dk)',
         'Paste': 'Pegar',
@@ -348,6 +351,8 @@ CATALOGS = {
         "MAME ROM / system:": "ROM / sistema de MAME:",
         "MAME default launch parameters:": "Parámetros de arranque de MAME:",
         "Max connections:": "Conexiones máx.:",
+        "NextSync — Automatically start Remote Explorer server on startup":
+            "NextSync — Iniciar automáticamente el servidor del Remote Explorer al arrancar",
         "NextSync — when a sent file or directory exists locally:":
             "NextSync — si un archivo o directorio recibido ya existe localmente:",
         "Page:": "Página:",
@@ -1389,7 +1394,10 @@ CATALOGS = {
             ('Adiciona apenas uma unidade que exista mesmo no teu Next (um leitor SD '
              'ou partição adicional). Selecionar uma unidade não montada BLOQUEIA o '
              'Next.'),
+        'Open': 'Abrir',
         'Open in {source}': 'Abrir em {source}',
+        'Open: the system could not open {name}.':
+            'Abrir: o sistema não conseguiu abrir {name}.',
         'Open on website (zxart.ee)': 'Abrir no site (zxart.ee)',
         'Open on website (zxinfo.dk)': 'Abrir no site (zxinfo.dk)',
         'Paste': 'Colar',
@@ -1446,6 +1454,8 @@ CATALOGS = {
         "MAME ROM / system:": "ROM / sistema do MAME:",
         "MAME default launch parameters:": "Parâmetros de arranque do MAME:",
         "Max connections:": "Ligações máx.:",
+        "NextSync — Automatically start Remote Explorer server on startup":
+            "NextSync — Iniciar automaticamente o servidor do Remote Explorer no arranque",
         "NextSync — when a sent file or directory exists locally:":
             "NextSync — se um ficheiro ou diretório recebido já existir localmente:",
         "Page:": "Página:",
@@ -2485,7 +2495,10 @@ CATALOGS = {
          'partition). Selecting a drive that is not mounted CRASHES the Next.'):
             ('Dodawaj tylko dysk, który naprawdę istnieje w Twoim Nexcie (dodatkowy '
              'czytnik SD lub partycja). Wybranie niezamontowanego dysku ZAWIESZA Nexta.'),
+        'Open': 'Otwórz',
         'Open in {source}': 'Otwórz w {source}',
+        'Open: the system could not open {name}.':
+            'Otwórz: system nie mógł otworzyć {name}.',
         'Open on website (zxart.ee)': 'Otwórz na stronie (zxart.ee)',
         'Open on website (zxinfo.dk)': 'Otwórz na stronie (zxinfo.dk)',
         'Paste': 'Wklej',
@@ -2542,6 +2555,8 @@ CATALOGS = {
         "MAME ROM / system:": "ROM / system MAME:",
         "MAME default launch parameters:": "Parametry uruchamiania MAME:",
         "Max connections:": "Maks. połączeń:",
+        "NextSync — Automatically start Remote Explorer server on startup":
+            "NextSync — Automatycznie uruchamiaj serwer Remote Explorera przy starcie",
         "NextSync — when a sent file or directory exists locally:":
             "NextSync — gdy odebrany plik lub katalog już istnieje lokalnie:",
         "Page:": "Strona:",
@@ -3583,7 +3598,10 @@ CATALOGS = {
             ('Добавляйте только диск, который действительно есть в вашем Next '
              '(дополнительный SD-ридер или раздел). Выбор несмонтированного диска '
              'ПРИВОДИТ К СБОЮ Next.'),
+        'Open': 'Открыть',
         'Open in {source}': 'Открыть в {source}',
+        'Open: the system could not open {name}.':
+            'Открыть: система не смогла открыть {name}.',
         'Open on website (zxart.ee)': 'Открыть на сайте (zxart.ee)',
         'Open on website (zxinfo.dk)': 'Открыть на сайте (zxinfo.dk)',
         'Paste': 'Вставить',
@@ -3640,6 +3658,8 @@ CATALOGS = {
         "MAME ROM / system:": "ROM / система MAME:",
         "MAME default launch parameters:": "Параметры запуска MAME:",
         "Max connections:": "Макс. подключений:",
+        "NextSync — Automatically start Remote Explorer server on startup":
+            "NextSync — Автоматически запускать сервер Remote Explorer при запуске",
         "NextSync — when a sent file or directory exists locally:":
             "NextSync — если принятый файл или каталог уже существует локально:",
         "Page:": "Страница:",
@@ -4680,7 +4700,10 @@ CATALOGS = {
          'partition). Selecting a drive that is not mounted CRASHES the Next.'):
             ('Přidávejte jen jednotku, která na vašem Nextu opravdu existuje (další '
              'čtečka SD nebo oddíl). Výběr nepřipojené jednotky Next SHODÍ.'),
+        'Open': 'Otevřít',
         'Open in {source}': 'Otevřít v {source}',
+        'Open: the system could not open {name}.':
+            'Otevřít: systém nemohl otevřít {name}.',
         'Open on website (zxart.ee)': 'Otevřít na webu (zxart.ee)',
         'Open on website (zxinfo.dk)': 'Otevřít na webu (zxinfo.dk)',
         'Paste': 'Vložit',
@@ -4737,6 +4760,8 @@ CATALOGS = {
         "MAME ROM / system:": "ROM / systém MAME:",
         "MAME default launch parameters:": "Parametry spouštění MAME:",
         "Max connections:": "Max. připojení:",
+        "NextSync — Automatically start Remote Explorer server on startup":
+            "NextSync — Automaticky spouštět server Remote Exploreru při startu",
         "NextSync — when a sent file or directory exists locally:":
             "NextSync — když přijatý soubor či adresář už místně existuje:",
         "Page:": "Stránka:",
@@ -5778,7 +5803,10 @@ CATALOGS = {
             ("N'ajoutez qu'un lecteur qui existe vraiment sur votre Next (un lecteur "
              'SD ou une partition supplémentaire). Sélectionner un lecteur non monté '
              'FAIT PLANTER le Next.'),
+        'Open': 'Ouvrir',
         'Open in {source}': 'Ouvrir dans {source}',
+        'Open: the system could not open {name}.':
+            'Ouvrir : le système n’a pas pu ouvrir {name}.',
         'Open on website (zxart.ee)': 'Ouvrir sur le site (zxart.ee)',
         'Open on website (zxinfo.dk)': 'Ouvrir sur le site (zxinfo.dk)',
         'Paste': 'Coller',
@@ -5836,6 +5864,8 @@ CATALOGS = {
         "MAME ROM / system:": "ROM / système MAME :",
         "MAME default launch parameters:": "Paramètres de lancement de MAME :",
         "Max connections:": "Connexions max :",
+        "NextSync — Automatically start Remote Explorer server on startup":
+            "NextSync — Démarrer automatiquement le serveur du Remote Explorer au lancement",
         "NextSync — when a sent file or directory exists locally:":
             "NextSync — si un fichier ou dossier reçu existe déjà en local :",
         "Page:": "Page :",
@@ -6838,6 +6868,9 @@ _TOAST_CATALOGS = {
         "NextSync HTTP bridge started": "Passerelle HTTP NextSync démarrée",
         "NextSync HTTP bridge not started": "Passerelle HTTP NextSync non démarrée",
         "Remote Explorer NextSync server not started": "Serveur NextSync du Remote Explorer non démarré",
+        "Remote Explorer autostart not enabled": "Démarrage automatique du Remote Explorer non activé",
+        "Define a sync root folder first, on the NextSync tab's Remote Explorer view.":
+            "Définissez d'abord un dossier racine de synchronisation dans la vue Remote Explorer de l'onglet NextSync.",
         "Next connected": "Next connecté",
         "A Next is now connected to the NextSync Remote Explorer.":
             "Un Next est maintenant connecté au Remote Explorer NextSync.",
@@ -6951,6 +6984,9 @@ _TOAST_CATALOGS = {
         "NextSync HTTP bridge started": "Puente HTTP de NextSync iniciado",
         "NextSync HTTP bridge not started": "Puente HTTP de NextSync no iniciado",
         "Remote Explorer NextSync server not started": "Servidor NextSync del Remote Explorer no iniciado",
+        "Remote Explorer autostart not enabled": "Autoarranque del Remote Explorer no activado",
+        "Define a sync root folder first, on the NextSync tab's Remote Explorer view.":
+            "Define primero una carpeta raíz de sincronización en la vista Remote Explorer de la pestaña NextSync.",
         "Next connected": "Next conectado",
         "A Next is now connected to the NextSync Remote Explorer.":
             "Un Next está ahora conectado al Remote Explorer de NextSync.",
@@ -7064,6 +7100,9 @@ _TOAST_CATALOGS = {
         "NextSync HTTP bridge started": "Ponte HTTP NextSync iniciada",
         "NextSync HTTP bridge not started": "Ponte HTTP NextSync não iniciada",
         "Remote Explorer NextSync server not started": "Servidor NextSync do Remote Explorer não iniciado",
+        "Remote Explorer autostart not enabled": "Arranque automático do Remote Explorer não ativado",
+        "Define a sync root folder first, on the NextSync tab's Remote Explorer view.":
+            "Define primeiro uma pasta raiz de sincronização na vista Remote Explorer do separador NextSync.",
         "Next connected": "Next ligado",
         "A Next is now connected to the NextSync Remote Explorer.":
             "Um Next está agora ligado ao Remote Explorer do NextSync.",
@@ -7177,6 +7216,9 @@ _TOAST_CATALOGS = {
         "NextSync HTTP bridge started": "Mostek HTTP NextSync uruchomiony",
         "NextSync HTTP bridge not started": "Mostek HTTP NextSync nie został uruchomiony",
         "Remote Explorer NextSync server not started": "Serwer NextSync Remote Explorera nie został uruchomiony",
+        "Remote Explorer autostart not enabled": "Autostart Remote Explorera nie został włączony",
+        "Define a sync root folder first, on the NextSync tab's Remote Explorer view.":
+            "Najpierw wskaż folder główny synchronizacji w widoku Remote Explorer na karcie NextSync.",
         "Next connected": "Next połączony",
         "A Next is now connected to the NextSync Remote Explorer.":
             "Next jest teraz połączony z Remote Explorerem NextSync.",
@@ -7290,6 +7332,9 @@ _TOAST_CATALOGS = {
         "NextSync HTTP bridge started": "HTTP-мост NextSync запущен",
         "NextSync HTTP bridge not started": "HTTP-мост NextSync не запущен",
         "Remote Explorer NextSync server not started": "Сервер NextSync Remote Explorer не запущен",
+        "Remote Explorer autostart not enabled": "Автозапуск Remote Explorer не включён",
+        "Define a sync root folder first, on the NextSync tab's Remote Explorer view.":
+            "Сначала задайте корневую папку синхронизации в виде Remote Explorer на вкладке NextSync.",
         "Next connected": "Next подключён",
         "A Next is now connected to the NextSync Remote Explorer.":
             "Next подключён к Remote Explorer NextSync.",
@@ -7403,6 +7448,9 @@ _TOAST_CATALOGS = {
         "NextSync HTTP bridge started": "HTTP most NextSync spuštěn",
         "NextSync HTTP bridge not started": "HTTP most NextSync nebyl spuštěn",
         "Remote Explorer NextSync server not started": "Server NextSync Remote Exploreru nebyl spuštěn",
+        "Remote Explorer autostart not enabled": "Automatické spuštění Remote Exploreru nebylo zapnuto",
+        "Define a sync root folder first, on the NextSync tab's Remote Explorer view.":
+            "Nejprve nastavte kořenovou složku synchronizace v zobrazení Remote Explorer na kartě NextSync.",
         "Next connected": "Next připojen",
         "A Next is now connected to the NextSync Remote Explorer.":
             "Next je nyní připojen k Remote Exploreru NextSync.",
