@@ -2538,6 +2538,8 @@ class MainWindow(QMainWindow):
         self.local_explorer_up_button = _pane.local_explorer_up_button
         self.local_explorer_refresh_button = _pane.local_explorer_refresh_button
         self.local_path_row_container = _pane.local_path_row_container
+        self.local_nav_row_container = _pane.local_nav_row_container
+        self.image_nav_row_container = _pane.image_nav_row_container
         self.image_explorer_up_button = _pane.image_explorer_up_button
         self.image_explorer_refresh_button = _pane.image_explorer_refresh_button
         self.diskimageexplorerlabel = _pane.diskimageexplorerlabel
@@ -2861,19 +2863,24 @@ class MainWindow(QMainWindow):
 
         self.imageexplorerbuttonscontainer = QWidget()
         self.imageexplorerbuttons = QHBoxLayout()
+        # Flush against the path box since the one-row mirroring (9.5.19):
+        # no layout margins, and the two historical spacer labels stay OUT
+        # of the layout -- their literal runs of spaces were the visible
+        # gap between the box and the buttons (field report #3).
+        self.imageexplorerbuttons.setContentsMargins(0, 0, 0, 0)
 
         self.hiddenspacelabel1 = QLabel()
         self.hiddenspacelabel1.setText("      ")
-        self.imageexplorerbuttons.addWidget(self.hiddenspacelabel1)
 
         self.button_new_folder = QPushButton("NewFolder", self)
         self.button_new_folder.setText("New Folder")
-        self.button_new_folder.setMinimumWidth(IMAGE_BUTTONS_SIZE)
+        # Natural width since the 9.5.19 one-row mirroring: the trio sits
+        # right of the image path box, and the box owns the slack -- the
+        # 190px minimums starved it to a sliver (field report).
         self.button_new_folder.clicked.connect(image_newfolder)
 
         self.button_rename = QPushButton("Rename", self)
         self.button_rename.setText("Rename")
-        self.button_rename.setMinimumWidth(IMAGE_BUTTONS_SIZE)
         self.button_rename.clicked.connect(image_rename_dialog)
 
         self.download_and_install_hdfmonkey_button = QPushButton("Download & install HDF Monkey", self)
@@ -2884,11 +2891,9 @@ class MainWindow(QMainWindow):
 
         self.hiddenspacelabel2 = QLabel()
         self.hiddenspacelabel2.setText("       ")
-        self.imageexplorerbuttons.addWidget(self.hiddenspacelabel2)
 
         self.button_delete_files = QPushButton("DeleteFiles", self)
         self.button_delete_files.setText("Delete")
-        self.button_delete_files.setMinimumWidth(IMAGE_BUTTONS_SIZE)
         self.button_delete_files.clicked.connect(delete_files_button_show_confirmation_buttons)
 
         self.imageexplorerbuttons.addWidget(self.button_new_folder)
@@ -2932,9 +2937,10 @@ class MainWindow(QMainWindow):
 
         self.imageexplorerbuttonscontainer.setLayout(self.imageexplorerbuttons)
 
-        # Place the New Folder / Delete Files buttons directly beneath the disk
-        # image explorer (grid row 2, right column).
-        self.sdcard_explorer_grid.addWidget(self.imageexplorerbuttonscontainer, 2, 2)
+        # The New Folder / Rename / Delete cluster joins the image path row,
+        # right of the path box -- ONE bottom row, the Remote Explorer's
+        # exact arrangement (9.5.19 mirroring).
+        self.image_path_row_container.layout().addWidget(self.imageexplorerbuttonscontainer)
 
         # Add Log Window
         # Optional retro 8-bit pygame log for the SD Card tab, mirroring the one on

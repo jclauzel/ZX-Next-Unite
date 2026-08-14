@@ -186,9 +186,12 @@ class SdCardExplorerPane(QWidget):
         image_explorer_vbox.addWidget(self.image_usage_gauge)
 
     def _build_grid(self, transfer_buttons_container, image_buttons_container):
-        # Path row above the explorers: editable boxes showing the local
-        # folder / in-image target folder, each with Up / Refresh buttons
-        # mirroring the Remote Explorer's top bars.
+        # Two bars per explorer, mirroring the NextSync Remote Explorer
+        # (9.5.19 field request — the two tabs read the same now): the
+        # Up / Refresh buttons stay in a nav bar ABOVE each tree, and the
+        # editable path box sits in its own row directly BELOW the tree —
+        # the image-side one right above the New Folder / Rename / Delete
+        # buttons, exactly where the Remote Explorer keeps its Next path.
         self.local_file_explorer_path = QLineEdit()
         self.local_file_explorer_path.setPlaceholderText("Local folder path...")
         self.local_file_explorer_path.setClearButtonEnabled(True)
@@ -208,11 +211,16 @@ class SdCardExplorerPane(QWidget):
         self.localexplorerlabel = QLabel()
         self.localexplorerlabel.setText("Local path: ")
 
+        self.local_nav_row_container = QWidget()
+        local_nav_row = QHBoxLayout(self.local_nav_row_container)
+        local_nav_row.setContentsMargins(0, 0, 0, 0)
+        local_nav_row.addWidget(self.local_explorer_up_button)
+        local_nav_row.addWidget(self.local_explorer_refresh_button)
+        local_nav_row.addStretch(1)
+
         self.local_path_row_container = QWidget()
         local_path_row = QHBoxLayout(self.local_path_row_container)
         local_path_row.setContentsMargins(0, 0, 0, 0)
-        local_path_row.addWidget(self.local_explorer_up_button)
-        local_path_row.addWidget(self.local_explorer_refresh_button)
         local_path_row.addWidget(self.localexplorerlabel)
         local_path_row.addWidget(self.local_file_explorer_path, 1)
 
@@ -238,33 +246,43 @@ class SdCardExplorerPane(QWidget):
         )
         self.diskimageexplorerpathinput.editingFinished.connect(self._on_image_path_edited)
 
+        self.image_nav_row_container = QWidget()
+        image_nav_row = QHBoxLayout(self.image_nav_row_container)
+        image_nav_row.setContentsMargins(0, 0, 0, 0)
+        image_nav_row.addWidget(self.image_explorer_up_button)
+        image_nav_row.addWidget(self.image_explorer_refresh_button)
+        image_nav_row.addStretch(1)
+
         self.image_path_row_container = QWidget()
         image_path_row = QHBoxLayout(self.image_path_row_container)
         image_path_row.setContentsMargins(0, 0, 0, 0)
-        image_path_row.addWidget(self.image_explorer_up_button)
-        image_path_row.addWidget(self.image_explorer_refresh_button)
         image_path_row.addWidget(self.diskimageexplorerlabel)
         image_path_row.addWidget(self.diskimageexplorerpathinput, 1)
 
-        # 3-column grid; the two explorer columns share the stretch equally so
-        # each path row matches its explorer's width, and the New Folder /
-        # Delete buttons sit directly under the disk image explorer.
+        # 3-column grid; the two explorer columns share the stretch equally
+        # so each bar matches its explorer's width. Rows: nav bars, trees,
+        # then ONE bottom row per side — the image side's carries the path
+        # box AND the New Folder / Rename / Delete buttons together, the
+        # Remote Explorer's exact bottom row.
         self.sdcard_explorer_grid = QGridLayout(self)
         self.sdcard_explorer_grid.setContentsMargins(0, 0, 0, 0)
-        self.sdcard_explorer_grid.addWidget(self.local_path_row_container, 0, 0)
-        self.sdcard_explorer_grid.addWidget(self.image_path_row_container, 0, 2)
+        self.sdcard_explorer_grid.addWidget(self.local_nav_row_container, 0, 0)
+        self.sdcard_explorer_grid.addWidget(self.image_nav_row_container, 0, 2)
         self.sdcard_explorer_grid.addWidget(self.treeview, 1, 0)
         self.sdcard_explorer_grid.addWidget(self.image_explorer_container, 1, 2)
+        self.sdcard_explorer_grid.addWidget(self.local_path_row_container, 2, 0)
+        self.sdcard_explorer_grid.addWidget(self.image_path_row_container, 2, 2)
         self.sdcard_explorer_grid.setColumnStretch(0, 1)
         self.sdcard_explorer_grid.setColumnStretch(2, 1)
         self.sdcard_explorer_grid.setRowStretch(1, 1)
         # The centre transfer-buttons column (1,1) and the New Folder /
-        # Delete row (2,2) are operation-wired widgets: when not handed in
-        # here, MainWindow slots them into this grid once it has built them.
+        # Rename / Delete cluster are operation-wired widgets: when not
+        # handed in here, MainWindow adds them once it has built them (the
+        # button cluster goes INTO the image path row, right of the box).
         if transfer_buttons_container is not None:
             self.sdcard_explorer_grid.addWidget(transfer_buttons_container, 1, 1)
         if image_buttons_container is not None:
-            self.sdcard_explorer_grid.addWidget(image_buttons_container, 2, 2)
+            image_path_row.addWidget(image_buttons_container)
 
     # ------------------------------------------------- local explorer: nav --
     def update_root_drive(self, _index=None):
