@@ -34,6 +34,74 @@ from zxnu_media import *
 from zxnu_workers import *
 
 
+# ---------------------------------------------------------------------------
+# The Settings tab's visual order — ONE name per grid row, top to bottom.
+# This tuple is the only place that decides where a settings row appears:
+# every widget is placed with settings_grid_row("<name>"), so adding a
+# setting means inserting its name here and placing its widgets — every row
+# below moves down by itself. Never hardcode a grid row index again (the
+# 9.5.17 checkbox insertion had to renumber 30+ call sites by hand).
+# tests/test_ui_offscreen.py asserts widget positions through this same
+# mapping, so a call site that bypasses it fails the suite.
+# ---------------------------------------------------------------------------
+SETTINGS_TAB_ROWS = (
+    "zxnu_update_check",
+    "ui_language",
+    "wizard",
+    "desktop_theme",
+    "warn_image_nearly_full",
+    "no_prompt_on_deletion",
+    "delete_to_recycle_bin",
+    "re_autostart",
+    "nextsync_send_conflict",
+    "avail_check",
+    "multi_search",
+    "search_autocomplete",
+    "gallery_anim",
+    "gallery_rows",
+    "gallery_cols",
+    "gallery_img_size",
+    "gallery_slideshow",
+    "search_sort",
+    "colors_section",
+    "color_up_directory",
+    "color_dir_name",
+    "color_dir_type",
+    "color_file_name",
+    "color_file_ext",
+    "color_file_size",
+    "color_general_text",
+    "color_retro_log",
+    "retro_log_font",
+    "bg_opacity",
+    "bg_image",
+    "crash_log",
+    "no_emulator_toast",
+    "mame_rom",
+    "mame_params",
+    "mame_update_check",   # also the Flatpak options box — platform alternates
+    "cspect_params",
+    "cspect_update_check",
+    "sdcard_pygame_anim",
+    "alien_floyd_bg",
+    "alien_floyd_tab",
+    "nextsync_pygame_anim",
+    "itchio_tab",
+    "http_bridge",
+    "open_config_file",
+)
+# A duplicate name would silently stack two rows on one grid row — the
+# import must fail instead.
+assert len(set(SETTINGS_TAB_ROWS)) == len(SETTINGS_TAB_ROWS), \
+    "duplicate name in SETTINGS_TAB_ROWS"
+
+
+def settings_grid_row(name):
+    """The grid row of a named Settings entry. A typo raises ValueError at
+    build time — a misnamed row must fail loudly, not land at row 0."""
+    return SETTINGS_TAB_ROWS.index(name)
+
+
 def build_settings_pane(
     host,
     *,
@@ -74,7 +142,7 @@ def build_settings_pane(
         "configuration file.")
     host.settings_zxnu_update_check_checkbox.stateChanged.connect(
         lambda _s: settings_zxnu_update_check_changed())
-    grid_tab_Settings.addWidget(host.settings_zxnu_update_check_checkbox, 0, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_zxnu_update_check_checkbox, settings_grid_row("zxnu_update_check"), 0, 1, 2)
 
     # ── Desktop theme (top of the Settings pane) ───────────────────────
     # Drives the SD Card explorer font colours. Automatic follows the OS
@@ -207,7 +275,7 @@ def build_settings_pane(
         "  • Custom: keep your hand-picked colours. Changing any colour\n"
         "    below switches to Custom automatically."
     )
-    grid_tab_Settings.addWidget(desktop_theme_lbl, 3, 0)
+    grid_tab_Settings.addWidget(desktop_theme_lbl, settings_grid_row("desktop_theme"), 0)
 
     host.settings_desktop_theme_combo = QComboBox()
     host.settings_desktop_theme_combo.addItem("Automatic (default)",   DESKTOP_THEME_AUTOMATIC)
@@ -220,7 +288,7 @@ def build_settings_pane(
     host.settings_desktop_theme_combo.currentIndexChanged.connect(
         lambda _i: _settings_desktop_theme_changed()
     )
-    grid_tab_Settings.addWidget(host.settings_desktop_theme_combo, 3, 1)
+    grid_tab_Settings.addWidget(host.settings_desktop_theme_combo, settings_grid_row("desktop_theme"), 1)
 
     # ── Application UI language (its own row, right under the self-update
     # toggle — columns 2+ sit outside the visible pane width, so the picker
@@ -243,7 +311,7 @@ def build_settings_pane(
         "Language of the application's buttons, labels and checkboxes.\n"
         "Applies immediately; texts written while the app runs (logs, dialogs)\n"
         "follow after a restart. Saved to the configuration file.")
-    grid_tab_Settings.addWidget(ui_language_lbl, 1, 0)
+    grid_tab_Settings.addWidget(ui_language_lbl, settings_grid_row("ui_language"), 0)
 
     host.settings_ui_language_combo = QComboBox()
     for _lang_code, _lang_name in UI_LANGUAGES:
@@ -256,7 +324,7 @@ def build_settings_pane(
     host.settings_ui_language_combo.setToolTip(ui_language_lbl.toolTip())
     host.settings_ui_language_combo.currentIndexChanged.connect(
         lambda _i: _settings_ui_language_changed())
-    grid_tab_Settings.addWidget(host.settings_ui_language_combo, 1, 1)
+    grid_tab_Settings.addWidget(host.settings_ui_language_combo, settings_grid_row("ui_language"), 1)
 
     def settings_warn_image_nearly_full_statechanged():
         configuration_dictionary[SETTING_WARN_IMAGE_NEARLY_FULL] = "true" if host.settings_warn_image_nearly_full_checkbox.isChecked() else "false"
@@ -270,7 +338,7 @@ def build_settings_pane(
         "Uncheck this option to suppress that warning."
     )
     host.settings_warn_image_nearly_full_checkbox.stateChanged.connect(settings_warn_image_nearly_full_statechanged)
-    grid_tab_Settings.addWidget(host.settings_warn_image_nearly_full_checkbox, 4, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_warn_image_nearly_full_checkbox, settings_grid_row("warn_image_nearly_full"), 0, 1, 2)
 
     def settings_no_prompt_on_deletion_statechanged():
         configuration_dictionary[SETTING_NO_PROMPT_ON_DELETION] = "true" if host.settings_no_prompt_on_deletion_checkbox.isChecked() else "false"
@@ -284,7 +352,7 @@ def build_settings_pane(
         "Leave unchecked to keep the confirmation prompt (recommended)."
     )
     host.settings_no_prompt_on_deletion_checkbox.stateChanged.connect(settings_no_prompt_on_deletion_statechanged)
-    grid_tab_Settings.addWidget(host.settings_no_prompt_on_deletion_checkbox, 5, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_no_prompt_on_deletion_checkbox, settings_grid_row("no_prompt_on_deletion"), 0, 1, 2)
 
     # ── Recycle Bin deletes (Send2Trash, optional) ─────────────────────
     # When on (the default), files/folders deleted in the LOCAL file
@@ -319,7 +387,7 @@ def build_settings_pane(
             + "\nUntil it is installed, local deletes stay permanent.")
     host.settings_delete_to_recycle_bin_checkbox.stateChanged.connect(
         lambda _s: settings_delete_to_recycle_bin_statechanged())
-    grid_tab_Settings.addWidget(host.settings_delete_to_recycle_bin_checkbox, 6, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_delete_to_recycle_bin_checkbox, settings_grid_row("delete_to_recycle_bin"), 0, 1, 2)
 
     def settings_avail_check_statechanged():
         configuration_dictionary[SETTING_AVAIL_CHECK] = "true" if host.settings_avail_check_checkbox.isChecked() else "false"
@@ -336,7 +404,7 @@ def build_settings_pane(
     host.settings_avail_check_checkbox.stateChanged.connect(settings_avail_check_statechanged)
     _avail_check_visible = ZX_NEXT_UNITE_ZXDB_ENABLE_DOWNLOAD_BUTTONS or ZX_NEXT_UNITE_ZXART_ENABLE_DOWNLOAD_BUTTONS
     host.settings_avail_check_checkbox.setVisible(_avail_check_visible)
-    grid_tab_Settings.addWidget(host.settings_avail_check_checkbox, 9, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_avail_check_checkbox, settings_grid_row("avail_check"), 0, 1, 2)
 
     def settings_multi_search_statechanged():
         configuration_dictionary[SETTING_MULTI_SEARCH] = "true" if host.settings_multi_search_checkbox.isChecked() else "false"
@@ -350,7 +418,7 @@ def build_settings_pane(
         "with the number of results found, e.g. ZXDB (5)."
     )
     host.settings_multi_search_checkbox.stateChanged.connect(settings_multi_search_statechanged)
-    grid_tab_Settings.addWidget(host.settings_multi_search_checkbox, 10, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_multi_search_checkbox, settings_grid_row("multi_search"), 0, 1, 2)
 
     def settings_search_autocomplete_statechanged():
         enabled = host.settings_search_autocomplete_checkbox.isChecked()
@@ -366,7 +434,7 @@ def build_settings_pane(
         "Uncheck to disable autocomplete suggestions on all search inputs."
     )
     host.settings_search_autocomplete_checkbox.stateChanged.connect(settings_search_autocomplete_statechanged)
-    grid_tab_Settings.addWidget(host.settings_search_autocomplete_checkbox, 11, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_search_autocomplete_checkbox, settings_grid_row("search_autocomplete"), 0, 1, 2)
 
     # ---- Gallery (picture view) settings ----
     def _settings_gallery_anim_changed():
@@ -383,7 +451,7 @@ def build_settings_pane(
         "  • Timed: cycles continuously while the gallery is visible.\n"
         "  • None: never cycles between images (animated GIFs still play)."
     )
-    grid_tab_Settings.addWidget(gallery_anim_lbl, 12, 0)
+    grid_tab_Settings.addWidget(gallery_anim_lbl, settings_grid_row("gallery_anim"), 0)
 
     host.settings_gallery_anim_combo = QComboBox()
     host.settings_gallery_anim_combo.addItem("On hover (default)", "hover")
@@ -393,7 +461,7 @@ def build_settings_pane(
     host.settings_gallery_anim_combo.currentIndexChanged.connect(
         lambda _i: _settings_gallery_anim_changed()
     )
-    grid_tab_Settings.addWidget(host.settings_gallery_anim_combo, 12, 1)
+    grid_tab_Settings.addWidget(host.settings_gallery_anim_combo, settings_grid_row("gallery_anim"), 1)
 
     def _settings_gallery_rows_changed(val: int):
         val = max(GALLERY_MIN_ROWS, min(GALLERY_MAX_ROWS, int(val)))
@@ -406,14 +474,14 @@ def build_settings_pane(
         "Number of thumbnail rows shown per gallery page.\n"
         f"Range {GALLERY_MIN_ROWS}–{GALLERY_MAX_ROWS}. Default {DEFAULT_GALLERY_ROWS_PER_PAGE}."
     )
-    grid_tab_Settings.addWidget(gallery_rows_lbl, 13, 0)
+    grid_tab_Settings.addWidget(gallery_rows_lbl, settings_grid_row("gallery_rows"), 0)
 
     host.settings_gallery_rows_spin = QSpinBox()
     host.settings_gallery_rows_spin.setRange(GALLERY_MIN_ROWS, GALLERY_MAX_ROWS)
     host.settings_gallery_rows_spin.setValue(DEFAULT_GALLERY_ROWS_PER_PAGE)
     host.settings_gallery_rows_spin.setToolTip(gallery_rows_lbl.toolTip())
     host.settings_gallery_rows_spin.valueChanged.connect(_settings_gallery_rows_changed)
-    grid_tab_Settings.addWidget(host.settings_gallery_rows_spin, 13, 1)
+    grid_tab_Settings.addWidget(host.settings_gallery_rows_spin, settings_grid_row("gallery_rows"), 1)
 
     def _make_color_button(setting_key, color_attr, label_text, tooltip_text, grid_row,
                            switch_theme=True, on_change=None):
@@ -487,7 +555,7 @@ def build_settings_pane(
         "Number of thumbnail columns shown in the gallery grid.\n"
         "Default is 4. Choose 2 for larger tiles or 8 for more items per row."
     )
-    grid_tab_Settings.addWidget(gallery_cols_lbl, 14, 0)
+    grid_tab_Settings.addWidget(gallery_cols_lbl, settings_grid_row("gallery_cols"), 0)
 
     host.settings_gallery_cols_combo = QComboBox()
     host.settings_gallery_cols_combo.addItem("2", 2)
@@ -498,7 +566,7 @@ def build_settings_pane(
     host.settings_gallery_cols_combo.currentIndexChanged.connect(
         lambda _i: _settings_gallery_cols_changed()
     )
-    grid_tab_Settings.addWidget(host.settings_gallery_cols_combo, 14, 1)
+    grid_tab_Settings.addWidget(host.settings_gallery_cols_combo, settings_grid_row("gallery_cols"), 1)
 
     def _settings_gallery_img_size_changed():
         val = host.settings_gallery_img_size_combo.currentData() or DEFAULT_GALLERY_IMG_SIZE
@@ -513,7 +581,7 @@ def build_settings_pane(
         "  • Medium (default): standard size\n"
         "  • Large: double the medium height"
     )
-    grid_tab_Settings.addWidget(gallery_img_size_lbl, 15, 0)
+    grid_tab_Settings.addWidget(gallery_img_size_lbl, settings_grid_row("gallery_img_size"), 0)
 
     host.settings_gallery_img_size_combo = QComboBox()
     host.settings_gallery_img_size_combo.addItem("Small",          "small")
@@ -524,7 +592,7 @@ def build_settings_pane(
     host.settings_gallery_img_size_combo.currentIndexChanged.connect(
         lambda _i: _settings_gallery_img_size_changed()
     )
-    grid_tab_Settings.addWidget(host.settings_gallery_img_size_combo, 15, 1)
+    grid_tab_Settings.addWidget(host.settings_gallery_img_size_combo, settings_grid_row("gallery_img_size"), 1)
 
     def _settings_gallery_slideshow_changed():
         val = host.settings_gallery_slideshow_combo.currentData()
@@ -548,7 +616,7 @@ def build_settings_pane(
         "How long each screenshot is shown before the auto-advancing gallery\n"
         "slideshow moves to the next image. Default is 5 seconds."
     )
-    grid_tab_Settings.addWidget(gallery_slideshow_lbl, 16, 0)
+    grid_tab_Settings.addWidget(gallery_slideshow_lbl, settings_grid_row("gallery_slideshow"), 0)
 
     host.settings_gallery_slideshow_combo = QComboBox()
     for _secs in GALLERY_SLIDESHOW_SECS_CHOICES:
@@ -559,45 +627,45 @@ def build_settings_pane(
     host.settings_gallery_slideshow_combo.currentIndexChanged.connect(
         lambda _i: _settings_gallery_slideshow_changed()
     )
-    grid_tab_Settings.addWidget(host.settings_gallery_slideshow_combo, 16, 1)
+    grid_tab_Settings.addWidget(host.settings_gallery_slideshow_combo, settings_grid_row("gallery_slideshow"), 1)
 
     settings_section_lbl = QLabel("Local file explorers & App Text Colors:")
     settings_section_lbl.setToolTip(
         "Customize the foreground color of each item type shown in the SD card\n"
         "image explorer, plus the general app text color (labels, checkboxes,\n"
         "section headers) used across the app in Classic (non-pygame) mode.")
-    grid_tab_Settings.addWidget(settings_section_lbl, 18, 0, 1, 2)
+    grid_tab_Settings.addWidget(settings_section_lbl, settings_grid_row("colors_section"), 0, 1, 2)
 
     host.settings_btn_color_up_directory = _make_color_button(
         SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory",
         "  Up Directory item",
         "Color used for the '[Up Directory..]' navigation row in the image explorer.",
-        19)
+        settings_grid_row("color_up_directory"))
     host.settings_btn_color_dir_name = _make_color_button(
         SETTING_COLOR_DIR_NAME, "img_color_dir_name",
         "  Directory name",
         "Color used for directory name entries in the image explorer.",
-        20)
+        settings_grid_row("color_dir_name"))
     host.settings_btn_color_dir_type = _make_color_button(
         SETTING_COLOR_DIR_TYPE, "img_color_dir_type",
         "  Directory type label",
         "Color used for the 'DIR' type label column of directory entries.",
-        21)
+        settings_grid_row("color_dir_type"))
     host.settings_btn_color_file_name = _make_color_button(
         SETTING_COLOR_FILE_NAME, "img_color_file_name",
         "  File name",
         "Color used for file name entries in the image explorer.",
-        22)
+        settings_grid_row("color_file_name"))
     host.settings_btn_color_file_ext = _make_color_button(
         SETTING_COLOR_FILE_EXT, "img_color_file_ext",
         "  File extension",
         "Color used for the file extension column in the image explorer.",
-        23)
+        settings_grid_row("color_file_ext"))
     host.settings_btn_color_file_size = _make_color_button(
         SETTING_COLOR_FILE_SIZE, "img_color_file_size",
         "  File size",
         "Color used for the file size column in the image explorer.",
-        24)
+        settings_grid_row("color_file_size"))
     host.settings_btn_color_general_text = _make_color_button(
         SETTING_COLOR_GENERAL_TEXT, "img_color_general_text",
         "  General UI text",
@@ -606,7 +674,7 @@ def build_settings_pane(
         "light desktop/White theme would otherwise make this text black and\n"
         "unreadable. The White/Dark/Automatic/High-contrast themes set this\n"
         "automatically; picking a color here switches to the Custom theme.",
-        25)
+        settings_grid_row("color_general_text"))
 
     # ---- Retro log console text color (pygame log windows) ----
     def _apply_retro_log_color(color=None):
@@ -631,7 +699,7 @@ def build_settings_pane(
         "Font color for the retro 8-bit (pygame) log consoles on the\n"
         "SD Card, NextSync and Help tabs. Applies immediately. Default is\n"
         "the classic phosphor green. Independent of the Desktop Theme.",
-        26, switch_theme=False, on_change=_apply_retro_log_color)
+        settings_grid_row("color_retro_log"), switch_theme=False, on_change=_apply_retro_log_color)
 
     # ---- Retro log font size (SD Card + NextSync pygame log windows) ----
     def _apply_retro_log_font_size(px):
@@ -661,7 +729,7 @@ def build_settings_pane(
         "Consolas text size for the retro 8-bit (pygame) log windows on the\n"
         "SD Card and NextSync tabs. Applies immediately. Default is 13."
     )
-    grid_tab_Settings.addWidget(retro_log_font_lbl, 27, 0)
+    grid_tab_Settings.addWidget(retro_log_font_lbl, settings_grid_row("retro_log_font"), 0)
 
     host.settings_retro_log_font_combo = QComboBox()
     for _px in RETRO_LOG_FONT_SIZE_CHOICES:
@@ -675,7 +743,7 @@ def build_settings_pane(
     host.settings_retro_log_font_combo.currentIndexChanged.connect(
         lambda _i: _settings_retro_log_font_changed()
     )
-    grid_tab_Settings.addWidget(host.settings_retro_log_font_combo, 27, 1)
+    grid_tab_Settings.addWidget(host.settings_retro_log_font_combo, settings_grid_row("retro_log_font"), 1)
 
     def _step_retro_log_font(delta):
         """Right-click "Increase/Decrease font size" on any retro console:
@@ -694,7 +762,7 @@ def build_settings_pane(
         "Controls how visible the background image is behind the UI.\n"
         "0 = fully hidden, 100 = fully visible. Default is 5%."
     )
-    grid_tab_Settings.addWidget(bg_opacity_lbl, 28, 0)
+    grid_tab_Settings.addWidget(bg_opacity_lbl, settings_grid_row("bg_opacity"), 0)
 
     bg_opacity_row = QWidget()
     bg_opacity_row_layout = QHBoxLayout(bg_opacity_row)
@@ -837,7 +905,7 @@ def build_settings_pane(
 
     bg_opacity_row_layout.addWidget(host.settings_bg_opacity_slider, 1)
     bg_opacity_row_layout.addWidget(host.settings_bg_opacity_spinbox, 0)
-    grid_tab_Settings.addWidget(bg_opacity_row, 28, 1)
+    grid_tab_Settings.addWidget(bg_opacity_row, settings_grid_row("bg_opacity"), 1)
 
     # ---- Background image selector ----
     bg_image_lbl = QLabel("Background image:")
@@ -845,7 +913,7 @@ def build_settings_pane(
         "Choose a specific background image or 'Random' to cycle through\n"
         "all images in the script folder every 5 seconds."
     )
-    grid_tab_Settings.addWidget(bg_image_lbl, 29, 0)
+    grid_tab_Settings.addWidget(bg_image_lbl, settings_grid_row("bg_image"), 0)
 
     bg_image_row = QWidget()
     bg_image_row_layout = QHBoxLayout(bg_image_row)
@@ -888,7 +956,7 @@ def build_settings_pane(
     host.settings_bg_image_preview.setToolTip("Preview of the selected background image.")
     bg_image_row_layout.addWidget(host.settings_bg_image_preview, 0)
 
-    grid_tab_Settings.addWidget(bg_image_row, 29, 1)
+    grid_tab_Settings.addWidget(bg_image_row, settings_grid_row("bg_image"), 1)
 
     def _update_bg_image_preview(path: str):
         """Refresh the thumbnail label for the given absolute image path."""
@@ -952,7 +1020,7 @@ def build_settings_pane(
     )
     host.settings_crash_log_enabled_checkbox.stateChanged.connect(
         settings_crash_log_enabled_statechanged)
-    grid_tab_Settings.addWidget(host.settings_crash_log_enabled_checkbox, 30, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_crash_log_enabled_checkbox, settings_grid_row("crash_log"), 0, 1, 2)
 
     def settings_disable_no_emulator_toast_statechanged():
         configuration_dictionary[SETTING_DISABLE_NO_EMULATOR_TOAST] = "true" if host.settings_disable_no_emulator_toast_checkbox.isChecked() else "false"
@@ -966,7 +1034,7 @@ def build_settings_pane(
         "Check this if you do not use any emulator and do not want the reminder."
     )
     host.settings_disable_no_emulator_toast_checkbox.stateChanged.connect(settings_disable_no_emulator_toast_statechanged)
-    grid_tab_Settings.addWidget(host.settings_disable_no_emulator_toast_checkbox, 31, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_disable_no_emulator_toast_checkbox, settings_grid_row("no_emulator_toast"), 0, 1, 2)
 
     # ── NextSync HTTP bridge toggle + port ──────────────────────────
     def _http_port_widgets_set_enabled(on):
@@ -1209,7 +1277,7 @@ def build_settings_pane(
     _http_verbose_row.addWidget(host.settings_http_verbose_checkbox)
     _http_verbose_row.addStretch(1)
     _http_bridge_vbox.addLayout(_http_verbose_row)
-    grid_tab_Settings.addLayout(_http_bridge_vbox, 42, 0, 1, 2)
+    grid_tab_Settings.addLayout(_http_bridge_vbox, settings_grid_row("http_bridge"), 0, 1, 2)
     host._http_port_widgets_set_enabled = _http_port_widgets_set_enabled
 
     # ── MAME options (shown when MAME is launchable: a detected binary, or
@@ -1225,7 +1293,7 @@ def build_settings_pane(
             "This is inserted right after the MAME executable and is no longer part\n"
             "of the command-line parameters below."
         )
-        grid_tab_Settings.addWidget(mame_rom_lbl, 32, 0)
+        grid_tab_Settings.addWidget(mame_rom_lbl, settings_grid_row("mame_rom"), 0)
 
         host.settings_mame_rom_combo = QComboBox()
         for _rom_name in MAME_ROM_CHOICE:
@@ -1233,7 +1301,7 @@ def build_settings_pane(
         host.settings_mame_rom_combo.setToolTip(mame_rom_lbl.toolTip())
         host.settings_mame_rom_combo.currentIndexChanged.connect(
             lambda _i: settings_mame_rom_changed())
-        grid_tab_Settings.addWidget(host.settings_mame_rom_combo, 32, 1)
+        grid_tab_Settings.addWidget(host.settings_mame_rom_combo, settings_grid_row("mame_rom"), 1)
 
         def settings_mame_params_changed():
             configuration_dictionary[SETTING_MAME_COMMAND_LINE_PARAMETERS] = host.settings_mame_params_edit.text()
@@ -1250,7 +1318,7 @@ def build_settings_pane(
             "-mouse/-mouse_device or -joystick/-joystickprovider options typed here\n"
             "are ignored (the combos take precedence)."
         )
-        grid_tab_Settings.addWidget(mame_params_lbl, 33, 0)
+        grid_tab_Settings.addWidget(mame_params_lbl, settings_grid_row("mame_params"), 0)
 
         host.settings_mame_params_edit = QLineEdit()
         host.settings_mame_params_edit.setText(
@@ -1258,7 +1326,7 @@ def build_settings_pane(
                 SETTING_MAME_COMMAND_LINE_PARAMETERS, MAME_DEFAULT_COMMAND_LINE))
         host.settings_mame_params_edit.setToolTip(mame_params_lbl.toolTip())
         host.settings_mame_params_edit.editingFinished.connect(settings_mame_params_changed)
-        grid_tab_Settings.addWidget(host.settings_mame_params_edit, 33, 1)
+        grid_tab_Settings.addWidget(host.settings_mame_params_edit, settings_grid_row("mame_params"), 1)
 
         # The startup update check only exists where the app can actually
         # fetch a build (64-bit Windows / x86_64 Linux). On macOS MAME is
@@ -1285,7 +1353,7 @@ def build_settings_pane(
             )
             host.settings_mame_update_check_checkbox.stateChanged.connect(
                 lambda _s: settings_mame_update_check_changed())
-            grid_tab_Settings.addWidget(host.settings_mame_update_check_checkbox, 34, 0, 1, 2)
+            grid_tab_Settings.addWidget(host.settings_mame_update_check_checkbox, settings_grid_row("mame_update_check"), 0, 1, 2)
 
     # ── Launch MAME with Flatpak (Linux) ──────────────────────────────
     # Shown on Linux regardless of whether a MAME binary was detected, so a
@@ -1353,7 +1421,7 @@ def build_settings_pane(
         host.settings_mame_flatpak_rompath_row.setVisible(_flatpak_on)
         _flatpak_layout.addWidget(host.settings_mame_flatpak_rompath_row)
 
-        grid_tab_Settings.addWidget(_flatpak_box, 34, 0, 1, 2)
+        grid_tab_Settings.addWidget(_flatpak_box, settings_grid_row("mame_update_check"), 0, 1, 2)
 
     # ── CSpect default launch parameters ───────────────────────────────
     # Shown unconditionally (unlike the MAME block above, which is gated on
@@ -1375,14 +1443,14 @@ def build_settings_pane(
         "launch. Leave empty to restore the built-in default. Saved to the\n"
         "configuration file."
     )
-    grid_tab_Settings.addWidget(cspect_params_lbl, 35, 0)
+    grid_tab_Settings.addWidget(cspect_params_lbl, settings_grid_row("cspect_params"), 0)
 
     host.settings_cspect_params_edit = QLineEdit()
     host.settings_cspect_params_edit.setText(
         configuration_dictionary.get(SETTING_CUSTOM, CSPECT_DEFAULT_LAUNCH_PARAMETERS))
     host.settings_cspect_params_edit.setToolTip(cspect_params_lbl.toolTip())
     host.settings_cspect_params_edit.editingFinished.connect(settings_cspect_params_changed)
-    grid_tab_Settings.addWidget(host.settings_cspect_params_edit, 35, 1)
+    grid_tab_Settings.addWidget(host.settings_cspect_params_edit, settings_grid_row("cspect_params"), 1)
 
     # ── Unite! pygame background animation toggle ──────────────────────
     def _settings_pygame_anim_changed():
@@ -1411,7 +1479,7 @@ def build_settings_pane(
     )
     host.settings_pygame_anim_checkbox.stateChanged.connect(
         lambda _s: _settings_pygame_anim_changed())
-    grid_tab_Settings.addWidget(host.settings_pygame_anim_checkbox, 37, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_pygame_anim_checkbox, settings_grid_row("sdcard_pygame_anim"), 0, 1, 2)
 
     # ── NextSync retro-log starfield animation toggle ──────────────────
     def _settings_nextsync_anim_changed():
@@ -1443,7 +1511,7 @@ def build_settings_pane(
     )
     host.settings_nextsync_pygame_anim_checkbox.stateChanged.connect(
         lambda _s: _settings_nextsync_anim_changed())
-    grid_tab_Settings.addWidget(host.settings_nextsync_pygame_anim_checkbox, 40, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_nextsync_pygame_anim_checkbox, settings_grid_row("nextsync_pygame_anim"), 0, 1, 2)
 
     # ── Alien Floyd's: optional pygame-ce animated background everywhere ──
     # A Pink Floyd homage. When on, a pygame-ce "Alien Floyd's" animation
@@ -1498,7 +1566,7 @@ def build_settings_pane(
         "file. Requires the optional 'pygame-ce' package.")
     host.settings_alien_floyd_bg_checkbox.stateChanged.connect(
         lambda _s: _settings_alien_bg_changed())
-    grid_tab_Settings.addWidget(host.settings_alien_floyd_bg_checkbox, 38, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_alien_floyd_bg_checkbox, settings_grid_row("alien_floyd_bg"), 0, 1, 2)
 
     # ── Alien Floyd's: optional dedicated full-window tab ────────────────
     host._alien_floyd_tab_widget = None
@@ -1570,7 +1638,7 @@ def build_settings_pane(
         "configuration file. Requires the optional 'pygame-ce' package.")
     host.settings_alien_floyd_tab_checkbox.stateChanged.connect(
         lambda _s: _settings_alien_tab_changed())
-    grid_tab_Settings.addWidget(host.settings_alien_floyd_tab_checkbox, 39, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_alien_floyd_tab_checkbox, settings_grid_row("alien_floyd_tab"), 0, 1, 2)
 
     # ── itch.io: optional online tab (driven by the 'itch-dl' package) ───
     def _itchio_tab_set_visible(on):
@@ -1613,7 +1681,7 @@ def build_settings_pane(
             "configuration file. Requires the optional 'itch-dl' package.")
     host.settings_show_itchio_tab_checkbox.stateChanged.connect(
         lambda _s: _settings_itchio_tab_changed())
-    grid_tab_Settings.addWidget(host.settings_show_itchio_tab_checkbox, 41, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_show_itchio_tab_checkbox, settings_grid_row("itchio_tab"), 0, 1, 2)
 
     # ── Onboarding Wizard (Wizzy, zxnu_wizard.py) ────────────────────────
     def _settings_wizard_changed():
@@ -1641,7 +1709,7 @@ def build_settings_pane(
     host.settings_wizard_checkbox.stateChanged.connect(
         lambda _s: _settings_wizard_changed())
     # Right under the Application-language row (all rows below shifted +1).
-    grid_tab_Settings.addWidget(host.settings_wizard_checkbox, 2, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_wizard_checkbox, settings_grid_row("wizard"), 0, 1, 2)
 
     # ── CSpect: check itch.io for a newer version at startup (default on) ──
     def settings_cspect_update_check_changed():
@@ -1664,11 +1732,10 @@ def build_settings_pane(
     host.settings_cspect_update_check_checkbox.stateChanged.connect(
         lambda _s: settings_cspect_update_check_changed())
     grid_tab_Settings.addWidget(
-        host.settings_cspect_update_check_checkbox, 36, 0, 1, 2)
+        host.settings_cspect_update_check_checkbox, settings_grid_row("cspect_update_check"), 0, 1, 2)
 
     # ── NextSync: start the Remote Explorer '.sync5 -listen' server at startup ──
-    # Row 7 — freed by shifting every row that was ≥ 7 down by one; the
-    # actual start rides the same deferred path as the
+    # The actual start rides the same deferred path as the
     # -start-remote-explorer-listener command-line switch (zxnu_config_io).
     def _settings_re_autostart_changed():
         on = host.settings_re_autostart_checkbox.isChecked()
@@ -1707,7 +1774,7 @@ def build_settings_pane(
         "Saved to the configuration file.")
     host.settings_re_autostart_checkbox.stateChanged.connect(
         lambda _s: _settings_re_autostart_changed())
-    grid_tab_Settings.addWidget(host.settings_re_autostart_checkbox, 7, 0, 1, 2)
+    grid_tab_Settings.addWidget(host.settings_re_autostart_checkbox, settings_grid_row("re_autostart"), 0, 1, 2)
 
     # ── NextSync: what to do when a received file/dir already exists locally ──
     def _settings_nextsync_send_conflict_changed():
@@ -1724,7 +1791,7 @@ def build_settings_pane(
         "  • Overwrite: always replace the local file.\n"
         "  • Ignore: never touch existing local files."
     )
-    grid_tab_Settings.addWidget(nextsync_send_conflict_lbl, 8, 0)
+    grid_tab_Settings.addWidget(nextsync_send_conflict_lbl, settings_grid_row("nextsync_send_conflict"), 0)
 
     host.settings_nextsync_send_conflict_combo = QComboBox()
     host.settings_nextsync_send_conflict_combo.addItem("Prompt (default)", "prompt")
@@ -1733,7 +1800,7 @@ def build_settings_pane(
     host.settings_nextsync_send_conflict_combo.setToolTip(nextsync_send_conflict_lbl.toolTip())
     host.settings_nextsync_send_conflict_combo.currentIndexChanged.connect(
         lambda _i: _settings_nextsync_send_conflict_changed())
-    grid_tab_Settings.addWidget(host.settings_nextsync_send_conflict_combo, 8, 1)
+    grid_tab_Settings.addWidget(host.settings_nextsync_send_conflict_combo, settings_grid_row("nextsync_send_conflict"), 1)
 
     # ── Unite! search result sort / render preference ──────────────────
     def _settings_search_sort_changed():
@@ -1763,7 +1830,7 @@ def build_settings_pane(
         "  • Classic: ZXDB and zxArt items are preferred to the top, with\n"
         "    GetIt content placed at the end."
     )
-    grid_tab_Settings.addWidget(search_sort_lbl, 17, 0)
+    grid_tab_Settings.addWidget(search_sort_lbl, settings_grid_row("search_sort"), 0)
 
     host.settings_search_sort_combo = QComboBox()
     host.settings_search_sort_combo.addItem("GetIt first class (default)", SEARCH_SORT_GETIT_FIRST)
@@ -1772,7 +1839,7 @@ def build_settings_pane(
     host.settings_search_sort_combo.setToolTip(search_sort_lbl.toolTip())
     host.settings_search_sort_combo.currentIndexChanged.connect(
         lambda _i: _settings_search_sort_changed())
-    grid_tab_Settings.addWidget(host.settings_search_sort_combo, 17, 1)
+    grid_tab_Settings.addWidget(host.settings_search_sort_combo, settings_grid_row("search_sort"), 1)
 
     # "Open config file" — moved here from the SD-card tab. Opens hdfg.cfg in
     # the system text editor so advanced users can hand-edit settings. Placed
@@ -1780,7 +1847,7 @@ def build_settings_pane(
     # width rather than stretching across both columns.
     host.button_open_config_file = QPushButton("Open config file", host)
     host.button_open_config_file.clicked.connect(open_cspect_configuration_file)
-    grid_tab_Settings.addWidget(host.button_open_config_file, 43, 0, 1, 2, Qt.AlignLeft)
+    grid_tab_Settings.addWidget(host.button_open_config_file, settings_grid_row("open_config_file"), 0, 1, 2, Qt.AlignLeft)
 
     grid_tab_Settings.setColumnStretch(2, 1)
     zxnextunite_Settings_tab.setLayout(grid_tab_Settings)

@@ -349,6 +349,11 @@ sys.path.insert(0, REPO)
 from PySide6.QtWidgets import QApplication, QLabel, QLineEdit
 from PySide6.QtCore import QTimer, QCoreApplication
 
+# The Settings tab's named row order — the position checks below assert
+# through it, so a widget placed with a hardcoded index (bypassing the
+# registrar) fails the suite.
+from zxnu_settings_pane import settings_grid_row
+
 FAILURES = []
 def check(label, cond, detail=""):
     print(("PASS  " if cond else "FAIL  ") + label + (f"  [{detail}]" if detail and not cond else ""))
@@ -565,12 +570,18 @@ def inspect_phase1():
     def spos(w):
         i = lay.indexOf(w)
         return None if i < 0 else lay.getItemPosition(i)[:2]
-    check("general-text swatch at settings (25,1)",
-          spos(win.settings_btn_color_general_text) == (25, 1), str(spos(win.settings_btn_color_general_text)))
-    check("retro-log swatch right under it (26,1)",
-          spos(win.settings_btn_color_retro_log) == (26, 1), str(spos(win.settings_btn_color_retro_log)))
-    check("retro font combo pushed to (27,1)",
-          spos(win.settings_retro_log_font_combo) == (27, 1), str(spos(win.settings_retro_log_font_combo)))
+    check("general-text swatch at its named row",
+          spos(win.settings_btn_color_general_text)
+          == (settings_grid_row("color_general_text"), 1),
+          str(spos(win.settings_btn_color_general_text)))
+    check("retro-log swatch right under it",
+          spos(win.settings_btn_color_retro_log)
+          == (settings_grid_row("color_retro_log"), 1),
+          str(spos(win.settings_btn_color_retro_log)))
+    check("retro font combo at its named row",
+          spos(win.settings_retro_log_font_combo)
+          == (settings_grid_row("retro_log_font"), 1),
+          str(spos(win.settings_retro_log_font_combo)))
     check("default retro color is phosphor green",
           win.img_color_retro_log.name().lower() == "#78ff8c", win.img_color_retro_log.name())
     check("default swatch shows phosphor green",
@@ -839,15 +850,22 @@ def inspect_phase6():
     def spos(w):
         i = lay.indexOf(w)
         return None if i < 0 else lay.getItemPosition(i)[:2]
-    check("update-check toggle at settings row 0", spos(cb) == (0, 0), str(spos(cb)))
-    check("UI language row right under it (1,1)",
-          spos(win.settings_ui_language_combo) == (1, 1),
+    check("update-check toggle at settings row 0",
+          spos(cb) == (settings_grid_row("zxnu_update_check"), 0)
+          and settings_grid_row("zxnu_update_check") == 0, str(spos(cb)))
+    check("UI language row right under it",
+          spos(win.settings_ui_language_combo)
+          == (settings_grid_row("ui_language"), 1),
           str(spos(win.settings_ui_language_combo)))
-    check("wizard toggle right under the language row (2,0)",
-          spos(win.settings_wizard_checkbox) == (2, 0),
+    check("wizard toggle right under the language row",
+          spos(win.settings_wizard_checkbox)
+          == (settings_grid_row("wizard"), 0)
+          and settings_grid_row("wizard")
+          == settings_grid_row("ui_language") + 1,
           str(spos(win.settings_wizard_checkbox)))
-    check("desktop theme pushed to row 3",
-          spos(win.settings_desktop_theme_combo) == (3, 1),
+    check("desktop theme at its named row",
+          spos(win.settings_desktop_theme_combo)
+          == (settings_grid_row("desktop_theme"), 1),
           str(spos(win.settings_desktop_theme_combo)))
     check("cfg 'false' restored as unchecked", not cb.isChecked())
     cb.setChecked(True)
@@ -857,17 +875,26 @@ def inspect_phase6():
 
     # Recycle Bin deletes toggle: sits right under the no-prompt checkbox.
     rb = win.settings_delete_to_recycle_bin_checkbox
-    check("recycle toggle at settings (6,0)", spos(rb) == (6, 0), str(spos(rb)))
-    check("no-prompt checkbox above it (5,0)",
-          spos(win.settings_no_prompt_on_deletion_checkbox) == (5, 0),
+    check("recycle toggle at its named row",
+          spos(rb) == (settings_grid_row("delete_to_recycle_bin"), 0),
+          str(spos(rb)))
+    check("no-prompt checkbox directly above it",
+          spos(win.settings_no_prompt_on_deletion_checkbox)
+          == (settings_grid_row("no_prompt_on_deletion"), 0)
+          and settings_grid_row("no_prompt_on_deletion") + 1
+          == settings_grid_row("delete_to_recycle_bin"),
           str(spos(win.settings_no_prompt_on_deletion_checkbox)))
-    # The RE-autostart toggle owns row 7 (freed by shifting every row that
-    # was ≥ 7 down one — 9.5.16); the send-conflict row sits right under it.
+    # The RE-autostart toggle sits directly above the send-conflict row —
+    # both placed by name through the SETTINGS_TAB_ROWS registrar.
     ac = win.settings_re_autostart_checkbox
-    check("RE-autostart toggle at settings (7,0)", spos(ac) == (7, 0),
+    check("RE-autostart toggle at its named row",
+          spos(ac) == (settings_grid_row("re_autostart"), 0),
           str(spos(ac)))
-    check("send-conflict combo pushed to (8,1)",
-          spos(win.settings_nextsync_send_conflict_combo) == (8, 1),
+    check("send-conflict combo directly under it",
+          spos(win.settings_nextsync_send_conflict_combo)
+          == (settings_grid_row("nextsync_send_conflict"), 1)
+          and settings_grid_row("re_autostart") + 1
+          == settings_grid_row("nextsync_send_conflict"),
           str(spos(win.settings_nextsync_send_conflict_combo)))
     check("RE-autostart default off", not ac.isChecked())
     # Ticking it WITHOUT a sync root must refuse: the box reverts to off
