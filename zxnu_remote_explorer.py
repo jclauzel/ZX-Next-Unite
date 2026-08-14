@@ -272,7 +272,8 @@ class RemoteExplorerWidget(QWidget):
                  on_remote_cwd_changed=None, local_sort=None, next_sort=None,
                  on_sort_changed=None, on_toast=None, extra_drives=None,
                  on_extra_drives_changed=None, emulator_entries=None,
-                 remote_cwd_for=None):
+                 remote_cwd_for=None, machine_name_for=None,
+                 on_machine_name_changed=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
         self._drain_raw = drain              # host closure: empty the queue, -> count
@@ -297,6 +298,16 @@ class RemoteExplorerWidget(QWidget):
         self._on_remote_cwd_changed = (on_remote_cwd_changed or
                                        (lambda p, a=None: None))
         self._remote_cwd_for = remote_cwd_for
+        # Friendly machine names (9.5.18): machine_name_for(addr) answers
+        # the saved name for an ADDRESS (None/"" = none) and the ✎ button
+        # reports edits through on_machine_name_changed(addr, name) — the
+        # host persists the map, so a machine that reconnects (whatever
+        # session id the new worker deals it) greets by name in the combo:
+        # "10.0.0.185 #1 - N-Go". Keyed by address on purpose: session ids
+        # restart at 1 with every worker and would forget the name.
+        self._machine_name_for = machine_name_for or (lambda a: None)
+        self._on_machine_name_changed = (on_machine_name_changed or
+                                         (lambda a, n: None))
         self._remote_cwd_addr = None         # last addr a folder was reported for
         self._remote_start_dir = _norm_remote_dir(remote_start_dir)
         # Per-pane sort (column + direction), restored from the config and saved
@@ -641,11 +652,30 @@ class RemoteExplorerWidget(QWidget):
             "re-reads the chosen machine's drives and listing.")
         self.next_machine_combo.setVisible(False)
         self.next_machine_combo.activated.connect(self._on_machine_pick)
+        # Re-measure on EVERY content change, not just the first show (the
+        # Qt default): a freshly assigned " - <name>" must widen the combo
+        # right away, not sit clipped until the next restart (9.5.18 field
+        # report).
+        self.next_machine_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents)
+        # The small round ✎ next to the machine combo (9.5.18): name the
+        # machine the combo shows. Hidden/shown together with the combo.
+        self.next_machine_name_btn = QPushButton("✎", self)
+        self.next_machine_name_btn.setFixedSize(18, 18)
+        self.next_machine_name_btn.setStyleSheet(
+            "QPushButton { border-radius: 9px; border: 1px solid #888; }")
+        self.next_machine_name_btn.setToolTip(
+            "Give this Next a friendly name (shown in the machine list, "
+            "remembered for its address across sessions). Empty removes "
+            "the name.")
+        self.next_machine_name_btn.setVisible(False)
+        self.next_machine_name_btn.clicked.connect(self._on_machine_name_edit)
         next_bar = QHBoxLayout()
         next_bar.setContentsMargins(0, 0, 0, 0)
         next_bar.addWidget(next_up)
         next_bar.addWidget(refresh)
         next_bar.addWidget(self.next_machine_combo)
+        next_bar.addWidget(self.next_machine_name_btn)
         next_bar.addWidget(self.next_drive_combo)
         next_bar.addWidget(self.next_drive_add)
         next_bar.addWidget(self.next_path_label, 1)
@@ -1248,20 +1278,64 @@ class RemoteExplorerWidget(QWidget):
         try:
             self.next_machine_combo.clear()
             for sid, addr in plist:
-                self.next_machine_combo.addItem(f"{addr} #{sid}", sid)
+                self.next_machine_combo.addItem(
+                    self._machine_label(sid, addr), sid)
                 if sid == active:
                     self.next_machine_combo.setCurrentIndex(
                         self.next_machine_combo.count() - 1)
             # Visible whenever ANY Next is on the line (field request: a
             # lone machine still shows WHO the pane drives); hidden only
-            # while the roster is empty.
+            # while the roster is empty. The ✎ name button rides along.
             self.next_machine_combo.setVisible(len(plist) >= 1)
+            self.next_machine_name_btn.setVisible(len(plist) >= 1)
         finally:
             self._peer_guard = False
         if active is not None and prev is not None and active != prev:
             # The baton moved: this pane now drives a DIFFERENT machine.
             self._set_connected(False)     # drop the old card's listing
             self.on_connected()            # drives + listing of the new one
+
+    def _machine_label(self, sid, addr):
+        """One combo entry: "addr #sid", plus " - Name" when the host
+        remembers a friendly name for that address."""
+        name = self._machine_name_for(addr) or ""
+        base = f"{addr} #{sid}"
+        return f"{base} - {name}" if name else base
+
+    def _on_machine_name_edit(self):
+        """The ✎ button: name (or rename) the machine the combo currently
+        shows. The name is keyed by the machine's ADDRESS and persisted by
+        the host, so it survives reconnects and restarts whatever session
+        id the machine is dealt next. An empty name removes it."""
+        ix = self.next_machine_combo.currentIndex()
+        sid = self.next_machine_combo.itemData(ix)
+        addr = None
+        for _sid, _addr in self._peer_map:
+            if _sid == sid:
+                addr = _addr
+                break
+        if not addr:
+            return
+        name, ok = QInputDialog.getText(
+            self, ui_tr_now("Name this Next"),
+            ui_tr_now("Friendly name for {addr} (empty removes it):").format(
+                addr=addr),
+            text=self._machine_name_for(addr) or "")
+        if not ok:
+            return
+        # Collapse whitespace and cap the length: the combo shares its row
+        # with the drive switcher, and " - <name>" must leave it room.
+        name = " ".join(str(name).split())[:24].strip()
+        self._on_machine_name_changed(addr, name)
+        # Relabel in place — every session of that address adopts the name
+        # (two '.sync5 -L' sessions from one machine share one entry name).
+        for i in range(self.next_machine_combo.count()):
+            _s = self.next_machine_combo.itemData(i)
+            for _sid, _addr in self._peer_map:
+                if _sid == _s and _addr == addr:
+                    self.next_machine_combo.setItemText(
+                        i, self._machine_label(_s, _addr))
+                    break
 
     def _on_machine_pick(self, index):
         """User picked a Next in the machine combo: hand the baton over.

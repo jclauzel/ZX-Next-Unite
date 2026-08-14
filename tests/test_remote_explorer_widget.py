@@ -129,6 +129,8 @@ def make_widget(**kw):
             "on_remote_cwd_changed",
             lambda p, a=None: calls["remote_cwd"].append(p)),
         remote_cwd_for=kw.get("remote_cwd_for"),
+        machine_name_for=kw.get("machine_name_for"),
+        on_machine_name_changed=kw.get("on_machine_name_changed"),
         local_sort=kw.get("local_sort"),
         next_sort=kw.get("next_sort"),
         on_sort_changed=lambda which, v: calls["sorts"].append((which, v)),
@@ -507,6 +509,61 @@ def test_multi_next_folders_follow_the_baton():
     check("combo shrinks to the survivor",
           w.next_machine_combo.count() == 1
           and w.next_machine_combo.itemData(0) == 1)
+
+
+def test_machine_names_follow_the_address():
+    """The machine combo's friendly names (9.5.18): the round ✎ button
+    names the machine the combo shows, the host persists addr -> name, and
+    every entry of that ADDRESS — this session's or a later one's, any
+    session id — greets by name: "10.0.0.185 #1 - N-Go"."""
+    names = {}   # the host's store
+    w, calls = make_widget(
+        local_start_dir=tdir("mnames_root"),
+        machine_name_for=names.get,
+        on_machine_name_changed=lambda a, n: (
+            names.__setitem__(a, n) if n else names.pop(a, None)))
+    w.on_peers((1, [(1, "10.0.0.185"), (2, "10.0.0.185")]))
+    connect_widget(w, calls)
+    check("unnamed machines show addr #sid",
+          w.next_machine_combo.itemText(0) == "10.0.0.185 #1"
+          and w.next_machine_combo.itemText(1) == "10.0.0.185 #2",
+          str([w.next_machine_combo.itemText(i) for i in range(2)]))
+    check("the ✎ name button rides along with the combo",
+          not w.next_machine_name_btn.isHidden())
+
+    # Name the active machine; BOTH sessions of that address adopt it.
+    _w0 = w.next_machine_combo.sizeHint().width()
+    FakeInput.queue = [("  N-Go  ", True)]
+    w._on_machine_name_edit()
+    check("name saved for the ADDRESS (whitespace collapsed)",
+          names.get("10.0.0.185") == "N-Go", str(names))
+    check("the combo re-measures for the longer label (no clipping)",
+          w.next_machine_combo.sizeHint().width() > _w0,
+          f"{_w0} -> {w.next_machine_combo.sizeHint().width()}")
+    check("every session of the address shows the name",
+          w.next_machine_combo.itemText(0) == "10.0.0.185 #1 - N-Go"
+          and w.next_machine_combo.itemText(1) == "10.0.0.185 #2 - N-Go",
+          str([w.next_machine_combo.itemText(i) for i in range(2)]))
+
+    # A cancelled dialog changes nothing.
+    FakeInput.queue = []
+    w._on_machine_name_edit()
+    check("cancel keeps the name", names.get("10.0.0.185") == "N-Go")
+
+    # The machine reconnects later under a fresh session id: the name is
+    # keyed by address, so the new roster greets it by name at once.
+    w.on_peers((7, [(7, "10.0.0.185")]))
+    check("a later session id keeps the friendly name",
+          w.next_machine_combo.itemText(0) == "10.0.0.185 #7 - N-Go",
+          w.next_machine_combo.itemText(0))
+
+    # An empty name removes it.
+    FakeInput.queue = [("", True)]
+    w._on_machine_name_edit()
+    check("empty name forgets it",
+          "10.0.0.185" not in names
+          and w.next_machine_combo.itemText(0) == "10.0.0.185 #7",
+          w.next_machine_combo.itemText(0))
 
 
 def test_drive_switching():
@@ -1539,6 +1596,7 @@ def main():
         test_listing_and_rendering()
         test_navigation()
         test_multi_next_folders_follow_the_baton()
+        test_machine_names_follow_the_address()
         test_drive_switching()
         test_ls_failed_fallback()
         test_sorting()

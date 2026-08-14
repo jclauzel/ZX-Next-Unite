@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.5.17"
+ZX_NEXT_UNITE_VERSION = "9.5.18"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -379,6 +379,7 @@ SETTING_FAVORITES_ITEM_RETRO   = "favorites_item_retro"
 SETTING_NEXTSYNC_PYGAME_ANIM   = "nextsync_pygame_anim"    # "false" => freeze the starfield in the NextSync retro log (default on)
 SETTING_NEXTSYNC_REMOTE_EXPLORER = "nextsync_remote_explorer"  # "true" => reopen the NextSync tab in Remote Explorer view (default off = classic sync)
 SETTING_NEXTSYNC_RE_AUTOSTART  = "nextsync_re_autostart"   # "true" => start the Remote Explorer '.sync5 -listen' server on startup (default off; needs a sync root)
+SETTING_RE_MACHINE_NAMES       = "nextsync_re_machine_names"  # JSON {address: friendly name} for the Remote Explorer's machine combo ("10.0.0.185 #1 - N-Go")
 SETTING_NEXTSYNC_REMOTE_CWD    = "nextsync_remote_cwd"     # last Next-side folder browsed in the Remote Explorer, restored on reconnect (falls back to "/" if gone)
 SETTING_NEXTSYNC_RE_LOCAL_SORT = "nextsync_re_local_sort"  # Remote Explorer local pane sort, "<name|size|type>:<asc|desc>" (default "name:asc")
 SETTING_NEXTSYNC_RE_NEXT_SORT  = "nextsync_re_next_sort"   # Remote Explorer Next pane sort, "<name|size|type>:<asc|desc>" (default "name:asc")
@@ -966,7 +967,7 @@ SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_P
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_DELETE_TO_RECYCLE_BIN,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
 SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
-SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS, SETTING_RE_REMOTE_CWDS)
+SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS, SETTING_RE_REMOTE_CWDS, SETTING_RE_MACHINE_NAMES)
 
 
 def apply_tree_column_widths(tree, pref):

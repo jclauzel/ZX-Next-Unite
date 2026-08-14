@@ -773,6 +773,42 @@ def build_nextsync_pane(
         except (ValueError, TypeError):
             return None
 
+    def _re_machine_name_for(addr):
+        # The machine combo's friendly name for an address (9.5.18), or
+        # None — same JSON-map shape as the per-machine folders above.
+        try:
+            _map = json.loads(str(configuration_dictionary.get(
+                SETTING_RE_MACHINE_NAMES, "") or "{}"))
+            _v = _map.get(str(addr), "") if isinstance(_map, dict) else ""
+            return _v if isinstance(_v, str) and _v else None
+        except (ValueError, TypeError):
+            return None
+
+    def _re_on_machine_name_changed(addr, name):
+        # The ✎ button's report: remember (or forget, on empty) the name
+        # for this address. Mirrors the per-machine folder map: re-insert
+        # = newest, capped so the cfg stays tidy.
+        if not addr:
+            return
+        try:
+            try:
+                _map = json.loads(str(configuration_dictionary.get(
+                    SETTING_RE_MACHINE_NAMES, "") or "{}"))
+                if not isinstance(_map, dict):
+                    _map = {}
+            except (ValueError, TypeError):
+                _map = {}
+            _map.pop(str(addr), None)
+            if name:
+                _map[str(addr)] = str(name)
+                while len(_map) > 24:          # oldest out
+                    _map.pop(next(iter(_map)))
+            configuration_dictionary[SETTING_RE_MACHINE_NAMES] = (
+                json.dumps(_map, separators=(",", ":")))
+            save_configuration_file()
+        except Exception:
+            pass
+
     def _re_on_sort_changed(which, value):
         # The widget reports a new column sort ("<key>:<asc|desc>") for one of
         # its panes; persist it so both panes reopen sorted the same way.
@@ -847,6 +883,8 @@ def build_nextsync_pane(
             remote_start_dir=remote_cwd,
             on_remote_cwd_changed=_re_on_remote_cwd_changed,
             remote_cwd_for=_re_remote_cwd_for,
+            machine_name_for=_re_machine_name_for,
+            on_machine_name_changed=_re_on_machine_name_changed,
             local_sort=local_sort, next_sort=next_sort,
             on_sort_changed=_re_on_sort_changed,
             extra_drives=extra_drives,
