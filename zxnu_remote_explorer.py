@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 from zxnu_config import (
     DEFAULT_COLOR_UP_DIRECTORY, DEFAULT_COLOR_DIR_NAME, DEFAULT_COLOR_DIR_TYPE,
     DEFAULT_COLOR_FILE_NAME, DEFAULT_COLOR_FILE_EXT, DEFAULT_COLOR_FILE_SIZE,
-    DEFAULT_COLOR_GENERAL_TEXT, hex_to_qcolor,
+    DEFAULT_COLOR_GENERAL_TEXT, hex_to_qcolor, open_path_with_system_shell,
 )
 from zxnu_workers import (
     CompactButton, DotDotFirstProxyModel, HdfProgressDialog,
@@ -2979,6 +2979,13 @@ class RemoteExplorerWidget(QWidget):
                 emu_local.append((menu.addAction(entry.label), entry))
             if emu_local:
                 menu.addSeparator()
+        # "Open" hands the item to the OS shell: a .html opens in the
+        # browser, a folder in the file manager. The emulator entries above
+        # keep the top spot — they are the pane's own, more specific
+        # openers; this is the generic one.
+        act_open = menu.addAction(ui_tr_now("Open"))
+        act_open.setEnabled(len(sel) == 1)
+        menu.addSeparator()
         act_new = menu.addAction(ui_tr_now("New Folder…"))
         act_unzip = menu.addAction(ui_tr_now("Unzip file"))
         act_zip = menu.addAction(ui_tr_now("Zip"))
@@ -3008,7 +3015,9 @@ class RemoteExplorerWidget(QWidget):
             if chosen == act:
                 QTimer.singleShot(0, lambda e=entry, p=sel[0]: e.launch(p))
                 return
-        if chosen == act_new:
+        if chosen == act_open:
+            self._local_open_selected()
+        elif chosen == act_new:
             self._local_new_folder()
         elif chosen == act_unzip:
             self._local_unzip(sel[0])
@@ -3026,6 +3035,15 @@ class RemoteExplorerWidget(QWidget):
             self._local_delete_selected()
         elif chosen == act_ref:
             self._local_refresh()
+
+    def _local_open_selected(self):
+        """Context-menu 'Open': the selected local item goes to the OS shell
+        (its associated application, or the file manager for a folder)."""
+        sel = [p for p in self._selected_local_paths() if p]
+        if len(sel) != 1:
+            return
+        if not open_path_with_system_shell(sel[0]):
+            self._log(f"Open: the system could not open {sel[0]}.")
 
     def _local_unzip(self, zip_path):
         """Local pane 'Unzip file': extract a local .zip into its own folder
