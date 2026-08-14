@@ -283,6 +283,9 @@ CATALOGS = {
         'Increase font size (now {px}px)': 'Aumentar tamaño de letra (ahora {px}px)',
         'More like this': 'Más como esto',
         'New directory name in': 'Nombre del nuevo directorio en',
+        'Name this Next': 'Nombrar este Next',
+        'Friendly name for {addr} (empty removes it):':
+            'Nombre descriptivo para {addr} (vacío lo elimina):',
         'New folder in {path}:': 'Nueva carpeta en {path}:',
         'New Folder…': 'Nueva carpeta…',
         'New name for the {kind}:': 'Nuevo nombre para {kind}:',
@@ -1385,6 +1388,9 @@ CATALOGS = {
         'Increase font size (now {px}px)': 'Aumentar tamanho da letra (agora {px}px)',
         'More like this': 'Mais como este',
         'New directory name in': 'Nome do novo diretório em',
+        'Name this Next': 'Dar nome a este Next',
+        'Friendly name for {addr} (empty removes it):':
+            'Nome amigável para {addr} (vazio remove-o):',
         'New folder in {path}:': 'Nova pasta em {path}:',
         'New Folder…': 'Nova pasta…',
         'New name for the {kind}:': 'Novo nome para {kind}:',
@@ -2487,6 +2493,9 @@ CATALOGS = {
         'Increase font size (now {px}px)': 'Zwiększ rozmiar czcionki (teraz {px}px)',
         'More like this': 'Więcej podobnych',
         'New directory name in': 'Nazwa nowego katalogu w',
+        'Name this Next': 'Nazwij tego Nexta',
+        'Friendly name for {addr} (empty removes it):':
+            'Przyjazna nazwa dla {addr} (pusta ją usuwa):',
         'New folder in {path}:': 'Nowy folder w {path}:',
         'New Folder…': 'Nowy folder…',
         'New name for the {kind}:': 'Nowa nazwa ({kind}):',
@@ -3589,6 +3598,9 @@ CATALOGS = {
         'Increase font size (now {px}px)': 'Увеличить размер шрифта (сейчас {px}px)',
         'More like this': 'Похожие',
         'New directory name in': 'Имя нового каталога в',
+        'Name this Next': 'Назовите этот Next',
+        'Friendly name for {addr} (empty removes it):':
+            'Понятное имя для {addr} (пустое удаляет его):',
         'New folder in {path}:': 'Новая папка в {path}:',
         'New Folder…': 'Новая папка…',
         'New name for the {kind}:': 'Новое имя ({kind}):',
@@ -4692,6 +4704,9 @@ CATALOGS = {
         'Increase font size (now {px}px)': 'Zvětšit velikost písma (nyní {px}px)',
         'More like this': 'Další podobné',
         'New directory name in': 'Název nového adresáře v',
+        'Name this Next': 'Pojmenovat tento Next',
+        'Friendly name for {addr} (empty removes it):':
+            'Přátelský název pro {addr} (prázdný jej odstraní):',
         'New folder in {path}:': 'Nová složka v {path}:',
         'New Folder…': 'Nová složka…',
         'New name for the {kind}:': 'Nový název ({kind}):',
@@ -5794,6 +5809,9 @@ CATALOGS = {
         'Increase font size (now {px}px)': 'Augmenter la taille de police (actuellement {px}px)',
         'More like this': 'Plus comme ceci',
         'New directory name in': 'Nom du nouveau répertoire dans',
+        'Name this Next': 'Nommer ce Next',
+        'Friendly name for {addr} (empty removes it):':
+            'Nom convivial pour {addr} (vide le supprime) :',
         'New folder in {path}:': 'Nouveau dossier dans {path} :',
         'New Folder…': 'Nouveau dossier…',
         'New name for the {kind}:': 'Nouveau nom pour {kind} :',
