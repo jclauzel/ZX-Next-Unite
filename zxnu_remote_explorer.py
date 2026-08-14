@@ -1236,6 +1236,13 @@ class RemoteExplorerWidget(QWidget):
             if _old_addr:
                 self._on_remote_cwd_changed(_norm_remote_dir(self._cwd),
                                             _old_addr)
+        # KEEP the roster: _active_addr() answers from it, which is what
+        # keys every per-machine folder save and restore. The assignment
+        # must sit exactly here — after the departure-save (which resolves
+        # the OLD active sid against the roster we held until now) and
+        # before the baton-move reconnect below (whose on_connected looks
+        # up the NEW active machine's folder).
+        self._peer_map = [(sid, addr) for sid, addr in plist]
         self._peer_active = active
         self._peer_guard = True
         try:

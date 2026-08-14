@@ -123,8 +123,12 @@ def make_widget(**kw):
         remote_start_dir=kw.get("remote_start_dir"),
         # (path, addr) since the per-machine folders: the widget reports the
         # active peer's address too. The tests only assert on the PATH, so
-        # the recorder keeps storing just that.
-        on_remote_cwd_changed=lambda p, a=None: calls["remote_cwd"].append(p),
+        # the default recorder keeps storing just that; the multi-Next test
+        # substitutes a host-like per-address store for both halves.
+        on_remote_cwd_changed=kw.get(
+            "on_remote_cwd_changed",
+            lambda p, a=None: calls["remote_cwd"].append(p)),
+        remote_cwd_for=kw.get("remote_cwd_for"),
         local_sort=kw.get("local_sort"),
         next_sort=kw.get("next_sort"),
         on_sort_changed=lambda which, v: calls["sorts"].append((which, v)),
@@ -464,6 +468,45 @@ def test_navigation():
     w._on_next_path_edit()
     check("blank entry restores the cwd",
           drain(calls) == [] and w.next_path_edit.text() == "M:/data/deep")
+
+
+def test_multi_next_folders_follow_the_baton():
+    """Two Nexts, one pane (9.5.15): each machine's folder is keyed by its
+    ADDRESS, and every baton change — a user pick or a departure — restores
+    the incoming machine's own folder. The field bug this pins down: the
+    widget read its peer roster without ever storing it, so all machines
+    shared one folder and the survivor of a disconnect woke up in the
+    departed machine's directory."""
+    saved = {}   # the host's per-machine store: addr -> folder
+    w, calls = make_widget(
+        local_start_dir=tdir("mnx_root"),
+        remote_cwd_for=saved.get,
+        on_remote_cwd_changed=lambda p, a=None: (
+            saved.__setitem__(a, p) if a else None))
+    w.on_peers((1, [(1, "192.168.1.10")]))   # the roster precedes connected
+    connect_widget(w, calls)
+    w.on_listing("/A", [])                   # browsing the first Next
+    check("a confirmed listing is saved under the machine's address",
+          saved.get("192.168.1.10") == "/A", str(saved))
+
+    # An N-Go joins and the user picks it (the worker confirms via peers).
+    w.on_peers((2, [(1, "192.168.1.10"), (2, "192.168.1.20")]))
+    check("machine combo carries both", w.next_machine_combo.count() == 2)
+    check("the baton move re-reads the new card", ("drives",) in drain(calls))
+    w.on_drives("C", ["C"])
+    w.on_listing("/Home", [])                # browsing the N-Go
+
+    # The N-Go drops off; the worker hands the baton back to the survivor.
+    w.on_peers((1, [(1, "192.168.1.10")]))
+    check("the departing machine's folder was saved on the way out",
+          saved.get("192.168.1.20") == "/Home", str(saved))
+    check("the survivor returns to ITS folder, not the departed one's",
+          w._cwd == "/A", w._cwd)
+    check("...and the queued listing asks for it",
+          ("ls", "/A") in drain(calls))
+    check("combo shrinks to the survivor",
+          w.next_machine_combo.count() == 1
+          and w.next_machine_combo.itemData(0) == 1)
 
 
 def test_drive_switching():
@@ -1463,6 +1506,7 @@ def main():
         test_initial_and_connection_state()
         test_listing_and_rendering()
         test_navigation()
+        test_multi_next_folders_follow_the_baton()
         test_drive_switching()
         test_ls_failed_fallback()
         test_sorting()
