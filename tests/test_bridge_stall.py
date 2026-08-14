@@ -242,7 +242,13 @@ def test_silent_peer_is_reaped():
         dot.sendall(b"Poll")
         check("silent: a poll is answered while alive",
               len(rx_payload(dot)) >= 1)
-        check("silent: session reports connected", state["connected"] is True)
+        # The accept loop starts the session thread BEFORE it emits
+        # connected, so the poll reply above can beat the signal on a
+        # loaded machine (CI run 31823405610) — and a missed True here
+        # would also let the wait below return vacuously before the
+        # silence limit ever fired. Poll for the verdict instead.
+        check("silent: session reports connected",
+              wait_until(lambda: state["connected"] is True, timeout=10.0))
 
         # ...and now the Next "loses power": no FIN, no RST, just silence.
         t0 = time.time()
