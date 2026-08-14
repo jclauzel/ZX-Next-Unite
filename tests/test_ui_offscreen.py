@@ -415,25 +415,47 @@ def inspect_phase1():
     def pos(widget):
         i = grid.indexOf(widget)
         return None if i < 0 else grid.getItemPosition(i)[:2]
-    check("local path row at grid (0,0)", pos(win.local_path_row_container) == (0, 0), str(pos(win.local_path_row_container)))
-    check("image path row at grid (0,2)", pos(win.image_path_row_container) == (0, 2), str(pos(win.image_path_row_container)))
+    # The Remote Explorer mirroring (9.5.19): nav bars above the trees,
+    # the path boxes BELOW them, the image buttons at the very bottom.
+    check("local nav bar at grid (0,0)", pos(win.local_nav_row_container) == (0, 0), str(pos(win.local_nav_row_container)))
+    check("image nav bar at grid (0,2)", pos(win.image_nav_row_container) == (0, 2), str(pos(win.image_nav_row_container)))
+    _lnav = win.local_nav_row_container.layout()
+    check("local nav = Up|Refresh",
+          _lnav.indexOf(win.local_explorer_up_button) == 0
+          and _lnav.indexOf(win.local_explorer_refresh_button) == 1)
+    _inav = win.image_nav_row_container.layout()
+    check("image nav = Up|Refresh",
+          _inav.indexOf(win.image_explorer_up_button) == 0
+          and _inav.indexOf(win.image_explorer_refresh_button) == 1)
+    check("local path row at grid (2,0)", pos(win.local_path_row_container) == (2, 0), str(pos(win.local_path_row_container)))
+    check("image path row at grid (2,2)", pos(win.image_path_row_container) == (2, 2), str(pos(win.image_path_row_container)))
     _lrow = win.local_path_row_container.layout()
-    check("local row = Up|Refresh|label|path box",
-          _lrow.indexOf(win.local_explorer_up_button) == 0
-          and _lrow.indexOf(win.local_explorer_refresh_button) == 1
-          and _lrow.indexOf(win.localexplorerlabel) == 2
-          and _lrow.indexOf(win.local_file_explorer_path) == 3)
+    check("local path row = label|path box",
+          _lrow.indexOf(win.localexplorerlabel) == 0
+          and _lrow.indexOf(win.local_file_explorer_path) == 1)
     check("local label text", win.localexplorerlabel.text() == "Local path: ",
           win.localexplorerlabel.text())
     _irow = win.image_path_row_container.layout()
-    check("image row = Up|Refresh|label|path box",
-          _irow.indexOf(win.image_explorer_up_button) == 0
-          and _irow.indexOf(win.image_explorer_refresh_button) == 1
-          and _irow.indexOf(win.diskimageexplorerlabel) == 2
-          and _irow.indexOf(win.diskimageexplorerpathinput) == 3)
+    check("image path row = label|path box|buttons (one bottom row)",
+          _irow.indexOf(win.diskimageexplorerlabel) == 0
+          and _irow.indexOf(win.diskimageexplorerpathinput) == 1
+          and _irow.indexOf(win.imageexplorerbuttonscontainer) == 2)
+    check("path box owns the row's slack (stretch 1, buttons 0)",
+          _irow.stretch(1) == 1 and _irow.stretch(2) == 0,
+          f"{_irow.stretch(1)}/{_irow.stretch(2)}")
+    check("buttons keep natural width (no 190px minimum)",
+          win.button_new_folder.minimumWidth() < 100
+          and win.button_rename.minimumWidth() < 100
+          and win.button_delete_files.minimumWidth() < 100)
+    check("button cluster flush against the box (no spacer labels, no margins)",
+          win.imageexplorerbuttons.indexOf(win.hiddenspacelabel1) == -1
+          and win.imageexplorerbuttons.indexOf(win.hiddenspacelabel2) == -1
+          and win.imageexplorerbuttons.contentsMargins().left() == 0)
     check("local explorer at grid (1,0)", pos(win.treeview) == (1, 0), str(pos(win.treeview)))
     check("image explorer at grid (1,2)", pos(win.image_explorer_container) == (1, 2), str(pos(win.image_explorer_container)))
-    check("image buttons at grid (2,2)", pos(win.imageexplorerbuttonscontainer) == (2, 2), str(pos(win.imageexplorerbuttonscontainer)))
+    check("button cluster no longer a grid row of its own",
+          pos(win.imageexplorerbuttonscontainer) is None,
+          str(pos(win.imageexplorerbuttonscontainer)))
     check("old widgets out of top row",
           win.horizontal2.indexOf(win.diskimageexplorerlabel) == -1
           and win.horizontal2.indexOf(win.diskimageexplorerpathinput) == -1)
