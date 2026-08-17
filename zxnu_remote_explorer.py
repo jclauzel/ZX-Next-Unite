@@ -17,6 +17,7 @@ import posixpath
 import shutil
 import tempfile
 
+from zxnu_http_bridge import session_label   # stdlib-only at import
 from zxnu_i18n import ui_tr_now
 
 from PySide6.QtCore import (
@@ -1297,10 +1298,11 @@ class RemoteExplorerWidget(QWidget):
 
     def _machine_label(self, sid, addr):
         """One combo entry: "addr #sid", plus " - Name" when the host
-        remembers a friendly name for that address."""
-        name = self._machine_name_for(addr) or ""
-        base = f"{addr} #{sid}"
-        return f"{base} - {name}" if name else base
+        remembers a friendly name for that address. Delegates to the ONE
+        composer (zxnu_http_bridge.session_label, stdlib-only) so the
+        combo, GET /sessions and ZXNextRemote's title line can never
+        drift apart."""
+        return session_label(sid, addr, self._machine_name_for(addr) or "")
 
     def _on_machine_name_edit(self):
         """The ✎ button: name (or rename) the machine the combo currently

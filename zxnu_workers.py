@@ -675,11 +675,14 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
     command queue; every other session merely answers its Next's polls
     with the idle reply, so the link stays warm while the user works a
     different machine -- the Next itself never knows it is benched.
-    ``my_q`` carries session-directed commands (today: the broadcast
-    "quit"); a ("select_next", sid) popped from the shared queue moves
-    the baton and is answered with an idle. Each session owns its owed
-    bridge sinks, its put/rmtree state and its silence timer, exactly as
-    the single session always did.
+    ``my_q`` carries session-directed commands: the broadcast "quit" and
+    the HTTP bridge's session-TARGETED ops (?session=N), which run here
+    even while this session is benched -- targeted traffic never moves
+    the baton, so it cannot yank the Remote Explorer pane. A
+    ("select_next", sid) popped from the shared queue moves the baton
+    and is answered with an idle. Each session owns its owed bridge
+    sinks, its put/rmtree state and its silence timer, exactly as the
+    single session always did.
     """
     peers = shared['peers']
     plock = shared['lock']
@@ -1339,6 +1342,19 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         # Clean exits owe answers too -- a "quit" mid-transfer, the Next
         # dropping the link, or the user stopping the server.
         _fail_owed("the -listen session ended before the command finished")
+        # Session-TARGETED commands still queued (never taken) would
+        # otherwise strand their HTTP callers for the full bridge timeout:
+        # fail them now, with the 410 the bridge maps to "session gone".
+        while True:
+            try:
+                c = my_q.get_nowait()
+            except queue.Empty:
+                break
+            r = c[-1] if c and isinstance(c[-1], BridgeReply) else None
+            if r is not None:
+                r.put({'ok': False, 'http': 410,
+                       'error': f"session {sid} is gone - "
+                                "GET /sessions for the live list"})
         try:
             conn.close()
         except OSError:
@@ -1346,7 +1362,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
 
 
 def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
-                             max_payload=512):
+                             max_payload=512, control=None):
     # max_payload is 512, not the protocol's 1024 cap: ZXNextRemote's bench
     # testing found Next CLONES (N-Go) corrupt >512-byte continuous UART
     # bursts at the Medium/Fast rates — deterministically, close checksums —
@@ -1465,7 +1481,16 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         # session pops the shared queue directly on every poll.
         peers = {}                     # sid -> {'addr', 'q', 'thread'}
         plock = threading.Lock()
-        state = {'active': None, 'seq': 0, 'had_any': False}
+        # The sid counter is seeded from (and written back to) the caller's
+        # ``control`` dict so it SURVIVES worker restarts: the worker returns
+        # whenever the last Next leaves and the pane relistens with a fresh
+        # one, and a restarting counter would let a remote client's cached
+        # "session=1" silently drive a DIFFERENT machine. Sids are therefore
+        # unique for the whole app run, and a stale sid can only mean "that
+        # Next left" (the bridge answers 410), never "someone else".
+        control = control if control is not None else {}
+        state = {'active': None, 'seq': int(control.get('seq', 0)),
+                 'had_any': False}
 
         def _emit_peers():
             with plock:
@@ -1475,6 +1500,28 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
 
         shared = {'peers': peers, 'lock': plock, 'state': state,
                   'emit_peers': _emit_peers}
+
+        # ---- the control surface (HTTP bridge -> this worker) ----------
+        # Both closures take plock themselves, so a bridge thread's check
+        # and delivery cannot straddle a departure. After this worker
+        # returns, ``peers`` is empty and they degrade to False/[] until a
+        # relisten installs fresh ones over the same dict.
+        def _roster():
+            with plock:
+                return (state['active'],
+                        [(s, p['addr']) for s, p in sorted(peers.items())])
+
+        def _enqueue_to(sid, cmd):
+            with plock:
+                p = peers.get(sid)
+                if p is None:
+                    return False
+                p['q'].put(cmd)
+                return True
+
+        control['roster'] = _roster
+        control['enqueue_to'] = _enqueue_to
+        control['max_peers'] = RE_MAX_PEERS
 
         while not stop_event.is_set():
             # Reap ended sessions; hand the baton on if the active died —
@@ -1589,6 +1636,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             with plock:
                 state['seq'] += 1
                 sid = state['seq']
+                control['seq'] = sid   # persists across worker restarts
                 my_q = queue.Queue()
                 first = not peers
                 peers[sid] = {'addr': addr[0], 'q': my_q, 'thread': None}
