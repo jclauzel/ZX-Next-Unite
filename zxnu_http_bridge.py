@@ -30,6 +30,25 @@ Wire-up contract (all a host must provide — see :class:`QueueBridgeHost`):
 * ``state() -> dict``   {'listening': bool, 'connected': bool,
   'current': str, 'drives': list|None}.
 
+Multi-session hosts (the app seats up to four ``-listen`` Nexts) may also
+provide two OPTIONAL callables:
+
+* ``sessions() -> (active_sid, [(sid, addr, name), …], max_peers)``   the
+  live roster snapshot (names may be "");
+* ``enqueue_to(sid, cmd) -> bool``   put one command tuple on THAT
+  session's own queue (False when the sid is gone) — delivery must not
+  move the host's notion of the active session.
+
+With those provided, every op route accepts a session selector
+(``?session=N`` or the ``ZXNEXTUNITE-BRIDGE-SESSION`` header; the query
+param wins) and ``GET /sessions`` lists the roster. No selector = the
+active session, exactly the pre-session behaviour. A selector naming a
+session that is gone answers HTTP 410 — never a silent retarget: sids are
+minted once per app run and never reused, so a stale id can only mean
+"that Next left". Hosts without the callables stay single-session:
+/sessions synthesizes one entry (sid 1) from ``state()`` (plus its
+``addr`` key when provided), and only ``session=1`` is accepted.
+
 The host's command executor must then fill ``reply`` with a result dict —
 and, by convention, a command carrying a reply is SILENT: it reports only
 through the reply, never through the host's usual UI signals/prints, so
@@ -65,6 +84,21 @@ DEFAULT_PORT = 80          # .http's default; HTTP only (no TLS on the Next)
 # zxnu_config.NEXTSYNC_BRIDGE_TOKEN_HEADER (this module stays stdlib-only so it
 # does not import the app's config).
 BRIDGE_TOKEN_HEADER = "ZXNEXTUNITE-BRIDGE-TOKEN"
+
+# HTTP header carrying the optional session selector (ZXNextRemote sends the
+# header rather than &session= so deep paths keep their whole 250-char query
+# budget). The query param, when both are present, wins: explicit beats
+# ambient.
+BRIDGE_SESSION_HEADER = "ZXNEXTUNITE-BRIDGE-SESSION"
+
+
+def session_label(sid, addr, name=""):
+    """THE session label, one composer for every surface: the Remote
+    Explorer's machine dropdown, /sessions, and ZXNextRemote's title line
+    all show exactly this string — "10.0.0.185 #1 - Next" (the " - name"
+    tail only when the machine has a friendly name)."""
+    base = f"{addr} #{sid}"
+    return f"{base} - {name}" if name else base
 
 
 def flask_available():
@@ -145,10 +179,13 @@ class QueueBridgeHost:
     bytes) and put (write the request body to a temp file the executor can
     stream)."""
 
-    def __init__(self, enqueue, make_cmd, state):
+    def __init__(self, enqueue, make_cmd, state, sessions=None,
+                 enqueue_to=None):
         self._enqueue = enqueue
         self._make_cmd = make_cmd
         self._state = state
+        self._sessions = sessions
+        self._enqueue_to = enqueue_to
         self._lock = threading.Lock()
 
     def state(self):
@@ -158,11 +195,40 @@ class QueueBridgeHost:
             return {"listening": False, "connected": False,
                     "current": "", "drives": None, "error": str(ex)}
 
-    def run(self, op, a1="", a2="", body=None, timeout=None):
-        """Run one canonical bridge op against the connected Next. Returns the
-        executor's result dict; on bridge-level failures the dict carries
-        ``ok: False`` plus an ``http`` status suggestion (501/503/504)."""
+    def roster(self):
+        """(active_sid, [(sid, addr, name), …], max_peers) or None when this
+        host has no session roster (nextsync5's single-session console)."""
+        if self._sessions is None:
+            return None
+        try:
+            active, rows, maxp = self._sessions()
+            return (active,
+                    [(int(s), str(a), str(n or "")) for s, a, n in rows],
+                    int(maxp))
+        except Exception:                            # noqa: BLE001
+            return None
+
+    @staticmethod
+    def _gone(session):
+        return {"ok": False, "http": 410,
+                "error": f"session {session} is gone - "
+                         "GET /sessions for the live list"}
+
+    def run(self, op, a1="", a2="", body=None, timeout=None, session=None):
+        """Run one canonical bridge op against the connected Next — the
+        active session by default, ``session=<sid>`` to target a seated one
+        (delivered on that session's own queue; the active/baton state is
+        never touched). Returns the executor's result dict; on bridge-level
+        failures the dict carries ``ok: False`` plus an ``http`` status
+        suggestion (410/501/503/504)."""
         st = self.state()
+        if session is not None and self._enqueue_to is None:
+            # Single-session host: sid 1 IS the one session; anything else
+            # can only be stale. (Validated before the connected gate so a
+            # stale id answers 410, not 503, when nothing is connected.)
+            if session != 1:
+                return self._gone(session)
+            session = None
         if not st.get("connected"):
             return {"ok": False, "http": 503,
                     "error": "no Next is connected in '.sync5 -L' (-l or -listen) mode"}
@@ -187,7 +253,13 @@ class QueueBridgeHost:
                 if cmd is None:
                     return {"ok": False, "http": 501,
                             "error": f"'{op}' is not supported by this server"}
-                if not self._enqueue(cmd):
+                if session is not None:
+                    # Targeted delivery. No roster pre-check: enqueue_to
+                    # validates the sid under the worker's own lock, so the
+                    # check and the put cannot straddle a departure.
+                    if not self._enqueue_to(session, cmd):
+                        return self._gone(session)
+                elif not self._enqueue(cmd):
                     return {"ok": False, "http": 503,
                             "error": "the -listen session is not running"}
                 res = reply.wait(timeout)
@@ -256,6 +328,10 @@ class NextSyncHttpBridge:
         "NextSync HTTP bridge - drive the Next connected in '.sync5 -L' (-l or -listen)\n"
         "Routes (text by default; append &json=1 for JSON):\n"
         "  GET  /status                     server + Next state, partitions\n"
+        "  GET  /sessions                   list the seated -listen Nexts\n"
+        "       (every op route below also takes &session=<sid> — or the\n"
+        "       ZXNEXTUNITE-BRIDGE-SESSION header — to target one seated\n"
+        "       Next; no selector = the active one; a departed sid = 410)\n"
         "  GET  /drives                     mounted drive letters\n"
         "  GET  /free?drive=C               free space on a partition\n"
         "  GET  /ls?path=/games             directory listing\n"
@@ -529,6 +605,33 @@ class NextSyncHttpBridge:
                     status=401, mimetype="application/json")
             return Response(f"ERR {msg}\n", status=401, mimetype="text/plain")
 
+        # ---- session selector (after the token guard: an unauthorised
+        # request never learns whether its sid parses) ---------------------
+        @app.before_request
+        def _resolve_session():        # noqa: ANN202
+            v = ((request.args.get("session") or "").strip()
+                 or (request.headers.get(BRIDGE_SESSION_HEADER) or "").strip())
+            if not v:
+                request.environ["zxnu.session"] = None
+                return None
+            try:
+                n = int(v, 10)
+                if n <= 0:
+                    raise ValueError
+            except ValueError:
+                msg = f"bad session selector '{v}' (want a positive integer)"
+                if (request.args.get("json") in ("1", "true", "yes")
+                        or "application/json"
+                        in (request.headers.get("Accept") or "")):
+                    return Response(
+                        json.dumps({"ok": False, "error": msg,
+                                    "status": 400}) + "\n",
+                        status=400, mimetype="application/json")
+                return Response(f"ERR {msg}\n", status=400,
+                                mimetype="text/plain")
+            request.environ["zxnu.session"] = n
+            return None
+
         # ---- in-flight tracking (always) + -v tracing --------------------
         # Registered unconditionally: the live count and the stall watchdog
         # are diagnostics you want available the moment something wedges,
@@ -606,9 +709,28 @@ class NextSyncHttpBridge:
             return answer({"ok": False, "error": err, "status": status},
                           [f"ERR {err}"], status)
 
+        def sid_now():
+            """This request's session selector (already validated by the
+            before_request guard), or None for the active session."""
+            return request.environ.get("zxnu.session")
+
+        def skey(path):
+            """Cache key for per-session state: sids are never reused within
+            an app run, so (sid, path) can't alias across machines. None
+            (the active session) is its own bucket — it may move between
+            machines mid-flight, which is exactly the pre-session behaviour
+            those callers opted into."""
+            return (sid_now(), path)
+
         def run(op, a1="", a2="", body=None):
-            self._log(f"HTTP bridge: {op} {a1} {a2}".rstrip())
-            return self._adapter.run(op, a1, a2, body=body)
+            sid = sid_now()
+            self._log(f"HTTP bridge: {op} {a1} {a2}".rstrip()
+                      + (f" [session {sid}]" if sid is not None else ""))
+            if sid is None:
+                # No selector -> the pre-session call shape, so adapters
+                # (and test fakes) that never learned the kwarg still work.
+                return self._adapter.run(op, a1, a2, body=body)
+            return self._adapter.run(op, a1, a2, body=body, session=sid)
 
         def need(*names):
             """Fetch required query args (supporting aliases per name tuple);
@@ -635,10 +757,50 @@ class NextSyncHttpBridge:
         def _help():
             return Response(self.ROUTES_HELP, mimetype="text/plain")
 
+        def adapter_roster():
+            # getattr, not a straight call: adapters predating (or ignoring)
+            # the session surface — tests ship minimal fakes — stay valid.
+            fn = getattr(self._adapter, "roster", None)
+            return fn() if fn is not None else None
+
+        # ---- sessions -------------------------------------------------
+        @app.route("/sessions")
+        def _sessions():
+            r = adapter_roster()
+            if r is None:
+                # Single-session host (nextsync5's console): synthesize the
+                # one seat from state() so every client sees the same shape.
+                st = self._adapter.state()
+                if st.get("connected"):
+                    rows = [(1, str(st.get("addr") or ""), "")]
+                    active = 1
+                else:
+                    rows, active = [], None
+                maxp = 1
+            else:
+                active, rows, maxp = r
+            return answer(
+                {"ok": True, "active": active, "count": len(rows),
+                 "max": maxp,
+                 "sessions": [{"sid": s, "addr": a, "name": n,
+                               "label": session_label(s, a, n),
+                               "active": s == active}
+                              for s, a, n in rows]},
+                [f"OK active: {active if active is not None else '-'} "
+                 f"count: {len(rows)} max: {maxp}"]
+                + [f"{s}\t{session_label(s, a, n)}" for s, a, n in rows])
+
         # ---- status ---------------------------------------------------
         @app.route("/status")
         def _status():
             st = self._adapter.state()
+            roster = adapter_roster()
+            # The drives/current pair below describes the ACTIVE session;
+            # when the baton moves the cached answer is another machine's.
+            active_now = roster[0] if roster else None
+            if (self._drives_cache is not None
+                    and self._drives_cache.get("sid") != active_now):
+                self._drives_cache = None
             drives = st.get("drives")
             if not st.get("connected"):
                 self._drives_cache = None
@@ -649,6 +811,7 @@ class NextSyncHttpBridge:
                     res = self._adapter.run("drives", timeout=15.0)
                     if res and res.get("ok"):
                         self._drives_cache = {
+                            "sid": active_now,
                             "current": res.get("current", ""),
                             "drives": list(res.get("letters") or [])}
                 if self._drives_cache is not None:
@@ -668,6 +831,15 @@ class NextSyncHttpBridge:
                        "inflight": len(busy),
                        "busy": [{"seconds": round(s, 1), "request": r}
                                 for s, r in busy]}
+            # Additive multi-session lines (roster hosts only): appended
+            # LAST so strict line-order parsers of the original shape —
+            # ZXNextRemote strstr's "connected: yes" — never notice them.
+            extra = []
+            if roster is not None:
+                payload["sessions"] = len(roster[1])
+                payload["active"] = active_now
+                extra = [f"sessions: {len(roster[1])}",
+                         f"active: {active_now if active_now is not None else '-'}"]
             return answer(payload, [
                 f"listening: {'yes' if listening else 'no'}",
                 f"connected: {'yes' if connected else 'no'}",
@@ -675,7 +847,7 @@ class NextSyncHttpBridge:
                 f"drives: {' '.join(drives) if drives else '-'}",
                 f"partitions: {parts}",
                 f"inflight: {len(busy)}",
-            ] + [f"busy: {s:.0f}s {r}" for s, r in busy])
+            ] + [f"busy: {s:.0f}s {r}" for s, r in busy] + extra)
 
         # ---- drives / free -------------------------------------------
         @app.route("/drives")
@@ -762,7 +934,7 @@ class NextSyncHttpBridge:
                 return bad("off/len out of range")
             with self._get_cache_lock:
                 c = self._get_cache
-                data = c["data"] if (off and c["path"] == path) else None
+                data = c["data"] if (off and c["path"] == skey(path)) else None
             if data is None:
                 # A fresh file (off=0) — or an evicted cache: relay anew.
                 res = run("get", path)
@@ -770,12 +942,12 @@ class NextSyncHttpBridge:
                     return fail(res, f"get {path}")
                 data = res.get("data") or b""
                 with self._get_cache_lock:
-                    self._get_cache = {"path": path, "data": data}
+                    self._get_cache = {"path": skey(path), "data": data}
             chunk = bytes(data[off:off + ln])
             done = off + ln >= len(data)
             if done:
                 with self._get_cache_lock:
-                    if self._get_cache["path"] == path:
+                    if self._get_cache["path"] == skey(path):
                         self._get_cache = {"path": None, "data": b""}
             elif off and not self._verbose:
                 # ~90 mid-file slices would bury the console: only the
@@ -808,15 +980,15 @@ class NextSyncHttpBridge:
                 return bad(f"size {total} exceeds the chunked-upload cap "
                            f"of {self.MAX_SPOOL} bytes")
             with self._spool_lock:
-                sp = self._put_spool.get(path)
+                sp = self._put_spool.get(skey(path))
                 if sp is None or sp["size"] != total:
                     sp = {"size": total, "data": bytearray(), "chunks": 0}
-                    self._put_spool[path] = sp
+                    self._put_spool[skey(path)] = sp
                 sp["data"] += body
                 sp["chunks"] += 1
                 got, chunks = len(sp["data"]), sp["chunks"]
                 if got > total:
-                    del self._put_spool[path]
+                    del self._put_spool[skey(path)]
                     return bad(f"append overflow: got {got} of {total} "
                                "declared bytes - upload dropped, send it "
                                "again from the first chunk")
@@ -826,7 +998,7 @@ class NextSyncHttpBridge:
                          "bytes": got, "size": total, "chunks": chunks},
                         [f"OK append {path} ({got}/{total} bytes)"])
                 data = bytes(sp["data"])
-                del self._put_spool[path]
+                del self._put_spool[skey(path)]
             res = run("put", path, body=data)
             if not res.get("ok"):
                 return fail(res, f"put {path}")
@@ -853,7 +1025,7 @@ class NextSyncHttpBridge:
             with self._spool_lock:
                 # A plain put overwrites: also discard any half-done chunked
                 # upload spooled for the same path.
-                self._put_spool.pop(path, None)
+                self._put_spool.pop(skey(path), None)
             res = run("put", path, body=body)
             if not res.get("ok"):
                 return fail(res, f"put {path}")

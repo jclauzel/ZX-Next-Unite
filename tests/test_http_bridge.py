@@ -291,6 +291,19 @@ def phase_b():
     j = json.loads(body)
     check("B /ls", st == 200 and len(j["entries"]) == 2, j)
 
+    # No roster on this host: /sessions synthesizes the one seat (sid 1),
+    # session=1 is accepted, anything else can only be stale -> 410.
+    st, body = http(HTTP_B, "/sessions?json=1")
+    j = json.loads(body)
+    check("B /sessions synthetic seat", st == 200 and j["count"] == 1
+          and j["max"] == 1 and j["active"] == 1
+          and j["sessions"][0]["sid"] == 1, j)
+    st, body = http(HTTP_B, "/ls?path=/&session=1&json=1")
+    j = json.loads(body)
+    check("B /ls session=1", st == 200 and len(j["entries"]) == 2, j)
+    st, body = http(HTTP_B, "/ls?path=/&session=2")
+    check("B stale sid -> 410", st == 410, (st, body))
+
     st, body = http(HTTP_B, "/get?path=boot.bas")
     check("B /get", st == 200 and body == filebytes, len(body))
 
@@ -325,6 +338,10 @@ def phase_b():
     st, body = http(HTTP_B, "/status?json=1")
     j = json.loads(body)
     check("B /status after quit", st == 200 and not j["connected"], j)
+    st, body = http(HTTP_B, "/sessions?json=1")
+    j = json.loads(body)
+    check("B /sessions after quit empty", st == 200 and j["count"] == 0
+          and j["active"] is None, j)
 
     bridge.stop()
     srv.close()
@@ -340,6 +357,181 @@ def http_h(port, path, headers=None):
             return r.status, r.read()
     except urllib.error.HTTPError as e:
         return e.code, e.read()
+
+
+# =====================================================================
+#  Phase SESSIONS: /sessions + session-targeted ops over the app worker
+# =====================================================================
+WORKER_S = 2051
+HTTP_S = 18086
+
+
+def phase_sessions():
+    """Multi-session bridge: GET /sessions lists the seated Nexts with the
+    combo's exact labels, ?session=N (or the header; the param wins)
+    targets one seat WITHOUT moving the baton, a malformed selector is
+    400, a departed sid is 410, and the sid counter survives the routine
+    worker restart — so a stale id can only ever mean "gone", never
+    "another machine"."""
+    print("=== phase SESSIONS: /sessions + session-targeted ops ===")
+    from zxnu_http_bridge import BRIDGE_SESSION_HEADER
+
+    app = QCoreApplication.instance() or QCoreApplication(sys.argv)  # noqa: F841
+    sig = RemoteExplorerSignals()
+    state = {"connected": False}
+    roster_seen = {"last": (None, [])}
+    sig.connected.connect(lambda: state.update(connected=True),
+                          Qt.DirectConnection)
+    sig.disconnected.connect(lambda: state.update(connected=False),
+                             Qt.DirectConnection)
+    sig.peers.connect(lambda p: roster_seen.update(last=p),
+                      Qt.DirectConnection)
+
+    cmd_q = queue.Queue()
+    stop = threading.Event()
+    control = {"seq": 0}                     # ONE dict across both workers
+    names = {"127.0.0.1": "Next"}            # the pane's address-keyed names
+
+    def make_cmd(op, a1, a2, reply):
+        if op == "ls":
+            return ("ls", a1, reply)
+        if op == "drives":
+            return ("drives", reply)
+        if op == "forceexit":
+            return ("quit", reply)
+        return None
+
+    def enqueue(cmd):
+        cmd_q.put(cmd)
+        return True
+
+    def state_fn():
+        return {"listening": True, "connected": state["connected"],
+                "current": "", "drives": None}
+
+    # Mirrors zxnu_nextsync_pane's wiring over the worker's control surface.
+    def sessions_fn():
+        r = control.get("roster")
+        active, plist = r() if r is not None else (None, [])
+        return (active, [(s, a, names.get(a, "")) for s, a in plist],
+                control.get("max_peers", 4))
+
+    def enqueue_to(sid, cmd):
+        fn = control.get("enqueue_to")
+        return bool(fn is not None and fn(sid, cmd))
+
+    bridge = NextSyncHttpBridge(
+        QueueBridgeHost(enqueue, make_cmd, state_fn,
+                        sessions=sessions_fn, enqueue_to=enqueue_to),
+        port=HTTP_S)
+    okd, err = bridge.start()
+    check("S bridge started", okd, err)
+
+    t = threading.Thread(target=run_remote_listen_server,
+                         args=(sig, cmd_q, stop, WORKER_S),
+                         kwargs={"control": control}, daemon=True)
+    t.start()
+    time.sleep(0.3)
+
+    def seat(entries, filebytes=b"x"):
+        s = socket.create_connection(("127.0.0.1", WORKER_S), timeout=10)
+        threading.Thread(target=mock_next,
+                         args=(s, entries, filebytes, {}, {}),
+                         daemon=True).start()
+        return s
+
+    def roster_size():
+        return len(roster_seen["last"][1])
+
+    s1 = seat([(False, 111, "one.txt")])
+    check("S first Next seated", wait_until(lambda: roster_size() == 1))
+    s2 = seat([(False, 222, "two.txt")])
+    check("S second Next seated", wait_until(lambda: roster_size() == 2))
+
+    st, body = http(HTTP_S, "/sessions?json=1")
+    j = json.loads(body)
+    check("S /sessions json", st == 200 and j["ok"] and j["count"] == 2
+          and j["active"] == 1 and j["max"] == 4
+          and [x["sid"] for x in j["sessions"]] == [1, 2], j)
+    check("S /sessions labels", j["sessions"][0]["label"]
+          == "127.0.0.1 #1 - Next"
+          and j["sessions"][0]["active"] is True
+          and j["sessions"][1]["active"] is False, j["sessions"])
+
+    st, body = http(HTTP_S, "/sessions")
+    lines = body.decode().splitlines()
+    check("S /sessions text", st == 200
+          and lines[0] == "OK active: 1 count: 2 max: 4"
+          and lines[1] == "1\t127.0.0.1 #1 - Next"
+          and lines[2] == "2\t127.0.0.1 #2 - Next", lines)
+
+    # Targeting: the benched session answers, the baton never moves.
+    st, body = http(HTTP_S, "/ls?path=/&session=2")
+    check("S /ls session=2 -> the benched Next", st == 200
+          and b"two.txt" in body and b"one.txt" not in body, body)
+    st, body = http(HTTP_S, "/ls?path=/")
+    check("S /ls unselected -> still the active Next", st == 200
+          and b"one.txt" in body, body)
+    check("S baton untouched", roster_seen["last"][0] == 1,
+          roster_seen["last"])
+
+    st, body = http_h(HTTP_S, "/ls?path=/",
+                      {BRIDGE_SESSION_HEADER: "2"})
+    check("S header selector", st == 200 and b"two.txt" in body, body)
+    st, body = http_h(HTTP_S, "/ls?path=/&session=1",
+                      {BRIDGE_SESSION_HEADER: "2"})
+    check("S param beats header", st == 200 and b"one.txt" in body, body)
+
+    st, body = http(HTTP_S, "/ls?path=/&session=abc")
+    check("S malformed selector -> 400", st == 400
+          and b"bad session selector" in body, (st, body))
+    st, body = http(HTTP_S, "/ls?path=/&session=99")
+    check("S unknown sid -> 410", st == 410 and b"gone" in body, (st, body))
+
+    st, body = http(HTTP_S, "/status?json=1")
+    j = json.loads(body)
+    check("S /status json roster fields", st == 200
+          and j["sessions"] == 2 and j["active"] == 1, j)
+    st, body = http(HTTP_S, "/status")
+    text = body.decode()
+    check("S /status text additive", "connected: yes" in text
+          and "sessions: 2" in text and "active: 1" in text, text)
+
+    # Departure: the reaper prunes the seat, its sid answers 410 forever.
+    s2.close()
+    check("S departed Next reaped", wait_until(lambda: roster_size() == 1))
+    st, body = http(HTTP_S, "/ls?path=/&session=2")
+    check("S departed sid -> 410", st == 410, (st, body))
+
+    # Restart: the last Next leaves, the worker returns (the pane would
+    # auto-relisten); a new worker over the SAME control dict must keep
+    # counting — the next seat is #3, and the old sids stay 410.
+    s1.close()
+    check("S last-leave ends the worker",
+          wait_until(lambda: not state["connected"]))
+    t.join(timeout=5)
+    check("S worker returned", not t.is_alive())
+    t2 = threading.Thread(target=run_remote_listen_server,
+                          args=(sig, cmd_q, stop, WORKER_S),
+                          kwargs={"control": control}, daemon=True)
+    t2.start()
+    time.sleep(0.3)
+    s3 = seat([(False, 333, "three.txt")])
+    check("S reseated", wait_until(lambda: roster_size() == 1
+                                   and state["connected"]))
+    st, body = http(HTTP_S, "/sessions?json=1")
+    j = json.loads(body)
+    check("S sid continuity across restart", st == 200 and j["count"] == 1
+          and j["sessions"][0]["sid"] == 3 and j["active"] == 3, j)
+    st, body = http(HTTP_S, "/ls?path=/&session=3")
+    check("S /ls new sid", st == 200 and b"three.txt" in body, body)
+    st, body = http(HTTP_S, "/ls?path=/&session=1")
+    check("S pre-restart sid stays 410", st == 410, (st, body))
+
+    stop.set()
+    s3.close()
+    bridge.stop()
+    t2.join(timeout=5)
 
 
 def phase_token():
@@ -433,6 +625,8 @@ def main():
     phase_a()
     print()
     phase_b()
+    print()
+    phase_sessions()
     print()
     phase_token()
     print()

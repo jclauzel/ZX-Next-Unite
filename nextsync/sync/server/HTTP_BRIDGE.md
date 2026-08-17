@@ -63,8 +63,9 @@ console error. Stop the other program or pick another port.
 
 Every route answers **plain text** (easy to show or parse on a Next); append
 `&json=1` (or send `Accept: application/json`) for JSON. Failures use real
-HTTP status codes: `400` bad arguments, `501` unsupported, `502` the Next
-said no, `503` no Next connected, `504` timed out.
+HTTP status codes: `400` bad arguments, `410` the selected session is gone
+(see `/sessions`), `501` unsupported, `502` the Next said no, `503` no Next
+connected, `504` timed out.
 
 Remote paths accept an optional drive prefix (`m:/backup`) exactly like every
 other NextSync command. URL-encode special characters (space = `%20`).
@@ -166,9 +167,57 @@ connected: yes
 current: C
 drives: C M
 partitions: 2
+inflight: 0
+sessions: 2
+active: 1
 ```
 `listening` = the -listen server is running; `connected` = a Next is actually
-in `.sync5 -listen`; `partitions` = number of mounted drives.
+in `.sync5 -listen`; `partitions` = number of mounted drives. The trailing
+`sessions:`/`active:` lines appear only on a multi-session host (the app) —
+they are appended LAST so parsers of the original shape never notice them;
+`current`/`drives` always describe the **active** session.
+
+### `GET /sessions` — the seated Nexts, and driving a specific one
+
+The app's Remote Explorer seats up to **four** `-listen` Nexts at once (its
+combo box picks the one the UI drives). `/sessions` lists them:
+
+```
+curl "http://localhost/sessions"
+.http -h 192.168.1.10 -u /sessions -f sessions.txt
+```
+```
+OK active: 1 count: 2 max: 4
+1	10.0.0.185 #1 - Next
+2	10.0.0.42 #2 - N-Go
+```
+One line per seat: the **sid** (a number, never reused for the whole app
+run), a TAB, then the exact label the app's combo shows. With `&json=1`
+each entry is `{sid, addr, name, label, active}`.
+
+**Every op route** (`/ls`, `/get`, `/put`, `/mkdir`, `/rmdir`, `/rmtree`,
+`/rm`, `/ren`, `/rcpy`, `/rfsize`, `/free`, `/drives`, `/sum`) then accepts a
+session selector — `&session=<sid>`, or the `ZXNEXTUNITE-BRIDGE-SESSION`
+request header (the query param wins when both are present):
+
+```
+curl "http://localhost/ls?path=/games&session=2"
+```
+
+Targeted requests are delivered on that session's own queue: they **never
+move the app's active selection**, so driving Next #2 over HTTP does not
+yank the Remote Explorer pane away from Next #1. Without a selector the
+request goes to the active session — exactly the pre-session behaviour.
+
+A selector naming a seat that has left answers **HTTP 410** ("session N is
+gone"): re-fetch `/sessions` and pick again. A stale sid can never silently
+drive a different machine — sids are minted once per app run. `/forceexit`
+takes no selector: it ends **every** seated session (the stop is a
+broadcast). The standalone `nextsync5.py` host is single-session: its
+`/sessions` reports one synthetic seat (sid 1) while a Next is connected.
+
+> Note: with token protection on, `/sessions` needs the token header too —
+> the roster (LAN addresses + your machine names) is worth protecting.
 
 ### `GET /drives` — mounted drive letters
 

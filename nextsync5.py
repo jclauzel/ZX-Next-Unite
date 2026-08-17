@@ -630,7 +630,7 @@ _listen_cli_started = False
 # Live -listen session state for the HTTP bridge's /status route (see -http):
 # 'active' flips with the session, 'current'/'drives' cache the last getdrives
 # reply of this session.
-_listen_state = {'active': False, 'current': '', 'drives': None}
+_listen_state = {'active': False, 'current': '', 'drives': None, 'addr': ''}
 
 def _listen_queue():
     """The shared -listen command queue (created on first use). Both the
@@ -720,11 +720,19 @@ def listen_session(conn, stats, _test_commands=None):
     # quit, the Next hanging up, or a socket error unwinding through us.
     _listen_state['active'] = True
     try:
+        # The peer address feeds /sessions' synthetic single entry (this
+        # host has no roster; the bridge shows one seat, sid 1). Mock conns
+        # in the test harness have no peername - degrade to ''.
+        _listen_state['addr'] = conn.getpeername()[0]
+    except (OSError, AttributeError, IndexError):
+        _listen_state['addr'] = ''
+    try:
         _listen_session_inner(conn, stats, _test_commands)
     finally:
         _listen_state['active'] = False
         _listen_state['current'] = ''
         _listen_state['drives'] = None
+        _listen_state['addr'] = ''
 
 def _listen_session_inner(conn, stats, _test_commands=None):
     global _in_transfer
@@ -1150,7 +1158,8 @@ def _start_http_bridge(port):
     def state():
         return {'listening': True, 'connected': _listen_state['active'],
                 'current': _listen_state['current'],
-                'drives': _listen_state['drives']}
+                'drives': _listen_state['drives'],
+                'addr': _listen_state['addr']}
 
     bridge = _zb.NextSyncHttpBridge(
         _zb.QueueBridgeHost(enqueue, make_cmd, state), port=port,

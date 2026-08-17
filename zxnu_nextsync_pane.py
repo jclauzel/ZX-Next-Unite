@@ -475,6 +475,13 @@ def build_nextsync_pane(
     # the worker's signals with DirectConnection (plain field writes from
     # the worker thread — no Qt event loop involvement needed).
     host._re_bridge_state = {"connected": False, "current": "", "drives": None}
+    # The worker's control surface, ONE dict for the whole app run: the
+    # worker seeds its sid counter from control['seq'] (so sids never
+    # restart across the routine last-Next-leaves/relisten cycle — a stale
+    # HTTP session id must mean "gone", never "another machine") and
+    # installs 'roster'/'enqueue_to'/'max_peers' for the bridge's
+    # session-targeted routes each time it starts.
+    host._re_control = {"seq": 0}
 
     def _re_bridge_make_cmd(op, a1, a2, reply):
         # Canonical bridge op -> the worker's command-tuple dialect, with
@@ -515,6 +522,29 @@ def build_nextsync_pane(
                 "current": st["current"] or "",
                 "drives": list(st["drives"]) if st["drives"] else None}
 
+    def _re_bridge_sessions():
+        # Roster snapshot for GET /sessions: worker sids + addresses,
+        # decorated with the same address-keyed friendly names the Remote
+        # Explorer combo shows. Reading the name map from an HTTP thread is
+        # safe: it is a plain dict-backed config read, never written here.
+        roster = host._re_control.get('roster')
+        active, plist = roster() if roster is not None else (None, [])
+        if not host._re_running:
+            active, plist = None, []
+        return (active,
+                [(sid, addr, _re_machine_name_for(addr) or "")
+                 for sid, addr in plist],
+                int(host._re_control.get('max_peers', 4)))
+
+    def _re_bridge_enqueue_to(sid, cmd):
+        # Targeted delivery for ?session=N — the session's own queue, the
+        # baton untouched. The worker's closure validates sid under its
+        # roster lock; False (gone / not running) maps to HTTP 410.
+        fn = host._re_control.get('enqueue_to')
+        if fn is None or not host._re_running:
+            return False
+        return bool(fn(sid, cmd))
+
     def _nextsync_http_bridge_start():
         if host._re_bridge is not None and host._re_bridge.running:
             return
@@ -537,7 +567,9 @@ def build_nextsync_pane(
             SETTING_NEXTSYNC_HTTP_TOKEN) or "").strip()
         host._re_bridge = NextSyncHttpBridge(
             QueueBridgeHost(_re_bridge_enqueue, _re_bridge_make_cmd,
-                            _re_bridge_session_state),
+                            _re_bridge_session_state,
+                            sessions=_re_bridge_sessions,
+                            enqueue_to=_re_bridge_enqueue_to),
             port=port, connection_limit=conn_limit,
             auth_token=_token if (_token_on and _token) else None,
             verbose=(configuration_dictionary.get(
@@ -1222,6 +1254,7 @@ def build_nextsync_pane(
         host._re_thread = threading.Thread(
             target=run_remote_listen_server,
             args=(host._re_sig, host._re_queue, host._re_stop),
+            kwargs={"control": host._re_control},
             daemon=True)
         host._re_thread.start()
         host._re_running = True
