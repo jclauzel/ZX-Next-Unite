@@ -1150,7 +1150,7 @@ int main(int arglen, char *rawcmd)
     // zxnu_config.py (and the help text below): the app compares it against
     // the cfg's dotn_last_version to advise the user to refresh the .sync5
     // copy on their Next after updating the app.
-    print("NextSync 5.7.3 Clauzel/Komppa");
+    print("NextSync 5.7.4 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
