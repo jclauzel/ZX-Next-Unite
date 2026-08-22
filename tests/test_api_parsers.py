@@ -238,6 +238,31 @@ check("zxart website url: direct url from _source",
       == "https://zxart.ee/eng/x/")
 check("zxart website url: non-dict entry", zxart_entry_website_url("nope") == "")
 
+# Regression: zxProd records carry NO url field, and the old title-search
+# fallback (/eng/search/?searchString=...) is resolved by zxart.ee to an
+# unrelated production literally titled "Search" (prod 504942) - every
+# software item's "Open on zxart.ee" landed there. The link must be built
+# from the entry's own id instead (NXPaint: prod 601619), and an entry
+# with no url AND no usable id must yield "" (button greys out), never a
+# search URL.
+check("zxart website url: prod built from id",
+      zxart_entry_website_url({"id": "601619", "title": "NXPaint",
+                               "_kind": "zxart_prod", "_source": {}})
+      == "https://zxart.ee/prod/601619")
+check("zxart website url: picture built from id",
+      zxart_entry_website_url({"id": "47111", "title": "Phantis",
+                               "_kind": "zxart_picture", "_source": {}})
+      == "https://zxart.ee/picture/47111")
+check("zxart website url: _source url still wins over id",
+      zxart_entry_website_url({"id": "47111", "_kind": "zxart_picture",
+                               "_source": {"url": "https://zxart.ee/eng/authors/m/mac/phantis11/"}})
+      == "https://zxart.ee/eng/authors/m/mac/phantis11/")
+check("zxart website url: no id, no url -> empty, NEVER a search link",
+      zxart_entry_website_url({"title": "NXPaint", "_kind": "zxart_prod",
+                               "_source": {}}) == "")
+check("zxart website url: unknown kind with id -> empty (no guessing)",
+      zxart_entry_website_url({"id": "123", "_kind": "", "_source": {}}) == "")
+
 filtered = _filter_download_urls([
     {"url": "https://zxart.ee/file/id:12345/"},     # browse URL — dropped
     {"url": "https://zxart.ee/files/game.tap"},     # real file — kept

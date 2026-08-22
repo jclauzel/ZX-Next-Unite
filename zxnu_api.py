@@ -430,10 +430,20 @@ def zxdb_entry_website_url(eid) -> str:
 def zxart_entry_website_url(entry) -> str:
     """Return the public zxart.ee landing-page URL for a zxArt gallery entry.
 
-    The url is provided by the zxArt API on each prod / picture record, so
-    we read it from *entry* (which carries the API record under ``_source``).
-    Falls back to a generic search URL if the API record did not include
-    a direct url."""
+    zxPicture records carry a canonical ``url`` (the author-page path), so
+    that is honoured first, read from *entry*'s ``_source`` API record.
+
+    zxProd records carry NO url field at all - confirmed against the live
+    API - so prods used to fall through to a title-search fallback
+    (zxart.ee/eng/search/?searchString=...). That fallback is now actively
+    WRONG: zxart.ee's router resolves anything under /eng/search/ to a
+    production literally titled "Search" (prod id 504942), discarding the
+    query string, so every software item's "Open on zxart.ee" landed on
+    that same unrelated page. The site's short canonical forms
+    zxart.ee/prod/<id> and zxart.ee/picture/<id> both resolve correctly
+    (probed), and every gallery entry already carries its numeric id - so
+    build the link from the id and keep NO search fallback: a greyed-out
+    button is honest, a link to somebody else's page is not."""
     if not isinstance(entry, dict):
         return ""
     src = entry.get("_source") if isinstance(entry.get("_source"), dict) else {}
@@ -441,9 +451,13 @@ def zxart_entry_website_url(entry) -> str:
         u = src.get(key) if isinstance(src, dict) else None
         if isinstance(u, str) and u.strip():
             return u.strip()
-    title = entry.get("title") or ""
-    if title:
-        return "https://zxart.ee/eng/search/?searchString=" + urllib.parse.quote(title)
+    eid = str(entry.get("id") or src.get("id") or "").strip()
+    if eid.isdigit():
+        kind = str(entry.get("_kind") or "")
+        if kind == "zxart_prod":
+            return f"https://zxart.ee/prod/{eid}"
+        if kind == "zxart_picture":
+            return f"https://zxart.ee/picture/{eid}"
     return ""
 
 
