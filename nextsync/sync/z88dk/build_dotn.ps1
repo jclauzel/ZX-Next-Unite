@@ -170,7 +170,22 @@ Write-Host "Building syncdev (dotN)..."
 $rc = Invoke-Zcc @("+zxn", "-startup=30", "-clib=sdcc_iy", "-SO3",
     "--max-allocs-per-node200000", "--opt-code-size", "@zproject.lst",
     "-o", "syncdev", "-pragma-include:zpragma.inc",
-    "-subtype=dotn", "-Cz--clean", "-create-app", "-m")
+    "-subtype=dotn", "-Cz--clean", "-create-app", "-m",
+    # -Ca-I<z88dk>\lib\crt\newlib: WITHOUT THIS THE DOT DOES NOT BUILD.
+    # lib/crt/newlib/clib_stubs.inc pulls the dynamic-printf body in with a
+    # RELATIVE include - "../../../libsrc/newlib/stdio/z80/asm_vfprintf_
+    # unlocked[_iy].asm" - and z80asm resolves that against the CURRENT
+    # WORKING DIRECTORY, not against the file doing the including. Our cwd
+    # is <repo>\nextsync\sync\z88dk, so it looked for <repo>\libsrc and
+    # failed with "file not found". Adding the crt directory to the
+    # assembler include path gives the ../../../ the base it expects,
+    # which lands on the real <z88dk>\libsrc. Verified byte-identical to
+    # running the same build from a dir three levels under C:\z88dk.
+    #
+    # Only the dot hits this. ZXNextRemote links -startup=31 (the empty
+    # device model, no stdio driver) so the printf branch is never taken;
+    # the dot is -startup=30 and pulls it in.
+    ("-Ca-I" + (Join-Path $Z88dkDir "lib\crt\newlib")))
 if ($rc -ne 0) { throw "zcc build failed (exit $rc)." }
 if (-not (Test-Path syncdev)) { throw "build produced no 'syncdev' file." }
 
