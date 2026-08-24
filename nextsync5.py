@@ -214,6 +214,18 @@ def _is_osp(payload):
             payload[1:1 + len(OSP_MARK)] == OSP_MARK)
 
 
+def _goodbye_linger(conn):
+    """Drain until the peer closes (bounded 2 s) after sending a goodbye,
+    so our FIN cannot race the 'Q' off the far side's wire - see
+    _re_goodbye_linger in zxnu_workers.py, kept in step by hand."""
+    try:
+        conn.settimeout(2.0)
+        while conn.recv(256):
+            pass
+    except OSError:
+        pass
+
+
 def fail_block_payload(data):
     """The verified payload of a framed 'F' status block, else None.
 
@@ -881,6 +893,7 @@ def _listen_session_inner(conn, stats, _test_commands=None):
             reply = item[3] if len(item) > 3 else None
             if op == "quit":
                 sendpacket(conn, b"Q", 0)
+                _goodbye_linger(conn)
                 print(f'{timestamp()} | listen: sent quit')
                 _reply_fill(reply, {'ok': True})
                 break
@@ -888,6 +901,7 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 # /forceexit: leave listen mode AND end the far application
                 # (ZX Next Remote 0.9.47+; a dot exits to BASIC either way).
                 sendpacket(conn, b"Q" + QUIT_EXIT_MARK, 0)
+                _goodbye_linger(conn)
                 print(f'{timestamp()} | listen: sent quit (exit application)')
                 _reply_fill(reply, {'ok': True})
                 break
