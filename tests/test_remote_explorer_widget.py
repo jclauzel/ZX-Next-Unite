@@ -1474,6 +1474,45 @@ def test_font_zoom():
           and saved[-1] == TREE_FONT_MIN_PT)
 
 
+def test_session_strip():
+    """The session strip (9.5.25): one vertical tab per connected Next
+    down the Next pane's outer edge, shown only when there are two or
+    more to choose between. A tab shows the machine's NAME when the user
+    gave its address one, the bare address otherwise, and clicking it is
+    the combo pick it stands for - same request, same guards."""
+    names = {"10.0.0.7": "N-GO"}
+    w, calls = make_widget(local_start_dir=tdir("strip_root"),
+                           machine_name_for=names.get)
+
+    w.on_peers((1, [(1, "10.0.0.5")]))
+    check("hidden with a single Next (nothing to switch between)",
+          not w.next_session_strip.isVisible() and not w._session_tabs)
+
+    w.on_peers((1, [(1, "10.0.0.5"), (2, "10.0.0.7")]))
+    connect_widget(w, calls)
+    check("a tab per machine once two are on the line",
+          len(w._session_tabs) == 2)
+    check("named machines show the NAME, unnamed the address",
+          [t._text for t in w._session_tabs] == ["10.0.0.5", "N-GO"])
+    check("the driven machine's tab is the lit one",
+          [t._active for t in w._session_tabs] == [True, False])
+
+    # Clicking the other tab must make the same request the combo makes.
+    w._session_tabs[1]._on_click()
+    check("a tab click asks the worker to hand the baton over",
+          ("select_next", 2) in drain(calls))
+
+    # Naming a machine has to reach the tabs, not just the combo.
+    names["10.0.0.5"] = "Attic Next"
+    w._rebuild_session_strip()
+    check("a new name reaches the tab", w._session_tabs[0]._text == "Attic Next")
+
+    # Down to one machine: nothing left to choose, so the strip goes away.
+    w.on_peers((2, [(2, "10.0.0.7")]))
+    check("the strip retires when only one Next remains",
+          not w.next_session_strip.isVisible() and not w._session_tabs)
+
+
 def test_disconnect_button():
     """The Disconnect button (9.5.24) is the bridge's /forceexit on the
     pane: it asks the DRIVEN Next to leave listen mode and end its
@@ -1700,6 +1739,7 @@ def main():
         test_os_protection_stops_and_explains()
         test_font_zoom()
         test_disconnect_button()
+        test_session_strip()
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
