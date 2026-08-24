@@ -1351,8 +1351,12 @@ def test_compact_buttons_fit_translated_labels():
     w, _calls = make_widget()
     compact = w.findChildren(rex.CompactButton)
     labels = sorted(b.text() for b in compact)
+    # Disconnect (9.5.24) joined the Next bar as a CompactButton for the
+    # same reason the others are: its label is translated, and a hard
+    # setMaximumWidth truncates the longer languages.
     check("both bars' Up/Refresh (+ Drive) are CompactButtons",
-          labels == ["+ Drive", "Refresh", "Refresh", "Up", "Up"], str(labels))
+          labels == ["+ Drive", "Disconnect", "Refresh", "Refresh",
+                     "Up", "Up"], str(labels))
     for button in compact:
         if button.text() != "Up":
             continue
@@ -1468,6 +1472,39 @@ def test_font_zoom():
     check("wheel-down clamps at the minimum",
           w.next_view.font().pointSize() == TREE_FONT_MIN_PT
           and saved[-1] == TREE_FONT_MIN_PT)
+
+
+def test_disconnect_button():
+    """The Disconnect button (9.5.24) is the bridge's /forceexit on the
+    pane: it asks the DRIVEN Next to leave listen mode and end its
+    application, sending the MARKED quit a plain server stop must never
+    send. Enabled only while connected, confirmed before it fires."""
+    w, calls = make_widget(local_start_dir=tdir("disc_root"))
+    check("disabled while disconnected", not w.btn_disconnect.isEnabled())
+    check("it sits between the machine name and the drive",
+          w.btn_disconnect is not None)
+    connect_widget(w, calls)
+    check("enabled once a Next is connected", w.btn_disconnect.isEnabled())
+
+    # Cancelling must send nothing at all.
+    FakeMsg.answer = QMessageBox.Cancel
+    w._disconnect_peer()
+    check("a cancelled confirm queues nothing", drain(calls) == [])
+
+    FakeMsg.answer = QMessageBox.Yes
+    w._disconnect_peer()
+    check("confirmed: the MARKED quit goes out, alone",
+          drain(calls) == [("quit_app",)])
+    check("and it is logged for the console",
+          logged(calls, "leave listen mode and exit"))
+
+    # A dropped link disables it again, so it can never fire into nothing.
+    w.on_disconnected()
+    check("disabled again after a disconnect",
+          not w.btn_disconnect.isEnabled())
+    FakeMsg.answer = QMessageBox.Yes
+    w._disconnect_peer()
+    check("and the action itself refuses while offline", drain(calls) == [])
 
 
 def test_os_protection_stops_and_explains():
@@ -1662,6 +1699,7 @@ def main():
         test_select_all_skips_updir()
         test_os_protection_stops_and_explains()
         test_font_zoom()
+        test_disconnect_button()
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")

@@ -834,12 +834,29 @@ class RemoteExplorerWidget(QWidget):
             "the name.")
         self.next_machine_name_btn.setVisible(False)
         self.next_machine_name_btn.clicked.connect(self._on_machine_name_edit)
+        # Disconnect (9.5.24): the HTTP bridge's /forceexit as a button —
+        # tell the Next this pane drives to leave listen mode AND end its
+        # application. Sits between the machine's name and its drive
+        # because that is the row that identifies the machine: everything
+        # left of it says WHICH Next, everything right of it says what is
+        # on it. Enabled only while connected (see _set_connected), and
+        # never a broadcast — the marked quit reaches the driven seat
+        # alone, so other connected Nexts keep their place.
+        self.btn_disconnect = CompactButton("Disconnect", self, floor=72)
+        self.btn_disconnect.setToolTip(
+            "Tell the Next shown here to leave listen mode and exit its "
+            "application (the HTTP bridge's /forceexit). The server keeps "
+            "listening, so the same machine — or another — can connect "
+            "again straight away.")
+        self.btn_disconnect.setEnabled(False)
+        self.btn_disconnect.clicked.connect(self._disconnect_peer)
         next_bar = QHBoxLayout()
         next_bar.setContentsMargins(0, 0, 0, 0)
         next_bar.addWidget(next_up)
         next_bar.addWidget(refresh)
         next_bar.addWidget(self.next_machine_combo)
         next_bar.addWidget(self.next_machine_name_btn)
+        next_bar.addWidget(self.btn_disconnect)
         next_bar.addWidget(self.next_drive_combo)
         next_bar.addWidget(self.next_drive_add)
         next_bar.addWidget(self.next_path_label, 1)
@@ -1335,7 +1352,7 @@ class RemoteExplorerWidget(QWidget):
         self._connected = on
         for w in (self.btn_to_next, self.btn_to_local, self.btn_new_folder,
                   self.btn_rename, self.btn_delete, self.next_view,
-                  self.next_path_edit):
+                  self.next_path_edit, self.btn_disconnect):
             w.setEnabled(on)
         if not on:
             self.next_model.removeRows(0, self.next_model.rowCount())
@@ -1465,6 +1482,38 @@ class RemoteExplorerWidget(QWidget):
         combo, GET /sessions and ZXNextRemote's title line can never
         drift apart."""
         return session_label(sid, addr, self._machine_name_for(addr) or "")
+
+    def _disconnect_peer(self):
+        """The Disconnect button: ask the driven Next to leave listen mode
+        and end its application — the bridge's /forceexit, on a button.
+
+        Sends the MARKED quit ('Q' + the exit marker, zxnu_workers): a bare
+        quit is what a server SHUTTING DOWN sends, and the far side must be
+        able to tell the two apart or stopping our own server would kill the
+        operator's app. Fire-and-forget rather than a tracked operation —
+        the command's whole point is that the peer stops answering, so there
+        is no completion to wait for; the worker's disconnect signal repaints
+        the pane when the link drops.
+        """
+        if not self._connected:
+            return
+        machine = (self.next_machine_combo.currentText().strip()
+                   if self.next_machine_combo.isVisible() else "")
+        if not machine:
+            _addr = self._active_addr()
+            machine = str(_addr) if _addr else ""
+        if QMessageBox.question(
+                self, ui_tr_now("Disconnect"),
+                ui_tr_now("Tell this Next to leave listen mode and exit? "
+                          "ZX Next Remote closes its application; a "
+                          "'.sync5' dot returns to BASIC. The server keeps "
+                          "listening, so it can connect again.")
+                + (f"\n\n{machine}" if machine else ""),
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Cancel) != QMessageBox.Yes:
+            return
+        self._enqueue(("quit_app",))
+        self._log(ui_tr_now("Asked the Next to leave listen mode and exit."))
 
     def _on_machine_name_edit(self):
         """The ✎ button: name (or rename) the machine the combo currently
