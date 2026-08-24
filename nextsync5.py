@@ -193,12 +193,25 @@ def recv_block(conn):
 # with zxnu_workers.RE_OSP_MARK/RE_OSP_ERROR by hand: this script must stay
 # runnable standalone (no Qt, zxnu_http_bridge optional), so it cannot import
 # the app module that owns them.
+# 'Q' plus this marker asks the far side to END THE APPLICATION rather than
+# merely leave the session — see RE_QUIT_EXIT_MARK in zxnu_workers.py, kept in
+# sync by hand (this script must stay runnable standalone).
+QUIT_EXIT_MARK = b"X"
+
 OSP_MARK = b"OSP"
 OSP_ERROR = (
     "os-protected: write access is blocked in the remote operating "
     "system. If the far side is ZX Next Remote, check its \"OS protection\" "
     "setting and customise the restricted directory list if appropriate."
 )
+
+
+def _is_osp(payload):
+    """True if a reply PAYLOAD is ZX Next Remote's OS-protection write
+    refusal: 'F' followed by the OSP marker. Shared by the status-block
+    verbs (mkdir/rmdir/rm/ren/rcpy) and the put path below."""
+    return (payload[0:1] == b'F' and
+            payload[1:1 + len(OSP_MARK)] == OSP_MARK)
 
 
 def fail_block_payload(data):
@@ -504,7 +517,8 @@ LISTEN_HELP = """\
     psize [drive]              free space on a partition, in bytes (dot v5.2+)
     pfull [drive]              free space on a partition, human-readable (dot v5.2+)
     help                       show this help
-    quit | forceexit           tell the Next to leave -listen and disconnect
+    quit                       tell the Next to leave -listen and disconnect
+    forceexit                  ...and end the far application too (ZXNR 0.9.47+)
 """
 
 def _listen_recv_reply(conn, handler):
@@ -627,19 +641,33 @@ def _fmt_size(nbytes):
         if v < 1024.0 or unit == "TB":
             return f'{v:.1f} {unit}'
 
-def _listen_status(conn, what):
+def _listen_status(conn, what, reply=None):
     """Receive a single status block ('O' ok / 'F' fail) for mkdir/rmdir/rm/ren.
 
     A failure ('F') is called out prominently so it is not lost in the log -
-    ``what`` should carry the command and its path for context."""
-    res = {'ok': None}
+    ``what`` should carry the command and its path for context.
+
+    ZX Next Remote marks a write REFUSED BY ITS OS PROTECTION as 'F'+OSP
+    (osprot.h). Name it rather than reporting a generic failure, and answer a
+    bridge caller with the documented 401 + "os-protected" body every other
+    blocked write already draws (HTTP_BRIDGE.md) - before this, all five
+    status-block verbs answered 502 "FAILED on the Next", sending the operator
+    to debug the network instead of the setting. Filling ``reply`` from here is
+    safe because BridgeReply.put is IDEMPOTENT: the caller's generic fill that
+    follows is dropped, first result wins."""
+    res = {'ok': None, 'osp': False}
     def handle(payload):
         res['ok'] = (payload[0:1] == b'O')
+        res['osp'] = _is_osp(payload)
         return True
     if not _listen_recv_reply(conn, handle):
         return None
     if res['ok']:
         print(f'{timestamp()} | {what}: OK')
+    elif res['osp']:
+        print(f'{timestamp()} | *** {what}: BLOCKED by the remote OS '
+              'protection ***')
+        _reply_fill(reply, {'ok': False, 'error': OSP_ERROR, 'http': 401})
     else:
         print(f'{timestamp()} | *** {what}: FAILED on the Next ***')
     # True/False = the Next's verdict, None = link dropped (for the bridge).
@@ -719,11 +747,15 @@ def _listen_console_reader(cmd_q):
             cmd_q.put((verb, a1, ""))
         elif verb == "help":
             print(LISTEN_HELP)
-        elif verb in ("quit", "exit", "bye", "forceexit"):
+        elif verb in ("quit", "exit", "bye"):
             # Ends the CURRENT Next session (sends 'Q'); the server keeps
             # listening for a reconnection. Ctrl-C stops the server itself.
-            # "forceexit" is the same thing under the HTTP bridge's name.
             cmd_q.put(("quit", "", ""))
+        elif verb == "forceexit":
+            # The HTTP route's console twin: the marked quit, which also
+            # ends the far APPLICATION (ZX Next Remote 0.9.47+). A dot
+            # exits to BASIC on either spelling.
+            cmd_q.put(("quit_app", "", ""))
         else:
             print(f"  unknown command: {verb} (try 'help')")
 
@@ -852,6 +884,13 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 print(f'{timestamp()} | listen: sent quit')
                 _reply_fill(reply, {'ok': True})
                 break
+            elif op == "quit_app":
+                # /forceexit: leave listen mode AND end the far application
+                # (ZX Next Remote 0.9.47+; a dot exits to BASIC either way).
+                sendpacket(conn, b"Q" + QUIT_EXIT_MARK, 0)
+                print(f'{timestamp()} | listen: sent quit (exit application)')
+                _reply_fill(reply, {'ok': True})
+                break
             elif op == "ls":
                 sendpacket(conn, b"L" + (a1 or ".").encode(), 0)
                 replied, gone, entries = _listen_ls(conn, a1 or ".")
@@ -898,15 +937,15 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 # is confirmed when all bytes are served, failure via an 'F' block.
             elif op == "mkdir":
                 sendpacket(conn, b"M" + a1.encode(), 0)
-                ok = _listen_status(conn, f"mkdir {a1}")
+                ok = _listen_status(conn, f"mkdir {a1}", reply)
                 _reply_fill(reply, {'ok': bool(ok)})
             elif op == "rmdir":
                 sendpacket(conn, b"R" + a1.encode(), 0)
-                ok = _listen_status(conn, f"rmdir {a1}")
+                ok = _listen_status(conn, f"rmdir {a1}", reply)
                 _reply_fill(reply, {'ok': bool(ok)})
             elif op == "rm":
                 sendpacket(conn, b"X" + a1.encode(), 0)
-                ok = _listen_status(conn, f"rm {a1}")
+                ok = _listen_status(conn, f"rm {a1}", reply)
                 _reply_fill(reply, {'ok': bool(ok)})
             elif op == "ren":
                 if not a1 or not a2:
@@ -916,7 +955,7 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 # Old and new paths travel NUL-separated in a single frame;
                 # the block framing is length-prefixed, so the NUL is safe.
                 sendpacket(conn, b"V" + a1.encode() + b"\x00" + a2.encode(), 0)
-                ok = _listen_status(conn, f"ren {a1} -> {a2}")
+                ok = _listen_status(conn, f"ren {a1} -> {a2}", reply)
                 _reply_fill(reply, {'ok': bool(ok)})
             elif op == "drives":
                 # getdrives (dot v5.1+): one status block, 'O' + current drive
@@ -1014,7 +1053,7 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                                                  'inside the source'})
                     continue
                 what = f'rcpy {src} -> {dst}'
-                res = {'ok': None, 'files': 0}
+                res = {'ok': None, 'files': 0, 'osp': False}
                 def _handle_rcpy(payload, _r=res):
                     o = payload[0:1]
                     if o == b'D':
@@ -1023,12 +1062,18 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                             print(f'  copying {payload[1:].decode(errors="replace")}')
                         return False              # empty 'D' = keepalive
                     _r['ok'] = (o == b'O')
+                    _r['osp'] = _is_osp(payload)  # 'F'+OSP: refused, not failed
                     return True
                 sendpacket(conn, b"C" + src.encode() + b"\x00" + dst.encode(), 0)
                 replied = _listen_recv_reply(conn, _handle_rcpy)
                 if replied and res['ok']:
                     print(f'{timestamp()} | {what}: OK ({res["files"]} file(s))')
                     _reply_fill(reply, {'ok': True, 'files': res['files']})
+                elif replied and res['osp']:
+                    print(f'{timestamp()} | *** {what}: BLOCKED by the remote '
+                          'OS protection ***')
+                    _reply_fill(reply, {'ok': False, 'error': OSP_ERROR,
+                                        'http': 401})
                 elif replied and res['ok'] is False:
                     print(f'{timestamp()} | *** {what}: FAILED on the Next '
                           f'(after {res["files"]} file(s); copied files stay) ***')
@@ -1180,7 +1225,9 @@ def _start_http_bridge(port):
         verbs = {"ls": "ls", "get": "get", "mkdir": "mkdir", "rmdir": "rmdir",
                  "rm": "rm", "ren": "ren", "rcpy": "rcpy", "rfsize": "rfsize",
                  "free": "psize", "drives": "drives",
-                 "forceexit": "quit"}   # /forceexit -> the session's quit ('Q')
+                 # /forceexit -> the MARKED quit: leave -listen and end
+                 # the far application (a dot exits to BASIC either way).
+                 "forceexit": "quit_app"}
         if op == "put":
             return ("put", a2, a1, reply)   # session order: (local, remote)
         if op in verbs:
@@ -1206,9 +1253,9 @@ def _start_http_bridge(port):
         connection_limit=opt_flask_conn_limit)
     ok, err = bridge.start()
     if ok:
-        print(f"{timestamp()} | HTTP bridge on port {port}: /status /ls /get "
-              "/put /mkdir /rmdir /rm /ren /rcpy /rfsize /sum /free /drives "
-              "/forceexit")
+        print(f"{timestamp()} | HTTP bridge on port {port}: /status "
+              "/sessions /drives /free /ls /get /put /mkdir /rmdir /rmtree "
+              "/rm /ren /rcpy /rfsize /sum /forceexit")
         if opt_verbose:
             print(f"{timestamp()} | HTTP bridge: -v request/response logging "
                   "is ON")
@@ -1584,8 +1631,9 @@ for x in sys.argv[1:]:
         -o  - Sync once, then quit. Default is to keep the sync loop running.
         -v  - Verbose: log every packet/command (off by default; noisy in -listen)
         -w  - Start the NextSync HTTP bridge web server (Flask) on port 80:
-              it republishes the -listen session as HTTP routes (/status /ls
-              /get /put /mkdir /rmdir /rm /ren /rcpy /rfsize /free /drives),
+              it republishes the -listen session as HTTP routes (/status
+              /sessions /drives /free /ls /get /put /mkdir /rmdir /rmtree
+              /rm /ren /rcpy /rfsize /sum /forceexit),
               so a Next running the built-in .http dot command - or curl -
               can drive the connected Next's file system. Port 80 is .http's
               own default (plain HTTP, the Next has no TLS). Requires the

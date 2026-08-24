@@ -505,7 +505,10 @@ def build_nextsync_pane(
         if op == "drives":
             return ("drives", reply)
         if op == "forceexit":
-            return ("quit", reply)     # the dot leaves -listen and exits
+            # The dot leaves -listen and exits to BASIC; ZX Next Remote
+            # 0.9.47+ reads the marker and exits its application too
+            # (older builds just leave the session, as they always did).
+            return ("quit_app", reply)
         return None
 
     def _re_bridge_enqueue(cmd):
@@ -583,8 +586,9 @@ def build_nextsync_pane(
                 # verbatim outside the translated sentence.
                 ui_tr_now("NextSync HTTP bridge listening on port {port}"
                           ).format(port=port)
-                + " (routes: /status /ls /get /put /mkdir /rmdir /rmtree "
-                  "/rm /ren /rcpy /rfsize /sum /free /drives)")
+                + " (routes: /status /sessions /drives /free /ls /get "
+                  "/put /mkdir /rmdir /rmtree /rm /ren /rcpy /rfsize /sum "
+                  "/forceexit)")
             if _token_on and _token:
                 add_nextsync_log_window(ui_tr_now(
                     "NextSync HTTP bridge: bearer-token protection is ON "

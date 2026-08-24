@@ -77,7 +77,11 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
         # esxDOS accepts an optional drive prefix ("m:/games") on every path;
         # the mock fs is drive-less, so strip it exactly like esxDOS resolves it.
         arg_np = arg[2:] if (len(arg) >= 2 and arg[1] == ":") else arg
-        if op == b'Q': break
+        if op == b'Q':
+            # 'Q' alone = leave listen mode (a server shutting down);
+            # 'Q'+'X' = leave AND end the application (/forceexit).
+            cap['quit'] = arg or ""
+            break
         if op == b'I': continue
         if op == b'L':
             if arg_np.rstrip("/") == "/gone":
@@ -282,7 +286,7 @@ def main():
               ("put", putfile, "/sys/up.bin"),      # protected put -> 'F'+OSP
               ("put", putfile, "/sys/up2.bin", bp), # same, bridge flavour -> 401
               ("ls", "/"),                          # proves the stream survived
-              ("quit",)]:
+              ("quit_app",)]:
         cmd_q.put(c)
 
     t = threading.Thread(target=run_remote_listen_server, args=(sig, cmd_q, stop, PORT), daemon=True)
@@ -437,6 +441,14 @@ def main():
         print("PASS osprot-sync: stream survived the OSP refusals")
     else:
         print("FAIL osprot-sync:", got['listing']); ok = False
+    # /forceexit sends the MARKED quit: the far side is asked to end its
+    # application, not merely leave the session. Stopping the server keeps
+    # sending the bare 'Q' (covered by the other tests, which all end that
+    # way), because a shutdown must never take the operator's app with it.
+    if cap.get('quit') == "X":
+        print("PASS quitmark: /forceexit sent the marked quit ('Q'+'X')")
+    else:
+        print("FAIL quitmark:", repr(cap.get('quit'))); ok = False
 
     # ── unconnected listener must stop promptly on the stop event ──────
     # The pane's stop path skips the 10 s "Q" goodbye grace when no Next

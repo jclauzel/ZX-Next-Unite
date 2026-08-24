@@ -538,6 +538,15 @@ def _re_checksums(payload):
 # it, so an ordinary Next just fails the way it always did. The message
 # is deliberately explicit about WHERE the setting lives — the block is
 # on the far machine, not here.
+# A quit that asks the far side to END THE APPLICATION, not merely leave
+# the session: 'Q' plus this marker byte. Only the deliberate "make the Next
+# exit" command (the bridge's /forceexit) sends it; stopping our own -listen
+# server keeps sending the bare 'Q' it always did, because a server shutting
+# down must never take the operator's app down with it. Backward compatible:
+# the .sync5 dotN and ZXNextRemote before 0.9.47 read payload[0] and ignore
+# the rest, so a marked quit still reads as the plain quit it always was.
+RE_QUIT_EXIT_MARK = b"X"
+
 RE_OSP_MARK = b"OSP"
 RE_OSP_ERROR = (
     "os-protected: write access is blocked in the remote operating "
@@ -943,6 +952,16 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         cmd = ("rmtree_ls", rmtree_seq, cmd[1])
                         op = cmd[0]
                         reply = None
+                    if op == "quit_app":
+                        # /forceexit: this seat's Next is asked to leave
+                        # listen mode AND exit its application. Deliberately
+                        # NOT broadcast — unlike a server stop, which is for
+                        # everyone, quitting somebody's app is aimed at the
+                        # machine the caller targeted and nobody else.
+                        _re_sendpacket(conn, b"Q" + RE_QUIT_EXIT_MARK, 0)
+                        if reply is not None:
+                            reply.put({'ok': True})
+                        break
                     if op == "quit":
                         _re_sendpacket(conn, b"Q", 0)
                         # Stop is for EVERYONE: tell every OTHER

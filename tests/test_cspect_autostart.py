@@ -98,6 +98,31 @@ if fn is not None:
     check("no leading-slash stripping (host path, not an image path)",
           'autostart_file.strip().lstrip("/")' not in src)
 
+# ---- a SELECTED image whose file has gone must refuse the launch ---------
+# The listing hdfmonkey produced at load time outlives the file: move, rename
+# or delete the .img afterwards and the explorer still shows its contents, so
+# the content gate alone waved the launch through with "-mmc=<gone>". CSpect
+# then died inside .NET with a NullReferenceException, surfacing to the user
+# only as shell exit code 3221225477.
+check("CSpect checks the image FILE still exists, not just the listing",
+      "os.path.isfile(_img_now)" in src)
+check("the refusal names the missing file",
+      "_image_file_missing(_img_now)" in src)
+check("the missing-image message is a template naming the path",
+      "The disk image {path} can no longer be found" in src)
+if fn is not None:
+    # Order matters: the file check must precede the -mmc assembly, or the
+    # dead path is already on the command line.
+    check("the existence check runs BEFORE -mmc is built",
+          src.index("os.path.isfile(_img_now)") < src.index("mmc_path = "))
+# An auto-start launch needs no image, so a missing one drops the switch
+# instead of refusing (mirrors launch_mame blanking its -hard1).
+check("an auto-start launch drops -mmc rather than passing a dead path",
+      "img_path = \"\"" in src)
+check("MAME names the missing file too, and still guides an empty choice",
+      "_image_file_missing(_sel_image)" in src
+      and "Select a valid ZX Spectrum Next disk image" in src)
+
 # ---- booting a file that lives on the image must extract it first --------
 ops_src = open(os.path.join(REPO, "zxnu_sdcard_ops.py"), encoding="utf-8").read()
 check("there is an extract-then-launch step for image files",
