@@ -23,11 +23,11 @@ from zxnu_http_bridge import session_label   # stdlib-only at import
 from zxnu_i18n import ui_tr_now
 
 from PySide6.QtCore import (
-    Qt, QDir, QEvent, QModelIndex, QMimeData, QUrl, QSize, QTimer,
+    Qt, QDir, QEvent, QModelIndex, QMimeData, QRect, QUrl, QSize, QTimer,
 )
 from PySide6.QtGui import (
-    QColor, QDrag, QKeySequence, QPainter, QStandardItem,
-    QStandardItemModel,
+    QColor, QDrag, QFontMetrics, QKeySequence, QPainter, QPalette,
+    QStandardItem, QStandardItemModel,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QFileSystemModel, QGridLayout, QHBoxLayout,
@@ -258,6 +258,79 @@ def _norm_remote_dir(p):
     if not p.startswith("/"):
         p = "/" + p
     return posixpath.normpath(p)
+
+
+class SessionTab(QWidget):
+    """One connected Next as a vertical tab down the side of the Next pane.
+
+    The machine combo tells you which machine you drive, but switching
+    through it costs a click, a read and a second click. With two or more
+    Nexts on the line the roster is small and fixed, so it can simply BE
+    on screen: one tab per machine, piled top-down, the driven one lit.
+    Clicking a tab is the combo pick it stands for — same request, same
+    guards (RemoteExplorerWidget._request_machine).
+
+    Text runs bottom-to-top like every side tab (IDE tabs, browser
+    sidebars): a horizontal label wide enough for "10.0.0.7 #1 - N-GO"
+    would eat ~140px of the listing, and the listing is the point of the
+    pane. Colours come from the PALETTE rather than the app's hardcoded
+    chrome so the tab follows whatever theme is live.
+    """
+
+    W = 26                       # strip width; the text is what is tall
+    _PAD = 10                    # end padding, both ends of the label
+
+    def __init__(self, text, active, on_click, parent=None):
+        super().__init__(parent)
+        self._text = text or ""
+        self._active = bool(active)
+        self._on_click = on_click
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(self._text)
+        fm = QFontMetrics(self.font())
+        want = fm.horizontalAdvance(self._text) + self._PAD * 2
+        # Capped so one long name cannot push the others off a short pane;
+        # the full text is always in the tooltip.
+        self.setFixedSize(self.W, max(56, min(200, want)))
+
+    def set_active(self, active):
+        active = bool(active)
+        if active != self._active:
+            self._active = active
+            self.update()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self._on_click is not None:
+            self._on_click()
+        else:
+            super().mousePressEvent(event)
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        pal = self.palette()
+        if self._active:
+            bg = pal.color(QPalette.ColorRole.Highlight)
+            fg = pal.color(QPalette.ColorRole.HighlightedText)
+        else:
+            bg = pal.color(QPalette.ColorRole.Button).darker(115)
+            fg = pal.color(QPalette.ColorRole.ButtonText)
+        p.setPen(Qt.NoPen)
+        p.setBrush(bg)
+        # Rounded on the OUTER edge only would need a path; a plain
+        # rounded rect reads as a tab well enough and costs one call.
+        p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 6, 6)
+        # Bottom-to-top: put the origin at the bottom-left and turn left,
+        # which makes the drawing rect (height x width).
+        p.translate(0, self.height())
+        p.rotate(-90)
+        p.setPen(fg)
+        box = QRect(self._PAD, 0, self.height() - self._PAD * 2, self.W)
+        text = QFontMetrics(self.font()).elidedText(
+            self._text, Qt.TextElideMode.ElideRight, box.width())
+        p.drawText(box, int(Qt.AlignmentFlag.AlignVCenter
+                            | Qt.AlignmentFlag.AlignLeft), text)
+        p.end()
 
 
 class IdleStarfieldOverlay(QWidget):
@@ -834,21 +907,57 @@ class RemoteExplorerWidget(QWidget):
             "the name.")
         self.next_machine_name_btn.setVisible(False)
         self.next_machine_name_btn.clicked.connect(self._on_machine_name_edit)
+        # Disconnect (9.5.24): the HTTP bridge's /forceexit as a button —
+        # tell the Next this pane drives to leave listen mode AND end its
+        # application. Sits between the machine's name and its drive
+        # because that is the row that identifies the machine: everything
+        # left of it says WHICH Next, everything right of it says what is
+        # on it. Enabled only while connected (see _set_connected), and
+        # never a broadcast — the marked quit reaches the driven seat
+        # alone, so other connected Nexts keep their place.
+        self.btn_disconnect = CompactButton("Disconnect", self, floor=72)
+        self.btn_disconnect.setToolTip(
+            "Tell the Next shown here to leave listen mode and exit its "
+            "application (the HTTP bridge's /forceexit). The server keeps "
+            "listening, so the same machine — or another — can connect "
+            "again straight away.")
+        self.btn_disconnect.setEnabled(False)
+        self.btn_disconnect.clicked.connect(self._disconnect_peer)
         next_bar = QHBoxLayout()
         next_bar.setContentsMargins(0, 0, 0, 0)
         next_bar.addWidget(next_up)
         next_bar.addWidget(refresh)
         next_bar.addWidget(self.next_machine_combo)
         next_bar.addWidget(self.next_machine_name_btn)
+        next_bar.addWidget(self.btn_disconnect)
         next_bar.addWidget(self.next_drive_combo)
         next_bar.addWidget(self.next_drive_add)
         next_bar.addWidget(self.next_path_label, 1)
+
+        # The session strip (9.5.25): one SessionTab per connected Next,
+        # down the pane's outer edge, shown only when there are at least
+        # TWO machines — with one there is nothing to switch between and
+        # the combo already names it. Rebuilt from the roster, so it is
+        # always the same truth the combo shows.
+        self.next_session_strip = QWidget(self)
+        self._session_strip_box = QVBoxLayout(self.next_session_strip)
+        self._session_strip_box.setContentsMargins(3, 0, 0, 0)
+        self._session_strip_box.setSpacing(4)
+        self._session_strip_box.addStretch(1)   # tabs pile from the TOP
+        self.next_session_strip.setVisible(False)
+        self._session_tabs = []
+
+        next_tree_row = QHBoxLayout()
+        next_tree_row.setContentsMargins(0, 0, 0, 0)
+        next_tree_row.setSpacing(0)
+        next_tree_row.addWidget(self.next_view, 1)
+        next_tree_row.addWidget(self.next_session_strip, 0)
 
         next_box = QVBoxLayout()
         next_box.setContentsMargins(0, 0, 0, 0)
         next_box.setSpacing(2)
         next_box.addLayout(next_bar)
-        next_box.addWidget(self.next_view)
+        next_box.addLayout(next_tree_row)
 
         # Under the tree, mirroring the local pane's sync-root row: the Next
         # path box (type a folder, ENTER lists it) with the New Folder /
@@ -1335,7 +1444,7 @@ class RemoteExplorerWidget(QWidget):
         self._connected = on
         for w in (self.btn_to_next, self.btn_to_local, self.btn_new_folder,
                   self.btn_rename, self.btn_delete, self.next_view,
-                  self.next_path_edit):
+                  self.next_path_edit, self.btn_disconnect):
             w.setEnabled(on)
         if not on:
             self.next_model.removeRows(0, self.next_model.rowCount())
@@ -1453,10 +1562,40 @@ class RemoteExplorerWidget(QWidget):
             self.next_machine_name_btn.setVisible(len(plist) >= 1)
         finally:
             self._peer_guard = False
+        self._rebuild_session_strip()
         if active is not None and prev is not None and active != prev:
             # The baton moved: this pane now drives a DIFFERENT machine.
             self._set_connected(False)     # drop the old card's listing
             self.on_connected()            # drives + listing of the new one
+
+    def _rebuild_session_strip(self):
+        """Repaint the side tabs from the roster we hold.
+
+        Called wherever the roster or a NAME changes, so the strip can
+        never disagree with the combo — they are two renderings of one
+        list. Tabs are rebuilt rather than patched: the roster is at most
+        four entries (SESS_MAX), and a machine leaving mid-list would make
+        an in-place update the harder thing to get right.
+        """
+        for tab in self._session_tabs:
+            self._session_strip_box.removeWidget(tab)
+            tab.setParent(None)
+            tab.deleteLater()
+        self._session_tabs = []
+        show = len(self._peer_map) >= 2
+        self.next_session_strip.setVisible(show)
+        if not show:
+            return
+        for i, (sid, addr) in enumerate(self._peer_map):
+            # The NAME if the user gave this address one, else the plain
+            # address — the tab is for recognising a machine at a glance,
+            # so the friendly name earns the space when it exists.
+            label = (self._machine_name_for(addr) or "").strip() or str(addr)
+            tab = SessionTab(label, sid == self._peer_active,
+                             (lambda s=sid: self._request_machine(s)),
+                             self.next_session_strip)
+            self._session_strip_box.insertWidget(i, tab)
+            self._session_tabs.append(tab)
 
     def _machine_label(self, sid, addr):
         """One combo entry: "addr #sid", plus " - Name" when the host
@@ -1465,6 +1604,38 @@ class RemoteExplorerWidget(QWidget):
         combo, GET /sessions and ZXNextRemote's title line can never
         drift apart."""
         return session_label(sid, addr, self._machine_name_for(addr) or "")
+
+    def _disconnect_peer(self):
+        """The Disconnect button: ask the driven Next to leave listen mode
+        and end its application — the bridge's /forceexit, on a button.
+
+        Sends the MARKED quit ('Q' + the exit marker, zxnu_workers): a bare
+        quit is what a server SHUTTING DOWN sends, and the far side must be
+        able to tell the two apart or stopping our own server would kill the
+        operator's app. Fire-and-forget rather than a tracked operation —
+        the command's whole point is that the peer stops answering, so there
+        is no completion to wait for; the worker's disconnect signal repaints
+        the pane when the link drops.
+        """
+        if not self._connected:
+            return
+        machine = (self.next_machine_combo.currentText().strip()
+                   if self.next_machine_combo.isVisible() else "")
+        if not machine:
+            _addr = self._active_addr()
+            machine = str(_addr) if _addr else ""
+        if QMessageBox.question(
+                self, ui_tr_now("Disconnect"),
+                ui_tr_now("Tell this Next to leave listen mode and exit? "
+                          "ZX Next Remote closes its application; a "
+                          "'.sync5' dot returns to BASIC. The server keeps "
+                          "listening, so it can connect again.")
+                + (f"\n\n{machine}" if machine else ""),
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Cancel) != QMessageBox.Yes:
+            return
+        self._enqueue(("quit_app",))
+        self._log(ui_tr_now("Asked the Next to leave listen mode and exit."))
 
     def _on_machine_name_edit(self):
         """The ✎ button: name (or rename) the machine the combo currently
@@ -1500,6 +1671,10 @@ class RemoteExplorerWidget(QWidget):
                     self.next_machine_combo.setItemText(
                         i, self._machine_label(_s, _addr))
                     break
+        # The side tabs show the NAME when there is one, so a naming has
+        # to reach them too - otherwise the tab would still read the bare
+        # address the user just replaced.
+        self._rebuild_session_strip()
 
     def _on_machine_pick(self, index):
         """User picked a Next in the machine combo: hand the baton over.
@@ -1509,7 +1684,12 @@ class RemoteExplorerWidget(QWidget):
         queued belong to the machine they were built for)."""
         if self._peer_guard:
             return
-        sid = self.next_machine_combo.itemData(index)
+        self._request_machine(self.next_machine_combo.itemData(index))
+
+    def _request_machine(self, sid):
+        """Ask the worker to hand the baton to `sid` — the one path both
+        switchers take, so the combo and the session strip can never grow
+        different rules about when a switch is allowed."""
         if sid is None or sid == self._peer_active:
             return
         if self._op_active or self._precheck is not None:

@@ -1212,7 +1212,13 @@ def inspect_phase11():
     # The navigation buttons (Up / Refresh / + Drive) and the transfer arrows.
     labels = sorted(b.text() for b in re_widget.findChildren(CompactButton))
     check("both navigation bars' buttons rendered",
-          labels == ["+ Drive", "Refresh", "Refresh", "Up", "Up"], str(labels))
+          labels == ["+ Drive", "Disconnect", "Refresh", "Refresh",
+                     "Up", "Up"], str(labels))
+    # Disconnect (9.5.24) sits in the Next bar between the machine's name
+    # and its drive, and is dead until a Next is actually connected.
+    check("Disconnect is present but disabled while offline",
+          re_widget.btn_disconnect.isVisible()
+          and not re_widget.btn_disconnect.isEnabled())
     check("the transfer arrow buttons rendered",
           re_widget.btn_to_next.isVisible() and re_widget.btn_to_local.isVisible())
     check("the Remote Explorer server-control button is shown",

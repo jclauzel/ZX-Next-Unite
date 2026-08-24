@@ -376,6 +376,10 @@ CATALOGS = {
         "Delete SyncIgnore File": "Eliminar archivo SyncIgnore",
         "Delete SyncPoint File": "Eliminar archivo SyncPoint",
         "Disconnect": "Desconectar",
+        "Tell this Next to leave listen mode and exit? ZX Next Remote closes its application; a '.sync5' dot returns to BASIC. The server keeps listening, so it can connect again.":
+            "¿Pedir a este Next que salga del modo escucha y se cierre? ZX Next Remote cierra su aplicación; un punto '.sync5' vuelve a BASIC. El servidor sigue escuchando, así que puede volver a conectarse.",
+        "Asked the Next to leave listen mode and exit.":
+            "Se ha pedido al Next que salga del modo escucha y se cierre.",
         "Download File": "Descargar archivo",
         "Download NextZXOS Image": "Descargar imagen NextZXOS",
         "Download and install HDF Monkey": "Descargar e instalar HDF Monkey",
@@ -1484,6 +1488,10 @@ CATALOGS = {
         "Delete SyncIgnore File": "Eliminar ficheiro SyncIgnore",
         "Delete SyncPoint File": "Eliminar ficheiro SyncPoint",
         "Disconnect": "Desligar",
+        "Tell this Next to leave listen mode and exit? ZX Next Remote closes its application; a '.sync5' dot returns to BASIC. The server keeps listening, so it can connect again.":
+            "Pedir a este Next para sair do modo de escuta e terminar? O ZX Next Remote fecha a sua aplicação; um ponto '.sync5' volta ao BASIC. O servidor continua à escuta, por isso pode ligar-se de novo.",
+        "Asked the Next to leave listen mode and exit.":
+            "Pedido ao Next para sair do modo de escuta e terminar.",
         "Download File": "Transferir ficheiro",
         "Download NextZXOS Image": "Transferir imagem NextZXOS",
         "Download and install HDF Monkey": "Transferir e instalar o HDF Monkey",
@@ -2590,6 +2598,10 @@ CATALOGS = {
         "Delete SyncIgnore File": "Usuń plik SyncIgnore",
         "Delete SyncPoint File": "Usuń plik SyncPoint",
         "Disconnect": "Rozłącz",
+        "Tell this Next to leave listen mode and exit? ZX Next Remote closes its application; a '.sync5' dot returns to BASIC. The server keeps listening, so it can connect again.":
+            "Poprosić tego Nexta o wyjście z trybu nasłuchu i zakończenie? ZX Next Remote zamyka swoją aplikację; kropka '.sync5' wraca do BASIC-a. Serwer nadal nasłuchuje, więc można połączyć się ponownie.",
+        "Asked the Next to leave listen mode and exit.":
+            "Poproszono Nexta o wyjście z trybu nasłuchu i zakończenie.",
         "Download File": "Pobierz plik",
         "Download NextZXOS Image": "Pobierz obraz NextZXOS",
         "Download and install HDF Monkey": "Pobierz i zainstaluj HDF Monkey",
@@ -3698,6 +3710,10 @@ CATALOGS = {
         "Delete SyncIgnore File": "Удалить файл SyncIgnore",
         "Delete SyncPoint File": "Удалить файл SyncPoint",
         "Disconnect": "Отключить",
+        "Tell this Next to leave listen mode and exit? ZX Next Remote closes its application; a '.sync5' dot returns to BASIC. The server keeps listening, so it can connect again.":
+            "Попросить этот Next выйти из режима прослушивания и завершить работу? ZX Next Remote закроет своё приложение; точка '.sync5' вернётся в BASIC. Сервер продолжает слушать, поэтому можно подключиться снова.",
+        "Asked the Next to leave listen mode and exit.":
+            "Next-у отправлен запрос выйти из режима прослушивания и завершить работу.",
         "Download File": "Скачать файл",
         "Download NextZXOS Image": "Скачать образ NextZXOS",
         "Download and install HDF Monkey": "Скачать и установить HDF Monkey",
@@ -4805,6 +4821,10 @@ CATALOGS = {
         "Delete SyncIgnore File": "Smazat soubor SyncIgnore",
         "Delete SyncPoint File": "Smazat soubor SyncPoint",
         "Disconnect": "Odpojit",
+        "Tell this Next to leave listen mode and exit? ZX Next Remote closes its application; a '.sync5' dot returns to BASIC. The server keeps listening, so it can connect again.":
+            "Požádat tento Next, aby opustil režim naslouchání a skončil? ZX Next Remote zavře svou aplikaci; tečka '.sync5' se vrátí do BASICu. Server dál naslouchá, takže se lze připojit znovu.",
+        "Asked the Next to leave listen mode and exit.":
+            "Next byl požádán, aby opustil režim naslouchání a skončil.",
         "Download File": "Stáhnout soubor",
         "Download NextZXOS Image": "Stáhnout obraz NextZXOS",
         "Download and install HDF Monkey": "Stáhnout a nainstalovat HDF Monkey",
@@ -5914,6 +5934,10 @@ CATALOGS = {
         "Delete SyncIgnore File": "Supprimer le fichier SyncIgnore",
         "Delete SyncPoint File": "Supprimer le fichier SyncPoint",
         "Disconnect": "Déconnecter",
+        "Tell this Next to leave listen mode and exit? ZX Next Remote closes its application; a '.sync5' dot returns to BASIC. The server keeps listening, so it can connect again.":
+            "Demander à ce Next de quitter le mode écoute et de se fermer ? ZX Next Remote ferme son application ; un point '.sync5' revient au BASIC. Le serveur continue d'écouter, il peut donc se reconnecter.",
+        "Asked the Next to leave listen mode and exit.":
+            "Demande envoyée au Next : quitter le mode écoute et se fermer.",
         "Download File": "Télécharger le fichier",
         "Download NextZXOS Image": "Télécharger l'image NextZXOS",
         "Download and install HDF Monkey": "Télécharger et installer HDF Monkey",
