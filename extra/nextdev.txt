@@ -6,25 +6,62 @@
 40 REM re-enters the loop: ZX Next Remote soft-resets the machine when
 50 REM it exits, which is exactly what closes this cycle.
 60 REM
-70 REM   no file waiting -> serve the bridge and WAIT for a push
+70 REM   no file waiting -> serve the Listener and WAIT for a push
 80 REM   file waiting    -> move it aside (so it runs once) and run it
 90 REM
 100 REM The PC pushes to /dev/incoming.nex, then calls /forceexit: ZX
 110 REM Next Remote leaves listen mode, ends its application and resets,
 120 REM and the boot lands back here with a file waiting.
-130 ON ERROR GO TO 200
-140 REM Consume the push: the .mv both TESTS for the file and takes it
-150 REM out of the way, so the next cycle listens again instead of
-160 REM re-running the same build for ever. It errors when nothing
-170 REM arrived, which is the branch to line 200.
-180 .mv /dev/incoming.nex /dev/run.nex
-190 .nexload /dev/run.nex: REM takes over the machine; never returns
-200 REM Nothing waiting: hand the machine to the Listener and wait.
-210 ON ERROR STOP
-220 PRINT "nextdev: waiting for a push..."
-230 .nexload /dev/zxnextremote-httpbridge.nex
-240 REM Only reached if the .nex declined to start (wrong path, no
-250 REM file): say so rather than spinning invisibly.
-260 PRINT "nextdev: could not start the bridge flavour."
-270 PRINT "Check /dev/zxnextremote-httpbridge.nex exists."
-280 STOP
+130 REM
+140 REM ---- which flavour to wait in -----------------------------
+150 REM   1 = Http Bridge  (zxnextremote-httpbridge.nex)
+160 REM   2 = NextSync     (zxnextremote-n2n.nex)
+170 REM Either one works. Both flavours carry the NextSync Listener,
+180 REM and it is menu option 2 in both - pick it on the Next, and
+190 REM Unite's HTTP bridge drives this machine through it exactly
+200 REM as it drives a .sync5 -listen dot. The flavour only decides
+210 REM which transport you ALSO get as a Controler when you are not
+220 REM pushing builds. If the one you pick is not on the card, the
+230 REM other is tried rather than dead-ending here.
+240 LET flavour=1
+250 REM -----------------------------------------------------------
+260 ON ERROR GO TO 400
+270 REM Consume the push: the .mv both TESTS for the file and takes
+280 REM it out of the way, so the next cycle listens again instead
+290 REM of re-running the same build for ever. It errors when
+300 REM nothing arrived, which is the branch to line 400.
+310 .mv /dev/incoming.nex /dev/run.nex
+312 REM The build is ours. From here a failure must halt VISIBLY, not
+314 REM fall back into the wait loop looking as if the push never came:
+316 REM the checksum verified, so a build that will not start is news.
+318 REM (No colon-tail on the dot line - the argument stays exactly the
+319 REM filename.)
+320 ON ERROR GO TO 330
+325 .nexload /dev/run.nex
+330 PRINT "nextdev: pushed build did not start."
+340 STOP
+400 REM Nothing waiting: hand the machine to the Listener and wait.
+410 PRINT "nextdev: waiting for a push..."
+420 PRINT "pick 2 NextSync (Listener) on the menu."
+430 ON ERROR GO TO 500
+440 IF flavour=2 THEN GO TO 470
+450 .nexload /dev/zxnextremote-httpbridge.nex
+460 GO TO 500
+470 .nexload /dev/zxnextremote-n2n.nex
+480 GO TO 500
+500 REM The preferred flavour did not start - almost always because
+510 REM that .nex is not in /dev/. Try the other one before giving
+520 REM up, so a card carrying only one flavour still loops.
+530 ON ERROR GO TO 600
+540 IF flavour=2 THEN GO TO 570
+550 .nexload /dev/zxnextremote-n2n.nex
+560 GO TO 600
+570 .nexload /dev/zxnextremote-httpbridge.nex
+580 GO TO 600
+600 REM Neither flavour started: say so rather than spinning
+610 REM invisibly, and name the two paths that were tried.
+620 ON ERROR STOP
+630 PRINT "nextdev: no ZX Next Remote found in /dev/."
+640 PRINT "Tried zxnextremote-httpbridge.nex"
+650 PRINT "  and zxnextremote-n2n.nex"
+660 STOP
