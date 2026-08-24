@@ -9,6 +9,8 @@ Odds and ends that support the project but are not part of the app.
 | `tour_assemble_gif.py` | Assembles the frames into `zx-next-unite-tour.gif` (140 ms frames, crossfades, ffmpeg palette pipeline) |
 | `Get-PyLineCounts.ps1` | Per-module line-count report for the Python sources |
 | `detectenvironnement.bas` / `.txt` | NextBASIC environment-detection helper and its notes |
+| `Send-ToNext.ps1` | Push a build to a real Next over Unite's NextSync HTTP bridge, verified end-to-end (see below) |
+| `nextdev.bas` / `.txt` | The Next-side loop `Send-ToNext.ps1` pushes into: listen, receive, run, repeat |
 
 ## Regenerating the README/wiki tour GIF
 
@@ -39,3 +41,73 @@ Notes (learned the hard way):
 - The first tab-entry to NextSync auto-runs the prepare/perform-checks, so
   the capture never clicks Start (the real server would block on its modal
   progress dialog waiting for a Next).
+
+
+## Push-to-hardware from VS Code (`Send-ToNext.ps1` + `nextdev`)
+
+Save in the editor, run one task, watch the build on real hardware. The two
+halves are `extra\Send-ToNext.ps1` (PC) and `extra\nextdev.bas` (Next).
+
+**On the Next, once:**
+
+1. Copy `zxnextremote-httpbridge.nex` to `/dev/` on the SD card, and point
+   its Settings at the PC running Unite (bridge IP + port, and the token if
+   you enabled one).
+2. Copy `nextdev.bas` to the card root as `autoexec.bas`.
+
+`nextdev` runs at every boot: if a pushed file is waiting it moves it aside
+and `.nexload`s it; otherwise it hands the machine to the bridge flavour and
+waits. ZX Next Remote soft-resets when it exits, which is what closes the
+loop — the reset IS the `GO TO`.
+
+**On the PC, once:** run the script; it writes a commented
+`Send-ToNext.cfg` beside itself and stops. Set `bridge_ip` (the PC running
+Unite, not the Next), `bridge_port` if you moved the bridge off port 80
+(Unite's Settings has its own port box next to the bridge toggle), `file`
+(your build), and `token` only if Unite's Settings has "Require bearer
+token" on.
+
+**Then, every build:**
+
+```powershell
+extra\Send-ToNext.ps1
+```
+
+It polls `/status` every 2 s until a Next appears, PUTs the file, and then
+**verifies it**: `/sum` returns the 16-bit additive checksum and size of the
+file *as it landed*, compared against the same sum computed locally. A
+transfer is only ever reported as success when those match — an HTTP 200 on
+its own is not proof the bytes arrived intact. Finally `/forceexit` tells the
+Next to exit and reboot into the pushed build.
+
+Exit codes, for a VS Code task or CI to branch on:
+
+| Code | Meaning |
+|---|---|
+| 0 | sent and **verified** on the Next |
+| 1 | configuration problem (missing `.cfg` value, missing file) |
+| 2 | the bridge refused the token (HTTP 401) |
+| 3 | the send itself failed |
+| 4 | sent, but **verification failed** — the bytes on the Next differ |
+| 5 | timed out waiting for a Next |
+
+A `tasks.json` entry that fails the task on anything but a verified send:
+
+```json
+{
+  "label": "Send to Next",
+  "type": "shell",
+  "command": "pwsh -File extra/Send-ToNext.ps1",
+  "problemMatcher": []
+}
+```
+
+### Editing `nextdev`
+
+`nextdev.txt` is the readable source; `nextdev.bas` is the tokenised
+NextBASIC the Next loads. Convert with
+[txt2bas](https://www.npmjs.com/package/txt2bas):
+
+```powershell
+txt2bas -i extra\nextdev.txt -o extra\nextdev.bas
+```
