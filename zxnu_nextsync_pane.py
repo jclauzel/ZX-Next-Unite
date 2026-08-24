@@ -505,7 +505,10 @@ def build_nextsync_pane(
         if op == "drives":
             return ("drives", reply)
         if op == "forceexit":
-            return ("quit", reply)     # the dot leaves -listen and exits
+            # The dot leaves -listen and exits to BASIC; ZX Next Remote
+            # 0.9.47+ reads the marker and exits its application too
+            # (older builds just leave the session, as they always did).
+            return ("quit_app", reply)
         return None
 
     def _re_bridge_enqueue(cmd):

@@ -193,6 +193,11 @@ def recv_block(conn):
 # with zxnu_workers.RE_OSP_MARK/RE_OSP_ERROR by hand: this script must stay
 # runnable standalone (no Qt, zxnu_http_bridge optional), so it cannot import
 # the app module that owns them.
+# 'Q' plus this marker asks the far side to END THE APPLICATION rather than
+# merely leave the session — see RE_QUIT_EXIT_MARK in zxnu_workers.py, kept in
+# sync by hand (this script must stay runnable standalone).
+QUIT_EXIT_MARK = b"X"
+
 OSP_MARK = b"OSP"
 OSP_ERROR = (
     "os-protected: write access is blocked in the remote operating "
@@ -512,7 +517,8 @@ LISTEN_HELP = """\
     psize [drive]              free space on a partition, in bytes (dot v5.2+)
     pfull [drive]              free space on a partition, human-readable (dot v5.2+)
     help                       show this help
-    quit | forceexit           tell the Next to leave -listen and disconnect
+    quit                       tell the Next to leave -listen and disconnect
+    forceexit                  ...and end the far application too (ZXNR 0.9.47+)
 """
 
 def _listen_recv_reply(conn, handler):
@@ -741,11 +747,15 @@ def _listen_console_reader(cmd_q):
             cmd_q.put((verb, a1, ""))
         elif verb == "help":
             print(LISTEN_HELP)
-        elif verb in ("quit", "exit", "bye", "forceexit"):
+        elif verb in ("quit", "exit", "bye"):
             # Ends the CURRENT Next session (sends 'Q'); the server keeps
             # listening for a reconnection. Ctrl-C stops the server itself.
-            # "forceexit" is the same thing under the HTTP bridge's name.
             cmd_q.put(("quit", "", ""))
+        elif verb == "forceexit":
+            # The HTTP route's console twin: the marked quit, which also
+            # ends the far APPLICATION (ZX Next Remote 0.9.47+). A dot
+            # exits to BASIC on either spelling.
+            cmd_q.put(("quit_app", "", ""))
         else:
             print(f"  unknown command: {verb} (try 'help')")
 
@@ -872,6 +882,13 @@ def _listen_session_inner(conn, stats, _test_commands=None):
             if op == "quit":
                 sendpacket(conn, b"Q", 0)
                 print(f'{timestamp()} | listen: sent quit')
+                _reply_fill(reply, {'ok': True})
+                break
+            elif op == "quit_app":
+                # /forceexit: leave listen mode AND end the far application
+                # (ZX Next Remote 0.9.47+; a dot exits to BASIC either way).
+                sendpacket(conn, b"Q" + QUIT_EXIT_MARK, 0)
+                print(f'{timestamp()} | listen: sent quit (exit application)')
                 _reply_fill(reply, {'ok': True})
                 break
             elif op == "ls":
@@ -1208,7 +1225,9 @@ def _start_http_bridge(port):
         verbs = {"ls": "ls", "get": "get", "mkdir": "mkdir", "rmdir": "rmdir",
                  "rm": "rm", "ren": "ren", "rcpy": "rcpy", "rfsize": "rfsize",
                  "free": "psize", "drives": "drives",
-                 "forceexit": "quit"}   # /forceexit -> the session's quit ('Q')
+                 # /forceexit -> the MARKED quit: leave -listen and end
+                 # the far application (a dot exits to BASIC either way).
+                 "forceexit": "quit_app"}
         if op == "put":
             return ("put", a2, a1, reply)   # session order: (local, remote)
         if op in verbs:

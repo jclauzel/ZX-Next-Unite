@@ -82,6 +82,7 @@ def mock_next(sock, fake_entries, fake_file, captured):
         _dbg(f"[MOCK recv-cmd] {cmd[:18]!r}")
         op, arg = cmd[0:1], cmd[1:].decode()
         if op == b'Q':
+            captured['quit'] = arg or ""    # "" = plain, "X" = also exit app
             break
         if op == b'I':
             continue
@@ -232,6 +233,8 @@ def main():
         ("rcpy", "/games/a.tap", "/sys/a.tap"),     # copy INTO it     -> OSP
         ("mkdir", "/sys/evil2", "", osp_reply),     # same, bridge flavour
         ("ls", "/", ""),                            # stream still in sync
+        # LAST: the marked quit ends the session, so nothing may follow.
+        ("quit_app", "", ""),                       # /forceexit: marked quit
     ]
 
     t = threading.Thread(target=ns.listen_session, args=(srv, stats, cmds), daemon=True)
@@ -363,6 +366,12 @@ def main():
         print("PASS ospHttp : bridge reply is 401 os-protected, not 502")
     else:
         print("FAIL ospHttp :", ospr); ok = False
+    # /forceexit asks the far side to END ITS APPLICATION, so it sends the
+    # MARKED quit; a plain server stop keeps sending the bare 'Q'.
+    if captured.get('quit') == "X" and "exit application" in server_out:
+        print("PASS quitmark: /forceexit sent the marked quit and said so")
+    else:
+        print("FAIL quitmark:", repr(captured.get('quit'))); ok = False
     if "put /locked/up.bin: FAILED" in server_out and captured.get('put_fail') == "/locked/up.bin":
         print("PASS putF   : put 'F' reported + acked")
     else:
