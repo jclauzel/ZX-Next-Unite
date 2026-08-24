@@ -595,6 +595,27 @@ def _re_sendpacket(conn, payload, pktno):
                  bytes([c0, c1, pktno & 0xff]))
 
 
+def _re_goodbye_linger(conn):
+    """Give a just-sent goodbye ('Q' / the marked 'Q'+exit) time to be READ
+    before our FIN can race it off the peer's wire.
+
+    The far side of a -listen session reads over an ESP UART, where the
+    frame and the close can arrive in one breath - and ZXNextRemote before
+    0.9.52 examined the close FIRST, so quitting a session threw the very
+    goodbye away unread (the /forceexit-does-nothing field report; the
+    dot's loop reads first and never showed it). Draining until the peer
+    closes - bounded at 2 s - means the FIN only ever follows the goodbye,
+    which fixes every field build without asking anyone to update. The dot
+    closes within milliseconds of reading 'Q', so the wait is invisible
+    there."""
+    try:
+        conn.settimeout(2.0)
+        while conn.recv(256):
+            pass                      # stray polls: consumed, not answered
+    except OSError:
+        pass                          # timeout or reset: we tried, close
+
+
 def _re_recv_exact(conn, n):
     buf = b''
     while len(buf) < n:
@@ -959,11 +980,13 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # everyone, quitting somebody's app is aimed at the
                         # machine the caller targeted and nobody else.
                         _re_sendpacket(conn, b"Q" + RE_QUIT_EXIT_MARK, 0)
+                        _re_goodbye_linger(conn)
                         if reply is not None:
                             reply.put({'ok': True})
                         break
                     if op == "quit":
                         _re_sendpacket(conn, b"Q", 0)
+                        _re_goodbye_linger(conn)
                         # Stop is for EVERYONE: tell every OTHER
                         # session's Next to leave at its next poll too.
                         with plock:
