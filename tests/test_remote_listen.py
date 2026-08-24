@@ -6,6 +6,7 @@ import os, sys, socket, threading, queue, tempfile, shutil, time
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from PySide6.QtCore import QCoreApplication, Qt
+from zxnu_http_bridge import BridgeReply
 from zxnu_workers import RemoteExplorerSignals, run_remote_listen_server
 
 PORT = 2049
@@ -117,6 +118,14 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
                 push(b'N' + len(filebytes).to_bytes(4, "big") + bytes([len(name)]) + name.encode(), 0)
                 push(b'D' + filebytes, 1); push(b'E', 2); push(b'B', 3)
         elif op == b'P':
+            if arg.startswith("/sys"):
+                # A protecting ZXNextRemote (put_plain=0) refuses the put with
+                # the MARKED 'F'+"OSP" status block so the controller can say
+                # WHY; it still expects the server's "Ok" ack like any 'F'.
+                settle(); sock.sendall(frame(b'FOSP', 0))
+                assert rx_payload(sock)[0:1] == b'O'
+                cap.setdefault('put_osp', []).append(arg)
+                continue
             if arg.startswith("/locked"):
                 # Simulate a put the Next can't create: push an 'F' status block
                 # (like the dotN's listen_status(0)) and expect the server's "Ok".
@@ -244,6 +253,7 @@ def main():
 
     cmd_q = queue.Queue()
     stop = threading.Event()
+    bp = BridgeReply()   # rides the second protected put below
     # "ls /gone" sits between real commands on purpose: if the 'F' (opendir-fail)
     # reply were mishandled it would desync the stream and break everything after.
     for c in [("mkdir", "/ho"), ("ls", "/"), ("ls", "/gone"),
@@ -269,6 +279,8 @@ def main():
               ("mkdir", "/sys/evil"),               # protected mkdir -> OSP
               ("rm", "/sys/config/boot"),           # protected rm    -> OSP
               ("rename", "/games/x", "/sys/x"),     # protected dst   -> OSP
+              ("put", putfile, "/sys/up.bin"),      # protected put -> 'F'+OSP
+              ("put", putfile, "/sys/up2.bin", bp), # same, bridge flavour -> 401
               ("ls", "/"),                          # proves the stream survived
               ("quit",)]:
         cmd_q.put(c)
@@ -399,11 +411,28 @@ def main():
     # normal failure. The trailing ls "/" still succeeded, proving the OSP 'F'
     # blocks did not desync the stream.
     if (got['osp'] == [("mkdir", "/sys/evil"), ("rm", "/sys/config/boot"),
-                       ("rename", "/games/x")]
+                       ("rename", "/games/x"), ("put", "/sys/up.bin")]
             and not any(o[2] and str(o[2]).startswith("/sys") for o in got['ops'])):
         print("PASS osprot:", got['osp'])
     else:
         print("FAIL osprot:", got['osp'], "ops:", got['ops']); ok = False
+    # A protected PUT: ZXNextRemote (put_plain=0) refuses with the MARKED
+    # 'F'+OSP block. UI path: os_protected("put", path) and never a plain
+    # put_done(False); bridge path: the same 401 + explanation every other
+    # blocked write gets. Both blocks were acked (cap) so the far side
+    # stops retrying, and the trailing ls proves the stream stayed in sync.
+    if (cap.get('put_osp') == ["/sys/up.bin", "/sys/up2.bin"]
+            and not any(p.startswith("/sys") for _okf, p in got['puts'])):
+        print("PASS osprot-put: os_protected('put'), marked blocks acked")
+    else:
+        print("FAIL osprot-put:", got['osp'], got['puts'], cap.get('put_osp'))
+        ok = False
+    br_res = bp.wait(5)
+    if (br_res and br_res.get('http') == 401
+            and "os-protected" in str(br_res.get('error', ''))):
+        print("PASS osprot-put-bridge: 401 os-protected reply")
+    else:
+        print("FAIL osprot-put-bridge:", br_res); ok = False
     if got['listing'] and got['listing'][0] == "/":
         print("PASS osprot-sync: stream survived the OSP refusals")
     else:

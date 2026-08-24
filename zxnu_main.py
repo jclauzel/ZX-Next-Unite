@@ -2549,6 +2549,18 @@ class MainWindow(QMainWindow):
         self.sdcard_explorer_container = _pane
         self._image_recolor_all = _pane.image_recolor_all
 
+        # Ctrl+wheel font zoom on both SD Card explorers (the restore half
+        # runs in load_configuration_file, next to the column widths).
+        def _sd_tree_font_persist(_key):
+            def _p(_pt):
+                configuration_dictionary[_key] = str(_pt)
+                save_configuration_file()
+            return _p
+        bind_tree_font_zoom(self.treeview,
+                            _sd_tree_font_persist(SETTING_SDCARD_TREE_FONT))
+        bind_tree_font_zoom(self.image_treeview,
+                            _sd_tree_font_persist(SETTING_IMAGE_TREE_FONT))
+
         # Operation-layer wiring onto the pane's local tree: the context menu
         # dispatches into the transfer/delete/rename/zip flows kept here.
         self.treeview.setContextMenuPolicy(Qt.CustomContextMenu)

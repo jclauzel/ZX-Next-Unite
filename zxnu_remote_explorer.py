@@ -12,8 +12,10 @@ through RemoteExplorerSignals and are applied here on the UI thread.
 
 import html
 import logging
+import math
 import os
 import posixpath
+import random
 import shutil
 import tempfile
 
@@ -24,7 +26,8 @@ from PySide6.QtCore import (
     Qt, QDir, QEvent, QModelIndex, QMimeData, QUrl, QSize, QTimer,
 )
 from PySide6.QtGui import (
-    QColor, QDrag, QKeySequence, QStandardItem, QStandardItemModel,
+    QColor, QDrag, QKeySequence, QPainter, QStandardItem,
+    QStandardItemModel,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QFileSystemModel, QGridLayout, QHBoxLayout,
@@ -255,6 +258,164 @@ def _norm_remote_dir(p):
     if not p.startswith("/"):
         p = "/" + p
     return posixpath.normpath(p)
+
+
+class IdleStarfieldOverlay(QWidget):
+    """The idle-details panel shown over the empty Next pane while
+    disconnected: a soft 8-bit starfield (chunky parallax pixel stars plus
+    the occasional comet) painted behind the host/IP guidance text.
+
+    Replaces the transparent QLabel the pane used before, whose text sat
+    directly over the disabled Next tree and collided with its header row
+    and footer buttons — this widget paints its own deep-space backdrop, so
+    nothing bleeds through. It keeps the tiny API the pane drives
+    (text()/setText(), set_label_stylesheet) and stays mouse-transparent
+    like the label it replaces. Stars are plain bright dots ON PURPOSE —
+    never the Sinclair rainbow stripes (trade-dress rule; see the sprite
+    conventions in zxnu_wizard.py).
+    """
+
+    _TICK_MS = 40                     # 25 fps — a soft drift, cheap to paint
+    _BACKDROP = (6, 9, 26, 238)       # deep-space blue-black, near opaque
+    # Bright 8-bit dot palette, weighted towards white so the field reads as
+    # stars with just a sprinkle of colour.
+    _STAR_COLORS = (
+        (245, 245, 245), (245, 245, 245), (245, 245, 245),
+        (140, 224, 255), (255, 224, 140), (170, 170, 255), (255, 140, 224),
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Purely informational, like the label it replaces: never intercept
+        # the pane's mouse events.
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._label = QLabel(self)
+        self._label.setAlignment(Qt.AlignCenter)
+        self._label.setWordWrap(True)
+        self._label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 12, 12, 12)
+        lay.addWidget(self._label)
+        self._stars = []          # dicts: x/y px, size, speed, colour, twinkle
+        self._comets = []         # dicts: x/y, vx/vy, trail [(x, y), ...]
+        self._frame = 0
+        self._next_comet_at = self._comet_delay()
+        self._timer = QTimer(self)
+        self._timer.setInterval(self._TICK_MS)
+        self._timer.timeout.connect(self._tick)
+
+    # ---- the tiny API the pane drives (QLabel-compatible) ----------------
+
+    def text(self):
+        return self._label.text()
+
+    def setText(self, text):
+        self._label.setText(text)
+
+    def set_label_stylesheet(self, css):
+        self._label.setStyleSheet(css)
+
+    # ---- animation lifecycle: only tick while actually on screen ---------
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._timer.start()
+
+    def hideEvent(self, event):
+        # The NextSync tab going to the back hides this child too — stop
+        # burning frames until it comes forward again.
+        super().hideEvent(event)
+        self._timer.stop()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_star_count()
+
+    # ---- the field --------------------------------------------------------
+
+    def _comet_delay(self):
+        return random.randint(160, 400)           # ~6-16 s between comets
+
+    def _make_star(self, anywhere):
+        w = max(1, self.width())
+        size = random.choice((1, 1, 1, 2, 2, 3))  # mostly tiny: depth illusion
+        return {
+            "x": float(random.randrange(w) if anywhere
+                       else w + random.randint(0, 24)),
+            "y": float(random.randrange(max(1, self.height()))),
+            "size": size,
+            # Bigger (nearer) stars drift faster: cheap parallax.
+            "speed": (0.10 + 0.16 * size) * random.uniform(0.75, 1.3),
+            "color": random.choice(self._STAR_COLORS),
+            "phase": random.uniform(0.0, 2 * math.pi),
+            "rate": random.uniform(0.03, 0.10),   # twinkle speed, rad/frame
+        }
+
+    def _sync_star_count(self):
+        """Keep the star density proportional to the pane area (resize adds
+        or culls stars instead of reseeding, so nothing visibly jumps)."""
+        if self.width() <= 0 or self.height() <= 0:
+            return
+        want = max(24, min(140, (self.width() * self.height()) // 4200))
+        while len(self._stars) < want:
+            self._stars.append(self._make_star(anywhere=True))
+        del self._stars[want:]
+
+    def _spawn_comet(self):
+        h = max(2, self.height())
+        return {
+            "x": float(self.width() + 8),
+            "y": float(random.randint(h // 12, h // 2)),
+            "vx": -random.uniform(3.0, 5.0),
+            "vy": random.uniform(0.6, 1.6),
+            "trail": [],
+        }
+
+    def _tick(self):
+        self._frame += 1
+        w, h = self.width(), self.height()
+        for s in self._stars:
+            s["x"] -= s["speed"]
+            if s["x"] < -3:           # wrapped: re-enter on the right edge
+                s["x"] = w + random.randint(0, 24)
+                s["y"] = float(random.randrange(max(1, h)))
+        if self._frame >= self._next_comet_at and len(self._comets) < 2:
+            self._comets.append(self._spawn_comet())
+            self._next_comet_at = self._frame + self._comet_delay()
+        for c in self._comets:
+            c["trail"].insert(0, (c["x"], c["y"]))
+            del c["trail"][14:]
+            c["x"] += c["vx"]
+            c["y"] += c["vy"]
+        self._comets = [c for c in self._comets
+                        if c["x"] > -40 and c["y"] < h + 40]
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        # Chunky pixels on purpose: no antialiasing anywhere.
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(*self._BACKDROP))
+        p.drawRoundedRect(self.rect(), 8, 8)
+        for s in self._stars:
+            r, g, b = s["color"]
+            # Soft twinkle: each star breathes on its own phase and rate.
+            base = 120 + 36 * s["size"]
+            a = int(base * (0.6 + 0.4 * math.sin(s["phase"]
+                                                 + s["rate"] * self._frame)))
+            p.fillRect(int(s["x"]), int(s["y"]), s["size"], s["size"],
+                       QColor(r, g, b, max(0, min(255, a))))
+        for c in self._comets:
+            # Tail first (newest chunk brightest), then the head over it.
+            n = len(c["trail"])
+            for i, (tx, ty) in enumerate(c["trail"]):
+                fade = 1.0 - (i + 1) / (n + 1)
+                sz = 2 if i < 5 else 1
+                p.fillRect(int(tx), int(ty), sz, sz,
+                           QColor(150, 220, 255, int(200 * fade)))
+            p.fillRect(int(c["x"]) - 1, int(c["y"]) - 1, 3, 3,
+                       QColor(255, 255, 255, 235))
+        p.end()
 
 
 class RemoteExplorerWidget(QWidget):
@@ -598,11 +759,13 @@ class RemoteExplorerWidget(QWidget):
         # '.sync5' is the one thing they need while setting the link up.
         self._idle_details_provider = None
         self._idle_info_overlay = None
-        # Style for the idle-details overlay; the host pushes the user's
-        # retro-log (Consolas) colour + font-size settings through
-        # set_idle_details_style so the panel follows them live.
+        # Style for the idle-details overlay's text; the host pushes the
+        # user's retro-log (Consolas) COLOUR through set_idle_details_style
+        # so it follows the setting live. The size stays at the pane's
+        # normal 10pt — inheriting the log font size blew the block up until
+        # it overlapped the pane's header and footer (reverted).
         self._idle_info_color = "#a6f0a6"
-        self._idle_info_pt = 12
+        self._idle_info_pt = 10
         # Top-bar label: the idle status while disconnected, the drive's free
         # space while connected. The PATH itself lives in next_path_edit at
         # the bottom of the pane since the UX pass that aligned it with the
@@ -1122,7 +1285,8 @@ class RemoteExplorerWidget(QWidget):
 
     def _update_idle_info_overlay(self):
         """Show the idle-details text over the (empty, disabled) Next pane
-        while disconnected; remove it when connected or without text."""
+        while disconnected — on the animated 8-bit starfield
+        (IdleStarfieldOverlay); remove it when connected or without text."""
         text = ""
         if not self._connected and self._idle_details_provider is not None:
             try:
@@ -1135,15 +1299,12 @@ class RemoteExplorerWidget(QWidget):
                 self._idle_info_overlay = None
             return
         if self._idle_info_overlay is None:
-            lbl = QLabel(self.next_container)
-            lbl.setAlignment(Qt.AlignCenter)
-            # Purely informational: never intercept the pane's mouse events.
-            lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-            lbl.setStyleSheet(self._idle_info_stylesheet())
-            lbl.setGeometry(self.next_container.rect())
-            lbl.show()
-            lbl.raise_()
-            self._idle_info_overlay = lbl
+            ov = IdleStarfieldOverlay(self.next_container)
+            ov.set_label_stylesheet(self._idle_info_stylesheet())
+            ov.setGeometry(self.next_container.rect())
+            ov.show()
+            ov.raise_()
+            self._idle_info_overlay = ov
         self._idle_info_overlay.setText(text)
 
     def _idle_info_stylesheet(self):
@@ -1160,7 +1321,8 @@ class RemoteExplorerWidget(QWidget):
         if point_size:
             self._idle_info_pt = int(point_size)
         if self._idle_info_overlay is not None:
-            self._idle_info_overlay.setStyleSheet(self._idle_info_stylesheet())
+            self._idle_info_overlay.set_label_stylesheet(
+                self._idle_info_stylesheet())
 
     def refresh_idle_status(self):
         """Re-evaluate the idle status (host state changed: sync root set,
@@ -1722,7 +1884,8 @@ class RemoteExplorerWidget(QWidget):
     )
 
     def on_os_protected(self, op, path):
-        """A remote WRITE (mkdir/rmdir/rm/rename/copy) was refused by the far
+        """A remote WRITE (mkdir/rmdir/rm/rename/copy — or an upload: a
+        put refused with the marked 'F'+OSP block) was refused by the far
         side's OS protection. Retrying — or grinding through the rest of a
         batch — would only repeat the refusal, so stop the operation and say
         exactly what to check: the block is on the OTHER machine's settings,

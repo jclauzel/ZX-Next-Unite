@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.5.21"
+ZX_NEXT_UNITE_VERSION = "9.5.22"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -361,6 +361,10 @@ SETTING_SDCARD_TREE_COLS       = "sdcard_tree_columns"     # SD Card utility: LO
 SETTING_IMAGE_TREE_COLS        = "image_tree_columns"      # SD Card utility: IMAGE explorer column widths
 SETTING_RE_LOCAL_COLS          = "re_local_tree_columns"   # Remote Explorer: local pane column widths
 SETTING_RE_NEXT_COLS           = "re_next_tree_columns"    # Remote Explorer: Next pane column widths
+SETTING_SDCARD_TREE_FONT       = "sdcard_tree_font"        # SD Card utility: LOCAL explorer item font pt (Ctrl+wheel zoom; "" = default)
+SETTING_IMAGE_TREE_FONT        = "image_tree_font"         # SD Card utility: IMAGE explorer item font pt (Ctrl+wheel zoom)
+SETTING_RE_LOCAL_FONT          = "re_local_tree_font"      # Remote Explorer: local pane item font pt (Ctrl+wheel zoom)
+SETTING_RE_NEXT_FONT           = "re_next_tree_font"       # Remote Explorer: Next pane item font pt (Ctrl+wheel zoom)
 SETTING_RE_REMOTE_CWDS         = "re_remote_cwds"          # JSON {"ip": "/last/folder"} per connected Next (multi-Next; capped at 24, oldest out)
 SETTING_ITCHIO_API_KEY         = "itchio_api_key"          # str: personal itch.io API key (https://itch.io/user/settings/api-keys)
 SETTING_SHOW_ITCHIO_TAB        = "show_itchio_tab"         # "false" => hide the itch.io tab (default shown when itch-dl is installed)
@@ -967,7 +971,8 @@ SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_P
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_DELETE_TO_RECYCLE_BIN,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
 SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
-SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS, SETTING_RE_REMOTE_CWDS, SETTING_RE_MACHINE_NAMES)
+SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS, SETTING_RE_REMOTE_CWDS, SETTING_RE_MACHINE_NAMES,
+SETTING_SDCARD_TREE_FONT, SETTING_IMAGE_TREE_FONT, SETTING_RE_LOCAL_FONT, SETTING_RE_NEXT_FONT)
 
 
 def apply_tree_column_widths(tree, pref):
@@ -987,6 +992,32 @@ def apply_tree_column_widths(tree, pref):
     for i, w in enumerate(widths):
         if w >= 24:
             tree.setColumnWidth(i, w)
+
+
+# Ctrl+wheel explorer font zoom: the clamp both halves agree on (the live
+# zoom in zxnu_workers.bind_tree_font_zoom and the restore below).
+TREE_FONT_MIN_PT = 6
+TREE_FONT_MAX_PT = 28
+
+
+def apply_tree_font_pt(tree, pref):
+    """Apply a saved item font size (pt) to an explorer QTreeView.
+
+    The restore half of the Ctrl+wheel font zoom (the live half is
+    zxnu_workers.bind_tree_font_zoom). Forgiving like
+    apply_tree_column_widths: a missing/garbled/out-of-range value leaves
+    the widget's default font untouched. The header inherits the view
+    font, so it follows by itself."""
+    if tree is None:
+        return
+    try:
+        pt = int(str(pref).strip())
+    except (TypeError, ValueError):
+        return
+    if TREE_FONT_MIN_PT <= pt <= TREE_FONT_MAX_PT:
+        f = tree.font()
+        f.setPointSize(pt)
+        tree.setFont(f)
 
 IMAGE_BUTTONS_SIZE = 190
 DISK_ARROWS_BUTTONS_SIZE = 30

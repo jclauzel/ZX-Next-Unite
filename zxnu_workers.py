@@ -19,6 +19,7 @@ import time
 import weakref
 from collections import deque, namedtuple
 from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
+                         TREE_FONT_MAX_PT, TREE_FONT_MIN_PT,
                          UP_DIRECTORY, VERSION3, VERSION4,
                          cspect_can_autostart, emulator_offers_autostart,
                          is_filetype_a_directory, mame_autostart_staging_dir,
@@ -37,6 +38,65 @@ from PySide6.QtWidgets import (
     QDialog, QFileSystemModel, QHBoxLayout, QLabel, QLayout, QProgressBar,
     QPushButton, QVBoxLayout,
 )
+
+
+class _TreeFontZoomFilter(QObject):
+    """Event filter behind bind_tree_font_zoom: Ctrl + mouse-wheel over an
+    explorer tree (or its header) grows/shrinks the view's item font one
+    point per notch. Trackpad deltas are accumulated until a full 120-unit
+    notch, so a soft two-finger scroll can't race through sizes."""
+
+    def __init__(self, tree, persist):
+        super().__init__(tree)
+        self._tree = tree
+        self._persist = persist
+        self._acc = 0
+
+    def eventFilter(self, obj, ev):
+        if ev.type() != QEvent.Type.Wheel or not (
+                ev.modifiers() & Qt.ControlModifier):
+            return False
+        self._acc += ev.angleDelta().y()
+        steps = int(self._acc / 120)
+        if steps:
+            self._acc -= steps * 120
+            f = self._tree.font()
+            cur = f.pointSize()
+            if cur <= 0:                      # pixel-sized font: resolve it
+                cur = QFontInfo(f).pointSize()
+            new = max(TREE_FONT_MIN_PT, min(TREE_FONT_MAX_PT, cur + steps))
+            if new != cur:
+                f.setPointSize(new)
+                self._tree.setFont(f)
+                if self._persist is not None:
+                    try:
+                        self._persist(new)
+                    except Exception:
+                        logging.exception("tree font zoom: persist failed")
+        return True          # consume: a Ctrl+wheel never also scrolls
+
+
+def bind_tree_font_zoom(tree, persist=None):
+    """Ctrl + mouse-wheel zooms an explorer QTreeView's item font live.
+
+    Wheel-up grows, wheel-down shrinks, clamped to
+    TREE_FONT_MIN_PT..TREE_FONT_MAX_PT (zxnu_config); row heights and the
+    header (which inherits the view font) follow by themselves. A plain
+    wheel keeps scrolling exactly as before — only Ctrl+wheel is consumed.
+    ``persist(pt)`` fires after each applied change so the host can store
+    the size; the restore half is zxnu_config.apply_tree_font_pt. Returns
+    the installed filter (parented to the tree; keep-alive is automatic).
+
+    Bound on all four explorer panes: the SD Card tab's local/image trees
+    (wired at the SdCardExplorerPane construction seam in zxnu_main) and
+    the Remote Explorer's local/Next trees (wired in zxnu_nextsync_pane).
+    """
+    filt = _TreeFontZoomFilter(tree, persist)
+    tree.viewport().installEventFilter(filt)
+    hdr = tree.header()
+    if hdr is not None:
+        hdr.viewport().installEventFilter(filt)
+    return filt
 
 
 class CompactButton(QPushButton):
@@ -493,18 +553,31 @@ def _re_is_osp(payload):
             payload[1:1 + len(RE_OSP_MARK)] == RE_OSP_MARK)
 
 
-def _re_is_fail_block(data):
-    """True if ``data`` is the framed 1-byte 'F' status block a dotN pushes when a
-    put fails (couldn't create the file, or the transfer gave up).
+def _re_fail_block_payload(data):
+    """The verified payload of a framed 'F' status block, else None.
 
-    Framing is [0x00 0x06]['F'][cs0][cs1][pktno]; the checksum of 'F' is 0x46/0x46.
-    Older dots don't send this - they just stop pulling - so callers keep the
-    "abandoned upload" fallback as well.
+    A dotN pushes the classic 1-byte b"F" when a put fails (couldn't create
+    the file, or the transfer gave up); ZXNextRemote can mark WHY with a
+    suffix — b"FOSP" when its OS protection refused the write — so the
+    controller can say more than "upload failed". Framing is
+    [len_hi len_lo][payload][cs0][cs1][pktno] with len = payload + 5; like
+    the byte-exact matcher this replaces, trailing bytes after the frame are
+    tolerated (TCP coalescing). Older dots send nothing at all - they just
+    stop pulling - so callers keep the "abandoned upload" fallback as well.
     """
-    if len(data) < 6 or data[0] != 0x00 or data[1] != 0x06 or data[2:3] != b'F':
-        return False
-    c0, c1 = _re_checksums(b'F')
-    return data[3] == c0 and data[4] == c1
+    if len(data) < 6 or data[0] != 0x00:
+        return None
+    total = (data[0] << 8) | data[1]
+    if total < 6 or len(data) < total or data[2:3] != b'F':
+        return None
+    payload = bytes(data[2:total - 3])
+    c0, c1 = _re_checksums(payload)
+    return payload if (data[total - 3] == c0 and data[total - 2] == c1) else None
+
+
+def _re_is_fail_block(data):
+    """True if ``data`` is a framed 'F' status block (classic or marked)."""
+    return _re_fail_block_payload(data) is not None
 
 
 def _re_sendpacket(conn, payload, pktno):
@@ -725,13 +798,23 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
             last_packet = b''
             pending = None   # ("put", remote, bridge_reply|None) awaiting completion
 
-            def _put_finish(ok):
+            def _put_finish(ok, osp=False):
                 # Resolve the pending put: to its bridge reply when it has
                 # one, to the UI signal otherwise (reads `pending` live).
+                # ``osp`` marks ZXNextRemote's OS-protection refusal (the
+                # marked 'F'+OSP status block): the bridge caller gets the
+                # same 401 + explanation every other blocked write gets, the
+                # UI the os_protected toast instead of a generic failure.
                 if pending[2] is not None:
-                    pending[2].put({'ok': bool(ok)} if ok else
-                                   {'ok': False,
-                                    'error': 'put failed on the Next'})
+                    if osp:
+                        pending[2].put({'ok': False, 'error': RE_OSP_ERROR,
+                                        'http': 401})
+                    else:
+                        pending[2].put({'ok': bool(ok)} if ok else
+                                       {'ok': False,
+                                        'error': 'put failed on the Next'})
+                elif osp:
+                    sig.os_protected.emit("put", pending[1])
                 else:
                     sig.put_done.emit(bool(ok), pending[1])
             # rmtree walk state: sub-commands the worker generates for itself
@@ -795,14 +878,17 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 # A put in flight is served by the Next pulling the bytes with
                 # "Get"/"Gee" (or asking to resend with "Retry"/"Restart"). A newer
                 # dotN instead pushes an explicit 'F' status block when the put
-                # fails (couldn't create the file, or the transfer gave up); ack it
-                # so the dot's send_block_rt doesn't burn its retries, and report
-                # the failure. Ack even with no pending put (a rare late 'F' after
-                # the last byte already counted) so the dot isn't left retrying.
-                if _re_is_fail_block(data):
+                # fails (couldn't create the file, or the transfer gave up) —
+                # ZXNextRemote marks an OS-protection refusal as 'F'+OSP so the
+                # failure toast can say WHY. Ack it so the dot's send_block_rt
+                # doesn't burn its retries, and report the failure. Ack even with
+                # no pending put (a rare late 'F' after the last byte already
+                # counted) so the dot isn't left retrying.
+                fail_payload = _re_fail_block_payload(data)
+                if fail_payload is not None:
                     _re_sendpacket(conn, b"Ok", 0)
                     if pending and pending[0] == "put":
-                        _put_finish(False)
+                        _put_finish(False, osp=_re_is_osp(fail_payload))
                         pending = None
                         put_data = b''
                         put_ofs = 0

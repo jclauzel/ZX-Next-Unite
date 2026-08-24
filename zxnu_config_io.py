@@ -697,6 +697,16 @@ def build_config_io(
                 apply_tree_column_widths(
                     getattr(host, _cols_attr, None),
                     configuration_dictionary.get(_cols_key, ""))
+            # The Ctrl+wheel font zoom's restore half (same trees; the
+            # Remote Explorer pair restores at its lazy construction in
+            # zxnu_nextsync_pane, like its column widths).
+            for _font_key, _font_attr in (
+                (SETTING_SDCARD_TREE_FONT, "treeview"),
+                (SETTING_IMAGE_TREE_FONT, "image_treeview"),
+            ):
+                apply_tree_font_pt(
+                    getattr(host, _font_attr, None),
+                    configuration_dictionary.get(_font_key, ""))
 
             # Restore the saved splitter positions (SD Card explorers ⇄
             # log, GetIt results ⇄ MOTD). The window is not shown yet, so

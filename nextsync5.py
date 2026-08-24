@@ -189,12 +189,39 @@ def recv_block(conn):
         return 'BADCS'
     return (payload, pktno)
 
-def is_fail_block(data):
-    """True if data is the framed 1-byte 'F' status block a dotN pushes when a put
-    fails (couldn't create the file, or the transfer gave up):
-    [0x00 0x06]['F'][0x46][0x46][pktno] (0x46/0x46 is the checksum of 'F')."""
-    return (len(data) >= 6 and data[0] == 0x00 and data[1] == 0x06
-            and data[2:3] == b'F' and data[3] == 0x46 and data[4] == 0x46)
+# ZX Next Remote's OS-protection refusal marker + explanation. Kept in sync
+# with zxnu_workers.RE_OSP_MARK/RE_OSP_ERROR by hand: this script must stay
+# runnable standalone (no Qt, zxnu_http_bridge optional), so it cannot import
+# the app module that owns them.
+OSP_MARK = b"OSP"
+OSP_ERROR = (
+    "os-protected: write access is blocked in the remote operating "
+    "system. If the far side is ZX Next Remote, check its \"OS protection\" "
+    "setting and customise the restricted directory list if appropriate."
+)
+
+
+def fail_block_payload(data):
+    """The verified payload of a framed 'F' status block, else None.
+
+    A dotN pushes the classic 1-byte b"F" when a put fails (couldn't create
+    the file, or the transfer gave up); ZX Next Remote can mark WHY with a
+    suffix — b"FOSP" when its OS protection refused the write. Framing is
+    [len_hi len_lo][payload][cs0][cs1][pktno] with len = payload + 5;
+    trailing bytes after the frame are tolerated, like the byte-exact
+    matcher this replaces. Older dots send nothing at all - they just stop
+    pulling and go back to "Poll" (handled in that branch)."""
+    if len(data) < 6 or data[0] != 0x00:
+        return None
+    total = (data[0] << 8) | data[1]
+    if total < 6 or len(data) < total or data[2:3] != b'F':
+        return None
+    payload = bytes(data[2:total - 3])
+    c0 = c1 = 0
+    for x in payload:
+        c0 = (c0 ^ x) & 0xff
+        c1 = (c1 + c0) & 0xff
+    return payload if (data[total - 3] == c0 and data[total - 2] == c1) else None
 
 def sanitize_incoming_path(root, name):
     """Map a filename reported by the Next to a safe path under root.
@@ -776,14 +803,25 @@ def _listen_session_inner(conn, stats, _test_commands=None):
             break
 
         # A newer dotN pushes an explicit 'F' status block when a put fails; ack it
-        # (so its send_block_rt doesn't burn retries) and report the failure. Older
-        # dots just stop pulling and go back to "Poll" (handled in that branch).
-        if is_fail_block(data):
+        # (so its send_block_rt doesn't burn retries) and report the failure —
+        # ZX Next Remote marks an OS-protection refusal as 'F'+OSP so the report
+        # (and a bridge caller's HTTP status: 401, like every other blocked
+        # write) can say WHY. Older dots just stop pulling and go back to "Poll"
+        # (handled in that branch).
+        fail_payload = fail_block_payload(data)
+        if fail_payload is not None:
             sendpacket(conn, b"Ok", 0)
             if pending_put is not None:
-                print(f'{timestamp()} | *** put {pending_put[0]}: FAILED on the Next ***')
-                _reply_fill(pending_put[1], {'ok': False,
-                                             'error': 'put failed on the Next'})
+                if fail_payload[1:1 + len(OSP_MARK)] == OSP_MARK:
+                    print(f'{timestamp()} | *** put {pending_put[0]}: BLOCKED '
+                          'by the remote OS protection ***')
+                    _reply_fill(pending_put[1], {'ok': False,
+                                                 'error': OSP_ERROR,
+                                                 'http': 401})
+                else:
+                    print(f'{timestamp()} | *** put {pending_put[0]}: FAILED on the Next ***')
+                    _reply_fill(pending_put[1], {'ok': False,
+                                                 'error': 'put failed on the Next'})
                 pending_put = None
                 _in_transfer = False
                 put_data = b''; put_ofs = 0; put_pkt = 0

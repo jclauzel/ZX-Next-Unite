@@ -645,16 +645,13 @@ def build_nextsync_pane(
                 "file_size":    host.img_color_file_size,
                 "general_text": host.img_color_general_text,
             })
-            # The idle host/IP panel follows the retro (Consolas) log colour
-            # and font-size settings — floored at 12pt for readability.
+            # The idle host/IP panel follows the retro (Consolas) log
+            # COLOUR setting only; its font size stays at the widget's
+            # normal 10pt — inheriting the log font size blew the block up
+            # until it overlapped the pane's header/footer (reverted).
             col = (configuration_dictionary.get(SETTING_COLOR_RETRO_LOG)
                    or "").strip() or "#33ff33"
-            try:
-                pt = int(configuration_dictionary.get(SETTING_RETRO_LOG_FONT_SIZE)
-                         or DEFAULT_RETRO_LOG_FONT_SIZE)
-            except (TypeError, ValueError):
-                pt = DEFAULT_RETRO_LOG_FONT_SIZE
-            widget.set_idle_details_style(col, max(12, pt))
+            widget.set_idle_details_style(col)
         except Exception:
             pass
     host._re_apply_item_colors = _re_apply_item_colors
@@ -748,7 +745,8 @@ def build_nextsync_pane(
                               "the address:",
                               f"    .sync5 {addr}",
                               "then start the remote session any time with:",
-                              "    .sync5 -L   (-l or -listen)"]
+                              "    .sync5 -L   (-l or -listen)",
+                              "or a ZX Next Remote listener."]
             _re_ip_info_cache["text"] = "\n".join(lines)
             _re_ip_info_cache["t"] = now
         return _re_ip_info_cache["text"]
@@ -939,6 +937,23 @@ def build_nextsync_pane(
         apply_tree_column_widths(
             widget.next_view,
             configuration_dictionary.get(SETTING_RE_NEXT_COLS, ""))
+        # Ctrl+wheel font zoom on both panes: restored here like the column
+        # widths above; every applied change persists immediately.
+        def _re_tree_font_persist(_key):
+            def _p(_pt):
+                configuration_dictionary[_key] = str(_pt)
+                save_configuration_file()
+            return _p
+        apply_tree_font_pt(
+            widget.local_view,
+            configuration_dictionary.get(SETTING_RE_LOCAL_FONT, ""))
+        apply_tree_font_pt(
+            widget.next_view,
+            configuration_dictionary.get(SETTING_RE_NEXT_FONT, ""))
+        bind_tree_font_zoom(widget.local_view,
+                            _re_tree_font_persist(SETTING_RE_LOCAL_FONT))
+        bind_tree_font_zoom(widget.next_view,
+                            _re_tree_font_persist(SETTING_RE_NEXT_FONT))
         # ---- mini log under the explorer panes (2026-08-07): tracing the
         # bridge/server activity used to require flipping to the Classic
         # tab — which, before the same-day fix, even stopped the server.

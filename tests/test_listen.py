@@ -11,6 +11,7 @@ import os, sys, socket, threading, tempfile, shutil, time, io, contextlib
 # imports for the optional -w/-http web server).
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import nextsync5 as ns
+from zxnu_http_bridge import BridgeReply
 
 if os.environ.get("TL_DEBUG"):
     _orig_sp = ns.sendpacket
@@ -104,6 +105,10 @@ def mock_next(sock, fake_entries, fake_file, captured):
             push(b'E', pkt); pkt += 1
             push(b'B', pkt)
         elif op == b'P':                            # put: pull the file the server sends
+            if arg.startswith("/sys"):              # OS-protected put refusal:
+                push(b'FOSP', 0)                     # marked 'F'+OSP (push asserts the ack)
+                captured.setdefault('put_osp', []).append(arg)
+                continue
             if arg.startswith("/locked"):           # simulate a put the Next rejects
                 push(b'F', 0)                        # 'F' status; server must ack 'O'
                 captured['put_fail'] = arg
@@ -167,6 +172,7 @@ def main():
     fake_entries = [(1, 0, "GAMES"), (0, 1234, "boot.bas"), (0, 49152, "screen.scr")]
     fake_file = b"Hello from the ZX Spectrum Next!\r\n" * 4
     captured = {}
+    bridge_reply = BridgeReply()   # rides the second protected put below
 
     srv, nxt = socket.socketpair()
     for s in (srv, nxt):
@@ -185,6 +191,8 @@ def main():
         ("put", putfile, "c:/uploads/upload.bin"),  # explicit remote name
         ("put", putfile, "/ho/"),                   # dir remote -> keep basename
         ("put", putfile, "/locked/up.bin"),         # put that fails with 'F'
+        ("put", putfile, "/sys/up.bin"),            # OS-protected -> 'F'+OSP
+        ("put", putfile, "/sys/up2.bin", bridge_reply),  # same, bridge flavour
         ("rm", "/games/old.tap", ""),
         ("rmdir", "/games/tmp", ""),
         ("psize", "m:", ""),                        # free space, exact bytes
@@ -290,6 +298,20 @@ def main():
         print("FAIL rfsizeF: 'F' reply not reported"); ok = False
     # A put the Next rejects ('F') must be reported (and the block acked, or the
     # mock's push() assert would have failed and torn the session down).
+    # OS-protected puts: the console names the OS protection, the bridge
+    # reply carries the 401 + os-protected explanation, and both marked
+    # blocks were acked (push asserted it) so the far side stops retrying.
+    if ("put /sys/up.bin: BLOCKED by the remote OS protection" in server_out
+            and captured.get('put_osp') == ["/sys/up.bin", "/sys/up2.bin"]):
+        print("PASS putOSP : marked refusal named on the console + acked")
+    else:
+        print("FAIL putOSP :", captured.get('put_osp')); ok = False
+    br_res = bridge_reply.wait(5)
+    if (br_res and br_res.get('http') == 401
+            and "os-protected" in str(br_res.get('error', ''))):
+        print("PASS putOSPb: bridge reply is 401 os-protected")
+    else:
+        print("FAIL putOSPb:", br_res); ok = False
     if "put /locked/up.bin: FAILED" in server_out and captured.get('put_fail') == "/locked/up.bin":
         print("PASS putF   : put 'F' reported + acked")
     else:
