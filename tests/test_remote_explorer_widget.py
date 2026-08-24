@@ -39,11 +39,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from PySide6.QtCore import QItemSelectionModel, QMimeData, QPointF, Qt, QUrl
-from PySide6.QtGui import QColor, QDropEvent
+from PySide6.QtCore import (QItemSelectionModel, QMimeData, QPoint,
+                            QPointF, Qt, QUrl)
+from PySide6.QtGui import QColor, QDropEvent, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from zxnu_config import TREE_FONT_MIN_PT
+from zxnu_workers import bind_tree_font_zoom
 import zxnu_remote_explorer as rex
 from zxnu_remote_explorer import (RemoteExplorerWidget, RE_PATH_ROLE,
                                   _ext_type_text, _human_size, _norm_remote_dir,
@@ -1429,6 +1432,44 @@ def test_select_all_skips_updir():
     check("local pane Ctrl-A leaves '..' out", ".." not in lsel, repr(lsel))
 
 
+def test_font_zoom():
+    """Ctrl + mouse-wheel zooms a bound explorer tree's item font (the
+    shared zxnu_workers.bind_tree_font_zoom used by all four explorer
+    panes): one point per notch, clamped, persisted per change; a plain
+    wheel is left alone (it must keep scrolling)."""
+    w, _calls = make_widget(local_start_dir=tdir("zoom_root"))
+    saved = []
+    bind_tree_font_zoom(w.next_view, saved.append)
+
+    def wheel(dy, ctrl=True):
+        ev = QWheelEvent(QPointF(20, 20), QPointF(20, 20), QPoint(),
+                         QPoint(0, dy), Qt.NoButton,
+                         Qt.ControlModifier if ctrl else Qt.NoModifier,
+                         Qt.NoScrollPhase, False)
+        QApplication.sendEvent(w.next_view.viewport(), ev)
+        return ev
+
+    base = w.next_view.font().pointSize()
+    wheel(120)
+    check("Ctrl+wheel-up grows the font by one point",
+          w.next_view.font().pointSize() == base + 1 and saved == [base + 1])
+    wheel(120, ctrl=False)
+    check("a plain wheel changes nothing (left to the scroll machinery)",
+          w.next_view.font().pointSize() == base + 1 and saved == [base + 1])
+    # Trackpad-style partial deltas only add up to a step at a full notch.
+    wheel(60)
+    check("half a notch does nothing yet",
+          w.next_view.font().pointSize() == base + 1)
+    wheel(60)
+    check("the second half completes the step",
+          w.next_view.font().pointSize() == base + 2)
+    for _ in range(40):
+        wheel(-120)
+    check("wheel-down clamps at the minimum",
+          w.next_view.font().pointSize() == TREE_FONT_MIN_PT
+          and saved[-1] == TREE_FONT_MIN_PT)
+
+
 def test_os_protection_stops_and_explains():
     """A remote WRITE refused by the far side's OS protection (a ZXNextRemote
     listener, 0.9.0) must STOP the batch and toast the actionable message —
@@ -1620,6 +1661,7 @@ def main():
         test_emulator_start_from_next()
         test_select_all_skips_updir()
         test_os_protection_stops_and_explains()
+        test_font_zoom()
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
