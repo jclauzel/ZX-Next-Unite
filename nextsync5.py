@@ -1234,9 +1234,9 @@ def _start_http_bridge(port):
         connection_limit=opt_flask_conn_limit)
     ok, err = bridge.start()
     if ok:
-        print(f"{timestamp()} | HTTP bridge on port {port}: /status /ls /get "
-              "/put /mkdir /rmdir /rm /ren /rcpy /rfsize /sum /free /drives "
-              "/forceexit")
+        print(f"{timestamp()} | HTTP bridge on port {port}: /status "
+              "/sessions /drives /free /ls /get /put /mkdir /rmdir /rmtree "
+              "/rm /ren /rcpy /rfsize /sum /forceexit")
         if opt_verbose:
             print(f"{timestamp()} | HTTP bridge: -v request/response logging "
                   "is ON")
@@ -1612,8 +1612,9 @@ for x in sys.argv[1:]:
         -o  - Sync once, then quit. Default is to keep the sync loop running.
         -v  - Verbose: log every packet/command (off by default; noisy in -listen)
         -w  - Start the NextSync HTTP bridge web server (Flask) on port 80:
-              it republishes the -listen session as HTTP routes (/status /ls
-              /get /put /mkdir /rmdir /rm /ren /rcpy /rfsize /free /drives),
+              it republishes the -listen session as HTTP routes (/status
+              /sessions /drives /free /ls /get /put /mkdir /rmdir /rmtree
+              /rm /ren /rcpy /rfsize /sum /forceexit),
               so a Next running the built-in .http dot command - or curl -
               can drive the connected Next's file system. Port 80 is .http's
               own default (plain HTTP, the Next has no TLS). Requires the

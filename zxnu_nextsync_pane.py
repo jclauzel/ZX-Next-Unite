@@ -583,8 +583,9 @@ def build_nextsync_pane(
                 # verbatim outside the translated sentence.
                 ui_tr_now("NextSync HTTP bridge listening on port {port}"
                           ).format(port=port)
-                + " (routes: /status /ls /get /put /mkdir /rmdir /rmtree "
-                  "/rm /ren /rcpy /rfsize /sum /free /drives)")
+                + " (routes: /status /sessions /drives /free /ls /get "
+                  "/put /mkdir /rmdir /rmtree /rm /ren /rcpy /rfsize /sum "
+                  "/forceexit)")
             if _token_on and _token:
                 add_nextsync_log_window(ui_tr_now(
                     "NextSync HTTP bridge: bearer-token protection is ON "

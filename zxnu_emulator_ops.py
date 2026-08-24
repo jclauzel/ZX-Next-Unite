@@ -285,6 +285,18 @@ def build_emulator_ops(
 
     host._emulator_launch_blocker = _emulator_launch_blocker
 
+    def _image_file_missing(path):
+        """The red-toast body naming an SD image whose file has gone.
+
+        Selected-but-missing is its own failure and deserves its own words:
+        the generic "select an image" line sends the user to a combo that
+        already holds the path they wanted, which is exactly the wrong
+        place to look.
+        """
+        return ui_tr_now(
+            "The disk image {path} can no longer be found — it may have "
+            "been moved, renamed or deleted.").format(path=path)
+
     def launch_cspect(autostart_file=None):
         """Launch CSpect against the loaded SD image.
 
@@ -319,6 +331,18 @@ def build_emulator_ops(
             _emulator_launch_failed("CSpect", ui_tr_now(
                 "Load a ZX Spectrum Next disk image first — then CSpect can "
                 "boot it from the mounted SD card."))
+            return
+        # A LOADED image is not a PRESENT one. The listing above is produced
+        # by hdfmonkey at load time and outlives the file: move, rename or
+        # delete the .img afterwards and the explorer still shows its
+        # contents, so this guard used to wave the launch through with
+        # "-mmc=<gone>". CSpect then dies inside .NET with a
+        # NullReferenceException, which reaches the user only as a shell
+        # exit code (3221225477) — a crash report for what is really a
+        # missing file. Check the file itself, and name it.
+        _img_now = (host.right_disk_image_path or "").strip().strip('"')
+        if _img_now and not os.path.isfile(_img_now) and not _has_autostart:
+            _emulator_launch_failed("CSpect", _image_file_missing(_img_now))
             return
 
         set_all_buttons_disabled()
@@ -362,6 +386,13 @@ def build_emulator_ops(
         # <cwd>\"C:\temp\img". Re-quote only the final path below (the
         # -mmc= argument goes through the shell, so spaces need quoting).
         img_path = (host.right_disk_image_path or "").strip().strip('"')
+        # Past the guard above only an autostart launch can still hold a
+        # missing image; it does not need one, so drop the switch instead
+        # of handing CSpect a path that crashes it (mirrors launch_mame,
+        # which blanks its -hard1 the same way).
+        if img_path and not os.path.isfile(img_path):
+            add_main_log_window(_image_file_missing(img_path))
+            img_path = ""
         if use_bundled:
             # CSpect runs from its own folder so its Next ROMs resolve;
             # the working dir then differs from the app dir, so the image
@@ -463,7 +494,12 @@ def build_emulator_ops(
         # in the picture. The -hard1 pair below is simply omitted then.
         _has_autostart = isinstance(autostart_file, str) and bool(autostart_file.strip())
         if not (_sel_image and os.path.isfile(_sel_image)) and not _has_autostart:
-            _emulator_launch_failed("MAME", ui_tr_now(
+            # Two different failures: nothing chosen at all, or a choice
+            # whose file has since gone. The second names the path — the
+            # combo still shows it, so "select a valid image" reads as a
+            # contradiction.
+            _emulator_launch_failed("MAME", _image_file_missing(_sel_image)
+                                    if _sel_image else ui_tr_now(
                 "Select a valid ZX Spectrum Next disk image (.img/.hdf) "
                 "before launching MAME."))
             return
