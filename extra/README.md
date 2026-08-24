@@ -10,7 +10,7 @@ Odds and ends that support the project but are not part of the app.
 | `Get-PyLineCounts.ps1` | Per-module line-count report for the Python sources |
 | `detectenvironnement.bas` / `.txt` | NextBASIC environment-detection helper and its notes |
 | `Send-ToNext.ps1` | Push a build to a real Next over Unite's NextSync HTTP bridge, verified end-to-end (see below) |
-| `nextdev.bas` / `.txt` | The Next-side loop `Send-ToNext.ps1` pushes into: listen, receive, run, repeat |
+| `nextdev.bas` / `.txt` | The Next-side loop `Send-ToNext.ps1` pushes into: listen, receive, run, repeat — in either ZX Next Remote flavour |
 
 ## Regenerating the README/wiki tour GIF
 
@@ -50,15 +50,29 @@ halves are `extra\Send-ToNext.ps1` (PC) and `extra\nextdev.bas` (Next).
 
 **On the Next, once:**
 
-1. Copy `zxnextremote-httpbridge.nex` to `/dev/` on the SD card, and point
-   its Settings at the PC running Unite (bridge IP + port, and the token if
-   you enabled one).
-2. Copy `nextdev.bas` to the card root as `autoexec.bas`.
+1. Copy **either** ZX Next Remote flavour to `/dev/` on the SD card —
+   `zxnextremote-httpbridge.nex` or `zxnextremote-n2n.nex`. Both carry the
+   NextSync **Listener**, and the Listener is what Unite's HTTP bridge
+   drives, so a push lands the same way either way. The flavour only decides
+   which transport you *also* get as a Controler when you are not pushing
+   builds.
+2. In its Settings, set **NextSync → controller IP** to the PC running
+   Unite. That is the field the Listener dials out on — *not* the bridge IP
+   and port, which belong to Http Bridge (Controler) mode and play no part
+   in receiving a push. The two are separate on purpose, so the two modes
+   can face different machines.
+3. Set **Startup menu** to `2 Listener`. Without it every cycle stops at the
+   Home menu waiting for a keypress, and the loop is not unattended.
+4. Copy `nextdev.bas` to the card root as `autoexec.bas`.
+5. Using the n2n flavour? Set `LET flavour=2` (line 240 of `nextdev.txt`)
+   and re-tokenise — see *Editing `nextdev`* below. If the flavour you pick
+   is not on the card, `nextdev` tries the other one rather than
+   dead-ending, so a mismatch costs you nothing.
 
 `nextdev` runs at every boot: if a pushed file is waiting it moves it aside
-and `.nexload`s it; otherwise it hands the machine to the bridge flavour and
-waits. ZX Next Remote soft-resets when it exits, which is what closes the
-loop — the reset IS the `GO TO`.
+and `.nexload`s it; otherwise it hands the machine to your chosen flavour,
+which enters the Listener and waits. ZX Next Remote soft-resets when it
+exits, which is what closes the loop — the reset IS the `GO TO`.
 
 **On the PC, once:** run the script; it writes a commented
 `Send-ToNext.cfg` beside itself and stops. Set `bridge_ip` (the PC running
@@ -105,9 +119,27 @@ A `tasks.json` entry that fails the task on anything but a verified send:
 ### Editing `nextdev`
 
 `nextdev.txt` is the readable source; `nextdev.bas` is the tokenised
-NextBASIC the Next loads. Convert with
-[txt2bas](https://www.npmjs.com/package/txt2bas):
+NextBASIC the Next loads. The one line most people need is the flavour
+choice near the top:
+
+```
+240 LET flavour=1
+```
+
+`1` waits in `zxnextremote-httpbridge.nex`, `2` in `zxnextremote-n2n.nex`.
+Whichever you choose, the push itself arrives through the NextSync Listener,
+which both flavours carry.
+
+After any edit, re-tokenise with
+[txt2bas](https://www.npmjs.com/package/txt2bas) — the Next loads the `.bas`,
+so an edited `.txt` alone changes nothing:
 
 ```powershell
 txt2bas -i extra\nextdev.txt -o extra\nextdev.bas
+```
+
+Worth reading it back to be sure the tokeniser understood you:
+
+```powershell
+bas2txt -i extra\nextdev.bas -o roundtrip.txt
 ```
