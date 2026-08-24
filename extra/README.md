@@ -74,6 +74,12 @@ and `.nexload`s it; otherwise it hands the machine to your chosen flavour,
 which enters the Listener and waits. ZX Next Remote soft-resets when it
 exits, which is what closes the loop — the reset IS the `GO TO`.
 
+The PC side is even more agnostic: anything that puts a NextSync Listener
+behind Unite satisfies `Send-ToNext.ps1` — even a `.sync5 -listen` dot
+session, since the script only ever talks to the bridge — but the
+unattended loop wants the `.nex` flavours, whose exit-and-soft-reset is
+what closes the cycle.
+
 **On the PC, once:** run the script; it writes a commented
 `Send-ToNext.cfg` beside itself and stops. Set `bridge_ip` (the PC running
 Unite, not the Next), `bridge_port` if you moved the bridge off port 80

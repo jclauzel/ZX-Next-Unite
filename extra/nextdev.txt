@@ -31,8 +31,15 @@
 290 REM of re-running the same build for ever. It errors when
 300 REM nothing arrived, which is the branch to line 400.
 310 .mv /dev/incoming.nex /dev/run.nex
-320 .nexload /dev/run.nex: REM takes over the machine; never returns
-330 STOP
+312 REM The build is ours. From here a failure must halt VISIBLY, not
+314 REM fall back into the wait loop looking as if the push never came:
+316 REM the checksum verified, so a build that will not start is news.
+318 REM (No colon-tail on the dot line - the argument stays exactly the
+319 REM filename.)
+320 ON ERROR GO TO 330
+325 .nexload /dev/run.nex
+330 PRINT "nextdev: pushed build did not start."
+340 STOP
 400 REM Nothing waiting: hand the machine to the Listener and wait.
 410 PRINT "nextdev: waiting for a push..."
 420 PRINT "pick 2 NextSync (Listener) on the menu."

@@ -4,8 +4,11 @@
   Pairs with extra/nextdev.txt (the Next-side loop). The cycle:
 
     1. The Next boots into nextdev (autoexec.bas) and hands itself to
-       ZX Next Remote's Http Bridge flavour, which connects to the
-       NextSync HTTP bridge in ZX-Next-Unite and waits.
+       either ZX Next Remote flavour (httpbridge or n2n — both carry the
+       NextSync Listener), whose Listener dials out to Unite's Remote
+       Explorer listen server (port 2048) and waits. This script never
+       talks to the Next directly: it drives that Listener session
+       through Unite's HTTP bridge.
     2. This script polls /status every 2 s until that Next appears.
     3. It PUTs the file, then VERIFIES it: /sum gives the 16-bit additive
        checksum and byte count of the file as it landed, which is compared
@@ -203,6 +206,14 @@ while ($true) {
 }
 if ($waited) { Write-Host "" }
 Write-Host "Next connected." -ForegroundColor Green
+# More than one Next seated? The push rides the ACTIVE seat - the first
+# machine that connected, not necessarily the one just booted into
+# nextdev. Warn loudly rather than landing a build on the wrong Next.
+# ($st.sessions only exists on roster hosts; absent compares false.)
+if ($st.sessions -gt 1) {
+    Write-Host ("WARNING: {0} Nexts are connected; the push goes to the ACTIVE seat ({1})." `
+        -f $st.sessions, $st.active) -ForegroundColor Yellow
+}
 
 # --- 2. send -------------------------------------------------------------
 $bytes = [System.IO.File]::ReadAllBytes($File)
