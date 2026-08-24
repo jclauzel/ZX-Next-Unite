@@ -123,18 +123,37 @@ def mock_next(sock, fake_entries, fake_file, captured):
                 buf += data
             captured.setdefault('puts', []).append((arg, buf))
         elif op == b'V':                            # ren: arg is "old\x00new"
-            captured['ren'] = arg
-            push(b'O', 0)
+            # A protecting ZXNextRemote refuses a rename whose src OR dst is
+            # under a protected root with the marked 'F'+"OSP" (0.9.0).
+            if any(s.startswith("/sys") for s in arg.split("\x00")):
+                captured.setdefault('osp', []).append("ren")
+                push(b'FOSP', 0)
+            else:
+                captured['ren'] = arg
+                push(b'O', 0)
         elif op in (b'M', b'R', b'X'):              # mkdir/rmdir/rm: status
-            # "/locked" fails ('F') so the FAILED-status path is exercised too.
-            push(b'F' if arg.rstrip("/") == "/locked" else b'O', 0)
+            # "/sys" is OS-protected (marked refusal); "/locked" is an
+            # ordinary failure, so both status paths are exercised.
+            if arg.startswith("/sys"):
+                captured.setdefault('osp', []).append(op.decode())
+                push(b'FOSP', 0)
+            else:
+                push(b'F' if arg.rstrip("/") == "/locked" else b'O', 0)
         elif op == b'C':                            # rcpy: local copy on the Next
             # arg is "src\x00dst". Mock the dot's reply: a named 'D' progress
             # block per "file", an empty keepalive, then 'O' - or 'F' when the
             # source is the unreadable "/locked" tree.
-            captured['rcpy'] = arg
+            # Only a COMPLETED copy is recorded here: the refused one below
+            # would otherwise clobber it and fail the older rcpy assertion.
+            if not arg.split(chr(0))[-1].startswith("/sys"):
+                captured['rcpy'] = arg
             csrc, cdst = arg.split("\x00", 1)
-            if csrc.startswith("/locked"):
+            if cdst.startswith("/sys"):
+                # Copying INTO a protected folder: refused on the DESTINATION
+                # (reads stay free, so a protected SOURCE is not refused).
+                captured.setdefault('osp', []).append("rcpy")
+                push(b'FOSP', 0)
+            elif csrc.startswith("/locked"):
                 push(b'F', 0)
             else:
                 push(b'D' + cdst.encode(), 0)       # per-file progress
@@ -173,6 +192,7 @@ def main():
     fake_file = b"Hello from the ZX Spectrum Next!\r\n" * 4
     captured = {}
     bridge_reply = BridgeReply()   # rides the second protected put below
+    osp_reply = BridgeReply()      # rides the protected mkdir below
 
     srv, nxt = socket.socketpair()
     for s in (srv, nxt):
@@ -203,6 +223,15 @@ def main():
         ("rfsize", "/games", ""),                   # tree size: files/dirs/bytes
         ("rfsize", "/gone", ""),                    # missing path -> 'F'
         ("ren", "/games/a.tap", "/games/b.tap"),
+        # OS protection: every status-block verb must report the marked
+        # 'F'+OSP refusal BY NAME (and answer a bridge caller 401
+        # os-protected), not as a generic "FAILED on the Next".
+        ("mkdir", "/sys/evil", ""),                 # protected mkdir  -> OSP
+        ("rm", "/sys/config/boot", ""),             # protected rm     -> OSP
+        ("ren", "/games/x", "/sys/x"),              # protected dst    -> OSP
+        ("rcpy", "/games/a.tap", "/sys/a.tap"),     # copy INTO it     -> OSP
+        ("mkdir", "/sys/evil2", "", osp_reply),     # same, bridge flavour
+        ("ls", "/", ""),                            # stream still in sync
     ]
 
     t = threading.Thread(target=ns.listen_session, args=(srv, stats, cmds), daemon=True)
@@ -312,6 +341,28 @@ def main():
         print("PASS putOSPb: bridge reply is 401 os-protected")
     else:
         print("FAIL putOSPb:", br_res); ok = False
+    # Every status-block verb names the OS protection instead of reporting a
+    # generic failure - before this they all said "FAILED on the Next", which
+    # sent the operator to debug the network instead of the setting.
+    want_osp = ["M", "X", "ren", "rcpy", "M"]
+    said = [ln for ln in server_out.splitlines()
+            if "BLOCKED by the remote OS protection" in ln
+            and "| *** put " not in ln]      # the put path has its own checks
+    if (captured.get('osp') == want_osp and len(said) == len(want_osp)):
+        print(f"PASS ospVerbs: {len(said)} verbs named the OS protection")
+    else:
+        print("FAIL ospVerbs:", captured.get('osp'), said); ok = False
+    if all(v in " ".join(said) for v in ("mkdir /sys/evil", "rm /sys/config/boot",
+                                         "ren /games/x", "rcpy /games/a.tap")):
+        print("PASS ospWhich: each refusal names its own command and path")
+    else:
+        print("FAIL ospWhich:", said); ok = False
+    ospr = osp_reply.wait(5)
+    if (ospr and ospr.get('http') == 401
+            and "os-protected" in str(ospr.get('error', ''))):
+        print("PASS ospHttp : bridge reply is 401 os-protected, not 502")
+    else:
+        print("FAIL ospHttp :", ospr); ok = False
     if "put /locked/up.bin: FAILED" in server_out and captured.get('put_fail') == "/locked/up.bin":
         print("PASS putF   : put 'F' reported + acked")
     else:
