@@ -35,26 +35,35 @@
 274 REM printed "pushed build did not start." and halted.
 276 REM
 278 REM So lean on the one thing that IS certain: a .nexload that
-280 REM succeeds NEVER COMES BACK. Whatever happens here, reaching
-282 REM line 400 means no build ran - and then the right move is
-284 REM always the same, serve the Listener and wait for the push.
-286 REM
-288 REM (No colon-tail on the dot lines - the argument stays exactly
-289 REM the filename.)
-290 ON ERROR GO TO 400
-310 .mv /dev/incoming.nex /dev/run.nex
+280 REM succeeds NEVER COMES BACK. That cuts both ways, and it is why
+282 REM the build is retired HERE, before it is loaded, rather than
+284 REM after: nothing placed after line 325 can ever run when the
+286 REM build actually starts, so a run.nex cleaned up "afterwards"
+288 REM is never cleaned up at all - it just re-ran the same game at
+290 REM every boot until the card was edited by hand.
+292 REM
+294 REM Retiring first makes run.nex hold ONLY a freshly pushed build:
+296 REM   last boot's build -> /dev/last.nex   (kept, not destroyed:
+298 REM                                         .nexload /dev/last.nex
+300 REM                                         re-runs it by hand)
+302 REM   a new push        -> /dev/run.nex   (and is run below)
+304 REM So a push runs exactly once, and the boot after it lands back
+306 REM on the Listener ready for the next .ps1 push.
+308 REM
+309 REM (No colon-tail on the dot lines - the argument stays exactly
+310 REM the filename.)
+312 ON ERROR GO TO 316
+314 .mv /dev/run.nex /dev/last.nex
+316 ON ERROR GO TO 320
+318 .mv /dev/incoming.nex /dev/run.nex
 320 ON ERROR GO TO 400
 325 .nexload /dev/run.nex
 330 REM Still here, so no build ran: either none was waiting, or one
 332 REM was and would not start - and since a dot's failure is not
 334 REM reliably trappable we cannot tell the two apart, so the line
 336 REM below must read true either way (.nexload prints its own
-337 REM reason above when there was a real one). Drop any dud so the
-338 REM next boot starts clean, then carry on to the Listener: a build
-339 REM that will not run must not cost the machine its loop.
+338 REM reason above when there was a real one).
 340 PRINT "nextdev: no build ran - serving the Listener."
-345 ON ERROR GO TO 400
-350 .rm /dev/run.nex
 400 REM Nothing waiting: hand the machine to the Listener and wait.
 410 PRINT "nextdev: waiting for a push..."
 420 PRINT "pick 2 NextSync (Listener) on the menu."

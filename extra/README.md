@@ -74,6 +74,17 @@ and `.nexload`s it; otherwise it hands the machine to your chosen flavour,
 which enters the Listener and waits. ZX Next Remote soft-resets when it
 exits, which is what closes the loop — the reset IS the `GO TO`.
 
+A pushed build runs **once**. Before loading anything, `nextdev` retires the
+previous build to `/dev/last.nex`, so `/dev/run.nex` only ever holds a
+freshly pushed one: exit the game, and the next boot lands back on the
+Listener ready for your next push instead of re-running the old build for
+ever. The retired copy is kept, not deleted — `.nexload /dev/last.nex`
+re-runs it by hand whenever you want it again.
+
+It cannot be done the other way round: a successful `.nexload` never comes
+back, so anything written *after* it — a tidy-up, a prompt — never runs at
+all on the one path that matters.
+
 The PC side is even more agnostic: anything that puts a NextSync Listener
 behind Unite satisfies `Send-ToNext.ps1` — even a `.sync5 -listen` dot
 session, since the script only ever talks to the bridge — but the
