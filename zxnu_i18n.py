@@ -376,6 +376,14 @@ CATALOGS = {
         "Delete SyncIgnore File": "Eliminar archivo SyncIgnore",
         "Delete SyncPoint File": "Eliminar archivo SyncPoint",
         "Disconnect": "Desconectar",
+        "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
+            "La emulación RS232 ESP no pudo iniciarse (¿puerto {port} en uso?). MAME se inicia sin ella.",
+        "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
+            "Emulación RS232 ESP inspirada en jesperl - por Janko Stamenović",
+        "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
+            "La Emulación RS232 ESP opcional para MAME (Ajustes) es una reimplementación completa y limpia en Python de una idea de jesperl, de Janko Stamenović: un emulador ESP-AT que conecta el módulo Wi-Fi emulado de MAME con la red real. Muchas gracias por la idea inspiradora - ver https://sourceforge.net/projects/jesperl/.",
+        "Transfers through the RS232 ESP emulation need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
+            "Las transferencias a través de la emulación RS232 ESP necesitan el lado Next en su ritmo LENTO: usa '.sync5 -s' para el dot, o pon la velocidad UART en Slow en los ajustes de ZX Next Remote.",
         "Start {emulator}": "Iniciar {emulator}",
         "Color:": "Color:",
         "Pick a color for this Next. It tints the machine list and this machine's tab in the session strip.":
@@ -1497,6 +1505,14 @@ CATALOGS = {
         "Delete SyncIgnore File": "Eliminar ficheiro SyncIgnore",
         "Delete SyncPoint File": "Eliminar ficheiro SyncPoint",
         "Disconnect": "Desligar",
+        "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
+            "A emulação RS232 ESP não pôde iniciar (porta {port} em uso?). O MAME inicia sem ela.",
+        "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
+            "Emulação RS232 ESP inspirada em jesperl - por Janko Stamenović",
+        "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
+            "A Emulação RS232 ESP opcional para o MAME (Definições) é uma reimplementação completa e limpa em Python de uma ideia do jesperl, de Janko Stamenović: um emulador ESP-AT que liga o módulo Wi-Fi emulado do MAME à rede real. Muito obrigado pela ideia inspiradora - ver https://sourceforge.net/projects/jesperl/.",
+        "Transfers through the RS232 ESP emulation need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
+            "As transferências através da emulação RS232 ESP precisam do lado Next no ritmo LENTO: usa '.sync5 -s' no dot, ou define a velocidade UART como Slow nas definições do ZX Next Remote.",
         "Start {emulator}": "Iniciar {emulator}",
         "Color:": "Cor:",
         "Pick a color for this Next. It tints the machine list and this machine's tab in the session strip.":
@@ -2616,6 +2632,14 @@ CATALOGS = {
         "Delete SyncIgnore File": "Usuń plik SyncIgnore",
         "Delete SyncPoint File": "Usuń plik SyncPoint",
         "Disconnect": "Rozłącz",
+        "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
+            "Emulacja RS232 ESP nie mogła wystartować (port {port} zajęty?). MAME uruchamia się bez niej.",
+        "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
+            "Emulacja RS232 ESP zainspirowana projektem jesperl - autorstwa Janko Stamenovića",
+        "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
+            "Opcjonalna emulacja RS232 ESP dla MAME (Ustawienia) to czysta, pełna reimplementacja w Pythonie pomysłu z projektu jesperl Janko Stamenovića - emulatora ESP-AT łączącego emulowany moduł Wi-Fi MAME z prawdziwą siecią. Wielkie dzięki za inspirujący pomysł - zobacz https://sourceforge.net/projects/jesperl/.",
+        "Transfers through the RS232 ESP emulation need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
+            "Transfery przez emulację RS232 ESP wymagają WOLNEGO tempa po stronie Next: użyj '.sync5 -s' dla dota albo ustaw prędkość UART na Slow w ustawieniach ZX Next Remote.",
         "Start {emulator}": "Uruchom {emulator}",
         "Color:": "Kolor:",
         "Pick a color for this Next. It tints the machine list and this machine's tab in the session strip.":
@@ -3737,6 +3761,14 @@ CATALOGS = {
         "Delete SyncIgnore File": "Удалить файл SyncIgnore",
         "Delete SyncPoint File": "Удалить файл SyncPoint",
         "Disconnect": "Отключить",
+        "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
+            "Эмуляция RS232 ESP не смогла запуститься (порт {port} занят?). MAME запускается без неё.",
+        "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
+            "Эмуляция RS232 ESP вдохновлена проектом jesperl - автор Janko Stamenović",
+        "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
+            "Необязательная эмуляция RS232 ESP для MAME (Настройки) - это чистая полная реализация на Python идеи из проекта jesperl Janko Stamenović - эмулятора ESP-AT, соединяющего эмулируемый Wi-Fi модуль MAME с реальной сетью. Большое спасибо за вдохновляющую идею - см. https://sourceforge.net/projects/jesperl/.",
+        "Transfers through the RS232 ESP emulation need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
+            "Передачи через эмуляцию RS232 ESP требуют МЕДЛЕННОго темпа на стороне Next: используйте '.sync5 -s' для дот-команды или установите скорость UART в Slow в настройках ZX Next Remote.",
         "Start {emulator}": "Запустить {emulator}",
         "Color:": "Цвет:",
         "Pick a color for this Next. It tints the machine list and this machine's tab in the session strip.":
@@ -4857,6 +4889,14 @@ CATALOGS = {
         "Delete SyncIgnore File": "Smazat soubor SyncIgnore",
         "Delete SyncPoint File": "Smazat soubor SyncPoint",
         "Disconnect": "Odpojit",
+        "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
+            "Emulaci RS232 ESP se nepodařilo spustit (port {port} obsazen?). MAME se spouští bez ní.",
+        "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
+            "Emulace RS232 ESP inspirovaná projektem jesperl - od Janko Stamenoviće",
+        "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
+            "Volitelná emulace RS232 ESP pro MAME (Nastavení) je čistá úplná reimplementace nápadu z projektu jesperl Janko Stamenoviće v Pythonu - emulátoru ESP-AT propojujícího emulovaný Wi-Fi modul MAME se skutečnou sítí. Velké díky za inspirativní nápad - viz https://sourceforge.net/projects/jesperl/.",
+        "Transfers through the RS232 ESP emulation need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
+            "Přenosy přes emulaci RS232 ESP vyžadují POMALÉ tempo na straně Next: použijte '.sync5 -s' pro dot, nebo nastavte rychlost UART na Slow v nastavení ZX Next Remote.",
         "Start {emulator}": "Spustit {emulator}",
         "Color:": "Barva:",
         "Pick a color for this Next. It tints the machine list and this machine's tab in the session strip.":
@@ -5979,6 +6019,14 @@ CATALOGS = {
         "Delete SyncIgnore File": "Supprimer le fichier SyncIgnore",
         "Delete SyncPoint File": "Supprimer le fichier SyncPoint",
         "Disconnect": "Déconnecter",
+        "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
+            "L'émulation RS232 ESP n'a pas pu démarrer (port {port} occupé ?). MAME démarre sans elle.",
+        "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
+            "Émulation RS232 ESP inspirée de jesperl - par Janko Stamenović",
+        "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
+            "L'émulation RS232 ESP optionnelle pour MAME (Réglages) est une réimplémentation complète et propre en Python d'une idée de jesperl, de Janko Stamenović : un émulateur ESP-AT reliant le module Wi-Fi émulé de MAME au réseau réel. Un grand merci pour l'idée inspirante - voir https://sourceforge.net/projects/jesperl/.",
+        "Transfers through the RS232 ESP emulation need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
+            "Les transferts via l'émulation RS232 ESP exigent le rythme LENT côté Next : utilisez '.sync5 -s' pour le dot, ou réglez la vitesse UART sur Slow dans les réglages de ZX Next Remote.",
         "Start {emulator}": "Démarrer {emulator}",
         "Color:": "Couleur :",
         "Pick a color for this Next. It tints the machine list and this machine's tab in the session strip.":

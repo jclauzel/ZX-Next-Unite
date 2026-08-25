@@ -27,6 +27,20 @@ confirmed in written correspondence with the author that he is happy for
 ZX-Next-Unite to build on HDFM-Gooey; copies of that correspondence are kept
 on file. Many thanks to em00k for the original tool.
 
+### jesperl — Janko Stamenović (GNU Affero GPL v3)
+
+The idea behind the optional RS232 ESP Emulation for MAME — proxying MAME's
+`-rs232_esp`/`-bitb` bitbanger socket to the real network by emulating the
+ESP8266 AT command set — comes from **jesperl** by Janko Stamenović
+(<https://sourceforge.net/projects/jesperl/>), released under the GNU Affero
+GPL v3. Many thanks for the inspirational idea.
+
+ZX-Next-Unite's `espemu.py` is a clean full reimplementation, not a port: it
+shares no code, structure or text with jesperl and was written independently
+from Espressif's publicly documented AT instruction set and this project's
+own Next-side clients. It is by Julien Clauzel and covered by this project's
+MIT license.
+
 ## Libraries
 
 These are installed separately (via `pip`) for source installs. The frozen
