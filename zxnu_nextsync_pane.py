@@ -539,6 +539,42 @@ def build_nextsync_pane(
                  for sid, addr in plist],
                 int(host._re_control.get('max_peers', 4)))
 
+    def _re_emulator_launchers():
+        # Which emulators can be launched RIGHT NOW, as (label, callable)
+        # for the Remote Explorer's left-hand strip. Both halves come from
+        # the SD Card tab's own rules so the strip can never disagree with
+        # the Launch buttons: MAME through host._mame_usable() (which
+        # counts a Linux Flatpak setup with no local binary), CSpect
+        # through the detected executable path every other call site
+        # tests. The launchers are host._launch_*_fn - the very functions
+        # those buttons are connected to - called with no argument for the
+        # plain "boot the mounted image" launch.
+        out = []
+        _mame_ok = getattr(host, "_mame_usable", None)
+        if _mame_ok is not None and _mame_ok() and getattr(
+                host, "_launch_mame_fn", None) is not None:
+            out.append(("Mame", host._launch_mame_fn))
+        if (getattr(host, "_cspect_executable_path", None) is not None
+                and getattr(host, "_launch_cspect_fn", None) is not None):
+            out.append(("CSpect", host._launch_cspect_fn))
+        return out
+
+    def _re_refresh_emulators():
+        # Detection is not a signal in this app: it changes when the
+        # startup scan lands, when an itch.io install/uninstall finishes,
+        # when MAME is installed in-app and when the Flatpak toggle flips.
+        # Each of those calls this; the widget also refreshes on show, so
+        # a missed notification costs a stale strip only while it is
+        # hidden. Safe before the (lazily built) widget exists.
+        _w = host._re_widget
+        if _w is None:
+            return
+        try:
+            _w.refresh_emulator_strip()
+        except RuntimeError:
+            pass                      # widget torn down mid-shutdown
+    host._re_refresh_emulators = _re_refresh_emulators
+
     def _re_bridge_enqueue_to(sid, cmd):
         # Targeted delivery for ?session=N — the session's own queue, the
         # baton untouched. The worker's closure validates sid under its
@@ -843,6 +879,44 @@ def build_nextsync_pane(
         except Exception:
             pass
 
+    def _re_machine_color_for(addr):
+        # The machine's picked tint for an address (9.5.27) as "#rrggbb",
+        # or None - the exact twin of the name map above, deliberately a
+        # SEPARATE cfg key: the name map's values are plain strings and
+        # every cfg already in the field holds them that way.
+        try:
+            _map = json.loads(str(configuration_dictionary.get(
+                SETTING_RE_MACHINE_COLORS, "") or "{}"))
+            _v = _map.get(str(addr), "") if isinstance(_map, dict) else ""
+            return _v if isinstance(_v, str) and _v else None
+        except (ValueError, TypeError):
+            return None
+
+    def _re_on_machine_color_changed(addr, color):
+        # The colour editor's report: remember (or forget, on empty) the
+        # tint for this address. Same LRU cap as the names, so the two maps
+        # age out together rather than one keeping ghosts the other dropped.
+        if not addr:
+            return
+        try:
+            try:
+                _map = json.loads(str(configuration_dictionary.get(
+                    SETTING_RE_MACHINE_COLORS, "") or "{}"))
+                if not isinstance(_map, dict):
+                    _map = {}
+            except (ValueError, TypeError):
+                _map = {}
+            _map.pop(str(addr), None)
+            if color:
+                _map[str(addr)] = str(color)
+                while len(_map) > 24:          # oldest out
+                    _map.pop(next(iter(_map)))
+            configuration_dictionary[SETTING_RE_MACHINE_COLORS] = (
+                json.dumps(_map, separators=(",", ":")))
+            save_configuration_file()
+        except Exception:
+            pass
+
     def _re_on_sort_changed(which, value):
         # The widget reports a new column sort ("<key>:<asc|desc>") for one of
         # its panes; persist it so both panes reopen sorted the same way.
@@ -919,6 +993,14 @@ def build_nextsync_pane(
             remote_cwd_for=_re_remote_cwd_for,
             machine_name_for=_re_machine_name_for,
             on_machine_name_changed=_re_on_machine_name_changed,
+            machine_color_for=_re_machine_color_for,
+            on_machine_color_changed=_re_on_machine_color_changed,
+            # The session strip's right-click Disconnect targets the machine
+            # that was clicked, which may not be the one holding the baton -
+            # so it needs the same per-session queue the HTTP bridge's
+            # ?session=N routes use, not the shared one.
+            enqueue_to=_re_bridge_enqueue_to,
+            emulator_launchers=_re_emulator_launchers,
             local_sort=local_sort, next_sort=next_sort,
             on_sort_changed=_re_on_sort_changed,
             extra_drives=extra_drives,

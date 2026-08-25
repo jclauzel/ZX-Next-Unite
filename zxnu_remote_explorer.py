@@ -26,19 +26,21 @@ from PySide6.QtCore import (
     Qt, QDir, QEvent, QModelIndex, QMimeData, QRect, QUrl, QSize, QTimer,
 )
 from PySide6.QtGui import (
-    QColor, QDrag, QFontMetrics, QKeySequence, QPainter, QPalette,
-    QStandardItem, QStandardItemModel,
+    QBrush, QColor, QDrag, QFontMetrics, QKeySequence, QPainter, QPalette,
+    QPen, QStandardItem, QStandardItemModel,
 )
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QFileSystemModel, QGridLayout, QHBoxLayout,
-    QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QStyle,
-    QTreeView, QVBoxLayout, QWidget,
+    QAbstractItemView, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
+    QFileSystemModel, QGridLayout, QHBoxLayout, QInputDialog, QLabel,
+    QLineEdit, QMenu, QMessageBox, QPushButton, QStyle, QTreeView,
+    QVBoxLayout, QWidget,
 )
 
 from zxnu_config import (
     DEFAULT_COLOR_UP_DIRECTORY, DEFAULT_COLOR_DIR_NAME, DEFAULT_COLOR_DIR_TYPE,
     DEFAULT_COLOR_FILE_NAME, DEFAULT_COLOR_FILE_EXT, DEFAULT_COLOR_FILE_SIZE,
     DEFAULT_COLOR_GENERAL_TEXT, hex_to_qcolor, open_path_with_system_shell,
+    qcolor_to_hex, readable_text_color,
 )
 from zxnu_workers import (
     CompactButton, DotDotFirstProxyModel, HdfProgressDialog,
@@ -49,6 +51,11 @@ from zxnu_workers import (
 # Roles carrying the remote entry's full posix path and its directory flag.
 RE_PATH_ROLE = Qt.UserRole + 1
 RE_ISDIR_ROLE = Qt.UserRole + 2
+# Resolved ONCE at import: PySide6 materialises enum members lazily, and
+# a first-touch inside a hot repaint path has been seen crashing when it
+# lands mid garbage-collection (the machine-colour suite reproduced it).
+RE_BG_ROLE = Qt.ItemDataRole.BackgroundRole
+RE_FG_ROLE = Qt.ItemDataRole.ForegroundRole
 
 
 # CompactButton (imported above from zxnu_workers) backs the Up / Refresh /
@@ -275,16 +282,39 @@ class SessionTab(QWidget):
     would eat ~140px of the listing, and the listing is the point of the
     pane. Colours come from the PALETTE rather than the app's hardcoded
     chrome so the tab follows whatever theme is live.
+
+    Two opt-in channels ride on top of that (9.5.27):
+
+    * ``tint`` - the user's per-machine colour (the same one the machine
+      combo wears), painted INSTEAD of the palette background so a Next
+      is recognisable by colour alone. The active/inactive distinction
+      survives it: the driven machine gets the tint at full strength
+      plus a bright rim, a benched one a darkened wash. The label flips
+      between black and white to stay readable on whatever was picked
+      (``readable_text_color``) - a fixed foreground is invisible on
+      half the colour wheel.
+    * ``on_menu`` - a right-click handler, called with the GLOBAL
+      position, so the strip can offer the same per-machine actions the
+      top bar offers for the driven one (switch / name+colour /
+      disconnect). Tabs are rebuilt wholesale on every roster change, so
+      the handler is re-bound with the tab and can never outlive its sid.
     """
 
     W = 26                       # strip width; the text is what is tall
     _PAD = 10                    # end padding, both ends of the label
 
-    def __init__(self, text, active, on_click, parent=None):
+    def __init__(self, text, active, on_click, parent=None, *,
+                 tint=None, on_menu=None):
         super().__init__(parent)
         self._text = text or ""
         self._active = bool(active)
         self._on_click = on_click
+        # QColor or None. Kept as a plain attribute rather than widget
+        # state to restyle later: _rebuild_session_strip throws every tab
+        # away on each roster/name change, so the tint has to arrive with
+        # the constructor or it would be lost on the next repaint.
+        self._tint = tint if (tint is not None and tint.isValid()) else None
+        self._on_menu = on_menu
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(self._text)
         fm = QFontMetrics(self.font())
@@ -305,21 +335,65 @@ class SessionTab(QWidget):
         else:
             super().mousePressEvent(event)
 
+    def mouseDoubleClickEvent(self, event):
+        """Swallow doubles: QWidget's default re-dispatches a double click
+        into mousePressEvent, so without this a fast double click fired
+        _on_click TWICE - harmless on a session tab (switching to the
+        machine already driven is a no-op) but an EmulatorTab's click
+        LAUNCHES, and two launches mount one disk image twice. The first
+        press of the pair has already acted; the double adds nothing."""
+        if event.button() == Qt.LeftButton:
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
+
+    def contextMenuEvent(self, event):
+        """Right-click: hand the GLOBAL position to the host's builder.
+
+        contextMenuEvent rather than the CustomContextMenu policy the two
+        views use: this is a hand-painted QWidget with no viewport to map
+        through, and the event already carries the screen position a
+        QMenu wants.
+        """
+        if self._on_menu is None:
+            super().contextMenuEvent(event)
+            return
+        event.accept()
+        self._on_menu(event.globalPos())
+
     def paintEvent(self, _event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         pal = self.palette()
-        if self._active:
+        if self._tint is not None:
+            # The machine's own colour. Active = as picked; benched = the
+            # same hue, dimmed - so "which one is lit" stays a brightness
+            # difference (the palette's own signal) and never depends on
+            # telling two hues apart.
+            bg = self._tint if self._active else self._tint.darker(190)
+            fg = readable_text_color(bg)
+        elif self._active:
             bg = pal.color(QPalette.ColorRole.Highlight)
             fg = pal.color(QPalette.ColorRole.HighlightedText)
         else:
             bg = pal.color(QPalette.ColorRole.Button).darker(115)
             fg = pal.color(QPalette.ColorRole.ButtonText)
-        p.setPen(Qt.NoPen)
+        rimmed = self._tint is not None and self._active
+        if rimmed:
+            # A rim in the readable foreground: on a dark tint the dimmed
+            # and the full shade can sit close together, and the driven
+            # machine must never be ambiguous.
+            p.setPen(QPen(fg, 2))
+        else:
+            p.setPen(Qt.NoPen)
         p.setBrush(bg)
         # Rounded on the OUTER edge only would need a path; a plain
         # rounded rect reads as a tab well enough and costs one call.
-        p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 6, 6)
+        # The rim needs a pixel of room for the pen (drawn centred on the
+        # path); everything else keeps the original geometry exactly.
+        box = (self.rect().adjusted(1, 1, -2, -2) if rimmed
+               else self.rect().adjusted(0, 0, -1, -1))
+        p.drawRoundedRect(box, 6, 6)
         # Bottom-to-top: put the origin at the bottom-left and turn left,
         # which makes the drawing rect (height x width).
         p.translate(0, self.height())
@@ -331,6 +405,112 @@ class SessionTab(QWidget):
         p.drawText(box, int(Qt.AlignmentFlag.AlignVCenter
                             | Qt.AlignmentFlag.AlignLeft), text)
         p.end()
+
+
+class EmulatorTab(SessionTab):
+    """One INSTALLED emulator as a vertical tab down the LEFT edge of the
+    local pane - the mirror of the session strip on the Next side.
+
+    Same 26px strip, same bottom-to-top label, same the-whole-widget-is-
+    the-button. What differs is semantic: an emulator is never "the one
+    this pane drives", so there is no active state to light, and a click
+    LAUNCHES instead of switching. The tab exists only while its emulator
+    is detected, which is the same rule the SD Card tab's Launch buttons
+    follow (they are hidden, not disabled, when nothing was found) - so
+    the strip answers "what can I boot from here?" just by existing.
+    """
+
+    def __init__(self, text, on_click, parent=None, *, tooltip=""):
+        super().__init__(text, False, on_click, parent)
+        if tooltip:
+            self.setToolTip(tooltip)
+
+
+class MachineIdentityDialog(QDialog):
+    """The "Name this Next" editor: friendly name AND machine colour.
+
+    Was a bare QInputDialog.getText until 9.5.27. A name tells two Nexts
+    apart once you READ the combo; a colour tells them apart at a glance,
+    on the combo and on the session tabs at the same time - which is the
+    whole job of the strip. Both are keyed by ADDRESS and persisted by
+    the host, so they survive whatever session id the machine is dealt
+    next.
+
+    The colour is optional and stays optional: no colour means the tab
+    and the combo keep the palette/chrome look they always had, so
+    nobody who never opens this dialog sees a change.
+    """
+
+    def __init__(self, addr, name="", color=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(ui_tr_now("Name this Next"))
+        self._color = color if (color is not None and color.isValid()) else None
+
+        box = QVBoxLayout(self)
+        box.addWidget(QLabel(
+            ui_tr_now("Friendly name for {addr} (empty removes it):").format(
+                addr=addr), self))
+        self.name_edit = QLineEdit(str(name or ""), self)
+        self.name_edit.selectAll()
+        box.addWidget(self.name_edit)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel(ui_tr_now("Color:"), self))
+        self.color_btn = QPushButton(self)
+        self.color_btn.setFixedSize(80, 22)
+        self.color_btn.setToolTip(ui_tr_now(
+            "Pick a color for this Next. It tints the machine list and "
+            "this machine's tab in the session strip."))
+        self.color_btn.clicked.connect(self._pick_color)
+        row.addWidget(self.color_btn)
+        self.color_clear = QPushButton("✕", self)
+        self.color_clear.setFixedSize(22, 22)
+        self.color_clear.setToolTip(ui_tr_now("Clear the color"))
+        self.color_clear.clicked.connect(self._clear_color)
+        row.addWidget(self.color_clear)
+        row.addStretch(1)
+        box.addLayout(row)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel, parent=self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        box.addWidget(buttons)
+        self._paint_swatch()
+
+    def _paint_swatch(self):
+        """The swatch shows the colour, or a dashed outline for "none" -
+        an empty solid button would read as black on a dark theme."""
+        if self._color is None:
+            self.color_btn.setStyleSheet(
+                "QPushButton { background: transparent;"
+                " border: 1px dashed #888; border-radius: 3px; }")
+        else:
+            self.color_btn.setStyleSheet(
+                f"QPushButton {{ background-color: {qcolor_to_hex(self._color)};"
+                " border: 1px solid #888; border-radius: 3px; }")
+        self.color_clear.setEnabled(self._color is not None)
+
+    def _pick_color(self):
+        # Same 3-arg house form as the Settings colour rows: the platform's
+        # native picker where there is one, and an English title (the app
+        # deliberately leaves the colour dialog untranslated).
+        chosen = QColorDialog.getColor(
+            self._color if self._color is not None else QColor("#3cd8e8"),
+            self, f"Choose color - {self.windowTitle()}")
+        if chosen.isValid():
+            self._color = chosen
+            self._paint_swatch()
+
+    def _clear_color(self):
+        self._color = None
+        self._paint_swatch()
+
+    def result_values(self):
+        """(name, colour-or-None) as edited. The caller decides what an
+        empty name or a missing colour means - this dialog only reports."""
+        return self.name_edit.text(), self._color
 
 
 class IdleStarfieldOverlay(QWidget):
@@ -508,9 +688,19 @@ class RemoteExplorerWidget(QWidget):
                  on_sort_changed=None, on_toast=None, extra_drives=None,
                  on_extra_drives_changed=None, emulator_entries=None,
                  remote_cwd_for=None, machine_name_for=None,
-                 on_machine_name_changed=None):
+                 on_machine_name_changed=None, machine_color_for=None,
+                 on_machine_color_changed=None, enqueue_to=None,
+                 emulator_launchers=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
+        # host closure: enqueue_to(sid, cmd) -> bool, delivering ONE command
+        # to a NAMED session's own queue instead of the shared one the baton
+        # holder drains. The HTTP bridge has had this since ?session=N; the
+        # session strip's right-click menu needs it for the same reason -
+        # "disconnect THAT Next" must not mean "disconnect whichever Next
+        # this pane happens to drive". Without the hook the menu simply
+        # offers nothing for a benched machine.
+        self._enqueue_to_raw = enqueue_to
         self._drain_raw = drain              # host closure: empty the queue, -> count
         self._log = log or (lambda s: None)
         # host closure: path -> [EmulatorAutostart] for the emulators that are
@@ -519,6 +709,12 @@ class RemoteExplorerWidget(QWidget):
         # deliberately does not know which emulators exist; without the hook it
         # simply offers nothing.
         self._emulator_entries = emulator_entries or (lambda path: [])
+        # host closure: () -> [(name, launch_callable)] for the emulators
+        # that are INSTALLED right now, newest detection wins. Drives the
+        # left-hand emulator strip. The widget deliberately knows nothing
+        # about which emulators exist or how one is started - same seam as
+        # _emulator_entries above; without the hook the strip never shows.
+        self._emulator_launchers = emulator_launchers or (lambda: [])
         self._on_sync_root_changed = on_sync_root_changed or (lambda p: None)
         # Surface Next-side failures ('F' replies / abandoned transfers) to the
         # user: on_toast(title, message, variant) pops a host toast.
@@ -543,6 +739,16 @@ class RemoteExplorerWidget(QWidget):
         self._machine_name_for = machine_name_for or (lambda a: None)
         self._on_machine_name_changed = (on_machine_name_changed or
                                          (lambda a, n: None))
+        # Per-machine COLOUR (9.5.27), the exact twin of the name pair above
+        # and keyed by the same ADDRESS: machine_color_for(addr) answers a
+        # "#rrggbb" string (None/"" = untinted) and edits are reported through
+        # on_machine_color_changed(addr, hex) for the host to persist. Kept as
+        # a separate map from the names on purpose - the existing cfg entries
+        # are plain strings, and widening them would break every cfg already
+        # in the field.
+        self._machine_color_for = machine_color_for or (lambda a: None)
+        self._on_machine_color_changed = (on_machine_color_changed or
+                                          (lambda a, c: None))
         self._remote_cwd_addr = None         # last addr a folder was reported for
         self._remote_start_dir = _norm_remote_dir(remote_start_dir)
         # Per-pane sort (column + direction), restored from the config and saved
@@ -740,11 +946,30 @@ class RemoteExplorerWidget(QWidget):
         local_path_row.addWidget(self.local_path_edit, 1)
         local_path_row.addWidget(self.local_set_syncroot_button)
 
+        # Emulator strip (9.5.27): the session strip's mirror image, down
+        # the OUTER left edge. Margin on the right only, so the tabs sit
+        # flush with the pane's edge exactly as the session tabs do on
+        # theirs. Hidden whenever no emulator is installed, so a machine
+        # without one loses no width at all.
+        self.local_emulator_strip = QWidget(self)
+        self._emulator_strip_box = QVBoxLayout(self.local_emulator_strip)
+        self._emulator_strip_box.setContentsMargins(0, 0, 3, 0)
+        self._emulator_strip_box.setSpacing(4)
+        self._emulator_strip_box.addStretch(1)   # tabs pile from the TOP
+        self.local_emulator_strip.setVisible(False)
+        self._emulator_tabs = []
+
+        local_tree_row = QHBoxLayout()
+        local_tree_row.setContentsMargins(0, 0, 0, 0)
+        local_tree_row.setSpacing(0)
+        local_tree_row.addWidget(self.local_emulator_strip, 0)
+        local_tree_row.addWidget(self.local_view, 1)
+
         local_box = QVBoxLayout()
         local_box.setContentsMargins(0, 0, 0, 0)
         local_box.setSpacing(2)
         local_box.addLayout(local_bar)
-        local_box.addWidget(self.local_view)
+        local_box.addLayout(local_tree_row)
         local_box.addLayout(local_path_row)
         local_container = QWidget(self)
         local_container.setLayout(local_box)
@@ -1010,6 +1235,12 @@ class RemoteExplorerWidget(QWidget):
         # Card tab kicks its transfer-arrow glow when it becomes the active tab.
         super().showEvent(event)
         self._start_arrow_pulse()
+        # Emulator detection may have changed while this pane was on
+        # another tab (an itch.io install finishing, the startup scan
+        # landing). The host refreshes the strip at each of those points
+        # too; this is the safety net, and rebuilding a list of at most
+        # two tabs is cheaper than tracking who missed a notification.
+        self.refresh_emulator_strip()
 
     def hideEvent(self, event):
         # Hidden (returned to classic sync, or switched to another tab): stop
@@ -1560,6 +1791,7 @@ class RemoteExplorerWidget(QWidget):
             # while the roster is empty. The ✎ name button rides along.
             self.next_machine_combo.setVisible(len(plist) >= 1)
             self.next_machine_name_btn.setVisible(len(plist) >= 1)
+            self._apply_machine_colors()
         finally:
             self._peer_guard = False
         self._rebuild_session_strip()
@@ -1567,6 +1799,115 @@ class RemoteExplorerWidget(QWidget):
             # The baton moved: this pane now drives a DIFFERENT machine.
             self._set_connected(False)     # drop the old card's listing
             self.on_connected()            # drives + listing of the new one
+
+    def refresh_emulator_strip(self):
+        """Rebuild the left-hand emulator tabs from the host's detection.
+
+        Public and idempotent: emulator detection is not a Qt signal in
+        this app - it changes when the startup scan finishes, when an
+        itch.io install or uninstall lands, when MAME is installed
+        in-app, and when the Linux Flatpak toggle flips - so the host
+        calls this at each of those points, and showEvent calls it as
+        the safety net for anything that changed while the tab was away.
+
+        Tabs are rebuilt rather than patched, exactly as the session
+        strip does: the list is at most two entries and MAME's label can
+        change under it (the "(flatpak)" suffix), so an in-place update
+        would be the harder thing to get right.
+        """
+        for tab in self._emulator_tabs:
+            self._emulator_strip_box.removeWidget(tab)
+            tab.setParent(None)
+            tab.deleteLater()
+        self._emulator_tabs = []
+        try:
+            entries = list(self._emulator_launchers() or [])
+        except Exception:                       # noqa: BLE001
+            logging.exception("Remote explorer: emulator lookup failed")
+            entries = []
+        self.local_emulator_strip.setVisible(bool(entries))
+        for i, (name, launch) in enumerate(entries):
+            tab = EmulatorTab(
+                str(name), (lambda fn=launch: self._launch_emulator(fn)),
+                self.local_emulator_strip,
+                tooltip=ui_tr_now("Start {emulator}").format(emulator=name))
+            self._emulator_strip_box.insertWidget(i, tab)
+            self._emulator_tabs.append(tab)
+
+    def _launch_emulator(self, fn):
+        """Run one emulator launcher, called with NO arguments - the bare
+        launch the SD Card tab's button makes. Deferred by a zero-timer so
+        the click that started it has finished delivering first: the
+        launcher disables and re-enables widgets around a blocking call,
+        and doing that from inside a mouse handler is how a repaint gets
+        skipped."""
+        QTimer.singleShot(0, lambda: self._run_emulator_launcher(fn))
+
+    def _run_emulator_launcher(self, fn):
+        try:
+            fn()
+        except Exception:                       # noqa: BLE001
+            logging.exception("Remote explorer: emulator launch failed")
+
+    def _machine_color(self, addr):
+        """This address's picked colour as a QColor, or None.
+
+        The host stores "#rrggbb"; anything it cannot parse is treated as
+        "no colour" rather than as an error - a hand-edited cfg must not
+        be able to make the pane unpaintable.
+        """
+        raw = self._machine_color_for(addr)
+        if not raw:
+            return None
+        col = QColor(str(raw))
+        return col if col.isValid() else None
+
+    def _apply_machine_colors(self):
+        """Push the per-machine tints onto the machine combo.
+
+        TWO surfaces, because the combo has two: the popup ENTRIES take
+        Background/Foreground roles, and the CLOSED field - the part that
+        is on screen the other 99% of the time, and the one the request
+        was actually about - takes a widget stylesheet for the machine
+        currently driven.
+
+        The stylesheet restates the whole app-chrome combo rule
+        (NEXT_CHROME_QSS in zxnu_config) rather than just the background:
+        a partial widget rule leaves the app's border/padding in force and
+        the two disagree about the frame. ``::drop-down`` is deliberately
+        NOT restated - the chrome never styles it either, so the arrow
+        keeps the platform's own rendering.
+        """
+        for i in range(self.next_machine_combo.count()):
+            sid = self.next_machine_combo.itemData(i)
+            addr = None
+            for _sid, _addr in self._peer_map:
+                if _sid == sid:
+                    addr = _addr
+                    break
+            col = self._machine_color(addr) if addr else None
+            if col is None:
+                self.next_machine_combo.setItemData(i, None, RE_BG_ROLE)
+                self.next_machine_combo.setItemData(i, None, RE_FG_ROLE)
+            else:
+                self.next_machine_combo.setItemData(
+                    i, QBrush(col), RE_BG_ROLE)
+                self.next_machine_combo.setItemData(
+                    i, QBrush(readable_text_color(col)), RE_FG_ROLE)
+        active_col = None
+        _addr = self._active_addr()
+        if _addr:
+            active_col = self._machine_color(_addr)
+        if active_col is None:
+            self.next_machine_combo.setStyleSheet("")
+            return
+        self.next_machine_combo.setStyleSheet(
+            "QComboBox {"
+            f" background-color: {qcolor_to_hex(active_col)};"
+            f" color: {qcolor_to_hex(readable_text_color(active_col))};"
+            " border: 1px solid #4a4a8a; border-radius: 3px;"
+            " padding: 2px 8px; }"
+            "QComboBox:hover { border-color: #ff3cff; }")
 
     def _rebuild_session_strip(self):
         """Repaint the side tabs from the roster we hold.
@@ -1593,7 +1934,10 @@ class RemoteExplorerWidget(QWidget):
             label = (self._machine_name_for(addr) or "").strip() or str(addr)
             tab = SessionTab(label, sid == self._peer_active,
                              (lambda s=sid: self._request_machine(s)),
-                             self.next_session_strip)
+                             self.next_session_strip,
+                             tint=self._machine_color(addr),
+                             on_menu=(lambda pos, s=sid:
+                                      self._session_tab_menu(s, pos)))
             self._session_strip_box.insertWidget(i, tab)
             self._session_tabs.append(tab)
 
@@ -1606,24 +1950,32 @@ class RemoteExplorerWidget(QWidget):
         return session_label(sid, addr, self._machine_name_for(addr) or "")
 
     def _disconnect_peer(self):
-        """The Disconnect button: ask the driven Next to leave listen mode
-        and end its application — the bridge's /forceexit, on a button.
+        """The Disconnect button: the DRIVEN Next (see _disconnect_session)."""
+        if not self._connected:
+            return
+        self._disconnect_session(None)
+
+    def _disconnect_session(self, sid=None):
+        """Ask a Next to leave listen mode and end its application - the
+        bridge's /forceexit, on a button (``sid=None``, the driven one) or
+        from a session tab's right-click menu (``sid=<that machine>``).
 
         Sends the MARKED quit ('Q' + the exit marker, zxnu_workers): a bare
         quit is what a server SHUTTING DOWN sends, and the far side must be
         able to tell the two apart or stopping our own server would kill the
-        operator's app. Fire-and-forget rather than a tracked operation —
+        operator's app. Fire-and-forget rather than a tracked operation -
         the command's whole point is that the peer stops answering, so there
         is no completion to wait for; the worker's disconnect signal repaints
         the pane when the link drops.
+
+        A NAMED session is delivered on that session's OWN queue rather than
+        the shared one, because the shared queue is drained by whoever holds
+        the baton: routing a targeted quit through it would send the wrong
+        machine away. That also keeps it off _enqueue, whose job is to count
+        commands toward the RUNNING operation - an operation that belongs to
+        a different Next entirely.
         """
-        if not self._connected:
-            return
-        machine = (self.next_machine_combo.currentText().strip()
-                   if self.next_machine_combo.isVisible() else "")
-        if not machine:
-            _addr = self._active_addr()
-            machine = str(_addr) if _addr else ""
+        machine = self._machine_text_for(sid)
         if QMessageBox.question(
                 self, ui_tr_now("Disconnect"),
                 ui_tr_now("Tell this Next to leave listen mode and exit? "
@@ -1634,14 +1986,78 @@ class RemoteExplorerWidget(QWidget):
                 QMessageBox.Yes | QMessageBox.Cancel,
                 QMessageBox.Cancel) != QMessageBox.Yes:
             return
-        self._enqueue(("quit_app",))
+        if sid is None or sid == self._peer_active:
+            self._enqueue(("quit_app",))
+        elif not self._enqueue_to(sid, ("quit_app",)):
+            # That Next left between the right-click and the answer, or the
+            # host wired no targeted channel. Either way nothing was sent,
+            # and saying so beats a silent no-op.
+            self._log(ui_tr_now("That Next is no longer on the line."))
+            return
         self._log(ui_tr_now("Asked the Next to leave listen mode and exit."))
 
+    def _enqueue_to(self, sid, cmd):
+        """One command to a NAMED session's queue. False when the host wired
+        no targeted channel, or the worker no longer knows that sid."""
+        if self._enqueue_to_raw is None:
+            return False
+        try:
+            return bool(self._enqueue_to_raw(sid, cmd))
+        except Exception:                       # noqa: BLE001
+            logging.exception("Remote explorer: targeted enqueue failed")
+            return False
+
+    def _machine_text_for(self, sid=None):
+        """How to NAME a machine in a dialog: the combo's own label for it,
+        falling back to the bare address. ``sid=None`` means the driven one,
+        which is what the top Disconnect button has always shown."""
+        if sid is None:
+            machine = (self.next_machine_combo.currentText().strip()
+                       if self.next_machine_combo.isVisible() else "")
+            if machine:
+                return machine
+            _addr = self._active_addr()
+            return str(_addr) if _addr else ""
+        for _sid, _addr in self._peer_map:
+            if _sid == sid:
+                return self._machine_label(_sid, _addr)
+        return ""
+
+    def _session_tab_menu(self, sid, global_pos):
+        """Right-click on a session tab: the per-machine actions.
+
+        The top bar has always acted on the DRIVEN Next only - to name or
+        disconnect a benched one you had to switch to it first, which is a
+        listing round-trip for something you only wanted to name or send
+        away. The strip already knows which machine was clicked, so every
+        entry here acts on THAT one.
+
+        Dialogs are raised after menu.exec() returns, so the menu's modal
+        grab is already released (both view menus do the same).
+        """
+        addr = None
+        for _sid, _addr in self._peer_map:
+            if _sid == sid:
+                addr = _addr
+                break
+        if addr is None:
+            return                    # the machine left mid right-click
+        menu = QMenu(self)
+        act_switch = menu.addAction(ui_tr_now("Switch to this Next"))
+        act_switch.setEnabled(sid != self._peer_active)
+        act_name = menu.addAction(ui_tr_now("Name and color…"))
+        menu.addSeparator()
+        act_disc = menu.addAction(ui_tr_now("Disconnect"))
+        chosen = menu.exec(global_pos)
+        if chosen == act_switch:
+            self._request_machine(sid)
+        elif chosen == act_name:
+            self._edit_machine_identity(addr)
+        elif chosen == act_disc:
+            self._disconnect_session(sid)
+
     def _on_machine_name_edit(self):
-        """The ✎ button: name (or rename) the machine the combo currently
-        shows. The name is keyed by the machine's ADDRESS and persisted by
-        the host, so it survives reconnects and restarts whatever session
-        id the machine is dealt next. An empty name removes it."""
+        """The ✎ button: name/colour the machine the combo currently shows."""
         ix = self.next_machine_combo.currentIndex()
         sid = self.next_machine_combo.itemData(ix)
         addr = None
@@ -1651,18 +2067,31 @@ class RemoteExplorerWidget(QWidget):
                 break
         if not addr:
             return
-        name, ok = QInputDialog.getText(
-            self, ui_tr_now("Name this Next"),
-            ui_tr_now("Friendly name for {addr} (empty removes it):").format(
-                addr=addr),
-            text=self._machine_name_for(addr) or "")
-        if not ok:
+        self._edit_machine_identity(addr)
+
+    def _edit_machine_identity(self, addr):
+        """Name (or rename) and colour ONE machine.
+
+        Both are keyed by the machine's ADDRESS and persisted by the host,
+        so they survive reconnects and restarts whatever session id the
+        machine is dealt next. An empty name removes it; a cleared colour
+        removes the tint. Reached from the ✎ button (the driven machine)
+        and from a session tab's right-click menu (any machine on the
+        line) - one editor, so the two entry points cannot drift.
+        """
+        dlg = MachineIdentityDialog(
+            addr, self._machine_name_for(addr) or "",
+            self._machine_color(addr), self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
             return
+        name, color = dlg.result_values()
         # Collapse whitespace and cap the length: the combo shares its row
         # with the drive switcher, and " - <name>" must leave it room.
         name = " ".join(str(name).split())[:24].strip()
         self._on_machine_name_changed(addr, name)
-        # Relabel in place — every session of that address adopts the name
+        self._on_machine_color_changed(
+            addr, qcolor_to_hex(color) if color is not None else "")
+        # Relabel in place - every session of that address adopts the name
         # (two '.sync5 -L' sessions from one machine share one entry name).
         for i in range(self.next_machine_combo.count()):
             _s = self.next_machine_combo.itemData(i)
@@ -1671,9 +2100,10 @@ class RemoteExplorerWidget(QWidget):
                     self.next_machine_combo.setItemText(
                         i, self._machine_label(_s, _addr))
                     break
-        # The side tabs show the NAME when there is one, so a naming has
-        # to reach them too - otherwise the tab would still read the bare
-        # address the user just replaced.
+        self._apply_machine_colors()
+        # The side tabs show the NAME when there is one and now the COLOUR
+        # too, so an edit has to reach them - otherwise the tab would still
+        # read the bare address the user just replaced.
         self._rebuild_session_strip()
 
     def _on_machine_pick(self, index):

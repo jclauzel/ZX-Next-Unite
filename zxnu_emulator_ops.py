@@ -999,6 +999,9 @@ def build_emulator_ops(
         # An emulator is now usable: if no image is loaded yet, start the
         # yellow hint pulse on the image-picking buttons.
         _start_load_image_hint_animation()
+        # ... and the Remote Explorer's emulator strip gains a tab.
+        if hasattr(host, "_re_refresh_emulators"):
+            host._re_refresh_emulators()
         _installed_tag = getattr(host, "_mame_pending_install_tag", "")
         if _installed_tag:
             configuration_dictionary[SETTING_MAME_INSTALLED_TAG] = _installed_tag

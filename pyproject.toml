@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 name = "zx-next-unite"
 # MUST match ZX_NEXT_UNITE_VERSION in zxnu_config.py — the release workflow
 # gates on it (same rule as the git tag).
-version = "9.5.26"
+version = "9.5.27"
 description = "GUI toolbox for the ZX Spectrum Next: SD-card/HDF image explorer, NextSync Wi-Fi file sync + Remote Explorer & HTTP bridge, and built-in software browsing via GetIt, ZXDB and zxArt"
 readme = "README.md"
 license = "MIT"
@@ -71,7 +71,18 @@ py-modules = [
     "zxnu_http_bridge",
     "zxnu_i18n",
     "zxnu_itchio",
+    "zxnu_itchio_pane",
     "zxnu_pygame",
+    "zxnu_config_io",
+    "zxnu_emulator_ops",
+    "zxnu_favorites_pane",
+    "zxnu_network",
+    "zxnu_nextsync_ops",
+    "zxnu_retro_ui",
+    "zxnu_sdcard_ops",
+    "zxnu_tab_ops",
+    "zxnu_wizard",
+    "zxnu_wizard_content",
     "rc_backgrounds",
     "nextsync5",
 ]

@@ -1865,6 +1865,10 @@ class MainWindow(QMainWindow):
                 _update_mame_controls()
             except (RuntimeError, AttributeError):
                 pass
+            # Same state, a second surface: the Remote Explorer's emulator
+            # strip is built from _mame_usable() too.
+            if hasattr(self, "_re_refresh_emulators"):
+                self._re_refresh_emulators()
         self._refresh_mame_launch_ui = _refresh_mame_launch_ui
 
         def enable_image_selection():
@@ -4140,6 +4144,10 @@ class MainWindow(QMainWindow):
             _maybe_show_no_image_toast()
             _start_load_image_hint_animation()
             self._show_emulator_detection_toast()
+            # The NextSync tab's Remote Explorer carries an emulator
+            # strip built from the same detection; tell it too.
+            if hasattr(self, "_re_refresh_emulators"):
+                self._re_refresh_emulators()
 
         def _finalize_hdfmonkey_button():
             """Reveal the 'Download and install HDF Monkey' button only after the

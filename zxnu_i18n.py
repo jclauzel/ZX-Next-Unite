@@ -376,6 +376,15 @@ CATALOGS = {
         "Delete SyncIgnore File": "Eliminar archivo SyncIgnore",
         "Delete SyncPoint File": "Eliminar archivo SyncPoint",
         "Disconnect": "Desconectar",
+        "Start {emulator}": "Iniciar {emulator}",
+        "Color:": "Color:",
+        "Pick a color for this Next. It tints the machine list and this machine's tab in the session strip.":
+            "Elige un color para este Next. Tiñe la lista de máquinas y la pestaña de esta máquina en la tira de sesiones.",
+        "Clear the color": "Quitar el color",
+        "Switch to this Next": "Cambiar a este Next",
+        "Name and color…": "Nombre y color…",
+        "That Next is no longer on the line.":
+            "Ese Next ya no está en la línea.",
         "Tell this Next to leave listen mode and exit? ZX Next Remote closes its application; a '.sync5' dot returns to BASIC. The server keeps listening, so it can connect again.":
             "¿Pedir a este Next que salga del modo escucha y se cierre? ZX Next Remote cierra su aplicación; un punto '.sync5' vuelve a BASIC. El servidor sigue escuchando, así que puede volver a conectarse.",
         "Asked the Next to leave listen mode and exit.":
@@ -1488,6 +1497,15 @@ CATALOGS = {
         "Delete SyncIgnore File": "Eliminar ficheiro SyncIgnore",
         "Delete SyncPoint File": "Eliminar ficheiro SyncPoint",
         "Disconnect": "Desligar",
+        "Start {emulator}": "Iniciar {emulator}",
+        "Color:": "Cor:",
+        "Pick a color for this Next. It tints the machine list and this machine's tab in the session strip.":
+            "Escolhe uma cor para este Next. Colore a lista de máquinas e o separador desta máquina na barra de sessões.",
+        "Clear the color": "Remover a cor",
+        "Switch to this Next": "Mudar para este Next",
+        "Name and color…": "Nome e cor…",
+        "That Next is no longer on the line.":
+            "Esse Next já não está na linha.",
         "Tell this Next to leave listen mode and exit? ZX Next Remote closes its application; a '.sync5' dot returns to BASIC. The server keeps listening, so it can connect again.":
             "Pedir a este Next para sair do modo de escuta e terminar? O ZX Next Remote fecha a sua aplicação; um ponto '.sync5' volta ao BASIC. O servidor continua à escuta, por isso pode ligar-se de novo.",
         "Asked the Next to leave listen mode and exit.":
@@ -2598,6 +2616,15 @@ CATALOGS = {
         "Delete SyncIgnore File": "Usuń plik SyncIgnore",
         "Delete SyncPoint File": "Usuń plik SyncPoint",
         "Disconnect": "Rozłącz",
+        "Start {emulator}": "Uruchom {emulator}",
+        "Color:": "Kolor:",
+        "Pick a color for this Next. It tints the machine list and this machine's tab in the session strip.":
+            "Wybierz kolor dla tego Nexta. Zabarwia listę maszyn i zakładkę tej maszyny na pasku sesji.",
+        "Clear the color": "Usuń kolor",
+        "Switch to this Next": "Przełącz na tego Nexta",
+        "Name and color…": "Nazwa i kolor…",
+        "That Next is no longer on the line.":
+            "Tego Nexta już nie ma na linii.",
         "Tell this Next to leave listen mode and exit? ZX Next Remote closes its application; a '.sync5' dot returns to BASIC. The server keeps listening, so it can connect again.":
             "Poprosić tego Nexta o wyjście z trybu nasłuchu i zakończenie? ZX Next Remote zamyka swoją aplikację; kropka '.sync5' wraca do BASIC-a. Serwer nadal nasłuchuje, więc można połączyć się ponownie.",
         "Asked the Next to leave listen mode and exit.":
@@ -3710,6 +3737,15 @@ CATALOGS = {
         "Delete SyncIgnore File": "Удалить файл SyncIgnore",
         "Delete SyncPoint File": "Удалить файл SyncPoint",
         "Disconnect": "Отключить",
+        "Start {emulator}": "Запустить {emulator}",
+        "Color:": "Цвет:",
+        "Pick a color for this Next. It tints the machine list and this machine's tab in the session strip.":
+            "Выберите цвет для этого Next. Он окрашивает список машин и вкладку этой машины на панели сеансов.",
+        "Clear the color": "Убрать цвет",
+        "Switch to this Next": "Переключиться на этот Next",
+        "Name and color…": "Имя и цвет…",
+        "That Next is no longer on the line.":
+            "Этого Next уже нет на линии.",
         "Tell this Next to leave listen mode and exit? ZX Next Remote closes its application; a '.sync5' dot returns to BASIC. The server keeps listening, so it can connect again.":
             "Попросить этот Next выйти из режима прослушивания и завершить работу? ZX Next Remote закроет своё приложение; точка '.sync5' вернётся в BASIC. Сервер продолжает слушать, поэтому можно подключиться снова.",
         "Asked the Next to leave listen mode and exit.":
@@ -4821,6 +4857,15 @@ CATALOGS = {
         "Delete SyncIgnore File": "Smazat soubor SyncIgnore",
         "Delete SyncPoint File": "Smazat soubor SyncPoint",
         "Disconnect": "Odpojit",
+        "Start {emulator}": "Spustit {emulator}",
+        "Color:": "Barva:",
+        "Pick a color for this Next. It tints the machine list and this machine's tab in the session strip.":
+            "Vyberte barvu pro tento Next. Obarví seznam strojů a záložku tohoto stroje v pruhu relací.",
+        "Clear the color": "Odebrat barvu",
+        "Switch to this Next": "Přepnout na tento Next",
+        "Name and color…": "Název a barva…",
+        "That Next is no longer on the line.":
+            "Tento Next už není na lince.",
         "Tell this Next to leave listen mode and exit? ZX Next Remote closes its application; a '.sync5' dot returns to BASIC. The server keeps listening, so it can connect again.":
             "Požádat tento Next, aby opustil režim naslouchání a skončil? ZX Next Remote zavře svou aplikaci; tečka '.sync5' se vrátí do BASICu. Server dál naslouchá, takže se lze připojit znovu.",
         "Asked the Next to leave listen mode and exit.":
@@ -5934,6 +5979,15 @@ CATALOGS = {
         "Delete SyncIgnore File": "Supprimer le fichier SyncIgnore",
         "Delete SyncPoint File": "Supprimer le fichier SyncPoint",
         "Disconnect": "Déconnecter",
+        "Start {emulator}": "Démarrer {emulator}",
+        "Color:": "Couleur :",
+        "Pick a color for this Next. It tints the machine list and this machine's tab in the session strip.":
+            "Choisissez une couleur pour ce Next. Elle colore la liste des machines et l'onglet de cette machine dans la bande de sessions.",
+        "Clear the color": "Effacer la couleur",
+        "Switch to this Next": "Basculer sur ce Next",
+        "Name and color…": "Nom et couleur…",
+        "That Next is no longer on the line.":
+            "Ce Next n'est plus sur la ligne.",
         "Tell this Next to leave listen mode and exit? ZX Next Remote closes its application; a '.sync5' dot returns to BASIC. The server keeps listening, so it can connect again.":
             "Demander à ce Next de quitter le mode écoute et de se fermer ? ZX Next Remote ferme son application ; un point '.sync5' revient au BASIC. Le serveur continue d'écouter, il peut donc se reconnecter.",
         "Asked the Next to leave listen mode and exit.":

@@ -32,6 +32,17 @@ import time
 # point survives into the log.
 faulthandler.enable()
 
+# Python 3.14 + PySide6: a cyclic-GC pass that fires INSIDE a Qt call can
+# finalize dead widgets whose teardown touches a lazily-materialised Qt
+# enum, and that intermittently segfaults (observed twice in the machine-
+# colour block, "Garbage-collecting" + enum.py in the faulthandler trace).
+# This suite churns hundreds of short-lived widgets by design, so keep the
+# collector out of the run entirely - the process lives ~2 s, and the
+# retro-log suite already handles its cousin of this flake the same
+# pragmatic way (teardown hard-exit).
+import gc
+gc.disable()
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 # The compact-button checks print translated labels ("W górę", "Вверх"), which
 # a cp1252 console cannot encode — without this the suite dies in its own
@@ -39,11 +50,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from PySide6.QtCore import (QItemSelectionModel, QMimeData, QPoint,
+from PySide6.QtCore import (QEvent, QItemSelectionModel, QMimeData, QPoint,
                             QPointF, Qt, QUrl)
-from PySide6.QtGui import QColor, QDropEvent, QWheelEvent
+from PySide6.QtGui import QColor, QDropEvent, QMouseEvent, QWheelEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from zxnu_config import TREE_FONT_MIN_PT
 from zxnu_workers import bind_tree_font_zoom
@@ -77,6 +88,27 @@ class FakeInput:
         return cls.queue.pop(0) if cls.queue else ("", False)
 
 
+class FakeIdentity:
+    """Replaces zxnu_remote_explorer.MachineIdentityDialog (9.5.27, the
+    name+colour editor): pops a scripted (name, QColor-or-None, accepted)
+    answer and records what it was OPENED with, so a test can assert both
+    halves. An empty script answers a cancel, like FakeInput."""
+    queue = []
+    seen = []
+
+    def __init__(self, addr, name="", color=None, parent=None):
+        FakeIdentity.seen.append((addr, name, color))
+        self._answer = (FakeIdentity.queue.pop(0)
+                        if FakeIdentity.queue else (name, color, False))
+
+    def exec(self):
+        return (QDialog.DialogCode.Accepted if self._answer[2]
+                else QDialog.DialogCode.Rejected)
+
+    def result_values(self):
+        return self._answer[0], self._answer[1]
+
+
 class FakeMsg:
     """Replaces zxnu_remote_explorer.QMessageBox: question/warning return the
     scripted ``answer``; critical/information record their text."""
@@ -108,6 +140,7 @@ class FakeMsg:
 
 rex.QInputDialog = FakeInput
 rex.QMessageBox = FakeMsg
+rex.MachineIdentityDialog = FakeIdentity
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +149,7 @@ rex.QMessageBox = FakeMsg
 def make_widget(**kw):
     """A RemoteExplorerWidget wired to recorders for every host callback."""
     calls = {"q": [], "log": [], "toasts": [], "sync_root": [],
-             "remote_cwd": [], "sorts": [], "extra_drives": []}
+             "remote_cwd": [], "sorts": [], "extra_drives": [], "q_to": []}
     w = RemoteExplorerWidget(
         enqueue=calls["q"].append,
         local_start_dir=kw.get("local_start_dir"),
@@ -134,13 +167,22 @@ def make_widget(**kw):
         remote_cwd_for=kw.get("remote_cwd_for"),
         machine_name_for=kw.get("machine_name_for"),
         on_machine_name_changed=kw.get("on_machine_name_changed"),
+        machine_color_for=kw.get("machine_color_for"),
+        on_machine_color_changed=kw.get("on_machine_color_changed"),
+        # The session strip's targeted commands (right-click Disconnect on a
+        # BENCHED machine) leave through their own hook, never the shared
+        # queue - record them separately so a test can tell the two apart.
+        enqueue_to=kw.get(
+            "enqueue_to",
+            lambda sid, cmd: (calls["q_to"].append((sid, cmd)) or True)),
         local_sort=kw.get("local_sort"),
         next_sort=kw.get("next_sort"),
         on_sort_changed=lambda which, v: calls["sorts"].append((which, v)),
         on_toast=lambda t, m, variant="red": calls["toasts"].append((t, m, variant)),
         extra_drives=kw.get("extra_drives"),
         on_extra_drives_changed=calls["extra_drives"].append,
-        emulator_entries=kw.get("emulator_entries"))
+        emulator_entries=kw.get("emulator_entries"),
+        emulator_launchers=kw.get("emulator_launchers"))
     return w, calls
 
 
@@ -536,7 +578,7 @@ def test_machine_names_follow_the_address():
 
     # Name the active machine; BOTH sessions of that address adopt it.
     _w0 = w.next_machine_combo.sizeHint().width()
-    FakeInput.queue = [("  N-Go  ", True)]
+    FakeIdentity.queue = [("  N-Go  ", None, True)]
     w._on_machine_name_edit()
     check("name saved for the ADDRESS (whitespace collapsed)",
           names.get("10.0.0.185") == "N-Go", str(names))
@@ -549,7 +591,7 @@ def test_machine_names_follow_the_address():
           str([w.next_machine_combo.itemText(i) for i in range(2)]))
 
     # A cancelled dialog changes nothing.
-    FakeInput.queue = []
+    FakeIdentity.queue = []
     w._on_machine_name_edit()
     check("cancel keeps the name", names.get("10.0.0.185") == "N-Go")
 
@@ -561,7 +603,7 @@ def test_machine_names_follow_the_address():
           w.next_machine_combo.itemText(0))
 
     # An empty name removes it.
-    FakeInput.queue = [("", True)]
+    FakeIdentity.queue = [("", None, True)]
     w._on_machine_name_edit()
     check("empty name forgets it",
           "10.0.0.185" not in names
@@ -1546,6 +1588,220 @@ def test_disconnect_button():
     check("and the action itself refuses while offline", drain(calls) == [])
 
 
+def test_session_tab_menu():
+    """Right-clicking a session tab (9.5.27) acts on THAT machine, not on
+    whichever one the pane happens to drive.
+
+    The prize is the benched case: "Disconnect" on a tab that is not the
+    baton holder must leave through the per-session channel, because the
+    shared queue is drained by the active session and would send the wrong
+    Next away."""
+    print("\n== session tab context menu ==")
+    # The targeted hook mimics the worker's: it validates the sid under its
+    # own roster and answers False for a machine that has left (which is
+    # how zxnu_workers._enqueue_to behaves, and what the bridge maps to 410).
+    seats, sent = {1, 2}, []
+
+    def enqueue_to(sid, cmd):
+        if sid not in seats:
+            return False
+        sent.append((sid, cmd))
+        return True
+
+    w, calls = make_widget(local_start_dir=tdir("tabmenu_root"),
+                           enqueue_to=enqueue_to)
+    w.on_peers((1, [(1, "10.0.0.5"), (2, "10.0.0.7")]))
+    connect_widget(w, calls)
+    check("a tab carries a right-click handler",
+          all(t._on_menu is not None for t in w._session_tabs))
+
+    # The BENCHED machine (sid 2): confirmed disconnect must ride the
+    # targeted hook and leave the shared queue untouched.
+    FakeMsg.answer = QMessageBox.Yes
+    w._disconnect_session(2)
+    check("a benched Next is disconnected through ITS OWN queue",
+          sent == [(2, ("quit_app",))], str(sent))
+    check("and nothing at all goes to the shared queue",
+          drain(calls) == [])
+    sent.clear()
+
+    # The DRIVEN machine (sid 1) still uses the shared queue, exactly as
+    # the top Disconnect button always has.
+    w._disconnect_session(1)
+    check("the driven Next still goes through the shared queue",
+          drain(calls) == [("quit_app",)] and sent == [])
+
+    # Cancelling sends nothing on either channel.
+    FakeMsg.answer = QMessageBox.Cancel
+    w._disconnect_session(2)
+    check("a cancelled confirm sends nothing anywhere",
+          drain(calls) == [] and sent == [])
+    FakeMsg.answer = QMessageBox.Yes
+
+    # The machine left between the right-click and the answer: the hook
+    # refuses, and that must be SAID rather than silently dropped.
+    seats.discard(2)
+    calls["log"].clear()
+    w._disconnect_session(2)
+    check("a departed Next is reported, not silently dropped",
+          sent == [] and logged(calls, "no longer on the line"))
+
+    # No targeted hook wired at all (an older host): same honest refusal.
+    seats.add(2)
+    w._enqueue_to_raw = None
+    calls["log"].clear()
+    w._disconnect_session(2)
+    check("without a targeted channel it refuses instead of misfiring",
+          drain(calls) == [] and sent == []
+          and logged(calls, "no longer on the line"))
+
+
+def test_machine_colors():
+    """The per-machine colour (9.5.27): picked in the name dialog, keyed by
+    ADDRESS like the name, and painted on BOTH surfaces that identify a
+    machine - the combo the pane drives from and the session tab."""
+    print("\n== per-machine colours ==")
+    names, colors = {}, {}
+    w, calls = make_widget(
+        local_start_dir=tdir("mcolor_root"),
+        machine_name_for=names.get,
+        on_machine_name_changed=lambda a, n: (
+            names.__setitem__(a, n) if n else names.pop(a, None)),
+        machine_color_for=colors.get,
+        on_machine_color_changed=lambda a, c: (
+            colors.__setitem__(a, c) if c else colors.pop(a, None)))
+    w.on_peers((1, [(1, "10.0.0.5"), (2, "10.0.0.7")]))
+    connect_widget(w, calls)
+    check("untinted machines leave the tabs on the palette",
+          [t._tint for t in w._session_tabs] == [None, None])
+    check("and the combo keeps the app chrome",
+          w.next_machine_combo.styleSheet() == "")
+
+    # Pick a colour for the driven machine.
+    FakeIdentity.queue = [("", QColor("#ff8800"), True)]
+    w._on_machine_name_edit()
+    check("the colour is saved for the ADDRESS",
+          colors.get("10.0.0.5") == "#ff8800", str(colors))
+    check("the machine's tab wears it",
+          w._session_tabs[0]._tint is not None
+          and w._session_tabs[0]._tint.name() == "#ff8800")
+    check("the other machine's tab is untouched",
+          w._session_tabs[1]._tint is None)
+    check("the closed combo wears the driven machine's colour",
+          "#ff8800" in w.next_machine_combo.styleSheet(),
+          w.next_machine_combo.styleSheet())
+    check("the popup entry is tinted too",
+          w.next_machine_combo.itemData(
+              0, Qt.ItemDataRole.BackgroundRole) is not None)
+    check("a light tint gets dark text, so the label still reads",
+          w.next_machine_combo.itemData(
+              0, Qt.ItemDataRole.ForegroundRole).color().value() < 128)
+
+    # The dialog opens on what is already stored, so a re-edit starts from
+    # the current colour rather than from nothing.
+    FakeIdentity.seen.clear()
+    FakeIdentity.queue = []
+    w._on_machine_name_edit()
+    check("the editor opens on the stored colour",
+          FakeIdentity.seen and FakeIdentity.seen[0][2] is not None
+          and FakeIdentity.seen[0][2].name() == "#ff8800",
+          str(FakeIdentity.seen))
+
+    # The colour survives a reconnect under a fresh session id - it is
+    # keyed by address, exactly like the name.
+    w.on_peers((7, [(7, "10.0.0.5")]))
+    check("a later session id keeps the colour",
+          "#ff8800" in w.next_machine_combo.styleSheet())
+
+    # Clearing it puts both surfaces back on the palette/chrome.
+    FakeIdentity.queue = [("", None, True)]
+    w._on_machine_name_edit()
+    check("a cleared colour is forgotten",
+          "10.0.0.5" not in colors and w.next_machine_combo.styleSheet() == "")
+
+    # A garbled stored value must never make the pane unpaintable.
+    colors["10.0.0.5"] = "not-a-colour"
+    w.on_peers((7, [(7, "10.0.0.5")]))
+    check("an unparseable stored colour is treated as no colour",
+          w.next_machine_combo.styleSheet() == "")
+
+
+def test_emulator_strip():
+    """The emulator strip (9.5.27): the session strip's mirror down the
+    LEFT edge of the local pane, one tab per INSTALLED emulator, clicking
+    one launching it exactly as the SD Card tab's button does.
+
+    The rule that matters is "only what is detected": the strip itself is
+    hidden when nothing is installed, so a machine without an emulator
+    loses no width at all."""
+    print("\n== emulator strip ==")
+    found, launched = [], []
+    w, calls = make_widget(
+        local_start_dir=tdir("emu_root"),
+        emulator_launchers=lambda: [
+            (n, (lambda name=n: launched.append(name))) for n in found])
+
+    w.refresh_emulator_strip()
+    check("hidden while no emulator is installed",
+          not w.local_emulator_strip.isVisible() and not w._emulator_tabs)
+
+    # MAME only.
+    found.append("Mame")
+    w.refresh_emulator_strip()
+    check("one tab for the one detected emulator",
+          [t._text for t in w._emulator_tabs] == ["Mame"],
+          str([t._text for t in w._emulator_tabs]))
+
+    # Both.
+    found.append("CSpect")
+    w.refresh_emulator_strip()
+    check("a tab each once both are found",
+          [t._text for t in w._emulator_tabs] == ["Mame", "CSpect"],
+          str([t._text for t in w._emulator_tabs]))
+    check("the tabs are EmulatorTabs, never lit like a driven machine",
+          all(isinstance(t, rex.EmulatorTab) and not t._active
+              for t in w._emulator_tabs))
+
+    # A click launches - deferred through a zero-timer, so pump the loop.
+    w._emulator_tabs[1]._on_click()
+    QApplication.processEvents()
+    check("clicking a tab launches THAT emulator, with no arguments",
+          launched == ["CSpect"], str(launched))
+
+    # A fast DOUBLE click must not launch twice: QWidget's default
+    # re-dispatches the double into mousePressEvent, and two launches
+    # mount one disk image twice (review finding, 9.5.27).
+    launched.clear()
+    tab = w._emulator_tabs[1]
+    for _ev_type in (QEvent.Type.MouseButtonPress,
+                     QEvent.Type.MouseButtonRelease,
+                     QEvent.Type.MouseButtonDblClick,
+                     QEvent.Type.MouseButtonRelease):
+        _ev = QMouseEvent(_ev_type, QPointF(5, 5),
+                          tab.mapToGlobal(QPoint(5, 5)),
+                          Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+        QApplication.sendEvent(tab, _ev)
+    QApplication.processEvents()
+    check("a double click launches exactly once",
+          launched == ["CSpect"], str(launched))
+
+    # An emulator that goes away takes its tab with it.
+    found.remove("Mame")
+    w.refresh_emulator_strip()
+    check("an uninstalled emulator loses its tab",
+          [t._text for t in w._emulator_tabs] == ["CSpect"])
+    found.clear()
+    w.refresh_emulator_strip()
+    check("and the strip retires when the last one goes",
+          not w.local_emulator_strip.isVisible() and not w._emulator_tabs)
+
+    # A host hook that throws must not take the pane down with it.
+    w._emulator_launchers = lambda: 1 / 0
+    w.refresh_emulator_strip()
+    check("a broken detection hook leaves the strip empty, not crashed",
+          not w._emulator_tabs)
+
+
 def test_os_protection_stops_and_explains():
     """A remote WRITE refused by the far side's OS protection (a ZXNextRemote
     listener, 0.9.0) must STOP the batch and toast the actionable message —
@@ -1714,6 +1970,9 @@ def main():
         test_navigation()
         test_multi_next_folders_follow_the_baton()
         test_machine_names_follow_the_address()
+        test_session_tab_menu()
+        test_machine_colors()
+        test_emulator_strip()
         test_drive_switching()
         test_ls_failed_fallback()
         test_sorting()
