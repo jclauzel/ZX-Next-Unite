@@ -1,9 +1,9 @@
-<#
+﻿<#
   Send-ToNext.ps1 — push a build to a real ZX Spectrum Next, from VS Code.
 
-  Pairs with extra/nextdev.txt (the Next-side loop). The cycle:
+  Pairs with extra/autoexec.txt (the Next-side loop). The cycle:
 
-    1. The Next boots into nextdev (autoexec.bas) and hands itself to
+    1. The Next boots into the loop (/nextzxos/autoexec.bas) and hands itself to
        either ZX Next Remote flavour (httpbridge or n2n — both carry the
        NextSync Listener), whose Listener dials out to Unite's Remote
        Explorer listen server (port 2048) and waits. This script never
@@ -71,12 +71,12 @@ token       =
 # so a repo-local "build\game.nex" travels with the project.
 file        = build\game.nex
 
-# Where it lands on the Next. nextdev.txt expects /dev/incoming.nex - it
+# Where it lands on the Next. autoexec.txt expects /dev/incoming.nex - it
 # moves that file aside and runs it after the Next resets.
 remote_path = /dev/incoming.nex
 
 # After a verified send, tell the Next to leave listen mode and exit its
-# application, so nextdev's loop runs the file. "no" leaves the Next in
+# application, so the Next-side loop runs the file. "no" leaves the Next in
 # the Listener (handy while pushing several files in a row).
 forceexit_after_send = yes
 
@@ -208,7 +208,7 @@ if ($waited) { Write-Host "" }
 Write-Host "Next connected." -ForegroundColor Green
 # More than one Next seated? The push rides the ACTIVE seat - the first
 # machine that connected, not necessarily the one just booted into
-# nextdev. Warn loudly rather than landing a build on the wrong Next.
+# the loop. Warn loudly rather than landing a build on the wrong Next.
 # ($st.sessions only exists on roster hosts; absent compares false.)
 if ($st.sessions -gt 1) {
     Write-Host ("WARNING: {0} Nexts are connected; the push goes to the ACTIVE seat ({1})." `

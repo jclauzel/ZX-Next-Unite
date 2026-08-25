@@ -10,7 +10,7 @@ Odds and ends that support the project but are not part of the app.
 | `Get-PyLineCounts.ps1` | Per-module line-count report for the Python sources |
 | `detectenvironnement.bas` / `.txt` | NextBASIC environment-detection helper and its notes |
 | `Send-ToNext.ps1` | Push a build to a real Next over Unite's NextSync HTTP bridge, verified end-to-end (see below) |
-| `nextdev.bas` / `.txt` | The Next-side loop `Send-ToNext.ps1` pushes into: listen, receive, run, repeat — in either ZX Next Remote flavour |
+| `autoexec.bas` / `.txt` | The Next-side loop `Send-ToNext.ps1` pushes into: listen, receive, run, repeat — in either ZX Next Remote flavour. Drop `autoexec.bas` into `/nextzxos/` on the card as-is |
 
 ## Regenerating the README/wiki tour GIF
 
@@ -43,10 +43,10 @@ Notes (learned the hard way):
   progress dialog waiting for a Next).
 
 
-## Push-to-hardware from VS Code (`Send-ToNext.ps1` + `nextdev`)
+## Push-to-hardware from VS Code (`Send-ToNext.ps1` + `autoexec`)
 
 Save in the editor, run one task, watch the build on real hardware. The two
-halves are `extra\Send-ToNext.ps1` (PC) and `extra\nextdev.bas` (Next).
+halves are `extra\Send-ToNext.ps1` (PC) and `extra\autoexec.bas` (Next).
 
 **On the Next, once:**
 
@@ -63,18 +63,20 @@ halves are `extra\Send-ToNext.ps1` (PC) and `extra\nextdev.bas` (Next).
    can face different machines.
 3. Set **Startup menu** to `2 Listener`. Without it every cycle stops at the
    Home menu waiting for a keypress, and the loop is not unattended.
-4. Copy `nextdev.bas` to the card root as `autoexec.bas`.
-5. Using the n2n flavour? Set `LET flavour=2` (line 240 of `nextdev.txt`)
-   and re-tokenise — see *Editing `nextdev`* below. If the flavour you pick
-   is not on the card, `nextdev` tries the other one rather than
+4. Copy `autoexec.bas` into the **`/nextzxos/` folder** on the card — not
+   the card root, where NextZXOS will not run it. No renaming: the file
+   ships under the name the machine looks for.
+5. Using the n2n flavour? Set `LET flavour=2` (line 240 of `autoexec.txt`)
+   and re-tokenise — see *Editing the loop* below. If the flavour you pick
+   is not on the card, the loop tries the other one rather than
    dead-ending, so a mismatch costs you nothing.
 
-`nextdev` runs at every boot: if a pushed file is waiting it moves it aside
+The loop runs at every boot: if a pushed file is waiting it moves it aside
 and `.nexload`s it; otherwise it hands the machine to your chosen flavour,
 which enters the Listener and waits. ZX Next Remote soft-resets when it
 exits, which is what closes the loop — the reset IS the `GO TO`.
 
-A pushed build runs **once**. Before loading anything, `nextdev` retires the
+A pushed build runs **once**. Before loading anything, the loop retires the
 previous build to `/dev/last.nex`, so `/dev/run.nex` only ever holds a
 freshly pushed one: exit the game, and the next boot lands back on the
 Listener ready for your next push instead of re-running the old build for
@@ -133,9 +135,9 @@ A `tasks.json` entry that fails the task on anything but a verified send:
 }
 ```
 
-### Editing `nextdev`
+### Editing the loop
 
-`nextdev.txt` is the readable source; `nextdev.bas` is the tokenised
+`autoexec.txt` is the readable source; `autoexec.bas` is the tokenised
 NextBASIC the Next loads. The one line most people need is the flavour
 choice near the top:
 
@@ -152,11 +154,11 @@ After any edit, re-tokenise with
 so an edited `.txt` alone changes nothing:
 
 ```powershell
-txt2bas -i extra\nextdev.txt -o extra\nextdev.bas
+txt2bas -i extra\autoexec.txt -o extra\autoexec.bas
 ```
 
 Worth reading it back to be sure the tokeniser understood you:
 
 ```powershell
-bas2txt -i extra\nextdev.bas -o roundtrip.txt
+bas2txt -i extra\autoexec.bas -o roundtrip.txt
 ```
