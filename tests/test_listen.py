@@ -83,6 +83,25 @@ def mock_next(sock, fake_entries, fake_file, captured):
         op, arg = cmd[0:1], cmd[1:].decode()
         if op == b'Q':
             captured['quit'] = arg or ""    # "" = plain, "X" = also exit app
+            # A <= 5.7.4 dot answers the server's 'Q' with the classic raw
+            # "Bye" and then waits for "Later" before closing. The goodbye
+            # linger must answer it, or the dot stares at silence for its
+            # full cipxfer timeout - the long "Closing.." hang on
+            # quit/forceexit. (5.7.5+ skips the Bye and just closes.)
+            _settle()
+            sock.sendall(b"Bye")
+            sock.settimeout(5.0)
+            try:
+                captured['bye_answer'] = recv_payload(sock)
+            except (socket.timeout, OSError):
+                captured['bye_answer'] = None
+            # Close OUR end at once: the linger's follow-up drain then hits
+            # its EOF arm immediately (the tested path a 5.7.5 dot's clean
+            # close also takes) instead of eating its full 2 s timeout.
+            try:
+                sock.close()
+            except OSError:
+                pass
             break
         if op == b'I':
             continue
@@ -372,6 +391,13 @@ def main():
         print("PASS quitmark: /forceexit sent the marked quit and said so")
     else:
         print("FAIL quitmark:", repr(captured.get('quit'))); ok = False
+    # The goodbye linger must answer a <= 5.7.4 dot's post-quit "Bye" with
+    # the framed "Later" (unanswered, the dot burned its full cipxfer
+    # timeout before closing - the long "Closing.." hang on quit).
+    if captured.get('bye_answer') == b"Later":
+        print("PASS byeAns : post-quit Bye answered with Later")
+    else:
+        print("FAIL byeAns :", repr(captured.get('bye_answer'))); ok = False
     if "put /locked/up.bin: FAILED" in server_out and captured.get('put_fail') == "/locked/up.bin":
         print("PASS putF   : put 'F' reported + acked")
     else:

@@ -81,6 +81,24 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
             # 'Q' alone = leave listen mode (a server shutting down);
             # 'Q'+'X' = leave AND end the application (/forceexit).
             cap['quit'] = arg or ""
+            # A <= 5.7.4 dot answers the 'Q' with the classic raw "Bye" and
+            # waits for "Later" before closing; the goodbye linger must
+            # answer it or the dot burns its full cipxfer timeout staring
+            # at silence - the long "Closing.." hang on quit/forceexit.
+            settle()
+            sock.sendall(b"Bye")
+            sock.settimeout(5.0)
+            try:
+                cap['bye_answer'] = rx_payload(sock)
+            except (socket.timeout, OSError):
+                cap['bye_answer'] = None
+            # Close OUR end at once: the linger's follow-up drain then hits
+            # its EOF arm immediately (the tested path a 5.7.5 dot's clean
+            # close also takes) instead of eating its full 2 s timeout.
+            try:
+                sock.close()
+            except OSError:
+                pass
             break
         if op == b'I': continue
         if op == b'L':
@@ -449,6 +467,13 @@ def main():
         print("PASS quitmark: /forceexit sent the marked quit ('Q'+'X')")
     else:
         print("FAIL quitmark:", repr(cap.get('quit'))); ok = False
+    # The goodbye linger must answer a <= 5.7.4 dot's post-quit "Bye" with
+    # the framed "Later" (unanswered, the dot stared at silence for its
+    # full cipxfer timeout before closing - the "Closing.." hang on quit).
+    if cap.get('bye_answer') == b"Later":
+        print("PASS byeAns : post-quit Bye answered with Later")
+    else:
+        print("FAIL byeAns :", repr(cap.get('bye_answer'))); ok = False
 
     # ── unconnected listener must stop promptly on the stop event ──────
     # The pane's stop path skips the 10 s "Q" goodbye grace when no Next

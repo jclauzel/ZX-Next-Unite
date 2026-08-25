@@ -1150,7 +1150,7 @@ int main(int arglen, char *rawcmd)
     // zxnu_config.py (and the help text below): the app compares it against
     // the cfg's dotn_last_version to advise the user to refresh the .sync5
     // copy on their Next after updating the app.
-    print("NextSync 5.7.4 Clauzel/Komppa");
+    print("NextSync 5.7.5 Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -1464,7 +1464,7 @@ connbreak:
                 if (retrycount >= 8)
                 {
                     print("Connection lost - stopping");
-                    break;
+                    goto listen_noreply;    // dead link - nothing answers a Bye
                 }
                 flush_uart_hard();          // bad/empty frame - re-poll
                 continue;
@@ -1488,7 +1488,7 @@ connbreak:
                     conprint(" "); conprint(fn); conprint("\r");
                 }
 
-                if (op == 'Q') break;               // quit listen mode
+                if (op == 'Q') goto listen_noreply; // quit listen mode (server-sent)
                 // idle: throttle before re-polling, animating meanwhile (the
                 // tick self-limits to one step per frame, so the sprites
                 // glide instead of stuttering once per poll).
@@ -1563,8 +1563,21 @@ connbreak:
                 }
             }
         }
+        // BREAK falls out here: the server is still in its command loop and
+        // answers our "Bye" with "Later", so the polite goodbye stays.
         print("Listen ended");
         goto closeconn;
+
+listen_noreply:
+        // 5.7.5: server-sent quit ('Q' - incl. the /forceexit-marked one) or a
+        // dead link. Either way NOTHING will answer a "Bye": after its 'Q' the
+        // server only drains the socket (nextsync5 _goodbye_linger), so the
+        // classic goodbye below just stared at silence for its full cipxfer
+        // timeout - the long "Closing.." hang on quit (~20 s on -s). Skip the
+        // handshake and close the socket directly.
+        print("Listen ended");
+        print("Closing..");
+        goto closenobye;
     }
 
     if (sendmode)
@@ -1676,6 +1689,7 @@ retrynext:
 closeconn:
     print("Closing..");
     cipxfer("Bye", 3, inbuf, &len, &dp);
+closenobye:
     atcmd("AT+CIPCLOSE\r\n", "", 0, inbuf);
 bailout:
     anim_end();   // hide sprites + restore the sprite/layers reg (no-op unless -anim)

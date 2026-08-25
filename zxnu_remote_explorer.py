@@ -17,13 +17,16 @@ import os
 import posixpath
 import random
 import shutil
+import sys
 import tempfile
+import time
 
 from zxnu_http_bridge import session_label   # stdlib-only at import
 from zxnu_i18n import ui_tr_now
 
 from PySide6.QtCore import (
-    Qt, QDir, QEvent, QModelIndex, QMimeData, QRect, QUrl, QSize, QTimer,
+    Qt, QCoreApplication, QDir, QEvent, QEventLoop, QModelIndex, QMimeData,
+    QRect, QUrl, QSize, QTimer,
 )
 from PySide6.QtGui import (
     QBrush, QColor, QDrag, QFontMetrics, QKeySequence, QPainter, QPalette,
@@ -265,6 +268,85 @@ def _norm_remote_dir(p):
     if not p.startswith("/"):
         p = "/" + p
     return posixpath.normpath(p)
+
+
+def _drag_button_down():
+    """True while a physical mouse button is still held — i.e. the drag is
+    still HOVERING, no drop has happened yet. Windows drop targets are
+    documented to call IDataObject::GetData mid-hover (CFSTR_INDRAGLOOP
+    exists precisely because of that), and blocking there would freeze the
+    drag cursor for the whole download; the real drop's data extraction
+    only ever runs after the button was released, so the button state IS
+    the hover/drop discriminator. GetAsyncKeyState is used because Qt's
+    own mouseButtons() goes stale once the OLE drag loop owns the mouse.
+    Non-Windows platforms request drag data at drop time, so they never
+    need the distinction (False). Both buttons are checked: VK_LBUTTON /
+    VK_RBUTTON are PHYSICAL buttons for GetAsyncKeyState, so a swapped-
+    buttons primary drag holds VK_RBUTTON."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            state = ctypes.windll.user32.GetAsyncKeyState
+            return bool((state(0x01) | state(0x02)) & 0x8000)
+        except Exception:
+            return False
+    return False
+
+
+class _StagedDragMime(QMimeData):
+    """Drag payload for Next-pane entries whose local copies are still
+    DOWNLOADING when the drag starts.
+
+    Two hard requirements pull in opposite directions, and both are
+    field-proven:
+
+    1. The drag must start the INSTANT the gesture does. The first cut
+       downloaded first and called QDrag.exec() after: over a real UART the
+       fetch takes seconds, the user releases over Explorer long before it
+       ends, and a drag exec'd after the release drops nothing.
+    2. The file URLs must be advertised — non-empty — from that same
+       instant. Windows decides the drop-allowed cursor DURING hover, by
+       asking the data object whether it can produce CF_HDROP, which Qt
+       answers by calling urls() on this object. The second cut withheld
+       the URLs until the download finished, and Explorer showed the
+       red "no drop" cursor (the field report: "it becomes a red circle
+       that clearly says I won't be able to paste here").
+
+    Both are satisfied by naming the staged paths UP FRONT: the staging
+    folder and the file names inside it are known as soon as the drag
+    starts (``stage['expect']``), long before the bytes arrive, and the
+    URLs are stored on this object immediately. Only the CONTENT has to
+    wait — so retrieveData blocks just once, at the real drop, until the
+    background download has actually written those files. That is the
+    delayed-rendering shape WinSCP/7-Zip/Outlook use; Explorer imposes no
+    timeout on a GetData that keeps pumping.
+
+    A request is treated as the real drop only when no mouse button is
+    held and the cursor is not over our own panes — Explorer and our own
+    drag handlers both ask this question repeatedly mid-hover, and
+    blocking there would stall the gesture the user is still making."""
+
+    def __init__(self, widget, stage):
+        super().__init__()
+        self._widget = widget
+        self._stage = stage
+        self._waited = False
+
+    def retrieveData(self, fmt, preferred):
+        if (fmt == "text/uri-list" and not self._waited
+                and self._stage is not None
+                and not self._stage.get('done')
+                and not self._widget._drag_over_own_panes()
+                and not _drag_button_down()):
+            # The real drop, with the download still in flight: hold the
+            # target here until the files this payload NAMES exist.
+            self._waited = True
+            staged = self._widget._await_drag_stage(self._stage)
+            if staged:
+                # Serve exactly what landed (a folder download can differ
+                # from the predicted top-level names).
+                self.setUrls([QUrl.fromLocalFile(p) for p in staged])
+        return super().retrieveData(fmt, preferred)
 
 
 class SessionTab(QWidget):
@@ -831,11 +913,25 @@ class RemoteExplorerWidget(QWidget):
         self._op_background_label = None
         self._op_background = False
         self._op_quiet_failures = False
+        self._op_quiet_ui = False
         self._next_overlay = None     # the "copy in progress" overlay QLabel
         # Free-space precheck state for a Next->Next paste (rfsize each source
         # + a fresh free-space read of the destination drive BEFORE the rcpy
         # is allowed to start). None when no precheck is pending.
         self._precheck = None
+        # Drag-out staging state (see _begin_drag_stage): the current stage
+        # dict, the retired-but-not-yet-deletable stage folders, whether this
+        # session already swept old runs' leftovers, and how long a drop may
+        # wait for a still-running staging download inside the drag mime's
+        # retrieveData (test-tunable).
+        self._drag_stage = None
+        self._drag_stage_hist = []
+        self._drag_swept = False
+        self._drag_stage_wait_ms = 60000
+        # >0 while a drag hovers one of our own panes (see
+        # _drag_over_own_panes): counted up by their drag handlers, cleared
+        # on leave/drop.
+        self._drag_hover = 0
 
         # Per-item font colours, mirroring the SD Card Utility's image tree. The
         # host pushes the user's configured colours in via set_item_colors(); the
@@ -892,7 +988,9 @@ class RemoteExplorerWidget(QWidget):
         self.local_view.doubleClicked.connect(self._local_double_clicked)
         self.local_view.dragEnterEvent = self._local_drag_enter
         self.local_view.dragMoveEvent = self._local_drag_enter
+        self.local_view.dragLeaveEvent = self._pane_drag_leave
         self.local_view.dropEvent = self._local_drop
+        self.local_view.startDrag = self._local_start_drag
         self.local_view.keyPressEvent = self._local_key_press
         self.local_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.local_view.customContextMenuRequested.connect(self._local_context_menu)
@@ -1041,6 +1139,7 @@ class RemoteExplorerWidget(QWidget):
         self.next_view.setDropIndicatorShown(True)
         self.next_view.dragEnterEvent = self._next_drag_enter
         self.next_view.dragMoveEvent = self._next_drag_enter
+        self.next_view.dragLeaveEvent = self._pane_drag_leave
         self.next_view.dropEvent = self._next_drop
         self.next_view.startDrag = self._next_start_drag
         self.next_view.keyPressEvent = self._next_key_press
@@ -1314,7 +1413,7 @@ class RemoteExplorerWidget(QWidget):
     # ==================================================================
     def _run_op(self, title, enqueue_fn, determinate=True, toast_mkdir_fail=False,
                 on_done=None, background_label=None, quiet_failures=False,
-                bytes_total=0, files_total=0):
+                bytes_total=0, files_total=0, quiet_ui=False):
         """Run a batch of remote commands as a cancellable, blocking operation.
 
         ``enqueue_fn`` queues the commands (via _enqueue). The widget is
@@ -1332,6 +1431,12 @@ class RemoteExplorerWidget(QWidget):
         rfsize as "size unknown", not something to alarm about).
         ``bytes_total``/``files_total`` (from that precheck) arm the
         heartbeat-driven progress percentage — see on_op_progress.
+        ``quiet_ui`` runs the operation WITHOUT disabling the widget and
+        without the progress dialog (the drag staging download: the drag
+        gesture and both panes must stay alive while it runs). The queue
+        accounting is unchanged, and it stays safe with the panes enabled
+        because every user entry point either goes through this method's
+        no-nesting guard or through refresh(), which no-ops during an op.
         """
         if self._op_active or not self._connected or self._precheck is not None:
             # Never nest, never start without a live server (with no queue the
@@ -1354,21 +1459,43 @@ class RemoteExplorerWidget(QWidget):
         self._op_background_label = background_label
         self._op_background = False
         self._op_quiet_failures = quiet_failures
+        self._op_quiet_ui = quiet_ui
         self._op_bytes_total = int(bytes_total or 0)
         self._op_files_total = int(files_total or 0)
         self._op_bytes_est = 0
         self._op_files_seen = 0
         self._op_last_name = ""
-        self.setEnabled(False)           # make the whole explorer unclickable
-        # Delay the dialog so instant operations (a quick mkdir/rename) don't
-        # flash a modal box on screen.
-        QTimer.singleShot(250, self._show_op_dialog_if_running)
+        if not quiet_ui:
+            # Any real operation may WRITE what a cached drag stage holds
+            # pre-write copies of, so the reuse cache dies with the op start.
+            self._invalidate_drag_stage()
+            self.setEnabled(False)       # make the whole explorer unclickable
+            # Delay the dialog so instant operations (a quick mkdir/rename)
+            # don't flash a modal box on screen.
+            QTimer.singleShot(250, self._show_op_dialog_if_running)
         enqueue_fn()
         if self._op_total == 0:          # nothing actually queued
             self._end_operation()
 
+    def _busy_refused(self):
+        """True when an operation (or the paste precheck) is still running —
+        the caller must then do NOTHING and return. Quiet staging ops (a
+        drag's background download) leave the panes ENABLED, so user actions
+        can now arrive mid-op where the disabled widget used to make them
+        impossible; _run_op would refuse those silently, so this guard says
+        why up front — BEFORE a confirm dialog is shown, a cut clipboard is
+        consumed, or a drop is accepted."""
+        if self._op_active or self._precheck is not None:
+            self._log("Busy - another operation is still running; "
+                      "try again when it finishes.")
+            return True
+        return False
+
     def _show_op_dialog_if_running(self):
-        if not self._op_active or self._op_dialog is not None or self._op_background:
+        # _op_quiet_ui also guards a stale timer here: a fast NON-quiet op can
+        # end and a quiet one start inside the same 250 ms window.
+        if (not self._op_active or self._op_dialog is not None
+                or self._op_background or self._op_quiet_ui):
             return
         dlg = HdfProgressDialog(self._op_title, self.window(),
                                 cancel_label=(self._op_background_label or "Cancel"))
@@ -1673,6 +1800,11 @@ class RemoteExplorerWidget(QWidget):
 
     def _set_connected(self, on):
         self._connected = on
+        # Any connection transition invalidates the drag-stage reuse cache:
+        # after a disconnect/reconnect (or the multi-Next baton move, which
+        # is _set_connected(False) + on_connected) the same remote path can
+        # name DIFFERENT content — even another machine's SD card.
+        self._invalidate_drag_stage()
         for w in (self.btn_to_next, self.btn_to_local, self.btn_new_folder,
                   self.btn_rename, self.btn_delete, self.next_view,
                   self.next_path_edit, self.btn_disconnect):
@@ -1717,8 +1849,12 @@ class RemoteExplorerWidget(QWidget):
                   if (_addr and self._remote_cwd_for) else None)
         self._cwd = _saved or self._remote_start_dir or "/"
         # Ask which drives are mounted (dot v5.1+) before the first listing so
-        # the drive switcher fills in as the pane appears.
-        self._enqueue(("drives",))
+        # the drive switcher fills in as the pane appears. RAW on purpose (the
+        # _query_free rule): its reply emits no op_done, so counting it while
+        # an operation runs — reachable since quiet staging ops stopped
+        # disabling the panes, e.g. the multi-Next baton moving here mid-drag
+        # — would leave the operation one step short FOREVER.
+        self._enqueue_raw(("drives",))
         self.refresh()
 
     def on_disconnected(self):
@@ -1987,7 +2123,10 @@ class RemoteExplorerWidget(QWidget):
                 QMessageBox.Cancel) != QMessageBox.Yes:
             return
         if sid is None or sid == self._peer_active:
-            self._enqueue(("quit_app",))
+            # RAW, as the docstring above promises: fire-and-forget with no
+            # completion reply, so it must never count toward a running
+            # operation (a quiet staging op leaves this button clickable).
+            self._enqueue_raw(("quit_app",))
         elif not self._enqueue_to(sid, ("quit_app",)):
             # That Next left between the right-click and the answer, or the
             # host wired no targeted channel. Either way nothing was sent,
@@ -2780,7 +2919,7 @@ class RemoteExplorerWidget(QWidget):
             self.refresh()
 
     def _new_folder(self):
-        if not self._connected:
+        if not self._connected or self._busy_refused():
             return
         name, ok = QInputDialog.getText(self, ui_tr_now("New Folder"), ui_tr_now("New folder in {path}:").format(path=self._cwd))
         if ok and name.strip():
@@ -2790,7 +2929,7 @@ class RemoteExplorerWidget(QWidget):
                          toast_mkdir_fail=True)
 
     def _rename_selected(self):
-        if not self._connected:
+        if not self._connected or self._busy_refused():
             return
         entries = self._selected_next_entries()
         if len(entries) != 1:
@@ -2817,7 +2956,7 @@ class RemoteExplorerWidget(QWidget):
         indeterminate operation so the busy animation shows while the Next
         walks the tree (that can take a while on big folders); the worker's
         op_done closes the op, then on_fsize pops the result dialog."""
-        if not self._connected:
+        if not self._connected or self._busy_refused():
             return
         entries = self._selected_next_entries()
         if len(entries) != 1:
@@ -2856,7 +2995,7 @@ class RemoteExplorerWidget(QWidget):
 
     def _delete_selected(self):
         entries = self._selected_next_entries()
-        if not entries:
+        if not entries or self._busy_refused():
             return
         names = "\n".join(p for p, _ in entries)
         if QMessageBox.question(
@@ -2930,6 +3069,8 @@ class RemoteExplorerWidget(QWidget):
         # the dot's rcpy command (v5.2+) - no data crosses the wire, and it
         # works across partitions (paste under a different drive's cwd).
         if not self._connected or not self._clip:
+            return
+        if self._busy_refused():   # BEFORE any branch can consume a cut clip
             return
         if self._clip[0] == "next":
             _kind, entries, mode = self._clip
@@ -3094,6 +3235,8 @@ class RemoteExplorerWidget(QWidget):
             self._copy_paths_into_local(paths, self._local_dir(),
                                         move=(mode == "cut"), dup_in_place=True)
             return
+        if self._busy_refused():   # BEFORE the Next branch can consume a cut
+            return
         _kind, entries, mode = self._clip
         entries = list(entries)
         if mode == "cut":
@@ -3221,7 +3364,7 @@ class RemoteExplorerWidget(QWidget):
 
     def _get_selected(self):
         entries = self._selected_next_entries()
-        if not entries:
+        if not entries or self._busy_refused():
             return
         dest = self._local_dir()
 
@@ -3236,6 +3379,8 @@ class RemoteExplorerWidget(QWidget):
         paths = [p for p in self._selected_local_paths() if os.path.exists(p)]
         if not paths:
             self._log("Select local file(s) or folder(s) to upload.")
+            return
+        if self._busy_refused():
             return
         self._run_op("Uploading to the Next…", lambda: self._put_paths(paths))
 
@@ -3360,7 +3505,7 @@ class RemoteExplorerWidget(QWidget):
         own sample launchers use `-mmc=./`), so the downloaded file's folder
         serves as the card root.
         """
-        if not self._connected or self._op_active:
+        if not self._connected or self._busy_refused():
             return
         name = posixpath.basename(remote_path.rstrip("/")) or remote_path
         # Only asks about things that genuinely stop a launch — booting a file
@@ -3438,7 +3583,7 @@ class RemoteExplorerWidget(QWidget):
         stage 2 extracts it locally (own progress dialog + Cancel), stage 3
         uploads the extracted tree back into the zip's folder. Every abort
         path removes the temp dir and leaves the Next untouched."""
-        if not self._connected or self._op_active:
+        if not self._connected or self._busy_refused():
             return
         tmp = tempfile.mkdtemp(prefix="zxnu_runzip_")
         name = posixpath.basename(zip_path.rstrip("/"))
@@ -3532,7 +3677,7 @@ class RemoteExplorerWidget(QWidget):
         Next folder. The zip is named after the FIRST selected item + '.zip'
         (single or multiple selection alike), uniquified against the current
         listing so nothing is overwritten."""
-        if not self._connected or self._op_active or not entries:
+        if not self._connected or not entries or self._busy_refused():
             return
         first = posixpath.basename(entries[0][0].rstrip("/")) or "archive"
         zip_name = zip_unique_name(first, self._next_listing_names())
@@ -4087,38 +4232,253 @@ class RemoteExplorerWidget(QWidget):
     #  drag & drop
     # ==================================================================
     def _next_drag_enter(self, event):
-        if self._connected and event.mimeData().hasUrls():
+        # Refuse the Next pane's own drags: they now ALSO carry staged file
+        # URLs (for OS drops - see _next_start_drag), and accepting those here
+        # would round-trip the temp copies right back onto the Next.
+        #
+        # The custom format is tested FIRST and hasUrls() only after: hasUrls
+        # is a DATA PULL (it goes through the mime's retrieveData), and this
+        # runs on every drag-move event, so asking it about our own staged
+        # drag would interrogate a download still in flight from inside the
+        # live drag loop. Cheap question first, and the expensive one never
+        # asked for our own payload.
+        md = event.mimeData()
+        self._drag_hover += 1        # our pane owns the cursor right now
+        if (self._connected
+                and not md.hasFormat("application/x-zxnu-next-entries")
+                and md.hasUrls()):
             event.acceptProposedAction()
         else:
             event.ignore()
 
+    def _pane_drag_leave(self, event):
+        """The cursor left one of our panes (or a drag ended on it): the
+        payload may be asked for its files again, and that question is no
+        longer a mid-drag one. See _drag_over_own_panes."""
+        self._drag_hover = 0
+        event.accept()
+
+    def _drag_over_own_panes(self):
+        """True while a drag is hovering one of THIS widget's panes.
+
+        Set from the panes' own drag handlers, so it needs no OS state and
+        no guessing: any payload question asked while this holds comes from
+        our own hover handling (Qt asks on every move), never from a drop
+        being performed — so the lazy mime must answer instantly instead of
+        waiting for a staging download."""
+        return self._drag_hover > 0
+
     def _next_drop(self, event):
         # Accept both files and folders dragged from the local pane or the OS
         # file manager; folders are uploaded recursively (see _put_paths).
+        # Never the Next pane's own drags (see _next_drag_enter).
+        self._drag_hover = 0     # a DROP: payload questions may wait again
+        if event.mimeData().hasFormat("application/x-zxnu-next-entries"):
+            event.ignore()
+            return
         paths = [u.toLocalFile() for u in event.mimeData().urls()
                  if u.isLocalFile() and os.path.exists(u.toLocalFile())]
         if not paths:
             event.ignore()
             return
+        if self._busy_refused():
+            # Refuse BEFORE accepting: an accepted-then-discarded drop shows
+            # the OS a successful copy while nothing was uploaded.
+            event.ignore()
+            return
         event.acceptProposedAction()
         self._run_op("Uploading to the Next…", lambda: self._put_paths(paths))
+
+    # How long a finished stage stays reusable for a re-drag of the same
+    # selection (seconds). Covers "the drop landed before the download
+    # finished - drag again" without re-fetching, while keeping the window
+    # short enough that a selection changed ON THE NEXT between drags is
+    # unlikely to be served stale.
+    DRAG_STAGE_REUSE_S = 180
+    # How long a RETIRED stage folder is kept before deletion. The OS file
+    # manager copies out of the staged folder itself and that copy can still
+    # be running - or queued behind other transfers, or sitting in a paused
+    # copy dialog - long after the drop, so folders are aged out, never
+    # deleted the moment the next drag replaces them.
+    DRAG_STAGE_KEEP_S = 1800
+
+    def _begin_drag_stage(self, entries):
+        """Start downloading ``entries`` into a fresh temp folder for a drag
+        WITHOUT blocking, and return the stage-state dict the drag's mime
+        consults ({'done','ok','staged',...}), or None when staging cannot
+        run right now (operation active / disconnected / precheck pending).
+
+        The download runs as a quiet operation (no disabled widget, no
+        progress dialog - the drag gesture and both panes must stay alive);
+        the drag itself starts immediately and _StagedDragMime waits for
+        this stage AT DROP TIME if it has to. A just-finished stage of the
+        SAME selection is reused instead of re-downloading - that is what
+        makes "the drop came too early, drag again" instant - and replaced
+        stage folders are retired and AGED OUT (_retire_drag_stages), never
+        deleted on the spot, because the OS file manager may still be
+        copying out of them long after a drop."""
+        key = tuple(entries)
+        st = self._drag_stage
+        if (st is not None and st.get('done') and st.get('ok')
+                and st.get('key') == key
+                and time.monotonic() - st.get('ts', 0) < self.DRAG_STAGE_REUSE_S
+                and all(os.path.exists(p) for p in st.get('staged', ()))):
+            return st
+        if self._op_active or not self._connected or self._precheck is not None:
+            return None
+        self._retire_drag_stages(st)
+        tmp = tempfile.mkdtemp(prefix="zxnu_drag_")
+        # Where each item WILL land, known before a single byte arrives: the
+        # download writes basenames into the stage folder. The drag needs
+        # these immediately - a drag advertising no files reads to Windows
+        # as "nothing droppable here" and Explorer shows the no-drop cursor
+        # long before the user releases (see _StagedDragMime).
+        expect = [os.path.join(tmp, posixpath.basename(p.rstrip("/")) or "item")
+                  for p, _d in entries]
+        st = {'key': key, 'dir': tmp, 'expect': expect, 'staged': [],
+              'done': False, 'ok': False, 'ts': 0.0}
+        self._drag_stage = st
+
+        def go():
+            for path, is_dir in entries:
+                self._prepare_local_download_dir(tmp, path, is_dir)
+                self._enqueue(("get", path, tmp))
+            self._log(f"Drag: fetching {len(entries)} item(s) for the drop …")
+
+        def done(ok, _fails):
+            st['staged'] = ([os.path.join(tmp, e) for e in sorted(os.listdir(tmp))]
+                            if ok and os.path.isdir(tmp) else [])
+            st['ok'] = bool(ok and st['staged'])
+            st['ts'] = time.monotonic()
+            st['done'] = True
+            if not st['ok']:
+                self._log("Drag: nothing staged - a drop will carry no files.")
+
+        self._run_op("Downloading from the Next…", go, on_done=done,
+                     quiet_ui=True)
+        if not self._op_active and not st['done']:
+            # _run_op declined to start (raced by another operation): fail the
+            # stage so a drop never waits for a download that never began.
+            st['done'] = True
+        return st
+
+    def _invalidate_drag_stage(self):
+        """Drop the drag-stage reuse cache. The staged FOLDER is only retired,
+        never deleted here: an in-flight drag's mime resolves from its own
+        stage dict, and the OS may still be copying out of a just-dropped
+        one. Called whenever staged content could go stale — every
+        connection transition, and every non-staging operation (it may have
+        written the very files a cached stage holds pre-write copies of)."""
+        if self._drag_stage is not None:
+            self._retire_drag_stages(self._drag_stage)
+            self._drag_stage = None
+
+    def _retire_drag_stages(self, st):
+        """Move stage folder ``st`` (may be None) onto the retirement list,
+        delete retired folders old enough that no OS-side copy can still be
+        reading them, and - once per session - sweep day-old zxnu_drag_
+        leftovers of PREVIOUS runs (nothing can clean a stage folder at app
+        exit: the shell may still own it)."""
+        now = time.monotonic()
+        if st is not None and st.get('dir'):
+            self._drag_stage_hist.append({'dir': st['dir'], 'ts': now})
+        keep = []
+        for h in self._drag_stage_hist:
+            if now - h['ts'] < self.DRAG_STAGE_KEEP_S:
+                keep.append(h)
+            else:
+                shutil.rmtree(h['dir'], ignore_errors=True)
+        self._drag_stage_hist = keep
+        if not self._drag_swept:
+            self._drag_swept = True
+            cutoff = time.time() - 86400
+            try:
+                for name in os.listdir(tempfile.gettempdir()):
+                    if not name.startswith("zxnu_drag_"):
+                        continue
+                    p = os.path.join(tempfile.gettempdir(), name)
+                    try:
+                        if os.path.getmtime(p) < cutoff:
+                            shutil.rmtree(p, ignore_errors=True)
+                    except OSError:
+                        logging.exception("drag-stage sweep: %s", p)
+            except OSError:
+                logging.exception("drag-stage sweep failed")
+
+    def _await_drag_stage(self, st):
+        """The staged local paths for ``st``, waiting (bounded) for a staging
+        download still in flight. Called from the drag mime's retrieveData -
+        i.e. from inside the target's drop - so it pumps queued events (the
+        worker's signals, the staging operation's end) but never user input."""
+        deadline = time.monotonic() + self._drag_stage_wait_ms / 1000.0
+        while not st['done'] and time.monotonic() < deadline:
+            QCoreApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+            time.sleep(0.02)
+        if not st['done']:
+            self._log("Drag: the drop timed out waiting for the download - "
+                      "it keeps running; drag again once it has finished.")
+            return []
+        return list(st['staged']) if st.get('ok') else []
 
     def _next_start_drag(self, supported):
         # Drag Next entries to the local pane / OS to download them.
         entries = self._selected_next_entries()
         if not entries:
             return
-        # Represented as text; the local pane treats a drop as "download here".
-        mime = QMimeData()
+        # The gesture must never wait for the download (the user releases
+        # over the target within a second or two; a UART fetch takes longer),
+        # so the staging download starts in the background and the drag
+        # starts NOW, with _StagedDragMime handing the URLs over lazily at
+        # drop time. The custom payload lets the local pane treat a drop as
+        # "download here" even when staging could not run.
+        st = self._begin_drag_stage(entries)
+        mime = _StagedDragMime(self, st) if st is not None else QMimeData()
         mime.setData("application/x-zxnu-next-entries",
                      "\n".join(f"{'D' if d else 'F'}\t{p}" for p, d in entries).encode())
+        if st is not None:
+            # Name the staged files RIGHT NOW (they may still be downloading
+            # - see _StagedDragMime): Windows asks whether we can produce
+            # files while the cursor merely hovers a folder, and answers
+            # that question with the drop cursor. Serving the finished
+            # stage's real paths when we have them keeps a cache re-drag
+            # exact.
+            paths = st['staged'] if st.get('ok') else st.get('expect', [])
+            mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
         drag = QDrag(self.next_view)
         drag.setMimeData(mime)
-        drag.exec(Qt.CopyAction)
+        self._drag_hover = 0     # never inherit a previous drag's count
+        try:
+            drag.exec(Qt.CopyAction)
+        finally:
+            # The gesture is over however it ended (dropped elsewhere,
+            # cancelled, or left the window without a leave event).
+            self._drag_hover = 0
+
+    def _local_start_drag(self, supported):
+        # Explicit drag-out with real text/uri-list URLs (never the ".." row),
+        # so the selection can be dropped on the Next pane, the SD Card tab's
+        # explorers or the OS file manager - mirroring the SD Card tab's local
+        # explorer (_local_start_drag in zxnu_main).
+        paths = [p for p in self._selected_local_paths() if os.path.exists(p)]
+        if not paths:
+            return
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
+        drag = QDrag(self.local_view)
+        drag.setMimeData(mime)
+        self._drag_hover = 0
+        try:
+            drag.exec(Qt.CopyAction)
+        finally:
+            self._drag_hover = 0
 
     def _local_drag_enter(self, event):
         # Next-pane entries (download here) or file URLs -- from the local pane
         # itself or the OS file manager (copy into the folder dropped on).
+        # The custom format is tested first on purpose: hasUrls() is a data
+        # pull, and short-circuiting keeps our own staged drag from being
+        # interrogated mid-hover (see _next_drag_enter).
+        self._drag_hover += 1        # our pane owns the cursor right now
         if (event.mimeData().hasFormat("application/x-zxnu-next-entries")
                 or event.mimeData().hasUrls()):
             event.acceptProposedAction()
@@ -4136,6 +4496,9 @@ class RemoteExplorerWidget(QWidget):
         return self._local_dir()
 
     def _local_drop(self, event):
+        # A DROP, not a hover: the staged-URL read below is allowed to wait
+        # for a staging download again (see _drag_over_own_panes).
+        self._drag_hover = 0
         data = event.mimeData().data("application/x-zxnu-next-entries")
         if not data:
             # Local/OS file drag: copy the dropped items into the folder they
@@ -4150,6 +4513,18 @@ class RemoteExplorerWidget(QWidget):
             self._copy_paths_into_local(paths, self._local_drop_dir(event))
             return
         event.acceptProposedAction()
+        # A Next-pane drag also carries file URLs - the selection, staged to
+        # a temp folder by a background download (that is what makes OS drops
+        # work - see _next_start_drag / _StagedDragMime). Reading urls() here
+        # WAITS for that download if it is still running (the lazy mime's
+        # retrieveData), then the staged copies are used instead of
+        # downloading a second time; the entry payload below stays the
+        # fallback for a drag whose staging failed or never started.
+        staged = [u.toLocalFile() for u in event.mimeData().urls()
+                  if u.isLocalFile() and os.path.exists(u.toLocalFile())]
+        if staged:
+            self._copy_paths_into_local(staged, self._local_drop_dir(event))
+            return
         dest = self._local_dir()
         # Each line is "<D|F>\t<path>"; keep the dir flag so folders (empty ones
         # in particular) are recreated locally, not silently dropped.
@@ -4159,6 +4534,10 @@ class RemoteExplorerWidget(QWidget):
                 flag, path = line.split("\t", 1)
                 entries.append((path, flag == "D"))
         if not entries:
+            return
+        if self._busy_refused():
+            # Reachable since quiet staging ops (a previous drag's download
+            # still running) stopped disabling the panes.
             return
 
         def go():

@@ -605,13 +605,26 @@ def _re_goodbye_linger(conn):
     goodbye away unread (the /forceexit-does-nothing field report; the
     dot's loop reads first and never showed it). Draining until the peer
     closes - bounded at 2 s - means the FIN only ever follows the goodbye,
-    which fixes every field build without asking anyone to update. The dot
-    closes within milliseconds of reading 'Q', so the wait is invisible
-    there."""
+    which fixes every field build without asking anyone to update.
+
+    One drained thing IS answered: the dot (<= 5.7.4) replies to our 'Q'
+    with the classic raw "Bye" and then waits for "Later" before it closes
+    - leaving it unanswered made it stare at silence for its full cipxfer
+    timeout (~20 s on -s: the long "Closing.." hang on quit/forceexit).
+    Answering here frees every field dot instantly; 5.7.5+ skips the Bye
+    and just closes, which lands in the EOF arm below either way."""
+    tail = b''
     try:
         conn.settimeout(2.0)
-        while conn.recv(256):
-            pass                      # stray polls: consumed, not answered
+        while True:
+            data = conn.recv(256)
+            if not data:
+                break                 # peer closed: the goodbye was read
+            tail = (tail + data)[-8:]     # recv may split the 3-byte verb
+            if b"Bye" in tail:
+                _re_sendpacket(conn, b"Later", 0)
+                tail = b''
+            # anything else (stray polls): consumed, not answered
     except OSError:
         pass                          # timeout or reset: we tried, close
 

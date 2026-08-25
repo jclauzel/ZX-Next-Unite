@@ -51,7 +51,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from PySide6.QtCore import (QEvent, QItemSelectionModel, QMimeData, QPoint,
-                            QPointF, Qt, QUrl)
+                            QPointF, Qt, QTimer, QUrl)
 from PySide6.QtGui import QColor, QDropEvent, QMouseEvent, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
@@ -1307,6 +1307,346 @@ def test_drag_and_drop():
           os.path.isfile(os.path.join(root, "dropped.txt")))
 
 
+def test_drag_out_staging():
+    """Dragging OUT of the panes: the Next pane starts a BACKGROUND staging
+    download and hands the drag a lazy mime whose text/uri-list resolves at
+    drop time (waiting for the download if the drop comes first) - the drag
+    gesture itself never blocks, which is how a real UART-speed fetch and a
+    natural press-drag-release can coexist. Also covered: the hover-probe
+    discriminator, cache reuse + expiry + vanished-file restage, stage-folder
+    aging + the day-old sweep, the timeout path, dialog suppression for quiet
+    ops, the busy guard on every enabled entry point, the local pane's
+    staged-copy shortcut, the Next pane's own-drag refusal, and the local
+    pane's URL drag-out. tempfile.tempdir is sandboxed for the whole test so
+    staging folders (and the sweep) never touch the real system temp."""
+    root = tdir("dndout_root")
+    fake_tmp = tdir("dndout_fake_temp")
+    w, calls = make_widget(local_start_dir=root)
+    connect_widget(w, calls, listing=[(False, 8, "boot.bas")])
+    w._drag_stage_wait_ms = 5000     # every wait below must stay bounded
+    orig_tmpdir = tempfile.tempdir
+    tempfile.tempdir = fake_tmp      # mkdtemp AND the day-old sweep sandbox
+    orig_btn = rex._drag_button_down
+    try:
+        _drag_out_staging_body(w, calls, root, fake_tmp)
+    finally:
+        tempfile.tempdir = orig_tmpdir
+        rex._drag_button_down = orig_btn
+
+
+def _staged_mime(w, st, payload):
+    """A drag payload exactly as _next_start_drag builds it: the lazy mime,
+    the custom entry payload, and the staged paths named UP FRONT (the
+    finished stage's real files when it has them, else the predicted ones)."""
+    m = rex._StagedDragMime(w, st)
+    m.setData("application/x-zxnu-next-entries", payload)
+    paths = st['staged'] if st.get('ok') else st.get('expect', [])
+    m.setUrls([QUrl.fromLocalFile(p) for p in paths])
+    return m
+
+
+def _drag_out_staging_body(w, calls, root, fake_tmp):
+    REUSE_S = rex.RemoteExplorerWidget.DRAG_STAGE_REUSE_S
+    KEEP_S = rex.RemoteExplorerWidget.DRAG_STAGE_KEEP_S
+
+    # -- staging starts WITHOUT blocking: the drag can begin immediately --
+    st = w._begin_drag_stage([("/boot.bas", False)])
+    gets = [c for c in drain(calls) if c and c[0] == "get"]
+    check("staging starts async and enqueues the get",
+          st is not None and not st['done'] and w._op_active
+          and len(gets) == 1 and gets[0][1] == "/boot.bas")
+    check("quiet staging op leaves the widget enabled (no dialog, no freeze)",
+          w.isEnabled() and w._op_dialog is None)
+
+    check("the stage names its files before a byte is downloaded",
+          st['expect'] and all(p.startswith(st['dir']) for p in st['expect'])
+          and [os.path.basename(p) for p in st['expect']] == ["boot.bas"])
+
+    mime = _staged_mime(w, st, b"F\t/boot.bas")
+    check("drag mime advertises URLs before the download ends",
+          mime.hasFormat("text/uri-list") and mime.hasUrls()
+          and "text/uri-list" in mime.formats())
+
+    # -- THE RED-CIRCLE REGRESSION (9.5.29 field report): Windows decides
+    #    the drop cursor by asking for CF_HDROP *while hovering*, which Qt
+    #    answers with urls(). An empty answer there = "no drop" cursor over
+    #    Explorer, so a mid-hover pull MUST return the (predicted) paths
+    #    immediately, without waiting for the download --
+    rex._drag_button_down = lambda: True
+    t0 = time.monotonic()
+    hover = mime.urls()
+    check("a mid-hover pull serves the named files instantly (drop cursor)",
+          len(hover) == 1
+          and samepath(hover[0].toLocalFile(), st['expect'][0])
+          and time.monotonic() - t0 < 1.0, str(hover))
+    check("...even though the download has not finished yet",
+          not st['done'] and not os.path.exists(st['expect'][0]))
+    rex._drag_button_down = lambda: False
+
+    # -- FIELD REPORT (9.5.29): passing the drag over our OWN panes broke the
+    #    drop. Their drag handlers ask the payload questions on every
+    #    mouse-move event, from inside the live drag loop: that must never
+    #    wait for the download, and must never resolve the mime empty --
+    for pane, enter in (("Next", w._next_drag_enter),
+                        ("local", w._local_drag_enter)):
+        ev_hover = drop_event(mime)
+        t0 = time.monotonic()
+        enter(ev_hover)                       # dragEnter/dragMove
+        check(f"a drag-move over the {pane} pane never stalls the gesture",
+              time.monotonic() - t0 < 1.0
+              and w._drag_over_own_panes())
+        w._pane_drag_leave(ev_hover)
+        check(f"leaving the {pane} pane clears the hover flag",
+              not w._drag_over_own_panes())
+    # ...and crossing our panes must not poison what comes after: the
+    # payload still names its files, so Explorer still offers a drop.
+    ev_hover = drop_event(mime)
+    w._local_drag_enter(ev_hover)
+    t0 = time.monotonic()
+    check("a payload pull mid-hover is instant and still names the files",
+          len(mime.urls()) == 1 and time.monotonic() - t0 < 1.0)
+    w._pane_drag_leave(ev_hover)
+    rex._drag_button_down = lambda: True
+    check("after crossing our panes the drag still advertises files",
+          len(mime.urls()) == 1 and mime.hasUrls())
+    rex._drag_button_down = lambda: False
+
+    # -- a drop BEFORE the download ends waits for it (lazy retrieveData);
+    #    the get's completion is fed from a timer, as the worker would --
+    def feed_get():
+        dest = gets[0][2]
+        with open(os.path.join(dest, "boot.bas"), "wb") as fh:
+            fh.write(b"10 PRINT")
+        w.on_got("/boot.bas", os.path.join(dest, "boot.bas"))
+
+    QTimer.singleShot(80, feed_get)
+    urls = mime.urls()               # the "drop": pulls text/uri-list
+    check("the drop waits for staging and receives the real URL",
+          len(urls) == 1 and urls[0].toLocalFile().endswith("boot.bas")
+          and os.path.isfile(urls[0].toLocalFile()), str(urls))
+    check("stage completed ok", st['done'] and st['ok']
+          and [os.path.basename(p) for p in st['staged']] == ["boot.bas"])
+    calls["q"].clear()
+
+    # -- a hover probe AFTER completion serves the URLs right away --
+    rex._drag_button_down = lambda: True
+    mime_done = _staged_mime(w, st, b"F\t/boot.bas")
+    t0 = time.monotonic()
+    check("hover probe with a finished stage serves URLs immediately",
+          len(mime_done.urls()) == 1 and time.monotonic() - t0 < 1.0)
+    rex._drag_button_down = lambda: False
+
+    # -- a fresh drag of the SAME selection reuses the stage: no re-fetch --
+    st2 = w._begin_drag_stage([("/boot.bas", False)])
+    check("re-drag reuses the finished stage (no second download)",
+          st2 is st and [c for c in drain(calls) if c and c[0] == "get"] == [])
+
+    # -- the Next pane refuses its own drag (custom format present) --
+    ev = drop_event(mime)
+    w._next_drop(ev)
+    check("Next pane refuses its own drag",
+          not ev.isAccepted() and drain(calls) == [])
+
+    # -- staged URLs short-circuit a drop on the local pane --
+    ev = drop_event(mime)
+    w._local_drop(ev)
+    check("staged drop on the local pane copies, no second download",
+          os.path.isfile(os.path.join(root, "boot.bas"))
+          and [c for c in drain(calls) if c and c[0] == "get"] == [])
+
+    # -- a busy widget stages nothing NEW (the drag falls back to
+    #    entries-only); reusing an already-finished stage stays allowed --
+    w._op_active = True
+    check("no NEW staging while an operation runs",
+          w._begin_drag_stage([("/other.bin", False)]) is None)
+    check("a finished stage is still reusable while an operation runs",
+          w._begin_drag_stage([("/boot.bas", False)]) is st)
+    w._op_active = False
+
+    # -- an EXPIRED cache restages: backdate past DRAG_STAGE_REUSE_S --
+    st['ts'] -= (REUSE_S + 1)
+    st_dir = st['dir']
+
+    def feed_get2():
+        q = [c for c in drain(calls) if c and c[0] == "get"]
+        if not q:
+            QTimer.singleShot(20, feed_get2)
+            return
+        with open(os.path.join(q[-1][2], "boot.bas"), "wb") as fh:
+            fh.write(b"NEW")
+        w.on_got("/boot.bas", os.path.join(q[-1][2], "boot.bas"))
+
+    QTimer.singleShot(20, feed_get2)
+    st5 = w._begin_drag_stage([("/boot.bas", False)])
+    deadline = time.monotonic() + 5.0
+    while w._op_active and time.monotonic() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.01)
+    check("an expired stage is replaced by a fresh download",
+          st5 is not None and st5 is not st and st5['done'] and st5['ok'])
+    check("the expired stage folder was retired, not deleted",
+          any(h['dir'] == st_dir for h in w._drag_stage_hist)
+          and os.path.isdir(st_dir))
+    calls["q"].clear()
+
+    # -- a stage whose file VANISHED restages too --
+    os.remove(st5['staged'][0])
+    st6 = w._begin_drag_stage([("/boot.bas", False)])
+    check("a stage with vanished files restages",
+          st6 is not None and st6 is not st5
+          and [c for c in calls["q"] if c and c[0] == "get"] != [])
+    w.on_error("end it")             # close st6's op
+    calls["q"].clear()
+
+    # -- failed staging: the drop resolves to no URLs --
+    def feed_fail():
+        if [c for c in drain(calls) if c and c[0] == "get"]:
+            w.on_error("get failed")
+        else:
+            QTimer.singleShot(20, feed_fail)
+
+    QTimer.singleShot(50, feed_fail)
+    st3 = w._begin_drag_stage([("/gone.bin", False)])
+    mime3 = _staged_mime(w, st3, b"F\t/gone.bin")
+    urls3 = mime3.urls()
+    check("failed staging leaves the named file missing on disk",
+          st3 is not None and st3['done'] and not st3['ok']
+          and len(urls3) == 1 and not os.path.exists(urls3[0].toLocalFile()))
+    calls["q"].clear()
+
+    # -- a drop that outlives the wait window gives up waiting while the
+    #    download keeps running; the wait spans the 250 ms dialog window, so
+    #    it also proves quiet ops never pop the progress dialog --
+    w._drag_stage_wait_ms = 400
+    st4 = w._begin_drag_stage([("/slow.bin", False)])
+    mime4 = _staged_mime(w, st4, b"F\t/slow.bin")
+    t0 = time.monotonic()
+    urls4 = mime4.urls()
+    check("a too-early drop stops waiting, download still running",
+          st4 is not None and not st4['done'] and w._op_active
+          and logged(calls, "timed out") and time.monotonic() - t0 >= 0.3)
+    check("...and the file it named is not there yet (Explorer will say so)",
+          len(urls4) == 1 and not os.path.exists(urls4[0].toLocalFile()))
+    check("no dialog appeared although the quiet op outlived the 250 ms delay",
+          w._op_dialog is None)
+    w._show_op_dialog_if_running()   # the stale-timer path, fired by hand
+    check("a stale dialog timer firing mid-quiet-op is refused",
+          w._op_dialog is None)
+
+    # -- while that op is still running, every enabled entry point must
+    #    refuse LOUDLY and without side effects --
+    tot = w._op_total
+    w.on_connected()                 # e.g. the multi-Next baton moving here
+    check("on_connected's drives ride the raw queue (op accounting intact)",
+          w._op_total == tot
+          and [c for c in drain(calls) if c and c[0] == "drives"] != [])
+    FakeMsg.answer = QMessageBox.Yes
+    w._disconnect_session()
+    check("disconnect's quit_app rides the raw queue (op accounting intact)",
+          w._op_total == tot
+          and [c for c in drain(calls) if c and c[0] == "quit_app"] != [])
+    keep = tfile(root, "keepme.txt", b"K")
+    w._clip = ("local", [keep], "cut")
+    w._paste_into_next()
+    check("a cut clipboard survives a busy-refused paste",
+          w._clip is not None and logged(calls, "Busy"))
+    w._clip = None
+    mime_keep = url_mime(keep)       # NB: a local — QDropEvent doesn't own it
+    ev = drop_event(mime_keep)
+    w._next_drop(ev)
+    check("a busy Next pane refuses the OS drop instead of eating it",
+          not ev.isAccepted()
+          and [c for c in drain(calls) if c and c[0] == "put"] == [])
+    select_next(w, "boot.bas")
+    w._delete_selected()
+    check("a busy delete refuses before the confirm dialog",
+          [c for c in drain(calls) if c and c[0] in ("rm", "rmtree")] == [])
+    w.on_error("late")               # let the op end so the widget is clean
+    calls["q"].clear()
+    w._drag_stage_wait_ms = 5000
+
+    # -- stage-folder AGING: inside DRAG_STAGE_KEEP_S survives, past it dies --
+    dir_old = tdir("dndout_aged_old")
+    dir_new = tdir("dndout_aged_new")
+    w._drag_stage_hist = [
+        {'dir': dir_old, 'ts': time.monotonic() - (KEEP_S + 1)},
+        {'dir': dir_new, 'ts': time.monotonic()},
+    ]
+    w._retire_drag_stages(None)
+    check("retired stage folders age out on schedule",
+          not os.path.isdir(dir_old) and os.path.isdir(dir_new)
+          and [h['dir'] for h in w._drag_stage_hist] == [dir_new])
+
+    # -- the once-per-session sweep reaps day-old leftovers of PRIOR runs --
+    sweep_old = os.path.join(fake_tmp, "zxnu_drag_leftover")
+    sweep_new = os.path.join(fake_tmp, "zxnu_drag_fresh")
+    os.makedirs(sweep_old); os.makedirs(sweep_new)
+    two_days_ago = time.time() - 2 * 86400
+    os.utime(sweep_old, (two_days_ago, two_days_ago))
+    w._drag_swept = False
+    w._retire_drag_stages(None)
+    check("the session sweep reaps only day-old zxnu_drag_ leftovers",
+          not os.path.isdir(sweep_old) and os.path.isdir(sweep_new)
+          and w._drag_swept)
+
+    # -- the real startDrag entry point wires the staged lazy mime --
+    class _FakeDrag:
+        last = None
+
+        def __init__(self, src):
+            _FakeDrag.last = self
+            self.mime = None
+
+        def setMimeData(self, m):
+            self.mime = m
+
+        def exec(self, *a, **k):
+            return Qt.IgnoreAction
+
+    def feed_get3():
+        q = [c for c in drain(calls) if c and c[0] == "get"]
+        if not q:
+            QTimer.singleShot(20, feed_get3)
+            return
+        with open(os.path.join(q[-1][2], "boot.bas"), "wb") as fh:
+            fh.write(b"x")
+        w.on_got("/boot.bas", os.path.join(q[-1][2], "boot.bas"))
+
+    select_next(w, "boot.bas")
+    QTimer.singleShot(20, feed_get3)
+    orig_drag = rex.QDrag
+    rex.QDrag = _FakeDrag
+    try:
+        w._next_start_drag(Qt.CopyAction)
+    finally:
+        rex.QDrag = orig_drag
+    m = _FakeDrag.last.mime if _FakeDrag.last is not None else None
+    check("startDrag hands out the lazy staged mime + custom payload",
+          isinstance(m, rex._StagedDragMime)
+          and bytes(m.data("application/x-zxnu-next-entries")))
+    deadline = time.monotonic() + 5.0
+    while w._op_active and time.monotonic() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.01)
+    check("background staging finishes after the (instant) drag",
+          not w._op_active and w._drag_stage['done'] and w._drag_stage['ok'])
+    calls["q"].clear()
+
+    # -- local pane drag-out carries real file URLs --
+    fa = tfile(root, "outbound.txt", b"T")
+    select_local(w, fa)
+    _FakeDrag.last = None
+    rex.QDrag = _FakeDrag
+    try:
+        w._local_start_drag(Qt.CopyAction)
+    finally:
+        rex.QDrag = orig_drag
+    got = ([u.toLocalFile() for u in _FakeDrag.last.mime.urls()]
+           if _FakeDrag.last is not None and _FakeDrag.last.mime else [])
+    check("local drag-out carries the file as a URL",
+          len(got) == 1 and samepath(got[0], fa), str(got))
+
+
 def test_arrow_pulse_and_overlay_resize():
     w, calls = make_widget(local_start_dir=tdir("pulse_root"))
     w.resize(800, 500)
@@ -1989,6 +2329,7 @@ def main():
         test_local_file_operations()
         test_local_open_with_shell()
         test_drag_and_drop()
+        test_drag_out_staging()
         test_arrow_pulse_and_overlay_resize()
         test_idle_status_provider()
         test_idle_details_provider()

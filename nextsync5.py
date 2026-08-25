@@ -217,11 +217,24 @@ def _is_osp(payload):
 def _goodbye_linger(conn):
     """Drain until the peer closes (bounded 2 s) after sending a goodbye,
     so our FIN cannot race the 'Q' off the far side's wire - see
-    _re_goodbye_linger in zxnu_workers.py, kept in step by hand."""
+    _re_goodbye_linger in zxnu_workers.py, kept in step by hand.
+
+    A drained "Bye" is answered with the framed "Later": the dot (<= 5.7.4)
+    replies to our 'Q' with the classic goodbye and waits for the answer
+    before closing - unanswered, it stared at silence for its full cipxfer
+    timeout (the long "Closing.." hang on quit/forceexit). 5.7.5+ skips
+    the Bye and just closes, which is the EOF arm below."""
+    tail = b''
     try:
         conn.settimeout(2.0)
-        while conn.recv(256):
-            pass
+        while True:
+            data = conn.recv(256)
+            if not data:
+                break
+            tail = (tail + data)[-8:]
+            if b"Bye" in tail:
+                sendpacket(conn, b"Later", 0)
+                tail = b''
     except OSError:
         pass
 
