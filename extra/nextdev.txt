@@ -25,27 +25,36 @@
 230 REM other is tried rather than dead-ending here.
 240 LET flavour=1
 250 REM -----------------------------------------------------------
-260 ON ERROR GO TO 400
-270 REM Consume the push: the .mv both TESTS for the file and takes
-280 REM it out of the way, so the next cycle listens again instead
-290 REM of re-running the same build for ever. It errors when
-300 REM nothing arrived, which is the branch to line 400.
+260 REM Consume a pushed build, if one is waiting.
+262 REM
+264 REM Nothing below branches on whether a dot command FAILED: .mv
+266 REM does not raise a trappable BASIC error when /dev/incoming.nex
+268 REM is missing (checked on hardware), so the old "the .mv errors
+270 REM when nothing arrived" branch never fired and the Listener at
+272 REM line 400 was unreachable on every boot - the machine just
+274 REM printed "pushed build did not start." and halted.
+276 REM
+278 REM So lean on the one thing that IS certain: a .nexload that
+280 REM succeeds NEVER COMES BACK. Whatever happens here, reaching
+282 REM line 400 means no build ran - and then the right move is
+284 REM always the same, serve the Listener and wait for the push.
+286 REM
+288 REM (No colon-tail on the dot lines - the argument stays exactly
+289 REM the filename.)
+290 ON ERROR GO TO 400
 310 .mv /dev/incoming.nex /dev/run.nex
-312 REM The build is ours. From here a failure must halt VISIBLY, not
-314 REM fall back into the wait loop looking as if the push never came:
-316 REM the checksum verified, so a build that will not start is news.
-318 REM (No colon-tail on the dot line - the argument stays exactly the
-319 REM filename.)
-320 ON ERROR GO TO 326
+320 ON ERROR GO TO 400
 325 .nexload /dev/run.nex
-326 REM Disarm BEFORE the halt, exactly as line 620 does for the
-327 REM other failure exit: STOP is itself a trappable condition, so
-328 REM a handler still armed here catches its own STOP and jumps back
-329 REM to the PRINT for ever - a screenful of "did not start.".
-331 ON ERROR STOP
-332 PRINT "nextdev: pushed build did not start."
-334 PRINT "Delete /dev/incoming.nex if it is not a runnable .nex."
-340 STOP
+330 REM Still here, so no build ran: either none was waiting, or one
+332 REM was and would not start - and since a dot's failure is not
+334 REM reliably trappable we cannot tell the two apart, so the line
+336 REM below must read true either way (.nexload prints its own
+337 REM reason above when there was a real one). Drop any dud so the
+338 REM next boot starts clean, then carry on to the Listener: a build
+339 REM that will not run must not cost the machine its loop.
+340 PRINT "nextdev: no build ran - serving the Listener."
+345 ON ERROR GO TO 400
+350 .rm /dev/run.nex
 400 REM Nothing waiting: hand the machine to the Listener and wait.
 410 PRINT "nextdev: waiting for a push..."
 420 PRINT "pick 2 NextSync (Listener) on the menu."
