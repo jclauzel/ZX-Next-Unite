@@ -1826,6 +1826,14 @@ class NextSyncConflictSignals(QObject):
     prompt = Signal(str, str, object, object)   # (name, local_path, result_holder, done_event)
 
 
+class EspEmuSignals(QObject):
+    """Marshals espemu (RS232 ESP emulation) log lines from its socket
+    thread onto the UI thread - same job as MameProcessSignals below for
+    the MAME reader thread: add_main_log_window touches Qt widgets and
+    must only ever run on the main thread."""
+    line = Signal(str)
+
+
 class MameProcessSignals(QObject):
     """Signals used to marshal output from a detached MAME process back to the
     main (UI) thread. A background reader thread emits ``output`` for every

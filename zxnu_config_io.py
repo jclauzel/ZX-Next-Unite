@@ -375,6 +375,37 @@ def build_config_io(
                 host.settings_mame_update_check_checkbox.setChecked(_mame_upd_on)
                 host.settings_mame_update_check_checkbox.blockSignals(False)
 
+            # RS232 ESP emulation for MAME (espemu): toggle + port +
+            # verbose, mirroring the HTTP bridge restore above. The rows
+            # are built unconditionally, so no hasattr dance is needed -
+            # but keep one anyway: a test that stubs the pane must not
+            # break the whole restore.
+            if hasattr(host, "settings_rs232_esp_checkbox"):
+                _rs232_on = configuration_dictionary.get(
+                    SETTING_MAME_RS232_ESP, "").strip().lower() in (
+                        "true", "1", "yes", "on")
+                host.settings_rs232_esp_checkbox.blockSignals(True)
+                host.settings_rs232_esp_checkbox.setChecked(_rs232_on)
+                host.settings_rs232_esp_checkbox.blockSignals(False)
+                try:
+                    _rs232_port = int(configuration_dictionary.get(
+                        SETTING_MAME_RS232_ESP_PORT) or 2222)
+                except (TypeError, ValueError):
+                    _rs232_port = 2222
+                if not (1 <= _rs232_port <= 65535):
+                    _rs232_port = 2222
+                host.settings_rs232_esp_port_spinbox.blockSignals(True)
+                host.settings_rs232_esp_port_spinbox.setValue(_rs232_port)
+                host.settings_rs232_esp_port_spinbox.blockSignals(False)
+                _rs232_verbose = configuration_dictionary.get(
+                    SETTING_MAME_RS232_ESP_VERBOSE, "").strip().lower() in (
+                        "true", "1", "yes", "on")
+                host.settings_rs232_esp_verbose_checkbox.blockSignals(True)
+                host.settings_rs232_esp_verbose_checkbox.setChecked(
+                    _rs232_verbose)
+                host.settings_rs232_esp_verbose_checkbox.blockSignals(False)
+                host._rs232_esp_widgets_set_enabled(_rs232_on)
+
             # ZX Next Unite "check for updates at startup on Github" toggle
             # (default on). Always present as a widget.
             if hasattr(host, "settings_zxnu_update_check_checkbox"):

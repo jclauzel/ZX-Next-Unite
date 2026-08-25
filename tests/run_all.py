@@ -41,6 +41,7 @@ SUITES = [
     ("test_nextsync_autostart.py", 120, None),
     ("test_pane_imports.py",    120, None),
     ("test_hdf_workers.py",     120, None),
+    ("test_esp_emu.py",         120, None),
     ("test_classic_sync.py",    180, None),
     ("test_listen.py",          120, None),
     ("test_remote_listen.py",   120, None),

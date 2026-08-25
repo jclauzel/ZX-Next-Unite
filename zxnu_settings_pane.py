@@ -80,6 +80,7 @@ SETTINGS_TAB_ROWS = (
     "mame_rom",
     "mame_params",
     "mame_update_check",   # also the Flatpak options box — platform alternates
+    "mame_rs232_esp",      # checkbox + port + verbose sub-row, one packed row
     "cspect_params",
     "cspect_update_check",
     "sdcard_pygame_anim",
@@ -1422,6 +1423,93 @@ def build_settings_pane(
         _flatpak_layout.addWidget(host.settings_mame_flatpak_rompath_row)
 
         grid_tab_Settings.addWidget(_flatpak_box, settings_grid_row("mame_update_check"), 0, 1, 2)
+
+    # ── RS232 ESP emulation for MAME (espemu) ──────────────────
+    # Unconditional like the CSpect box below (MAME can be installed in-app
+    # mid-session; a gated row would only appear after a restart). Same
+    # packed shape as the HTTP bridge row: master checkbox + "Port:" +
+    # spinbox on the first line, the verbose checkbox on a sub-row, all
+    # under ONE registrar name.
+    def settings_rs232_esp_changed():
+        on = host.settings_rs232_esp_checkbox.isChecked()
+        configuration_dictionary[SETTING_MAME_RS232_ESP] = (
+            "true" if on else "false")
+        save_configuration_file()
+        _rs232_esp_widgets_set_enabled(on)
+
+    host.settings_rs232_esp_checkbox = QCheckBox("RS232 ESP Emulation (Mame)")
+    host.settings_rs232_esp_checkbox.setChecked(False)
+    host.settings_rs232_esp_checkbox.setToolTip(
+        "When launching MAME, also start a local RS232 ESP (Wi-Fi module)\n"
+        "emulation and pass MAME '-rs232_esp null_modem -bitb\n"
+        "socket.127.0.0.1:<port>' - so network software on the emulated Next\n"
+        "(.sync5, ZX Next Remote, ...) reaches the real network through this\n"
+        "PC. A fresh emulation worker is started for every launch and stopped\n"
+        "when MAME exits.\n"
+        "IMPORTANT: transfers need the Next side on SLOW pacing - '.sync5 -s',\n"
+        "or UART speed 'Slow' in ZX Next Remote's settings.\n"
+        "Off by default. Saved to the configuration file.")
+    host.settings_rs232_esp_checkbox.stateChanged.connect(
+        lambda _s: settings_rs232_esp_changed())
+
+    host.settings_rs232_esp_port_label = QLabel("Port:")
+    host.settings_rs232_esp_port_spinbox = QSpinBox()
+    host.settings_rs232_esp_port_spinbox.setRange(1, 65535)
+    host.settings_rs232_esp_port_spinbox.setValue(2222)
+    _rs232_port_tip = (
+        "TCP port the RS232 ESP emulation listens on for MAME's -bitb\n"
+        "socket (default 2222). Saved to hdfg.cfg\n"
+        f"({SETTING_MAME_RS232_ESP_PORT}) and applied at the next MAME\n"
+        "launch - every launch starts a fresh emulation worker on it.")
+    host.settings_rs232_esp_port_label.setToolTip(_rs232_port_tip)
+    host.settings_rs232_esp_port_spinbox.setToolTip(_rs232_port_tip)
+
+    def settings_rs232_esp_port_changed(port):
+        configuration_dictionary[SETTING_MAME_RS232_ESP_PORT] = str(port)
+        save_configuration_file()
+    host.settings_rs232_esp_port_spinbox.valueChanged.connect(
+        settings_rs232_esp_port_changed)
+
+    def settings_rs232_esp_verbose_changed():
+        configuration_dictionary[SETTING_MAME_RS232_ESP_VERBOSE] = (
+            "true" if host.settings_rs232_esp_verbose_checkbox.isChecked()
+            else "false")
+        save_configuration_file()
+
+    host.settings_rs232_esp_verbose_checkbox = QCheckBox(
+        "RS232 ESP Emulation verbose mode")
+    host.settings_rs232_esp_verbose_checkbox.setChecked(False)
+    host.settings_rs232_esp_verbose_checkbox.setToolTip(
+        "Trace the RS232 ESP emulation into the SD Card Utility log console:\n"
+        "emulator connect/disconnect, every AT command, connect results and\n"
+        "rate-limited transfer summaries (never one line per packet).\n"
+        "Applied at the next MAME launch. Off by default (it is chatty).")
+    host.settings_rs232_esp_verbose_checkbox.stateChanged.connect(
+        lambda _s: settings_rs232_esp_verbose_changed())
+
+    def _rs232_esp_widgets_set_enabled(on):
+        on = bool(on)
+        host.settings_rs232_esp_port_label.setEnabled(on)
+        host.settings_rs232_esp_port_spinbox.setEnabled(on)
+        host.settings_rs232_esp_verbose_checkbox.setEnabled(on)
+    _rs232_esp_widgets_set_enabled(False)
+    # config restore re-applies the greying once the saved state is known.
+    host._rs232_esp_widgets_set_enabled = _rs232_esp_widgets_set_enabled
+
+    _rs232_esp_row = QHBoxLayout()
+    _rs232_esp_row.addWidget(host.settings_rs232_esp_checkbox)
+    _rs232_esp_row.addSpacing(12)
+    _rs232_esp_row.addWidget(host.settings_rs232_esp_port_label)
+    _rs232_esp_row.addWidget(host.settings_rs232_esp_port_spinbox)
+    _rs232_esp_row.addStretch(1)
+    _rs232_esp_verbose_row = QHBoxLayout()
+    _rs232_esp_verbose_row.addWidget(host.settings_rs232_esp_verbose_checkbox)
+    _rs232_esp_verbose_row.addStretch(1)
+    _rs232_esp_vbox = QVBoxLayout()
+    _rs232_esp_vbox.addLayout(_rs232_esp_row)
+    _rs232_esp_vbox.addLayout(_rs232_esp_verbose_row)
+    grid_tab_Settings.addLayout(
+        _rs232_esp_vbox, settings_grid_row("mame_rs232_esp"), 0, 1, 2)
 
     # ── CSpect default launch parameters ───────────────────────────────
     # Shown unconditionally (unlike the MAME block above, which is gated on

@@ -46,6 +46,7 @@ from PySide6.QtWidgets import QInputDialog, QMessageBox
 from zxnu_config import *
 from zxnu_i18n import ui_tr_now
 from zxnu_workers import *
+import espemu
 import zxnu_itchio
 
 
@@ -179,6 +180,72 @@ def build_emulator_ops(
     execute_shell_command,
 ):
     """Define the emulator/self-update closures (no widgets built here)."""
+    # ---- RS232 ESP emulation (espemu) worker lifecycle -------------------
+    # One background AT-proxy at a time, owned by the MAME launch flow. The
+    # rule is deliberately stop-then-start on EVERY launch: a fresh server
+    # instance per MAME session means no link state, half-armed CIPSEND or
+    # stale bitbanger connection can ever leak from the previous run.
+    host._esp_emu = None
+    host._esp_emu_signals = None
+
+    def _stop_esp_emulation():
+        """Stop the running espemu worker, if any. Safe from the UI thread
+        (stop() joins a loop that wakes on a self-pipe, never blocks long)
+        and safe to call with nothing running."""
+        server = host._esp_emu
+        host._esp_emu = None
+        if server is not None:
+            try:
+                server.stop()
+            except Exception:                    # noqa: BLE001
+                logging.exception("RS232 ESP emulation: stop failed")
+    host._stop_esp_emulation = _stop_esp_emulation
+
+    def _esp_emulation_enabled():
+        return str(configuration_dictionary.get(
+            SETTING_MAME_RS232_ESP, "")).strip().lower() in (
+                "true", "1", "yes", "on")
+
+    def _esp_emulation_port():
+        try:
+            port = int(configuration_dictionary.get(
+                SETTING_MAME_RS232_ESP_PORT) or 2222)
+        except (TypeError, ValueError):
+            port = 2222
+        return port if 1 <= port <= 65535 else 2222
+
+    def _start_esp_emulation():
+        """Fresh espemu worker for one MAME session, or None on failure.
+
+        The server binds SYNCHRONOUSLY inside start(), so when this
+        returns non-None the listener is live and MAME's -bitb connect
+        cannot race it. Log lines from the worker's socket thread are
+        marshalled through EspEmuSignals - add_main_log_window touches Qt
+        widgets and must only run on the UI thread.
+        """
+        _stop_esp_emulation()
+        signals = EspEmuSignals()
+        signals.line.connect(
+            lambda s: add_main_log_window(str(s)), Qt.QueuedConnection)
+        verbose = str(configuration_dictionary.get(
+            SETTING_MAME_RS232_ESP_VERBOSE, "")).strip().lower() in (
+                "true", "1", "yes", "on")
+        server = espemu.EspAtServer(
+            port=_esp_emulation_port(), log=signals.line.emit,
+            verbose=verbose)
+        try:
+            server.start()
+        except OSError as ex:
+            logging.error(f"RS232 ESP emulation failed to start: {ex}")
+            _emulator_launch_failed("MAME", ui_tr_now(
+                "RS232 ESP emulation could not start (port {port} in "
+                "use?). MAME starts without it.").format(
+                    port=_esp_emulation_port()))
+            return None
+        host._esp_emu = server
+        host._esp_emu_signals = signals      # keep the QObject alive
+        return server
+
     def set_cspect_screen_size():
         configuration_dictionary[SETTING_SCREENSIZE] = host.cspect_screensize.currentIndex()
         save_configuration_file()
@@ -598,6 +665,32 @@ def build_emulator_ops(
         if mame_image:
             mame_argv += [MAME_HARD_DISK_PARAMETER, mame_image]
 
+        # RS232 ESP emulation (espemu): when the Settings toggle is on,
+        # stand the AT proxy up FIRST (a fresh instance every launch - the
+        # bind is synchronous, so MAME's -bitb connect cannot race it),
+        # then hand MAME the bitbanger arguments. When the toggle is on,
+        # the toggle is authoritative: hand-typed -rs232_esp/-bitb copies
+        # in the MAME parameters box are stripped so MAME never sees the
+        # option twice (toggle OFF leaves a manual setup alone). If the
+        # proxy cannot bind, MAME starts WITHOUT the arguments - a wire to
+        # nowhere would just hang the Next software's ESP probes.
+        _esp_server = None
+        if _esp_emulation_enabled():
+            _esp_server = _start_esp_emulation()
+            if _esp_server is not None:
+                _cleaned, _skip = [], 0
+                for _tok in mame_argv:
+                    if _skip:
+                        _skip -= 1
+                        continue
+                    if _tok in ("-rs232_esp", "-bitb"):
+                        _skip = 1
+                        continue
+                    _cleaned.append(_tok)
+                mame_argv = _cleaned + [
+                    "-rs232_esp", "null_modem",
+                    "-bitb", f"socket.127.0.0.1:{_esp_emulation_port()}"]
+
         # Executable that will actually be invoked: the detected MAME binary,
         # or the Flatpak run command when Flatpak mode is enabled.
         _mame_executable = " ".join(mame_flatpak_command()) if _flatpak else mame_path
@@ -653,6 +746,10 @@ def build_emulator_ops(
                 )
         except Exception as ex:
             logging.error(f"ERROR: Failed to launch MAME: {ex}")
+            # A worker with no MAME to serve would linger until the next
+            # launch; take it down with the launch that wanted it.
+            if _esp_server is not None:
+                _stop_esp_emulation()
             _emulator_launch_failed("MAME", ui_tr_now(
                 "ERROR: Failed to launch MAME: {error}").format(error=ex))
             return
@@ -706,6 +803,16 @@ def build_emulator_ops(
                     pass
 
         mame_signals.finished.connect(_on_mame_finished, Qt.QueuedConnection)
+        if _esp_server is not None:
+            # Stop the ESP worker when THIS MAME exits - unless a newer
+            # launch already replaced it with its own instance (the
+            # stop-then-start rule), in which case the old server object
+            # is already stopped and the new one is not ours to touch.
+            def _esp_stop_on_exit(_code, _srv=_esp_server):
+                if host._esp_emu is _srv:
+                    _stop_esp_emulation()
+            mame_signals.finished.connect(_esp_stop_on_exit,
+                                          Qt.QueuedConnection)
         # Keep a reference so the signals object is not garbage-collected
         # while the reader thread is still running.
         host._mame_signals = mame_signals
