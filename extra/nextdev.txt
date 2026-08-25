@@ -36,9 +36,15 @@
 316 REM the checksum verified, so a build that will not start is news.
 318 REM (No colon-tail on the dot line - the argument stays exactly the
 319 REM filename.)
-320 ON ERROR GO TO 330
+320 ON ERROR GO TO 326
 325 .nexload /dev/run.nex
-330 PRINT "nextdev: pushed build did not start."
+326 REM Disarm BEFORE the halt, exactly as line 620 does for the
+327 REM other failure exit: STOP is itself a trappable condition, so
+328 REM a handler still armed here catches its own STOP and jumps back
+329 REM to the PRINT for ever - a screenful of "did not start.".
+331 ON ERROR STOP
+332 PRINT "nextdev: pushed build did not start."
+334 PRINT "Delete /dev/incoming.nex if it is not a runnable .nex."
 340 STOP
 400 REM Nothing waiting: hand the machine to the Listener and wait.
 410 PRINT "nextdev: waiting for a push..."
