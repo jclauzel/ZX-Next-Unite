@@ -370,8 +370,24 @@ class FakeUpstream:
         self.conn.sendall(data)
 
     def close_client(self):
+        """Hang up so the PEER actually sees it.
+
+        shutdown() before close(), and it matters: close() alone races the
+        reader thread blocked in recv() on the same socket. On Windows
+        closesocket() aborts that recv and the peer gets a reset, but on
+        Linux the blocked recv keeps the socket alive, NO FIN is sent, and
+        the peer never learns we hung up - which is exactly how the
+        "remote close is announced as CLOSED" check passed locally and
+        failed on CI. shutdown() sends the FIN immediately and wakes the
+        reader on both platforms.
+        """
         if self.conn is not None:
+            try:
+                self.conn.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass                      # already gone: close() still runs
             self.conn.close()
+            self._thread.join(timeout=2)
 
     def close(self):
         try:
@@ -397,7 +413,7 @@ class FakeMame:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
-                chunk = self.sock.recv(4096)
+                chunk = self.sock.recv(65536)
                 if not chunk:
                     break
                 got += chunk
@@ -626,8 +642,14 @@ def test_server_backpressure():
 
     def push():
         # sendall blocks as TCP pushes the pressure back - exactly the
-        # point; it completes as the reader drains.
-        upstream.send(payload)
+        # point; it completes as the reader drains. Guarded: the teardown
+        # at the end of the test can close this socket while it is still
+        # blocked, and an unhandled raise in a daemon thread only sprays
+        # stderr.
+        try:
+            upstream.send(payload)
+        except OSError:
+            pass
     pusher = threading.Thread(target=push, daemon=True)
     pusher.start()
 
