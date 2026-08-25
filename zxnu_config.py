@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.5.26"
+ZX_NEXT_UNITE_VERSION = "9.5.27"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -254,7 +254,6 @@ SETTING_VSYNC = "vsync"
 SETTING_HERTZ = "hertz"
 SETTING_JOYSTICK = "joy"
 SETTING_MOUSE = "mouse"
-SETTING_CSPECT = "cspect"
 SETTING_CUSTOM = "custom"
 SETTING_ESC = "esc"                                                # combo index into CSPECT_ESC (ESC-exit disable on/off; default 1 = on, passes -esc)
 SETTING_MAME_COMMAND_LINE_PARAMETERS = "mame_command_line_parameters"
@@ -384,6 +383,7 @@ SETTING_NEXTSYNC_PYGAME_ANIM   = "nextsync_pygame_anim"    # "false" => freeze t
 SETTING_NEXTSYNC_REMOTE_EXPLORER = "nextsync_remote_explorer"  # "true" => reopen the NextSync tab in Remote Explorer view (default off = classic sync)
 SETTING_NEXTSYNC_RE_AUTOSTART  = "nextsync_re_autostart"   # "true" => start the Remote Explorer '.sync5 -listen' server on startup (default off; needs a sync root)
 SETTING_RE_MACHINE_NAMES       = "nextsync_re_machine_names"  # JSON {address: friendly name} for the Remote Explorer's machine combo ("10.0.0.185 #1 - N-Go")
+SETTING_RE_MACHINE_COLORS      = "nextsync_re_machine_colors"  # JSON {address: "#rrggbb"} tint for the Remote Explorer's machine combo and session tabs (empty = untinted)
 SETTING_NEXTSYNC_REMOTE_CWD    = "nextsync_remote_cwd"     # last Next-side folder browsed in the Remote Explorer, restored on reconnect (falls back to "/" if gone)
 SETTING_NEXTSYNC_RE_LOCAL_SORT = "nextsync_re_local_sort"  # Remote Explorer local pane sort, "<name|size|type>:<asc|desc>" (default "name:asc")
 SETTING_NEXTSYNC_RE_NEXT_SORT  = "nextsync_re_next_sort"   # Remote Explorer Next pane sort, "<name|size|type>:<asc|desc>" (default "name:asc")
@@ -960,7 +960,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("Enjoy!"),
              ("")
             )
-CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_IMAGE_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_MOUSE, SETTING_CSPECT, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE,
+CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_IMAGE_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_MOUSE, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE,
 SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME,
 SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_COLOR_GENERAL_TEXT, SETTING_COLOR_RETRO_LOG, SETTING_DESKTOP_THEME, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_SEARCH_SORT_MODE, SETTING_GALLERY_ANIM_MODE,
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GALLERY_SLIDESHOW_SECS, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
@@ -971,7 +971,7 @@ SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_P
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_DELETE_TO_RECYCLE_BIN,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
 SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
-SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS, SETTING_RE_REMOTE_CWDS, SETTING_RE_MACHINE_NAMES,
+SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS, SETTING_RE_REMOTE_CWDS, SETTING_RE_MACHINE_NAMES, SETTING_RE_MACHINE_COLORS,
 SETTING_SDCARD_TREE_FONT, SETTING_IMAGE_TREE_FONT, SETTING_RE_LOCAL_FONT, SETTING_RE_NEXT_FONT)
 
 
@@ -1801,6 +1801,20 @@ def hex_to_qcolor(hex_str: str) -> QColor:
     """Return a QColor from a #rrggbb hex string, falling back to white on error."""
     color = QColor(hex_str)
     return color if color.isValid() else QColor(255, 255, 255)
+
+
+def readable_text_color(background: QColor) -> QColor:
+    """Black or white - whichever reads on the given background.
+
+    Used wherever the user picks a background colour freely (the Remote
+    Explorer's per-machine tint): a hardcoded foreground is legible on
+    half the colour wheel and invisible on the other half. sRGB relative
+    luminance (Rec. 709 coefficients) with the usual 0.5-ish split, which
+    is what the WCAG contrast ratio reduces to for a black/white choice.
+    """
+    r, g, b = background.redF(), background.greenF(), background.blueF()
+    lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return QColor(0, 0, 0) if lum > 0.55 else QColor(255, 255, 255)
 
 
 def normalize_sd_image_path(raw) -> str:
