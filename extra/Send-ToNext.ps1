@@ -18,6 +18,10 @@
        application; it soft-resets, boots, finds the pushed file waiting
        and runs it. Total: save in VS Code, run the task, watch it on
        real hardware.
+    5. That build runs ONCE. The next boot retires it to /dev/last.nex
+       before loading anything (re-run it by hand with
+       .nexload /dev/last.nex), so exiting your build lands the Next
+       back on the Listener, ready for the next push.
 
   EXIT CODES, so a VS Code task (or CI) can branch on the outcome:
       0  sent and VERIFIED on the Next

@@ -1,9 +1,9 @@
 #program autoexec
 #autostart 10
 10 REM nextdev - the Next half of the VS Code push-to-hardware loop.
-20 REM Pairs with extra/Send-ToNext.ps1 on the PC. Copy this file
-30 REM into /nextzxos/ on the card - NOT the root - so every boot
-40 REM re-enters the loop: ZX Next Remote soft-resets the machine when
+20 REM Pairs with extra/Send-ToNext.ps1 on the PC. This .txt is the
+30 REM source; copy autoexec.BAS into /nextzxos/ (not root) so every
+40 REM boot re-enters the loop: ZX Next Remote soft-resets it when
 50 REM it exits, which is exactly what closes this cycle.
 60 REM
 70 REM   no file waiting -> serve the Listener and WAIT for a push

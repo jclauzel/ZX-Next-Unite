@@ -66,10 +66,14 @@ halves are `extra\Send-ToNext.ps1` (PC) and `extra\autoexec.bas` (Next).
 4. Copy `autoexec.bas` into the **`/nextzxos/` folder** on the card — not
    the card root, where NextZXOS will not run it. No renaming: the file
    ships under the name the machine looks for.
-5. Using the n2n flavour? Set `LET flavour=2` (line 240 of `autoexec.txt`)
-   and re-tokenise — see *Editing the loop* below. If the flavour you pick
-   is not on the card, the loop tries the other one rather than
-   dead-ending, so a mismatch costs you nothing.
+5. Using the n2n flavour? Set `LET flavour=2` (line 240 of `autoexec.txt`),
+   re-tokenise — see *Editing the loop* below — and copy the rebuilt
+   `autoexec.bas` into `/nextzxos/` again, or the card keeps the old one.
+   If the flavour you pick is not on the card, the loop tries the other one
+   rather than dead-ending, so a mismatch costs you nothing.
+
+On screen the loop announces itself as **`nextdev:`** — that is the prefix
+to look for in its messages (`nextdev: waiting for a push...`).
 
 The loop runs at every boot: if a pushed file is waiting it moves it aside
 and `.nexload`s it; otherwise it hands the machine to your chosen flavour,
@@ -93,12 +97,22 @@ session, since the script only ever talks to the bridge — but the
 unattended loop wants the `.nex` flavours, whose exit-and-soft-reset is
 what closes the cycle.
 
+**In Unite, once:** turn on **Settings → Enable NextSync HTTP bridge**
+(port 80 by default), then open the **NextSync** tab and start the
+**Remote Explorer** listen server. Both are prerequisites, and neither is
+optional: without the bridge the script cannot reach Unite at all, and
+without the listen server there is nothing for the Next's Listener to dial
+out to — the script just polls for ever, printing *"bridge is up but NOT
+listening"*.
+
 **On the PC, once:** run the script; it writes a commented
 `Send-ToNext.cfg` beside itself and stops. Set `bridge_ip` (the PC running
 Unite, not the Next), `bridge_port` if you moved the bridge off port 80
 (Unite's Settings has its own port box next to the bridge toggle), `file`
-(your build), and `token` only if Unite's Settings has "Require bearer
-token" on.
+(your build), `token` only if Unite's Settings has "Require bearer token"
+on, and `wait_timeout` if you want the script to give up rather than wait
+for a Next indefinitely — it ships as `0`, meaning wait for ever (the
+`-TimeoutSeconds` parameter overrides it).
 
 **Then, every build:**
 
@@ -121,8 +135,8 @@ Exit codes, for a VS Code task or CI to branch on:
 | 1 | configuration problem (missing `.cfg` value, missing file) |
 | 2 | the bridge refused the token (HTTP 401) |
 | 3 | the send itself failed |
-| 4 | sent, but **verification failed** — the bytes on the Next differ |
-| 5 | timed out waiting for a Next |
+| 4 | sent, but **not verified** — the bytes on the Next differ, or the checksum could not be read back |
+| 5 | timed out waiting for a Next — only reachable once `wait_timeout` / `-TimeoutSeconds` is set (it ships as wait-for-ever) |
 
 A `tasks.json` entry that fails the task on anything but a verified send:
 
@@ -162,3 +176,7 @@ Worth reading it back to be sure the tokeniser understood you:
 ```powershell
 bas2txt -i extra\autoexec.bas -o roundtrip.txt
 ```
+
+Then copy the rebuilt `autoexec.bas` into `/nextzxos/` on the card. Editing
+the `.txt`, or even re-tokenising, changes nothing on the machine until the
+`.bas` is back on the SD card.
