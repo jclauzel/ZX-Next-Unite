@@ -451,7 +451,62 @@ def inspect_phase1():
           win.imageexplorerbuttons.indexOf(win.hiddenspacelabel1) == -1
           and win.imageexplorerbuttons.indexOf(win.hiddenspacelabel2) == -1
           and win.imageexplorerbuttons.contentsMargins().left() == 0)
-    check("local explorer at grid (1,0)", pos(win.treeview) == (1, 0), str(pos(win.treeview)))
+    # The local tree shares its grid cell with the emulator strip (9.5.30),
+    # so the CONTAINER is what sits at (1,0) now - same cell, same column
+    # stretch, one row inside it.
+    _pane = win.sdcard_explorer
+    check("local explorer row at grid (1,0)",
+          pos(_pane.local_tree_row_container) == (1, 0),
+          str(pos(_pane.local_tree_row_container)))
+    _ltree = _pane.local_tree_row_container.layout()
+    check("local tree row = emulator strip|tree (strip on the OUTER edge)",
+          _ltree.indexOf(_pane.local_emulator_strip) == 0
+          and _ltree.indexOf(win.treeview) == 1,
+          f"{_ltree.indexOf(_pane.local_emulator_strip)}"
+          f"/{_ltree.indexOf(win.treeview)}")
+    check("the tree owns the row's slack, the strip keeps its width",
+          _ltree.stretch(0) == 0 and _ltree.stretch(1) == 1,
+          f"{_ltree.stretch(0)}/{_ltree.stretch(1)}")
+
+    # ---- emulator strip (9.5.30) -------------------------------------------
+    # The NextSync tab's Remote Explorer strip, mirrored onto this pane: one
+    # tab per INSTALLED emulator, a click launching it exactly as this tab's
+    # own Launch button does, and NO strip at all when nothing is installed
+    # (hidden, so a machine without an emulator loses no width). isHidden()
+    # rather than isVisible(): the answer must not depend on which tab
+    # happens to be showing while the suite runs.
+    _found, _launched = [], []
+    _saved_launchers = _pane._emulator_launchers
+    _pane._emulator_launchers = lambda: [
+        (n, (lambda name=n: _launched.append(name))) for n in _found]
+    _pane.refresh_emulator_strip()
+    check("emulator strip hidden while nothing is installed",
+          _pane.local_emulator_strip.isHidden() and not _pane._emulator_tabs)
+    _found.extend(["Mame", "CSpect"])
+    _pane.refresh_emulator_strip()
+    check("a tab per detected emulator, same order as the Remote Explorer",
+          [t._text for t in _pane._emulator_tabs] == ["Mame", "CSpect"],
+          str([t._text for t in _pane._emulator_tabs]))
+    check("and the strip shows once there is something to launch",
+          not _pane.local_emulator_strip.isHidden())
+    _pane._emulator_tabs[0]._on_click()
+    QApplication.processEvents()          # the launch is deferred by a timer
+    check("clicking a tab launches THAT emulator, with no arguments",
+          _launched == ["Mame"], str(_launched))
+    _found.clear()
+    _pane.refresh_emulator_strip()
+    check("the strip retires when the last emulator goes",
+          _pane.local_emulator_strip.isHidden() and not _pane._emulator_tabs)
+    _pane._emulator_launchers = lambda: 1 / 0
+    _pane.refresh_emulator_strip()
+    check("a broken detection hook leaves the strip empty, not crashed",
+          not _pane._emulator_tabs)
+    _pane._emulator_launchers = _saved_launchers
+    _pane.refresh_emulator_strip()
+
+    # Both strips are drawn from ONE list, so they can never disagree.
+    check("the host refreshes BOTH strips from one entry point",
+          callable(getattr(win, "_refresh_emulator_strips", None)))
     check("image explorer at grid (1,2)", pos(win.image_explorer_container) == (1, 2), str(pos(win.image_explorer_container)))
     check("button cluster no longer a grid row of its own",
           pos(win.imageexplorerbuttonscontainer) is None,

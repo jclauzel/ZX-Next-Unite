@@ -181,25 +181,48 @@ def build_emulator_ops(
 ):
     """Define the emulator/self-update closures (no widgets built here)."""
     # ---- RS232 ESP emulation (espemu) worker lifecycle -------------------
-    # One background AT-proxy at a time, owned by the MAME launch flow. The
-    # rule is deliberately stop-then-start on EVERY launch: a fresh server
-    # instance per MAME session means no link state, half-armed CIPSEND or
-    # stale bitbanger connection can ever leak from the previous run.
+    # ONE background AT-proxy SHARED by every running MAME, owned by the
+    # launch flow. The proxy listens once and gives each emulator that
+    # connects its own session (engine, links, CIPSERVER), so launching a
+    # second MAME on another disk image joins the running proxy instead of
+    # replacing it - the old stop-then-start-on-every-launch rule bought
+    # freshness that the per-connection session now provides, and applying
+    # it here would cut the wire of the MAME already running.
+    #
+    # The worker is therefore reference counted: every launch that hands
+    # MAME the -bitb arguments takes a reference, every MAME exit drops
+    # one, and the LAST one out stops the server (freeing the port and
+    # leaving no worker behind, exactly as before).
     host._esp_emu = None
     host._esp_emu_signals = None
+    host._esp_emu_users = 0
 
     def _stop_esp_emulation():
         """Stop the running espemu worker, if any. Safe from the UI thread
         (stop() joins a loop that wakes on a self-pipe, never blocks long)
-        and safe to call with nothing running."""
+        and safe to call with nothing running. Unconditional: it takes the
+        server down whatever the reference count says, so it doubles as the
+        force-stop for a settings change or an app teardown."""
         server = host._esp_emu
         host._esp_emu = None
+        host._esp_emu_users = 0
         if server is not None:
             try:
                 server.stop()
             except Exception:                    # noqa: BLE001
                 logging.exception("RS232 ESP emulation: stop failed")
     host._stop_esp_emulation = _stop_esp_emulation
+
+    def _release_esp_emulation(server):
+        """One MAME that was using ``server`` has exited: drop its
+        reference and stop the worker once the last emulator is gone. A
+        stale reference (the server was already replaced or force-stopped)
+        is ignored - the object it points at is not ours to touch."""
+        if host._esp_emu is not server or server is None:
+            return
+        host._esp_emu_users = max(0, host._esp_emu_users - 1)
+        if host._esp_emu_users == 0:
+            _stop_esp_emulation()
 
     def _esp_emulation_enabled():
         return str(configuration_dictionary.get(
@@ -214,36 +237,69 @@ def build_emulator_ops(
             port = 2222
         return port if 1 <= port <= 65535 else 2222
 
-    def _start_esp_emulation():
-        """Fresh espemu worker for one MAME session, or None on failure.
+    def _esp_emulation_verbose():
+        return str(configuration_dictionary.get(
+            SETTING_MAME_RS232_ESP_VERBOSE, "")).strip().lower() in (
+                "true", "1", "yes", "on")
 
-        The server binds SYNCHRONOUSLY inside start(), so when this
-        returns non-None the listener is live and MAME's -bitb connect
-        cannot race it. Log lines from the worker's socket thread are
-        marshalled through EspEmuSignals - add_main_log_window touches Qt
-        widgets and must only run on the UI thread.
+    def _start_esp_emulation():
+        """The espemu worker to wire this MAME launch to, or None.
+
+        REUSES the running worker when there is one - several emulators
+        share it, each getting its own session on connect - and otherwise
+        starts a fresh one. The server binds SYNCHRONOUSLY inside start(),
+        so when this returns non-None the listener is live and MAME's
+        -bitb connect cannot race it. Log lines from the worker's socket
+        thread are marshalled through EspEmuSignals - add_main_log_window
+        touches Qt widgets and must only run on the UI thread.
+
+        The caller takes a reference on the returned server (see
+        _release_esp_emulation) and must pass MAME the port the server
+        ACTUALLY listens on: a settings change made while an earlier MAME
+        still holds the worker cannot move a live listener.
         """
-        _stop_esp_emulation()
+        want_port = _esp_emulation_port()
+        verbose = _esp_emulation_verbose()
+        server = host._esp_emu
+        if server is not None and server.running:
+            if server.port != want_port and host._esp_emu_users == 0:
+                # Nothing is attached any more (the last MAME exited
+                # without us noticing yet): honour the new port.
+                _stop_esp_emulation()
+                server = None
+            elif server.port != want_port:
+                add_main_log_window(ui_tr_now(
+                    "RS232 ESP emulation is already running on port {port} "
+                    "for another emulator; this MAME joins it. The new port "
+                    "applies once every MAME has exited.").format(
+                        port=server.port))
+        elif server is not None:
+            # A worker that died on its own (its loop thread is gone):
+            # clear it out so a fresh one can bind.
+            _stop_esp_emulation()
+            server = None
+        if server is not None:
+            # Verbose can be toggled between launches; apply it live
+            # rather than restarting a shared worker.
+            if server.verbose != verbose:
+                server.set_verbose(verbose)
+            return server
         signals = EspEmuSignals()
         signals.line.connect(
             lambda s: add_main_log_window(str(s)), Qt.QueuedConnection)
-        verbose = str(configuration_dictionary.get(
-            SETTING_MAME_RS232_ESP_VERBOSE, "")).strip().lower() in (
-                "true", "1", "yes", "on")
         server = espemu.EspAtServer(
-            port=_esp_emulation_port(), log=signals.line.emit,
-            verbose=verbose)
+            port=want_port, log=signals.line.emit, verbose=verbose)
         try:
             server.start()
         except OSError as ex:
             logging.error(f"RS232 ESP emulation failed to start: {ex}")
             _emulator_launch_failed("MAME", ui_tr_now(
                 "RS232 ESP emulation could not start (port {port} in "
-                "use?). MAME starts without it.").format(
-                    port=_esp_emulation_port()))
+                "use?). MAME starts without it.").format(port=want_port))
             return None
         host._esp_emu = server
         host._esp_emu_signals = signals      # keep the QObject alive
+        host._esp_emu_users = 0
         return server
 
     def set_cspect_screen_size():
@@ -666,14 +722,19 @@ def build_emulator_ops(
             mame_argv += [MAME_HARD_DISK_PARAMETER, mame_image]
 
         # RS232 ESP emulation (espemu): when the Settings toggle is on,
-        # stand the AT proxy up FIRST (a fresh instance every launch - the
-        # bind is synchronous, so MAME's -bitb connect cannot race it),
-        # then hand MAME the bitbanger arguments. When the toggle is on,
-        # the toggle is authoritative: hand-typed -rs232_esp/-bitb copies
-        # in the MAME parameters box are stripped so MAME never sees the
-        # option twice (toggle OFF leaves a manual setup alone). If the
-        # proxy cannot bind, MAME starts WITHOUT the arguments - a wire to
-        # nowhere would just hang the Next software's ESP probes.
+        # stand the AT proxy up FIRST (the bind is synchronous, so MAME's
+        # -bitb connect cannot race it), then hand MAME the bitbanger
+        # arguments. A proxy already running for an earlier MAME is
+        # REUSED: it accepts this emulator as a second session, so two
+        # MAMEs on two disk images both get network. The port written
+        # into -bitb is the one the server ACTUALLY listens on, which can
+        # differ from the setting when a live worker is being shared.
+        # When the toggle is on, the toggle is authoritative: hand-typed
+        # -rs232_esp/-bitb copies in the MAME parameters box are stripped
+        # so MAME never sees the option twice (toggle OFF leaves a manual
+        # setup alone). If the proxy cannot bind, MAME starts WITHOUT the
+        # arguments - a wire to nowhere would just hang the Next
+        # software's ESP probes.
         _esp_server = None
         if _esp_emulation_enabled():
             _esp_server = _start_esp_emulation()
@@ -689,7 +750,7 @@ def build_emulator_ops(
                     _cleaned.append(_tok)
                 mame_argv = _cleaned + [
                     "-rs232_esp", "null_modem",
-                    "-bitb", f"socket.127.0.0.1:{_esp_emulation_port()}"]
+                    "-bitb", f"socket.127.0.0.1:{_esp_server.port}"]
 
         # Executable that will actually be invoked: the detected MAME binary,
         # or the Flatpak run command when Flatpak mode is enabled.
@@ -711,8 +772,12 @@ def build_emulator_ops(
         # is self-contained (its support files live inside the sandbox), so no
         # working directory is imposed there.
         mame_cwd = None if _flatpak else (os.path.dirname(mame_path) or None)
-        # Reset per-launch: set True if MAME reports the missing-boot-ROM
-        # fatal error, so _on_mame_finished can advise the manual TBBLUE step.
+        # Per-LAUNCH, not per-app: several MAMEs can run at once (each on
+        # its own disk image), so the missing-boot-ROM flag lives in a
+        # cell this launch's two handlers share instead of on host, where
+        # a second launch would clear the first one's verdict. The host
+        # attribute is still mirrored for anything else that reads it.
+        _launch_state = {"missing_files": False}
         host._mame_missing_files = False
         try:
             if platform.system() == "Windows":
@@ -746,9 +811,11 @@ def build_emulator_ops(
                 )
         except Exception as ex:
             logging.error(f"ERROR: Failed to launch MAME: {ex}")
-            # A worker with no MAME to serve would linger until the next
-            # launch; take it down with the launch that wanted it.
-            if _esp_server is not None:
+            # This launch never took its reference (that happens below,
+            # once MAME is actually running), so only take the worker
+            # down when nothing else is using it - another MAME may well
+            # be mid-transfer through it.
+            if _esp_server is not None and host._esp_emu_users == 0:
                 _stop_esp_emulation()
             _emulator_launch_failed("MAME", ui_tr_now(
                 "ERROR: Failed to launch MAME: {error}").format(error=ex))
@@ -765,6 +832,7 @@ def build_emulator_ops(
             # the UI thread (queued) before _on_mame_finished (see the reader
             # below: outputs are emitted, then 'finished' in a finally).
             if "required files are missing" in line.lower():
+                _launch_state["missing_files"] = True
                 host._mame_missing_files = True
 
         mame_signals.output.connect(_on_mame_output, Qt.QueuedConnection)
@@ -776,7 +844,7 @@ def build_emulator_ops(
             # MAME aborts when the ZX Spectrum Next boot ROM (TBBLUE, e.g.
             # boot-30204.bin) is absent — a manual step the auto-install
             # deliberately leaves to the user. Point them at the guide.
-            if getattr(host, "_mame_missing_files", False):
+            if _launch_state["missing_files"]:
                 add_main_log_window(ui_tr_now(
                     "MAME can't start: the ZX Spectrum Next boot ROM (TBBLUE) "
                     "is missing. This step is manual — see {url} and follow "
@@ -804,18 +872,33 @@ def build_emulator_ops(
 
         mame_signals.finished.connect(_on_mame_finished, Qt.QueuedConnection)
         if _esp_server is not None:
-            # Stop the ESP worker when THIS MAME exits - unless a newer
-            # launch already replaced it with its own instance (the
-            # stop-then-start rule), in which case the old server object
-            # is already stopped and the new one is not ours to touch.
+            # This MAME is now running with the proxy wired in: take a
+            # reference, and drop it when the emulator exits. The LAST
+            # emulator out stops the worker; while others are still
+            # running it must stay up, wire and all.
+            host._esp_emu_users += 1
+            if host._esp_emu_users > 1:
+                add_main_log_window(ui_tr_now(
+                    "RS232 ESP emulation: {count} emulators are now sharing "
+                    "it (port {port}).").format(
+                        count=host._esp_emu_users, port=_esp_server.port))
+
             def _esp_stop_on_exit(_code, _srv=_esp_server):
-                if host._esp_emu is _srv:
-                    _stop_esp_emulation()
+                _release_esp_emulation(_srv)
             mame_signals.finished.connect(_esp_stop_on_exit,
                                           Qt.QueuedConnection)
         # Keep a reference so the signals object is not garbage-collected
-        # while the reader thread is still running.
-        host._mame_signals = mame_signals
+        # while the reader thread is still running. A SET, not one slot:
+        # with several MAMEs running, a single attribute would drop the
+        # previous launch's object the moment the next one started. Each
+        # entry is discarded when its emulator exits.
+        if not hasattr(host, "_mame_signals_live"):
+            host._mame_signals_live = set()
+        host._mame_signals_live.add(mame_signals)
+        mame_signals.finished.connect(
+            lambda _c, _s=mame_signals: host._mame_signals_live.discard(_s),
+            Qt.QueuedConnection)
+        host._mame_signals = mame_signals     # the most recent one
 
         def _read_mame_output(proc, signals):
             try:
@@ -1106,9 +1189,8 @@ def build_emulator_ops(
         # An emulator is now usable: if no image is loaded yet, start the
         # yellow hint pulse on the image-picking buttons.
         _start_load_image_hint_animation()
-        # ... and the Remote Explorer's emulator strip gains a tab.
-        if hasattr(host, "_re_refresh_emulators"):
-            host._re_refresh_emulators()
+        # ... and both emulator strips gain a tab.
+        host._refresh_emulator_strips()
         _installed_tag = getattr(host, "_mame_pending_install_tag", "")
         if _installed_tag:
             configuration_dictionary[SETTING_MAME_INSTALLED_TAG] = _installed_tag
@@ -2083,6 +2165,30 @@ def build_emulator_ops(
     # the same launch logic as the main window buttons.
     host._launch_cspect_fn = launch_cspect
     host._launch_mame_fn   = launch_mame
+
+    def _refresh_emulator_strips():
+        """Redraw every vertical emulator strip in the app.
+
+        Two panes carry one now - the NextSync tab's Remote Explorer and
+        the SD Card tab's local explorer - and detection is not a Qt
+        signal here, so each place that learns an emulator appeared or
+        vanished calls this. Both hops are guarded: the Remote Explorer
+        widget is built lazily and may not exist yet, and this can be
+        reached while a pane is being torn down at shutdown.
+        """
+        refresh_re = getattr(host, "_re_refresh_emulators", None)
+        if refresh_re is not None:
+            try:
+                refresh_re()
+            except RuntimeError:
+                pass                       # widget torn down mid-shutdown
+        pane = getattr(host, "sdcard_explorer", None)
+        if pane is not None:
+            try:
+                pane.refresh_emulator_strip()
+            except RuntimeError:
+                pass
+    host._refresh_emulator_strips = _refresh_emulator_strips
 
     def _wire_viewer_emulators(viewer, allow=True):
         """Add "Launch CSpect" / "Launch Mame" buttons to a

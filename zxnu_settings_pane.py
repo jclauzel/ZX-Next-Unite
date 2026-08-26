@@ -1444,8 +1444,9 @@ def build_settings_pane(
         "emulation and pass MAME '-rs232_esp null_modem -bitb\n"
         "socket.127.0.0.1:<port>' - so network software on the emulated Next\n"
         "(.sync5, ZX Next Remote, ...) reaches the real network through this\n"
-        "PC. A fresh emulation worker is started for every launch and stopped\n"
-        "when MAME exits.\n"
+        "PC. ONE emulation worker serves every running MAME: launch a second\n"
+        "MAME on another disk image and it joins the same proxy with its own\n"
+        "session. The worker stops when the last MAME exits.\n"
         "IMPORTANT: transfers need the Next side on SLOW pacing - '.sync5 -s',\n"
         "or UART speed 'Slow' in ZX Next Remote's settings.\n"
         "Off by default. Saved to the configuration file.")
@@ -1460,7 +1461,8 @@ def build_settings_pane(
         "TCP port the RS232 ESP emulation listens on for MAME's -bitb\n"
         "socket (default 2222). Saved to hdfg.cfg\n"
         f"({SETTING_MAME_RS232_ESP_PORT}) and applied at the next MAME\n"
-        "launch - every launch starts a fresh emulation worker on it.")
+        "launch that STARTS the worker - a launch made while another MAME\n"
+        "is still running joins the worker already listening.")
     host.settings_rs232_esp_port_label.setToolTip(_rs232_port_tip)
     host.settings_rs232_esp_port_spinbox.setToolTip(_rs232_port_tip)
 
@@ -1483,7 +1485,8 @@ def build_settings_pane(
         "Trace the RS232 ESP emulation into the SD Card Utility log console:\n"
         "emulator connect/disconnect, every AT command, connect results and\n"
         "rate-limited transfer summaries (never one line per packet).\n"
-        "Applied at the next MAME launch. Off by default (it is chatty).")
+        "Applied at the next MAME launch, to a running worker too. Off by\n"
+        "default (it is chatty).")
     host.settings_rs232_esp_verbose_checkbox.stateChanged.connect(
         lambda _s: settings_rs232_esp_verbose_changed())
 

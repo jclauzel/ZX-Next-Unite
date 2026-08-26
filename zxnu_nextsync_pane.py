@@ -540,24 +540,10 @@ def build_nextsync_pane(
                 int(host._re_control.get('max_peers', 4)))
 
     def _re_emulator_launchers():
-        # Which emulators can be launched RIGHT NOW, as (label, callable)
-        # for the Remote Explorer's left-hand strip. Both halves come from
-        # the SD Card tab's own rules so the strip can never disagree with
-        # the Launch buttons: MAME through host._mame_usable() (which
-        # counts a Linux Flatpak setup with no local binary), CSpect
-        # through the detected executable path every other call site
-        # tests. The launchers are host._launch_*_fn - the very functions
-        # those buttons are connected to - called with no argument for the
-        # plain "boot the mounted image" launch.
-        out = []
-        _mame_ok = getattr(host, "_mame_usable", None)
-        if _mame_ok is not None and _mame_ok() and getattr(
-                host, "_launch_mame_fn", None) is not None:
-            out.append(("Mame", host._launch_mame_fn))
-        if (getattr(host, "_cspect_executable_path", None) is not None
-                and getattr(host, "_launch_cspect_fn", None) is not None):
-            out.append(("CSpect", host._launch_cspect_fn))
-        return out
+        # The Remote Explorer's left-hand strip. The rule itself lives in
+        # zxnu_workers.emulator_launch_entries, shared with the SD Card
+        # tab's identical strip so the two can never disagree.
+        return emulator_launch_entries(host)
 
     def _re_refresh_emulators():
         # Detection is not a signal in this app: it changes when the

@@ -45,6 +45,7 @@ The custom item-data roles of the image tree live here (single source; the
 operation layer imports them from this module).
 """
 
+import logging
 import os
 import platform
 
@@ -63,6 +64,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from zxnu_i18n import ui_tr_now
+# The strip's tab widget is shared with the NextSync tab's Remote
+# Explorer (where it was born) rather than copied: one painted widget
+# means the two strips cannot drift apart.
+from zxnu_remote_explorer import EmulatorTab
 from zxnu_config import (SETTING_EXPLORERPATH, SETTING_IMAGE_EXPLORERPATH,
                          is_filetype_a_directory)
 from zxnu_workers import (CompactButton, DotDotFirstProxyModel,
@@ -82,13 +88,21 @@ IMG_LOADING_ROLE = int(Qt.ItemDataRole.UserRole) + 4  # bool: a background "ls" 
 class SdCardExplorerPane(QWidget):
     """The SD Card tab's explorer pair (see the module docstring)."""
 
-    def __init__(self, host, hooks, drive_combo, initial_root, local_filter_edit, image_filter_edit, transfer_buttons_container=None, image_buttons_container=None, parent=None):
+    def __init__(self, host, hooks, drive_combo, initial_root, local_filter_edit, image_filter_edit, transfer_buttons_container=None, image_buttons_container=None, parent=None, *, emulator_launchers=None):
         super().__init__(parent)
         self._host = host
         self._hooks = hooks
         self._drive_combo = drive_combo
         self._local_filter_edit = local_filter_edit
         self._image_filter_edit = image_filter_edit
+        # host closure: () -> [(name, launch_callable)] for the emulators
+        # that are installed and launchable right now, drawn as the
+        # left-hand emulator strip. The pane deliberately knows nothing
+        # about which emulators exist or how one is started - the same seam
+        # the Remote Explorer's identical strip uses; without the hook the
+        # strip never shows.
+        self._emulator_launchers = emulator_launchers or (lambda: [])
+        self._emulator_tabs = []
 
         # In-flight "hdfmonkey ls" workers are kept alive here until their
         # finished slot runs (Qt drops queued cross-thread signals when the
@@ -259,6 +273,26 @@ class SdCardExplorerPane(QWidget):
         image_path_row.addWidget(self.diskimageexplorerlabel)
         image_path_row.addWidget(self.diskimageexplorerpathinput, 1)
 
+        # Emulator strip (9.5.30): the Remote Explorer's strip, mirrored
+        # onto this pane at the user's request - the two local explorers
+        # read the same now. Down the OUTER left edge with a margin on the
+        # right only, so the tabs sit flush with the pane's edge; hidden
+        # whenever no emulator is installed, so a machine without one
+        # loses no width at all.
+        self.local_emulator_strip = QWidget(self)
+        self._emulator_strip_box = QVBoxLayout(self.local_emulator_strip)
+        self._emulator_strip_box.setContentsMargins(0, 0, 3, 0)
+        self._emulator_strip_box.setSpacing(4)
+        self._emulator_strip_box.addStretch(1)   # tabs pile from the TOP
+        self.local_emulator_strip.setVisible(False)
+
+        self.local_tree_row_container = QWidget(self)
+        local_tree_row = QHBoxLayout(self.local_tree_row_container)
+        local_tree_row.setContentsMargins(0, 0, 0, 0)
+        local_tree_row.setSpacing(0)
+        local_tree_row.addWidget(self.local_emulator_strip, 0)
+        local_tree_row.addWidget(self.treeview, 1)
+
         # 3-column grid; the two explorer columns share the stretch equally
         # so each bar matches its explorer's width. Rows: nav bars, trees,
         # then ONE bottom row per side — the image side's carries the path
@@ -268,7 +302,7 @@ class SdCardExplorerPane(QWidget):
         self.sdcard_explorer_grid.setContentsMargins(0, 0, 0, 0)
         self.sdcard_explorer_grid.addWidget(self.local_nav_row_container, 0, 0)
         self.sdcard_explorer_grid.addWidget(self.image_nav_row_container, 0, 2)
-        self.sdcard_explorer_grid.addWidget(self.treeview, 1, 0)
+        self.sdcard_explorer_grid.addWidget(self.local_tree_row_container, 1, 0)
         self.sdcard_explorer_grid.addWidget(self.image_explorer_container, 1, 2)
         self.sdcard_explorer_grid.addWidget(self.local_path_row_container, 2, 0)
         self.sdcard_explorer_grid.addWidget(self.image_path_row_container, 2, 2)
@@ -283,6 +317,57 @@ class SdCardExplorerPane(QWidget):
             self.sdcard_explorer_grid.addWidget(transfer_buttons_container, 1, 1)
         if image_buttons_container is not None:
             image_path_row.addWidget(image_buttons_container)
+
+    # ------------------------------------------------- emulator strip -------
+    def refresh_emulator_strip(self):
+        """Rebuild the left-hand emulator tabs from the host's detection.
+
+        Public and idempotent, and the twin of the Remote Explorer method
+        of the same name: emulator detection is not a Qt signal in this
+        app - it changes when the startup scan finishes, when an itch.io
+        install or uninstall lands, when MAME is installed in-app, and
+        when the Linux Flatpak toggle flips - so the host calls this at
+        each of those points, and showEvent calls it as the safety net for
+        anything that changed while the tab was away.
+        """
+        for tab in self._emulator_tabs:
+            self._emulator_strip_box.removeWidget(tab)
+            tab.setParent(None)
+            tab.deleteLater()
+        self._emulator_tabs = []
+        try:
+            entries = list(self._emulator_launchers() or [])
+        except Exception:                       # noqa: BLE001
+            logging.exception("SD Card explorer: emulator lookup failed")
+            entries = []
+        self.local_emulator_strip.setVisible(bool(entries))
+        for i, (name, launch) in enumerate(entries):
+            tab = EmulatorTab(
+                str(name), (lambda fn=launch: self._launch_emulator(fn)),
+                self.local_emulator_strip,
+                tooltip=ui_tr_now("Start {emulator}").format(emulator=name))
+            self._emulator_strip_box.insertWidget(i, tab)
+            self._emulator_tabs.append(tab)
+
+    def _launch_emulator(self, fn):
+        """Run one emulator launcher, called with NO arguments - the bare
+        launch this tab's own Launch buttons make. Deferred by a zero-timer
+        so the click that started it has finished delivering first: the
+        launcher disables and re-enables widgets around a blocking call,
+        and doing that from inside a mouse handler is how a repaint gets
+        skipped."""
+        QTimer.singleShot(0, lambda: self._run_emulator_launcher(fn))
+
+    def _run_emulator_launcher(self, fn):
+        try:
+            fn()
+        except Exception:                       # noqa: BLE001
+            logging.exception("SD Card explorer: emulator launch failed")
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Anything detected while this tab was hidden lands now.
+        self.refresh_emulator_strip()
 
     # ------------------------------------------------- local explorer: nav --
     def update_root_drive(self, _index=None):
