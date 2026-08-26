@@ -376,12 +376,18 @@ CATALOGS = {
         "Delete SyncIgnore File": "Eliminar archivo SyncIgnore",
         "Delete SyncPoint File": "Eliminar archivo SyncPoint",
         "Disconnect": "Desconectar",
+        "RS232 ESP emulation is already running on port {port} for another emulator; this MAME joins it. The new port applies once every MAME has exited.":
+            "La emulación RS232 ESP ya está en marcha en el puerto {port} para otro emulador; este MAME se une a ella. El nuevo puerto se aplicará cuando hayan salido todos los MAME.",
+        "RS232 ESP emulation: {count} emulators are now sharing it (port {port}).":
+            "Emulación RS232 ESP: {count} emuladores la están compartiendo ahora (puerto {port}).",
         "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
             "La emulación RS232 ESP no pudo iniciarse (¿puerto {port} en uso?). MAME se inicia sin ella.",
         "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
             "Emulación RS232 ESP inspirada en jesperl - por Janko Stamenović",
         "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
             "La Emulación RS232 ESP opcional para MAME (Ajustes) es una reimplementación completa y limpia en Python de una idea de jesperl, de Janko Stamenović: un emulador ESP-AT que conecta el módulo Wi-Fi emulado de MAME con la red real. Muchas gracias por la idea inspiradora - ver https://sourceforge.net/projects/jesperl/.",
+        "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
+            "Una sola emulación RS232 ESP sirve a todos los MAME en marcha: lanza un segundo MAME con otra imagen de disco y se unirá a la misma emulación con su propia sesión independiente, de modo que varios Next emulados pueden estar en la red a la vez. La emulación se detiene cuando sale el último MAME. Cuando dos de ellos piden el mismo puerto de servidor (un Next a la escucha de conexiones entrantes), el segundo se traslada al siguiente puerto libre y el registro indica a qué puerto conectarse.",
         "Transfers through the RS232 ESP emulation need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
             "Las transferencias a través de la emulación RS232 ESP necesitan el lado Next en su ritmo LENTO: usa '.sync5 -s' para el dot, o pon la velocidad UART en Slow en los ajustes de ZX Next Remote.",
         "Start {emulator}": "Iniciar {emulator}",
@@ -1505,12 +1511,18 @@ CATALOGS = {
         "Delete SyncIgnore File": "Eliminar ficheiro SyncIgnore",
         "Delete SyncPoint File": "Eliminar ficheiro SyncPoint",
         "Disconnect": "Desligar",
+        "RS232 ESP emulation is already running on port {port} for another emulator; this MAME joins it. The new port applies once every MAME has exited.":
+            "A emulação RS232 ESP já está a correr na porta {port} para outro emulador; este MAME junta-se a ela. A nova porta aplica-se assim que todos os MAME tiverem saído.",
+        "RS232 ESP emulation: {count} emulators are now sharing it (port {port}).":
+            "Emulação RS232 ESP: {count} emuladores estão agora a partilhá-la (porta {port}).",
         "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
             "A emulação RS232 ESP não pôde iniciar (porta {port} em uso?). O MAME inicia sem ela.",
         "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
             "Emulação RS232 ESP inspirada em jesperl - por Janko Stamenović",
         "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
             "A Emulação RS232 ESP opcional para o MAME (Definições) é uma reimplementação completa e limpa em Python de uma ideia do jesperl, de Janko Stamenović: um emulador ESP-AT que liga o módulo Wi-Fi emulado do MAME à rede real. Muito obrigado pela ideia inspiradora - ver https://sourceforge.net/projects/jesperl/.",
+        "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
+            "Uma única emulação RS232 ESP serve todos os MAME em execução: inicie um segundo MAME com outra imagem de disco e ele junta-se à mesma emulação com a sua própria sessão separada, de modo que vários Next emulados podem estar na rede ao mesmo tempo. A emulação para quando o último MAME sai. Quando dois deles pedem a mesma porta de servidor (um Next à escuta de ligações de entrada), o segundo é movido para a porta livre seguinte e o registo indica a que porta ligar.",
         "Transfers through the RS232 ESP emulation need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
             "As transferências através da emulação RS232 ESP precisam do lado Next no ritmo LENTO: usa '.sync5 -s' no dot, ou define a velocidade UART como Slow nas definições do ZX Next Remote.",
         "Start {emulator}": "Iniciar {emulator}",
@@ -2632,12 +2644,18 @@ CATALOGS = {
         "Delete SyncIgnore File": "Usuń plik SyncIgnore",
         "Delete SyncPoint File": "Usuń plik SyncPoint",
         "Disconnect": "Rozłącz",
+        "RS232 ESP emulation is already running on port {port} for another emulator; this MAME joins it. The new port applies once every MAME has exited.":
+            "Emulacja RS232 ESP działa już na porcie {port} dla innego emulatora; ten MAME do niej dołącza. Nowy port zostanie użyty, gdy wszystkie MAME zostaną zamknięte.",
+        "RS232 ESP emulation: {count} emulators are now sharing it (port {port}).":
+            "Emulacja RS232 ESP: korzysta z niej teraz {count} emulatorów (port {port}).",
         "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
             "Emulacja RS232 ESP nie mogła wystartować (port {port} zajęty?). MAME uruchamia się bez niej.",
         "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
             "Emulacja RS232 ESP zainspirowana projektem jesperl - autorstwa Janko Stamenovića",
         "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
             "Opcjonalna emulacja RS232 ESP dla MAME (Ustawienia) to czysta, pełna reimplementacja w Pythonie pomysłu z projektu jesperl Janko Stamenovića - emulatora ESP-AT łączącego emulowany moduł Wi-Fi MAME z prawdziwą siecią. Wielkie dzięki za inspirujący pomysł - zobacz https://sourceforge.net/projects/jesperl/.",
+        "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
+            "Jedna emulacja RS232 ESP obsługuje wszystkie uruchomione MAME: uruchom drugi MAME z inną obrazową kopią dysku, a dołączy on do tej samej emulacji z własną, oddzielną sesją, dzięki czemu kilka emulowanych Nextów może być jednocześnie w sieci. Emulacja zatrzymuje się, gdy zamknięty zostanie ostatni MAME. Gdy dwa z nich poproszą o ten sam port serwera (Next nasłuchujący połączeń przychodzących), drugi zostanie przeniesiony na następny wolny port, a dziennik poda, do którego portu się podłączyć.",
         "Transfers through the RS232 ESP emulation need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
             "Transfery przez emulację RS232 ESP wymagają WOLNEGO tempa po stronie Next: użyj '.sync5 -s' dla dota albo ustaw prędkość UART na Slow w ustawieniach ZX Next Remote.",
         "Start {emulator}": "Uruchom {emulator}",
@@ -3761,12 +3779,18 @@ CATALOGS = {
         "Delete SyncIgnore File": "Удалить файл SyncIgnore",
         "Delete SyncPoint File": "Удалить файл SyncPoint",
         "Disconnect": "Отключить",
+        "RS232 ESP emulation is already running on port {port} for another emulator; this MAME joins it. The new port applies once every MAME has exited.":
+            "Эмуляция RS232 ESP уже работает на порту {port} для другого эмулятора; этот MAME подключается к ней. Новый порт будет использован после выхода из всех MAME.",
+        "RS232 ESP emulation: {count} emulators are now sharing it (port {port}).":
+            "Эмуляция RS232 ESP: её сейчас совместно используют {count} эмуляторов (порт {port}).",
         "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
             "Эмуляция RS232 ESP не смогла запуститься (порт {port} занят?). MAME запускается без неё.",
         "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
             "Эмуляция RS232 ESP вдохновлена проектом jesperl - автор Janko Stamenović",
         "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
             "Необязательная эмуляция RS232 ESP для MAME (Настройки) - это чистая полная реализация на Python идеи из проекта jesperl Janko Stamenović - эмулятора ESP-AT, соединяющего эмулируемый Wi-Fi модуль MAME с реальной сетью. Большое спасибо за вдохновляющую идею - см. https://sourceforge.net/projects/jesperl/.",
+        "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
+            "Одна эмуляция RS232 ESP обслуживает все запущенные MAME: запустите второй MAME с другим образом диска, и он подключится к той же эмуляции со своим отдельным сеансом, так что несколько эмулируемых Next могут быть в сети одновременно. Эмуляция останавливается, когда закрывается последний MAME. Если два из них запросят один и тот же серверный порт (Next, ожидающий входящих подключений), второй будет перенесён на следующий свободный порт, и в журнале будет указано, к какому порту подключаться.",
         "Transfers through the RS232 ESP emulation need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
             "Передачи через эмуляцию RS232 ESP требуют МЕДЛЕННОго темпа на стороне Next: используйте '.sync5 -s' для дот-команды или установите скорость UART в Slow в настройках ZX Next Remote.",
         "Start {emulator}": "Запустить {emulator}",
@@ -4889,12 +4913,18 @@ CATALOGS = {
         "Delete SyncIgnore File": "Smazat soubor SyncIgnore",
         "Delete SyncPoint File": "Smazat soubor SyncPoint",
         "Disconnect": "Odpojit",
+        "RS232 ESP emulation is already running on port {port} for another emulator; this MAME joins it. The new port applies once every MAME has exited.":
+            "Emulace RS232 ESP už běží na portu {port} pro jiný emulátor; tento MAME se k ní připojuje. Nový port se použije, až se ukončí všechny MAME.",
+        "RS232 ESP emulation: {count} emulators are now sharing it (port {port}).":
+            "Emulace RS232 ESP: sdílí ji nyní {count} emulátorů (port {port}).",
         "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
             "Emulaci RS232 ESP se nepodařilo spustit (port {port} obsazen?). MAME se spouští bez ní.",
         "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
             "Emulace RS232 ESP inspirovaná projektem jesperl - od Janko Stamenoviće",
         "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
             "Volitelná emulace RS232 ESP pro MAME (Nastavení) je čistá úplná reimplementace nápadu z projektu jesperl Janko Stamenoviće v Pythonu - emulátoru ESP-AT propojujícího emulovaný Wi-Fi modul MAME se skutečnou sítí. Velké díky za inspirativní nápad - viz https://sourceforge.net/projects/jesperl/.",
+        "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
+            "Jedna emulace RS232 ESP obsluhuje všechny běžící MAME: spusťte druhý MAME s jiným obrazem disku a připojí se ke stejné emulaci s vlastní samostatnou relací, takže několik emulovaných Nextů může být v síti současně. Emulace se zastaví, když skončí poslední MAME. Když si dva z nich vyžádají stejný serverový port (Next naslouchající příchozím spojením), druhý se přesune na další volný port a protokol uvede, ke kterému portu se připojit.",
         "Transfers through the RS232 ESP emulation need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
             "Přenosy přes emulaci RS232 ESP vyžadují POMALÉ tempo na straně Next: použijte '.sync5 -s' pro dot, nebo nastavte rychlost UART na Slow v nastavení ZX Next Remote.",
         "Start {emulator}": "Spustit {emulator}",
@@ -6019,12 +6049,18 @@ CATALOGS = {
         "Delete SyncIgnore File": "Supprimer le fichier SyncIgnore",
         "Delete SyncPoint File": "Supprimer le fichier SyncPoint",
         "Disconnect": "Déconnecter",
+        "RS232 ESP emulation is already running on port {port} for another emulator; this MAME joins it. The new port applies once every MAME has exited.":
+            "L'émulation RS232 ESP tourne déjà sur le port {port} pour un autre émulateur ; ce MAME la rejoint. Le nouveau port s'appliquera quand tous les MAME seront fermés.",
+        "RS232 ESP emulation: {count} emulators are now sharing it (port {port}).":
+            "Émulation RS232 ESP : {count} émulateurs la partagent maintenant (port {port}).",
         "RS232 ESP emulation could not start (port {port} in use?). MAME starts without it.":
             "L'émulation RS232 ESP n'a pas pu démarrer (port {port} occupé ?). MAME démarre sans elle.",
         "RS232 ESP emulation inspired by jesperl - by Janko Stamenović":
             "Émulation RS232 ESP inspirée de jesperl - par Janko Stamenović",
         "The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/.":
             "L'émulation RS232 ESP optionnelle pour MAME (Réglages) est une réimplémentation complète et propre en Python d'une idée de jesperl, de Janko Stamenović : un émulateur ESP-AT reliant le module Wi-Fi émulé de MAME au réseau réel. Un grand merci pour l'idée inspirante - voir https://sourceforge.net/projects/jesperl/.",
+        "One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to.":
+            "Une seule émulation RS232 ESP sert tous les MAME en cours : lancez un deuxième MAME avec une autre image disque et il rejoint la même émulation avec sa propre session séparée, de sorte que plusieurs Next émulés peuvent être sur le réseau en même temps. L'émulation s'arrête à la sortie du dernier MAME. Quand deux d'entre eux demandent le même port serveur (un Next à l'écoute de connexions entrantes), le second est déplacé sur le port libre suivant et le journal indique à quel port se connecter.",
         "Transfers through the RS232 ESP emulation need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings.":
             "Les transferts via l'émulation RS232 ESP exigent le rythme LENT côté Next : utilisez '.sync5 -s' pour le dot, ou réglez la vitesse UART sur Slow dans les réglages de ZX Next Remote.",
         "Start {emulator}": "Démarrer {emulator}",

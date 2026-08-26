@@ -12,8 +12,9 @@ Two layers, mirroring the module's own split:
 * SERVER tests run :class:`espemu.EspAtServer` on an ephemeral port with a
   scripted fake MAME (a plain TCP client) and a fake upstream TCP server,
   covering the whole relay end to end plus lifecycle: synchronous bind,
-  restart-replaces-instance, stop() joining the thread, a second MAME
-  connection replacing the first.
+  stop() joining the thread, and the MULTI-EMULATOR rules - several
+  MAMEs served side by side from one listener, each with its own
+  engine, links and CIPSERVER port, capped and cleanly reaped.
 
 Run: python tests/test_esp_emu.py  (no pytest, matching the suite).
 """
@@ -478,13 +479,18 @@ def test_server_end_to_end():
     check("the remote close is announced as CLOSED",
           b"CLOSED" in mame.collect(b"CLOSED"))
 
-    # A SECOND MAME (emulator restart) replaces the first, fresh session.
+    # A SECOND MAME joins ALONGSIDE the first, with its own fresh session.
     mame2 = FakeMame(port)
     check("a new emulator connection is greeted afresh",
           b"ready" in mame2.collect(b"ready"))
     mame2.say(b"ATE0\r\nAT+CIPCLOSE\r\n")
     check("the fresh session has no leftover links",
           b"ERROR" in mame2.collect(b"ERROR"))
+    check("both emulators are counted as live sessions",
+          server.session_count == 2, server.session_count)
+    mame.say(b"AT\r\n")
+    check("the FIRST emulator is still served after the second connects",
+          b"OK" in mame.collect(b"OK"))
     mame2.close()
     mame.close()
     server.stop()
@@ -499,8 +505,8 @@ def test_server_lifecycle():
     a.start()
     port = a._listen.getsockname()[1]
 
-    # The app's rule: every MAME launch stops the old worker and starts a
-    # fresh one — so the port must be reusable immediately after stop().
+    # The app reuses a running worker across launches, but the LAST MAME
+    # out stops it, so the port must be reusable right after stop().
     a.stop()
     b = EspAtServer(port=port, log=logs.append)
     try:
@@ -590,11 +596,16 @@ def test_server_cipserver_relisten():
 
 
 def test_server_reconnect_race():
-    """A reconnecting MAME races its own predecessor: unread bytes on the
-    OLD serial socket put a stale read event in the same select() batch
-    as the new accept, and acting on it used to read EOF and tear the
-    FRESH connection down (reproduced 5/6 in review). The socket-identity
-    guard makes the stale event a no-op."""
+    """A relaunched MAME arriving while its predecessor is still there.
+
+    Historically the new connection REPLACED the old one and raced it:
+    unread bytes on the old serial socket put a stale read event in the
+    same select() batch as the new accept, and acting on it read EOF and
+    tore the FRESH connection down (reproduced 5/6 in review). Sessions
+    now coexist, each on its own thread, so the two cannot collide by
+    construction - the check stays because the SHAPE it exercises (a
+    lingering, still-unread predecessor next to a brand-new arrival) is
+    exactly what an emulator restart does, and it must keep working."""
     print("\n== server: reconnect race ==")
     server = EspAtServer(port=0)
     server.start()
@@ -732,6 +743,399 @@ def test_server_relaunch_hammer():
     a.stop()
 
 
+def test_server_two_emulators():
+    """TWO MAMEs, one proxy: the whole point of the session split.
+
+    Both emulators connect to the same listener, each gets its own engine
+    and its own links, and neither can see the other's traffic - the
+    failure that would matter is a byte from emulator A surfacing in
+    emulator B's +IPD stream, or A's CIPCLOSE dropping B's link.
+    """
+    print("\n== server: two emulators at once ==")
+    logs = []
+    up_a = FakeUpstream()
+    up_b = FakeUpstream()
+    server = EspAtServer(port=0, log=logs.append)
+    server.start()
+    port = server._listen.getsockname()[1]
+
+    a = FakeMame(port)
+    a.collect(b"ready")
+    a.say(b"ATE0\r\n")
+    a.collect(b"OK")
+    b = FakeMame(port)
+    b.collect(b"ready")
+    b.say(b"ATE0\r\n")
+    b.collect(b"OK")
+    check("both emulators hold a live session at once",
+          server.session_count == 2, server.session_count)
+    check("the log labels the emulators once they share the server",
+          any("[emulator 2]" in ln for ln in logs), logs[-3:])
+
+    a.say(f'AT+CIPSTART="TCP","127.0.0.1",{up_a.port}\r\n'.encode())
+    check("emulator A connects to its own upstream",
+          b"CONNECT" in a.collect(b"OK"))
+    b.say(f'AT+CIPSTART="TCP","127.0.0.1",{up_b.port}\r\n'.encode())
+    check("emulator B connects to its own upstream",
+          b"CONNECT" in b.collect(b"OK"))
+
+    a.say(b"AT+CIPSEND=6\r\n")
+    a.collect(b">")
+    a.say(b"AAAAAA")
+    check("emulator A's payload is acknowledged",
+          b"SEND OK" in a.collect(b"SEND OK"))
+    b.say(b"AT+CIPSEND=6\r\n")
+    b.collect(b">")
+    b.say(b"BBBBBB")
+    check("emulator B's payload is acknowledged",
+          b"SEND OK" in b.collect(b"SEND OK"))
+
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline and (
+            up_a.received != b"AAAAAA" or up_b.received != b"BBBBBB"):
+        time.sleep(0.02)
+    check("each upstream received ONLY its own emulator's bytes",
+          up_a.received == b"AAAAAA" and up_b.received == b"BBBBBB",
+          f"A={up_a.received!r} B={up_b.received!r}")
+
+    up_a.send(b"a" * 10)
+    up_b.send(b"b" * 20)
+    got_a = a.collect(b"+IPD,10:")
+    got_b = b.collect(b"+IPD,20:")
+    check("emulator A receives its own downstream frame only",
+          b"+IPD,10:" + b"a" * 10 in got_a and b"+IPD,20" not in got_a,
+          got_a)
+    check("emulator B receives its own downstream frame only",
+          b"+IPD,20:" + b"b" * 20 in got_b and b"+IPD,10" not in got_b,
+          got_b)
+
+    # A's CIPCLOSE must not touch B's link: same link id (0), different
+    # session - the exact confusion a shared link table would produce.
+    a.say(b"AT+CIPCLOSE\r\n")
+    check("emulator A closes its own link", b"OK" in a.collect(b"OK"))
+    up_b.send(b"still here")
+    check("emulator B's link survived its neighbour's CIPCLOSE",
+          b"+IPD,10:still here" in b.collect(b"+IPD,10:"))
+
+    # One emulator quitting leaves the other, and the server, untouched.
+    a.close()
+    deadline = time.monotonic() + 3
+    while server.session_count != 1 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    check("a quitting emulator drops only its own session",
+          server.session_count == 1, server.session_count)
+    check("the server is still running for the survivor", server.running)
+    b.say(b"AT\r\n")
+    check("the surviving emulator is still served",
+          b"OK" in b.collect(b"OK"))
+
+    b.close()
+    server.stop()
+    up_a.close()
+    up_b.close()
+
+
+def test_server_cipserver_port_share():
+    """Two guests running the same Next software both ask CIPSERVER for
+    the SAME port; only one can own it on this PC, so the second is
+    remapped upwards and told which port it actually got."""
+    print("\n== server: two emulators asking for the same CIPSERVER port ==")
+    logs = []
+    server = EspAtServer(port=0, log=logs.append)
+    server.start()
+    port = server._listen.getsockname()[1]
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    want = probe.getsockname()[1]
+    probe.close()
+
+    emus = []
+    for _ in range(2):
+        m = FakeMame(port)
+        m.collect(b"ready")
+        m.say(b"ATE0\r\n")
+        m.collect(b"OK")
+        m.say(b"AT+CIPMUX=1\r\n")
+        m.collect(b"OK")
+        m.say(f"AT+CIPSERVER=1,{want}\r\n".encode())
+        check("CIPSERVER answers OK", b"OK" in m.collect(b"OK"))
+        emus.append(m)
+
+    ports = [s.net_listen_port for s in server._sessions]
+    check("the first emulator got the port it asked for",
+          ports[0] == want, ports)
+    check("the second emulator was remapped to a free port instead",
+          ports[1] is not None and ports[1] != want, ports)
+    check("and the remap is announced with the port to connect to",
+          any(f"listens on {ports[1]}" in ln for ln in logs), logs[-2:])
+
+    client = socket.create_connection(("127.0.0.1", ports[1]), timeout=3)
+    check("the remapped listener belongs to the SECOND emulator",
+          b",CONNECT" in emus[1].collect(b",CONNECT"))
+    check("and the first emulator saw nothing of that connection",
+          b",CONNECT" not in emus[0].collect(timeout=0.3))
+    client.close()
+
+    for m in emus:
+        m.close()
+    server.stop()
+
+
+def test_server_session_cap():
+    """Several emulators are the point; an unbounded pile is not. The
+    cap refuses the surplus connection loudly instead of growing the
+    process."""
+    print("\n== server: the concurrent-emulator cap ==")
+    logs = []
+    server = EspAtServer(port=0, log=logs.append)
+    server.start()
+    port = server._listen.getsockname()[1]
+
+    emus = []
+    for _ in range(espemu.MAX_SESSIONS):
+        m = FakeMame(port)
+        m.collect(b"ready")
+        emus.append(m)
+    check(f"all {espemu.MAX_SESSIONS} allowed emulators are connected",
+          server.session_count == espemu.MAX_SESSIONS, server.session_count)
+
+    surplus = FakeMame(port)
+    got = surplus.collect(timeout=1.5)
+    check("the surplus emulator is refused, not queued",
+          got == b"" and server.session_count == espemu.MAX_SESSIONS,
+          f"{got!r} sessions={server.session_count}")
+    check("and the refusal is logged",
+          any("refusing another emulator" in ln for ln in logs), logs[-2:])
+    surplus.close()
+
+    # A slot freed by a quitting emulator is reusable straight away.
+    emus.pop().close()
+    deadline = time.monotonic() + 3
+    while server.session_count == espemu.MAX_SESSIONS and \
+            time.monotonic() < deadline:
+        time.sleep(0.02)
+    late = FakeMame(port)
+    check("a freed slot takes a new emulator", b"ready" in late.collect(b"ready"))
+    late.close()
+    for m in emus:
+        m.close()
+    server.stop()
+
+
+def test_server_live_verbose():
+    """The Settings toggle can change while an earlier MAME still holds
+    the shared worker: set_verbose applies without a restart, because
+    restarting would cut that emulator's wire."""
+    print("\n== server: verbose toggled on a live server ==")
+    logs = []
+    server = EspAtServer(port=0, log=logs.append)
+    server.start()
+    port = server._listen.getsockname()[1]
+    m = FakeMame(port)
+    m.collect(b"ready")
+    m.say(b"ATE0\r\n")
+    m.collect(b"OK")
+    quiet = len(logs)
+    server.set_verbose(True)
+    check("the live session's engine adopted the new setting",
+          all(s.engine._verbose for s in server._sessions))
+    m.say(b'AT+CIPSTART="TCP","127.0.0.1",1\r\n')      # refused: traced
+    m.collect(b"ERROR")
+    deadline = time.monotonic() + 2
+    while len(logs) == quiet and time.monotonic() < deadline:
+        time.sleep(0.02)
+    check("and it traces without the server being restarted",
+          len(logs) > quiet and server.running, logs[quiet:])
+    m.close()
+    server.stop()
+
+
+def test_server_session_threads():
+    """Each emulator gets its OWN loop thread.
+
+    A structural tripwire, because the two failures below are both
+    consequences of sharing one: a relapse to a single loop would still
+    pass every functional test here while quietly restoring them.
+    """
+    print("\n== server: a loop thread per emulator ==")
+    server = EspAtServer(port=0)
+    server.start()
+    port = server._listen.getsockname()[1]
+    a = FakeMame(port)
+    a.collect(b"ready")
+    b = FakeMame(port)
+    b.collect(b"ready")
+    names = {t.name for t in threading.enumerate()}
+    check("emulator 1 runs on its own thread", "espemu-emu1" in names, names)
+    check("emulator 2 runs on its own thread", "espemu-emu2" in names, names)
+    a.close()
+    b.close()
+    server.stop()
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline and any(
+            t.name.startswith("espemu") for t in threading.enumerate()):
+        time.sleep(0.05)
+    left = [t.name for t in threading.enumerate() if t.name.startswith("espemu")]
+    check("and every one of them is joined by stop()", not left, left)
+
+
+def test_server_bad_command_isolation():
+    """A guest command that makes the HOST's socket layer raise must cost
+    that guest an ERROR - nothing more.
+
+    'a..b' and a 70-character label are not OSErrors: create_connection
+    resolves the name and the IDNA codec raises UnicodeEncodeError (a
+    ValueError). Caught in review, where it escaped the loop thread and
+    tore down EVERY session - the neighbour's emulator saw its wire
+    aborted mid-transfer.
+    """
+    print("\n== server: a malformed command stays inside its own session ==")
+    logs = []
+    server = EspAtServer(port=0, log=logs.append)
+    server.start()
+    port = server._listen.getsockname()[1]
+    a = FakeMame(port)
+    a.collect(b"ready")
+    a.say(b"ATE0\r\n")
+    a.collect(b"OK")
+    b = FakeMame(port)
+    b.collect(b"ready")
+    b.say(b"ATE0\r\n")
+    b.collect(b"OK")
+
+    for host in (b"a..b", b"a" * 70 + b".example.com", b"\xff\xfe"):
+        a.say(b'AT+CIPSTART="TCP","' + host + b'",80\r\n')
+        check(f"a malformed host ({host[:12]!r}...) answers ERROR",
+              b"ERROR" in a.collect(b"ERROR", timeout=8))
+    # ... and a nonsense CIPSERVER port, which reaches bind() as an
+    # OverflowError rather than an OSError.
+    a.say(b"AT+CIPMUX=1\r\nAT+CIPSERVER=1,-5\r\n")
+    check("a nonsense CIPSERVER port answers ERROR",
+          b"ERROR" in a.collect(b"ERROR"))
+
+    check("the neighbour emulator is untouched",
+          (b.say(b"AT\r\n") or b"OK" in b.collect(b"OK")))
+    check("both sessions and the server are still alive",
+          server.running and server.session_count == 2,
+          f"running={server.running} sessions={server.session_count}")
+    a.say(b"AT\r\n")
+    check("and the offending session itself survives",
+          b"OK" in a.collect(b"OK"))
+    a.close()
+    b.close()
+    server.stop()
+
+
+def test_server_cross_session_stall():
+    """One emulator's BLOCKING gateway call must not freeze another's UART.
+
+    net_connect waits up to CONNECT_TIMEOUT_S and net_send up to
+    SEND_TIMEOUT_S. On a shared loop thread that stall was measured at
+    1.96 s and 9.73 s for a bystander emulator that had done nothing
+    wrong - well past the ~3 s at which the Next side gives up on its
+    module and resets it. With a thread each it is self-inflicted only.
+
+    The block is SIMULATED (the session's own net_connect is swapped for a
+    sleeping one) rather than aimed at a blackhole address: whether an
+    unrouted address stalls or is rejected instantly depends on the
+    network the tests happen to run on - measured at 0.05 s here - and a
+    check that only sometimes exercises its subject is not a check.
+    """
+    print("\n== server: a stalled emulator does not stall its neighbour ==")
+    server = EspAtServer(port=0)
+    server.start()
+    port = server._listen.getsockname()[1]
+    a = FakeMame(port)
+    a.collect(b"ready")
+    a.say(b"ATE0\r\n")
+    a.collect(b"OK")
+    b = FakeMame(port)
+    b.collect(b"ready")
+    b.say(b"ATE0\r\n")
+    b.collect(b"OK")
+    check("both emulators are connected", server.session_count == 2)
+
+    STALL = 1.5
+    session_a = server._sessions[0]
+
+    def slow_connect(_link, _host, _port):
+        time.sleep(STALL)
+        return False
+    session_a.net_connect = slow_connect        # the engine calls it by name
+
+    t0 = time.monotonic()
+    a.say(b'AT+CIPSTART="TCP","10.0.0.1",80\r\n')
+    time.sleep(0.1)                             # let it get into the connect
+    t1 = time.monotonic()
+    b.say(b"AT\r\n")
+    served = b"OK" in b.collect(b"OK", timeout=5)
+    neighbour = time.monotonic() - t1
+    check("the neighbour is served while the other emulator blocks",
+          served and neighbour < 1.0, f"{neighbour:.2f}s (served={served})")
+    check("and the neighbour answered BEFORE the block ended (else this "
+          "check proves nothing)", neighbour < STALL,
+          f"neighbour {neighbour:.2f}s vs stall {STALL}s")
+    check("the blocked emulator gets its ERROR once the call returns",
+          b"ERROR" in a.collect(b"ERROR", timeout=5)
+          and time.monotonic() - t0 >= STALL)
+    a.close()
+    b.close()
+    server.stop()
+
+
+def test_app_launch_wiring():
+    """Source-level tripwires on the MAME launch flow.
+
+    Those closures need a whole MainWindow to run, so - as elsewhere for
+    zxnu_emulator_ops - the seams are checked at source level. What must
+    not silently regress: the app SHARES one worker between emulators and
+    reference counts it. A relapse to stop-then-start would look fine with
+    one MAME and cut the wire of the first one the moment a second launched.
+    """
+    print("\n== app: the shared-worker launch wiring ==")
+    import ast
+
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    src = open(os.path.join(repo, "zxnu_emulator_ops.py"), encoding="utf-8").read()
+    check("a worker that is already running is REUSED, not restarted",
+          "if server is not None and server.running:" in src
+          and "return server" in src)
+
+    # ... and the relapse that matters is an UNCONDITIONAL stop at the top
+    # of _start_esp_emulation, which every substring above would survive.
+    # Ask the AST instead: no bare _stop_esp_emulation() statement may sit
+    # at the function's own level - inside an if, guarded, is the point.
+    start_fn = next(
+        (n for n in ast.walk(ast.parse(src))
+         if isinstance(n, ast.FunctionDef) and n.name == "_start_esp_emulation"),
+        None)
+    check("_start_esp_emulation exists to inspect", start_fn is not None)
+    bare_stop = [
+        n for n in (start_fn.body if start_fn else [])
+        if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)
+        and getattr(n.value.func, "id", "") == "_stop_esp_emulation"
+    ]
+    check("no UNCONDITIONAL stop-then-start survives in _start_esp_emulation",
+          not bare_stop,
+          f"line {bare_stop[0].lineno}" if bare_stop else "")
+    check("every wired-up launch takes a reference",
+          "host._esp_emu_users += 1" in src)
+    check("and every emulator exit releases it",
+          "_release_esp_emulation(_srv)" in src)
+    check("only the LAST emulator out stops the worker",
+          "if host._esp_emu_users == 0:" in src
+          and "_stop_esp_emulation()" in src)
+    check("MAME is told the port the server ACTUALLY listens on",
+          "{_esp_server.port}" in src)
+    check("a verbose change applies live instead of restarting a shared worker",
+          "server.set_verbose(verbose)" in src)
+    check("the missing-ROM verdict is per launch, not per app",
+          "_launch_state" in src)
+    check("every launch's signals object is kept alive independently",
+          "_mame_signals_live" in src)
+
+
 def main():
     test_engine_basics()
     test_engine_echo()
@@ -749,6 +1153,14 @@ def main():
     test_server_reconnect_race()
     test_server_backpressure()
     test_server_relaunch_hammer()
+    test_server_two_emulators()
+    test_server_cipserver_port_share()
+    test_server_session_cap()
+    test_server_live_verbose()
+    test_server_session_threads()
+    test_server_bad_command_isolation()
+    test_server_cross_session_stall()
+    test_app_launch_wiring()
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
     return 0 if ok else 1
 

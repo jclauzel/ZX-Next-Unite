@@ -155,6 +155,34 @@ EmulatorAutostart = namedtuple("EmulatorAutostart",
                                defaults=(lambda: "",))
 
 
+def emulator_launch_entries(host):
+    """Which emulators can be launched RIGHT NOW, as (label, callable).
+
+    The bare "boot the mounted image" launch, with no file attached - the
+    twin of :func:`emulator_autostart_entries` above, which answers the
+    per-file question. Both explorer panes that carry the vertical
+    emulator strip down their left edge (the NextSync tab's Remote
+    Explorer and the SD Card tab's local pane) build it from THIS list, so
+    the two strips can never disagree with each other or with the SD Card
+    tab's Launch buttons.
+
+    Both halves come from the SD Card tab's own rules: MAME through
+    ``host._mame_usable()`` (which counts a Linux Flatpak setup with no
+    local binary), CSpect through the detected executable path every other
+    call site tests. The callables are ``host._launch_*_fn`` - the very
+    functions those buttons are connected to - called with NO argument.
+    """
+    out = []
+    _mame_ok = getattr(host, "_mame_usable", None)
+    if (_mame_ok is not None and _mame_ok()
+            and getattr(host, "_launch_mame_fn", None) is not None):
+        out.append(("Mame", host._launch_mame_fn))
+    if (getattr(host, "_cspect_executable_path", None) is not None
+            and getattr(host, "_launch_cspect_fn", None) is not None):
+        out.append(("CSpect", host._launch_cspect_fn))
+    return out
+
+
 def emulator_autostart_entries(host, path, is_dir=False):
     """The "start <file> in an emulator" entries to offer for *path*.
 

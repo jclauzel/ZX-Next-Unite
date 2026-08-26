@@ -1865,10 +1865,10 @@ class MainWindow(QMainWindow):
                 _update_mame_controls()
             except (RuntimeError, AttributeError):
                 pass
-            # Same state, a second surface: the Remote Explorer's emulator
-            # strip is built from _mame_usable() too.
-            if hasattr(self, "_re_refresh_emulators"):
-                self._re_refresh_emulators()
+            # Same state, more surfaces: both emulator strips (the Remote
+            # Explorer's and this tab's own) are built from _mame_usable()
+            # too.
+            self._refresh_emulator_strips()
         self._refresh_mame_launch_ui = _refresh_mame_launch_ui
 
         def enable_image_selection():
@@ -2525,7 +2525,13 @@ class MainWindow(QMainWindow):
         self.sdcard_explorer = SdCardExplorerPane(
             self, _sd_hooks,
             self.zx_next_unite_diskdrive if platform.system() == "Windows" else None,
-            available_drives[0], self.filtertext, self.image_filtertext)
+            available_drives[0], self.filtertext, self.image_filtertext,
+            # The left-hand emulator strip, the Remote Explorer's twin. A
+            # forwarding lambda, not the function itself: what it reports
+            # (_mame_usable, the detected CSpect path, the launch closures)
+            # is filled in across the whole of __init__ and changes again at
+            # runtime, so it must be read when the strip is drawn.
+            emulator_launchers=lambda: emulator_launch_entries(self))
 
         # Historical attribute aliases: the operation layer and the offscreen
         # test suite keep addressing the pane's widgets through MainWindow.
@@ -4144,10 +4150,9 @@ class MainWindow(QMainWindow):
             _maybe_show_no_image_toast()
             _start_load_image_hint_animation()
             self._show_emulator_detection_toast()
-            # The NextSync tab's Remote Explorer carries an emulator
-            # strip built from the same detection; tell it too.
-            if hasattr(self, "_re_refresh_emulators"):
-                self._re_refresh_emulators()
+            # Both explorer panes carry an emulator strip built from the
+            # same detection; tell them too.
+            self._refresh_emulator_strips()
 
         def _finalize_hdfmonkey_button():
             """Reveal the 'Download and install HDF Monkey' button only after the

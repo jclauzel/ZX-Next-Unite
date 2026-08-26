@@ -24,11 +24,34 @@ single socket:
   :meth:`EspAtEngine.feed_serial`, bytes out via :meth:`EspAtEngine.take_output`;
   all network activity goes through an injected gateway object, and network
   events come back in via ``net_data`` / ``net_closed`` / ``net_accepted``.
-* :class:`EspAtServer` — the socket harness: a ``selectors`` loop on a
-  background thread wiring one serial client (MAME) and the engine's TCP
-  links together. ``start()`` binds and listens SYNCHRONOUSLY so the caller
-  can Popen MAME immediately after; ``stop()`` tears everything down. A
-  server object is SINGLE-USE: one MAME session, then build a new one.
+* :class:`EspAtServer` — the socket harness: an accept loop on a background
+  thread, plus one ``selectors`` loop thread per connected emulator wiring
+  its serial client (MAME) and its engine's TCP links together. ``start()``
+  binds and listens SYNCHRONOUSLY so the caller can Popen MAME immediately
+  after; ``stop()`` tears everything down. A server object is SINGLE-USE:
+  start it once, then build a new one.
+
+ONE server, MANY emulators, A THREAD EACH: every MAME that connects to the
+listener is forked off into its OWN session — its own engine, links,
+CIPSERVER listener, serial queue, selector and loop thread — so several
+emulated Nexts (each with its own disk image) run side by side through a
+single proxy and never see a byte of each other's AT state. The session,
+not the server, is the unit of freshness: it is built on connect and
+dropped when that emulator quits.
+
+The thread each is not decoration. Serving every session from one loop was
+tried first and measured: a malformed ``AT+CIPSTART`` host raises out of
+getaddrinfo as a UnicodeEncodeError (NOT an OSError), which tore the loop
+down and took every other emulator's wire with it; and the two bounded
+BLOCKING gateway calls — the connect, the send — stalled bystander
+emulators for up to 9.7 s, where the Next side gives up after ~3 s and
+resets its module. With a thread each, both stay strictly inside the
+session that caused them, and every session behaves exactly like the
+single-emulator server this module shipped with.
+
+The one genuinely shared resource left is the PC's port space, so when two
+guests ask CIPSERVER for the same port the later one is remapped upwards
+and the new port is logged.
 
 The command inventory and the exact reply shapes were derived from the
 publicly documented Espressif AT instruction set and from the AT dialogue of
@@ -84,7 +107,7 @@ import socket
 import threading
 import time
 
-ESPEMU_VERSION = "1.1"
+ESPEMU_VERSION = "1.2"
 
 # The station identity handed to AT+CIFSR / AT+CIPSTA?. The Next software
 # only ever LOGS these (nothing routes through them — the real routing is
@@ -109,13 +132,32 @@ MAX_SEND_LEN = 2048
 # to UART pace anyway so smaller frames cost nothing.
 IPD_CHUNK = 1024
 
-# Serial-side flow control: above HIGH the upstream link reads pause;
-# below LOW they resume. The band is wide so the pause toggles rarely.
+# Serial-side flow control, PER SESSION: above HIGH that emulator's
+# upstream link reads pause; below LOW they resume. The band is wide so the
+# pause toggles rarely, and one busy emulator throttles only itself.
 SERIAL_HIGH_WATER = 64 * 1024
 SERIAL_LOW_WATER = 8 * 1024
 
-# AT link ids run 0..4 on the real firmware.
+# AT link ids run 0..4 on the real firmware. Per emulator session.
 MAX_LINKS = 5
+
+# How many emulators may share one server at once. Several MAME instances
+# connecting to the same listener is the supported case (one per emulated
+# Next), each with its own session; the cap only stops a runaway reconnect
+# loop from growing the process without bound.
+MAX_SESSIONS = 8
+
+# The two BLOCKING gateway calls, both bounded so a dead peer cannot wedge
+# an emulator's wire for ever. They run on the OWNING session's thread, so
+# the stall is self-inflicted: no other emulator is affected.
+CONNECT_TIMEOUT_S = 2.0
+SEND_TIMEOUT_S = 10.0
+
+# Two emulated Nexts running the same software both ask CIPSERVER for the
+# same port, and only one can own it on this PC. The later one is remapped
+# to the first free port in this window above the requested one - and told
+# so, loudly, in the log.
+CIPSERVER_PORT_SEARCH = 10
 
 CRLF = b"\r\n"
 
@@ -511,24 +553,475 @@ class EspAtEngine:
         self._trace(f"link {link}: closed by command")
 
 
+class _EspSession:
+    """One emulator connection: its socket, its engine, its links — and its
+    OWN loop thread.
+
+    Every MAME that connects to the listener gets one of these. A session is
+    a complete little server in itself: its own selector, its own engine,
+    its own links and CIPSERVER listener, its own serial queue and its own
+    thread. That isolation is the whole design, and it is deliberate rather
+    than merely tidy — the alternative (one loop thread serving every
+    session) makes one guest able to hurt all the others in two ways that
+    were both measured before this shape was chosen:
+
+    * an exception escaping ONE session's event handling (a malformed
+      ``AT+CIPSTART`` host raises UnicodeEncodeError out of getaddrinfo,
+      which is NOT an OSError) tore the loop down and took every other
+      emulator's wire with it;
+    * the two BLOCKING gateway calls (the bounded connect, the bounded
+      send) stalled every other emulator's UART - 9.7 s measured with a
+      wedged peer, where the Next side gives up after ~3 s and resets its
+      module.
+
+    With a thread each, both stay strictly inside the session that caused
+    them, and every session behaves exactly like the single-emulator server
+    this module shipped with before several MAMEs were supported.
+
+    A session is also the unit of FRESHNESS: it is built when the emulator
+    connects and dropped when that emulator goes away, which is what the
+    old one-server-per-launch rule was really buying.
+    """
+
+    _POLL_S = 0.2       # loop heartbeat when nothing is happening
+
+    def __init__(self, server, sock, addr, index):
+        self.server = server
+        self.sock = sock
+        self.addr = addr
+        self.index = index               # 1-based, only used for labelling
+        self.out = bytearray()           # queued serial-bound bytes
+        self.links = {}                  # link id -> connected TCP socket
+        self.paused = set()              # reads paused by serial backpressure
+        self.net_listen = None           # this guest's CIPSERVER listener
+        self.net_listen_port = None      # the port it actually got
+        self.closed = False
+        self._sel = selectors.DefaultSelector()
+        self._wake_r = None
+        self._wake_w = None
+        self._thread = None
+        self._stopping = False
+        self._close_lock = threading.Lock()
+        self.engine = EspAtEngine(self, log=self.log,
+                                  verbose=server._verbose)
+
+    def log(self, text):
+        """A session-scoped log line.
+
+        The ``[emulator N]`` label appears only once a second emulator has
+        actually shared this server, so the single-MAME case — still the
+        common one — reads exactly as it always did.
+        """
+        self.server._log(f"{self.server._label(self)}{text}")
+
+    # ---- lifecycle -------------------------------------------------------
+    def start(self):
+        """Register the serial socket and run this session's loop."""
+        self.sock.setblocking(False)
+        self._sel.register(self.sock, selectors.EVENT_READ,
+                           ("serial", self.sock))
+        # Self-pipe so stop() can interrupt a quiet select() immediately.
+        self._wake_r, self._wake_w = socket.socketpair()
+        self._wake_r.setblocking(False)
+        self._sel.register(self._wake_r, selectors.EVENT_READ, ("wake",))
+        self._thread = threading.Thread(
+            target=self._run, name=f"espemu-emu{self.index}", daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        try:
+            while not self._stopping:
+                for key, events in self._sel.select(self._POLL_S):
+                    try:
+                        self._handle(key, events)
+                    except Exception as ex:               # noqa: BLE001
+                        # Defence in depth: one bad event must cost one
+                        # event, never this emulator's whole session (and,
+                        # with a thread each, never anybody else's).
+                        self.log("RS232 ESP emulation: ignoring a failed "
+                                 f"event: {ex}")
+                if self.closed:
+                    break
+                self.flush_serial()
+        except Exception as ex:                           # noqa: BLE001
+            self.log(f"RS232 ESP emulation: session error: {ex}")
+        finally:
+            self.close()
+            self.server._forget(self)
+
+    def stop(self):
+        """Called from ANOTHER thread (the server's teardown): end this
+        session and join its loop, bounded, then make sure its sockets are
+        shut whatever the join did."""
+        thread = self._thread
+        self._stopping = True
+        if self._wake_w is not None:
+            try:
+                self._wake_w.send(b"x")
+            except OSError:
+                pass
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=2)
+            if thread.is_alive():
+                # Break whatever it is blocked on: a closed socket fails
+                # the call immediately and every failure path ends in
+                # close(). Double-closing is harmless throughout.
+                for s in ([self.sock, self.net_listen]
+                          + list(self.links.values())):
+                    if s is not None:
+                        try:
+                            s.close()
+                        except OSError:
+                            pass
+        self.close()
+
+    def _handle(self, key, events):
+        tag = key.data[0]
+        if tag == "wake":
+            try:
+                self._wake_r.recv(64)
+            except OSError:
+                pass
+        elif tag == "serial":
+            # Identity guard: an earlier event in this very select() batch
+            # may have closed the session, and acting on the dead socket
+            # would work on freed state.
+            if self.closed or self.sock is not key.data[1]:
+                return
+            if events & selectors.EVENT_WRITE:
+                self.drain_serial()
+            if events & selectors.EVENT_READ and not self.closed:
+                self._read_serial()
+        elif tag == "accept-net":
+            if self.closed or self.net_listen is not key.data[1]:
+                return                    # replaced by a re-listen
+            self._accept_net()
+        elif tag == "link":
+            link, sock = key.data[1], key.data[2]
+            if self.closed or self.links.get(link) is not sock:
+                return                    # closed/reused id, stale event
+            self._read_link(link)
+
+    def _read_serial(self):
+        try:
+            data = self.sock.recv(4096)
+        except (BlockingIOError, InterruptedError):
+            return                        # spurious wake, not a disconnect
+        except OSError:
+            data = b""
+        if not data:
+            self.log("RS232 ESP emulation: emulator disconnected.")
+            self.close()
+            return
+        self.engine.feed_serial(data)
+
+    def _accept_net(self):
+        try:
+            conn, addr = self.net_listen.accept()
+        except OSError:
+            return
+        link = next((i for i in range(MAX_LINKS) if i not in self.links), None)
+        if link is None:
+            conn.close()
+            return
+        conn.setblocking(False)
+        self.links[link] = conn
+        self._sel.register(conn, selectors.EVENT_READ, ("link", link, conn))
+        self.engine.net_accepted(link)
+        if self.server._verbose:
+            self.log(f"RS232 ESP: inbound client {addr[0]}:{addr[1]} "
+                     f"-> link {link}")
+
+    def _read_link(self, link):
+        s = self.links.get(link)
+        if s is None:
+            return
+        try:
+            data = s.recv(IPD_CHUNK)
+        except (BlockingIOError, InterruptedError):
+            return
+        except OSError:
+            data = b""
+        if not data:
+            self.drop_link(link, tell_engine=True)
+            return
+        self.engine.net_data(link, data)
+
+    # ---- the gateway contract (called by OUR engine, on OUR thread) ------
+    # These run on this session's loop thread, so they may touch its
+    # selector directly. The two BLOCKING calls in here (the connect
+    # timeout, the bounded send) freeze THIS emulator's wire while they
+    # run and nobody else's - the reason each session owns a thread.
+    def net_connect(self, link, host, port):
+        try:
+            s = socket.create_connection((host, port), timeout=CONNECT_TIMEOUT_S)
+        except Exception as ex:                           # noqa: BLE001
+            # NOT just OSError: create_connection resolves the name, and
+            # a guest-supplied host with an empty or over-long DNS label
+            # comes back as UnicodeEncodeError (a ValueError). Whatever
+            # goes wrong, a bad CIPSTART means exactly one thing to the
+            # guest - this connect failed - and must never escape onto a
+            # loop thread.
+            if self.server._verbose:
+                self.log(f"RS232 ESP: connect {host}:{port} failed: {ex}")
+            return False
+        s.setblocking(False)
+        self.links[link] = s
+        self._sel.register(s, selectors.EVENT_READ, ("link", link, s))
+        return True
+
+    def net_send(self, link, data):
+        s = self.links.get(link)
+        if s is None:
+            return False
+        # The link sockets live non-blocking for the read side; sendall on
+        # a non-blocking socket raises the moment the OS buffer fills, and
+        # a fat upload would then read as a dead link. Flip to a bounded
+        # blocking send for the write, restore after.
+        try:
+            s.settimeout(SEND_TIMEOUT_S)
+            try:
+                s.sendall(data)
+            finally:
+                s.setblocking(False)
+            return True
+        except OSError:
+            self.drop_link(link, tell_engine=False)
+            return False
+
+    def net_close(self, link):
+        self.drop_link(link, tell_engine=False)
+
+    def net_server(self, enable, port):
+        # A re-listen (the guest reset and came back, or simply asked
+        # again) REPLACES this session's listener: without the
+        # close-first, Linux refuses the second bind and Windows silently
+        # double-binds and leaks the old socket.
+        self.drop_net_listen()
+        if not enable:
+            return True
+        want = int(port)
+        if not 1 <= want <= 65535:
+            # The guest picks this number; a nonsense one must come back
+            # as ERROR, not as an OverflowError out of bind() (which the
+            # OSError handler below would not catch and which would leave
+            # the guest waiting for a reply that never comes).
+            if self.server._verbose:
+                self.log(f"RS232 ESP: CIPSERVER port {want} is out of range")
+            return False
+        srv = None
+        chosen = None
+        for candidate in range(want, min(want + CIPSERVER_PORT_SEARCH, 65536)):
+            # Two guests asking for the same server port is NORMAL (they
+            # run the same Next software); only one can own it on this
+            # host, so the later one walks up to the next free port. The
+            # server's claim table settles it between OUR sessions
+            # deterministically - a bind alone would not on Windows, where
+            # SO_REUSEADDR lets a second bind of a live listening port
+            # succeed and then hands every connect to the first binder.
+            if not self.server._claim_net_port(self, candidate):
+                continue
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(("", candidate))
+                s.listen(MAX_LINKS)
+            except OSError as ex:
+                s.close()
+                self.server._release_net_port(self, candidate)
+                if self.server._verbose:
+                    self.log(f"RS232 ESP: CIPSERVER bind {candidate} "
+                             f"failed: {ex}")
+                continue
+            srv, chosen = s, candidate
+            break
+        if srv is None:
+            self.log(f"RS232 ESP emulation: this emulator's CIPSERVER could "
+                     f"not listen on port {want} (nor on the "
+                     f"{CIPSERVER_PORT_SEARCH} ports above it).")
+            return False
+        if chosen != want:
+            self.log(f"RS232 ESP emulation: CIPSERVER port {want} is already "
+                     f"in use on this PC, so THIS emulator's server listens "
+                     f"on {chosen} instead - connect to 127.0.0.1:{chosen} "
+                     f"to reach it.")
+        srv.setblocking(False)
+        self.net_listen = srv
+        self.net_listen_port = chosen
+        self._sel.register(srv, selectors.EVENT_READ, ("accept-net", srv))
+        return True
+
+    # ---- serial write queue + flow control -------------------------------
+    def flush_serial(self):
+        """Move engine output into the write queue and push what fits.
+
+        MAME drains this socket at emulated UART pace while the LAN fills
+        it at LAN pace, so the write is a QUEUE, never a blocking send: a
+        full kernel buffer parks the remainder for the next writable
+        event instead of reading as a lost emulator connection — the
+        exact failure a 100+ KB HTTP body used to hit.
+        """
+        if self.closed or self.sock is None:
+            return
+        out = self.engine.take_output()
+        if out:
+            self.out += out
+        self.drain_serial()
+
+    def drain_serial(self):
+        if self.closed or self.sock is None:
+            return
+        if self.out:
+            try:
+                sent = self.sock.send(self.out)
+                if sent:
+                    del self.out[:sent]
+            except (BlockingIOError, InterruptedError):
+                pass                      # kernel buffer full: wait writable
+            except OSError:
+                self.log("RS232 ESP emulation: emulator connection lost "
+                         "mid-write.")
+                self.close()
+                return
+        self._update_serial_interest()
+        self._apply_backpressure()
+
+    def _update_serial_interest(self):
+        """Watch the serial socket for writability only while the queue
+        holds bytes — a permanently-writable socket would turn the select
+        into a busy loop."""
+        if self.closed or self.sock is None:
+            return
+        want = selectors.EVENT_READ
+        if self.out:
+            want |= selectors.EVENT_WRITE
+        try:
+            key = self._sel.get_key(self.sock)
+            if key.events != want:
+                self._sel.modify(self.sock, want, ("serial", self.sock))
+        except KeyError:
+            pass
+
+    def _apply_backpressure(self):
+        """Pause THIS session's link reads while its serial queue is deep.
+
+        Reading the LAN at LAN speed while writing the guest at UART
+        speed would grow the queue without bound; pausing above a high
+        water mark and resuming below a low one bounds it to tens of KB
+        and lets TCP push the pressure back to the sender. The band is
+        per-session on purpose: one emulator hauling a big file must not
+        throttle another's links."""
+        depth = len(self.out)
+        if depth > SERIAL_HIGH_WATER:
+            for link, s in self.links.items():
+                if link not in self.paused:
+                    try:
+                        self._sel.unregister(s)
+                    except (KeyError, ValueError):
+                        continue
+                    self.paused.add(link)
+        elif depth < SERIAL_LOW_WATER and self.paused:
+            for link in list(self.paused):
+                s = self.links.get(link)
+                if s is not None:
+                    try:
+                        self._sel.register(
+                            s, selectors.EVENT_READ, ("link", link, s))
+                    except (KeyError, ValueError):
+                        pass
+                self.paused.discard(link)
+
+    # ---- plumbing --------------------------------------------------------
+    def drop_link(self, link, tell_engine):
+        s = self.links.pop(link, None)
+        self.paused.discard(link)
+        if s is None:
+            return
+        try:
+            self._sel.unregister(s)
+        except (KeyError, ValueError):
+            pass
+        try:
+            s.close()
+        except OSError:
+            pass
+        if tell_engine:
+            self.engine.net_closed(link)
+
+    def drop_net_listen(self):
+        if self.net_listen is None:
+            return
+        try:
+            self._sel.unregister(self.net_listen)
+        except (KeyError, ValueError):
+            pass
+        try:
+            self.net_listen.close()
+        except OSError:
+            pass
+        self.server._release_net_port(self, self.net_listen_port)
+        self.net_listen = None
+        self.net_listen_port = None
+
+    def close(self):
+        """Tear this emulator's session down.
+
+        Called from this session's own thread on the way out AND from the
+        server's teardown, so it is idempotent and locked: two threads
+        closing the same sockets at once must not double-unregister."""
+        with self._close_lock:
+            if self.closed and self.sock is None:
+                return
+            self.closed = True
+            for link in list(self.links):
+                self.drop_link(link, tell_engine=False)
+            self.paused.clear()
+            self.drop_net_listen()
+            if self.sock is not None:
+                try:
+                    self._sel.unregister(self.sock)
+                except (KeyError, ValueError):
+                    pass
+                try:
+                    self.sock.close()
+                except OSError:
+                    pass
+                self.sock = None
+            self.out.clear()
+            for s in (self._wake_r, self._wake_w):
+                if s is not None:
+                    try:
+                        s.close()
+                    except OSError:
+                        pass
+            self._wake_r = self._wake_w = None
+            try:
+                self._sel.close()
+            except Exception:                             # noqa: BLE001
+                pass
+
+
 class EspAtServer:
     """The socket harness around :class:`EspAtEngine`.
 
-    ``start()`` binds and listens synchronously — when it returns, MAME can
-    be launched and its ``-bitb socket.…`` connect will be accepted — then
-    a daemon thread runs the whole show: one serial client (a newer MAME
-    connection replaces an older one, so an emulator restart just works),
-    the engine, and its TCP links. ``stop()`` wakes the loop, releases the
-    port deterministically and joins the thread (bounded); the object is
-    SINGLE-USE by design — the app builds a fresh one per MAME launch, so
-    no state survives between sessions, and a second ``start()`` raises.
+    ONE listener, MANY emulators, a THREAD EACH. ``start()`` binds and
+    listens SYNCHRONOUSLY — when it returns, MAME can be launched and its
+    ``-bitb socket.…`` connect will be accepted — then a daemon thread
+    accepts connections. Every accepted connection is forked off into its
+    own :class:`_EspSession`: its own engine, links, CIPSERVER listener,
+    serial queue, selector and loop thread. A second (third, fourth…)
+    MAME launched against the same port is therefore served ALONGSIDE the
+    first, and cannot stall it, tear it down or see a byte of its AT
+    state — the isolation the single shared loop could not give (see the
+    session's own docstring for the two measured failures that settled
+    it). A session dies with its emulator; the server outlives it.
 
-    Every selector registration carries the socket it was made for, and
-    every event handler re-checks that socket against the CURRENT one —
-    a select() batch can deliver an event for a socket that an earlier
-    event in the same batch already replaced (a reconnecting MAME races
-    its own predecessor), and acting on the stale event would tear the
-    fresh connection down.
+    ``stop()`` wakes the accept loop, stops every session (bounded joins),
+    releases the port deterministically and joins the thread; the object
+    is SINGLE-USE by design — a second ``start()`` raises.
+
+    The only state shared across threads is deliberately tiny: the session
+    list and the CIPSERVER port-claim table, each behind its own lock.
     """
 
     _POLL_S = 0.2       # loop heartbeat when nothing is happening
@@ -540,12 +1033,12 @@ class EspAtServer:
         self._verbose = bool(verbose)
         self._sel = None
         self._listen = None            # the bitbanger listener (for MAME)
-        self._serial = None            # the connected MAME socket
-        self._serial_out = bytearray()  # queued serial-bound bytes
-        self._engine = None
-        self._links = {}               # link id -> connected TCP socket
-        self._paused_links = set()     # reads paused by serial backpressure
-        self._net_listen = None        # the CIPSERVER listener, if any
+        self._sessions = []            # live _EspSession objects
+        self._sessions_lock = threading.Lock()
+        self._next_index = 0           # session labels, 1-based, never reused
+        self._multi = False            # two emulators have shared this server
+        self._net_claims = {}          # CIPSERVER port -> owning session
+        self._claims_lock = threading.Lock()
         self._thread = None
         self._wake_r = None
         self._wake_w = None
@@ -557,8 +1050,69 @@ class EspAtServer:
     def running(self):
         return self._thread is not None and self._thread.is_alive()
 
+    @property
+    def session_count(self):
+        """How many emulators are connected to this server right now."""
+        with self._sessions_lock:
+            return len(self._sessions)
+
+    @property
+    def verbose(self):
+        """Whether tracing is on (read-only; use set_verbose to change it)."""
+        return self._verbose
+
+    def set_verbose(self, verbose):
+        """Turn tracing on/off on a RUNNING server.
+
+        The Settings toggle can change between launches while an earlier
+        MAME still holds the server, and stopping it to apply the change
+        would cut that emulator's wire. New sessions read the flag at
+        construction; the live ones are updated in place — a lone bool
+        write, atomic enough to cross threads without a lock.
+        """
+        self._verbose = bool(verbose)
+        for session in self._session_snapshot():
+            session.engine._verbose = self._verbose
+
+    def _session_snapshot(self):
+        with self._sessions_lock:
+            return list(self._sessions)
+
+    def _forget(self, session):
+        """A session's loop has ended (called from that session's thread)."""
+        with self._sessions_lock:
+            try:
+                self._sessions.remove(session)
+            except ValueError:
+                pass
+
+    def _label(self, session):
+        """``''`` while this server has only ever served one emulator,
+        ``'[emulator N] '`` once two have shared it."""
+        return f"[emulator {session.index}] " if self._multi else ""
+
+    # ---- the CIPSERVER port claim table (shared by the session threads) --
+    def _claim_net_port(self, session, port):
+        """Reserve ``port`` for ``session`` unless another session holds
+        it. The caller binds afterwards and releases the claim if the bind
+        fails; claiming first is what keeps two sessions off one port on
+        Windows, where SO_REUSEADDR would let both binds succeed."""
+        with self._claims_lock:
+            owner = self._net_claims.get(port)
+            if owner is not None and owner is not session:
+                return False
+            self._net_claims[port] = session
+            return True
+
+    def _release_net_port(self, session, port):
+        if port is None:
+            return
+        with self._claims_lock:
+            if self._net_claims.get(port) is session:
+                self._net_claims.pop(port, None)
+
     def start(self):
-        """Bind + listen + spawn the loop thread. Raises OSError when the
+        """Bind + listen + spawn the accept thread. Raises OSError when the
         port is taken — the caller decides what that means for its launch."""
         if self._used:
             raise RuntimeError("EspAtServer is single-use: build a new one")
@@ -573,6 +1127,10 @@ class EspAtServer:
             # exclusive bind turns that residue into a LOUD start()
             # failure instead. POSIX keeps SO_REUSEADDR, where it only
             # bridges TIME_WAIT and never permits a second listener.
+            #
+            # NOTE this is about two SERVERS, never about two emulators:
+            # several MAMEs share ONE listener here, each as its own
+            # accepted connection and its own session.
             srv.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         else:
             srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -589,13 +1147,14 @@ class EspAtServer:
                     if attempt == 9:
                         raise
                     time.sleep(0.1)
-            srv.listen(1)
+            # Backlog for a whole fleet: emulators are launched back to
+            # back and each connects on its own.
+            srv.listen(MAX_SESSIONS)
         except OSError:
             srv.close()
             raise
         srv.setblocking(False)
         self._listen = srv
-        self._engine = EspAtEngine(self, log=self._log, verbose=self._verbose)
         self._sel = selectors.DefaultSelector()
         self._sel.register(srv, selectors.EVENT_READ, ("accept-serial",))
         # Self-pipe so stop() can interrupt a quiet select() immediately.
@@ -615,13 +1174,13 @@ class EspAtServer:
         return self
 
     def stop(self):
-        """Tear the whole session down.
+        """Tear the whole server down — every session with it.
 
-        The join is BOUNDED and the LISTENER is closed from this thread
-        regardless of its outcome: a worker mid-way through a bounded
-        network call can outlive the join, and the port must be free for
+        Every join is BOUNDED and the LISTENER is closed from this thread
+        regardless of their outcome: a session mid-way through a bounded
+        network call can outlive its join, and the port must be free for
         the next launch anyway (the field-reported every-other-launch
-        failure). A still-running worker then finds its sockets closed,
+        failure). A still-running session then finds its sockets closed,
         errors out of whatever it was blocked on and finishes its own
         teardown; double-closing is harmless throughout.
         """
@@ -634,18 +1193,16 @@ class EspAtServer:
             pass
         self._thread.join(timeout=2)
         if self._thread.is_alive():
-            self._log("RS232 ESP emulation: the worker is slow to stop; "
-                      "forcing its sockets closed.")
-            # Break whatever it is blocked on: a closed socket fails the
-            # call immediately, and every failure path lands in teardown.
-            for s in ([self._serial, self._net_listen]
-                      + list(self._links.values())):
-                if s is not None:
-                    try:
-                        s.close()
-                    except OSError:
-                        pass
+            self._log("RS232 ESP emulation: the listener is slow to stop; "
+                      "forcing its socket closed.")
+            if self._listen is not None:
+                try:
+                    self._listen.close()
+                except OSError:
+                    pass
         self._thread = None
+        for session in self._session_snapshot():
+            session.stop()
         if self._listen is not None:
             try:
                 self._listen.close()
@@ -653,82 +1210,22 @@ class EspAtServer:
                 pass
         self._log("RS232 ESP emulation stopped.")
 
-    # ---- the gateway contract (called by the engine, same thread) --------
-    def net_connect(self, link, host, port):
-        try:
-            s = socket.create_connection((host, port), timeout=2)
-        except OSError as ex:
-            if self._verbose:
-                self._log(f"RS232 ESP: connect {host}:{port} failed: {ex}")
-            return False
-        s.setblocking(False)
-        self._links[link] = s
-        self._sel.register(s, selectors.EVENT_READ, ("link", link, s))
-        return True
-
-    def net_send(self, link, data):
-        s = self._links.get(link)
-        if s is None:
-            return False
-        # The link sockets live non-blocking for the read side; sendall on
-        # a non-blocking socket raises the moment the OS buffer fills, and
-        # a fat upload would then read as a dead link. Flip to a bounded
-        # blocking send for the write, restore after.
-        try:
-            s.settimeout(10.0)
-            try:
-                s.sendall(data)
-            finally:
-                s.setblocking(False)
-            return True
-        except OSError:
-            self._drop_link(link, tell_engine=False)
-            return False
-
-    def net_close(self, link):
-        self._drop_link(link, tell_engine=False)
-
-    def net_server(self, enable, port):
-        # A re-listen (the guest reset and came back, or simply asked
-        # again) REPLACES the existing listener: without the close-first,
-        # Linux refuses the second bind and Windows silently double-binds
-        # and leaks the old socket.
-        if self._net_listen is not None:
-            try:
-                self._sel.unregister(self._net_listen)
-            except (KeyError, ValueError):
-                pass
-            self._net_listen.close()
-            self._net_listen = None
-        if not enable:
-            return True
-        try:
-            srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            srv.bind(("", int(port)))
-            srv.listen(MAX_LINKS)
-        except OSError as ex:
-            if self._verbose:
-                self._log(f"RS232 ESP: CIPSERVER bind {port} failed: {ex}")
-            return False
-        srv.setblocking(False)
-        self._net_listen = srv
-        self._sel.register(srv, selectors.EVENT_READ, ("accept-net", srv))
-        return True
-
-    # ---- the loop --------------------------------------------------------
+    # ---- the accept loop -------------------------------------------------
     def _run(self):
         try:
             while not self._stopping:
                 for key, events in self._sel.select(self._POLL_S):
-                    self._handle(key, events)
-                self._flush_serial()
-        except Exception as ex:                       # noqa: BLE001
+                    try:
+                        self._handle(key, events)
+                    except Exception as ex:               # noqa: BLE001
+                        self._log("RS232 ESP emulation: ignoring a failed "
+                                  f"listener event: {ex}")
+        except Exception as ex:                           # noqa: BLE001
             self._log(f"RS232 ESP emulation error: {ex}")
         finally:
             self._teardown()
 
-    def _handle(self, key, events):
+    def _handle(self, key, _events):
         tag = key.data[0]
         if tag == "wake":
             try:
@@ -737,205 +1234,45 @@ class EspAtServer:
                 pass
         elif tag == "accept-serial":
             self._accept_serial()
-        elif tag == "serial":
-            # Guard against a STALE event: an earlier event in this very
-            # select() batch may have replaced the serial socket (a
-            # reconnecting MAME races its own predecessor), and acting on
-            # the old one would read EOF from a dead socket and tear the
-            # fresh connection down.
-            if key.data[1] is not self._serial:
-                return
-            if events & selectors.EVENT_WRITE:
-                self._drain_serial()
-            if events & selectors.EVENT_READ:
-                self._read_serial()
-        elif tag == "accept-net":
-            if key.data[1] is not self._net_listen:
-                return                    # replaced by a re-listen
-            self._accept_net()
-        elif tag == "link":
-            link, sock = key.data[1], key.data[2]
-            if self._links.get(link) is not sock:
-                return                    # closed/reused id, stale event
-            self._read_link(link)
 
     def _accept_serial(self):
         try:
             conn, addr = self._listen.accept()
         except OSError:
             return
-        if self._serial is not None:
-            # A newer MAME replaces an older one (an emulator restart is
-            # routine); the fresh session gets a fresh engine so no link
-            # or half-armed CIPSEND leaks across.
-            self._log("RS232 ESP emulation: a new emulator connection "
-                      "replaces the previous one.")
-            self._drop_serial()
-        conn.setblocking(False)
-        self._serial = conn
-        self._sel.register(conn, selectors.EVENT_READ, ("serial", conn))
-        self._reset_links()
-        self._serial_out.clear()
-        self._engine = EspAtEngine(self, log=self._log, verbose=self._verbose)
-        self._log(f"RS232 ESP emulation: emulator connected from {addr[0]}:{addr[1]}.")
-
-    def _read_serial(self):
-        try:
-            data = self._serial.recv(4096)
-        except (BlockingIOError, InterruptedError):
-            return                        # spurious wake, not a disconnect
-        except OSError:
-            data = b""
-        if not data:
-            self._log("RS232 ESP emulation: emulator disconnected.")
-            self._drop_serial()
-            self._reset_links()
-            return
-        self._engine.feed_serial(data)
-
-    def _accept_net(self):
-        try:
-            conn, addr = self._net_listen.accept()
-        except OSError:
-            return
-        link = next((i for i in range(MAX_LINKS) if i not in self._links), None)
-        if link is None:
-            conn.close()
-            return
-        conn.setblocking(False)
-        self._links[link] = conn
-        self._sel.register(conn, selectors.EVENT_READ, ("link", link, conn))
-        self._engine.net_accepted(link)
-        if self._verbose:
-            self._log(f"RS232 ESP: inbound client {addr[0]}:{addr[1]} -> link {link}")
-
-    def _read_link(self, link):
-        s = self._links.get(link)
-        if s is None:
-            return
-        try:
-            data = s.recv(IPD_CHUNK)
-        except (BlockingIOError, InterruptedError):
-            return
-        except OSError:
-            data = b""
-        if not data:
-            self._drop_link(link, tell_engine=True)
-            return
-        self._engine.net_data(link, data)
-
-    # ---- serial write queue + flow control -------------------------------
-    def _flush_serial(self):
-        """Move engine output into the write queue and push what fits.
-
-        MAME drains this socket at emulated UART pace while the LAN fills
-        it at LAN pace, so the write is a QUEUE, never a blocking send: a
-        full kernel buffer parks the remainder for the next writable
-        event instead of reading as a lost emulator connection — the
-        exact failure a 100+ KB HTTP body used to hit.
-        """
-        if self._engine is None or self._serial is None:
-            return
-        out = self._engine.take_output()
-        if out:
-            self._serial_out += out
-        self._drain_serial()
-
-    def _drain_serial(self):
-        if self._serial is None:
-            return
-        if self._serial_out:
+        with self._sessions_lock:
+            full = len(self._sessions) >= MAX_SESSIONS
+        if full:
+            # A cap, not a policy: several emulators at once is the whole
+            # point, but a runaway reconnect loop must not grow the
+            # process without bound.
+            self._log(f"RS232 ESP emulation: refusing another emulator "
+                      f"connection ({MAX_SESSIONS} already connected).")
             try:
-                sent = self._serial.send(self._serial_out)
-                if sent:
-                    del self._serial_out[:sent]
-            except (BlockingIOError, InterruptedError):
-                pass                      # kernel buffer full: wait writable
+                conn.close()
             except OSError:
-                self._log("RS232 ESP emulation: emulator connection lost mid-write.")
-                self._drop_serial()
-                self._reset_links()
-                return
-        self._update_serial_interest()
-        self._apply_backpressure()
-
-    def _update_serial_interest(self):
-        """Watch the serial socket for writability only while the queue
-        holds bytes — a permanently-writable socket would turn the select
-        into a busy loop."""
-        if self._serial is None:
+                pass
             return
-        want = selectors.EVENT_READ
-        if self._serial_out:
-            want |= selectors.EVENT_WRITE
-        try:
-            key = self._sel.get_key(self._serial)
-            if key.events != want:
-                self._sel.modify(self._serial, want, ("serial", self._serial))
-        except KeyError:
-            pass
-
-    def _apply_backpressure(self):
-        """Pause the upstream link reads while the serial queue is deep.
-
-        Reading the LAN at LAN speed while writing the guest at UART
-        speed would grow the queue without bound; pausing above a high
-        water mark and resuming below a low one bounds it to tens of KB
-        and lets TCP push the pressure back to the sender."""
-        depth = len(self._serial_out)
-        if depth > SERIAL_HIGH_WATER:
-            for link, s in self._links.items():
-                if link not in self._paused_links:
-                    try:
-                        self._sel.unregister(s)
-                    except (KeyError, ValueError):
-                        continue
-                    self._paused_links.add(link)
-        elif depth < SERIAL_LOW_WATER and self._paused_links:
-            for link in list(self._paused_links):
-                s = self._links.get(link)
-                if s is not None:
-                    try:
-                        self._sel.register(
-                            s, selectors.EVENT_READ, ("link", link, s))
-                    except (KeyError, ValueError):
-                        pass
-                self._paused_links.discard(link)
-
-    # ---- plumbing --------------------------------------------------------
-    def _drop_serial(self):
-        if self._serial is None:
-            return
-        try:
-            self._sel.unregister(self._serial)
-        except (KeyError, ValueError):
-            pass
-        self._serial.close()
-        self._serial = None
-        self._serial_out.clear()
-
-    def _drop_link(self, link, tell_engine):
-        s = self._links.pop(link, None)
-        self._paused_links.discard(link)
-        if s is None:
-            return
-        try:
-            self._sel.unregister(s)
-        except (KeyError, ValueError):
-            pass
-        s.close()
-        if tell_engine:
-            self._engine.net_closed(link)
-
-    def _reset_links(self):
-        for link in list(self._links):
-            self._drop_link(link, tell_engine=False)
-        self._paused_links.clear()
-        self.net_server(False, 0)
+        self._next_index += 1            # accept loop only: no lock needed
+        session = _EspSession(self, conn, addr, self._next_index)
+        with self._sessions_lock:
+            self._sessions.append(session)
+            live = len(self._sessions)
+        if live > 1:
+            # From here on every session-scoped line carries its label so
+            # two emulators' logs can be told apart. The latch STAYS set:
+            # the labels must not vanish from a survivor's lines when the
+            # other emulator quits.
+            self._multi = True
+        session.start()
+        session.log(f"RS232 ESP emulation: emulator connected from "
+                    f"{addr[0]}:{addr[1]}"
+                    + (f" ({live} emulators connected)."
+                       if live > 1 else "."))
 
     def _teardown(self):
-        self._drop_serial()
-        self._reset_links()
+        for session in self._session_snapshot():
+            session.stop()
         for s in (self._listen, self._wake_r, self._wake_w):
             if s is not None:
                 try:
@@ -950,7 +1287,8 @@ def main(argv=None):
     """Standalone console entry point: ``python espemu.py [--port N] [-v]``."""
     import argparse
     parser = argparse.ArgumentParser(
-        description="ESP-AT emulator for MAME's -rs232_esp bitbanger socket")
+        description="ESP-AT emulator for MAME's -rs232_esp bitbanger socket "
+                    "(serves several MAME instances at once, one session each)")
     parser.add_argument("--port", "-p", type=int, default=2222,
                         help="TCP port to listen on (default 2222)")
     parser.add_argument("--verbose", "-v", action="store_true",
