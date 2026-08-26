@@ -218,6 +218,28 @@ def translate_widget_tree(root, lang):
 
 CATALOGS = {
     "es": {
+        # ---- 9.6.0: per-emulator button colour ----
+        "Set the {emulator} color…":
+            "Establecer el color de {emulator}…",
+        "Reset the {emulator} color":
+            "Restablecer el color de {emulator}",
+        # ---- 9.6.0: forgetting a remembered SD image path ----
+        "Remove \"{path}\" from the list":
+            "Quitar \"{path}\" de la lista",
+        "Clear the whole list":
+            "Vaciar toda la lista",
+        "Removed {path} from the image list — the image file itself was not deleted.":
+            "Se quitó {path} de la lista de imágenes — el archivo de imagen en sí no se ha eliminado.",
+        "Cleared the image list — no image files were deleted.":
+            "Lista de imágenes vaciada — no se ha eliminado ningún archivo de imagen.",
+        "Clear the image list?":
+            "¿Vaciar la lista de imágenes?",
+        "Forget all {count} remembered image paths? The image files themselves are not deleted.":
+            "¿Olvidar las {count} rutas de imagen recordadas? Los archivos de imagen en sí no se eliminan.",
+        "Remove the image path shown on the left from the list.\nThe image file itself is not deleted.":
+            "Quitar de la lista la ruta de imagen mostrada a la izquierda.\nEl archivo de imagen en sí no se elimina.",
+        "Path to the SD card image (.img / .hdf).\nType a path directly, click the arrow to pick from recently loaded images,\nor use the 'Select NextZXOS disk Image' button to browse.\nRight-click the box for list options, or press Delete on a dropdown entry to forget it.":
+            "Ruta de la imagen de la tarjeta SD (.img / .hdf).\nEscribe una ruta directamente, pulsa la flecha para elegir entre las imágenes recientes,\no usa el botón 'Seleccionar imagen de disco NextZXOS' para examinar.\nHaz clic derecho en el cuadro para ver opciones de lista, o pulsa Supr en una entrada del desplegable para olvidarla.",
         # ---- GetIt starter pack ----
         'Assembling the starter pack…': 'Preparando el pack de inicio…',
         'Downloading {title} ({idx}/{total})…': 'Descargando {title} ({idx}/{total})…',
@@ -1352,6 +1374,28 @@ CATALOGS = {
             "La descarga de OpenAL falló — consulta el registro para más detalles. Puedes instalarlo manualmente desde {url}",
     },
     "pt": {
+        # ---- 9.6.0: per-emulator button colour ----
+        "Set the {emulator} color…":
+            "Definir a cor do {emulator}…",
+        "Reset the {emulator} color":
+            "Repor a cor do {emulator}",
+        # ---- 9.6.0: forgetting a remembered SD image path ----
+        "Remove \"{path}\" from the list":
+            "Remover \"{path}\" da lista",
+        "Clear the whole list":
+            "Limpar toda a lista",
+        "Removed {path} from the image list — the image file itself was not deleted.":
+            "Removido {path} da lista de imagens — o próprio ficheiro de imagem não foi eliminado.",
+        "Cleared the image list — no image files were deleted.":
+            "Lista de imagens limpa — nenhum ficheiro de imagem foi eliminado.",
+        "Clear the image list?":
+            "Limpar a lista de imagens?",
+        "Forget all {count} remembered image paths? The image files themselves are not deleted.":
+            "Esquecer todos os {count} caminhos de imagem memorizados? Os próprios ficheiros de imagem não são eliminados.",
+        "Remove the image path shown on the left from the list.\nThe image file itself is not deleted.":
+            "Remover da lista o caminho de imagem mostrado à esquerda.\nO próprio ficheiro de imagem não é eliminado.",
+        "Path to the SD card image (.img / .hdf).\nType a path directly, click the arrow to pick from recently loaded images,\nor use the 'Select NextZXOS disk Image' button to browse.\nRight-click the box for list options, or press Delete on a dropdown entry to forget it.":
+            "Caminho da imagem do cartão SD (.img / .hdf).\nEscreva um caminho diretamente, clique na seta para escolher entre as imagens recentes,\nou use o botão 'Selecionar imagem de disco NextZXOS' para procurar.\nClique com o botão direito na caixa para as opções da lista, ou prima Delete numa entrada da lista pendente para a esquecer.",
         # ---- GetIt starter pack ----
         'Assembling the starter pack…': 'A montar o pacote inicial…',
         'Downloading {title} ({idx}/{total})…': 'A transferir {title} ({idx}/{total})…',
@@ -2487,6 +2531,28 @@ CATALOGS = {
             "A transferência do OpenAL falhou — vê o registo para detalhes. Podes instalá-lo manualmente a partir de {url}",
     },
     "pl": {
+        # ---- 9.6.0: per-emulator button colour ----
+        "Set the {emulator} color…":
+            "Ustaw kolor {emulator}…",
+        "Reset the {emulator} color":
+            "Przywróć domyślny kolor {emulator}",
+        # ---- 9.6.0: forgetting a remembered SD image path ----
+        "Remove \"{path}\" from the list":
+            "Usuń \"{path}\" z listy",
+        "Clear the whole list":
+            "Wyczyść całą listę",
+        "Removed {path} from the image list — the image file itself was not deleted.":
+            "Usunięto {path} z listy obrazów — sam plik obrazu nie został usunięty z dysku.",
+        "Cleared the image list — no image files were deleted.":
+            "Wyczyszczono listę obrazów — nie usunięto żadnych plików obrazów.",
+        "Clear the image list?":
+            "Wyczyścić listę obrazów?",
+        "Forget all {count} remembered image paths? The image files themselves are not deleted.":
+            "Zapomnieć wszystkie zapamiętane ścieżki obrazów ({count})? Same pliki obrazów nie zostaną usunięte.",
+        "Remove the image path shown on the left from the list.\nThe image file itself is not deleted.":
+            "Usuń z listy ścieżkę obrazu pokazaną po lewej.\nSam plik obrazu nie zostanie usunięty.",
+        "Path to the SD card image (.img / .hdf).\nType a path directly, click the arrow to pick from recently loaded images,\nor use the 'Select NextZXOS disk Image' button to browse.\nRight-click the box for list options, or press Delete on a dropdown entry to forget it.":
+            "Ścieżka do obrazu karty SD (.img / .hdf).\nWpisz ścieżkę bezpośrednio, kliknij strzałkę, aby wybrać spośród ostatnio wczytanych obrazów,\nalbo użyj przycisku 'Wybierz obraz dysku NextZXOS', aby przeglądać dysk.\nKliknij pole prawym przyciskiem, aby zobaczyć opcje listy, albo naciśnij Delete na pozycji rozwijanej listy, aby ją zapomnieć.",
         # ---- GetIt starter pack ----
         'Assembling the starter pack…': 'Składanie pakietu startowego…',
         'Downloading {title} ({idx}/{total})…': 'Pobieranie {title} ({idx}/{total})…',
@@ -3621,6 +3687,28 @@ CATALOGS = {
             "Pobieranie OpenAL nie powiodło się — szczegóły w dzienniku. Możesz zainstalować go ręcznie z {url}",
     },
     "ru": {
+        # ---- 9.6.0: per-emulator button colour ----
+        "Set the {emulator} color…":
+            "Задать цвет {emulator}…",
+        "Reset the {emulator} color":
+            "Сбросить цвет {emulator}",
+        # ---- 9.6.0: forgetting a remembered SD image path ----
+        "Remove \"{path}\" from the list":
+            "Убрать \"{path}\" из списка",
+        "Clear the whole list":
+            "Очистить весь список",
+        "Removed {path} from the image list — the image file itself was not deleted.":
+            "Убрано из списка образов: {path} — сам файл образа не удалён.",
+        "Cleared the image list — no image files were deleted.":
+            "Список образов очищен — ни один файл образа не удалён.",
+        "Clear the image list?":
+            "Очистить список образов?",
+        "Forget all {count} remembered image paths? The image files themselves are not deleted.":
+            "Забыть все запомненные пути к образам ({count})? Сами файлы образов не удаляются.",
+        "Remove the image path shown on the left from the list.\nThe image file itself is not deleted.":
+            "Убрать показанный слева путь к образу из списка.\nСам файл образа не удаляется.",
+        "Path to the SD card image (.img / .hdf).\nType a path directly, click the arrow to pick from recently loaded images,\nor use the 'Select NextZXOS disk Image' button to browse.\nRight-click the box for list options, or press Delete on a dropdown entry to forget it.":
+            "Путь к образу SD-карты (.img / .hdf).\nВведите путь вручную, нажмите стрелку, чтобы выбрать из недавно загруженных образов,\nили выберите файл кнопкой «Выбрать образ диска NextZXOS».\nПравый щелчок по полю — параметры списка; клавиша Delete на записи выпадающего списка забывает её.",
         # ---- GetIt starter pack ----
         'Assembling the starter pack…': 'Сборка стартового набора…',
         'Downloading {title} ({idx}/{total})…': 'Скачивание {title} ({idx}/{total})…',
@@ -4756,6 +4844,28 @@ CATALOGS = {
             "Не удалось скачать OpenAL — подробности в журнале. Можно установить его вручную с {url}",
     },
     "cs": {
+        # ---- 9.6.0: per-emulator button colour ----
+        "Set the {emulator} color…":
+            "Nastavit barvu {emulator}…",
+        "Reset the {emulator} color":
+            "Obnovit výchozí barvu {emulator}",
+        # ---- 9.6.0: forgetting a remembered SD image path ----
+        "Remove \"{path}\" from the list":
+            "Odebrat \"{path}\" ze seznamu",
+        "Clear the whole list":
+            "Vymazat celý seznam",
+        "Removed {path} from the image list — the image file itself was not deleted.":
+            "Odebráno {path} ze seznamu obrazů — samotný soubor obrazu nebyl smazán.",
+        "Cleared the image list — no image files were deleted.":
+            "Seznam obrazů vymazán — žádné soubory obrazů nebyly smazány.",
+        "Clear the image list?":
+            "Vymazat seznam obrazů?",
+        "Forget all {count} remembered image paths? The image files themselves are not deleted.":
+            "Zapomenout všech {count} zapamatovaných cest k obrazům? Samotné soubory obrazů se nemažou.",
+        "Remove the image path shown on the left from the list.\nThe image file itself is not deleted.":
+            "Odebrat ze seznamu cestu k obrazu zobrazenou vlevo.\nSamotný soubor obrazu se nesmaže.",
+        "Path to the SD card image (.img / .hdf).\nType a path directly, click the arrow to pick from recently loaded images,\nor use the 'Select NextZXOS disk Image' button to browse.\nRight-click the box for list options, or press Delete on a dropdown entry to forget it.":
+            "Cesta k obrazu karty SD (.img / .hdf).\nZadejte cestu přímo, kliknutím na šipku vyberte z nedávno načtených obrazů,\nnebo procházejte tlačítkem 'Vybrat obraz disku NextZXOS'.\nPravým tlačítkem na pole zobrazíte volby seznamu, klávesa Delete na položce v nabídce ji zapomene.",
         # ---- GetIt starter pack ----
         'Assembling the starter pack…': 'Sestavování startovního balíčku…',
         'Downloading {title} ({idx}/{total})…': 'Stahování {title} ({idx}/{total})…',
@@ -5889,6 +5999,28 @@ CATALOGS = {
             "Stažení OpenAL selhalo — podrobnosti najdete v protokolu. Můžete jej nainstalovat ručně z {url}",
     },
     "fr": {
+        # ---- 9.6.0: per-emulator button colour ----
+        "Set the {emulator} color…":
+            "Définir la couleur de {emulator}…",
+        "Reset the {emulator} color":
+            "Réinitialiser la couleur de {emulator}",
+        # ---- 9.6.0: forgetting a remembered SD image path ----
+        "Remove \"{path}\" from the list":
+            "Retirer \"{path}\" de la liste",
+        "Clear the whole list":
+            "Effacer toute la liste",
+        "Removed {path} from the image list — the image file itself was not deleted.":
+            "{path} retiré de la liste des images — le fichier image lui-même n'a pas été supprimé.",
+        "Cleared the image list — no image files were deleted.":
+            "Liste des images effacée — aucun fichier image n'a été supprimé.",
+        "Clear the image list?":
+            "Effacer la liste des images ?",
+        "Forget all {count} remembered image paths? The image files themselves are not deleted.":
+            "Oublier les {count} chemins d'images mémorisés ? Les fichiers image eux-mêmes ne sont pas supprimés.",
+        "Remove the image path shown on the left from the list.\nThe image file itself is not deleted.":
+            "Retirer de la liste le chemin d'image affiché à gauche.\nLe fichier image lui-même n'est pas supprimé.",
+        "Path to the SD card image (.img / .hdf).\nType a path directly, click the arrow to pick from recently loaded images,\nor use the 'Select NextZXOS disk Image' button to browse.\nRight-click the box for list options, or press Delete on a dropdown entry to forget it.":
+            "Chemin de l'image de carte SD (.img / .hdf).\nSaisissez un chemin, cliquez sur la flèche pour choisir une image récemment chargée,\nou utilisez le bouton 'Choisir une image disque NextZXOS' pour parcourir.\nClic droit sur le champ pour les options de liste, ou touche Suppr sur une entrée de la liste déroulante pour l'oublier.",
         # ---- GetIt starter pack ----
         'Assembling the starter pack…': 'Assemblage du pack de démarrage…',
         'Downloading {title} ({idx}/{total})…': 'Téléchargement de {title} ({idx}/{total})…',

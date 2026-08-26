@@ -88,6 +88,11 @@ def build_nextsync_pane(
     host.nextsync_container_log_and_sync_buttons = QVBoxLayout()
 
     host.nextsync_container_log_and_sync_buttons.setAlignment(Qt.AlignTop)
+    # No top margin: the form above already sets the distance from the mode
+    # tabs, and a second 9 px here was half of the dead band under them.
+    _m = host.nextsync_container_log_and_sync_buttons.contentsMargins()
+    host.nextsync_container_log_and_sync_buttons.setContentsMargins(
+        _m.left(), 0, _m.right(), _m.bottom())
     host.nextsync_log_and_sync_buttons_container.setLayout(host.nextsync_container_log_and_sync_buttons)
 
 
@@ -95,6 +100,15 @@ def build_nextsync_pane(
     host.nextsync_container_fileexplorer_and_buttons_buttons = QVBoxLayout()
 
     host.nextsync_container_fileexplorer_and_buttons_buttons.setAlignment(Qt.AlignTop)
+    # No margins, the same as the log container it sits beside. Left the
+    # style default (9 px on every side), this column indented the Classic
+    # sync tree 9 px further in than the drive combo naming it, so the
+    # explorer read as offset from its own switcher (reported) — and 9 px
+    # lower than the log pane opposite. Pinned explicitly: a QLayout with no
+    # parent widget yet reports (0,0,0,0), and the style's 9 px only arrives
+    # on setLayout() below, so this has to be set rather than adjusted.
+    host.nextsync_container_fileexplorer_and_buttons_buttons.setContentsMargins(
+        0, 0, 0, 0)
     host.nextsync_fileexplorer_and_buttons_container.setLayout(host.nextsync_container_fileexplorer_and_buttons_buttons)
 
     # Add Disk drive selection
@@ -129,9 +143,31 @@ def build_nextsync_pane(
     host.nextsync_filtertext.setMaximumWidth(FILTER_TEXT_WIDTH + 400)
 
     host.horizontal10.addWidget(host.nextsync_filtertext)
+    # The trailing stretch the SD Card tab's twin row has always had (its
+    # horizontal2). Without it this QHBoxLayout had no stretchable item, so
+    # Qt handed every spare pixel to the widgets themselves: the drive combo
+    # ballooned across most of the window and the filter box was pushed to
+    # the far right, a screen away from the "Search:" label naming it
+    # (reported). One stretch pins the three together on the left at their
+    # natural sizes and parks the slack on the right.
+    host.horizontal10.addStretch(1)
 
 
     host.nextsync_form.addRow(host.horizontal10)
+    # Row index of the classic drive/filter bar, so the Remote Explorer view
+    # can take the whole row OUT of the layout (setRowVisible, Qt 6.4+)
+    # rather than merely hiding its widgets: a row emptied by hiding is
+    # zero-height but still collects the form's vertical spacing.
+    host._nextsync_classic_bar_row = host.nextsync_form.rowCount() - 1
+
+    # The band under the "Remote Explorer / Classic sync" tabs was 30 px of
+    # nothing (reported): the tab page's grid spacing, then this form's top
+    # margin, then the empty classic-bar row's spacing, then the inner
+    # container's top margin — four paddings stacked where one is enough.
+    # The mode tabs are the separator, so the content starts right under
+    # them, the way the SD Card tab's image row starts under its tab bar.
+    _m = host.nextsync_form.contentsMargins()
+    host.nextsync_form.setContentsMargins(_m.left(), 0, _m.right(), _m.bottom())
 
     host.nextsync_treeview = QTreeView()
 
@@ -987,6 +1023,18 @@ def build_nextsync_pane(
             # ?session=N routes use, not the shared one.
             enqueue_to=_re_bridge_enqueue_to,
             emulator_launchers=_re_emulator_launchers,
+            # Per-emulator colour (9.6.0): the host owns ONE map, so a
+            # colour picked on this strip is the colour the SD Card tab's
+            # strip and its Launch buttons wear too.
+            emulator_color_for=lambda n: host.emulator_color_for(n),
+            on_emulator_color_changed=lambda n, c: host.set_emulator_color(n, c),
+            # The local drive switcher lives IN this widget's nav row now
+            # (9.6.0). It used to be the classic tab's combo, left behind
+            # on a full-width row above the whole view: it stretched across
+            # the window, cost a row of height and pushed the local pane out
+            # of line with the Next pane (reported).
+            local_drives=(available_drives if platform.system() == "Windows"
+                          else None),
             local_sort=local_sort, next_sort=next_sort,
             on_sort_changed=_re_on_sort_changed,
             extra_drives=extra_drives,
@@ -1531,13 +1579,22 @@ def build_nextsync_pane(
             # Set the button state: disabled with a "pick a sync root" prompt
             # until the user selects one, then "Start" (pulsing yellow).
             _re_update_start_button()
-            # Give the Remote Explorer the full width: hide the local file
-            # explorer column (with its SyncIgnore / SyncPoint buttons) and
-            # the name filter. The drive switcher stays so the Remote
-            # Explorer can still change drive.
+            # Give the Remote Explorer the full width AND the full height:
+            # hide the local file explorer column (with its SyncIgnore /
+            # SyncPoint buttons), the name filter and — since 9.6.0 — the
+            # classic drive switcher. That combo used to be left behind
+            # here as the Remote Explorer's way to change drive, alone on
+            # its row: it stretched across the entire window, cost a row of
+            # height and pushed the local pane out of line with the Next
+            # pane (reported). The Remote Explorer carries its own drive
+            # combo in its nav row now, where the SD Card tab's local pane
+            # has always had one, so this row can empty out completely.
             host.nextsync_fileexplorer_and_buttons_container.setVisible(False)
-            host.nextsync_filterlabel.setVisible(False)
-            host.nextsync_filtertext.setVisible(False)
+            # setRowVisible, not three setVisible calls: hiding the widgets
+            # leaves a zero-height row that still takes the form's vertical
+            # spacing, which is part of the dead band this removes.
+            host.nextsync_form.setRowVisible(
+                host._nextsync_classic_bar_row, False)
             # The full walkthrough is for the EMPTY state only: with a sync
             # root already set (or the server already running) it read like
             # the app had forgotten the root it was actively using.
@@ -1588,10 +1645,17 @@ def build_nextsync_pane(
             host.nextsync_slowtransfer_checkbox.setVisible(True)
             # Bring the retro-log toggle back (hidden in Remote Explorer mode).
             host.nextsync_pygame_button.setVisible(True)
-            # Restore the local file explorer column and the name filter.
+            # Restore the local file explorer column, the name filter and
+            # the classic drive switcher (Windows only — there is no drive
+            # letter to switch on the other platforms, and it has been
+            # hidden since construction there).
             host.nextsync_fileexplorer_and_buttons_container.setVisible(True)
-            host.nextsync_filterlabel.setVisible(True)
-            host.nextsync_filtertext.setVisible(True)
+            host.nextsync_form.setRowVisible(
+                host._nextsync_classic_bar_row, True)
+            # setRowVisible shows EVERY widget in the row, the drive combo
+            # included — and there is no drive letter to switch outside
+            # Windows, where it has been hidden since construction.
+            host.nextsync_diskdrive.setVisible(platform.system() == "Windows")
             nextsync_hide_start_cancel_buttons()
         # Persist the open/closed choice so the NextSync tab reopens in the
         # same view next launch. Skipped while restoring the saved choice at

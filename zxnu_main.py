@@ -380,7 +380,7 @@ from zxnu_workers import *
 from zxnu_sdcard_explorer import (SdCardExplorerPane, IMG_PATH_ROLE,
                                   IMG_ISDIR_ROLE, IMG_LOADED_ROLE,
                                   IMG_LOADING_ROLE)
-from zxnu_remote_explorer import RemoteExplorerWidget
+from zxnu_remote_explorer import RemoteExplorerWidget, emulator_color_menu
 # NextSync HTTP bridge: a self-hosted Flask web server republishing the Remote
 # Explorer's -listen session as HTTP routes (for the Next's .http dot command).
 # Importing is always safe — Flask itself is optional and only imported when
@@ -971,11 +971,214 @@ class _ImagePathCombo(QComboBox):
     "activating" the current entry when the (long-path-widened) popup lands
     under the cursor. Reported as: the history list appeared and instantly
     vanished while the already-loaded image reloaded. See the
-    imageinput.activated wiring in MainWindow.setupUI."""
+    imageinput.activated wiring in MainWindow.setupUI.
+
+    It also owns the history-REMOVAL affordances (9.6.0). The remembered
+    paths used to be write-only: clearing the line edit and pressing Enter
+    unloaded the image but the stale path was still sitting in the dropdown
+    on the next click, with no way at all to forget it (reported). Three
+    ways out now, and every one of them ends in ``removeIndexRequested`` /
+    ``clearHistoryRequested`` so the persist-and-unload closure wired in
+    MainWindow.setupUI stays the single writer of the list:
+
+      * the '✕' button beside the box — forget the path that is SHOWN;
+      * Delete on the highlighted row of the open dropdown — forget that
+        row in place, with the popup staying up for the next one;
+      * right-click, on the box (text area OR arrow) or on a dropdown row —
+        'Remove "<path>" from the list' / 'Clear the whole list'. On the box
+        the actions are appended to the line edit's own standard menu, so
+        Cut/Copy/Paste survive.
+
+    Four Qt rules are load-bearing here, and three of them cost a rewrite:
+
+    * The dropdown view is created in C++ by ``QComboBoxPrivateContainer``.
+      PySide6 dispatches a virtual to a Python attribute only for objects
+      INSTANTIATED FROM PYTHON, so the house style used on the explorers'
+      trees — ``view.keyPressEvent = my_handler`` — is silently dead code
+      here. An event filter is the only mechanism that reaches it, and this
+      combo, being Python-made, is a valid filter target. ShortcutOverride
+      arrives first carrying the same key(), so only KeyPress is acted on.
+    * That same container's mouse handler does NOT check which button was
+      released: any release over a row calls hidePopup() and selects it. So
+      a right-click on a dropdown entry LOADED that image instead of
+      offering to forget it. The filter swallows the right button outright
+      and drives the menu from the PRESS.
+    * ``customContextMenuRequested`` is not used on the popup for the same
+      reason: on Windows the context-menu event is synthesised on RELEASE,
+      i.e. after the popup has already closed, and its position maps
+      through a hidden viewport.
+    * QComboBox forces its line edit to NoContextMenu and builds the menu
+      itself, so ONE ``contextMenuEvent`` override covers the text area and
+      the drop-down arrow together.
+
+    A QMenu is never exec'd inside the dropdown's Qt::Popup grab: the row
+    and the screen position are captured, the popup is dismissed, and the
+    menu opens on the next event-loop turn. The first 250 ms after the
+    popup opens are refused outright — inside that window Windows' combo
+    animation makes hidePopup() a no-op (the popup comes back up anyway),
+    which is exactly how a nested grab would wedge the UI.
+    """
+
+    removeIndexRequested = Signal(int)
+    clearHistoryRequested = Signal()
+
+    # Right-clicks inside this window after the dropdown opened are refused:
+    # see the class docstring (hidePopup() is a no-op while the open
+    # animation runs, and a menu over a live popup is a nested grab).
+    _POPUP_SETTLE_S = 0.25
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._popup_shown_at = 0.0
+        self._armed_view = None
+
+    # ---- history helpers --------------------------------------------------
+
+    def history_index(self, text):
+        """Row of *text* in the remembered list, or -1.
+
+        Compared the way the filesystem compares: normalize_sd_image_path
+        first (stray quotes, native separators) and then os.path.normcase,
+        because C:\\TEMP\\next.img and C:\\temp\\next.img are one path on
+        Windows and QComboBox.findText would call them two."""
+        wanted = os.path.normcase(normalize_sd_image_path(text))
+        if not wanted:
+            return -1
+        for i in range(self.count()):
+            if os.path.normcase(normalize_sd_image_path(self.itemText(i))) == wanted:
+                return i
+        return -1
+
+    @staticmethod
+    def _menu_path_label(path, limit=64):
+        """A path made fit for a menu label: shortened around the middle so
+        the drive and the file name survive (a full image path can be wider
+        than the screen), and '&' doubled — Qt reads a single one as the
+        mnemonic marker, which ate the ampersand in 'Rock & Roll'."""
+        text = str(path)
+        if len(text) > limit:
+            head, tail = text[:limit // 3], text[-(limit - limit // 3 - 1):]
+            text = f"{head}…{tail}"
+        return text.replace("&", "&&")
+
+    # ---- the dropdown's event filter --------------------------------------
+
+    def _arm_popup_view(self):
+        """(Re)install the dropdown hooks. self.view() is only guaranteed to
+        be the same object until something calls setView/setEditable, so the
+        arming is idempotent and keyed on the view identity. Both the view
+        (keys) and its viewport (mouse) are filtered."""
+        view = self.view()
+        if view is None or self._armed_view is view:
+            return
+        self._armed_view = view
+        view.installEventFilter(self)
+        view.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        view = self._armed_view
+        if view is not None and obj in (view, view.viewport()):
+            etype = event.type()
+            # Delete forgets the highlighted row in place. KeyPress only:
+            # ShortcutOverride arrives first with the same key() and would
+            # fire the removal twice.
+            if etype == QtCore.QEvent.Type.KeyPress:
+                if event.key() == Qt.Key.Key_Delete:
+                    row = view.currentIndex().row()
+                    if 0 <= row < self.count():
+                        self.removeIndexRequested.emit(row)
+                        self.refresh_open_popup(row)
+                    return True
+            # The container selects (and so LOADS) a row on ANY button
+            # release, right one included. Swallow the whole right-button
+            # gesture and open the menu from the press instead.
+            elif etype in (QtCore.QEvent.Type.MouseButtonPress,
+                           QtCore.QEvent.Type.MouseButtonRelease,
+                           QtCore.QEvent.Type.MouseButtonDblClick):
+                if event.button() == Qt.MouseButton.RightButton:
+                    if etype == QtCore.QEvent.Type.MouseButtonPress:
+                        self._popup_menu_from_press(view, event)
+                    return True
+        return super().eventFilter(obj, event)
+
+    def _popup_menu_from_press(self, view, event):
+        """Right-press on a dropdown row: remember what was hit, then open
+        the menu once the popup's grab is gone."""
+        if time.monotonic() - self._popup_shown_at < self._POPUP_SETTLE_S:
+            return                      # see _POPUP_SETTLE_S
+        # indexAt() wants VIEWPORT coordinates, and a mouse event delivered
+        # to either the view or its viewport carries viewport ones here (the
+        # scroll area hands the event on unchanged) — so no remap: the
+        # frame-width remap this started life with picked the row ABOVE on
+        # every row boundary.
+        row = view.indexAt(event.position().toPoint()).row()
+        where = event.globalPosition().toPoint()
+        self.hidePopup()
+        QTimer.singleShot(0, lambda: self._exec_history_menu(where, row))
 
     def showPopup(self):
         self._popup_shown_at = time.monotonic()
+        self._arm_popup_view()
         super().showPopup()
+
+    def refresh_open_popup(self, keep_row=-1):
+        """Re-lay an OPEN dropdown after a row was removed underneath it.
+
+        The container is sized when it opens, so a row removed under it
+        leaves a blank strip; showPopup() on an already-open popup
+        re-measures it in place, with no hide/show flicker. No-op when the
+        popup is closed (the '✕' button's path) or while the box is locked
+        mid-load — a live dropdown over a disabled combo can still be
+        clicked, and that click would re-enter load_image()."""
+        try:
+            view = self.view()
+            if view is None or not view.isVisible() or not self.isEnabled():
+                return
+            if not self.count():
+                self.hidePopup()
+                return
+            self.showPopup()
+            row = min(max(keep_row, 0), self.count() - 1)
+            self.view().setCurrentIndex(
+                self.model().index(row, self.modelColumn()))
+        except RuntimeError:
+            pass
+
+    # ---- the menus --------------------------------------------------------
+
+    def contextMenuEvent(self, event):
+        """Right-click on the BOX. One override covers the text area and the
+        drop-down arrow: QComboBox pins its line edit to NoContextMenu and
+        builds the menu itself, so both land here."""
+        line = self.lineEdit()
+        menu = line.createStandardContextMenu() if line is not None else None
+        if menu is not None:
+            menu.setParent(self, menu.windowFlags())
+        event.accept()
+        self._exec_history_menu(event.globalPos(),
+                                self.history_index(self.currentText()),
+                                menu=menu)
+
+    def _exec_history_menu(self, global_pos, row, menu=None):
+        if menu is None:
+            menu = QMenu(self)
+        elif not menu.isEmpty():
+            menu.addSeparator()
+        if 0 <= row < self.count():
+            act_remove = menu.addAction(
+                ui_tr_now('Remove "{path}" from the list').format(
+                    path=self._menu_path_label(self.itemText(row))))
+            act_remove.triggered.connect(
+                lambda _checked=False, r=row: self.removeIndexRequested.emit(r))
+        act_clear = menu.addAction(ui_tr_now("Clear the whole list"))
+        act_clear.setEnabled(self.count() > 0)
+        # Deferred: the confirm dialog must not open inside the menu's own
+        # input grab (see the NextSync explorer menu for the same rule).
+        act_clear.triggered.connect(
+            lambda _checked=False: QTimer.singleShot(
+                0, self.clearHistoryRequested.emit))
+        menu.exec(global_pos)
+        menu.deleteLater()
 
 
 class _CompleterPopupHider(QtCore.QObject):
@@ -1709,9 +1912,29 @@ class MainWindow(QMainWindow):
             except (RuntimeError, AttributeError):
                 pass
 
+        def _lock_image_clear_button(locked):
+            """Keep the '✕' beside the image path box in step with the box —
+            the whole row is locked as a unit during a load or a transfer.
+
+            Unlocking hands back to _sync_image_clear_button rather than
+            calling setDisabled(False): a blunt re-enable would leave a live
+            '✕' sitting next to an empty box with an empty list. Guarded
+            because the button is built further down __init__ than the
+            gating helpers that call this."""
+            if getattr(self, "imageclear", None) is None:
+                return
+            try:
+                if locked:
+                    self.imageclear.setDisabled(True)
+                else:
+                    getattr(self, "_sync_image_clear_button", lambda: None)()
+            except RuntimeError:
+                pass
+
         def set_all_buttons_disabled():
 
             self.imageinput.setDisabled(True)
+            _lock_image_clear_button(True)
             self.selectimage.setDisabled(True)
             self.zx_next_unite_diskdrive.setDisabled(True)
             self.filterlabel.setDisabled(True)
@@ -1750,6 +1973,7 @@ class MainWindow(QMainWindow):
 
         def set_all_buttons_enabled():
             self.imageinput.setDisabled(False)
+            _lock_image_clear_button(False)
             self.selectimage.setDisabled(False)
             self.zx_next_unite_diskdrive.setDisabled(False)
             self.filterlabel.setDisabled(False)
@@ -1873,6 +2097,7 @@ class MainWindow(QMainWindow):
 
         def enable_image_selection():
             self.imageinput.setDisabled(False)
+            _lock_image_clear_button(False)
             self.selectimage.setDisabled(False)
             # The LOCAL explorer (left pane) needs no disk image: browsing the
             # PC, filtering, zip/unzip and the "Start <emulator> with <file>"
@@ -1905,6 +2130,7 @@ class MainWindow(QMainWindow):
 
         def disable_image_selection():
             self.imageinput.setDisabled(True)
+            _lock_image_clear_button(True)
             self.selectimage.setDisabled(True)
 
         # ── hdfmonkey download/install chain (extracted to
@@ -2375,7 +2601,8 @@ class MainWindow(QMainWindow):
         self.imageinput.setToolTip(
             "Path to the SD card image (.img / .hdf).\n"
             "Type a path directly, click the arrow to pick from recently loaded images,\n"
-            "or use the 'Select NextZXOS disk Image' button to browse."
+            "or use the 'Select NextZXOS disk Image' button to browse.\n"
+            "Right-click the box for list options, or press Delete on a dropdown entry to forget it."
         )
         self.imageinput.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.imageinput.lineEdit().setPlaceholderText("SD card image path...")
@@ -2403,6 +2630,136 @@ class MainWindow(QMainWindow):
                 return
             load_image()
         self.imageinput.activated.connect(_image_history_activated)
+
+        # ---- forgetting a remembered image path (9.6.0) --------------------
+        # The dropdown used to be a one-way street: every successful load put
+        # a path in and nothing ever took one out, so a stale entry — an
+        # image that has been deleted, renamed or moved — stayed in the list
+        # for good. Deleting the text and pressing Enter only unloads (that
+        # is load_image's empty-box branch); the entry was still there on the
+        # next click, which is exactly what was reported. _ImagePathCombo
+        # raises the three affordances ('✕' below, Delete on a dropdown row,
+        # right-click); these closures are the only code that mutates the
+        # list, so the removal, the persist and the unload stay together.
+        def _sync_image_clear_button():
+            """Grey the '✕' out when the box names nothing to forget.
+
+            Gated on the BOX alone, not on the list: with an empty box the
+            button has nothing to act on, and "enabled but the click does
+            nothing" is the worse of the two states."""
+            try:
+                self.imageclear.setEnabled(
+                    bool(normalize_sd_image_path(self.imageinput.currentText())))
+            except (AttributeError, RuntimeError):
+                pass
+        # Reachable from the button-gating helpers defined further up, which
+        # re-enable the row after a load/transfer and must not undo the
+        # "nothing to forget" grey.
+        self._sync_image_clear_button = _sync_image_clear_button
+
+        def _empty_image_box():
+            """Clear the box and put the rest of the app back in step with it.
+
+            load_image's empty-box branch is the ONLY writer of
+            right_disk_image_path, and the two Launch buttons disagree about
+            where they read the image from — CSpect takes
+            right_disk_image_path, MAME takes this box. Emptying the box
+            without running that branch left CSpect booting the image the
+            user had just forgotten while MAME refused to launch at all, with
+            the explorer still showing its tree. So every path that empties
+            the box comes through here: it unloads the tree, resets the usage
+            gauge, re-greys the Launch buttons and logs the advisory."""
+            self.imageinput.blockSignals(True)
+            self.imageinput.setCurrentText("")
+            self.imageinput.blockSignals(False)
+            _sync_image_clear_button()
+            save_configuration_file()
+            load_image()
+
+        def _remove_image_history_entry(index):
+            if not (0 <= index < self.imageinput.count()):
+                return
+            gone = self.imageinput.itemText(index)
+            shown_before = self.imageinput.currentText()
+            # "Was the user looking at the entry that just went?" — by TEXT
+            # (typed or restored) or by ROW, because a path picked from the
+            # dropdown leaves currentIndex on it and Qt rewrites the line
+            # edit to a NEIGHBOUR when that row is removed.
+            drops_shown = (self.imageinput.history_index(shown_before) == index
+                           or self.imageinput.currentIndex() == index)
+            self.imageinput.blockSignals(True)
+            self.imageinput.removeItem(index)
+            # Restore what the user was looking at — unless that is what just
+            # went, in which case the box is emptied rather than silently
+            # swapped for a neighbouring path: quietly launching a DIFFERENT
+            # image would be worse than launching none.
+            self.imageinput.setCurrentText("" if drops_shown else shown_before)
+            self.imageinput.blockSignals(False)
+            _sync_image_clear_button()
+            save_configuration_file()
+            add_main_log_window(ui_tr_now(
+                "Removed {path} from the image list — the image file itself "
+                "was not deleted.").format(path=gone))
+            if drops_shown:
+                _empty_image_box()
+
+        def _clear_image_history():
+            """'Clear the whole list': forget every remembered path.
+
+            Deliberately does NOT unmount: the box keeps the path it shows,
+            so an image that is open stays open. Forgetting the history and
+            unloading the disk are two different requests, and the confirm
+            only asks for the first."""
+            count = self.imageinput.count()
+            if not count:
+                return
+            if QMessageBox.question(
+                    self, ui_tr_now("Clear the image list?"),
+                    ui_tr_now("Forget all {count} remembered image paths? "
+                              "The image files themselves are not deleted.")
+                    .format(count=count),
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No) != QMessageBox.Yes:
+                return
+            shown_before = self.imageinput.currentText()
+            self.imageinput.blockSignals(True)
+            self.imageinput.clear()          # editable: empties the box too
+            self.imageinput.setCurrentText(shown_before)
+            self.imageinput.blockSignals(False)
+            _sync_image_clear_button()
+            save_configuration_file()
+            add_main_log_window(ui_tr_now(
+                "Cleared the image list — no image files were deleted."))
+
+        self.imageinput.removeIndexRequested.connect(_remove_image_history_entry)
+        self.imageinput.clearHistoryRequested.connect(_clear_image_history)
+
+        # The '✕' the row was missing: forget the path SHOWN in the box.
+        # CompactButton sizes itself from its own glyph, so the retro font
+        # setting cannot squeeze or stretch it out of the row.
+        self.imageclear = CompactButton("✕", self, floor=30, padding=14)
+        self.imageclear.setToolTip(
+            "Remove the image path shown on the left from the list.\n"
+            "The image file itself is not deleted."
+        )
+
+        def _on_image_clear_clicked():
+            shown = self.imageinput.currentText()
+            if not normalize_sd_image_path(shown):
+                return                       # nothing shown: nothing to forget
+            index = self.imageinput.history_index(shown)
+            if index >= 0:
+                _remove_image_history_entry(index)
+                return
+            # Typed (or restored) but never remembered — no list entry to
+            # drop, so just empty the box, in step with everything else.
+            _empty_image_box()
+
+        self.imageclear.clicked.connect(_on_image_clear_clicked)
+        self.imageinput.currentTextChanged.connect(
+            lambda _text: _sync_image_clear_button())
+        _sync_image_clear_button()
+
         self.selectimage = QPushButton("ToDisk", self)
         self.selectimage.setText("Select NextZXOS disk Image")
         # (was `self.selectimage.toolTip = "..."` — a plain attribute that
@@ -2419,6 +2776,7 @@ class MainWindow(QMainWindow):
         self.downloadimage.clicked.connect(download_nextzxos_image)
 
         self.horizontal1.addWidget(self.imageinput)
+        self.horizontal1.addWidget(self.imageclear)
         self.horizontal1.addWidget(self.selectimage)
         self.horizontal1.addWidget(self.downloadimage)
 
@@ -3035,6 +3393,26 @@ class MainWindow(QMainWindow):
 
         self.zx_next_unite_form.addRow(self.sdcard_splitter)
 
+        def _bind_emulator_button_color_menu(button, label):
+            """Right-click on a Launch button opens the SAME colour editor
+            the vertical strips' tabs offer, writing the SAME one-per-
+            emulator value (9.6.0) — so "CSpect is green" is true on the
+            SD Card strip, on the Remote Explorer's strip and on this
+            button at once, or nowhere. host.set_emulator_color persists
+            it and repaints all three."""
+            button.setContextMenuPolicy(Qt.CustomContextMenu)
+
+            def _menu(pos, _btn=button, _label=label):
+                raw = self.emulator_color_for(_label)
+                current = QColor(str(raw)) if raw else None
+                emulator_color_menu(
+                    _btn, _label,
+                    current if (current is not None and current.isValid()) else None,
+                    (lambda hexval: self.set_emulator_color(_label, hexval)),
+                    _btn.mapToGlobal(pos))
+
+            button.customContextMenuRequested.connect(_menu)
+
         # Add action buttons at the bottom, split into two titled groups so the
         # MAME and CSpect controls read as separate emulators rather than one
         # long undifferentiated button row. The MAME group sits on its own line
@@ -3052,6 +3430,7 @@ class MainWindow(QMainWindow):
         self.button_start_mame.clicked.connect(launch_mame)
         self.button_start_mame.setVisible(_mame_available)
         self.mame_group_layout.addWidget(self.button_start_mame)
+        _bind_emulator_button_color_menu(self.button_start_mame, "Mame")
 
         # "Install MAME" button — shown in place of "Launch Mame" when MAME is
         # missing, on platforms where the automatic install is supported (64-bit
@@ -3139,6 +3518,7 @@ class MainWindow(QMainWindow):
         self.button_start_cspect.setText("🕹  Launch CSpect")
         self.button_start_cspect.clicked.connect(launch_cspect)
         self.cspect_group_layout.addWidget(self.button_start_cspect)
+        _bind_emulator_button_color_menu(self.button_start_cspect, "CSpect")
 
         # Populate Screen Size Combo
         self.cspect_screensize = QComboBox()
@@ -3757,6 +4137,10 @@ class MainWindow(QMainWindow):
 
         #  Start main logic
         load_configuration_file()
+        # The per-emulator colours are only known now: paint the Launch
+        # buttons with what was restored (the strips read the same map when
+        # they are built/rebuilt, so they need no separate pass).
+        self._apply_emulator_button_colors()
         # Re-tint the tab bar with the just-loaded general UI text colour.
         # This covers Custom mode (whose theme re-apply returns early without
         # refreshing) and the Settings / itch.io tabs that are added after the

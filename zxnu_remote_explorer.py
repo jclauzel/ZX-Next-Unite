@@ -500,12 +500,56 @@ class EmulatorTab(SessionTab):
     is detected, which is the same rule the SD Card tab's Launch buttons
     follow (they are hidden, not disabled, when nothing was found) - so
     the strip answers "what can I boot from here?" just by existing.
+
+    A right-click carries the same ``on_menu`` channel a SessionTab has,
+    and the ``tint`` the same meaning (9.6.0): the user's picked colour
+    for THAT emulator, painted instead of the palette background. There
+    is no active/inactive here, so the tint is simply the colour as
+    picked. One colour per emulator, shared by both strips and by the SD
+    Card tab's Launch buttons — see emulator_color_menu below.
     """
 
-    def __init__(self, text, on_click, parent=None, *, tooltip=""):
-        super().__init__(text, False, on_click, parent)
+    def __init__(self, text, on_click, parent=None, *, tooltip="",
+                 tint=None, on_menu=None):
+        super().__init__(text, False, on_click, parent,
+                         tint=tint, on_menu=on_menu)
         if tooltip:
             self.setToolTip(tooltip)
+
+
+def emulator_color_menu(parent, label, current, on_picked, global_pos):
+    """THE right-click colour editor for an emulator surface.
+
+    One function so the three surfaces that wear an emulator's colour —
+    the SD Card tab's strip, the Remote Explorer's strip and the SD Card
+    tab's Launch buttons — offer the same two actions and write the same
+    value. *current* is a QColor or None; *on_picked* takes "#rrggbb" (or
+    "" to reset) and is responsible for persisting and repainting.
+
+    menu.exec() RETURNS the chosen action rather than firing a triggered
+    handler, so the colour dialog opens after the menu's input grab has
+    already been released — the rule the NextSync explorer menu learned
+    the hard way (a QMessageBox opened from inside menu.exec() fights it
+    and can hang the UI).
+    """
+    menu = QMenu(parent)
+    act_set = menu.addAction(
+        ui_tr_now("Set the {emulator} color…").format(emulator=label))
+    act_reset = menu.addAction(
+        ui_tr_now("Reset the {emulator} color").format(emulator=label))
+    act_reset.setEnabled(current is not None)
+    chosen = menu.exec(global_pos)
+    if chosen is act_set:
+        # Same 3-arg house form as the Settings colour rows and the
+        # machine-colour picker: the platform's native dialog, English
+        # title (the app deliberately leaves the colour dialog alone).
+        picked = QColorDialog.getColor(
+            current if current is not None else QColor("#3cd8e8"),
+            parent, f"Choose color - {label}")
+        if picked.isValid():
+            on_picked(qcolor_to_hex(picked))
+    elif chosen is act_reset:
+        on_picked("")
 
 
 class MachineIdentityDialog(QDialog):
@@ -772,7 +816,8 @@ class RemoteExplorerWidget(QWidget):
                  remote_cwd_for=None, machine_name_for=None,
                  on_machine_name_changed=None, machine_color_for=None,
                  on_machine_color_changed=None, enqueue_to=None,
-                 emulator_launchers=None):
+                 emulator_launchers=None, emulator_color_for=None,
+                 on_emulator_color_changed=None, local_drives=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
         # host closure: enqueue_to(sid, cmd) -> bool, delivering ONE command
@@ -831,6 +876,14 @@ class RemoteExplorerWidget(QWidget):
         self._machine_color_for = machine_color_for or (lambda a: None)
         self._on_machine_color_changed = (on_machine_color_changed or
                                           (lambda a, c: None))
+        # Per-EMULATOR colour (9.6.0): the same shape again, keyed by the
+        # emulator instead of the machine. The colour a user picks here is
+        # deliberately the SAME one the SD Card tab's strip and its Launch
+        # buttons wear - the host owns one map for all three, so "CSpect
+        # is green" is true everywhere in the app or nowhere.
+        self._emulator_color_for = emulator_color_for or (lambda n: None)
+        self._on_emulator_color_changed = (on_emulator_color_changed or
+                                           (lambda n, c: None))
         self._remote_cwd_addr = None         # last addr a folder was reported for
         self._remote_start_dir = _norm_remote_dir(remote_start_dir)
         # Per-pane sort (column + direction), restored from the config and saved
@@ -995,13 +1048,32 @@ class RemoteExplorerWidget(QWidget):
         self.local_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.local_view.customContextMenuRequested.connect(self._local_context_menu)
 
-        # Top bar: Up / Refresh + the name filter ("Search: … Filter by name…"),
-        # mirroring the classic sync local explorer.
+        # Top bar: Up / Refresh / the drive switcher + the name filter
+        # ("Search: … Filter by name…"), mirroring the classic sync local
+        # explorer AND the SD Card tab's local pane, whose nav rows carry
+        # their drive combo in exactly this slot.
+        #
+        # The drive combo used to be the NextSync tab's classic one, left
+        # alone on a full-width row above the whole widget when the Remote
+        # Explorer view took over: it stretched across the entire window,
+        # cost a row of height, and pushed this pane out of line with the
+        # Next pane beside it (reported). Owning one here puts it back in
+        # the row it belongs to and lets that row go away entirely.
         local_up = CompactButton("Up", self)
         local_up.clicked.connect(self._local_up)
         local_refresh = CompactButton("Refresh", self, floor=72)
         local_refresh.setToolTip("Re-read the current local folder from disk")
         local_refresh.clicked.connect(self._local_refresh)
+        self.local_drive_combo = QComboBox(self)
+        self.local_drive_combo.setToolTip(
+            "The local drive this pane is browsing.")
+        for _letter in (local_drives or []):
+            self.local_drive_combo.addItem(str(_letter))
+        # One drive (or a POSIX host, where there is only "/") is nothing to
+        # switch between, so the combo stays out of the way entirely.
+        self.local_drive_combo.setVisible(
+            self.local_drive_combo.count() > 1)
+        self.local_drive_combo.activated.connect(self._on_local_drive_picked)
         self.local_filter_label = QLabel("Search: ", self)
         self.local_filter_edit = QLineEdit(self)
         self.local_filter_edit.setPlaceholderText("Filter by name...")
@@ -1011,6 +1083,7 @@ class RemoteExplorerWidget(QWidget):
         local_bar.setContentsMargins(0, 0, 0, 0)
         local_bar.addWidget(local_up)
         local_bar.addWidget(local_refresh)
+        local_bar.addWidget(self.local_drive_combo)
         local_bar.addWidget(self.local_filter_label)
         local_bar.addWidget(self.local_filter_edit, 1)
 
@@ -1966,9 +2039,31 @@ class RemoteExplorerWidget(QWidget):
             tab = EmulatorTab(
                 str(name), (lambda fn=launch: self._launch_emulator(fn)),
                 self.local_emulator_strip,
-                tooltip=ui_tr_now("Start {emulator}").format(emulator=name))
+                tooltip=ui_tr_now("Start {emulator}").format(emulator=name),
+                tint=self._emulator_color(name),
+                on_menu=(lambda pos, n=name: self._emulator_tab_menu(n, pos)))
             self._emulator_strip_box.insertWidget(i, tab)
             self._emulator_tabs.append(tab)
+
+    def _emulator_color(self, name):
+        """This emulator's picked colour as a QColor, or None.
+
+        Forgiving in the same way _machine_color is: the host stores
+        "#rrggbb" and anything unparseable is read as "no colour", so a
+        hand-edited cfg can never make the strip unpaintable.
+        """
+        raw = self._emulator_color_for(name)
+        if not raw:
+            return None
+        col = QColor(str(raw))
+        return col if col.isValid() else None
+
+    def _emulator_tab_menu(self, name, global_pos):
+        """Right-click on an emulator tab: pick or reset its colour."""
+        emulator_color_menu(
+            self, str(name), self._emulator_color(name),
+            (lambda hexval, n=name: self._on_emulator_color_changed(n, hexval)),
+            global_pos)
 
     def _launch_emulator(self, fn):
         """Run one emulator launcher, called with NO arguments - the bare
@@ -2066,14 +2161,23 @@ class RemoteExplorerWidget(QWidget):
         for i, (sid, addr) in enumerate(self._peer_map):
             # The NAME if the user gave this address one, else the plain
             # address — the tab is for recognising a machine at a glance,
-            # so the friendly name earns the space when it exists.
+            # so the friendly name earns the space when it exists — with
+            # the session id on the tail, the way the combo composes it
+            # (session_label). The id is not decoration: one machine can
+            # hold several '.sync5 -L' sessions at once, and now that a
+            # MAME per disk image is a normal setup they arrive under the
+            # SAME address and the SAME name — two identical "Mame" tabs
+            # with nothing to tell them apart (reported). The tooltip
+            # carries the full combo label so the address is one hover
+            # away when the name took its place.
             label = (self._machine_name_for(addr) or "").strip() or str(addr)
-            tab = SessionTab(label, sid == self._peer_active,
+            tab = SessionTab(f"{label} #{sid}", sid == self._peer_active,
                              (lambda s=sid: self._request_machine(s)),
                              self.next_session_strip,
                              tint=self._machine_color(addr),
                              on_menu=(lambda pos, s=sid:
                                       self._session_tab_menu(s, pos)))
+            tab.setToolTip(self._machine_label(sid, addr))
             self._session_strip_box.insertWidget(i, tab)
             self._session_tabs.append(tab)
 
@@ -3798,6 +3902,32 @@ class RemoteExplorerWidget(QWidget):
         """Where downloads land: the sync root once chosen, else the browse root."""
         return self._sync_root or self._browse_dir()
 
+    def _on_local_drive_picked(self, _index=None):
+        """The local drive switcher: browse that drive's root. Navigation
+        only — the sync root is left alone, exactly as the classic tab's
+        switcher behaved."""
+        letter = self.local_drive_combo.currentText()
+        if letter:
+            self.set_local_dir(letter)
+
+    def _sync_local_drive_combo(self, path):
+        """Keep the drive combo showing the drive actually being browsed,
+        however the pane got there (Up, a double-click, a restored path).
+        Silent: setCurrentIndex does not emit `activated`, so this cannot
+        loop back into _on_local_drive_picked."""
+        if self.local_drive_combo.count() < 1 or not path:
+            return
+        drive = os.path.splitdrive(path.replace("/", os.sep))[0]
+        if not drive:
+            return
+        want = os.path.normcase(drive.rstrip("\\/"))
+        for i in range(self.local_drive_combo.count()):
+            item = self.local_drive_combo.itemText(i)
+            if os.path.normcase(item.rstrip("\\/")) == want:
+                if self.local_drive_combo.currentIndex() != i:
+                    self.local_drive_combo.setCurrentIndex(i)
+                return
+
     def _set_local_dir(self, path, commit=True):
         """Point the browse root at `path`. When `commit`, also make it the sync
         root (a typed path or the restored saved path — plain navigation passes
@@ -3805,6 +3935,7 @@ class RemoteExplorerWidget(QWidget):
         path = path.replace("\\", "/") if path else path
         self.local_view.setRootIndex(self._view_ix(path))
         self._browse_root = path
+        self._sync_local_drive_combo(path)
         if commit:
             self._commit_sync_root(path)
         self._update_set_syncroot_button()

@@ -83,17 +83,20 @@ def build_config_io(
             # carry surrounding quotes / forward slashes, so tidy each one
             # (dropping any that become empty or duplicate after cleanup).
             history_raw = configuration_dictionary.get(SETTING_IMAGE_HISTORY, "")
-            if history_raw:
-                history_entries = []
-                for p in history_raw.split("|"):
-                    clean = normalize_sd_image_path(p)
-                    if clean and clean not in history_entries:
-                        history_entries.append(clean)
-                host.imageinput.blockSignals(True)
-                host.imageinput.clear()
-                for entry in history_entries[:MAX_IMAGE_HISTORY]:
-                    host.imageinput.addItem(entry)
-                host.imageinput.blockSignals(False)
+            history_entries = []
+            for p in history_raw.split("|"):
+                clean = normalize_sd_image_path(p)
+                if clean and clean not in history_entries:
+                    history_entries.append(clean)
+            # Unconditional, including for an EMPTY saved history: the list can
+            # be emptied now ("Clear the whole list", 9.6.0), and skipping the
+            # clear on an empty value would let a second restore resurrect a
+            # list the user had just forgotten.
+            host.imageinput.blockSignals(True)
+            host.imageinput.clear()
+            for entry in history_entries[:MAX_IMAGE_HISTORY]:
+                host.imageinput.addItem(entry)
+            host.imageinput.blockSignals(False)
 
             # Set the active image path (most recently used), tidied the same way.
             current_hddfile = normalize_sd_image_path(configuration_dictionary[SETTING_HDDFILE])

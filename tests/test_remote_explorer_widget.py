@@ -56,6 +56,7 @@ from PySide6.QtGui import QColor, QDropEvent, QMouseEvent, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
+import zxnu_config
 from zxnu_config import TREE_FONT_MIN_PT
 from zxnu_workers import bind_tree_font_zoom
 import zxnu_remote_explorer as rex
@@ -182,7 +183,10 @@ def make_widget(**kw):
         extra_drives=kw.get("extra_drives"),
         on_extra_drives_changed=calls["extra_drives"].append,
         emulator_entries=kw.get("emulator_entries"),
-        emulator_launchers=kw.get("emulator_launchers"))
+        emulator_launchers=kw.get("emulator_launchers"),
+        emulator_color_for=kw.get("emulator_color_for"),
+        on_emulator_color_changed=kw.get("on_emulator_color_changed"),
+        local_drives=kw.get("local_drives"))
     return w, calls
 
 
@@ -1861,7 +1865,13 @@ def test_session_strip():
     down the Next pane's outer edge, shown only when there are two or
     more to choose between. A tab shows the machine's NAME when the user
     gave its address one, the bare address otherwise, and clicking it is
-    the combo pick it stands for - same request, same guards."""
+    the combo pick it stands for - same request, same guards.
+
+    9.6.0: the SESSION ID rides on the tail, the way the combo composes
+    it - one machine can hold several '.sync5 -L' sessions, and a MAME
+    per disk image makes that ordinary, so without the id two sessions of
+    one named machine were two identical tabs (reported). The full combo
+    label goes in the tooltip."""
     names = {"10.0.0.7": "N-GO"}
     w, calls = make_widget(local_start_dir=tdir("strip_root"),
                            machine_name_for=names.get)
@@ -1874,8 +1884,14 @@ def test_session_strip():
     connect_widget(w, calls)
     check("a tab per machine once two are on the line",
           len(w._session_tabs) == 2)
-    check("named machines show the NAME, unnamed the address",
-          [t._text for t in w._session_tabs] == ["10.0.0.5", "N-GO"])
+    check("named machines show the NAME, unnamed the address, both with "
+          "the session id on the tail",
+          [t._text for t in w._session_tabs] == ["10.0.0.5 #1", "N-GO #2"],
+          [t._text for t in w._session_tabs])
+    check("the tooltip carries the full combo label",
+          [t.toolTip() for t in w._session_tabs]
+          == ["10.0.0.5 #1", "10.0.0.7 #2 - N-GO"],
+          [t.toolTip() for t in w._session_tabs])
     check("the driven machine's tab is the lit one",
           [t._active for t in w._session_tabs] == [True, False])
 
@@ -1887,7 +1903,9 @@ def test_session_strip():
     # Naming a machine has to reach the tabs, not just the combo.
     names["10.0.0.5"] = "Attic Next"
     w._rebuild_session_strip()
-    check("a new name reaches the tab", w._session_tabs[0]._text == "Attic Next")
+    check("a new name reaches the tab",
+          w._session_tabs[0]._text == "Attic Next #1",
+          w._session_tabs[0]._text)
 
     # Down to one machine: nothing left to choose, so the strip goes away.
     w.on_peers((2, [(2, "10.0.0.7")]))
@@ -2064,6 +2082,133 @@ def test_machine_colors():
     w.on_peers((7, [(7, "10.0.0.5")]))
     check("an unparseable stored colour is treated as no colour",
           w.next_machine_combo.styleSheet() == "")
+
+
+def _local_bar_widgets(w):
+    """The local nav row's widgets, in layout order.
+
+    Found by hunting the QHBoxLayout that holds the name-filter box: the
+    row is nested inside the local pane's container widget, so walking
+    w.layout() alone never reaches it."""
+    from PySide6.QtWidgets import QHBoxLayout
+    for bar in w.findChildren(QHBoxLayout):
+        items = [bar.itemAt(i).widget() for i in range(bar.count())]
+        if w.local_filter_edit in items:
+            return items
+    return []
+
+
+def _bar_order_detail(w):
+    return str([(type(x).__name__, x.text() if hasattr(x, "text") else "")
+                for x in _local_bar_widgets(w)])
+
+
+def test_emulator_colors():
+    """The per-emulator colour (9.6.0): right-click an emulator tab, pick a
+    colour, and it is the SAME colour on the other strip and on the SD Card
+    tab's Launch buttons - one map on the host, keyed by the emulator rather
+    than by the label it happens to wear on a given surface."""
+    print("\n== per-emulator colours ==")
+    colors = {}
+    w, calls = make_widget(
+        local_start_dir=tdir("ecolor_root"),
+        emulator_launchers=lambda: [("Mame", lambda: None),
+                                    ("CSpect", lambda: None)],
+        emulator_color_for=lambda n: colors.get(zxnu_config.emulator_color_key(n)),
+        on_emulator_color_changed=lambda n, c: (
+            colors.__setitem__(zxnu_config.emulator_color_key(n), c) if c
+            else colors.pop(zxnu_config.emulator_color_key(n), None)))
+
+    w.refresh_emulator_strip()
+    check("untinted emulators leave the tabs on the palette",
+          [t._tint for t in w._emulator_tabs] == [None, None])
+    check("and every tab carries the right-click channel",
+          all(t._on_menu is not None for t in w._emulator_tabs))
+
+    # The host remembers a colour for MAME (whichever surface picked it).
+    colors["mame"] = "#33cc55"
+    w.refresh_emulator_strip()
+    check("the emulator's tab wears the picked colour",
+          w._emulator_tabs[0]._tint is not None
+          and w._emulator_tabs[0]._tint.name() == "#33cc55",
+          str(w._emulator_tabs[0]._tint))
+    check("the other emulator is untouched", w._emulator_tabs[1]._tint is None)
+
+    # A hand-edited cfg must never make the strip unpaintable.
+    colors["mame"] = "not-a-colour"
+    w.refresh_emulator_strip()
+    check("an unparseable stored value reads as 'no colour', not a crash",
+          w._emulator_tabs[0]._tint is None)
+
+    # One colour per emulator whatever the surface calls it: the strip says
+    # "Mame", Linux Flatpak mode says "Mame (flatpak)" and the SD Card tab's
+    # button says "Launch Mame" - all one key, or the three surfaces would
+    # each keep their own colour.
+    check("every label an emulator wears resolves to one key",
+          {zxnu_config.emulator_color_key(n) for n in
+           ("Mame", "mame", "Mame (flatpak)", "Launch Mame")} == {"mame"}
+          and zxnu_config.emulator_color_key("Launch CSpect") == "cspect")
+
+    # The Launch buttons take the same colour as a stylesheet (they are real
+    # QPushButtons, not the hand-painted tabs).
+    css = zxnu_config.emulator_button_stylesheet("#33cc55")
+    check("the Launch-button rule carries the colour and a readable label",
+          "#33cc55" in css and "color:" in css, css[:80])
+    check("and no colour means no rule at all - back to the app theme",
+          zxnu_config.emulator_button_stylesheet(None) == ""
+          and zxnu_config.emulator_button_stylesheet("not-a-colour") == "")
+
+
+def test_local_drive_combo():
+    """The local drive switcher (9.6.0) lives in THIS pane's nav row now.
+
+    It used to be the NextSync tab's classic combo, left behind on a
+    full-width row above the whole view: it stretched across the window,
+    cost a row of height and pushed this pane out of line with the Next
+    pane (reported). Here it sits where the SD Card tab's local pane has
+    always had one - between Refresh and the Search label."""
+    print("\n== local drive combo ==")
+    root = tdir("drive_root")
+    w, calls = make_widget(local_start_dir=root,
+                           local_drives=["C:" + os.sep, "D:" + os.sep])
+    combo = w.local_drive_combo
+    check("the drives the host offered are in the combo",
+          [combo.itemText(i) for i in range(combo.count())]
+          == ["C:" + os.sep, "D:" + os.sep],
+          str([combo.itemText(i) for i in range(combo.count())]))
+
+    widgets = _local_bar_widgets(w)
+    i_combo = widgets.index(combo) if combo in widgets else -1
+    i_label = (widgets.index(w.local_filter_label)
+               if w.local_filter_label in widgets else -1)
+    check("it sits between Refresh and the Search label",
+          i_combo >= 1 and i_combo == i_label - 1
+          and isinstance(widgets[i_combo - 1], rex.CompactButton)
+          and widgets[i_combo - 1].text() == "Refresh",
+          _bar_order_detail(w))
+
+    # Picking a drive navigates; it must NOT commit a new sync root.
+    before_root = w._sync_root
+    drive = os.path.splitdrive(os.path.abspath(root))[0]
+    ix = combo.findText(drive + os.sep) if drive else -1
+    if ix >= 0:
+        combo.setCurrentIndex(ix)
+        w._on_local_drive_picked()
+        check("picking a drive browses it without touching the sync root",
+              w._sync_root == before_root, repr(w._sync_root))
+
+    # Navigating any other way keeps the combo honest.
+    w.set_local_dir(root)
+    if drive:
+        check("the combo follows wherever the pane navigates",
+              combo.currentText().rstrip("\\/").lower()
+              == drive.rstrip("\\/").lower(), combo.currentText())
+
+    # A host with nothing to switch between keeps it out of the way.
+    w2, _ = make_widget(local_start_dir=tdir("drive_root2"))
+    check("no drive list means no combo on screen",
+          not w2.local_drive_combo.isVisible()
+          and w2.local_drive_combo.count() == 0)
 
 
 def test_emulator_strip():
@@ -2313,6 +2458,8 @@ def main():
         test_session_tab_menu()
         test_machine_colors()
         test_emulator_strip()
+        test_emulator_colors()
+        test_local_drive_combo()
         test_drive_switching()
         test_ls_failed_fallback()
         test_sorting()
