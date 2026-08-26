@@ -6,7 +6,7 @@ Odds and ends that support the project but are not part of the app.
 |---|---|
 | `tour_build_demo_env.py` | Builds the throwaway demo environment (`C:\Users\Public\ZX-Next-Unite-demo`) the tour GIF is captured from: app copy, junctioned emulators, sample sync folder, demo HDF, seeded `hdfg.cfg` |
 | `tour_capture.py` | Drives the demo app through every tab and grabs the animation frames (real Qt platform — a window appears; host name/IPs are masked to placeholders) |
-| `tour_assemble_gif.py` | Assembles the frames into `zx-next-unite-tour.gif` (140 ms frames, crossfades, ffmpeg palette pipeline) |
+| `tour_assemble_gif.py` | Assembles the frames into `zx-next-unite-tour.gif` (140 ms frames, crossfades, ffmpeg palette pipeline). Needs **Pillow** — `pip install pillow` |
 | `Get-PyLineCounts.ps1` | Per-module line-count report for the Python sources |
 | `detectenvironnement.bas` / `.txt` | NextBASIC environment-detection helper and its notes |
 | `Send-ToNext.ps1` | Push a build to a real Next over Unite's NextSync HTTP bridge, verified end-to-end (see below) |
@@ -15,25 +15,70 @@ Odds and ends that support the project but are not part of the app.
 ## Regenerating the README/wiki tour GIF
 
 Windows, with the repo's `downloads/` populated (MAME + the itch.io CSpect —
-they are junctioned, not copied) and `ffmpeg` on PATH:
+they are junctioned, not copied), `ffmpeg` on PATH and **Pillow installed**
+(`pip install pillow` — the assembler imports `PIL`, and it is deliberately
+not in `REQUIREMENTS.txt` because the app itself never needs it):
 
 ```powershell
 python extra\tour_build_demo_env.py     # build C:\Users\Public\ZX-Next-Unite-demo
 python extra\tour_capture.py            # ~4 min; a 1500x950 window appears
+                                        # -- now READ A FRAME, see "Verify" below --
 python extra\tour_assemble_gif.py       # writes %TEMP%\zxnu-tour\zx-next-unite-tour.gif
 ```
 
 Then copy the result over `docs/zx-next-unite-tour.gif` and commit.
 
+**Run all three, in that order, every time.** `tour_build_demo_env.py` is not
+a one-off setup step: the app writes its last-look UX state (window size,
+explorer column widths, splitter positions) back into the demo `hdfg.cfg` on
+exit, so a second capture against the same demo environment inherits the
+first run's geometry. Symptom seen in the field: the Classic sync left
+explorer came out squeezed to ~230 px with its prepare/scan block missing,
+while the frames from the freshly-seeded run were a clean 50/50 split.
+Rebuilding takes seconds; debugging the squeezed frames does not.
+
+### Verify before assembling
+
+Open `%TEMP%\zxnu-tour\tour_frames\seg1_nextsync_classic_08.png` and read the
+host banner in the log pane. Every line must be a placeholder:
+
+```
+Running on host:
+    <your PC name>
+IP addresses:
+    <your LAN address 1>
+    <your LAN address 2>
+Primary IP:
+    <your primary IP>
+```
+
+A real address there means the masking did not take — do **not** assemble.
+`seg2_nextsync_re_08.png` shows the same banner in the Remote Explorer's idle
+overlay and is worth a second look. As a cheap cross-check, the demo run's own
+log must be clean too:
+
+```powershell
+Select-String -Path C:\Users\Public\ZX-Next-Unite-demo\zx-next-unite.log `
+  -Pattern '10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.' 
+```
+
 Notes (learned the hard way):
 
 - The capture needs the REAL Qt platform — pygame-ce crashes natively under
   `QT_QPA_PLATFORM=offscreen`, so a window is visible while it runs.
-- Privacy: `socket.gethostname`/`gethostbyname_ex` are patched before the app
-  imports and `detect_local_ipv4` is re-patched in the loaded modules before
-  the NextSync tab opens, so the captured log/panel show
-  `<your PC name>` / `<your LAN address …>` / `<your primary IP>`
-  placeholders instead of the real values. Verify before publishing.
+- Privacy, and the trap that got past it once: `socket.gethostname` /
+  `gethostbyname_ex` are patched before the app imports, which masks the host
+  name and the addresses `gethostbyname_ex` reports — but **not the PRIMARY
+  address**. `detect_local_ipv4` works that one out by opening a UDP socket
+  and reading `getsockname()`, which no socket patch here touches. The
+  orchestrator's own `patch_ip` step cannot save it either: the NextSync tab
+  prints its host/IP banner once at STARTUP, long before that step runs. The
+  result shipped in the frames as a real `Primary IP: 10.0.0.31`.
+  `tour_capture.py` therefore rebinds `zxnu_network.detect_local_ipv4` at
+  module scope, **before the app imports anything**, so every
+  `from zxnu_network import detect_local_ipv4` in the app binds the fake.
+  Keep it there; moving it into the orchestrator re-opens the hole. Verify
+  anyway (above) — the app is free to grow another way of asking.
 - The demo cfg seeds `content_disclaimer_agreed=1` (the gate checks the
   literal `"1"`) — without it the online panes block the run on a modal.
 - The Windows Firewall prompt for the NextSync port may appear once per
@@ -41,6 +86,9 @@ Notes (learned the hard way):
 - The first tab-entry to NextSync auto-runs the prepare/perform-checks, so
   the capture never clicks Start (the real server would block on its modal
   progress dialog waiting for a Next).
+- Another copy of Unite already running on the machine is harmless to the
+  capture (it never starts a server), but it does hold ports 2048/80 — do not
+  read a "port already in use" line in the demo log as a capture failure.
 
 
 ## Push-to-hardware from VS Code (`Send-ToNext.ps1` + `autoexec`)
