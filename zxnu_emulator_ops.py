@@ -2190,6 +2190,63 @@ def build_emulator_ops(
                 pass
     host._refresh_emulator_strips = _refresh_emulator_strips
 
+    # ---- per-emulator colour (9.6.0) -----------------------------------
+    # ONE colour per emulator, worn by THREE surfaces: the SD Card tab's
+    # vertical strip, the Remote Explorer's strip and the SD Card tab's
+    # Launch buttons. The request was explicit that they agree - "the
+    # color picked for CSpect on the SD Card Utility will be the same one
+    # for Launch CSpect" - so there is one map here rather than a setting
+    # per surface, and every surface reads it through these two closures.
+    #
+    # Keyed by emulator_color_key, not by the label: the same emulator is
+    # "Mame" in a strip, "Mame (flatpak)" with the Linux toggle on and
+    # "🕹  Launch Mame" on the button, and all three must find one entry.
+    def _emulator_color_map():
+        try:
+            _map = json.loads(str(configuration_dictionary.get(
+                SETTING_EMULATOR_COLORS, "") or "{}"))
+            return _map if isinstance(_map, dict) else {}
+        except (ValueError, TypeError):
+            return {}                  # hand-edited cfg: no colours, not a crash
+
+    def emulator_color_for(name):
+        """This emulator's picked colour as "#rrggbb", or None."""
+        val = _emulator_color_map().get(emulator_color_key(name), "")
+        return val if isinstance(val, str) and val else None
+    host.emulator_color_for = emulator_color_for
+
+    def _apply_emulator_button_colors():
+        """Paint the SD Card tab's Launch buttons in their emulator's
+        colour. The strips take theirs when they are rebuilt; the buttons
+        are long-lived, so they are repainted here - on every pick and
+        once more after the cfg is restored at startup."""
+        for attr, label in (("button_start_cspect", "CSpect"),
+                            ("button_start_mame", "Mame")):
+            btn = getattr(host, attr, None)
+            if btn is None:
+                continue
+            try:
+                btn.setStyleSheet(
+                    emulator_button_stylesheet(emulator_color_for(label)))
+            except RuntimeError:
+                pass                   # button torn down mid-shutdown
+    host._apply_emulator_button_colors = _apply_emulator_button_colors
+
+    def set_emulator_color(name, color):
+        """Remember (or forget, on an empty *color*) one emulator's
+        colour, persist it, and repaint every surface that wears it."""
+        _map = _emulator_color_map()
+        key = emulator_color_key(name)
+        _map.pop(key, None)
+        if color:
+            _map[key] = str(color)
+        configuration_dictionary[SETTING_EMULATOR_COLORS] = json.dumps(
+            _map, separators=(",", ":"))
+        save_configuration_file()
+        _refresh_emulator_strips()
+        _apply_emulator_button_colors()
+    host.set_emulator_color = set_emulator_color
+
     def _wire_viewer_emulators(viewer, allow=True):
         """Add "Launch CSpect" / "Launch Mame" buttons to a
         GalleryItemViewer action bar (under "Send to SD card").

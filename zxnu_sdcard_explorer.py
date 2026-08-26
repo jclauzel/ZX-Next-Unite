@@ -50,7 +50,7 @@ import os
 import platform
 
 from PySide6.QtCore import QModelIndex, Qt, QTimer
-from PySide6.QtGui import QStandardItem, QStandardItemModel
+from PySide6.QtGui import QColor, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QGridLayout,
@@ -68,7 +68,7 @@ from zxnu_i18n import ui_tr_now
 # The strip's tab widget is shared with the NextSync tab's Remote
 # Explorer (where it was born) rather than copied: one painted widget
 # means the two strips cannot drift apart.
-from zxnu_remote_explorer import EmulatorTab
+from zxnu_remote_explorer import EmulatorTab, emulator_color_menu
 from zxnu_config import (SETTING_EXPLORERPATH, SETTING_IMAGE_EXPLORERPATH,
                          is_filetype_a_directory)
 from zxnu_workers import (CompactButton, DotDotFirstProxyModel,
@@ -345,9 +345,33 @@ class SdCardExplorerPane(QWidget):
             tab = EmulatorTab(
                 str(name), (lambda fn=launch: self._launch_emulator(fn)),
                 self.local_emulator_strip,
-                tooltip=ui_tr_now("Start {emulator}").format(emulator=name))
+                tooltip=ui_tr_now("Start {emulator}").format(emulator=name),
+                tint=self._emulator_color(name),
+                on_menu=(lambda pos, n=name: self._emulator_tab_menu(n, pos)))
             self._emulator_strip_box.insertWidget(i, tab)
             self._emulator_tabs.append(tab)
+
+    def _emulator_color(self, name):
+        """This emulator's picked colour as a QColor, or None — read from
+        the host, which owns the one map the Remote Explorer's strip and
+        the Launch buttons read too (9.6.0). Unparseable values are read
+        as "no colour" so a hand-edited cfg cannot break the strip."""
+        getter = getattr(self._host, "emulator_color_for", None)
+        raw = getter(name) if getter is not None else None
+        if not raw:
+            return None
+        col = QColor(str(raw))
+        return col if col.isValid() else None
+
+    def _emulator_tab_menu(self, name, global_pos):
+        """Right-click on an emulator tab: pick or reset its colour. The
+        host repaints every surface (both strips + the Launch buttons)."""
+        setter = getattr(self._host, "set_emulator_color", None)
+        if setter is None:
+            return
+        emulator_color_menu(self, str(name), self._emulator_color(name),
+                            (lambda hexval, n=name: setter(n, hexval)),
+                            global_pos)
 
     def _launch_emulator(self, fn):
         """Run one emulator launcher, called with NO arguments - the bare

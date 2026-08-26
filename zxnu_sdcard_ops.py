@@ -134,8 +134,12 @@ def build_sdcard_utils(
         The list is capped at MAX_IMAGE_HISTORY entries."""
         if not path or path == '""':
             return
-        # Remove any existing occurrence so the new one goes to the top
-        existing_index = host.imageinput.findText(path)
+        # Remove any existing occurrence so the new one goes to the top.
+        # history_index, not findText: findText is case-SENSITIVE, so
+        # loading C:\temp\x.img after C:\TEMP\x.img made two rows for one
+        # file — and the '✕' / Delete removal (9.6.0) finds only the first
+        # of the pair, leaving its twin in the dropdown for good.
+        existing_index = host.imageinput.history_index(path)
         if existing_index != -1:
             host.imageinput.removeItem(existing_index)
         host.imageinput.insertItem(0, path)
@@ -433,6 +437,14 @@ def build_sdcard_utils(
         set_all_buttons_disabled()
         enable_image_selection()
         _update_image_usage_gauge("")
+        # Forget what was selected INSIDE the image that just went: the load
+        # branch resets these, the unload branch never did. Harmless while
+        # unloading was rare; forgetting a remembered path (9.6.0) makes it
+        # an everyday move, and a stale selection is what the in-image
+        # delete/rename would act on.
+        host.image_selected_path = ""
+        host.image_selected_is_dir = False
+        _set_right_disk_selected([])
         # Make the launch-button gating discoverable: with no image selected
         # the Launch buttons stay greyed out (CSpect needs the mounted image
         # for -mmc=, MAME boots the image file directly), and the only other

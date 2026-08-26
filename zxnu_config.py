@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.5.30"
+ZX_NEXT_UNITE_VERSION = "9.6.0"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -270,6 +270,7 @@ SETTING_MAME_RS232_ESP_PORT          = "mame_rs232_esp_port"       # TCP port th
 SETTING_MAME_RS232_ESP_VERBOSE       = "mame_rs232_esp_verbose"    # bool: trace espemu commands/traffic into the SD Card log console (default off; rate-limited)
 SETTING_MAME_FLATPAK                 = "mame_flatpak"              # bool (Linux): launch MAME via `flatpak run org.mamedev.MAME` instead of a local binary (default off)
 SETTING_MAME_FLATPAK_ROMPATH         = "mame_flatpak_rompath"      # rom directory passed as `-rompath` when launching MAME via Flatpak (default ~/roms)
+SETTING_EMULATOR_COLORS              = "emulator_colors"            # JSON {"mame"|"cspect": "#rrggbb"} background tint for BOTH emulator strips and the SD Card tab's Launch buttons (empty = the theme's own look)
 SETTING_DISABLE_NO_EMULATOR_TOAST  = "disable_no_emulator_toast"   # bool (default False)
 SETTING_NEXTSYNC_EXPLORERPATH = "nextsync_explorerpath"
 SETTING_NEXTSYNC_SYNCONCE = "nextsync_synconce"
@@ -981,7 +982,8 @@ SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTI
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
 SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
 SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS, SETTING_RE_REMOTE_CWDS, SETTING_RE_MACHINE_NAMES, SETTING_RE_MACHINE_COLORS,
-SETTING_SDCARD_TREE_FONT, SETTING_IMAGE_TREE_FONT, SETTING_RE_LOCAL_FONT, SETTING_RE_NEXT_FONT)
+SETTING_SDCARD_TREE_FONT, SETTING_IMAGE_TREE_FONT, SETTING_RE_LOCAL_FONT, SETTING_RE_NEXT_FONT,
+SETTING_EMULATOR_COLORS)
 
 
 def apply_tree_column_widths(tree, pref):
@@ -1824,6 +1826,52 @@ def readable_text_color(background: QColor) -> QColor:
     r, g, b = background.redF(), background.greenF(), background.blueF()
     lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
     return QColor(0, 0, 0) if lum > 0.55 else QColor(255, 255, 255)
+
+
+def emulator_color_key(name) -> str:
+    """The cfg key under which ONE emulator's picked colour is stored.
+
+    Keyed on the emulator, never on the label, because the same emulator
+    wears three of them: "Mame" in the vertical strips, "Mame (flatpak)"
+    once the Linux Flatpak toggle is on, and "🕹  Launch Mame" on the SD
+    Card tab's button. There is one colour per emulator and all three
+    surfaces have to find it, so every label collapses to "mame" /
+    "cspect" here. An unrecognised label keeps its own lowercased
+    alphanumerics, so a future emulator gets a stable key for free.
+    """
+    text = str(name or "").lower()
+    for known in ("cspect", "mame"):
+        if known in text:
+            return known
+    return "".join(ch for ch in text if ch.isalnum()) or "emulator"
+
+
+def emulator_button_stylesheet(color) -> str:
+    """The QPushButton rule painting an emulator's picked colour.
+
+    Used for the SD Card tab's Launch buttons — the vertical strip tabs
+    are hand-painted widgets and take the colour as a ``tint`` instead.
+    The label flips between black and white (readable_text_color) because
+    a fixed foreground is invisible on half the colour wheel, and the
+    hover/pressed states are derived from the pick so the button still
+    reacts. ``None`` returns "", which restores the app theme's own look.
+    """
+    if color is None:
+        return ""
+    if not isinstance(color, QColor):
+        color = QColor(str(color))
+    if not color.isValid():
+        return ""
+    fg = qcolor_to_hex(readable_text_color(color))
+    return (f"QPushButton {{ background-color: {qcolor_to_hex(color)};"
+            f" color: {fg}; border: 1px solid {qcolor_to_hex(color.darker(140))};"
+            " border-radius: 3px; padding: 3px 8px; }"
+            f"QPushButton:hover {{ background-color: {qcolor_to_hex(color.lighter(115))};"
+            f" color: {fg}; }}"
+            f"QPushButton:pressed {{ background-color: {qcolor_to_hex(color.darker(115))};"
+            f" color: {fg}; }}"
+            f"QPushButton:disabled {{ background-color: {qcolor_to_hex(color.darker(160))};"
+            " color: #999; }")
 
 
 def normalize_sd_image_path(raw) -> str:

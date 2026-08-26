@@ -85,7 +85,7 @@ DROPSRC = os.path.join(SCRATCH, "dropsrc.txt")
 DELZONE = os.path.join(SCRATCH, "delzone")
 
 PHASE = int(sys.argv[1]) if len(sys.argv) > 1 else None
-ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 
 # Base cfg for the isolated app copy: update checks off (MAME/CSpect AND the
 # app's own GitHub release check) so no phase ever hits the network, and the
@@ -305,6 +305,19 @@ elif PHASE == 14:
     with open(CFG, "w") as f:
         f.write(BASE_CFG
                 + "image_history=C:/imgs/one.img|C:/imgs/two.img\n")
+elif PHASE == 15:
+    # REGRESSION (reported): "I don't find a way to remove it from the list"
+    # — the image-history dropdown was write-only, every successful load put
+    # a path in and nothing ever took one out, so a stale entry (a deleted /
+    # renamed / moved image) stayed for good; deleting the text and pressing
+    # Enter only unloaded. 9.6.0 added the '✕' button, Delete on a dropdown
+    # row and a right-click menu, all routed through one removal closure.
+    # NO hddffile on purpose, exactly as in phase 14: a startup load would
+    # pop the MODAL missing-hdfmonkey prompt on a runner without hdfmonkey.
+    ensure_scratch(fresh=False)
+    with open(CFG, "w") as f:
+        f.write(BASE_CFG
+                + "image_history=C:/imgs/one.img|C:/imgs/two.img|C:/imgs/three.img\n")
 elif PHASE == 11:
     # NextSync Remote Explorer with pygame absent (every phase blocks pygame —
     # see _NoPygame). The retro log needs pygame; the Remote Explorer's dual
@@ -507,6 +520,37 @@ def inspect_phase1():
     # Both strips are drawn from ONE list, so they can never disagree.
     check("the host refreshes BOTH strips from one entry point",
           callable(getattr(win, "_refresh_emulator_strips", None)))
+
+    # ---- per-emulator colour (9.6.0) --------------------------------------
+    # The request was explicit that the three surfaces agree: the colour
+    # picked for CSpect on the SD Card strip is the colour the Remote
+    # Explorer's strip AND "Launch CSpect" wear. One host map, keyed by the
+    # emulator rather than the label, persisted to hdfg.cfg.
+    win.set_emulator_color("CSpect", "#33cc55")
+    check("the picked colour is readable back under EVERY label that "
+          "emulator wears",
+          win.emulator_color_for("CSpect")
+          == win.emulator_color_for("🕹  Launch CSpect") == "#33cc55",
+          f"{win.emulator_color_for('CSpect')!r} / "
+          f"{win.emulator_color_for('🕹  Launch CSpect')!r}")
+    check("the Launch button is painted with it",
+          "#33cc55" in win.button_start_cspect.styleSheet(),
+          win.button_start_cspect.styleSheet()[:90])
+    check("the other emulator is left on the app theme",
+          win.button_start_mame.styleSheet() == "",
+          win.button_start_mame.styleSheet()[:90])
+    check("the SD Card strip reads the same map",
+          _pane._emulator_color("CSpect") is not None
+          and _pane._emulator_color("CSpect").name() == "#33cc55"
+          and _pane._emulator_color("Mame") is None)
+    check("and it reached hdfg.cfg",
+          any(ln.startswith("emulator_colors=") and "#33cc55" in ln
+              for ln in cfg_lines()),
+          str([ln for ln in cfg_lines() if ln.startswith("emulator_colors=")]))
+    win.set_emulator_color("CSpect", "")
+    check("resetting puts the button back on the app theme and forgets it",
+          win.button_start_cspect.styleSheet() == ""
+          and win.emulator_color_for("CSpect") is None)
     check("image explorer at grid (1,2)", pos(win.image_explorer_container) == (1, 2), str(pos(win.image_explorer_container)))
     check("button cluster no longer a grid row of its own",
           pos(win.imageexplorerbuttonscontainer) is None,
@@ -1585,11 +1629,145 @@ def inspect_phase14():
     app.quit()
 
 
+def inspect_phase15():
+    """Forgetting a remembered image path (9.6.0).
+
+    The reported hole: the history dropdown had no removal at all - the
+    reporter's stale "C:\\temp\\cspect-next-2gb.img" could not be got rid of,
+    and clearing the line edit + Enter only unloaded the image. This drives
+    all three affordances: the '=' button beside the box, DELETE on the
+    highlighted dropdown row, and the right-button gesture on a dropdown row
+    (which must NOT be read as a pick). Plus the shared plumbing: the
+    case-insensitive lookup, the '=' gating, and that a removal reaches
+    hdfg.cfg.
+
+    The two dropdown affordances get real synthesised events on purpose.
+    Both were shipped broken first: `view.keyPressEvent = ...` is dead code
+    on a combo popup (PySide6 only dispatches virtuals to Python attributes
+    for objects built FROM Python, and the popup view is made in C++), and
+    QComboBoxPrivateContainer selects a row on ANY button release - so a
+    right-click LOADED the image it was offering to forget. A test that only
+    emits the signals would have called both of those green.
+    """
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QKeyEvent, QMouseEvent
+    from PySide6.QtWidgets import QMessageBox
+    app = QApplication.instance()
+    win = find_win()
+    check("MainWindow found", win is not None)
+    if win is None:
+        app.quit(); return
+
+    wait_until(lambda: not getattr(win, "_emulator_scan_pending", False),
+               what="emulator scan settled")
+    # Nothing is loaded here so nothing should reach the modal hdfmonkey
+    # install prompt - belt and braces anyway (the phase 2-3 / 14 lesson).
+    win._hdfmonkey_prompt_shown = True
+
+    combo = win.imageinput
+    check("the cfg's three history entries were restored", combo.count() == 3,
+          [combo.itemText(i) for i in range(combo.count())])
+
+    # ---- the button is in the row, right after the path box ----------------
+    check("the clear button sits between the path box and 'Select NextZXOS "
+          "disk Image'",
+          win.horizontal1.indexOf(win.imageclear)
+          == win.horizontal1.indexOf(win.imageinput) + 1
+          and win.horizontal1.indexOf(win.imageclear)
+          < win.horizontal1.indexOf(win.selectimage),
+          f"clear={win.horizontal1.indexOf(win.imageclear)} "
+          f"input={win.horizontal1.indexOf(win.imageinput)} "
+          f"select={win.horizontal1.indexOf(win.selectimage)}")
+
+    # ---- DELETE on the highlighted dropdown row ----------------------------
+    # The affordance that was dead: assign-the-virtual never ran, so this
+    # drives the real event through the real popup view.
+    combo.showPopup()
+    view = combo.view()
+    view.setCurrentIndex(combo.model().index(1, combo.modelColumn()))
+    doomed = combo.itemText(1)
+    app.sendEvent(view, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete,
+                                  Qt.KeyboardModifier.NoModifier))
+    check("Delete on a dropdown row forgets that row",
+          combo.count() == 2
+          and all(combo.itemText(i) != doomed for i in range(combo.count())),
+          [combo.itemText(i) for i in range(combo.count())])
+
+    # ---- a RIGHT-click on a dropdown row must not be read as a pick --------
+    # The container selects on any release; without the filter this loaded
+    # the image the menu was about to offer to forget.
+    combo.showPopup()
+    view = combo.view()
+    picks = []
+    combo.activated.connect(picks.append)
+    # Inside the settle window on purpose: the menu is refused there, so
+    # nothing modal can open while the swallowing itself is under test.
+    combo._popup_shown_at = time.monotonic()
+    spot = QPointF(view.viewport().rect().center())
+    for etype in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+        app.sendEvent(view.viewport(), QMouseEvent(
+            etype, spot, view.viewport().mapToGlobal(spot.toPoint()).toPointF(),
+            Qt.MouseButton.RightButton, Qt.MouseButton.RightButton,
+            Qt.KeyboardModifier.NoModifier))
+    combo.activated.disconnect(picks.append)
+    check("a right-click on a dropdown row does not activate/load it",
+          not picks, picks)
+    combo.hidePopup()
+
+    # ---- the button forgets the path that is SHOWN -------------------------
+    victim = combo.itemText(0)
+    combo.setCurrentText(victim)
+    check("the clear button is live while the box names something",
+          win.imageclear.isEnabled())
+    win.imageclear.click()
+    check("the shown entry is gone from the list",
+          combo.count() == 1
+          and all(combo.itemText(i) != victim for i in range(combo.count())),
+          [combo.itemText(i) for i in range(combo.count())])
+    check("the box is emptied, not silently swapped for a neighbouring path",
+          combo.currentText() == "", combo.currentText())
+    check("the removal is announced in the log", recent_log(win, "one.img"))
+    check("the clear button greys out once the box names nothing",
+          not win.imageclear.isEnabled())
+
+    # ---- Windows paths differing only in case are ONE path -----------------
+    survivor = combo.itemText(0)
+    if os.name == "nt":
+        check("history_index matches case-insensitively",
+              combo.history_index(survivor.upper()) == 0,
+              f"{survivor.upper()!r} -> {combo.history_index(survivor.upper())}")
+
+    # ---- the removals reached hdfg.cfg -------------------------------------
+    line = next((ln for ln in cfg_lines() if ln.startswith("image_history=")), "")
+    check("the forgotten paths are gone from hdfg.cfg",
+          "one.img" not in line and "two.img" not in line
+          and "three.img" in line, line)
+
+    # ---- 'Clear the whole list' forgets the LIST, not the mounted image ----
+    QMessageBox.question = staticmethod(
+        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    combo.setCurrentText(survivor)
+    combo.clearHistoryRequested.emit()
+    check("clearHistoryRequested empties the list",
+          combo.count() == 0, combo.count())
+    check("and leaves the shown path alone - forgetting the history is not "
+          "an unmount",
+          combo.currentText() == survivor, combo.currentText())
+    line = next((ln for ln in cfg_lines() if ln.startswith("image_history=")), "")
+    check("hdfg.cfg's image history is empty too", line == "image_history=", line)
+
+    settle_end = time.monotonic() + 0.5
+    while time.monotonic() < settle_end:
+        QCoreApplication.processEvents()
+        time.sleep(0.02)
+    app.quit()
+
+
 INSPECTORS = {1: inspect_phase1, 2: inspect_phase2, 3: inspect_phase3,
               4: inspect_phase4, 5: inspect_phase5, 6: inspect_phase6,
               7: inspect_phase7, 8: inspect_phase8, 9: inspect_phase9,
               10: inspect_phase10, 11: inspect_phase11, 12: inspect_phase12,
-              13: inspect_phase13, 14: inspect_phase14}
+              13: inspect_phase13, 14: inspect_phase14, 15: inspect_phase15}
 
 _orig_exec = QApplication.exec
 def _patched_exec(*_a):

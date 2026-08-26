@@ -41,6 +41,20 @@ def log(msg):
 def fake_ipv4():
     return (MASK_HOST, [], list(MASK_IPS), MASK_PRIMARY)
 
+# Patch it at the SOURCE, before the app imports anything.
+#
+# The socket patches above only cover the host name and the addresses
+# gethostbyname_ex reports; detect_local_ipv4 works the PRIMARY address out
+# by opening a UDP socket and reading getsockname(), which no socket patch
+# here touches. The orchestrator's own patch_ip step (below) is too late for
+# it: the NextSync tab prints its host/IP banner once at STARTUP, so the real
+# address was already in the captured log — "Primary IP: 10.0.0.31" shipped
+# in the frames (caught while regenerating the 9.6.0 GIF). Rebinding it on
+# zxnu_network here means every `from zxnu_network import detect_local_ipv4`
+# in the app binds the fake instead.
+import zxnu_network                       # noqa: E402
+zxnu_network.detect_local_ipv4 = fake_ipv4
+
 _orig_exec = QApplication.exec
 
 def orchestrate():
