@@ -1,0 +1,103 @@
+{
+    // Build -> push to a real ZX Spectrum Next -> watch it run, in one key.
+    //
+    // Copy this file into your project's .vscode/ folder (or merge the
+    // tasks into your existing tasks.json), then adjust:
+    //   1. "Build .nex" - your actual build command.
+    //   2. The -File path - where PS-Send-ToNext.ps1 lives in YOUR project.
+    //      Vendoring keeps the project self-contained: copy THREE things
+    //      from the repo's extra/ into a tools/ folder - PS-Send-ToNext.ps1,
+    //      the ZxNextRemote/ module folder (imported relative to the
+    //      script) and autoexec.bas (what -autoexec:Deploy sends, looked
+    //      up next to the script).
+    //   3. First run: the script writes a commented Send-ToNext.cfg and
+    //      exits 1 - set bridge_ip (the PC running ZX-Next-Unite, NOT the
+    //      Next) and file (your build artifact), then run again.
+    //
+    // Prerequisites (documented in PowerShell/PowerShellHelperClass.md):
+    // Unite's HTTP bridge on, its Remote Explorer listen server started,
+    // and the Next sitting in the autoexec loop ("Next: deploy autoexec
+    // loop" below installs that loop for you, once).
+    //
+    // "command": "powershell" works on any Windows box (PowerShell 5.1);
+    // switch it to "pwsh" if you use PowerShell 7 (required on mac/linux).
+    "version": "2.0.0",
+    "tasks": [
+        {
+            // REPLACE the command with your real build. Everything below
+            // only assumes it leaves the artifact where Send-ToNext.cfg's
+            // "file" points.
+            "label": "Build .nex",
+            "type": "shell",
+            "command": "make",
+            "args": ["all"],
+            "problemMatcher": []
+        },
+        {
+            "label": "Send to Next",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", "${workspaceFolder}/tools/PS-Send-ToNext.ps1",
+                "-Config", "${workspaceFolder}/Send-ToNext.cfg"
+            ],
+            // The script's exit codes are deliberate (0 = verified on the
+            // Next; 4 = the bytes differ) - no matcher, the exit code and
+            // the coloured output are the report.
+            "problemMatcher": []
+        },
+        {
+            // Ctrl+Shift+B: save, build, push, watch the hardware.
+            // dependsOrder "sequence" is load-bearing - without it VS Code
+            // starts both tasks at once and the push races the build.
+            "label": "Build + Send to Next",
+            "dependsOrder": "sequence",
+            "dependsOn": ["Build .nex", "Send to Next"],
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": []
+        },
+        {
+            // One-time: install the Next-side loop (extra/autoexec.bas ->
+            // c:/nextzxos/ on the Next, checksum-verified, never
+            // overwrites). Idempotent - safe to run again.
+            "label": "Next: deploy autoexec loop",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", "${workspaceFolder}/tools/PS-Send-ToNext.ps1",
+                "-Config", "${workspaceFolder}/Send-ToNext.cfg",
+                "-autoexec", "Deploy"
+            ],
+            "problemMatcher": []
+        },
+        {
+            // Re-arm a parked loop (autoexec_.bas -> autoexec.bas).
+            "label": "Next: autoexec On",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", "${workspaceFolder}/tools/PS-Send-ToNext.ps1",
+                "-Config", "${workspaceFolder}/Send-ToNext.cfg",
+                "-autoexec", "On"
+            ],
+            "problemMatcher": []
+        },
+        {
+            // Park the loop (autoexec.bas -> autoexec_.bas): the Next
+            // boots normally until you switch it On again.
+            "label": "Next: autoexec Off",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", "${workspaceFolder}/tools/PS-Send-ToNext.ps1",
+                "-Config", "${workspaceFolder}/Send-ToNext.cfg",
+                "-autoexec", "Off"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}

@@ -48,6 +48,7 @@ SUITES = [
     ("test_bridge_stall.py",    180, None),
     ("test_remote_explorer_widget.py", 180, None),
     ("test_http_bridge.py",     240, "flask"),
+    ("test_powershell_module.py", 300, "flask"),  # skips without powershell/pwsh
     ("test_retro_log_widget.py", 120, None),
     ("test_i18n.py",            120, None),
     ("test_wizard.py",          120, None),

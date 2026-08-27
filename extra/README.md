@@ -11,6 +11,8 @@ Odds and ends that support the project but are not part of the app.
 | `Get-PyLineCounts.ps1` | Per-module line-count report for the Python sources |
 | `detectenvironnement.bas` / `.txt` | NextBASIC environment-detection helper and its notes |
 | `Send-ToNext.ps1` | Push a build to a real Next over Unite's NextSync HTTP bridge, verified end-to-end (see below) |
+| `ZxNextRemote/` | PowerShell module (classes + cmdlets, PS 5.1 and 7): a typed client for the NextSync HTTP bridge - sessions, ls/get/put/ren/rcpy..., bridge-scoped bearer token, and typed errors that tell the two 401s apart (token vs OS protection). Docs: `PowerShell/PowerShellHelperClass.md`; tests: `tests/test_powershell_module.py` |
+| `PS-Send-ToNext.ps1` | `Send-ToNext.ps1` rebuilt on that module - same cfg/exit codes, plus `-autoexec:On/Off/Deploy` to manage the Next-side loop file remotely and `-AndSend` to combine it with a push. VS Code one-click sample: `PowerShell/vscode-sample/` |
 | `autoexec.bas` / `.txt` | The Next-side loop `Send-ToNext.ps1` pushes into: listen, receive, run, repeat — in either ZX Next Remote flavour. Drop `autoexec.bas` into `/nextzxos/` on the card as-is |
 
 ## Regenerating the README/wiki tour GIF
@@ -168,6 +170,11 @@ for a Next indefinitely — it ships as `0`, meaning wait for ever (the
 ```powershell
 extra\Send-ToNext.ps1
 ```
+
+(or `extra\PS-Send-ToNext.ps1`, the module-based rebuild - same cfg and
+exit codes, plus the `-autoexec` loop management; see
+`PowerShell/PowerShellHelperClass.md` for it, the ZxNextRemote module and
+the ready-to-copy VS Code tasks in `PowerShell/vscode-sample/`)
 
 It polls `/status` every 2 s until a Next appears, PUTs the file, and then
 **verifies it**: `/sum` returns the 16-bit additive checksum and size of the
