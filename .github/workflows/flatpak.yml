@@ -26,6 +26,26 @@ on:
       - "flatpak/**"
       - ".github/workflows/flatpak.yml"
 
+# A newer push to the same branch supersedes an in-flight run: the bundle
+# takes ~10 minutes and only the newest commit's result is interesting.
+#
+# Two things this guard must NOT do, both specific to this workflow (test.yml
+# has neither problem - it never runs on tags, and never on `create`):
+#
+#   * cancel a v* TAG build. That run attaches the bundle to the tag's draft
+#     release, so killing it costs a release asset.
+#   * let the `create` event cancel the `push` event. Pushing a NEW branch
+#     fires both, with the same github.ref, in no guaranteed order - so a
+#     shared group would let the create run (which the job's `if` then skips)
+#     cancel the real build and leave the branch with no flatpak run at all.
+#
+# Both are handled by keying the group on the EVENT as well as the ref, and
+# only ever cancelling pushes: a push run can then only supersede another
+# push run on the same branch, which is exactly the pile-up being cleaned up.
+concurrency:
+  group: flatpak-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
 jobs:
   flatpak:
     name: Build Flatpak bundle
