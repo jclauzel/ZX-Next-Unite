@@ -125,7 +125,7 @@ class ZxNextBridgeHttp {
         if ([System.IO.Path]::DirectorySeparatorChar -eq '/') {
             # linux/macOS: a backslashed relative path from a shared
             # Windows sample is a literal filename char - normalise it.
-            $path = $path.Replace('', '/')
+            $path = $path.Replace([char]92, '/')
         }
         if ([System.IO.Path]::IsPathRooted($path)) { return $path }
         return [System.IO.Path]::Combine((Get-Location).ProviderPath, $path)

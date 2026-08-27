@@ -158,6 +158,24 @@ Check 'Put(bytes): uploads from memory' `
     ($put2.Bytes -eq 3 -and [System.Text.Encoding]::ASCII.GetString($s1.Get('/incoming/abc.bin')) -eq 'ABC')
 
 # ---- review-pinned regressions -------------------------------------------
+# ResolveLocal's separator normalisation is PLATFORM-GATED: the branch only
+# runs where the separator is '/', so Windows never executes it. It shipped
+# broken once for exactly that reason (a lost backslash made it
+# .Replace('', '/'), which throws mid-Deploy on linux/macOS only). Calling
+# it directly means whichever platform runs this suite covers ITS branch.
+$sbResolve = [scriptblock]::Create(
+    "using module '$ModulePath'; [ZxNextBridgeHttp]::ResolveLocal('sub\rel.bin')")
+$resolved = & $sbResolve
+Check 'ResolveLocal roots a backslashed relative path (no throw on any platform)' `
+    ([System.IO.Path]::IsPathRooted($resolved)) $resolved
+# An already-rooted path is returned untouched. Built from GetTempPath()
+# so this source carries no literal backslash of its own - the very thing
+# that broke the line it guards.
+$sbAbs = [scriptblock]::Create(
+    "using module '$ModulePath'; [ZxNextBridgeHttp]::ResolveLocal([IO.Path]::GetTempPath() + 'x.bin')")
+Check 'ResolveLocal leaves an absolute path alone' `
+    ((& $sbAbs) -eq ([IO.Path]::GetTempPath() + 'x.bin')) (& $sbAbs)
+
 # Relative LOCAL paths resolve against the PowerShell location, not the
 # process CWD (the .NET File API's default) - Set-Location must be honoured.
 Push-Location $TmpDir
