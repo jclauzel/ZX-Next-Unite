@@ -1,0 +1,145 @@
+TOPIC
+    about_ZxNextRemote
+
+SHORT DESCRIPTION
+    Drive the SD card of a ZX Spectrum Next from PowerShell, through
+    ZX-Next-Unite's NextSync HTTP bridge.
+
+LONG DESCRIPTION
+    The module wraps the bridge's HTTP routes (HTTP_BRIDGE.md in the repo)
+    in three layers of objects. The exported functions build them; with
+    `using module` the classes can also be instantiated directly.
+
+    ZxNextRemoteConnection            (New-ZxNextRemoteConnection)
+        Where the bridge is: IpAddress, Port (80), optional bearer Token
+        (sent as the ZXNEXTUNITE-BRIDGE-TOKEN header), and the two timeout
+        tiers TimeoutSec (quick verbs, 60 s) / LongTimeoutSec (transfers,
+        900 s). The token is BRIDGE-scoped: one bridge = one connection =
+        one token, and everything sharing the connection (the ZxNextRemote
+        root and every session it mints) sends it on every request -
+        seats/sessions never carry tokens of their own.
+
+    ZxNextRemote                      (New-ZxNextRemote)
+        The client root. Constructors:
+            [ZxNextRemote]::new($connection)
+            [ZxNextRemote]::new($connection, $bearer)   # '' = no token
+            [ZxNextRemote]::new($ip, $port, $bearer)
+        A non-empty $bearer is set on the connection and rides every
+        request (sessions from ManageSession inherit it). Methods:
+          Test()               $true when the bridge answers /status.
+          Status()             typed /status: Listening, Connected, Current,
+                               Drives, Partitions, InFlight, and on the app
+                               host Sessions/Active.
+          Session()            typed /sessions: .Current = number of Nexts
+                               connected, .List = ZxNextSessionInfo[] (each
+                               Sid/Addr/Name/Label/Active), .Active, .Max.
+          ManageSession($info) bind one seat (a ZxNextSessionInfo from
+                               Session().List, or a bare sid [int]) - every
+                               call on the returned session rides that seat
+                               and never moves the app's active selection.
+          ManageSession()      no argument: the ACTIVE seat.
+          ForceExit()          /forceexit - every seated Next leaves -listen
+                               and exits cleanly to BASIC (a broadcast).
+          Help()               the bridge's own route reference (text).
+          Close()              close THIS CLIENT only. Deliberately not a
+                               /forceexit: nothing is sent, the Next stays
+                               in -listen; further calls on this object
+                               throw reason 'ConnectionClosed'.
+
+    ZxNextRemoteSession               (from ManageSession)
+        The per-seat proxy - the object you actually work with. Also
+        constructible standalone, with the bearer token riding on every
+        request it makes:
+            [ZxNextRemoteSession]::new($connection)          # active seat
+            [ZxNextRemoteSession]::new($connection, $sid)    # one seat
+            [ZxNextRemoteSession]::new($ip, $port, $token)         # inline
+            [ZxNextRemoteSession]::new($ip, $port, $token, $sid)   # inline
+        Methods:
+          Ls() / Ls($path)         ZxNextRemoteFileEntry[] (Dir, Size,
+                                   Name, and Path pre-joined so an entry
+                                   feeds straight back into Get/Rm/Sum).
+          Exists($path)            $true when the file/folder exists
+                                   (implemented as an Ls of the parent).
+          Get($path)               the file as [byte[]].
+          Get($path, $localPath)   save it locally; returns the FileInfo.
+          Get($entry[, $local])    same, straight from an Ls() entry.
+          Put($localPath, $remote) upload a file.
+          Put([byte[]], $remote)   upload from memory.
+          Sum($path)               size + 16-bit additive checksum, as the
+                                   file reads back OFF THE NEXT.
+          Verify($local, $remote)  $true when the local file's size and
+                                   sum16 match what Sum() reads back - the
+                                   end-to-end proof a Put landed intact.
+          MkDir/RmDir/RmTree/Rm($path)
+          Ren($from, $to)          rename / move (same drive).
+          Rcpy($src, $dst)         copy ON the Next, partitions included.
+          RfSize($path)            files/folders/bytes of a tree.
+          Free([$drive])           free space; Drives() the drive roster.
+          ForceExit()              same broadcast as the root's.
+
+    Remote paths accept an optional drive prefix (m:/backup), like every
+    NextSync command. All calls are synchronous: the -listen session behind
+    the bridge runs one command at a time.
+
+ERROR HANDLING
+    Every failure is thrown as a ZxNextRemoteError. Catch it and branch on
+    .Reason (never on message text):
+
+      TokenRequired       HTTP 401: the bridge requires the bearer token
+                          (Settings -> "Require bearer token") or the one
+                          supplied is wrong. Fix: set Token on the
+                          connection.
+      OsProtected         HTTP 401 with an 'os-protected' body: the remote
+                          machine is ZX Next Remote with OS protection on,
+                          and a WRITE verb (put/mkdir/rmdir/rm/ren/rcpy)
+                          hit a guarded folder. The token is fine and
+                          reads still work: fix it on that machine.
+      SessionGone         HTTP 410: the seat left. Session() again, rebind.
+      NoNextConnected     HTTP 503: bridge up, no Next in -listen.
+      Timeout             HTTP 504, or the local timeout tripped.
+      BadRequest          HTTP 400: bad arguments.
+      NextRefused         HTTP 502: the Next reported a failure.
+      Unsupported         HTTP 501: this bridge host lacks the verb
+                          (nextsync5.py has no /rmtree).
+      BridgeUnreachable   no HTTP answer at all (wrong address, bridge
+                          off, firewall).
+      ConnectionClosed    this client object was Close()d.
+
+      try { $s.Put($file, '/dev/incoming.nex') }
+      catch [ZxNextRemoteError] {
+          switch ($_.Exception.Reason) {
+              'TokenRequired' { ... }
+              'OsProtected'   { ... }
+              default         { throw }
+          }
+      }
+
+    Note: `catch [ZxNextRemoteError]` needs the type visible - use
+    `using module ZxNextRemote` in scripts. With plain Import-Module,
+    catch everything and read $_.Exception.Reason (present only on this
+    module's errors; probe with $_.Exception.PSObject.Properties['Reason']).
+
+EXAMPLES
+    using module ZxNextRemote            # or Import-Module + the functions
+
+    $bearer   = ''    # paste the bridge's token here when ZX-Next-Unite's
+                      # Settings -> "Require bearer token" is enabled;
+                      # '' = unprotected bridge. Passed on every request.
+    $con      = [ZxNextRemoteConnection]::new('10.0.0.8', 80)
+    $remote   = [ZxNextRemote]::new($con, $bearer)
+    $sessions = $remote.Session()
+    "{0} Next(s) connected" -f $sessions.Current
+    $s        = $remote.ManageSession($sessions.List[0])
+
+    $list = $s.Ls('/games')
+    $s.Get($list[0], "$env:TEMP\first-file")
+    $s.Put('build\game.nex', '/dev/incoming.nex')
+    if (-not $s.Verify('build\game.nex', '/dev/incoming.nex')) { throw 'bad copy' }
+    $remote.Close()
+
+SEE ALSO
+    New-ZxNextRemoteConnection
+    New-ZxNextRemote
+    Test-ZxNextRemoteBridge
+    PowerShell/PowerShellHelperClass.md   (in the ZX-Next-Unite repo)
+    nextsync/sync/server/HTTP_BRIDGE.md   (the wire contract)

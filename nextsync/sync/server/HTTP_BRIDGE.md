@@ -492,7 +492,8 @@ OK rcpy /games -> m:/backup/games (42 file(s))
 ```
 Copies a file or whole tree **entirely on the remote Next** (dot v5.2+),
 across partitions too — no data crosses the network. A big tree takes a
-while; the request waits for the Next to finish (up to 15 minutes).
+while; the request waits for the Next to finish (up to 270 s, the
+long-op timeout).
 Copying a folder into itself is refused with `400`.
 
 ### `GET /rfsize?path=/games` — total size of a file / tree
@@ -573,7 +574,8 @@ curl "http://localhost/rfsize?path=/games&json=1"
   itself does not implement this guard, and the `.sync5` dotN never triggers
   it; it is purely a property of a ZX Next Remote listener.
 * Long operations (`/get`, `/put`, `/rcpy`, `/rfsize`, `/rmtree`) wait up to
-  15 minutes; quick verbs time out after 45 s (`504`).
+  270 s (`LONG_TIMEOUT` in zxnu_http_bridge.py, deliberately just under
+  the strictest known client's patience); quick verbs time out after 45 s (`504`).
 * Wire protocol: unchanged. The bridge simply queues the same commands the
   Remote Explorer / `listen>` console would.
 * Troubleshooting: `nextsync5.py -w -v` logs every request and response
