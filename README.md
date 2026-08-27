@@ -59,6 +59,18 @@ emulator launch buttons below:
   built-in `.http` dot command. Enable it in the Settings tab (the port —
   80 by default — is set in the box next to the toggle). See the
   [HTTP bridge documentation](nextsync/sync/server/HTTP_BRIDGE.md).
+- ⭐ **PowerShell module (`ZxNextRemote`)** — drive a connected Next's SD card
+  from a script or a prompt, with no HTTP call in sight: list the seated
+  machines, `Ls`/`Get`/`Put`/`Ren`/`Rcpy`, and `Verify` an upload against a
+  checksum read back **off the Next**. Runs on Windows PowerShell 5.1 and
+  PowerShell 7 (macOS/Linux included), with typed errors that tell the
+  bridge's two different 401s apart — a wrong bearer token vs a write the
+  remote machine's OS protection refused. It powers `PS-Send-ToNext.ps1`, a
+  **build → push → verify → run-on-hardware loop bound to `Ctrl+Shift+B`**
+  in VS Code. See the
+  [PowerShell helper guide](PowerShell/PowerShellHelperClass.md), and
+  [SampleNex](https://github.com/jclauzel/SampleNex) for a ready-made demo
+  project you can clone and push to your Next in one key.
 - **Online libraries** — search and download from GetIt, ZXDB/ZXInfo, zxArt and
   (optionally) itch.io.
 - 🎁 **Starter pack** — one click on the GetIt tab fills your SD image with
@@ -131,6 +143,19 @@ the **[Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki)**:
   [Alien Floyd's](https://github.com/jclauzel/ZX-Next-Unite/wiki/Alien-Floyds-tab) ·
   [Settings](https://github.com/jclauzel/ZX-Next-Unite/wiki/Settings-tab) ·
   [Help](https://github.com/jclauzel/ZX-Next-Unite/wiki/Help-tab)
+
+### PowerShell automation
+
+- 🧰 **[PowerShell helper guide](PowerShell/PowerShellHelperClass.md)** — the
+  `ZxNextRemote` module: install/uninstall, the class and error reference,
+  the bearer-token pattern, `PS-Send-ToNext.ps1`, and the VS Code
+  integration (`PowerShell/vscode-sample/tasks.json`).
+- 🎮 **[SampleNex](https://github.com/jclauzel/SampleNex)** — a tiny z88dk ZX
+  Spectrum Next app wired to all of the above, ready to clone. It prints
+  `Hello Dev Builders <n>!` with a number that increments on every build, so
+  one glance at the TV proves the bytes running are the ones you just
+  compiled. `Ctrl+Shift+B` builds it, pushes it, verifies it and runs it on
+  real hardware.
 
 ## License
 

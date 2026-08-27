@@ -12,7 +12,7 @@ Odds and ends that support the project but are not part of the app.
 | `detectenvironnement.bas` / `.txt` | NextBASIC environment-detection helper and its notes |
 | `Send-ToNext.ps1` | Push a build to a real Next over Unite's NextSync HTTP bridge, verified end-to-end (see below) |
 | `ZxNextRemote/` | PowerShell module (classes + cmdlets, PS 5.1 and 7): a typed client for the NextSync HTTP bridge - sessions, ls/get/put/ren/rcpy..., bridge-scoped bearer token, and typed errors that tell the two 401s apart (token vs OS protection). Docs: `PowerShell/PowerShellHelperClass.md`; tests: `tests/test_powershell_module.py` |
-| `PS-Send-ToNext.ps1` | `Send-ToNext.ps1` rebuilt on that module - same cfg/exit codes, plus `-autoexec:On/Off/Deploy` to manage the Next-side loop file remotely and `-AndSend` to combine it with a push. VS Code one-click sample: `PowerShell/vscode-sample/` |
+| `PS-Send-ToNext.ps1` | `Send-ToNext.ps1` rebuilt on that module - same cfg/exit codes, plus `-autoexec:On/Off/Deploy` to manage the Next-side loop file remotely and `-AndSend` to combine it with a push. VS Code one-click sample: `PowerShell/vscode-sample/`; a ready-made demo project: [SampleNex](https://github.com/jclauzel/SampleNex) |
 | `autoexec.bas` / `.txt` | The Next-side loop `Send-ToNext.ps1` pushes into: listen, receive, run, repeat — in either ZX Next Remote flavour. Drop `autoexec.bas` into `/nextzxos/` on the card as-is |
 
 ## Regenerating the README/wiki tour GIF
@@ -204,6 +204,30 @@ A `tasks.json` entry that fails the task on anything but a verified send:
   "problemMatcher": []
 }
 ```
+
+### A ready-made demo project: SampleNex
+
+Rather than wiring a project up from scratch to try this, clone
+**[SampleNex](https://github.com/jclauzel/SampleNex)** — a deliberately tiny z88dk
+ZX Spectrum Next app that exists purely to demo this integration, already
+assembled and confirmed working on real hardware:
+
+* a `build.ps1` that finds z88dk, bumps a build counter and compiles a
+  `.nex` (modelled on this project's sibling build script),
+* a `.vscode/tasks.json` where **`Ctrl+Shift+B`** runs *build → push →
+  verify → run on the Next*, plus tasks for the three `-autoexec` actions,
+* `tools/` carrying the vendored trio, so the repo is self-contained.
+
+The app prints `Hello Dev Builders <n>!` where `n` increments on **every**
+build — so the number on the TV is proof the Next is running the build you
+just made, not a stale copy on the SD card. It ends with a soft reset,
+which hands the machine back to the `autoexec` loop and re-arms the
+Listener for the next push.
+
+Vendoring into your own project means copying **three** things from here —
+`PS-Send-ToNext.ps1`, the `ZxNextRemote/` module folder (imported relative
+to the script) and `autoexec.bas` (what `-autoexec:Deploy` sends, looked up
+beside the script). SampleNex's README documents refreshing them.
 
 ### Editing the loop
 

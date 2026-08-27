@@ -20,6 +20,12 @@ $oneFile    = $mySession.Get($remoteList[0])             # fetch the first file
 $remote.Close()                      # disconnect this client (NOT a /forceexit)
 ```
 
+> **Want to see it working before reading any of this?** Clone
+> **[SampleNex](https://github.com/jclauzel/SampleNex)** — a tiny z88dk ZX
+> Spectrum Next app wired to this module end to end, where `Ctrl+Shift+B`
+> in VS Code builds it, pushes it to your Next, verifies it and runs it.
+> It is the worked example for everything below.
+
 It runs on **Windows PowerShell 5.1** (the stock PowerShell of Windows
 10/11 — the module's compatibility floor, no 6/7-only syntax anywhere) and
 on **PowerShell 7+** (`pwsh`), which is what macOS and Linux users run.
@@ -287,6 +293,10 @@ verified · `5` timed out waiting for a Next.
 
 # VS Code: build → push to hardware in one click
 
+A complete, working project using exactly this setup is
+**[SampleNex](https://github.com/jclauzel/SampleNex)** — clone it and press
+`Ctrl+Shift+B`. To wire up your *own* project instead, read on.
+
 The sample lives in [`PowerShell/vscode-sample/`](vscode-sample/) — copy
 `tasks.json` into your project's `.vscode/` folder (or merge the tasks into
 yours) and adjust three things: the path to `PS-Send-ToNext.ps1`, your
@@ -395,3 +405,13 @@ justification — keep the pattern if you extend the code:
 | `PowerShell/PowerShellHelperClass.md` | this document |
 | `PowerShell/vscode-sample/tasks.json` | ready-to-copy VS Code tasks |
 | `tests/test_powershell_module.py` / `.ps1` | the module's test suite (runs under 5.1 AND 7) |
+
+## See also
+
+* **[SampleNex](https://github.com/jclauzel/SampleNex)** — the demo project: a
+  z88dk `.nex` app, a build script and the VS Code tasks, assembled and
+  hardware-tested.
+* [`nextsync/sync/server/HTTP_BRIDGE.md`](../nextsync/sync/server/HTTP_BRIDGE.md)
+  — the wire contract this module speaks.
+* [`extra/README.md`](../extra/README.md) — the Next-side `autoexec` loop
+  and the original `Send-ToNext.ps1`.
