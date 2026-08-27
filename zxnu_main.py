@@ -1666,6 +1666,11 @@ class MainWindow(QMainWindow):
         self.img_color_file_name    = hex_to_qcolor(DEFAULT_COLOR_FILE_NAME)
         self.img_color_file_ext     = hex_to_qcolor(DEFAULT_COLOR_FILE_EXT)
         self.img_color_file_size    = hex_to_qcolor(DEFAULT_COLOR_FILE_SIZE)
+        # Explorer/window BACKGROUND (the only non-foreground of the set): painted
+        # behind the file-explorer views and as the window fill, so the bright item
+        # colours above always sit on a dark ground - even on a light/classic OS
+        # theme, which used to leave the panes stock white and unreadable.
+        self.img_color_background   = hex_to_qcolor(DEFAULT_COLOR_BACKGROUND)
         # App-wide Classic-mode UI text colour (labels/checkboxes on the dark panes).
         self.img_color_general_text = hex_to_qcolor(DEFAULT_COLOR_GENERAL_TEXT)
         # Retro 8-bit (pygame) log console text colour (overridden on cfg load).
@@ -2560,6 +2565,7 @@ class MainWindow(QMainWindow):
         configuration_dictionary[SETTING_COLOR_FILE_SIZE]    = DEFAULT_COLOR_FILE_SIZE
         configuration_dictionary[SETTING_COLOR_GENERAL_TEXT] = DEFAULT_COLOR_GENERAL_TEXT
         configuration_dictionary[SETTING_COLOR_RETRO_LOG]    = DEFAULT_COLOR_RETRO_LOG
+        configuration_dictionary[SETTING_COLOR_BACKGROUND]   = DEFAULT_COLOR_BACKGROUND
         configuration_dictionary[SETTING_DESKTOP_THEME]      = DEFAULT_DESKTOP_THEME
         # UI language: seeded EMPTY, the repo's "never saved" convention (see
         # _apply_first_run_pygame_defaults) — a blank value at the end of
@@ -4141,6 +4147,17 @@ class MainWindow(QMainWindow):
         # buttons with what was restored (the strips read the same map when
         # they are built/rebuilt, so they need no separate pass).
         self._apply_emulator_button_colors()
+        # The "Background" colour paints the window ground and the explorer
+        # viewports. Applied HERE as well as from the theme engine because on
+        # a first run there is no hdfg.cfg: load_configuration_file bails on
+        # FileNotFoundError and its whole restore body - the theme re-apply
+        # included - never runs, which is precisely how a brand-new install
+        # used to come up with stock white explorer panes.
+        if hasattr(self, "_apply_background_color"):
+            try:
+                self._apply_background_color()
+            except Exception:
+                logging.exception("Failed to apply the background colour")
         # Re-tint the tab bar with the just-loaded general UI text colour.
         # This covers Custom mode (whose theme re-apply returns early without
         # refreshing) and the Settings / itch.io tabs that are added after the

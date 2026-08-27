@@ -211,7 +211,11 @@ elif PHASE in (2, 3):
     with open(CFG, "w") as f:
         f.write(BASE_CFG
                 + f"hddffile={HDF}\nimage_explorerpath={saved}\n"
-                + "color_retro_log=#112233\n")
+                + "color_retro_log=#112233\n"
+                # A hand-picked ground, with the Custom mode that picking one
+                # leaves behind - the only mode in which a pick SURVIVES a
+                # restart (every other mode recomputes the palette on load).
+                + "color_background=#204060\ndesktop_theme=custom\n")
 elif PHASE == 4:
     ensure_scratch(fresh=False)
     with open(CFG, "w") as f:
@@ -740,6 +744,22 @@ def inspect_phase2():
     check("retro swatch shows restored color",
           "#112233" in win.settings_btn_color_retro_log.styleSheet().lower(),
           win.settings_btn_color_retro_log.styleSheet())
+    # The ground round-trips too, and reaches the app-wide stylesheet that the
+    # two Remote Explorer panes read - through the Custom path, which returns
+    # early and would otherwise never apply it.
+    check("background colour restored from cfg",
+          win.img_color_background.name().lower() == "#204060",
+          win.img_color_background.name())
+    check("background swatch shows restored color",
+          "#204060" in win.settings_btn_color_background.styleSheet().lower(),
+          win.settings_btn_color_background.styleSheet())
+    check("restored ground reached the explorer viewports",
+          "rgba(32, 64, 96, 216)" in QApplication.instance().styleSheet(),
+          QApplication.instance().styleSheet()[-160:])
+    check("restored ground reached the window fill",
+          win._bg_widget._bg_color is not None
+          and win._bg_widget._bg_color.name().lower() == "#204060",
+          str(win._bg_widget._bg_color))
     app.quit()
 
 def inspect_phase3():
@@ -998,6 +1018,107 @@ def inspect_phase6():
           spos(win.settings_desktop_theme_combo)
           == (settings_row("desktop_theme"), 1),
           str(spos(win.settings_desktop_theme_combo)))
+
+    # ---- "Background" colour + "Reset theme" (the white-panes fix) -------
+    # The ground used to be whatever the platform painted behind the window:
+    # on a light/classic OS theme that was white, under item colours tuned
+    # for a dark ground (green file names on white). It is a setting now, and
+    # it is applied under EVERY desktop-theme variant — including on this
+    # runner, whose variant is whatever the OS reports.
+    check("background swatch at its named row",
+          spos(win.settings_btn_color_background)
+          == (settings_row("color_background"), 1),
+          str(spos(win.settings_btn_color_background)))
+    check("background sits directly above the up-directory row",
+          settings_row("color_background") + 1
+          == settings_row("color_up_directory"),
+          f'{settings_row("color_background")} vs {settings_row("color_up_directory")}')
+    check("reset-theme button at its named row",
+          spos(win.settings_btn_reset_theme)
+          == (settings_row("reset_theme"), 1),
+          str(spos(win.settings_btn_reset_theme)))
+    check("default background is the dark ground",
+          win.img_color_background.name().lower() == "#0d0d20",
+          win.img_color_background.name())
+    check("background swatch shows it",
+          "#0d0d20" in win.settings_btn_color_background.styleSheet().lower(),
+          win.settings_btn_color_background.styleSheet())
+    # The ground reaches BOTH surfaces: the explorer viewports (app-wide QSS,
+    # which is what the two Remote Explorer panes read) and the window fill.
+    check("explorer viewports carry the ground",
+          "rgba(13, 13, 32, 216)" in QApplication.instance().styleSheet(),
+          QApplication.instance().styleSheet()[-160:])
+    check("window fill carries the ground",
+          win._bg_widget._bg_color is not None
+          and win._bg_widget._bg_color.name().lower() == "#0d0d20",
+          str(win._bg_widget._bg_color))
+    # A hand-picked colour reaches both surfaces the same way.
+    from PySide6.QtGui import QColor
+    win.img_color_background = QColor("#123456")
+    win._apply_background_color()
+    QCoreApplication.processEvents()
+    check("picked colour repaints the viewports",
+          "rgba(18, 52, 86, 216)" in QApplication.instance().styleSheet(),
+          QApplication.instance().styleSheet()[-160:])
+    check("picked colour repaints the window fill",
+          win._bg_widget._bg_color.name().lower() == "#123456",
+          str(win._bg_widget._bg_color))
+    # The ground carries a default TEXT colour with it. The two plain
+    # QFileSystemModel local explorers (SD Card, NextSync classic) set no
+    # foreground brush, so they take this - and on a light Windows theme the
+    # OS palette drew them black, which went invisible the moment the ground
+    # turned dark. It follows the ground, so a light pick flips it back.
+    check("a dark ground carries light item text",
+          "color: #e8e8e8" in QApplication.instance().styleSheet(),
+          QApplication.instance().styleSheet()[-160:])
+    win.img_color_background = QColor("#f0f0f0")
+    win._apply_background_color()
+    QCoreApplication.processEvents()
+    check("a light ground flips the item text to black",
+          "color: #000000" in QApplication.instance().styleSheet(),
+          QApplication.instance().styleSheet()[-160:])
+    # "Reset theme": Custom is the mode a pick leaves behind, and it FREEZES
+    # the palette — so the button has to leave the mode as well as the colours.
+    win._desktop_theme_mode = "custom"
+    win.img_color_retro_log = QColor("#ff00ff")
+    win.settings_btn_reset_theme.click()
+    QCoreApplication.processEvents()
+    check("reset restores the default theme mode",
+          win._desktop_theme_mode == "automatic", win._desktop_theme_mode)
+    check("reset drops the hand-picked ground",
+          win.img_color_background.name().lower() in ("#0d0d20", "#ffffff"),
+          win.img_color_background.name())
+    check("reset restores the phosphor-green retro log",
+          win.img_color_retro_log.name().lower() == "#78ff8c",
+          win.img_color_retro_log.name())
+    check("reset persists the theme mode",
+          "desktop_theme=automatic" in cfg_lines(),
+          str([l for l in cfg_lines() if l.startswith("desktop_theme")]))
+    # Also proves the key reached CONFIG_FILE_SETTINGS: a colour that is not
+    # in that tuple is simply never written, and looks fine until a restart.
+    check("reset persists the ground to cfg",
+          f"color_background={win.img_color_background.name().lower()}"
+          in cfg_lines(),
+          str([l for l in cfg_lines() if l.startswith("color_background")]))
+    # THE regression this row exists for: the White/light variant used to skip
+    # the view rule altogether, leaving the explorer viewports on the platform's
+    # stock white under item colours tuned for a dark ground - green file names
+    # on white. Selecting it must now keep the ground.
+    for _i in range(win.settings_desktop_theme_combo.count()):
+        if win.settings_desktop_theme_combo.itemData(_i) == "white":
+            win.settings_desktop_theme_combo.setCurrentIndex(_i)
+            break
+    QCoreApplication.processEvents()
+    check("White theme still grounds the explorer viewports",
+          "rgba(13, 13, 32, 216)" in QApplication.instance().styleSheet(),
+          QApplication.instance().styleSheet()[-160:])
+    check("White theme still fills the window",
+          win._bg_widget._bg_color is not None
+          and win._bg_widget._bg_color.name().lower() == "#0d0d20",
+          str(win._bg_widget._bg_color))
+    check("White theme still keeps the local explorers readable",
+          "color: #e8e8e8" in QApplication.instance().styleSheet(),
+          QApplication.instance().styleSheet()[-160:])
     check("cfg 'false' restored as unchecked", not cb.isChecked())
     cb.setChecked(True)
     QCoreApplication.processEvents()

@@ -934,6 +934,7 @@ def build_config_io(
             _load_color_setting(SETTING_COLOR_FILE_SIZE,    DEFAULT_COLOR_FILE_SIZE,    "img_color_file_size",    "settings_btn_color_file_size")
             _load_color_setting(SETTING_COLOR_GENERAL_TEXT, DEFAULT_COLOR_GENERAL_TEXT, "img_color_general_text", "settings_btn_color_general_text")
             _load_color_setting(SETTING_COLOR_RETRO_LOG,    DEFAULT_COLOR_RETRO_LOG,    "img_color_retro_log",    "settings_btn_color_retro_log")
+            _load_color_setting(SETTING_COLOR_BACKGROUND,   DEFAULT_COLOR_BACKGROUND,   "img_color_background",   "settings_btn_color_background")
             # Push the restored retro-log color to any already-built retro
             # consoles (normally they are built later, lazily, and seed
             # themselves from img_color_retro_log at construction).

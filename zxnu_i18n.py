@@ -348,6 +348,7 @@ CATALOGS = {
         'Zip': 'Comprimir',
         '… and {n} more': '… y {n} más',
         # ---- labels ----
+        "  Background": "  Fondo",
         "  Directory name": "  Nombre de directorio",
         "  Directory type label": "  Etiqueta de tipo de directorio",
         "  File extension": "  Extensión de archivo",
@@ -382,6 +383,7 @@ CATALOGS = {
             "NextSync — si un archivo o directorio recibido ya existe localmente:",
         "Page:": "Página:",
         "Port:": "Puerto:",
+        "Reset theme": "Restablecer tema",
         "Retro log font size:": "Tamaño de letra del registro retro:",
         "Search:": "Buscar:",
         "Search: ": "Buscar: ",
@@ -1082,6 +1084,10 @@ CATALOGS = {
             "Color de la columna de extensión de archivo.",
         "Color used for the file size column in the image explorer.":
             "Color de la columna de tamaño de archivo.",
+        "Background color behind the file explorers and the whole app window.":
+            "Color de fondo detrás de los exploradores de archivos y de toda la ventana de la aplicación.",
+        "Discard the hand-picked colors above and restore the themed defaults.":
+            "Descarta los colores elegidos arriba y restaura los valores predeterminados del tema.",
         "MAME display aspect ratio (-aspect).":
             "Relación de aspecto de MAME (-aspect).",
         "Perform a single sync and then stop the server.":
@@ -1505,6 +1511,7 @@ CATALOGS = {
         'Zip': 'Compactar',
         '… and {n} more': '… e mais {n}',
         # ---- labels ----
+        "  Background": "  Fundo",
         "  Directory name": "  Nome do diretório",
         "  Directory type label": "  Etiqueta de tipo de diretório",
         "  File extension": "  Extensão do ficheiro",
@@ -1539,6 +1546,7 @@ CATALOGS = {
             "NextSync — se um ficheiro ou diretório recebido já existir localmente:",
         "Page:": "Página:",
         "Port:": "Porta:",
+        "Reset theme": "Repor tema",
         "Retro log font size:": "Tamanho da letra do registo retro:",
         "Search:": "Pesquisar:",
         "Search: ": "Pesquisar: ",
@@ -2239,6 +2247,10 @@ CATALOGS = {
             "Cor da coluna de extensão do ficheiro.",
         "Color used for the file size column in the image explorer.":
             "Cor da coluna de tamanho do ficheiro.",
+        "Background color behind the file explorers and the whole app window.":
+            "Cor de fundo atrás dos exploradores de ficheiros e de toda a janela da aplicação.",
+        "Discard the hand-picked colors above and restore the themed defaults.":
+            "Descarta as cores escolhidas acima e restaura os valores predefinidos do tema.",
         "MAME display aspect ratio (-aspect).":
             "Relação de aspeto do MAME (-aspect).",
         "Perform a single sync and then stop the server.":
@@ -2660,6 +2672,7 @@ CATALOGS = {
         'Zip': 'Spakuj',
         '… and {n} more': '… i jeszcze {n}',
         # ---- labels ----
+        "  Background": "  Tło",
         "  Directory name": "  Nazwa katalogu",
         "  Directory type label": "  Etykieta typu katalogu",
         "  File extension": "  Rozszerzenie pliku",
@@ -2694,6 +2707,7 @@ CATALOGS = {
             "NextSync — gdy odebrany plik lub katalog już istnieje lokalnie:",
         "Page:": "Strona:",
         "Port:": "Port:",
+        "Reset theme": "Resetuj motyw",
         "Retro log font size:": "Rozmiar czcionki dziennika retro:",
         "Search:": "Szukaj:",
         "Search: ": "Szukaj: ",
@@ -3394,6 +3408,10 @@ CATALOGS = {
             "Kolor kolumny rozszerzenia pliku.",
         "Color used for the file size column in the image explorer.":
             "Kolor kolumny rozmiaru pliku.",
+        "Background color behind the file explorers and the whole app window.":
+            "Kolor tła za eksploratorami plików i całym oknem aplikacji.",
+        "Discard the hand-picked colors above and restore the themed defaults.":
+            "Odrzuca wybrane powyżej kolory i przywraca domyślne wartości motywu.",
         "MAME display aspect ratio (-aspect).":
             "Proporcje obrazu MAME (-aspect).",
         "Perform a single sync and then stop the server.":
@@ -3817,6 +3835,7 @@ CATALOGS = {
         'Zip': 'Запаковать',
         '… and {n} more': '… и ещё {n}',
         # ---- labels ----
+        "  Background": "  Фон",
         "  Directory name": "  Имя каталога",
         "  Directory type label": "  Метка типа каталога",
         "  File extension": "  Расширение файла",
@@ -3851,6 +3870,7 @@ CATALOGS = {
             "NextSync — если принятый файл или каталог уже существует локально:",
         "Page:": "Страница:",
         "Port:": "Порт:",
+        "Reset theme": "Сбросить тему",
         "Retro log font size:": "Размер шрифта ретро-журнала:",
         "Search:": "Поиск:",
         "Search: ": "Поиск: ",
@@ -4551,6 +4571,10 @@ CATALOGS = {
             "Цвет столбца расширения файла.",
         "Color used for the file size column in the image explorer.":
             "Цвет столбца размера файла.",
+        "Background color behind the file explorers and the whole app window.":
+            "Цвет фона под файловыми проводниками и всем окном приложения.",
+        "Discard the hand-picked colors above and restore the themed defaults.":
+            "Отменяет выбранные выше цвета и возвращает значения темы по умолчанию.",
         "MAME display aspect ratio (-aspect).":
             "Соотношение сторон экрана MAME (-aspect).",
         "Perform a single sync and then stop the server.":
@@ -4973,6 +4997,7 @@ CATALOGS = {
         'Zip': 'Zabalit',
         '… and {n} more': '… a dalších {n}',
         # ---- labels ----
+        "  Background": "  Pozadí",
         "  Directory name": "  Název adresáře",
         "  Directory type label": "  Popisek typu adresáře",
         "  File extension": "  Přípona souboru",
@@ -5007,6 +5032,7 @@ CATALOGS = {
             "NextSync — když přijatý soubor či adresář už místně existuje:",
         "Page:": "Stránka:",
         "Port:": "Port:",
+        "Reset theme": "Obnovit motiv",
         "Retro log font size:": "Velikost písma retro protokolu:",
         "Search:": "Hledat:",
         "Search: ": "Hledat: ",
@@ -5707,6 +5733,10 @@ CATALOGS = {
             "Barva sloupce přípony souboru.",
         "Color used for the file size column in the image explorer.":
             "Barva sloupce velikosti souboru.",
+        "Background color behind the file explorers and the whole app window.":
+            "Barva pozadí za průzkumníky souborů a celým oknem aplikace.",
+        "Discard the hand-picked colors above and restore the themed defaults.":
+            "Zahodí ručně vybrané barvy výše a obnoví výchozí hodnoty motivu.",
         "MAME display aspect ratio (-aspect).":
             "Poměr stran obrazu MAME (-aspect).",
         "Perform a single sync and then stop the server.":
@@ -6131,6 +6161,7 @@ CATALOGS = {
         'Zip': 'Compresser',
         '… and {n} more': '… et {n} de plus',
         # ---- labels ----
+        "  Background": "  Arrière-plan",
         "  Directory name": "  Nom du répertoire",
         "  Directory type label": "  Étiquette de type de répertoire",
         "  File extension": "  Extension du fichier",
@@ -6165,6 +6196,7 @@ CATALOGS = {
             "NextSync — si un fichier ou dossier reçu existe déjà en local :",
         "Page:": "Page :",
         "Port:": "Port :",
+        "Reset theme": "Réinitialiser le thème",
         "Retro log font size:": "Taille de police du journal rétro :",
         "Search:": "Rechercher :",
         "Search: ": "Rechercher : ",
@@ -6866,6 +6898,10 @@ CATALOGS = {
             "Couleur de la colonne d'extension de fichier.",
         "Color used for the file size column in the image explorer.":
             "Couleur de la colonne de taille de fichier.",
+        "Background color behind the file explorers and the whole app window.":
+            "Couleur de fond derrière les explorateurs de fichiers et toute la fenêtre de l'application.",
+        "Discard the hand-picked colors above and restore the themed defaults.":
+            "Abandonne les couleurs choisies ci-dessus et restaure les valeurs par défaut du thème.",
         "MAME display aspect ratio (-aspect).":
             "Format d'affichage de MAME (-aspect).",
         "Perform a single sync and then stop the server.":

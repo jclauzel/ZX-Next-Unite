@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.6.0"
+ZX_NEXT_UNITE_VERSION = "9.6.1"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -288,6 +288,11 @@ SETTING_ZXDB_LAST_MODE         = "zxdb_last_mode"
 SETTING_ZXDB_LAST_QUERY        = "zxdb_last_query"
 SETTING_ZXART_LAST_MODE        = "zxart_last_mode"
 SETTING_ZXART_LAST_QUERY       = "zxart_last_query"
+# Explorer/app background colour. Unlike the seven colours below it is not a
+# FOREGROUND: it paints the file-explorer view backgrounds and the window
+# fill, so a light/classic desktop theme can no longer leave the panes stock
+# white under the bright item colours (which are tuned for a dark ground).
+SETTING_COLOR_BACKGROUND  = "color_background"
 SETTING_COLOR_UP_DIRECTORY = "color_up_directory"
 SETTING_COLOR_DIR_NAME    = "color_dir_name"
 SETTING_COLOR_DIR_TYPE    = "color_dir_type"
@@ -616,6 +621,11 @@ GALLERY_MAX_ROWS               = 10
 MAX_ALT_TEXT_LINES             = 5
 MAX_IMAGE_HISTORY         = 10
 
+# Explorer/window background. The value the app has always rendered its views
+# with (views_background_qss below); used for the light column too, because the
+# item colours above are tuned for a dark ground and the Desktop Theme is
+# documented as choosing FONT colours, not backgrounds.
+DEFAULT_COLOR_BACKGROUND  = "#0d0d20"
 DEFAULT_COLOR_UP_DIRECTORY = "#ff0000"
 DEFAULT_COLOR_DIR_NAME    = "#0000ff"
 DEFAULT_COLOR_DIR_TYPE    = "#0000ff"
@@ -656,6 +666,9 @@ HIGH_CONTRAST_COLOR     = "#000000"
 # General UI text in high-contrast mode: the tab panes stay dark, so the most
 # readable / highest-contrast choice for the app chrome is pure white.
 HIGH_CONTRAST_TEXT_COLOR = "#ffffff"
+# Explorer/window background in high-contrast mode: every explorer font turns
+# black (HIGH_CONTRAST_COLOR), so the ground under them must be white.
+HIGH_CONTRAST_BACKGROUND = "#ffffff"
 
 def detect_system_dark_theme():
     """Best-effort detection of whether the OS desktop theme is dark.
@@ -972,7 +985,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
             )
 CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_IMAGE_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_MOUSE, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE,
 SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME,
-SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_COLOR_GENERAL_TEXT, SETTING_COLOR_RETRO_LOG, SETTING_DESKTOP_THEME, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_SEARCH_SORT_MODE, SETTING_GALLERY_ANIM_MODE,
+SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_COLOR_GENERAL_TEXT, SETTING_COLOR_RETRO_LOG, SETTING_COLOR_BACKGROUND, SETTING_DESKTOP_THEME, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_SEARCH_SORT_MODE, SETTING_GALLERY_ANIM_MODE,
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GALLERY_SLIDESHOW_SECS, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
@@ -1116,15 +1129,59 @@ NEXT_CHROME_QSS = (
     " selection-background-color: rgba(255, 60, 255, 70);"
     " selection-color: #ffffff; }")
 
-# Theme-aware companion to NEXT_CHROME_QSS: dark viewport backgrounds for
-# the explorers/tables/lists. Applied (appended to the chrome) by the
-# desktop-theme engine for the Dark/Black/Automatic-dark and Custom
-# variants; the explicit White variant keeps stock light viewports (its
-# item palette is tuned for them).
-NEXT_DARK_VIEWS_QSS = (
-    "QTreeView, QTableView, QListView, QTextBrowser {"
-    " background-color: rgba(13, 13, 32, 216);"
-    " border: 1px solid #33335a; }")
+# Alpha the explorer viewports are painted at, so the animated
+# BackgroundWidget behind them keeps showing through - the look the app has
+# always had. It lives HERE and not in the stored colour on purpose:
+# qcolor_to_hex serialises #rrggbb only, so a translucent pick would lose its
+# alpha on the round-trip through hdfg.cfg.
+NEXT_VIEWS_BG_ALPHA = 216
+
+
+def contrasting_text_hex(background_hex):
+    """The default item text colour for a given ground: light on a dark one,
+    black on a light one.
+
+    Derived rather than a setting of its own, because it has to hold for ANY
+    colour the user picks. It only decides the rows that carry no foreground
+    brush of their own - which is exactly the two plain QFileSystemModel local
+    explorers (SD Card, NextSync classic). Those took the OS palette's text
+    colour, so a light Windows theme drew them BLACK: fine on the stock white
+    viewport they used to have, invisible once the ground became dark. The
+    coloured panes (image explorer, both Remote Explorer sides) set their own
+    brushes per item and are unaffected by this.
+    """
+    col = QColor(background_hex)
+    if not col.isValid():
+        col = QColor(DEFAULT_COLOR_BACKGROUND)
+    # Rec. 601 luma - the cheap perceptual brightness, good enough to pick a
+    # side. The threshold sits well clear of both defaults (#0d0d20 -> 15,
+    # #ffffff -> 255).
+    luma = 0.299 * col.red() + 0.587 * col.green() + 0.114 * col.blue()
+    return HIGH_CONTRAST_COLOR if luma > 140 else DEFAULT_COLOR_GENERAL_TEXT
+
+
+def views_background_qss(background_hex, alpha=NEXT_VIEWS_BG_ALPHA):
+    """The app-wide viewport rule for the file explorers, built from the
+    user's "Background" colour (Settings -> Local file explorers & App Text
+    Colors).
+
+    Companion to NEXT_CHROME_QSS, appended to it by the desktop-theme
+    engine. Applied under EVERY variant: this used to be a constant that the
+    engine skipped for the "light" variant, which left the panes on the
+    platform's stock white while the item colours stayed tuned for a dark
+    ground - green file names on white, unreadable on a Windows classic/light
+    theme. The ground is now a setting instead of a consequence of the OS
+    theme, and the Desktop Theme is what its tooltip always said it was: a
+    chooser of FONT colours.
+    """
+    col = QColor(background_hex)
+    if not col.isValid():
+        col = QColor(DEFAULT_COLOR_BACKGROUND)
+    return ("QTreeView, QTableView, QListView, QTextBrowser {"
+            f" background-color: rgba({col.red()}, {col.green()}, {col.blue()}, {alpha});"
+            f" color: {contrasting_text_hex(background_hex)};"
+            " border: 1px solid #33335a; }")
+
 
 # Shared splitter-handle style (SD Card + GetIt splitters): the default
 # handle is invisible on dark themes, so users never discover they can
