@@ -7,6 +7,7 @@ Odds and ends that support the project but are not part of the app.
 | `tour_build_demo_env.py` | Builds the throwaway demo environment (`C:\Users\Public\ZX-Next-Unite-demo`) the tour GIF is captured from: app copy, junctioned emulators, sample sync folder, demo HDF, seeded `hdfg.cfg` |
 | `tour_capture.py` | Drives the demo app through every tab and grabs the animation frames (real Qt platform — a window appears; host name/IPs are masked to placeholders) |
 | `tour_assemble_gif.py` | Assembles the frames into `zx-next-unite-tour.gif` (140 ms frames, crossfades, ffmpeg palette pipeline). Needs **Pillow** — `pip install pillow` |
+| `MAME_ROM_HOWTO_CREATE.md` | How to (re)build the `tbblue.zip` boot-ROM package MAME's `tbblue` / `specnext_ks1..3` machines need: which four ROMs go in it and why (not six), where each one comes from (pinned FPGA-repo commits — the `30204` branch tip has moved on and no longer matches), how to decode the two VHDL-embedded ones, and why the whole thing is GPLv3 and therefore yours to rebuild and pass on |
 | `Get-PyLineCounts.ps1` | Per-module line-count report for the Python sources |
 | `detectenvironnement.bas` / `.txt` | NextBASIC environment-detection helper and its notes |
 | `Send-ToNext.ps1` | Push a build to a real Next over Unite's NextSync HTTP bridge, verified end-to-end (see below) |
