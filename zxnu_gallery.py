@@ -2736,6 +2736,7 @@ class BackgroundWidget(QWidget):
         self._alien_child = None    # AlienFloydWidget child (lazily created)
         self._bg_pixmap   = None
         self._bg_opacity  = self.DEFAULT_OPACITY  # percent 0-100
+        self._bg_color    = None   # user's Background colour (QColor) or None
         self._bg_paths    = []                     # all discovered image paths
         self._bg_index    = -1                     # current index for cycling
         self._bg_fixed    = False                  # True = specific image locked
@@ -2753,6 +2754,20 @@ class BackgroundWidget(QWidget):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def set_bg_color(self, color):
+        """Set the solid colour painted UNDER the background image.
+
+        This widget is the window's whole client area, and a plain QWidget
+        paints no background of its own - so before this the ground was
+        whatever the platform filled behind the top-level window. On a
+        light/classic OS theme that was white, and the explorer panes
+        inherited it under item colours tuned for a dark ground.
+
+        Pass None to go back to the platform's own ground.
+        """
+        self._bg_color = color
+        self.update()
 
     def set_bg_opacity(self, percent: int):
         """Set background image opacity (0 = invisible, 100 = fully opaque)."""
@@ -2913,8 +2928,17 @@ class BackgroundWidget(QWidget):
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        if self._bg_pixmap and self._bg_opacity > 0:
-            painter = QPainter(self)
+        _draw_image = bool(self._bg_pixmap) and self._bg_opacity > 0
+        if self._bg_color is None and not _draw_image:
+            return
+        painter = QPainter(self)
+        # Solid ground first, animated image composited over it at its own
+        # opacity - so picking a Background colour never costs the user the
+        # cycling artwork (or Alien Floyd's starfield, which is an opaque
+        # child widget and simply covers this fill).
+        if self._bg_color is not None:
+            painter.fillRect(self.rect(), self._bg_color)
+        if _draw_image:
             painter.setOpacity(self._bg_opacity / 100.0)
             painter.drawPixmap(self.rect(), self._bg_pixmap)
 

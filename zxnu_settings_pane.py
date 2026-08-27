@@ -64,6 +64,7 @@ SETTINGS_TAB_ROWS = (
     "gallery_slideshow",
     "search_sort",
     "colors_section",
+    "color_background",
     "color_up_directory",
     "color_dir_name",
     "color_dir_type",
@@ -73,6 +74,7 @@ SETTINGS_TAB_ROWS = (
     "color_general_text",
     "color_retro_log",
     "retro_log_font",
+    "reset_theme",
     "bg_opacity",
     "bg_image",
     "crash_log",
@@ -178,6 +180,13 @@ def build_settings_pane(
 
     # setting_key, colour attr, swatch-button attr, light hex, dark hex, black hex
     _theme_palette = (
+        # The explorer/window GROUND. Light and dark share one value on
+        # purpose: every item colour below is tuned for a dark ground, and the
+        # Desktop Theme is documented as choosing FONT colours - so a light OS
+        # theme no longer drags the panes to stock white under green file
+        # names. High contrast is the exception: its fonts are all black
+        # (HIGH_CONTRAST_COLOR), so the ground under them must be white.
+        (SETTING_COLOR_BACKGROUND,   "img_color_background",   "settings_btn_color_background",   DEFAULT_COLOR_BACKGROUND,   DEFAULT_COLOR_BACKGROUND,   HIGH_CONTRAST_BACKGROUND),
         (SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory", "settings_btn_color_up_directory", DEFAULT_COLOR_UP_DIRECTORY, DEFAULT_COLOR_UP_DIRECTORY, HIGH_CONTRAST_COLOR),
         (SETTING_COLOR_DIR_NAME,     "img_color_dir_name",     "settings_btn_color_dir_name",     DEFAULT_COLOR_DIR_NAME,     DARK_COLOR_DIR_NAME,        HIGH_CONTRAST_COLOR),
         (SETTING_COLOR_DIR_TYPE,     "img_color_dir_type",     "settings_btn_color_dir_type",     DEFAULT_COLOR_DIR_TYPE,     DARK_COLOR_DIR_TYPE,        HIGH_CONTRAST_COLOR),
@@ -190,20 +199,42 @@ def build_settings_pane(
     )
     _theme_variant_col = {"light": 3, "dark": 4, "black": 5}
 
+    def _apply_background_color(color=None):
+        """Push the "Background" colour to the two surfaces that make up the
+        app's ground: the window fill (BackgroundWidget, painted UNDER the
+        cycling artwork) and the file-explorer viewports (the app-wide QSS).
+
+        The viewports keep NEXT_VIEWS_BG_ALPHA of translucency, so the
+        animated background still shows through them exactly as before -
+        only the colour underneath is the user's now.
+        """
+        c = color if color is not None else getattr(host, "img_color_background", None)
+        if c is None:
+            return
+        _bgw = getattr(host, "_bg_widget", None)
+        if _bgw is not None:
+            try:
+                _bgw.set_bg_color(c)
+            except RuntimeError:   # widget already torn down at shutdown
+                pass
+        _appinst = QApplication.instance()
+        if _appinst is not None:
+            _appinst.setStyleSheet(
+                NEXT_CHROME_QSS + views_background_qss(qcolor_to_hex(c)))
+    host._apply_background_color = _apply_background_color
+
     def _apply_desktop_theme_colors(persist=False):
         """Recompute the SD Card explorer font colours from the current
         Desktop Theme mode. White/Dark/Black/Automatic derive the palette;
         Custom keeps the user's colours (snapshotting them to the cfg when
-        persist=True)."""
-        # Theme-aware view backgrounds: the explorers/tables/lists render
-        # dark under every variant except explicit White (whose item
-        # palette expects the stock light viewports). Appended to the
-        # app-wide chrome so a theme switch re-applies both.
-        _appinst = QApplication.instance()
-        if _appinst is not None:
-            _extra = ("" if _desktop_theme_variant() == "light"
-                      else NEXT_DARK_VIEWS_QSS)
-            _appinst.setStyleSheet(NEXT_CHROME_QSS + _extra)
+        persist=True).
+
+        The app-wide stylesheet is composed by _apply_background_color at the
+        END of both paths, never at the top: the view ground is read from
+        img_color_background, which the palette loop below has to have
+        recomputed first (composing it first made a theme switch lag by one
+        apply), and the Custom path returns before the tail hooks.
+        """
         mode = getattr(host, "_desktop_theme_mode", DEFAULT_DESKTOP_THEME)
         if mode == DESKTOP_THEME_CUSTOM:
             if persist:
@@ -211,6 +242,9 @@ def build_settings_pane(
                     _c = getattr(host, _entry[1], None)
                     if _c is not None:
                         configuration_dictionary[_entry[0]] = qcolor_to_hex(_c)
+            # The Custom path returns before the tail hooks below, so the
+            # hand-picked ground has to be pushed here too.
+            _apply_background_color()
             return
         variant = _desktop_theme_variant() or "light"
         _col = _theme_variant_col[variant]
@@ -223,6 +257,7 @@ def build_settings_pane(
             _btn = getattr(host, _ba, None)
             if _btn is not None:
                 _btn.setStyleSheet(f"background-color: {qcolor_to_hex(_color)}; border: 1px solid #888;")
+        _apply_background_color()
         if hasattr(host, "_image_recolor_all"):
             try:
                 host._image_recolor_all()
@@ -637,6 +672,12 @@ def build_settings_pane(
         "section headers) used across the app in Classic (non-pygame) mode.")
     grid_tab_Settings.addWidget(settings_section_lbl, settings_grid_row("colors_section"), 0, 1, 2)
 
+    host.settings_btn_color_background = _make_color_button(
+        SETTING_COLOR_BACKGROUND, "img_color_background",
+        "  Background",
+        "Background color behind the file explorers and the whole app window.",
+        settings_grid_row("color_background"), on_change=_apply_background_color)
+
     host.settings_btn_color_up_directory = _make_color_button(
         SETTING_COLOR_UP_DIRECTORY, "img_color_up_directory",
         "  Up Directory item",
@@ -756,6 +797,45 @@ def build_settings_pane(
         if 0 <= i < combo.count():
             combo.setCurrentIndex(i)
     host._step_retro_log_font = _step_retro_log_font
+
+    # ---- "Reset theme": undo every hand-picked colour above ----
+    def _reset_theme_colors():
+        """Drop the user's colour picks and go back to the themed defaults.
+
+        Picking any colour flips the Desktop Theme to Custom, and Custom is
+        exactly the mode that FREEZES the palette - so the reset is: back to
+        the default mode, then let _apply_desktop_theme_colors recompute the
+        whole table from the OS variant and snapshot it to the cfg.
+
+        The retro-log console colour is deliberately theme-INDEPENDENT (it is
+        not in _theme_palette, and its picker passes switch_theme=False), so
+        that one is reset by hand here or the button would leave it behind.
+        """
+        host._desktop_theme_mode = DEFAULT_DESKTOP_THEME
+        configuration_dictionary[SETTING_DESKTOP_THEME] = DEFAULT_DESKTOP_THEME
+        if hasattr(host, "_select_desktop_theme_in_combo"):
+            host._select_desktop_theme_in_combo(DEFAULT_DESKTOP_THEME)
+        _retro = hex_to_qcolor(DEFAULT_COLOR_RETRO_LOG)
+        host.img_color_retro_log = _retro
+        configuration_dictionary[SETTING_COLOR_RETRO_LOG] = DEFAULT_COLOR_RETRO_LOG
+        _rbtn = getattr(host, "settings_btn_color_retro_log", None)
+        if _rbtn is not None:
+            _rbtn.setStyleSheet(
+                f"background-color: {DEFAULT_COLOR_RETRO_LOG}; border: 1px solid #888;")
+        _apply_retro_log_color(_retro)
+        # persist=True snapshots the recomputed palette into the cfg; the
+        # applier also repaints the swatches, both explorers and the ground.
+        _apply_desktop_theme_colors(persist=True)
+        save_configuration_file()
+    host._reset_theme_colors = _reset_theme_colors
+
+    host.settings_btn_reset_theme = QPushButton("Reset theme")
+    host.settings_btn_reset_theme.setToolTip(
+        "Discard the hand-picked colors above and restore the themed defaults.")
+    host.settings_btn_reset_theme.clicked.connect(_reset_theme_colors)
+    grid_tab_Settings.addWidget(host.settings_btn_reset_theme,
+                                settings_grid_row("reset_theme"), 1,
+                                Qt.AlignLeft)
 
     # ---- Background image opacity ----
     bg_opacity_lbl = QLabel("Background image opacity (%):")
