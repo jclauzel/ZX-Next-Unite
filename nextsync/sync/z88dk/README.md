@@ -244,9 +244,10 @@ protocol is covered by `tests/test_listen.py` (repo root), which drives
 - **Not yet run on hardware or a NextZXOS emulator card.** This environment has
   CSpect but no bootable NextZXOS system SD image, so a load test could not be
   performed here. To smoke-test: copy `syncdev` to your card's `C:/DOT/` folder
-  and run `.syncdev` from NextZXOS BASIC — it should print
-  `NextSync 5.4 Clauzel/Komppa` and return cleanly. Then exercise a real sync
-  against the ZX-Next-Unite server as usual.
+  and run `.syncdev` from NextZXOS BASIC — it should print its
+  `NextSync <version> Clauzel/Komppa` banner (the version is
+  `ZX_NEXT_UNITE_DOTN_VERSION` in `zxnu_config.py`) and return cleanly. Then
+  exercise a real sync against the ZX-Next-Unite server as usual.
 - **`-listen` dead-link watchdog (v5.4):** if the server vanishes without its
   goodbye `Q` reaching the dot (app killed/crashed, PC asleep, wifi drop, or
   the clean-shutdown `Q` losing its race against a long transfer), the esp
