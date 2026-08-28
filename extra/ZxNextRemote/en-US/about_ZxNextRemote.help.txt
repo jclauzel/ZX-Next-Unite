@@ -105,7 +105,7 @@ ERROR HANDLING
                           off, firewall).
       ConnectionClosed    this client object was Close()d.
 
-      try { $s.Put($file, '/dev/incoming.nex') }
+      try { $s.Put($file, '/home/incoming.nex') }
       catch [ZxNextRemoteError] {
           switch ($_.Exception.Reason) {
               'TokenRequired' { ... }
@@ -133,8 +133,8 @@ EXAMPLES
 
     $list = $s.Ls('/games')
     $s.Get($list[0], "$env:TEMP\first-file")
-    $s.Put('build\game.nex', '/dev/incoming.nex')
-    if (-not $s.Verify('build\game.nex', '/dev/incoming.nex')) { throw 'bad copy' }
+    $s.Put('build\game.nex', '/home/incoming.nex')
+    if (-not $s.Verify('build\game.nex', '/home/incoming.nex')) { throw 'bad copy' }
     $remote.Close()
 
 SEE ALSO

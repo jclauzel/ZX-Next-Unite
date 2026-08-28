@@ -1,91 +1,495 @@
 #program autoexec
 #autostart 10
-10 REM nextdev - the Next half of the VS Code push-to-hardware loop.
-20 REM Pairs with extra/Send-ToNext.ps1 on the PC. This .txt is the
-30 REM source; copy autoexec.BAS into /nextzxos/ (not root) so every
-40 REM boot re-enters the loop: ZX Next Remote soft-resets it when
-50 REM it exits, which is exactly what closes this cycle.
-60 REM
-70 REM   no file waiting -> serve the Listener and WAIT for a push
-80 REM   file waiting    -> move it aside (so it runs once) and run it
-90 REM
-100 REM The PC pushes to /dev/incoming.nex, then calls /forceexit: ZX
-110 REM Next Remote leaves listen mode, ends its application and resets,
-120 REM and the boot lands back here with a file waiting.
+10 REM nextdev - the Next half of the push-to-hardware loop.
+20 REM Pairs with extra/PS-Send-ToNext.ps1 on the PC. This .txt is
+30 REM the source; copy autoexec.BAS into /nextzxos/ (not the card
+40 REM root) so every boot re-enters the loop.
+50 REM
+60 REM   no file waiting -> serve the Listener and WAIT for a push
+70 REM   file waiting    -> move it aside (so it runs once) and run it
+80 REM
+90 REM Settings live in c:/nextzxos/autoexec.cfg, plain text written
+100 REM by configuration mode at line 1000. A boot with no cfg goes
+110 REM there; so does "b" at the overwrite prompt, holding B while
+120 REM the machine boots, and anything the loop cannot find.
 130 REM
-140 REM ---- which flavour to wait in -----------------------------
-150 REM   1 = Http Bridge  (zxnextremote-httpbridge.nex)
-160 REM   2 = NextSync     (zxnextremote-n2n.nex)
-170 REM Either one works. Both flavours carry the NextSync Listener,
-180 REM and it is menu option 2 in both - pick it on the Next, and
-190 REM Unite's HTTP bridge drives this machine through it exactly
-200 REM as it drives a .sync5 -listen dot. The flavour only decides
-210 REM which transport you ALSO get as a Controler when you are not
-220 REM pushing builds. If the one you pick is not on the card, the
-230 REM other is tried rather than dead-ending here.
-240 LET flavour=1
-250 REM -----------------------------------------------------------
-260 REM Consume a pushed build, if one is waiting.
-262 REM
-264 REM Nothing below branches on whether a dot command FAILED: .mv
-266 REM does not raise a trappable BASIC error when /dev/incoming.nex
-268 REM is missing (checked on hardware), so the old "the .mv errors
-270 REM when nothing arrived" branch never fired and the Listener at
-272 REM line 400 was unreachable on every boot - the machine just
-274 REM printed "pushed build did not start." and halted.
-276 REM
-278 REM So lean on the one thing that IS certain: a .nexload that
-280 REM succeeds NEVER COMES BACK. That cuts both ways, and it is why
-282 REM the build is retired HERE, before it is loaded, rather than
-284 REM after: nothing placed after line 325 can ever run when the
-286 REM build actually starts, so a run.nex cleaned up "afterwards"
-288 REM is never cleaned up at all - it just re-ran the same game at
-290 REM every boot until the card was edited by hand.
-292 REM
-294 REM Retiring first makes run.nex hold ONLY a freshly pushed build:
-296 REM   last boot's build -> /dev/last.nex   (kept, not destroyed:
-298 REM                                         .nexload /dev/last.nex
-300 REM                                         re-runs it by hand)
-302 REM   a new push        -> /dev/run.nex   (and is run below)
-304 REM So a push runs exactly once, and the boot after it lands back
-306 REM on the Listener ready for the next .ps1 push.
-308 REM
-309 REM (No colon-tail on the dot lines - the argument stays exactly
-310 REM the filename.)
-312 ON ERROR GO TO 316
-314 .mv /dev/run.nex /dev/last.nex
-316 ON ERROR GO TO 320
-318 .mv /dev/incoming.nex /dev/run.nex
-320 ON ERROR GO TO 400
-325 .nexload /dev/run.nex
-330 REM Still here, so no build ran: either none was waiting, or one
-332 REM was and would not start - and since a dot's failure is not
-334 REM reliably trappable we cannot tell the two apart, so the line
-336 REM below must read true either way (.nexload prints its own
-338 REM reason above when there was a real one).
-340 PRINT "nextdev: no build ran - serving the Listener."
-400 REM Nothing waiting: hand the machine to the Listener and wait.
-410 PRINT "nextdev: waiting for a push..."
-420 PRINT "pick 2 NextSync (Listener) on the menu."
-430 ON ERROR GO TO 500
-440 IF flavour=2 THEN GO TO 470
-450 .nexload /dev/zxnextremote-httpbridge.nex
-460 GO TO 500
-470 .nexload /dev/zxnextremote-n2n.nex
-480 GO TO 500
-500 REM The preferred flavour did not start - almost always because
-510 REM that .nex is not in /dev/. Try the other one before giving
-520 REM up, so a card carrying only one flavour still loops.
-530 ON ERROR GO TO 600
-540 IF flavour=2 THEN GO TO 570
-550 .nexload /dev/zxnextremote-n2n.nex
-560 GO TO 600
-570 .nexload /dev/zxnextremote-httpbridge.nex
-580 GO TO 600
-600 REM Neither flavour started: say so rather than spinning
-610 REM invisibly, and name the two paths that were tried.
-620 ON ERROR STOP
-630 PRINT "nextdev: no ZX Next Remote found in /dev/."
-640 PRINT "Tried zxnextremote-httpbridge.nex"
-650 PRINT "  and zxnextremote-n2n.nex"
-660 STOP
+140 REM ---- the rules this file is built on ------------------------
+150 REM A .nexload that SUCCEEDS never comes back. Everything that
+160 REM must happen has to happen BEFORE it: the previous build is
+170 REM retired here, not tidied up "afterwards" - nothing written
+180 REM after a .nexload runs when the build actually starts.
+190 REM A dot command's failure is NOT reliably trappable. .mv raises
+200 REM no BASIC error when its source is missing (checked on
+210 REM hardware), so nothing below branches on a dot's success.
+220 REM Each dot line is guarded first by OPEN # on the file it needs
+230 REM (subroutine 8000): opening a MISSING file for input IS a
+240 REM BASIC error, and BASIC errors do trap.
+250 REM A dot cannot be handed a BASIC variable, and the .$ dot only
+260 REM chains 8K dots - .mv and .sync5 are 24K dotN files - so the
+270 REM configured folders are reached with CD and every dot line
+280 REM below is a literal. No colon-tail on a dot line, and never a
+290 REM dot after THEN: the tokeniser eats the argument.
+300 REM ---- settings ----------------------------------------------
+305 LET sc=PEEK 23692
+310 LET c$="c:/nextzxos/autoexec.cfg"
+320 LET d$="c:/dot/sync5"
+330 GO SUB 9000
+340 GO SUB 7000
+350 GO SUB 8700
+355 REM A cfg that failed validation has already been read into the
+357 REM live variables, and configuration mode would write it straight
+359 REM back. Put the defaults back first, so a single bad line is
+361 REM repaired by pressing ENTER through rather than preserved.
+363 IF ok=0 THEN GO SUB 9000
+365 IF ok=0 THEN GO TO 1000
+370 REM ---- the boot window ---------------------------------------
+371 REM B, and not C or A: BOTH are taken by the Next's own boot
+372 REM sequence (C picks a core), found the hard way on hardware -
+373 REM a loop claiming either fights the machine underneath it for
+374 REM the same keypress. Every prompt here names the same key.
+375 REM
+376 REM Say what is running, then watch for B for about two seconds.
+377 REM A silent screen left the user with no sign that autoexec.bas
+378 REM was running at all, so a machine switched to the boot menu
+379 REM looked identical to a broken one. Short on purpose though:
+380 REM this is on the path of EVERY boot.
+381 CLS: POKE 23692,255
+382 PRINT "nextdev: autoexec.bas is running."
+383 PRINT
+384 PRINT "press ";
+385 PRINT FLASH 1; INVERSE 1;"B";
+386 PRINT " to configure it."
+387 FOR i=1 TO 100
+388 IF INKEY$="b" OR INKEY$="B" THEN GO TO 1000
+389 PAUSE 1
+390 NEXT i
+398 IF b$="menu" THEN GO TO 900
+399 GO TO 400
+400 REM ---- consume a pushed build --------------------------------
+401 REM Hold the ROM scroll counter open across the loop's own PRINTs.
+402 REM Every pass, not once at boot: .sync5 saves SCR_CT on entry and
+403 REM RESTORES it on exit, so the value it hands back is whatever
+404 REM BASIC had before the session - which drains ~3 lines a pass and
+405 REM stops with "scroll?" once the dot has filled the screen. The
+406 REM saved value goes back before any dot runs, so nothing else
+407 REM inherits a suppressed counter.
+408 POKE 23692,255
+409 REM CD makes the transfer folder current, so the dot lines below
+410 REM can be literal filenames. A folder that is not there is a
+411 REM settings problem, so it goes to configuration.
+412 LET m$="transfer folder missing"
+414 LET m2$=p$
+420 ON ERROR GO TO 8600
+425 CD p$
+430 ON ERROR
+435 LET a$=p$+"/incoming.nex": GO SUB 8000
+440 IF e=0 THEN GO TO 600
+445 REM A push is waiting. Retire last boot's build first, so that
+450 REM run.nex only ever holds a fresh one and a push runs once:
+455 REM   last boot's build -> last.nex  (kept, not destroyed:
+460 REM                        .nexload last.nex re-runs it by hand)
+465 REM   the new push      -> run.nex   (and is run below)
+470 REM .mv is given -f because its own Overwrite (y/n) prompt has no
+475 REM "b" and cannot be given one, so the question is asked here -
+477 REM but only when retire is "ask" and only when last.nex really
+479 REM would be overwritten.
+480 LET a$=p$+"/run.nex": GO SUB 8000
+485 IF e=0 THEN GO TO 530
+490 LET a$=p$+"/last.nex": GO SUB 8000
+495 IF e=0 THEN GO TO 525
+497 IF r$="always" THEN GO TO 525
+499 IF r$="never" THEN GO TO 530
+500 PRINT "nextdev: Overwrite"
+502 PRINT p$;"/last.nex (y/n/b) ?"
+505 PRINT "y retires this build,"
+507 PRINT "n discards it, b configures."
+515 GO SUB 8800
+517 IF k$="b" THEN GO TO 1000
+519 IF k$="n" THEN GO TO 530
+521 IF k$<>"y" THEN GO TO 515
+525 .mv -f run.nex last.nex
+530 .mv -f incoming.nex run.nex
+531 REM Prove the MOVE happened, not merely that a run.nex is there.
+532 REM On the discard paths (retire "never", or "n" above) the old
+533 REM run.nex is still in place when 530 runs, so a .mv that failed
+534 REM - and a dot's failure is not trappable - would leave LAST
+535 REM boot's build sitting there for 545 to load, silently, for ever.
+536 REM incoming.nex still being present is what says the move failed.
+537 LET a$=p$+"/incoming.nex": GO SUB 8000
+538 IF e=1 THEN GO TO 565
+539 LET a$=p$+"/run.nex": GO SUB 8000
+540 IF e=0 THEN GO TO 565
+543 POKE 23692,sc
+545 .nexload run.nex
+550 REM Still here, so no build ran: nothing was waiting, the move
+555 REM failed, or the build would not start - and a dot's failure is
+560 REM not trappable, so this line must read true in every case.
+565 PRINT "nextdev: no build ran - serving the Listener."
+600 REM ---- hand the machine over and wait for a push -------------
+605 PRINT "nextdev: waiting for a push..."
+607 PRINT "(hold ";: PRINT FLASH 1; INVERSE 1;"B";: PRINT " at boot to configure)"
+610 IF f>1 THEN GO TO 700
+615 REM The .sync5 dot RETURNS to BASIC when its session ends - the
+620 REM PC's /forceexit, a quit, BREAK, or a failure it printed
+625 REM itself - so this flavour has to close the loop by hand. The
+627 REM pause keeps a dot that fails at once from spinning.
+630 LET a$=d$: GO SUB 8000
+635 IF e=1 THEN GO TO 650
+640 GO SUB 8500
+645 LET m$="": LET m2$=""
+647 GO TO 8600
+648 POKE 23692,sc
+650 IF s$="-s" THEN GO TO 665
+655 IF s$="-f" THEN GO TO 675
+660 .sync5 -listen -default
+662 GO TO 685
+665 .sync5 -listen -s
+670 GO TO 685
+675 .sync5 -listen -f
+683 POKE 23692,255
+685 PRINT "nextdev: session ended, looping."
+690 PAUSE 100
+695 GO TO 400
+700 REM ---- the ZX Next Remote flavours ---------------------------
+705 REM Both carry the NextSync Listener - menu option 2 - and both
+710 REM soft-reset when they exit, which re-enters this program from
+715 REM the top. That reset IS the GO TO, so nothing follows them.
+717 REM The old blind "try the other flavour" fallback is gone: the
+719 REM check below knows which .nex is really there, and
+721 REM configuration lets you pick the other one.
+725 PRINT "pick 2 NextSync (Listener) on the menu."
+730 LET a$=n$+"/"+h$: GO SUB 8000
+735 IF e=1 THEN GO TO 745
+737 LET m$="ZX Next Remote missing"
+738 LET m2$="copy "+h$+" to "+n$
+739 GO TO 8600
+745 LET m$=".nex folder missing"
+747 LET m2$=n$
+750 ON ERROR GO TO 8600
+755 CD n$
+760 ON ERROR
+763 POKE 23692,sc
+765 IF f=3 THEN GO TO 775
+770 .nexload zxnextremote-n2n.nex
+772 GO TO 780
+775 .nexload zxnextremote-httpbridge.nex
+780 LET m$="it would not start"
+782 LET m2$=h$
+785 GO TO 8600
+900 REM ---- switched off: hand the machine over -------------------
+901 REM NextZXOS runs this program before anything else, so it cannot
+902 REM stop itself from STARTING - "off" means it gives the machine
+903 REM straight back instead of entering the loop, which is what
+904 REM leaves you at the boot menu.
+905 REM
+906 REM The FLAVOUR is untouched by this, so switching back on does
+907 REM not ask you to pick a transport again - it is a separate
+908 REM setting for a separate question.
+909 REM
+910 REM ON ERROR is disarmed FIRST: an armed handler traps this very
+911 REM STOP and would send the machine somewhere else entirely, the
+912 REM trap this file's own rules warn about.
+915 ON ERROR
+920 PRINT "nextdev: loop switched off."
+930 PRINT "hold ";: PRINT FLASH 1; INVERSE 1;"B";: PRINT " at the next boot"
+940 PRINT "to switch it back on."
+950 STOP
+1000 REM ================ configuration mode ======================
+1005 REM Split into CLS-separated screens so the Next never reaches
+1007 REM its "scroll?" prompt: answering that wrongly raises BREAK,
+1009 REM which would halt the boot loop.
+1010 ON ERROR
+1020 CLS: POKE 23692,255
+1030 PRINT "nextdev: configuration"
+1040 PRINT
+1050 PRINT "the settings as they stand:"
+1060 GO SUB 1800
+1070 PRINT
+1080 PRINT "ENTER keeps a setting as it is."
+1100 PRINT
+1110 PRINT "1 .sync5 dot command (default)"
+1120 PRINT "2 zxnextremote-n2n.nex"
+1130 PRINT "3 zxnextremote-httpbridge.nex"
+1133 IF b$="loop" THEN PRINT "4 boot menu instead of the loop"
+1135 IF b$="menu" THEN PRINT "4 switch the loop back on"
+1140 PRINT "pick 1-4 ?"
+1150 GO SUB 8800
+1160 IF k$>="1" AND k$<="3" THEN LET f=CODE k$-48
+1163 IF k$="4" AND b$="menu" THEN LET b$="loop": GO TO 1170
+1165 IF k$="4" THEN LET b$="menu"
+1170 GO SUB 8700
+1173 REM Switching the loop OFF skips straight to the save prompt:
+1174 REM the speed and the folders only describe how the loop runs,
+1175 REM and it is not going to run. Gated on the keypress, not on
+1176 REM b$, so picking a flavour WHILE off still walks the whole
+1177 REM thing - that is someone setting up for when they switch
+1178 REM back on.
+1179 IF k$="4" AND b$="menu" THEN GO TO 1500
+1181 REM Picking 2 or 3 is checked HERE, the moment it is pressed,
+1182 REM against the .nex folder as it stands - not at the end of
+1183 REM the walk, and not at the next boot. A flavour whose .nex is
+1184 REM not on the card is not a setting worth saving, so it is
+1185 REM refused now and .sync5 is kept, which always works.
+1186 IF f=1 THEN GO TO 1189
+1187 LET a$=n$+"/"+h$: GO SUB 8000
+1188 IF e=0 THEN GO SUB 8900
+1189 IF f>1 THEN GO TO 1300
+1190 CLS: POKE 23692,255
+1200 LET a$=d$: GO SUB 8000
+1210 IF e=0 THEN GO SUB 8500
+1220 PRINT
+1230 PRINT "s  -s slow 115200 (for MAME)"
+1240 PRINT "d  -default 1152000"
+1250 PRINT "f  -f fast 2000000"
+1260 PRINT "which speed (s/d/f) ?"
+1270 GO SUB 8800
+1280 IF k$="s" THEN LET s$="-s"
+1285 IF k$="d" THEN LET s$="-default"
+1290 IF k$="f" THEN LET s$="-f"
+1300 CLS: POKE 23692,255
+1310 PRINT "transfer folder, now ";p$
+1320 INPUT LINE a$
+1325 IF a$="" THEN GO TO 1340
+1327 GO SUB 9100
+1329 IF ok=0 THEN GO TO 1300
+1330 LET p$=a$
+1340 GO SUB 8100
+1350 PRINT
+1360 PRINT ".nex folder, now ";n$
+1370 INPUT LINE a$
+1375 IF a$="" THEN GO TO 1390
+1377 GO SUB 9100
+1379 IF ok=0 THEN GO TO 1300
+1380 LET n$=a$
+1390 IF f=1 THEN GO TO 1450
+1400 LET a$=n$+"/"+h$: GO SUB 8000
+1410 IF e=0 THEN GO SUB 8900
+1450 CLS: POKE 23692,255
+1455 REM Whether to ask before the previous build is overwritten.
+1457 REM "always" and "never" are what make the loop unattended: the
+1459 REM prompt is the one thing that stops it for a keypress.
+1460 PRINT "when a new push arrives and"
+1462 PRINT "last.nex would be overwritten:"
+1464 PRINT
+1466 PRINT "a  ask each time"
+1468 PRINT "k  keep - retire, never ask"
+1470 PRINT "d  discard the old build"
+1472 PRINT
+1474 PRINT "now: ";r$
+1476 PRINT "which (a/k/d) ?"
+1478 GO SUB 8800
+1480 IF k$="a" THEN LET r$="ask"
+1482 IF k$="k" THEN LET r$="always"
+1484 IF k$="d" THEN LET r$="never"
+1500 CLS: POKE 23692,255
+1510 GO SUB 1800
+1520 PRINT
+1530 PRINT "save these to"
+1535 PRINT c$;" ? (y/n)"
+1540 GO SUB 8800
+1550 IF k$<>"y" THEN GO TO 1600
+1560 GO SUB 7500
+1570 IF ok=1 THEN PRINT "saved: ";c$
+1580 IF ok=1 THEN PRINT "edit it there by hand any time."
+1600 PRINT
+1605 IF f=1 THEN PRINT "if .sync5 has no server set,"
+1607 IF f=1 THEN PRINT "run .sync5 <PC ip> once to save it."
+1610 PRINT "on the PC, Send-ToNext.cfg wants"
+1620 PRINT "remote_path = ";p$;"/incoming.nex"
+1630 PRINT
+1640 PRINT "press ENTER to start the loop."
+1650 GO SUB 8800: IF k<>13 THEN GO TO 1650
+1670 GO TO 400
+1800 REM ---- print the settings ------------------------------------
+1810 PRINT "flavour:"
+1820 IF f=1 THEN PRINT " .sync5 -listen ";s$
+1830 IF f>1 THEN PRINT " ";h$
+1840 PRINT "transfer folder: ";p$
+1850 PRINT ".nex folder: ";n$
+1855 PRINT "retire: ";r$
+1857 IF b$="menu" THEN PRINT "at boot: boot menu, not loop"
+1860 RETURN
+7000 REM ---- read the cfg into f, s$, p$, n$, r$. ok=1 when good.
+7010 REM Seven CHR$ 13 terminated lines: the marker ZXNU1, the
+7020 REM flavour 1-3, the .sync5 speed switch, the transfer folder,
+7030 REM the .nex folder, the retire rule and what to do at boot.
+7035 REM Hand-editable on the card.
+7040 LET ok=0
+7050 LET a$=c$: GO SUB 8000
+7060 IF e=0 THEN RETURN
+7070 CLOSE #4
+7075 ON ERROR GO TO 7180
+7080 OPEN #4,c$: DIM #4 TO t: LET q=0
+7090 GO SUB 7200
+7100 IF v$<>"ZXNU1" THEN GO TO 7180
+7110 GO SUB 7200: LET f=CODE v$-48
+7120 GO SUB 7200: LET s$=v$
+7130 GO SUB 7200: LET p$=v$
+7140 GO SUB 7200: LET n$=v$
+7145 GO SUB 7200: LET r$=v$
+7147 GO SUB 7200: LET b$=v$
+7150 IF f<1 OR f>3 THEN GO TO 7180
+7160 IF s$<>"-s" AND s$<>"-default" AND s$<>"-f" THEN GO TO 7180
+7165 IF r$<>"ask" AND r$<>"always" AND r$<>"never" THEN GO TO 7180
+7166 IF b$<>"loop" AND b$<>"menu" THEN GO TO 7180
+7167 LET a$=p$: GO SUB 9100: IF ok=0 THEN GO TO 7180
+7168 LET a$=n$: GO SUB 9100: IF ok=0 THEN GO TO 7180
+7170 LET ok=1
+7180 ON ERROR
+7190 CLOSE #4: RETURN
+7200 REM one CHR$ 13 terminated field from stream 4 into v$. Never
+7210 REM reads past the t bytes DIM # reported, so the end-of-file
+7220 REM error cannot bite.
+7230 LET v$=""
+7240 IF q>=t THEN RETURN
+7250 NEXT #4 TO k: LET q=q+1
+7260 IF k=13 THEN RETURN
+7270 IF k<>10 THEN LET v$=v$+CHR$ k
+7280 GO TO 7240
+7500 REM ---- write the settings to the cfg. ok=1 when written.
+7510 REM Output mode deletes any existing file first, so there is
+7520 REM nothing to erase - and ERASE means something else here.
+7530 LET ok=0: CLOSE #4
+7540 ON ERROR GO TO 7620
+7550 OPEN #4,"o>"+c$
+7560 PRINT #4;"ZXNU1"
+7570 PRINT #4;STR$ f
+7580 PRINT #4;s$
+7590 PRINT #4;p$
+7600 PRINT #4;n$
+7602 PRINT #4;r$
+7603 PRINT #4;b$
+7605 LET ok=1
+7610 ON ERROR: CLOSE #4: RETURN
+7620 ON ERROR: CLOSE #4
+7630 PRINT "could not write ";c$
+7640 RETURN
+8000 REM ---- does the file named in a$ exist? e=1 yes, e=0 no.
+8010 REM A missing file opened for input is a BASIC error, and those
+8020 REM DO trap - unlike a dot command's failure. CLOSE # first and
+8030 REM last: a failed stream op does not close the stream itself.
+8040 LET e=1: CLOSE #4
+8045 ON ERROR GO TO 8065
+8060 OPEN #4,a$
+8062 GO TO 8070
+8065 LET e=0
+8070 ON ERROR: CLOSE #4
+8080 RETURN
+8100 REM ---- is p$ a folder? offer to make it if it is not.
+8110 LET ok=1
+8120 ON ERROR GO TO 8145
+8130 CD p$
+8140 GO TO 8150
+8145 LET ok=0
+8150 ON ERROR
+8155 IF ok=1 THEN RETURN
+8160 PRINT p$;" is not there."
+8165 PRINT "create it (y/n) ?"
+8170 GO SUB 8800
+8180 IF k$<>"y" THEN RETURN
+8185 ON ERROR GO TO 8215
+8200 MKDIR p$
+8210 GO TO 8220
+8215 PRINT "could not create it."
+8220 ON ERROR
+8225 RETURN
+8500 REM ---- where to get the .sync5 dot command -------------------
+8510 PRINT FLASH 1; INVERSE 1;"nextdev: .sync5 dot not found"
+8515 PRINT d$
+8520 PRINT "get sync5 from the releases page"
+8530 PRINT "github.com/jclauzel/"
+8540 PRINT "ZX-Next-Unite/releases"
+8550 PRINT "and put it in the DOT folder on"
+8560 PRINT "the root of the SD card."
+8570 RETURN
+8600 REM ---- m$ went wrong: say it, wait, then configure -----------
+8602 REM m$ is the headline and m2$ the "what to do" line under it.
+8604 REM FLASH + INVERSE on the headline because this lands at the
+8606 REM bottom of a screen a dot has just filled with its own
+8608 REM output, where a plain line is simply lost (reported from
+8610 REM hardware). Both are PRINT items, not statements, so they
+8612 REM colour this one line and nothing after it.
+8614 ON ERROR
+8616 POKE 23692,255
+8620 IF m$<>"" THEN PRINT FLASH 1; INVERSE 1;"nextdev: ";m$
+8622 IF m2$<>"" THEN PRINT m2$
+8625 PRINT
+8630 PRINT "press ENTER for configuration."
+8640 GO SUB 8800: IF k<>13 THEN GO TO 8640
+8660 GO TO 1000
+8700 REM ---- h$ = the .nex the chosen flavour loads ----------------
+8710 LET h$="zxnextremote-n2n.nex"
+8720 IF f=3 THEN LET h$="zxnextremote-httpbridge.nex"
+8730 RETURN
+8800 REM ---- one keypress, no ENTER needed. k = code, k$ = char.
+8805 REM INKEY$, not NEXT #0: reading the keyboard stream a byte at a
+8810 REM time is not something this file can prove on hardware, and a
+8815 REM menu that never returns would strand the boot. Waiting for
+8820 REM the release first stops one press answering two questions.
+8825 IF INKEY$<>"" THEN GO TO 8825
+8830 LET k$=INKEY$
+8835 IF k$="" THEN GO TO 8830
+8840 LET k=CODE k$
+8845 IF k>64 AND k<91 THEN LET k=k+32: LET k$=CHR$ k
+8850 RETURN
+8900 REM ---- the chosen .nex is not on the card -------------------
+8905 REM Refuse the flavour instead of storing it. Called from BOTH
+8910 REM doors: the moment 2 or 3 is pressed, and again if the .nex
+8915 REM folder is changed to one that does not hold it. Dropping
+8920 REM back to .sync5 is what keeps the save prompt honest - the
+8925 REM cfg can only ever describe a flavour that is really there.
+8927 REM Its own CLS, for two reasons: it arrives on top of a screen
+8928 REM that is already nearly full, and CLS is what gives the ROM
+8929 REM scroll counter a fresh budget. The POKE makes it unstallable
+8930 REM even so - a "scroll?" here would stop the boot for a keypress.
+8931 CLS: POKE 23692,255
+8932 PRINT FLASH 1; INVERSE 1;"ZX Next Remote missing"
+8933 PRINT
+8934 PRINT h$
+8935 PRINT "is not in ";n$
+8936 PRINT
+8937 REM The folder is offered HERE rather than sending the user back
+8938 REM to .sync5 to change it and start again: being told the file
+8939 REM is in the wrong place is exactly the moment you know where
+8940 REM the right place is.
+8941 PRINT "is it in another folder? (y/n)"
+8942 GO SUB 8800
+8943 IF k$<>"y" THEN GO TO 8960
+8944 PRINT
+8945 PRINT ".nex folder:"
+8946 INPUT LINE a$
+8947 IF a$="" THEN GO TO 8960
+8948 GO SUB 9100
+8949 IF ok=0 THEN GO TO 8960
+8950 LET n$=a$
+8951 LET a$=n$+"/"+h$: GO SUB 8000
+8952 IF e=1 THEN RETURN
+8953 PRINT
+8954 PRINT FLASH 1; INVERSE 1;"still not there"
+8960 PRINT
+8961 PRINT "keeping .sync5 for now."
+8962 PRINT "copy ";h$
+8963 PRINT "into the folder, then pick"
+8964 PRINT "the flavour again."
+8965 LET f=1: GO SUB 8700
+8966 PRINT
+8967 PRINT "press a key."
+8968 GO SUB 8800
+8970 RETURN
+9000 REM ---- the built-in defaults --------------------------------
+9010 LET f=1: LET s$="-f": LET p$="/home": LET n$="/home": LET r$="ask"
+9015 LET b$="loop": LET m2$=""
+9020 RETURN
+9100 REM ---- is a$ an absolute path? ok=1 yes, ok=0 no --------------
+9110 REM The loop CDs INTO the folder and also probes p$+"/file", so a
+9120 REM relative name is applied twice: CD "push" then a look inside
+9130 REM push/push, where nothing ever is. Absolute is the only form
+9140 REM the two halves agree on, and the dot lines are literals that
+9150 REM resolve against the CD - so this is checked at every door:
+9160 REM here from the prompts, and again when the cfg is read.
+9170 LET ok=0
+9180 IF a$="" THEN RETURN
+9190 IF a$(1)="/" THEN LET ok=1: RETURN
+9200 IF LEN a$>1 THEN IF a$(2)=":" THEN LET ok=1
+9210 IF ok=0 THEN PRINT "needs to start / or C: - not ";a$
+9220 RETURN

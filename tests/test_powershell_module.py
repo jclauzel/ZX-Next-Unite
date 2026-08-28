@@ -77,7 +77,7 @@ class SeatFs:
 
     def __init__(self, files):
         self.files = dict(files)
-        self.dirs = {"/", "/games", "/incoming", "/nextzxos", "/dev"}
+        self.dirs = {"/", "/games", "/incoming", "/nextzxos", "/home"}
 
     @staticmethod
     def norm(path):
@@ -286,7 +286,7 @@ def main():
         cfgfile = os.path.join(tmp, "send.cfg")
         with open(cfgfile, "w") as f:
             f.write(f"bridge_ip = 127.0.0.1\nbridge_port = {PLAIN_PORT}\n"
-                    f"file = {build}\nremote_path = /dev/incoming.nex\n"
+                    f"file = {build}\nremote_path = /home/incoming.nex\n"
                     "forceexit_after_send = yes\nwait_timeout = 15\n")
 
         seat1 = plain.seats[1]
@@ -297,7 +297,7 @@ def main():
         check("push: exit 0", r.returncode == 0,
               f"exit {r.returncode}\n{r.stdout[-1500:]}\n{r.stderr[-500:]}")
         check("push: the exact bytes landed",
-              seat1.files.get("/dev/incoming.nex") == payload)
+              seat1.files.get("/home/incoming.nex") == payload)
         check("push: forceexit was broadcast", plain.forceexits == base + 1,
               plain.forceexits - base)
         check("push: reported verified", "SENT AND VERIFIED" in r.stdout)

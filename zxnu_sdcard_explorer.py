@@ -539,10 +539,18 @@ class SdCardExplorerPane(QWidget):
         filesystem watcher."""
         try:
             view_path = self.local_current_view_dir()
+            # Re-root UNFILTERED, then put the filter back. mapFromSource on
+            # a filtered proxy returns an INVALID index whenever the folder's
+            # own name does not match the wildcard - and setRootIndex on an
+            # invalid index roots the view at the proxy root, i.e. somewhere
+            # else entirely. Clearing first also means the filter is applied
+            # to the freshly re-listed rows rather than to whatever survived.
+            self.proxy_model.setFilterWildcard("")
             self.model.setRootPath("")
             self.model.setRootPath(view_path or "/")
             if view_path:
                 self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(view_path)))
+            self.apply_local_filter()
         except Exception as exc:
             self._hooks.log(f"Local explorer refresh failed: {exc}")
 
@@ -568,7 +576,18 @@ class SdCardExplorerPane(QWidget):
                 child_match = _filter(name_item)
                 row_text = " ".join((parent_item.child(r, c).text() if parent_item.child(r, c) else "") for c in range(self.image_model.columnCount())).lower()
                 self_match = (text in row_text) if text else True
-                visible = self_match or child_match
+                # A folder whose children have NOT been listed yet cannot be
+                # ruled out - its contents are unknown, and it holds only a
+                # placeholder child, so child_match is always False for it.
+                # Without this the Refresh button empties the view whenever a
+                # filter is active: the re-listing drops every folder back to
+                # a placeholder, and the only rows that survive are the ones
+                # whose own name happens to match. Staying visible is also
+                # what makes a filter usable for drilling down - expand the
+                # folder and the real answer replaces this one.
+                unknown = (bool(text) and bool(name_item.data(IMG_ISDIR_ROLE))
+                           and not name_item.data(IMG_LOADED_ROLE))
+                visible = self_match or child_match or unknown
                 self.image_treeview.setRowHidden(r, name_item.index().parent(), not visible)
                 any_visible = any_visible or visible
             return any_visible

@@ -113,9 +113,18 @@ token       =
 # so a repo-local "build\game.nex" travels with the project.
 file        = build\game.nex
 
-# Where it lands on the Next. autoexec.txt expects /dev/incoming.nex - it
+# Where it lands on the Next. autoexec.txt expects /home/incoming.nex - it
 # moves that file aside and runs it after the Next resets.
-remote_path = /dev/incoming.nex
+#
+# This DEFAULT moved from /dev/ to /home/ (9.6.3): /dev never existed on a
+# stock NextZXOS card, so it had to be created by hand before the loop would
+# work at all, while /home ships with the OS. If you already have a working
+# setup, the two halves must agree: either delete the remote_path line below
+# to take the new default and point the Next-side loop at /home, or keep
+# writing /dev/incoming.nex here and leave the card as it is. A PC writing to
+# one folder while the Next watches the other fails silently - the push
+# succeeds and nothing ever runs.
+remote_path = /home/incoming.nex
 
 # After a verified send, tell the Next to leave listen mode and exit its
 # application, so the Next-side loop runs the file. "no" leaves the Next in
@@ -155,7 +164,7 @@ function Test-Yes([string]$v) {
 $bridgeIp   = Get-Cfg "bridge_ip"
 $bridgePort = [int](Get-Cfg "bridge_port" "80")
 $token      = Get-Cfg "token"
-$remotePath = Get-Cfg "remote_path" "/dev/incoming.nex"
+$remotePath = Get-Cfg "remote_path" "/home/incoming.nex"
 $doExit     = Test-Yes (Get-Cfg "forceexit_after_send" "yes")
 if ($TimeoutSeconds -le 0) {
     $TimeoutSeconds = [int](Get-Cfg "wait_timeout" "0")
