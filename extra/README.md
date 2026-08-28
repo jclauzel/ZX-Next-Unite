@@ -101,7 +101,7 @@ halves are `extra\Send-ToNext.ps1` (PC) and `extra\autoexec.bas` (Next).
 
 **On the Next, once:**
 
-1. Copy **either** ZX Next Remote flavour to `/dev/` on the SD card —
+1. Copy **either** ZX Next Remote flavour to `/home/` on the SD card —
    `zxnextremote-httpbridge.nex` or `zxnextremote-n2n.nex`. Both carry the
    NextSync **Listener**, and the Listener is what Unite's HTTP bridge
    drives, so a push lands the same way either way. The flavour only decides
@@ -132,10 +132,10 @@ which enters the Listener and waits. ZX Next Remote soft-resets when it
 exits, which is what closes the loop — the reset IS the `GO TO`.
 
 A pushed build runs **once**. Before loading anything, the loop retires the
-previous build to `/dev/last.nex`, so `/dev/run.nex` only ever holds a
+previous build to `/home/last.nex`, so `/home/run.nex` only ever holds a
 freshly pushed one: exit the game, and the next boot lands back on the
 Listener ready for your next push instead of re-running the old build for
-ever. The retired copy is kept, not deleted — `.nexload /dev/last.nex`
+ever. The retired copy is kept, not deleted — `.nexload /home/last.nex`
 re-runs it by hand whenever you want it again.
 
 It cannot be done the other way round: a successful `.nexload` never comes

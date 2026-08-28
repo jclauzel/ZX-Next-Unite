@@ -166,8 +166,8 @@ $s.Get($list[0], 'C:\tmp\first.bin')          # straight from an Ls() entry
 
 # upload, then PROVE it landed intact (size + 16-bit checksum, read back
 # off the Next — an HTTP 200 alone is not proof)
-$s.Put('build\game.nex', '/dev/incoming.nex')
-if (-not $s.Verify('build\game.nex', '/dev/incoming.nex')) { throw 'bad copy' }
+$s.Put('build\game.nex', '/home/incoming.nex')
+if (-not $s.Verify('build\game.nex', '/home/incoming.nex')) { throw 'bad copy' }
 
 # manage
 $s.Exists('/nextzxos/autoexec.bas')           # $true / $false
@@ -238,7 +238,7 @@ failure class — branch on it, never on message text:
 ```powershell
 using module ZxNextRemote                      # makes the catch type visible
 try {
-    $s.Put('build\game.nex', '/dev/incoming.nex')
+    $s.Put('build\game.nex', '/home/incoming.nex')
 } catch [ZxNextRemoteError] {
     switch ($_.Exception.Reason) {
         'TokenRequired' { Write-Warning 'set $bearer from Unite''s Settings'; exit 2 }

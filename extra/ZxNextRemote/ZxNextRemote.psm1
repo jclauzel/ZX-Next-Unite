@@ -888,8 +888,8 @@ function New-ZxNextRemote {
     .EXAMPLE
         $con = New-ZxNextRemoteConnection 10.0.0.8 80 -Token $tok
         $s = (New-ZxNextRemote -Connection $con).ManageSession()
-        $s.Put('build\game.nex', '/dev/incoming.nex')
-        if (-not $s.Verify('build\game.nex', '/dev/incoming.nex')) { throw 'bad copy' }
+        $s.Put('build\game.nex', '/home/incoming.nex')
+        if (-not $s.Verify('build\game.nex', '/home/incoming.nex')) { throw 'bad copy' }
     .OUTPUTS
         ZxNextRemote
     .LINK
