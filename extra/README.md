@@ -101,30 +101,103 @@ halves are `extra\Send-ToNext.ps1` (PC) and `extra\autoexec.bas` (Next).
 
 **On the Next, once:**
 
-1. Copy **either** ZX Next Remote flavour to `/home/` on the SD card —
-   `zxnextremote-httpbridge.nex` or `zxnextremote-n2n.nex`. Both carry the
-   NextSync **Listener**, and the Listener is what Unite's HTTP bridge
-   drives, so a push lands the same way either way. The flavour only decides
-   which transport you *also* get as a Controler when you are not pushing
-   builds.
-2. In its Settings, set **NextSync → controller IP** to the PC running
+1. Decide what serves the push. Three choices, and the loop asks you on
+   first boot:
+   * **`.sync5` (the default).** Just the dot command — no `.nex` on the
+     card at all. Put `sync5` in the **`/dot/`** folder at the card root
+     (it is an asset on every
+     [release](https://github.com/jclauzel/ZX-Next-Unite/releases)). The
+     lightest option, and the one that returns to BASIC when a session
+     ends, so the loop closes itself.
+   * **`zxnextremote-n2n.nex`** or **`zxnextremote-httpbridge.nex`**, copied
+     to `/home/` on the SD card. Both carry the NextSync **Listener**, and
+     the Listener is what Unite's HTTP bridge drives, so a push lands the
+     same way either way. The flavour only decides which transport you
+     *also* get as a Controler when you are not pushing builds.
+2. *(the `.nex` flavours only)* In its Settings, set
+   **NextSync → controller IP** to the PC running
    Unite. That is the field the Listener dials out on — *not* the bridge IP
    and port, which belong to Http Bridge (Controler) mode and play no part
    in receiving a push. The two are separate on purpose, so the two modes
    can face different machines.
-3. Set **Startup menu** to `2 Listener`. Without it every cycle stops at the
-   Home menu waiting for a keypress, and the loop is not unattended.
+3. *(the `.nex` flavours only)* Set **Auto start** to `2 Listener`.
+   Without it every cycle stops at the Home menu waiting for a keypress,
+   and the loop is not unattended. Since ZX Next Remote 0.9.56 that setting
+   also drops the goodbye banner on exit, so each cycle is ~2 s quicker.
+
+   Using `.sync5` instead? Run `.sync5 <PC ip>` once to save the server
+   address; the dot keeps it in `c:/sys/config/nextsync.cfg` and the loop
+   passes only `-listen` and your speed switch after that.
 4. Copy `autoexec.bas` into the **`/nextzxos/` folder** on the card — not
    the card root, where NextZXOS will not run it. No renaming: the file
    ships under the name the machine looks for.
-5. Using the n2n flavour? Set `LET flavour=2` (line 240 of `autoexec.txt`),
-   re-tokenise — see *Editing the loop* below — and copy the rebuilt
-   `autoexec.bas` into `/nextzxos/` again, or the card keeps the old one.
-   If the flavour you pick is not on the card, the loop tries the other one
-   rather than dead-ending, so a mismatch costs you nothing.
+5. Boot it. With no `autoexec.cfg` yet the loop opens **configuration
+   mode** and asks for all of the above — flavour, `.sync5` speed, the two
+   folders, and what to do when a new push would overwrite the previous
+   build. It saves your answers to `c:/nextzxos/autoexec.cfg` and starts
+   the loop. Nothing needs re-tokenising to change your mind: press **`c`**
+   at the overwrite prompt, or **hold `C` while the machine boots**, to get
+   back in.
 
 On screen the loop announces itself as **`nextdev:`** — that is the prefix
 to look for in its messages (`nextdev: waiting for a push...`).
+
+### The settings file
+
+`c:/nextzxos/autoexec.cfg`, plain text, six lines, hand-editable on the card:
+
+```
+ZXNU1      format marker - anything else means "reconfigure"
+1          flavour: 1 .sync5, 2 n2n .nex, 3 httpbridge .nex
+-f         .sync5 speed: -s (slow, and what MAME needs) | -default | -f
+/home      transfer folder - where pushes land
+/home      folder holding the .nex flavours
+ask        when a push would overwrite the previous build:
+           ask | always (retire it) | never (discard it)
+loop       at boot: loop (serve a push) | menu (hand the machine
+           straight to the boot menu instead)
+```
+
+Both folders must be **absolute** — starting `/` or a drive letter. The loop
+`CD`s into the transfer folder *and* probes paths inside it, so a relative
+name would be applied twice and every push would land somewhere the loop
+never looks.
+
+**Picking flavour 2 or 3 is checked immediately.** If that `.nex` is not in
+the `.nex` folder, configuration says so — flashing, on its own screen — and
+offers to take a different folder there and then. Give it one holding the
+file and the flavour stands; decline, or name a folder that does not hold it
+either, and it keeps `.sync5` (which needs no `.nex` at all) rather than
+saving a setting whose file is not on the card. The same check runs again if
+you change the `.nex` folder later in the walk.
+
+**Switching the loop off** is entry `4` on the first configuration screen, and
+it toggles — pick `4` again to switch it back on. It is deliberately not a
+fourth flavour: your transport choice survives being switched off, so turning
+it back on does not make you pick one again. While it is off the program still
+*runs* at boot (NextZXOS starts it before anything else) but hands the machine
+straight back, so you land at the boot menu. **Hold `C` at boot** to get back
+into configuration and re-enable it.
+
+Delete the file and the next boot re-enters configuration mode. Anything the
+loop cannot find — a missing `/dot/sync5`, a missing `.nex`, a transfer
+folder that is not there — says so, waits for ENTER, and takes you there too,
+rather than halting.
+
+`always` and `never` are what make the loop truly unattended: `ask` is the one
+setting that stops it for a keypress. With either of the other two, **hold `C`
+at boot** is how you get back into configuration.
+
+> **The transfer folder must match the PC.** Configuration mode prints the
+> exact line to put in `Send-ToNext.cfg` (`remote_path = /home/incoming.nex`).
+> A PC writing to one folder while the Next watches another fails silently —
+> the push succeeds and nothing ever runs.
+
+> **`/home`, not `/dev` (9.6.3).** Earlier versions defaulted to `/dev/`, which
+> does not exist on a stock NextZXOS card and had to be created by hand.
+> `/home` ships with the OS. If you have an existing setup on `/dev`, either
+> keep it (set the transfer folder to `/dev` in configuration mode and leave
+> `remote_path` alone) or move both halves together.
 
 The loop runs at every boot: if a pushed file is waiting it moves it aside
 and `.nexload`s it; otherwise it hands the machine to your chosen flavour,
@@ -232,16 +305,12 @@ beside the script). SampleNex's README documents refreshing them.
 ### Editing the loop
 
 `autoexec.txt` is the readable source; `autoexec.bas` is the tokenised
-NextBASIC the Next loads. The one line most people need is the flavour
-choice near the top:
+NextBASIC the Next loads.
 
-```
-240 LET flavour=1
-```
-
-`1` waits in `zxnextremote-httpbridge.nex`, `2` in `zxnextremote-n2n.nex`.
-Whichever you choose, the push itself arrives through the NextSync Listener,
-which both flavours carry.
+**Most changes need no editing at all.** Flavour, `.sync5` speed, both
+folders and the retire rule all live in `autoexec.cfg` on the card and are
+set from configuration mode on the Next — that is the whole point of it.
+Edit the source only to change the loop's *behaviour*.
 
 After any edit, re-tokenise with
 [txt2bas](https://www.npmjs.com/package/txt2bas) — the Next loads the `.bas`,
