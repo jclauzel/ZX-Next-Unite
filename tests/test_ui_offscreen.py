@@ -1717,13 +1717,104 @@ def inspect_phase12():
                   win._image_state_key("") == ""
                   and win._image_state_key('""') == "")
 
+            # ---- right-click: pick a writable image instead ------------
+            # The way OUT of a greyed-out launch. Two images in the history,
+            # one of them held; only the free one may be offered.
+            free_img = os.path.join(SCRATCH, "phase12-free.img")
+            with open(free_img, "wb") as fh:
+                fh.write(b"\0" * 512)
+            win.imageinput.clear()
+            win.imageinput.addItem(busy_img)
+            win.imageinput.addItem(free_img)
+            win.imageinput.addItem(os.path.join(SCRATCH, "phase12-gone.img"))
+            win.imageinput.setCurrentText(busy_img)
+            win.right_disk_image_path = busy_img
+
+            holder2 = None
+            if sys.platform == "win32":
+                holder2 = _k32.CreateFileW(busy_img, 0xC0000000, 0x00000001,
+                                           None, 3, 0, None)
+                if holder2 == wintypes.HANDLE(-1).value:
+                    holder2 = None
+            if holder2 is None:
+                win._images_held_by_us[key] = [_Holder()]
+
+            offered = [p for p, _cur in win.writable_image_choices()]
+            check("the busy image is not offered as a choice",
+                  busy_img not in offered, str(offered))
+            check("a writable image IS offered", free_img in offered,
+                  str(offered))
+            check("an entry whose file has gone is skipped",
+                  not any("phase12-gone" in p for p in offered), str(offered))
+
+            # The menu must open from a DISABLED button. Qt drops mouse and
+            # context-menu events for disabled widgets inside QWidget.event(),
+            # so setContextMenuPolicy(CustomContextMenu) never fires there -
+            # which is exactly when this menu is needed. An event filter runs
+            # before event(); this is the tripwire against a relapse.
+            from PySide6.QtCore import Qt as _Qt
+            check("the Launch buttons do not rely on CustomContextMenu",
+                  win.button_start_mame.contextMenuPolicy()
+                  != _Qt.ContextMenuPolicy.CustomContextMenu,
+                  str(win.button_start_mame.contextMenuPolicy()))
+
+            import zxnu_main as _zm
+            from PySide6.QtGui import QContextMenuEvent
+            seen_menu = []
+            _real_menu = _zm.emulator_color_menu
+
+            def _spy(parent, label, current, on_picked, gpos,
+                     image_choices=None, on_image_picked=None):
+                seen_menu.append((label, list(image_choices or ()),
+                                  on_image_picked))
+
+            _zm.emulator_color_menu = _spy
+            try:
+                win.button_start_mame.setEnabled(False)
+                _btn = win.button_start_mame
+                _centre = _btn.mapToGlobal(_btn.rect().center())
+                app.sendEvent(_btn, QContextMenuEvent(
+                    QContextMenuEvent.Reason.Mouse,
+                    _btn.mapFromGlobal(_centre), _centre))
+                check("right-clicking a GREYED-OUT Launch button opens the menu",
+                      bool(seen_menu), str(seen_menu))
+                if seen_menu:
+                    _label, _choices, _picker = seen_menu[0]
+                    check("the menu offers the writable image",
+                          any(p == free_img for p, _c in _choices),
+                          str([p for p, _c in _choices]))
+                    check("and knows how to act on the pick", _picker is not None)
+            finally:
+                _zm.emulator_color_menu = _real_menu
+                # Release the lock here, not further down: a check that
+                # raises would otherwise leave the handle open and the
+                # phase's own cleanup could not delete the file.
+                if holder2 is not None:
+                    _k32.CloseHandle(holder2)
+                    holder2 = None
+
+            # Picking one makes it the loaded image - the same two steps the
+            # history dropdown performs. A runner without hdfmonkey answers
+            # that load with the MODAL install prompt, which a headless run
+            # can never click away; the app's own once-flag suppresses it.
+            win._hdfmonkey_prompt_shown = True
+            win.select_emulator_image(free_img)
+            check("picking an image puts it in the image box",
+                  win._image_state_key(win.imageinput.currentText())
+                  == win._image_state_key(free_img),
+                  win.imageinput.currentText())
+
+            win._images_held_by_us.pop(key, None)
+
+            win.imageinput.clear()
             win.imageinput.setCurrentText("")
             win.right_disk_image_path = ""
             win._image_write_state.pop(key, None)
-            try:
-                os.remove(busy_img)
-            except OSError:
-                pass
+            for _stale in (busy_img, free_img):
+                try:
+                    os.remove(_stale)
+                except OSError:
+                    pass
     finally:
         win._show_toast = real_toast
     app.quit()

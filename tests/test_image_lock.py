@@ -211,7 +211,9 @@ check("a blocker that raises degrades to 'not blocked'",
 
 
 # ---- the message is translated, and keeps its placeholder ----------------
-NEW_STRINGS = (".img file {path} already in use.",)
+NEW_STRINGS = (".img file {path} already in use.",
+               "Select emulator image file: {path}",
+               "No writable disk image available.")
 missing = [(lg, s) for s in NEW_STRINGS for lg in CATALOGS
            if s not in CATALOGS[lg]]
 check("the busy message is in every catalog", not missing, str(missing[:3]))
@@ -231,6 +233,20 @@ for s in NEW_STRINGS:
             broken.append((lg, s + "  [placeholder set differs]"))
 check("every translation renders and names the file", not broken,
       str(broken[:3]))
+
+# ---- the menu row's path label ------------------------------------------
+from zxnu_remote_explorer import _elide_image_path  # noqa: E402
+
+short = "C:/img/next.img"
+check("a short path is left alone", _elide_image_path(short) == short)
+long_path = "C:/a/very/deeply/nested/collection/of/folders/" + "x" * 60 + "/next.img"
+elided = _elide_image_path(long_path)
+check("a long path is trimmed to fit a menu row", len(elided) <= 58 + 1,
+      f"{len(elided)}: {elided}")
+# Trimmed from the LEFT: the file name is what identifies the image, and a
+# user's images often share a parent folder.
+check("the trim keeps the file name visible", elided.endswith("next.img"),
+      elided)
 
 print()
 if FAIL:

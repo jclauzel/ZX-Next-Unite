@@ -3440,24 +3440,84 @@ class MainWindow(QMainWindow):
         self.zx_next_unite_form.addRow(self.sdcard_splitter)
 
         def _bind_emulator_button_color_menu(button, label):
-            """Right-click on a Launch button opens the SAME colour editor
-            the vertical strips' tabs offer, writing the SAME one-per-
-            emulator value (9.6.0) — so "CSpect is green" is true on the
-            SD Card strip, on the Remote Explorer's strip and on this
-            button at once, or nowhere. host.set_emulator_color persists
-            it and repaints all three."""
-            button.setContextMenuPolicy(Qt.CustomContextMenu)
+            """Right-click on a Launch button: pick a disk image, or a colour.
 
-            def _menu(pos, _btn=button, _label=label):
+            The colour half (9.6.0) is the SAME editor the vertical strips'
+            tabs offer, writing the SAME one-per-emulator value — so "CSpect
+            is green" is true on the SD Card strip, on the Remote Explorer's
+            strip and on this button at once, or nowhere. The disk-image half
+            (9.6.2) lists the remembered images that are writable right now.
+
+            AN EVENT FILTER, not setContextMenuPolicy(CustomContextMenu).
+            That policy is implemented inside QWidget.event(), and Qt drops
+            mouse and context-menu events for a DISABLED widget before
+            event() ever runs — so the signal never fires on a greyed-out
+            button, which is precisely when this menu matters (the button is
+            grey because its image is busy, and the menu is the way out).
+            Event filters run BEFORE event(), so they still see it. Measured,
+            not assumed; the same trap _ImagePathCombo documents for the
+            combo popup.
+
+            The filter is installed on the button AND on its parent, because
+            the two delivery routes differ: Qt's hit test does find a
+            disabled widget (childAt/widgetAt both return it), but a walk-up
+            to an enabled ancestor is the documented fallback. Whichever
+            arrives first consumes the event by returning True, so exactly
+            one menu opens.
+            """
+            button.setContextMenuPolicy(Qt.DefaultContextMenu)
+
+            def _open(global_pos, _btn=button, _label=label):
                 raw = self.emulator_color_for(_label)
                 current = QColor(str(raw)) if raw else None
+                choices = []
+                lister = getattr(self, "writable_image_choices", None)
+                if lister is not None:
+                    try:
+                        choices = list(lister() or [])
+                    except Exception:           # noqa: BLE001
+                        logging.exception("image choices failed")
                 emulator_color_menu(
                     _btn, _label,
                     current if (current is not None and current.isValid()) else None,
                     (lambda hexval: self.set_emulator_color(_label, hexval)),
-                    _btn.mapToGlobal(pos))
+                    global_pos,
+                    image_choices=choices,
+                    on_image_picked=getattr(self, "select_emulator_image", None))
 
-            button.customContextMenuRequested.connect(_menu)
+            class _MenuFilter(QObject):
+                def eventFilter(self, obj, ev):
+                    if ev.type() != QEvent.Type.ContextMenu:
+                        return False
+                    try:
+                        pos = ev.globalPos()
+                        # isHidden(), NOT isVisible(). isVisible() is False for
+                        # anything on a tab that is not the current one, and
+                        # for a window that is not mapped - neither of which
+                        # says anything about THIS button. isHidden() is the
+                        # distinction that matters: the app hides the Launch
+                        # button outright when the emulator is not installed,
+                        # and then the click belongs to whatever is there now.
+                        if button.isHidden() or not button.rect().contains(
+                                button.mapFromGlobal(pos)):
+                            return False       # not over OUR button
+                    except RuntimeError:
+                        return False           # button torn down
+                    _open(pos)
+                    return True                # consumed: no second menu
+
+            _filter = _MenuFilter(button)
+            button.installEventFilter(_filter)
+            _parent = button.parentWidget()
+            if _parent is not None:
+                _parent.installEventFilter(_filter)
+            # The filter's C++ side must outlive this closure; parenting it to
+            # the button is not enough on its own in PySide6, so keep a
+            # Python reference too.
+            self._emulator_button_menu_filters.append(_filter)
+
+        # Holder for the filters above (they must not be garbage collected).
+        self._emulator_button_menu_filters = []
 
         # Add action buttons at the bottom, split into two titled groups so the
         # MAME and CSpect controls read as separate emulators rather than one

@@ -553,29 +553,62 @@ class EmulatorTab(SessionTab):
             self.setToolTip(tooltip)
 
 
-def emulator_color_menu(parent, label, current, on_picked, global_pos):
-    """THE right-click colour editor for an emulator surface.
+def emulator_color_menu(parent, label, current, on_picked, global_pos,
+                        image_choices=None, on_image_picked=None):
+    """THE right-click menu for an emulator surface.
 
     One function so the three surfaces that wear an emulator's colour —
     the SD Card tab's strip, the Remote Explorer's strip and the SD Card
-    tab's Launch buttons — offer the same two actions and write the same
+    tab's Launch buttons — offer the same actions and write the same
     value. *current* is a QColor or None; *on_picked* takes "#rrggbb" (or
     "" to reset) and is responsible for persisting and repainting.
+
+    *image_choices* / *on_image_picked* add the disk-image section on top
+    (9.6.2). ``image_choices`` is ``[(path, is_current), ...]`` — the
+    remembered images that are writable RIGHT NOW, already probed by the
+    caller — and picking one loads it. That is the way out of a greyed-out
+    launch: the button is dead precisely because its image is held by
+    another emulator, and this is where the user learns which of their
+    images are not. The section is omitted entirely when no handler is
+    given, so a caller that only wants the colour editor is unaffected.
 
     menu.exec() RETURNS the chosen action rather than firing a triggered
     handler, so the colour dialog opens after the menu's input grab has
     already been released — the rule the NextSync explorer menu learned
     the hard way (a QMessageBox opened from inside menu.exec() fights it
-    and can hang the UI).
+    and can hang the UI). The image pick obeys it for the same reason:
+    loading an image can raise the missing-hdfmonkey prompt.
     """
     menu = QMenu(parent)
+    image_actions = {}
+    if on_image_picked is not None:
+        choices = list(image_choices or ())
+        for path, is_current in choices:
+            act = menu.addAction(ui_tr_now(
+                "Select emulator image file: {path}").format(
+                    path=_elide_image_path(path)))
+            # A check mark on the one already loaded: the list is most
+            # useful when it says which image you are on as well as which
+            # you could move to.
+            act.setCheckable(True)
+            act.setChecked(bool(is_current))
+            image_actions[act] = path
+        if not choices:
+            # Right-clicking a greyed-out button and finding only a colour
+            # picker is a dead end; say why there is nothing to offer.
+            act_none = menu.addAction(
+                ui_tr_now("No writable disk image available."))
+            act_none.setEnabled(False)
+        menu.addSeparator()
     act_set = menu.addAction(
         ui_tr_now("Set the {emulator} color…").format(emulator=label))
     act_reset = menu.addAction(
         ui_tr_now("Reset the {emulator} color").format(emulator=label))
     act_reset.setEnabled(current is not None)
     chosen = menu.exec(global_pos)
-    if chosen is act_set:
+    if chosen in image_actions:
+        on_image_picked(image_actions[chosen])
+    elif chosen is act_set:
         # Same 3-arg house form as the Settings colour rows and the
         # machine-colour picker: the platform's native dialog, English
         # title (the app deliberately leaves the colour dialog alone).
@@ -586,6 +619,17 @@ def emulator_color_menu(parent, label, current, on_picked, global_pos):
             on_picked(qcolor_to_hex(picked))
     elif chosen is act_reset:
         on_picked("")
+
+
+def _elide_image_path(path, limit=58):
+    """A disk-image path short enough for a context-menu row.
+
+    Trimmed from the LEFT: the file name is the part that identifies the
+    image, and several of a user's images can share a parent folder. Short
+    paths are returned untouched.
+    """
+    text = str(path or "")
+    return text if len(text) <= limit else "…" + text[-(limit - 1):]
 
 
 class MachineIdentityDialog(QDialog):
@@ -853,6 +897,7 @@ class RemoteExplorerWidget(QWidget):
                  on_machine_name_changed=None, machine_color_for=None,
                  on_machine_color_changed=None, enqueue_to=None,
                  emulator_launchers=None, emulator_color_for=None,
+                 emulator_images=None, on_emulator_image_picked=None,
                  on_emulator_color_changed=None, local_drives=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
@@ -878,6 +923,12 @@ class RemoteExplorerWidget(QWidget):
         # about which emulators exist or how one is started - same seam as
         # _emulator_entries above; without the hook the strip never shows.
         self._emulator_launchers = emulator_launchers or (lambda: [])
+        # The writable-image picks its strip tabs offer on right-click, and
+        # what to do with one. Hooks rather than a host reference, matching
+        # every other channel into this widget; absent means the menu keeps
+        # to the colour editor it has always had.
+        self._emulator_images = emulator_images
+        self._on_emulator_image_picked = on_emulator_image_picked
         self._on_sync_root_changed = on_sync_root_changed or (lambda p: None)
         # Surface Next-side failures ('F' replies / abandoned transfers) to the
         # user: on_toast(title, message, variant) pops a host toast.
@@ -2099,11 +2150,19 @@ class RemoteExplorerWidget(QWidget):
         return col if col.isValid() else None
 
     def _emulator_tab_menu(self, name, global_pos):
-        """Right-click on an emulator tab: pick or reset its colour."""
+        """Right-click on an emulator tab: choose a disk image, or its colour."""
+        choices = []
+        if self._emulator_images is not None:
+            try:
+                choices = list(self._emulator_images() or [])
+            except Exception:                   # noqa: BLE001
+                logging.exception("Remote explorer: image choices failed")
         emulator_color_menu(
             self, str(name), self._emulator_color(name),
             (lambda hexval, n=name: self._on_emulator_color_changed(n, hexval)),
-            global_pos)
+            global_pos,
+            image_choices=choices,
+            on_image_picked=self._on_emulator_image_picked)
 
     def _launch_emulator(self, fn):
         """Run one emulator launcher, called with NO arguments - the bare

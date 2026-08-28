@@ -565,6 +565,71 @@ def build_emulator_ops(
 
     host._reprobe_and_regate = _reprobe_and_regate
 
+    def _writable_image_choices():
+        """The remembered disk images that can be taken for writing NOW.
+
+        Returns ``[(path, is_current), ...]`` in the combo's own order
+        (most recently loaded first). This is what the launch affordances'
+        right-click menu offers: when the selected image is busy, the way
+        out is to pick one that is not, and the app already knows which
+        images the user works with.
+
+        Probing every entry is the point of the gesture, so it is done
+        eagerly here rather than from a cache - but each verdict IS written
+        to the cache, so the menu and the launch gate can never disagree,
+        and merely opening the menu re-checks the current image (which is
+        how a right-click un-greys a button whose emulator has since been
+        closed).
+
+        Entries whose file has gone are skipped silently: the history is
+        allowed to outlive a file, and the '✕' affordance is where
+        forgetting one belongs.
+        """
+        combo = getattr(host, "imageinput", None)
+        if combo is None:
+            return []
+        current_key = _image_state_key(
+            getattr(host, "right_disk_image_path", "") or "")
+        out, seen = [], set()
+        try:
+            paths = [combo.itemText(i) for i in range(combo.count())]
+        except RuntimeError:
+            return []                  # combo torn down mid-shutdown
+        for raw in paths:
+            path = normalize_sd_image_path(raw)
+            key = _image_state_key(path)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            if not os.path.isfile(path):
+                continue
+            if _probe_image_write_access(path) and not _image_held_by_us(key):
+                out.append((path, key == current_key))
+        return out
+
+    host.writable_image_choices = _writable_image_choices
+
+    def _select_emulator_image(path):
+        """Make *path* the loaded image - the menu pick's whole effect.
+
+        Deliberately the same two steps the history dropdown performs, so
+        picking an image from a Launch button's menu and picking it from
+        the combo are the same act: put it in the box, then load it. The
+        load re-probes and re-gates on its way through, which is what turns
+        the greyed-out buttons back on.
+        """
+        clean = normalize_sd_image_path(path)
+        if not clean:
+            return
+        combo = getattr(host, "imageinput", None)
+        loader = getattr(host, "load_image", None)
+        if combo is None or loader is None:
+            return
+        combo.setCurrentText(clean)
+        loader()
+
+    host.select_emulator_image = _select_emulator_image
+
     def _emulator_launch_blocker(emulator, autostart=False):
         """Why *emulator* cannot start right now, or "" when it can.
 

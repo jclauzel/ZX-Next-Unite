@@ -1116,6 +1116,10 @@ CATALOGS = {
             "Requiere el paquete opcional «pygame-ce».\nInstálalo con: pip install pygame-ce",
         "Load a ZX Spectrum Next disk image first — then CSpect can boot it from the mounted SD card.":
             "Carga primero una imagen de disco de ZX Spectrum Next — CSpect podrá arrancarla desde la tarjeta SD montada.",
+        "Select emulator image file: {path}":
+            "Seleccionar imagen para el emulador: {path}",
+        "No writable disk image available.":
+            "No hay ninguna imagen de disco grabable disponible.",
         ".img file {path} already in use.":
             "El archivo .img {path} ya está en uso.",
         "The disk image {path} can no longer be found — it may have been moved, renamed or deleted.":
@@ -2281,6 +2285,10 @@ CATALOGS = {
             "Requer o pacote opcional «pygame-ce».\nInstale com: pip install pygame-ce",
         "Load a ZX Spectrum Next disk image first — then CSpect can boot it from the mounted SD card.":
             "Carregue primeiro uma imagem de disco ZX Spectrum Next — o CSpect poderá arrancá-la a partir do cartão SD montado.",
+        "Select emulator image file: {path}":
+            "Selecionar imagem para o emulador: {path}",
+        "No writable disk image available.":
+            "Não há nenhuma imagem de disco gravável disponível.",
         ".img file {path} already in use.":
             "O ficheiro .img {path} já está a ser utilizado.",
         "The disk image {path} can no longer be found — it may have been moved, renamed or deleted.":
@@ -3444,6 +3452,10 @@ CATALOGS = {
             "Wymaga opcjonalnego pakietu «pygame-ce».\nInstalacja: pip install pygame-ce",
         "Load a ZX Spectrum Next disk image first — then CSpect can boot it from the mounted SD card.":
             "Najpierw wczytaj obraz dysku ZX Spectrum Next — CSpect uruchomi go z zamontowanej karty SD.",
+        "Select emulator image file: {path}":
+            "Wybierz obraz dysku dla emulatora: {path}",
+        "No writable disk image available.":
+            "Brak dostępnego zapisywalnego obrazu dysku.",
         ".img file {path} already in use.":
             "Plik .img {path} jest już używany.",
         "The disk image {path} can no longer be found — it may have been moved, renamed or deleted.":
@@ -4609,6 +4621,10 @@ CATALOGS = {
             "Требуется необязательный пакет «pygame-ce».\nУстановка: pip install pygame-ce",
         "Load a ZX Spectrum Next disk image first — then CSpect can boot it from the mounted SD card.":
             "Сначала загрузите образ диска ZX Spectrum Next — CSpect запустит его с подключённой SD-карты.",
+        "Select emulator image file: {path}":
+            "Выбрать образ для эмулятора: {path}",
+        "No writable disk image available.":
+            "Нет доступного образа диска для записи.",
         ".img file {path} already in use.":
             "Файл .img {path} уже используется.",
         "The disk image {path} can no longer be found — it may have been moved, renamed or deleted.":
@@ -5773,6 +5789,10 @@ CATALOGS = {
             "Vyžaduje volitelný balíček «pygame-ce».\nInstalace: pip install pygame-ce",
         "Load a ZX Spectrum Next disk image first — then CSpect can boot it from the mounted SD card.":
             "Nejdřív načtěte obraz disku ZX Spectrum Next — CSpect ho pak spustí z připojené karty SD.",
+        "Select emulator image file: {path}":
+            "Vybrat obraz disku pro emulátor: {path}",
+        "No writable disk image available.":
+            "Není k dispozici žádný zapisovatelný obraz disku.",
         ".img file {path} already in use.":
             "Soubor .img {path} se už používá.",
         "The disk image {path} can no longer be found — it may have been moved, renamed or deleted.":
@@ -6940,6 +6960,10 @@ CATALOGS = {
             "Nécessite le paquet optionnel « pygame-ce ».\nInstallation : pip install pygame-ce",
         "Load a ZX Spectrum Next disk image first — then CSpect can boot it from the mounted SD card.":
             "Chargez d'abord une image disque ZX Spectrum Next — CSpect pourra la démarrer depuis la carte SD montée.",
+        "Select emulator image file: {path}":
+            "Choisir l'image disque pour l'émulateur : {path}",
+        "No writable disk image available.":
+            "Aucune image disque accessible en écriture n'est disponible.",
         ".img file {path} already in use.":
             "Le fichier .img {path} est déjà utilisé.",
         "The disk image {path} can no longer be found — it may have been moved, renamed or deleted.":

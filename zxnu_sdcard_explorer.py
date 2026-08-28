@@ -369,14 +369,26 @@ class SdCardExplorerPane(QWidget):
         return col if col.isValid() else None
 
     def _emulator_tab_menu(self, name, global_pos):
-        """Right-click on an emulator tab: pick or reset its colour. The
-        host repaints every surface (both strips + the Launch buttons)."""
+        """Right-click on an emulator tab: choose a disk image, or a colour.
+
+        The colour setter repaints every surface (both strips + the Launch
+        buttons); the image picks (9.6.2) are the way out of a tab greyed
+        because another emulator holds the selected image.
+        """
         setter = getattr(self._host, "set_emulator_color", None)
         if setter is None:
             return
+        choices, picker = [], getattr(self._host, "select_emulator_image", None)
+        lister = getattr(self._host, "writable_image_choices", None)
+        if lister is not None:
+            try:
+                choices = list(lister() or [])
+            except Exception:               # noqa: BLE001
+                logging.exception("SD Card explorer: image choices failed")
         emulator_color_menu(self, str(name), self._emulator_color(name),
                             (lambda hexval, n=name: setter(n, hexval)),
-                            global_pos)
+                            global_pos,
+                            image_choices=choices, on_image_picked=picker)
 
     def _launch_emulator(self, fn):
         """Run one emulator launcher, called with NO arguments - the bare
