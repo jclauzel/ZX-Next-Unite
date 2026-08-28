@@ -10,7 +10,7 @@
 80 REM
 90 REM Settings live in c:/nextzxos/autoexec.cfg, plain text written
 100 REM by configuration mode at line 1000. A boot with no cfg goes
-110 REM there; so does "c" at the overwrite prompt, holding C while
+110 REM there; so does "b" at the overwrite prompt, holding B while
 120 REM the machine boots, and anything the loop cannot find.
 130 REM
 140 REM ---- the rules this file is built on ------------------------
@@ -42,11 +42,27 @@
 361 REM repaired by pressing ENTER through rather than preserved.
 363 IF ok=0 THEN GO SUB 9000
 365 IF ok=0 THEN GO TO 1000
-370 REM Hold C while the machine boots to configure. One INKEY$, no
-380 REM dwell, so it costs the loop nothing - and once retire is not
-390 REM "ask" it is the only way in, because the loop then never
-395 REM stops to ask anything.
-397 IF INKEY$="c" OR INKEY$="C" THEN GO TO 1000
+370 REM ---- the boot window ---------------------------------------
+371 REM B, and not C or A: BOTH are taken by the Next's own boot
+372 REM sequence (C picks a core), found the hard way on hardware -
+373 REM a loop claiming either fights the machine underneath it for
+374 REM the same keypress. Every prompt here names the same key.
+375 REM
+376 REM Say what is running, then watch for B for about two seconds.
+377 REM A silent screen left the user with no sign that autoexec.bas
+378 REM was running at all, so a machine switched to the boot menu
+379 REM looked identical to a broken one. Short on purpose though:
+380 REM this is on the path of EVERY boot.
+381 CLS: POKE 23692,255
+382 PRINT "nextdev: autoexec.bas is running."
+383 PRINT
+384 PRINT "press ";
+385 PRINT FLASH 1; INVERSE 1;"B";
+386 PRINT " to configure it."
+387 FOR i=1 TO 100
+388 IF INKEY$="b" OR INKEY$="B" THEN GO TO 1000
+389 PAUSE 1
+390 NEXT i
 398 IF b$="menu" THEN GO TO 900
 399 GO TO 400
 400 REM ---- consume a pushed build --------------------------------
@@ -74,7 +90,7 @@
 460 REM                        .nexload last.nex re-runs it by hand)
 465 REM   the new push      -> run.nex   (and is run below)
 470 REM .mv is given -f because its own Overwrite (y/n) prompt has no
-475 REM "c" and cannot be given one, so the question is asked here -
+475 REM "b" and cannot be given one, so the question is asked here -
 477 REM but only when retire is "ask" and only when last.nex really
 479 REM would be overwritten.
 480 LET a$=p$+"/run.nex": GO SUB 8000
@@ -84,11 +100,11 @@
 497 IF r$="always" THEN GO TO 525
 499 IF r$="never" THEN GO TO 530
 500 PRINT "nextdev: Overwrite"
-502 PRINT p$;"/last.nex (y/n/c) ?"
+502 PRINT p$;"/last.nex (y/n/b) ?"
 505 PRINT "y retires this build,"
-507 PRINT "n discards it, c configures."
+507 PRINT "n discards it, b configures."
 515 GO SUB 8800
-517 IF k$="c" THEN GO TO 1000
+517 IF k$="b" THEN GO TO 1000
 519 IF k$="n" THEN GO TO 530
 521 IF k$<>"y" THEN GO TO 515
 525 .mv -f run.nex last.nex
@@ -111,7 +127,7 @@
 565 PRINT "nextdev: no build ran - serving the Listener."
 600 REM ---- hand the machine over and wait for a push -------------
 605 PRINT "nextdev: waiting for a push..."
-607 PRINT "(hold C at boot to configure)"
+607 PRINT "(hold ";: PRINT FLASH 1; INVERSE 1;"B";: PRINT " at boot to configure)"
 610 IF f>1 THEN GO TO 700
 615 REM The .sync5 dot RETURNS to BASIC when its session ends - the
 620 REM PC's /forceexit, a quit, BREAK, or a failure it printed
@@ -175,8 +191,8 @@
 912 REM trap this file's own rules warn about.
 915 ON ERROR
 920 PRINT "nextdev: loop switched off."
-930 PRINT "hold C at the next boot to"
-940 PRINT "switch it back on."
+930 PRINT "hold ";: PRINT FLASH 1; INVERSE 1;"B";: PRINT " at the next boot"
+940 PRINT "to switch it back on."
 950 STOP
 1000 REM ================ configuration mode ======================
 1005 REM Split into CLS-separated screens so the Next never reaches

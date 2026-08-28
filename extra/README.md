@@ -135,9 +135,13 @@ halves are `extra\Send-ToNext.ps1` (PC) and `extra\autoexec.bas` (Next).
    mode** and asks for all of the above — flavour, `.sync5` speed, the two
    folders, and what to do when a new push would overwrite the previous
    build. It saves your answers to `c:/nextzxos/autoexec.cfg` and starts
-   the loop. Nothing needs re-tokenising to change your mind: press **`c`**
-   at the overwrite prompt, or **hold `C` while the machine boots**, to get
-   back in.
+   the loop. Nothing needs re-tokenising to change your mind: press **`b`**
+   at the overwrite prompt, or **hold `B` while the machine boots**, to get
+   back in. Every boot says so on screen before it carries on.
+
+   > It is `B` because both `C` and `A` are already claimed by the Next's
+   > own boot sequence (`C` picks a core) — a loop taking either would fight
+   > the machine underneath it for the same keypress.
 
 On screen the loop announces itself as **`nextdev:`** — that is the prefix
 to look for in its messages (`nextdev: waiting for a push...`).
@@ -176,7 +180,7 @@ it toggles — pick `4` again to switch it back on. It is deliberately not a
 fourth flavour: your transport choice survives being switched off, so turning
 it back on does not make you pick one again. While it is off the program still
 *runs* at boot (NextZXOS starts it before anything else) but hands the machine
-straight back, so you land at the boot menu. **Hold `C` at boot** to get back
+straight back, so you land at the boot menu. **Hold `B` at boot** to get back
 into configuration and re-enable it.
 
 Delete the file and the next boot re-enters configuration mode. Anything the
@@ -185,7 +189,7 @@ folder that is not there — says so, waits for ENTER, and takes you there too,
 rather than halting.
 
 `always` and `never` are what make the loop truly unattended: `ask` is the one
-setting that stops it for a keypress. With either of the other two, **hold `C`
+setting that stops it for a keypress. With either of the other two, **hold `B`
 at boot** is how you get back into configuration.
 
 > **The transfer folder must match the PC.** Configuration mode prints the
