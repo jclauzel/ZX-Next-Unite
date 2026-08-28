@@ -1023,6 +1023,12 @@ def build_nextsync_pane(
             # ?session=N routes use, not the shared one.
             enqueue_to=_re_bridge_enqueue_to,
             emulator_launchers=_re_emulator_launchers,
+            # Right-click on a strip tab also offers the remembered disk
+            # images that are writable right now (9.6.2) - the same list
+            # and the same effect as on the SD Card tab.
+            emulator_images=(lambda: host.writable_image_choices()),
+            on_emulator_image_picked=(
+                lambda path: host.select_emulator_image(path)),
             # Per-emulator colour (9.6.0): the host owns ONE map, so a
             # colour picked on this strip is the colour the SD Card tab's
             # strip and its Launch buttons wear too.

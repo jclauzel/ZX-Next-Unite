@@ -1587,6 +1587,253 @@ def inspect_phase12():
                   repr(blocker("MAME", autostart=True)))
             check("an unknown emulator is not reported as blocked",
                   blocker("Nonesuch") == "")
+
+            # ---- the image is there, but another emulator holds it -------
+            # An emulator keeps its .img open for its whole run, so a second
+            # one handed the same file dies mounting it. Drive the cache
+            # directly (a real holder would need a real emulator) and check
+            # every launch surface goes grey with a reason naming the file.
+            busy_img = os.path.join(SCRATCH, "phase12-busy.img")
+            with open(busy_img, "wb") as fh:
+                fh.write(b"\0" * 512)
+            win.imageinput.setCurrentText(busy_img)
+            win.right_disk_image_path = busy_img
+            key = win._image_state_key(busy_img)
+            from zxnu_config import IMAGE_WRITE_BUSY, IMAGE_WRITE_OK
+
+            # On Windows take the file FOR REAL, the way MAME takes -hard1
+            # (share=READ), and let the app's own probe discover it. That
+            # exercises the whole chain - probe, cache, re-gate, tooltip -
+            # rather than the UI half with a hand-set verdict. Elsewhere the
+            # OS refuses nobody and no probe can see a holder, so the cache
+            # is seeded instead and only the UI half is under test.
+            holder = None
+            if sys.platform == "win32":
+                import ctypes
+                from ctypes import wintypes
+                _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+                _k32.CreateFileW.restype = wintypes.HANDLE
+                _k32.CreateFileW.argtypes = [
+                    wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                    wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+                    wintypes.HANDLE]
+                handle = _k32.CreateFileW(busy_img, 0xC0000000, 0x00000001,
+                                          None, 3, 0, None)
+                if handle != wintypes.HANDLE(-1).value:
+                    holder = handle
+            if holder is not None:
+                win._reprobe_and_regate(busy_img)
+                check("a real MAME-style lock is discovered by the probe",
+                      win._image_write_state.get(key) == IMAGE_WRITE_BUSY,
+                      repr(win._image_write_state.get(key)))
+            else:
+                win._image_write_state[key] = IMAGE_WRITE_BUSY
+                win._refresh_emulator_launchability()
+
+            why = blocker("MAME")
+            check("a busy image blocks the MAME launch", bool(why), repr(why))
+            # The whole point of naming the file: with several images in the
+            # history, "in use" alone does not say WHICH one to swap away from.
+            check("the reason names the busy file",
+                  os.path.basename(busy_img) in why, repr(why))
+            check("a busy image does NOT block running a downloaded file",
+                  blocker("MAME", autostart=True) == "")
+            check("the greyed MAME button explains itself in its tooltip",
+                  win.button_start_mame.toolTip() == why,
+                  repr(win.button_start_mame.toolTip()))
+            if win._mame_usable():
+                check("the greyed MAME button is actually disabled",
+                      not win.button_start_mame.isEnabled())
+
+            # The strips are built from the same answer, so a tab there
+            # cannot disagree with the button here.
+            from zxnu_workers import emulator_launch_entries
+            entries = {e.name: e for e in emulator_launch_entries(win)}
+            if "Mame" in entries:
+                check("the emulator strip carries the same reason",
+                      entries["Mame"].blocked == why,
+                      repr(entries["Mame"].blocked))
+
+            # And it clears: this is the state the user gets out of by
+            # picking another image, or by closing the emulator and re-picking.
+            if holder is not None:
+                _k32.CloseHandle(holder)
+                holder = None
+                # Re-probing the SAME path is what re-picking it from the
+                # history dropdown does - the "I closed MAME, try again"
+                # gesture. It has to be enough on its own.
+                win._reprobe_and_regate(busy_img)
+                check("releasing the real lock clears the verdict",
+                      win._image_write_state.get(key) == IMAGE_WRITE_OK,
+                      repr(win._image_write_state.get(key)))
+            else:
+                win._image_write_state[key] = IMAGE_WRITE_OK
+                win._refresh_emulator_launchability()
+            check("clearing the verdict un-blocks the launch",
+                  blocker("MAME") == "", repr(blocker("MAME")))
+            if win._mame_usable():
+                check("and the Launch button comes back",
+                      win.button_start_mame.isEnabled())
+
+            # An emulator THIS APP LAUNCHED is tracked separately - the only
+            # signal that exists on Linux/macOS, where the probe is blind.
+            # Holders are PROCESSES, polled for liveness, not a count that an
+            # exit handler has to remember to decrement.
+            class _Holder:
+                def __init__(self):
+                    self.gone = False
+
+                def poll(self):
+                    return 0 if self.gone else None
+
+            holder_proc = _Holder()
+            win._images_held_by_us[key] = [holder_proc]
+            check("an emulator we launched ourselves also blocks it",
+                  bool(blocker("MAME")), repr(blocker("MAME")))
+            # The click-time guard has to see it too. On POSIX the probe is
+            # blind, so consulting the probe alone let a second emulator boot
+            # the image the first one had mounted.
+            check("the launch-time re-check also refuses our own holder",
+                  win._reprobe_and_regate(busy_img) is False)
+            # A holder that has exited stops counting on its own - no exit
+            # handler required, and no window in which a probe can wrongly
+            # clear a live one.
+            holder_proc.gone = True
+            check("a holder that has exited releases the image by itself",
+                  blocker("MAME") == "", repr(blocker("MAME")))
+            check("and the exited holder is pruned from the record",
+                  key not in win._images_held_by_us)
+
+            # The key must survive a non-canonical spelling: the image box is
+            # free text ("Type a path directly"), and the launchers abspath
+            # what they hand the emulator. Two spellings of one file that key
+            # differently are a gate that silently never fires.
+            odd = os.path.join(os.path.dirname(busy_img), ".",
+                               os.path.basename(busy_img))
+            check("one file has one cache key however it is spelled",
+                  win._image_state_key(odd) == key,
+                  f"{win._image_state_key(odd)!r} != {key!r}")
+            check("a blank path never keys to the working directory",
+                  win._image_state_key("") == ""
+                  and win._image_state_key('""') == "")
+
+            # ---- right-click: pick a writable image instead ------------
+            # The way OUT of a greyed-out launch. Two images in the history,
+            # one of them held; only the free one may be offered.
+            free_img = os.path.join(SCRATCH, "phase12-free.img")
+            with open(free_img, "wb") as fh:
+                fh.write(b"\0" * 512)
+            win.imageinput.clear()
+            win.imageinput.addItem(busy_img)
+            win.imageinput.addItem(free_img)
+            win.imageinput.addItem(os.path.join(SCRATCH, "phase12-gone.img"))
+            win.imageinput.setCurrentText(busy_img)
+            win.right_disk_image_path = busy_img
+
+            holder2 = None
+            if sys.platform == "win32":
+                holder2 = _k32.CreateFileW(busy_img, 0xC0000000, 0x00000001,
+                                           None, 3, 0, None)
+                if holder2 == wintypes.HANDLE(-1).value:
+                    holder2 = None
+            if holder2 is None:
+                win._images_held_by_us[key] = [_Holder()]
+
+            offered = [p for p, _cur in win.writable_image_choices()]
+            check("the busy image is not offered as a choice",
+                  busy_img not in offered, str(offered))
+            check("a writable image IS offered", free_img in offered,
+                  str(offered))
+            check("an entry whose file has gone is skipped",
+                  not any("phase12-gone" in p for p in offered), str(offered))
+
+            # The menu must open from a DISABLED button. Qt drops mouse and
+            # context-menu events for disabled widgets inside QWidget.event(),
+            # so setContextMenuPolicy(CustomContextMenu) never fires there -
+            # which is exactly when this menu is needed. An event filter runs
+            # before event(); this is the tripwire against a relapse.
+            from PySide6.QtCore import Qt as _Qt
+            check("the Launch buttons do not rely on CustomContextMenu",
+                  win.button_start_mame.contextMenuPolicy()
+                  != _Qt.ContextMenuPolicy.CustomContextMenu,
+                  str(win.button_start_mame.contextMenuPolicy()))
+
+            import zxnu_main as _zm
+            from PySide6.QtGui import QContextMenuEvent
+            seen_menu = []
+            _real_menu = _zm.emulator_color_menu
+
+            def _spy(parent, label, current, on_picked, gpos,
+                     image_choices=None, on_image_picked=None):
+                seen_menu.append((label, list(image_choices or ()),
+                                  on_image_picked))
+
+            _zm.emulator_color_menu = _spy
+            try:
+                _btn = win.button_start_mame
+                # Shown-but-disabled is the state under test. The button is
+                # HIDDEN outright when MAME is not installed (which is the
+                # case on CI), and a hidden button legitimately answers
+                # nothing - so show it for the duration rather than skipping
+                # the tripwire on every runner without MAME.
+                _was_hidden = _btn.isHidden()
+                _btn.setVisible(True)
+                _btn.setEnabled(False)
+                _centre = _btn.mapToGlobal(_btn.rect().center())
+
+                def _right_click():
+                    seen_menu.clear()
+                    app.sendEvent(_btn, QContextMenuEvent(
+                        QContextMenuEvent.Reason.Mouse,
+                        _btn.mapFromGlobal(_centre), _centre))
+                    return bool(seen_menu)
+
+                check("right-clicking a GREYED-OUT Launch button opens the menu",
+                      _right_click(), str(seen_menu))
+                if seen_menu:
+                    _label, _choices, _picker = seen_menu[0]
+                    check("the menu offers the writable image",
+                          any(p == free_img for p, _c in _choices),
+                          str([p for p, _c in _choices]))
+                    check("and knows how to act on the pick", _picker is not None)
+                # ... and the guard's own rule: a button the app has HIDDEN
+                # (no MAME installed) must not claim the click, because
+                # whatever is drawn in its place now owns it.
+                _btn.setVisible(False)
+                check("a HIDDEN Launch button does not claim the right-click",
+                      not _right_click())
+            finally:
+                _zm.emulator_color_menu = _real_menu
+                # Release the lock here, not further down: a check that
+                # raises would otherwise leave the handle open and the
+                # phase's own cleanup could not delete the file.
+                if holder2 is not None:
+                    _k32.CloseHandle(holder2)
+                    holder2 = None
+                _btn.setVisible(not _was_hidden)   # leave the tab as found
+
+            # Picking one makes it the loaded image - the same two steps the
+            # history dropdown performs. A runner without hdfmonkey answers
+            # that load with the MODAL install prompt, which a headless run
+            # can never click away; the app's own once-flag suppresses it.
+            win._hdfmonkey_prompt_shown = True
+            win.select_emulator_image(free_img)
+            check("picking an image puts it in the image box",
+                  win._image_state_key(win.imageinput.currentText())
+                  == win._image_state_key(free_img),
+                  win.imageinput.currentText())
+
+            win._images_held_by_us.pop(key, None)
+
+            win.imageinput.clear()
+            win.imageinput.setCurrentText("")
+            win.right_disk_image_path = ""
+            win._image_write_state.pop(key, None)
+            for _stale in (busy_img, free_img):
+                try:
+                    os.remove(_stale)
+                except OSError:
+                    pass
     finally:
         win._show_toast = real_toast
     app.quit()

@@ -50,6 +50,7 @@
     <color type="primary" scheme_preference="dark">#1c1c60</color>
   </branding>
   <releases>
+    <release version="9.6.2" date="2026-08-28"/>
     <release version="9.6.1" date="2026-08-27"/>
     <release version="9.6.0" date="2026-08-26"/>
     <release version="9.5.30" date="2026-08-26"/>

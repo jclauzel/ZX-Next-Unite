@@ -72,7 +72,8 @@ from zxnu_remote_explorer import EmulatorTab, emulator_color_menu
 from zxnu_config import (SETTING_EXPLORERPATH, SETTING_IMAGE_EXPLORERPATH,
                          is_filetype_a_directory)
 from zxnu_workers import (CompactButton, DotDotFirstProxyModel,
-                          HdfTaskWorker, bind_select_all_except_updir)
+                          HdfTaskWorker, as_emulator_launch,
+                          bind_select_all_except_updir)
 
 # ---------------------------------------------------------------------------
 # The disk image explorer is a lazily-populated tree: the image can be listed
@@ -341,11 +342,15 @@ class SdCardExplorerPane(QWidget):
             logging.exception("SD Card explorer: emulator lookup failed")
             entries = []
         self.local_emulator_strip.setVisible(bool(entries))
-        for i, (name, launch) in enumerate(entries):
+        for i, item in enumerate(entries):
+            entry = as_emulator_launch(item)
+            name, launch, why = entry.name, entry.launch, entry.blocked
             tab = EmulatorTab(
                 str(name), (lambda fn=launch: self._launch_emulator(fn)),
                 self.local_emulator_strip,
-                tooltip=ui_tr_now("Start {emulator}").format(emulator=name),
+                tooltip=(why or ui_tr_now("Start {emulator}").format(
+                    emulator=name)),
+                blocked=bool(why),
                 tint=self._emulator_color(name),
                 on_menu=(lambda pos, n=name: self._emulator_tab_menu(n, pos)))
             self._emulator_strip_box.insertWidget(i, tab)
@@ -364,14 +369,26 @@ class SdCardExplorerPane(QWidget):
         return col if col.isValid() else None
 
     def _emulator_tab_menu(self, name, global_pos):
-        """Right-click on an emulator tab: pick or reset its colour. The
-        host repaints every surface (both strips + the Launch buttons)."""
+        """Right-click on an emulator tab: choose a disk image, or a colour.
+
+        The colour setter repaints every surface (both strips + the Launch
+        buttons); the image picks (9.6.2) are the way out of a tab greyed
+        because another emulator holds the selected image.
+        """
         setter = getattr(self._host, "set_emulator_color", None)
         if setter is None:
             return
+        choices, picker = [], getattr(self._host, "select_emulator_image", None)
+        lister = getattr(self._host, "writable_image_choices", None)
+        if lister is not None:
+            try:
+                choices = list(lister() or [])
+            except Exception:               # noqa: BLE001
+                logging.exception("SD Card explorer: image choices failed")
         emulator_color_menu(self, str(name), self._emulator_color(name),
                             (lambda hexval, n=name: setter(n, hexval)),
-                            global_pos)
+                            global_pos,
+                            image_choices=choices, on_image_picked=picker)
 
     def _launch_emulator(self, fn):
         """Run one emulator launcher, called with NO arguments - the bare

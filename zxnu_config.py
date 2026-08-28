@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.6.1"
+ZX_NEXT_UNITE_VERSION = "9.6.2"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -1955,6 +1955,122 @@ def normalize_sd_image_path(raw) -> str:
     if platform.system() == "Windows":
         s = s.replace("/", "\\")
     return s
+
+# ---------------------------------------------------------------------------
+# "Can an emulator still open this disk image?"  (9.6.2)
+# ---------------------------------------------------------------------------
+# CSpect and MAME each hold the .img/.hdf they were handed for as long as they
+# run, and a second emulator handed the same file dies on it. The launch
+# affordances ask these helpers first so a launch that cannot work is greyed
+# out with a reason instead of failing inside the emulator.
+#
+# The three verdicts below are all a caller ever needs to branch on. Only BUSY
+# greys anything: DENIED (a read-only file, an ACL, a Flatpak sandbox that
+# cannot see the path) and MISSING are other failures with their own existing
+# messages, and calling them "in use" would be a lie the user cannot clear.
+IMAGE_WRITE_OK = "ok"
+IMAGE_WRITE_BUSY = "busy"
+IMAGE_WRITE_DENIED = "denied"
+IMAGE_WRITE_MISSING = "missing"
+
+# CreateFileW arguments for the Windows probe. The share mode is ZERO — an
+# EXCLUSIVE request — and that is the whole trick, measured against both
+# emulators on Windows 11:
+#
+#   MAME   opens -hard1 with FILE_SHARE_READ, so it refuses any second writer.
+#          A plain open(path, "r+b") is enough to see it.
+#   CSpect opens -mmc with full read/write sharing, so it refuses nobody. A
+#          plain write-open SUCCEEDS while CSpect is running and the gate would
+#          never fire — but an EXCLUSIVE request fails (ERROR_SHARING_VIOLATION)
+#          because CSpect's handle exists at all.
+#
+# Asking for exclusive access therefore catches both, at the cost of also
+# catching any other opener (a backup agent, an AV scanner mid-read). That
+# trade is deliberate: a spurious grey-out clears on the next probe, whereas a
+# missed one is the crash this feature exists to prevent.
+_WIN_GENERIC_READ = 0x80000000
+_WIN_GENERIC_WRITE = 0x40000000
+_WIN_OPEN_EXISTING = 3
+_WIN_ERROR_FILE_NOT_FOUND = 2
+_WIN_ERROR_PATH_NOT_FOUND = 3
+_WIN_ERROR_ACCESS_DENIED = 5
+_WIN_ERROR_SHARING_VIOLATION = 32
+_WIN_ERROR_LOCK_VIOLATION = 33
+
+
+def probe_image_write_access(path):
+    """Can this process take the disk image for writing right now?
+
+    Returns one of IMAGE_WRITE_OK / _BUSY / _DENIED / _MISSING. Never raises
+    and never modifies the file: the handle is opened and closed, nothing is
+    read or written (r+b / O_RDWR do not truncate).
+
+    PLATFORM HONESTY, because this is the whole limit of the feature:
+
+    * Windows gets a real answer. The probe asks for EXCLUSIVE access, which
+      Windows refuses with ERROR_SHARING_VIOLATION while any other process
+      holds the file — which is exactly the state both emulators put it in.
+    * Linux and macOS CANNOT answer. POSIX has no mandatory locking (Linux
+      removed what little it had in 5.15) and neither emulator takes an
+      advisory flock, so open(O_RDWR) succeeds no matter how many emulators
+      have the image mounted. This returns OK there, and BUSY is only ever
+      reached through the caller's own record of emulators IT launched.
+
+    Cheap enough to call on a click: it is a metadata operation, no I/O on the
+    2 GB of image behind it. Not cheap enough to call from a paint or hover
+    path on a network/removable path, so callers cache the verdict.
+
+    Related but different: ``_check_image_writable`` in zxnu_sdcard_ops.py is
+    the pre-flight for a TRANSFER — same open(), plus a FAT free-cluster scan,
+    and it reports its own message. This one answers only the launch question.
+    """
+    clean = normalize_sd_image_path(path)
+    if not clean:
+        return IMAGE_WRITE_MISSING
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateFileW.restype = wintypes.HANDLE
+            kernel32.CreateFileW.argtypes = [
+                wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+                wintypes.HANDLE]
+            handle = kernel32.CreateFileW(
+                clean, _WIN_GENERIC_READ | _WIN_GENERIC_WRITE,
+                0,                     # share mode 0 == exclusive; see above
+                None, _WIN_OPEN_EXISTING, 0, None)
+            if handle != wintypes.HANDLE(-1).value:
+                kernel32.CloseHandle(handle)
+                return IMAGE_WRITE_OK
+            err = ctypes.get_last_error()
+        except Exception:              # noqa: BLE001 - a probe must never throw
+            logging.exception("image write probe failed for %s", clean)
+            return IMAGE_WRITE_OK      # unknown: never grey a button on a bug
+        if err in (_WIN_ERROR_SHARING_VIOLATION, _WIN_ERROR_LOCK_VIOLATION):
+            return IMAGE_WRITE_BUSY
+        if err == _WIN_ERROR_ACCESS_DENIED:
+            return IMAGE_WRITE_DENIED
+        if err in (_WIN_ERROR_FILE_NOT_FOUND, _WIN_ERROR_PATH_NOT_FOUND):
+            return IMAGE_WRITE_MISSING
+        logging.info("image write probe: unexpected Windows error %s for %s",
+                     err, clean)
+        return IMAGE_WRITE_OK
+    # POSIX. errno cannot distinguish "held by an emulator" (it never reports
+    # that) from "not writable", so only the permission answers are real here.
+    try:
+        fd = os.open(clean, os.O_RDWR)
+    except FileNotFoundError:
+        return IMAGE_WRITE_MISSING
+    except PermissionError:
+        return IMAGE_WRITE_DENIED
+    except OSError:
+        logging.exception("image write probe failed for %s", clean)
+        return IMAGE_WRITE_OK
+    os.close(fd)
+    return IMAGE_WRITE_OK
+
 
 UP_DIRECTORY = "[Up Directory..]"
 DIRECTORY_CREATION_NOT_ALLOWED_CHARACTERS = ('"', '<', '>', ':', '\\', '/', '|', '?', '*', '!', '(',')', '.', "'", '$', '@')
