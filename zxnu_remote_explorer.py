@@ -47,6 +47,7 @@ from zxnu_config import (
 )
 from zxnu_workers import (
     CompactButton, DotDotFirstProxyModel, HdfProgressDialog,
+    as_emulator_launch,
     bind_select_all_except_updir, zip_create_with_dialog,
     zip_extract_with_dialog, zip_unique_name,
 )
@@ -397,6 +398,13 @@ class SessionTab(QWidget):
         # the constructor or it would be lost on the next repaint.
         self._tint = tint if (tint is not None and tint.isValid()) else None
         self._on_menu = on_menu
+        # "Shown, but cannot be used right now" (9.6.2). A plain attribute
+        # rather than setEnabled(False): paintEvent below never consults
+        # isEnabled(), so a disabled tab with a user-picked tint would look
+        # exactly like a working one - dead to clicks and silent about it.
+        # Staying enabled also keeps tooltip delivery entirely in our hands,
+        # which is where the reason for the block is shown.
+        self._blocked = False
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(self._text)
         fm = QFontMetrics(self.font())
@@ -412,7 +420,9 @@ class SessionTab(QWidget):
             self.update()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self._on_click is not None:
+        if event.button() == Qt.LeftButton and self._blocked:
+            event.accept()             # greyed out: the tooltip says why
+        elif event.button() == Qt.LeftButton and self._on_click is not None:
             self._on_click()
         else:
             super().mousePressEvent(event)
@@ -461,11 +471,28 @@ class SessionTab(QWidget):
             bg = pal.color(QPalette.ColorRole.Button).darker(115)
             fg = pal.color(QPalette.ColorRole.ButtonText)
         rimmed = self._tint is not None and self._active
+        dashed = False
+        if self._blocked:
+            # Three cues, because one is not enough at 26px. Draining the
+            # SATURATION carries the tinted case on its own (a green tab
+            # becomes a grey one), but an untinted tab is already grey, so
+            # darkening alone moved it only ~19% and read as a rendering
+            # artefact. The dashed outline and the translucent label are
+            # what make the untinted case unmistakable.
+            grey = QColor(bg).toHsv()
+            grey.setHsv(grey.hue(), 0, max(70, grey.value() - 40))
+            bg = grey
+            fg = readable_text_color(bg)
+            fg.setAlpha(130)
+            rimmed, dashed = False, True
         if rimmed:
             # A rim in the readable foreground: on a dark tint the dimmed
             # and the full shade can sit close together, and the driven
             # machine must never be ambiguous.
             p.setPen(QPen(fg, 2))
+        elif dashed:
+            _dash = QPen(fg, 1, Qt.PenStyle.DashLine)
+            p.setPen(_dash)
         else:
             p.setPen(Qt.NoPen)
         p.setBrush(bg)
@@ -473,7 +500,7 @@ class SessionTab(QWidget):
         # rounded rect reads as a tab well enough and costs one call.
         # The rim needs a pixel of room for the pen (drawn centred on the
         # path); everything else keeps the original geometry exactly.
-        box = (self.rect().adjusted(1, 1, -2, -2) if rimmed
+        box = (self.rect().adjusted(1, 1, -2, -2) if (rimmed or dashed)
                else self.rect().adjusted(0, 0, -1, -1))
         p.drawRoundedRect(box, 6, 6)
         # Bottom-to-top: put the origin at the bottom-left and turn left,
@@ -510,9 +537,18 @@ class EmulatorTab(SessionTab):
     """
 
     def __init__(self, text, on_click, parent=None, *, tooltip="",
-                 tint=None, on_menu=None):
+                 tint=None, on_menu=None, blocked=False):
         super().__init__(text, False, on_click, parent,
                          tint=tint, on_menu=on_menu)
+        # *blocked*: the emulator is installed but cannot start right now
+        # (no disk image, or another emulator still holds it). The tab stays
+        # in the strip - dropping it would read as "MAME is gone", which is
+        # a different and wrong answer - but is greyed and inert, with the
+        # reason as its tooltip. Tabs are rebuilt wholesale on every
+        # refresh, so this arrives with the constructor exactly like *tint*.
+        self._blocked = bool(blocked)
+        if self._blocked:
+            self.setCursor(Qt.ForbiddenCursor)
         if tooltip:
             self.setToolTip(tooltip)
 
@@ -2035,11 +2071,15 @@ class RemoteExplorerWidget(QWidget):
             logging.exception("Remote explorer: emulator lookup failed")
             entries = []
         self.local_emulator_strip.setVisible(bool(entries))
-        for i, (name, launch) in enumerate(entries):
+        for i, item in enumerate(entries):
+            entry = as_emulator_launch(item)
+            name, launch, why = entry.name, entry.launch, entry.blocked
             tab = EmulatorTab(
                 str(name), (lambda fn=launch: self._launch_emulator(fn)),
                 self.local_emulator_strip,
-                tooltip=ui_tr_now("Start {emulator}").format(emulator=name),
+                tooltip=(why or ui_tr_now("Start {emulator}").format(
+                    emulator=name)),
+                blocked=bool(why),
                 tint=self._emulator_color(name),
                 on_menu=(lambda pos, n=name: self._emulator_tab_menu(n, pos)))
             self._emulator_strip_box.insertWidget(i, tab)

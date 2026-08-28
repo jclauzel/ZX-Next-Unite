@@ -1116,6 +1116,8 @@ CATALOGS = {
             "Requiere el paquete opcional «pygame-ce».\nInstálalo con: pip install pygame-ce",
         "Load a ZX Spectrum Next disk image first — then CSpect can boot it from the mounted SD card.":
             "Carga primero una imagen de disco de ZX Spectrum Next — CSpect podrá arrancarla desde la tarjeta SD montada.",
+        ".img file {path} already in use.":
+            "El archivo .img {path} ya está en uso.",
         "The disk image {path} can no longer be found — it may have been moved, renamed or deleted.":
             "La imagen de disco {path} ya no se encuentra — puede que se haya movido, renombrado o eliminado.",
         "Select a ZX Spectrum Next disk image (.img/.hdf) first — then MAME can boot it as the Next's hard disk.":
@@ -2279,6 +2281,8 @@ CATALOGS = {
             "Requer o pacote opcional «pygame-ce».\nInstale com: pip install pygame-ce",
         "Load a ZX Spectrum Next disk image first — then CSpect can boot it from the mounted SD card.":
             "Carregue primeiro uma imagem de disco ZX Spectrum Next — o CSpect poderá arrancá-la a partir do cartão SD montado.",
+        ".img file {path} already in use.":
+            "O ficheiro .img {path} já está a ser utilizado.",
         "The disk image {path} can no longer be found — it may have been moved, renamed or deleted.":
             "A imagem de disco {path} já não se encontra — pode ter sido movida, mudada de nome ou eliminada.",
         "Select a ZX Spectrum Next disk image (.img/.hdf) first — then MAME can boot it as the Next's hard disk.":
@@ -3440,6 +3444,8 @@ CATALOGS = {
             "Wymaga opcjonalnego pakietu «pygame-ce».\nInstalacja: pip install pygame-ce",
         "Load a ZX Spectrum Next disk image first — then CSpect can boot it from the mounted SD card.":
             "Najpierw wczytaj obraz dysku ZX Spectrum Next — CSpect uruchomi go z zamontowanej karty SD.",
+        ".img file {path} already in use.":
+            "Plik .img {path} jest już używany.",
         "The disk image {path} can no longer be found — it may have been moved, renamed or deleted.":
             "Nie można już znaleźć obrazu dysku {path} — mógł zostać przeniesiony, zmieniony lub usunięty.",
         "Select a ZX Spectrum Next disk image (.img/.hdf) first — then MAME can boot it as the Next's hard disk.":
@@ -4603,6 +4609,8 @@ CATALOGS = {
             "Требуется необязательный пакет «pygame-ce».\nУстановка: pip install pygame-ce",
         "Load a ZX Spectrum Next disk image first — then CSpect can boot it from the mounted SD card.":
             "Сначала загрузите образ диска ZX Spectrum Next — CSpect запустит его с подключённой SD-карты.",
+        ".img file {path} already in use.":
+            "Файл .img {path} уже используется.",
         "The disk image {path} can no longer be found — it may have been moved, renamed or deleted.":
             "Образ диска {path} больше не найден — возможно, он был перемещён, переименован или удалён.",
         "Select a ZX Spectrum Next disk image (.img/.hdf) first — then MAME can boot it as the Next's hard disk.":
@@ -5765,6 +5773,8 @@ CATALOGS = {
             "Vyžaduje volitelný balíček «pygame-ce».\nInstalace: pip install pygame-ce",
         "Load a ZX Spectrum Next disk image first — then CSpect can boot it from the mounted SD card.":
             "Nejdřív načtěte obraz disku ZX Spectrum Next — CSpect ho pak spustí z připojené karty SD.",
+        ".img file {path} already in use.":
+            "Soubor .img {path} se už používá.",
         "The disk image {path} can no longer be found — it may have been moved, renamed or deleted.":
             "Obraz disku {path} už nelze najít — mohl být přesunut, přejmenován nebo smazán.",
         "Select a ZX Spectrum Next disk image (.img/.hdf) first — then MAME can boot it as the Next's hard disk.":
@@ -6930,6 +6940,8 @@ CATALOGS = {
             "Nécessite le paquet optionnel « pygame-ce ».\nInstallation : pip install pygame-ce",
         "Load a ZX Spectrum Next disk image first — then CSpect can boot it from the mounted SD card.":
             "Chargez d'abord une image disque ZX Spectrum Next — CSpect pourra la démarrer depuis la carte SD montée.",
+        ".img file {path} already in use.":
+            "Le fichier .img {path} est déjà utilisé.",
         "The disk image {path} can no longer be found — it may have been moved, renamed or deleted.":
             "L'image disque {path} est introuvable — elle a peut-être été déplacée, renommée ou supprimée.",
         "Select a ZX Spectrum Next disk image (.img/.hdf) first — then MAME can boot it as the Next's hard disk.":

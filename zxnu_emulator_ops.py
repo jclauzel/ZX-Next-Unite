@@ -378,6 +378,193 @@ def build_emulator_ops(
             # Toasts are best-effort UI; never let one break a launch path.
             logging.exception("could not show the launch-failure toast")
 
+    # Cached probe verdicts, keyed by _image_state_key(path). Set up here
+    # rather than in __init__ so the closures below can never read an
+    # attribute that does not exist yet.
+    host._image_write_state = {}
+    # Images an emulator THIS APP LAUNCHED still holds: {key: [process, ...]}.
+    # This is the only in-use signal that exists on Linux/macOS, where the OS
+    # refuses a second writer nothing at all - and the only one that survives
+    # a Flatpak sandbox, where the emulator runs outside our PID namespace but
+    # its Popen handle lives exactly as long as it does.
+    #
+    # PROCESSES, not a count. A count has to be decremented by an exit
+    # handler, and anything that misses one (a handler that never fires, a
+    # probe racing the emulator's own open) leaves the entry either stuck or
+    # wrongly cleared. poll() is the authority instead: it costs nothing, it
+    # cannot race, and a holder that has gone simply stops counting.
+    host._images_held_by_us = {}
+
+    # ---- "is the disk image still free?" (9.6.2) ------------------------
+    # An emulator holds the .img it was handed for its whole run, so a
+    # second one handed the same file dies mounting it. Every launch
+    # affordance asks _image_busy_reason first; the verdict itself comes
+    # from probe_image_write_access and is CACHED, because these helpers
+    # are called from tooltip refreshes and paint-adjacent paths where an
+    # open() on a network or removable path must never run.
+    #
+    # The cache is refreshed only where the answer can genuinely have
+    # changed: a new image selected, a launch clicked, a MAME we started
+    # exiting, or the SD Card tab opened while the last verdict was busy.
+    def _image_for(emulator):
+        """The image path THAT emulator would actually open.
+
+        The two genuinely differ and always have: MAME boots
+        ``imageinput.currentText()`` directly as -hard1 (it never needs
+        hdfmonkey), while CSpect mounts ``right_disk_image_path``, the
+        path whose hdfmonkey listing succeeded. Probing the wrong one
+        would gate a launch on a file that launch never touches.
+        """
+        try:
+            if emulator == "MAME":
+                return normalize_sd_image_path(host.imageinput.currentText())
+            return normalize_sd_image_path(
+                getattr(host, "right_disk_image_path", "") or "")
+        except (RuntimeError, AttributeError):
+            return ""
+
+    def _image_state_key(path):
+        """The ONE cache key for an image path.
+
+        Every producer and every consumer must go through this, because two
+        spellings of one file have to land on one entry: the image box is a
+        free-text field whose own tooltip invites typing a path, and the
+        launchers abspath what they hand the emulator. A relative
+        "next.img" recorded against an absolute lookup (or the reverse) is
+        a gate that silently never fires.
+
+        Absolute (which also collapses "." and ".."), and case-folded on
+        Windows, where the two spellings really are the same file. The
+        empty check comes FIRST: os.path.abspath("") is the working
+        directory, which would key every blank path to one bogus entry.
+        """
+        clean = normalize_sd_image_path(path)
+        if not clean:
+            return ""
+        try:
+            clean = os.path.abspath(clean)
+        except (OSError, ValueError):
+            pass                       # unresolvable: the raw form still keys
+        return clean.lower() if platform.system() == "Windows" else clean
+
+    host._image_state_key = _image_state_key
+
+    def _image_busy_message(path):
+        return ui_tr_now(".img file {path} already in use.").format(
+            path=normalize_sd_image_path(path))
+
+    def _image_held_by_us(key):
+        """Is an emulator we started still holding *key*? Prunes as it goes.
+
+        Non-blocking: Popen.poll() only reaps, it never waits.
+        """
+        if not key:
+            return False
+        alive = [p for p in host._images_held_by_us.get(key, ())
+                 if getattr(p, "poll", lambda: 0)() is None]
+        if alive:
+            host._images_held_by_us[key] = alive
+        else:
+            host._images_held_by_us.pop(key, None)
+        return bool(alive)
+
+    host._image_held_by_us = _image_held_by_us
+
+    def _image_busy_reason(emulator):
+        """Empty, unless *emulator*'s image is held by something else.
+
+        Reads the cache ONLY - never probes. Two sources, in order: the
+        emulators this app launched itself (the only mechanism that works
+        on Linux/macOS, where the OS refuses nobody), then the recorded
+        probe verdict.
+
+        Deliberately silent for DENIED and MISSING: a read-only file, or a
+        path a Flatpak sandbox cannot see, is a different failure already
+        reported in its own words, and calling it "in use" would be a
+        grey-out the user has no way to clear.
+        """
+        path = _image_for(emulator)
+        if not path:
+            return ""
+        key = _image_state_key(path)
+        if (_image_held_by_us(key)
+                or host._image_write_state.get(key) == IMAGE_WRITE_BUSY):
+            return _image_busy_message(path)
+        return ""
+
+    host._image_busy_reason = _image_busy_reason
+
+    def _probe_image_write_access(path, announce=False):
+        """Probe *path* now, record the verdict, and return True when free.
+
+        Synchronous on purpose. This is a single metadata open, and every
+        caller is either an explicit user gesture (a click, picking an
+        image) or a load already doing far more I/O - so the few hundred
+        microseconds buy a verdict that is true AT the moment it is acted
+        on, which an async probe cannot promise.
+
+        *announce* logs the refusal to the SD Card window; callers that
+        only grey a button leave it False.
+        """
+        key = _image_state_key(path)
+        if not key:
+            return True
+        state = probe_image_write_access(path)
+        host._image_write_state[key] = state
+        if state == IMAGE_WRITE_BUSY and announce:
+            add_main_log_window(_image_busy_message(path))
+        return state != IMAGE_WRITE_BUSY
+
+    host._probe_image_write_access = _probe_image_write_access
+
+    def _forget_image_write_state(path):
+        """Drop a cached verdict - the image was unloaded or forgotten."""
+        host._image_write_state.pop(_image_state_key(path), None)
+
+    host._forget_image_write_state = _forget_image_write_state
+
+    def _refresh_emulator_launchability():
+        """Re-gate every surface that can start an emulator.
+
+        The call each probe ends with, so the SD Card tab's two Launch
+        buttons and both explorer strips are updated from one place and
+        cannot drift apart. Gallery item viewers are wired as they open
+        (_wire_viewer_emulators) and pick the state up then.
+        """
+        for name in ("_update_mame_controls", "_update_cspect_controls"):
+            fn = getattr(host, name, None)
+            if fn is not None:
+                try:
+                    fn()
+                except RuntimeError:
+                    pass               # widget torn down mid-shutdown
+        refresh = getattr(host, "_refresh_emulator_strips", None)
+        if refresh is not None:
+            refresh()
+
+    host._refresh_emulator_launchability = _refresh_emulator_launchability
+
+    def _reprobe_and_regate(path, announce=False):
+        """Probe *path*, then re-gate every surface. True when free.
+
+        Both signals, not just the probe: on Linux/macOS the probe cannot
+        see a running emulator at all, so checking it alone let a second
+        MAME boot the image the first one had mounted - reachable even on
+        Windows through a gallery item viewer whose Launch button was wired
+        while the image was still free. Keyed by PATH rather than by
+        emulator, which is the correct scope: an image MAME is holding is
+        just as unavailable to CSpect.
+        """
+        free = _probe_image_write_access(path, announce=announce)
+        if free and _image_held_by_us(_image_state_key(path)):
+            free = False
+            if announce:
+                add_main_log_window(_image_busy_message(path))
+        _refresh_emulator_launchability()
+        return free
+
+    host._reprobe_and_regate = _reprobe_and_regate
+
     def _emulator_launch_blocker(emulator, autostart=False):
         """Why *emulator* cannot start right now, or "" when it can.
 
@@ -388,22 +575,27 @@ def build_emulator_ops(
 
         Launching the IMAGE needs an image; launching a downloaded FILE
         (*autostart*) does not, and must not be gated on one.
+
+        The image being held by ANOTHER emulator is the last check in each
+        branch (9.6.2): it is only meaningful once there is an image to be
+        held, and "load an image first" is the more useful thing to say
+        when there is not.
         """
         if autostart:
             return ""
         if emulator == "CSpect":
-            if _right_disk_content():
-                return ""
-            return ui_tr_now(
-                "Load a ZX Spectrum Next disk image first — then CSpect can "
-                "boot it from the mounted SD card.")
+            if not _right_disk_content():
+                return ui_tr_now(
+                    "Load a ZX Spectrum Next disk image first — then CSpect can "
+                    "boot it from the mounted SD card.")
+            return _image_busy_reason("CSpect")
         if emulator == "MAME":
             _img = (host.imageinput.currentText() or "").strip().strip('"')
-            if _img and os.path.isfile(_img):
-                return ""
-            return ui_tr_now(
-                "Select a valid ZX Spectrum Next disk image (.img/.hdf) "
-                "before launching MAME.")
+            if not (_img and os.path.isfile(_img)):
+                return ui_tr_now(
+                    "Select a valid ZX Spectrum Next disk image (.img/.hdf) "
+                    "before launching MAME.")
+            return _image_busy_reason("MAME")
         return ""
 
     host._emulator_launch_blocker = _emulator_launch_blocker
@@ -466,6 +658,16 @@ def build_emulator_ops(
         _img_now = (host.right_disk_image_path or "").strip().strip('"')
         if _img_now and not os.path.isfile(_img_now) and not _has_autostart:
             _emulator_launch_failed("CSpect", _image_file_missing(_img_now))
+            return
+        # The image may be mounted in an emulator that is ALREADY running -
+        # CSpect keeps its -mmc handle open for its whole session, and a
+        # second one handed the same file dies on it. Probe now rather than
+        # trusting the cached verdict: this is the moment the answer has to
+        # be true, and the buttons may have been enabled before the other
+        # emulator started. A refusal greys every launch surface (see
+        # _reprobe_and_regate) until a writable image is picked.
+        if _img_now and not _reprobe_and_regate(_img_now, announce=True):
+            _emulator_launch_failed("CSpect", _image_busy_message(_img_now))
             return
 
         set_all_buttons_disabled()
@@ -590,7 +792,14 @@ def build_emulator_ops(
                         "the HOST system — the launch is delegated there "
                         "via flatpak-spawn."))
 
+        # execute_shell_command above is a BLOCKING subprocess.run, so
+        # reaching this line means our CSpect has exited (or never
+        # started) and the image it held is free again. Re-probe before
+        # re-enabling, or the buttons come back greyed on a stale verdict.
+        if _img_now:
+            _probe_image_write_access(_img_now)
         set_all_buttons_enabled()
+        _refresh_emulator_launchability()
 
 
     def launch_mame(autostart_file=None):
@@ -625,6 +834,14 @@ def build_emulator_ops(
                                     if _sel_image else ui_tr_now(
                 "Select a valid ZX Spectrum Next disk image (.img/.hdf) "
                 "before launching MAME."))
+            return
+
+        # As for CSpect: the image may already be held by a running
+        # emulator, and MAME's own failure mode is worse than an error - it
+        # can fall back to mounting the disk READ-ONLY, so the session looks
+        # fine until the first write is silently lost.
+        if _sel_image and not _reprobe_and_regate(_sel_image, announce=True):
+            _emulator_launch_failed("MAME", _image_busy_message(_sel_image))
             return
 
         # Flatpak mode (Linux) launches `flatpak run org.mamedev.MAME …`
@@ -779,6 +996,13 @@ def build_emulator_ops(
         # attribute is still mirrored for anything else that reads it.
         _launch_state = {"missing_files": False}
         host._mame_missing_files = False
+        # The image this launch will hold, for as long as it holds it. On
+        # Windows the probe would find it anyway; on Linux/macOS (native or
+        # either Flatpak mode) this reference count is the ONLY way the app
+        # can know, because POSIX lets a second emulator open the same file
+        # and quietly corrupt the FAT. Taken before Popen and released in
+        # _on_mame_finished, so a launch that raises never leaks one.
+        _held_key = host._image_state_key(mame_image) if mame_image else ""
         try:
             if platform.system() == "Windows":
                 # CREATE_NEW_PROCESS_GROUP (0x200) detaches MAME from the app.
@@ -820,6 +1044,9 @@ def build_emulator_ops(
             _emulator_launch_failed("MAME", ui_tr_now(
                 "ERROR: Failed to launch MAME: {error}").format(error=ex))
             return
+        if _held_key:
+            host._images_held_by_us.setdefault(_held_key, []).append(mame_proc)
+            _refresh_emulator_launchability()
 
         # Marshal captured output back to the UI thread via queued signals
         # (Qt widgets must only be touched from the main thread).
@@ -841,6 +1068,18 @@ def build_emulator_ops(
             add_main_log_window(ui_tr_now(
                 "MAME exited with code {code}.").format(code=return_code))
             logging.info(f"MAME exited with code {return_code}.")
+            # This MAME has let go of its disk image. Drop the reference and
+            # re-probe, so the launch affordances come back the moment the
+            # last holder exits instead of staying greyed until the user
+            # re-picks the image by hand.
+            if _held_key:
+                # The process object prunes itself (_image_held_by_us polls
+                # it), so there is nothing to decrement here - just re-probe
+                # and re-gate so the buttons come back at once rather than
+                # at the next thing that happens to ask.
+                if mame_image:
+                    _probe_image_write_access(mame_image)
+                _refresh_emulator_launchability()
             # MAME aborts when the ZX Spectrum Next boot ROM (TBBLUE, e.g.
             # boot-30204.bin) is absent — a manual step the auto-install
             # deliberately leaves to the user. Point them at the guide.
@@ -2260,38 +2499,44 @@ def build_emulator_ops(
         after toggling Flatpak picks up the current state.
 
         A shown button is *enabled* only when the emulator can actually
-        start right now, mirroring the SD Card tab gating: CSpect needs the
-        mounted image (its -mmc= comes from the hdfmonkey listing), MAME
-        needs a valid image *file* selected (it boots the image directly).
-        With no image ready the buttons stay visible but greyed out, with a
-        'load an image first' tooltip — in both the Qt (Classic) and pygame
-        (Retro) viewers, which share this set_emulator_actions API."""
+        start right now, and the reason it cannot becomes its tooltip —
+        both straight from _emulator_launch_blocker, the same answer the
+        SD Card tab's Launch buttons and both explorer strips show. So:
+        CSpect needs the mounted image (its -mmc= comes from the hdfmonkey
+        listing), MAME needs a valid image *file* selected (it boots the
+        image directly), and NEITHER can start while another emulator
+        still holds that image. The buttons stay visible but greyed out —
+        in both the Qt (Classic) and pygame (Retro) viewers, which share
+        this set_emulator_actions API.
+
+        Wired once, when the viewer opens: a viewer left open across a
+        change keeps the state it was given. That is the pre-existing
+        behaviour and the launchers re-check on the click anyway, so a
+        stale-enabled button refuses with the right message rather than
+        starting an emulator that would fail."""
         cspect_ok = bool(allow) and getattr(host, "_cspect_executable_path", None) is not None
         mame_ok   = bool(allow) and host._mame_usable()
         _flatpak  = host._mame_flatpak_enabled()
-        _img_mounted = bool(_right_disk_content())
-        try:
-            _img = (host.imageinput.currentText() or "").strip().strip('"')
-            _img_file = bool(_img) and os.path.isfile(_img)
-        except (RuntimeError, AttributeError):
-            _img_file = False
+        # ONE source of truth for "can this start right now, and if not
+        # why" (9.6.2). This used to re-derive the image rules a third
+        # time, which is how the viewers came to disagree with the SD Card
+        # tab the moment a rule was added in only one of the three places.
+        _cspect_why = _emulator_launch_blocker("CSpect")
+        _mame_why   = _emulator_launch_blocker("MAME")
         viewer.set_emulator_actions(
             cspect_cb=(host._launch_cspect_fn if cspect_ok else None),
             mame_cb=(host._launch_mame_fn if mame_ok else None),
-            cspect_enabled=cspect_ok and _img_mounted,
-            mame_enabled=mame_ok and _img_file,
-            cspect_tooltip=("🕹  Launch CSpect with the loaded SD card image"
-                            if _img_mounted else
-                            "Load a ZX Spectrum Next disk image first (SD Card "
-                            "tab) — then CSpect can boot it from the mounted "
-                            "SD card."),
-            mame_tooltip=((("🕹  Launch MAME (via Flatpak) with the loaded image"
-                            if _flatpak
-                            else "🕹  Launch MAME with the loaded image"))
-                          if _img_file else
-                          "Select a ZX Spectrum Next disk image (.img/.hdf) "
-                          "first (SD Card tab) — then MAME can boot it as "
-                          "the Next's hard disk."),
+            cspect_enabled=cspect_ok and not _cspect_why,
+            mame_enabled=mame_ok and not _mame_why,
+            # Both tooltips must stay non-empty: _wire_btn applies one only
+            # `if tooltip:`, so an empty string leaves the PREVIOUS reason
+            # on the button.
+            cspect_tooltip=(_cspect_why or
+                            "🕹  Launch CSpect with the loaded SD card image"),
+            mame_tooltip=(_mame_why or
+                          ("🕹  Launch MAME (via Flatpak) with the loaded image"
+                           if _flatpak
+                           else "🕹  Launch MAME with the loaded image")),
             mame_label=host._mame_launch_label(),
         )
     host._wire_viewer_emulators = _wire_viewer_emulators

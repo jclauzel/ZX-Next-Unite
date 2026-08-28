@@ -1889,7 +1889,16 @@ class MainWindow(QMainWindow):
             delivers tooltip help events to disabled widgets, so the hint shows
             while the button is greyed out."""
             try:
-                if right_disk_image_explorer_content:
+                # "Another emulator still has this image" outranks the
+                # load-an-image hint: with a mounted image the old branch
+                # cleared the tooltip outright, which left the greyed-out
+                # button with no explanation at all. getattr because these
+                # closures exist long before build_emulator_ops defines it.
+                busy = getattr(self, "_image_busy_reason", None)
+                busy = busy("CSpect") if busy is not None else ""
+                if busy:
+                    self.button_start_cspect.setToolTip(busy)
+                elif right_disk_image_explorer_content:
                     self.button_start_cspect.setToolTip("")
                 else:
                     self.button_start_cspect.setToolTip(ui_tr_now(
@@ -1907,8 +1916,12 @@ class MainWindow(QMainWindow):
             Qt still delivers tooltip help events to disabled widgets, so the
             hint shows while the button is greyed out."""
             try:
+                busy = getattr(self, "_image_busy_reason", None)
+                busy = busy("MAME") if busy is not None else ""
                 img = (self.imageinput.currentText() or "").strip().strip('"')
-                if img and os.path.isfile(img):
+                if busy:
+                    self.button_start_mame.setToolTip(busy)
+                elif img and os.path.isfile(img):
                     self.button_start_mame.setToolTip("")
                 else:
                     self.button_start_mame.setToolTip(ui_tr_now(
@@ -1996,8 +2009,12 @@ class MainWindow(QMainWindow):
             self.button_delete_files.setDisabled(False)
             self.new_folder_input.setDisabled(False)
             self.button_create_directory.setDisabled(False)
-            self.button_start_cspect.setDisabled(False)
-            self.button_start_mame.setDisabled(False)
+            # NOT a blanket re-enable for the two Launch buttons: they have
+            # their own gate (an image must be ready AND free), and a blunt
+            # setDisabled(False) here silently un-greyed a button whose
+            # image another emulator still holds - at the end of every
+            # transfer, every load and every CSpect exit. _update_*_controls
+            # at the tail of this function decides them instead.
             self.cspect_screensize.setDisabled(False)
             self.cspect_sound.setDisabled(False)
             self.cspect_vsync.setDisabled(False)
@@ -2012,8 +2029,10 @@ class MainWindow(QMainWindow):
                                 getattr(self, "mame_esc", None)):
                 if _mame_combo is not None:
                     _mame_combo.setDisabled(False)
-            _update_cspect_launch_tooltip()
-            _update_mame_launch_tooltip()
+            # These set BOTH the enabled state and the tooltip, so the two
+            # Launch buttons come back only as far as their own rules allow.
+            _update_cspect_controls()
+            _update_mame_controls()
 
         def _update_mame_controls():
             """Enable the 'Launch Mame' button whenever MAME is available and a
@@ -2036,7 +2055,10 @@ class MainWindow(QMainWindow):
             try:
                 available = self._mame_usable()
                 img = (self.imageinput.currentText() or "").strip().strip('"')
-                ready = available and bool(img) and os.path.isfile(img)
+                busy = getattr(self, "_image_busy_reason", None)
+                busy = busy("MAME") if busy is not None else ""
+                ready = (available and bool(img) and os.path.isfile(img)
+                         and not busy)
                 self.button_start_mame.setEnabled(ready)
                 for _mame_combo in (getattr(self, "mame_aspect", None),
                                     getattr(self, "mame_sound", None),
@@ -2060,8 +2082,11 @@ class MainWindow(QMainWindow):
             everything via set_all_buttons_disabled()."""
             try:
                 available = getattr(self, "_cspect_executable_path", None) is not None
+                busy = getattr(self, "_image_busy_reason", None)
+                busy = busy("CSpect") if busy is not None else ""
                 self.button_start_cspect.setEnabled(
-                    available and bool(right_disk_image_explorer_content))
+                    available and bool(right_disk_image_explorer_content)
+                    and not busy)
                 for _cspect_combo in (self.cspect_screensize, self.cspect_sound,
                                       self.cspect_vsync, self.cspect_joystick,
                                       self.cspect_mouse, self.cspect_frequency,
@@ -2070,6 +2095,12 @@ class MainWindow(QMainWindow):
                 _update_cspect_launch_tooltip()
             except (RuntimeError, AttributeError):
                 pass
+
+        # Exposed so the image-write probe can re-gate both groups from
+        # zxnu_emulator_ops (_refresh_emulator_launchability), the same way
+        # _refresh_mame_launch_ui is exposed just below.
+        self._update_mame_controls = _update_mame_controls
+        self._update_cspect_controls = _update_cspect_controls
 
         def _refresh_mame_launch_ui():
             """Re-evaluate the SD Card tab MAME group after a change to whether
@@ -2633,6 +2664,15 @@ class MainWindow(QMainWindow):
                 opened_at = getattr(self.imageinput, "_popup_shown_at", 0.0)
                 if time.monotonic() - opened_at < 0.5:
                     QTimer.singleShot(0, self.imageinput.showPopup)
+                    return
+                # Deliberately re-picking the image that is ALREADY loaded
+                # is the user's "try it again now" gesture - the natural
+                # thing to do after closing the emulator that held it. It
+                # used to do nothing at all, which left the Launch buttons
+                # greyed with no way back short of picking another image.
+                _reprobe = getattr(self, "_reprobe_and_regate", None)
+                if _reprobe is not None:
+                    _reprobe(picked)
                 return
             load_image()
         self.imageinput.activated.connect(_image_history_activated)

@@ -406,7 +406,22 @@ def build_sdcard_utils(
             def _after(success):
                 if success:
                     host.diskimageexplorerpathinput.setText(generate_disk_file_path().replace('//', '/'))
+                    # Probe BEFORE set_all_buttons_enabled: that call ends
+                    # in _update_*_controls, which reads this verdict to
+                    # decide whether the two Launch buttons come back.
+                    _probe = getattr(host, "_probe_image_write_access", None)
+                    if _probe is not None:
+                        _probe(host.right_disk_image_path, announce=True)
                     set_all_buttons_enabled()
+                    # set_all_buttons_enabled re-gates the two Launch
+                    # BUTTONS; the emulator strips are built from the same
+                    # answer but nothing on this path rebuilds them, so a
+                    # tab that went blocked under "no image selected" would
+                    # stay greyed and inert beside a live button.
+                    _regate = getattr(host, "_refresh_emulator_launchability",
+                                      None)
+                    if _regate is not None:
+                        _regate()
                     _add_to_image_history(host.right_disk_image_path)
                     # Kick the idle pulse so it's running right after a load,
                     # not only when the tab is (re)entered — and retire the
@@ -437,6 +452,17 @@ def build_sdcard_utils(
         set_all_buttons_disabled()
         enable_image_selection()
         _update_image_usage_gauge("")
+        # The image is gone from the box, so its cached "in use" verdict is
+        # meaningless - and keeping it would grey the Launch buttons for
+        # whatever is picked next if it happens to be the same file.
+        _forget = getattr(host, "_forget_image_write_state", None)
+        if _forget is not None:
+            _forget(_clean_image_path)
+        # Unloading takes the image away from the strips too - they must go
+        # back to "select an image first", not keep offering a launch.
+        _regate = getattr(host, "_refresh_emulator_launchability", None)
+        if _regate is not None:
+            _regate()
         # Forget what was selected INSIDE the image that just went: the load
         # branch resets these, the unload branch never did. Harmless while
         # unloading was rare; forgetting a remembered path (9.6.0) makes it

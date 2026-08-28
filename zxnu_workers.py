@@ -155,8 +155,32 @@ EmulatorAutostart = namedtuple("EmulatorAutostart",
                                defaults=(lambda: "",))
 
 
+# One emulator's bare "boot the mounted image" launch, for the two strips.
+#   name     the strip label ("Mame" / "CSpect")
+#   launch   call with NO argument to boot the mounted image
+#   blocked  the reason it cannot start right now, or "" when it can - the
+#            same string _emulator_launch_blocker hands every other surface,
+#            so a strip tab and the SD Card tab's Launch button can never
+#            disagree about whether a launch is possible or about why.
+EmulatorLaunch = namedtuple("EmulatorLaunch", "name launch blocked",
+                            defaults=("",))
+
+
+def as_emulator_launch(item):
+    """Coerce one entry to an EmulatorLaunch.
+
+    The strips used to unpack a bare ``(name, launch)`` 2-tuple, and the
+    widget tests still build one by hand, so accept both shapes rather than
+    breaking every caller that never cared about the blocked reason.
+    """
+    if isinstance(item, EmulatorLaunch):
+        return item
+    seq = tuple(item)
+    return EmulatorLaunch(*seq[:3]) if len(seq) >= 3 else EmulatorLaunch(*seq[:2])
+
+
 def emulator_launch_entries(host):
-    """Which emulators can be launched RIGHT NOW, as (label, callable).
+    """Which emulators can be launched RIGHT NOW, as EmulatorLaunch entries.
 
     The bare "boot the mounted image" launch, with no file attached - the
     twin of :func:`emulator_autostart_entries` above, which answers the
@@ -171,15 +195,36 @@ def emulator_launch_entries(host):
     local binary), CSpect through the detected executable path every other
     call site tests. The callables are ``host._launch_*_fn`` - the very
     functions those buttons are connected to - called with NO argument.
+
+    An entry is listed while the emulator is INSTALLED, and carries the
+    reason it cannot start right now in ``blocked`` (9.6.2). Presence and
+    readiness are deliberately separate: a strip that dropped its tab when
+    the disk image went busy would read as "MAME is gone", which is a
+    different and wrong answer to a different question.
     """
+    # The blocker spells MAME in capitals while the strip label is "Mame",
+    # so the two names are passed separately rather than case-folded inside
+    # the blocker (where the spelling is part of its public contract).
+    _blocker = getattr(host, "_emulator_launch_blocker", None)
+
+    def _why(emulator):
+        if _blocker is None:
+            return ""
+        try:
+            return _blocker(emulator) or ""
+        except Exception:                   # noqa: BLE001
+            logging.exception("emulator launch blocker failed for %s", emulator)
+            return ""
+
     out = []
     _mame_ok = getattr(host, "_mame_usable", None)
     if (_mame_ok is not None and _mame_ok()
             and getattr(host, "_launch_mame_fn", None) is not None):
-        out.append(("Mame", host._launch_mame_fn))
+        out.append(EmulatorLaunch("Mame", host._launch_mame_fn, _why("MAME")))
     if (getattr(host, "_cspect_executable_path", None) is not None
             and getattr(host, "_launch_cspect_fn", None) is not None):
-        out.append(("CSpect", host._launch_cspect_fn))
+        out.append(EmulatorLaunch("CSpect", host._launch_cspect_fn,
+                                  _why("CSpect")))
     return out
 
 

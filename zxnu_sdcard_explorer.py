@@ -72,7 +72,8 @@ from zxnu_remote_explorer import EmulatorTab, emulator_color_menu
 from zxnu_config import (SETTING_EXPLORERPATH, SETTING_IMAGE_EXPLORERPATH,
                          is_filetype_a_directory)
 from zxnu_workers import (CompactButton, DotDotFirstProxyModel,
-                          HdfTaskWorker, bind_select_all_except_updir)
+                          HdfTaskWorker, as_emulator_launch,
+                          bind_select_all_except_updir)
 
 # ---------------------------------------------------------------------------
 # The disk image explorer is a lazily-populated tree: the image can be listed
@@ -341,11 +342,15 @@ class SdCardExplorerPane(QWidget):
             logging.exception("SD Card explorer: emulator lookup failed")
             entries = []
         self.local_emulator_strip.setVisible(bool(entries))
-        for i, (name, launch) in enumerate(entries):
+        for i, item in enumerate(entries):
+            entry = as_emulator_launch(item)
+            name, launch, why = entry.name, entry.launch, entry.blocked
             tab = EmulatorTab(
                 str(name), (lambda fn=launch: self._launch_emulator(fn)),
                 self.local_emulator_strip,
-                tooltip=ui_tr_now("Start {emulator}").format(emulator=name),
+                tooltip=(why or ui_tr_now("Start {emulator}").format(
+                    emulator=name)),
+                blocked=bool(why),
                 tint=self._emulator_color(name),
                 on_menu=(lambda pos, n=name: self._emulator_tab_menu(n, pos)))
             self._emulator_strip_box.insertWidget(i, tab)

@@ -308,6 +308,21 @@ def build_tab_ops(
             # user may have changed them in Settings). This is synchronous
             # and instant, independent of the async re-listing below.
             host._image_recolor_all()
+            # Escape hatch for an emulator this app did NOT launch: coming
+            # back to the tab is the natural "is it free yet?" moment, and
+            # without it a grey-out from an externally started emulator
+            # would only clear by re-picking the image by hand. Conditional
+            # on the last verdict being "busy", so the common case does no
+            # I/O at all on a tab switch.
+            _busy = getattr(host, "_image_busy_reason", None)
+            _reprobe = getattr(host, "_reprobe_and_regate", None)
+            if _busy is not None and _reprobe is not None:
+                for _emu in ("MAME", "CSpect"):
+                    if _busy(_emu):
+                        _reprobe(host.imageinput.currentText()
+                                 if _emu == "MAME"
+                                 else getattr(host, "right_disk_image_path", ""))
+                        break
             if _right_disk_content():
                 # Refresh the explorer when returning to the SD Card tab. The
                 # listing runs on a worker thread (no UI-thread hdfmonkey call
