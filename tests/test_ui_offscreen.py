@@ -1770,20 +1770,38 @@ def inspect_phase12():
 
             _zm.emulator_color_menu = _spy
             try:
-                win.button_start_mame.setEnabled(False)
                 _btn = win.button_start_mame
+                # Shown-but-disabled is the state under test. The button is
+                # HIDDEN outright when MAME is not installed (which is the
+                # case on CI), and a hidden button legitimately answers
+                # nothing - so show it for the duration rather than skipping
+                # the tripwire on every runner without MAME.
+                _was_hidden = _btn.isHidden()
+                _btn.setVisible(True)
+                _btn.setEnabled(False)
                 _centre = _btn.mapToGlobal(_btn.rect().center())
-                app.sendEvent(_btn, QContextMenuEvent(
-                    QContextMenuEvent.Reason.Mouse,
-                    _btn.mapFromGlobal(_centre), _centre))
+
+                def _right_click():
+                    seen_menu.clear()
+                    app.sendEvent(_btn, QContextMenuEvent(
+                        QContextMenuEvent.Reason.Mouse,
+                        _btn.mapFromGlobal(_centre), _centre))
+                    return bool(seen_menu)
+
                 check("right-clicking a GREYED-OUT Launch button opens the menu",
-                      bool(seen_menu), str(seen_menu))
+                      _right_click(), str(seen_menu))
                 if seen_menu:
                     _label, _choices, _picker = seen_menu[0]
                     check("the menu offers the writable image",
                           any(p == free_img for p, _c in _choices),
                           str([p for p, _c in _choices]))
                     check("and knows how to act on the pick", _picker is not None)
+                # ... and the guard's own rule: a button the app has HIDDEN
+                # (no MAME installed) must not claim the click, because
+                # whatever is drawn in its place now owns it.
+                _btn.setVisible(False)
+                check("a HIDDEN Launch button does not claim the right-click",
+                      not _right_click())
             finally:
                 _zm.emulator_color_menu = _real_menu
                 # Release the lock here, not further down: a check that
@@ -1792,6 +1810,7 @@ def inspect_phase12():
                 if holder2 is not None:
                     _k32.CloseHandle(holder2)
                     holder2 = None
+                _btn.setVisible(not _was_hidden)   # leave the tab as found
 
             # Picking one makes it the loaded image - the same two steps the
             # history dropdown performs. A runner without hdfmonkey answers
