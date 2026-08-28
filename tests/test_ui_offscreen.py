@@ -673,12 +673,64 @@ def inspect_phase1():
         QCoreApplication.processEvents()
         check("local Refresh keeps folder", view_dir() == parent1, view_dir())
 
+        # Refresh WITH a filter active. The local pane re-roots through the
+        # proxy, and mapFromSource on a FILTERED proxy is invalid whenever the
+        # folder's own name does not match - which used to root the view
+        # somewhere else entirely. The filter must also survive the refresh.
+        win.filtertext.setText("zzz-no-such-name")
+        QCoreApplication.processEvents()
+        win.local_explorer_refresh_button.click()
+        QCoreApplication.processEvents()
+        check("local Refresh keeps the folder with a filter on",
+              view_dir() == parent1, view_dir())
+        check("local Refresh keeps the filter itself",
+              win.filtertext.text() == "zzz-no-such-name", win.filtertext.text())
+        win.filtertext.setText("")
+        QCoreApplication.processEvents()
+
         win.image_explorer_refresh_button.click()
         ok7 = wait_until(lambda: win.image_selected_path == "/games/sub"
                          and win.diskimageexplorerpathinput.text() == "/games/sub",
                          timeout=15, what="image Refresh keeps target")
         check("image Refresh keeps target", ok7,
               f"sel={win.image_selected_path!r} box={win.diskimageexplorerpathinput.text()!r}")
+
+        # THE Refresh-with-filter regression: a Refresh with nothing selected
+        # re-lists the ROOT, which drops every folder back to a single
+        # placeholder child. A filter matching only something INSIDE a folder
+        # then had nothing left to match and hid the whole tree. An unlisted
+        # folder's contents are unknown, so it must stay reachable.
+        from zxnu_sdcard_explorer import IMG_ISDIR_ROLE as _ISDIR
+        win.image_filtertext.setText("zzz-matches-nothing-visible")
+        QCoreApplication.processEvents()
+        win.sdcard_explorer.image_load_root()
+        wait_until(lambda: win.image_model.invisibleRootItem().rowCount() > 0,
+                   timeout=15, what="root re-listed under a filter")
+        QCoreApplication.processEvents()
+        _root = win.image_model.invisibleRootItem()
+        _all = [_root.child(r, 0) for r in range(_root.rowCount())]
+        _all = [i for i in _all if i is not None]
+        _dirs = [i for i in _all if i.data(_ISDIR)]
+        _shown = [i for i in _dirs
+                  if not win.image_treeview.isRowHidden(i.row(), i.index().parent())]
+        check("a filtered root Refresh still shows unlisted folders",
+              bool(_dirs) and len(_shown) == len(_dirs),
+              f"{len(_shown)}/{len(_dirs)} folders visible")
+        # ...and non-matching FILES are still hidden, so this stays a
+        # "cannot rule it out" exemption rather than a filter bypass.
+        _files = [i for i in _all if not i.data(_ISDIR)]
+        _fshown = [i for i in _files
+                   if not win.image_treeview.isRowHidden(i.row(), i.index().parent())]
+        check("a filtered Refresh still hides non-matching files",
+              not _fshown, f"{len(_fshown)} file(s) wrongly visible")
+        win.image_filtertext.setText("")
+        QCoreApplication.processEvents()
+        # The root reload above cleared the selection; the Up checks
+        # below start from /games/sub, so put it back before handing over.
+        win.sdcard_explorer.image_navigate_to_path("/games/sub")
+        wait_until(lambda: win.image_selected_path == "/games/sub",
+                   timeout=15, what="restore selection after the filter test")
+        QCoreApplication.processEvents()
 
         win.image_explorer_up_button.click()
         ok8 = wait_until(lambda: win.image_selected_path == "/games",
