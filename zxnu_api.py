@@ -1,5 +1,5 @@
 """Online catalogue API layer for ZX-Next-Unite: GetIt (zxnext.uk),
-ZXDB (api.zxinfo.dk/v3) and zxART (zxart.ee).
+ZXDB (api.zxinfo.dk/v5, magazines on v4) and zxART (zxart.ee).
 
 Extracted verbatim from zx-next-unite.py (strangler refactor, sitting #2):
 the shared HTTP retry helpers, the per-service fetchers, response parsers,
@@ -461,13 +461,52 @@ def zxart_entry_website_url(entry) -> str:
     return ""
 
 
-def zxdb_fetch_json(path: str, timeout: int = 15, _retries: int = 3, _backoff: float = 1.5):
+def zxdb_fetch_json(path: str, timeout: int = 15, _retries: int = 3, _backoff: float = 1.5,
+                    base: str = ""):
     """GET JSON from the ZXInfo API. *path* must include any query string.
     Identifies the client per API policy via a custom User-Agent.
     Retries up to *_retries* times on transient server errors (5xx / network)
-    with exponential backoff starting at *_backoff* seconds."""
+    with exponential backoff starting at *_backoff* seconds.
+
+    *base* overrides ZXDB_BASE_URL - used only for magazines, which live on
+    v4 (see zxnu_config).
+
+    THE v3 -> v5 MAP, every line verified against the live API in August 2026
+    by comparing RESULT SETS, because v5 answers an unknown path with HTTP
+    200 and a plain-text "api-v5 catch all" body rather than a 404:
+
+        /games/{id}                 -> /entries/{id}
+        /games/morelikethis/{id}    -> /entries/morelikethis/{id}
+        /games/byletter/{letter}    -> /entries/byletter/{letter}
+        /games/random/{n}           -> /entries/random/{n}
+        /authors/{name}/games       -> /entries/byauthor/{name}
+        /publishers/{name}/games    -> /entries/bypublisher/{name}
+        /magazines/{name}           -> NO v5 ROUTE; use v4 (base= above)
+        /search?query=TERM&mode=tit -> /search/titles/TERM
+
+    TWO TRAPS THAT LOOK LIKE SUCCESS. Both return valid JSON with no
+    catch-all string, so neither is caught by checking the status or the
+    shape - only by comparing what comes back:
+
+      1. v5 /search DROPS the query= parameter. /v5/search?query=jetpac
+         returns the same 10000-hit unfiltered page as the same URL with
+         query deleted; v3 returned 15 hits led by Jetpac. The search term
+         belongs in the PATH now. The query STRING still works for browsing
+         (contenttype, sort, size, offset are all honoured), which is why
+         the "latest games" call below is unchanged.
+      2. v5 ignores author=/publisher= as search parameters the same way -
+         they filter nothing. Use the byauthor/bypublisher paths.
+
+    Also changed: mode= is the response SHAPE in v5 (full/compact/tiny),
+    not the search scope. v3's mode=tit is accepted and silently ignored.
+
+    Not a change, verified: the ENVELOPE is identical. hits.total is still
+    {value, relation}, and a recursive key diff of the same entry through
+    both versions gives 76 shared paths and none unique to either - so the
+    parsers below need nothing. Result ORDER does differ on the multi-hit
+    routes (v5 applies a default sort where v3 returned relevance order)."""
     import time as _time
-    url = ZXDB_BASE_URL + path
+    url = (base or ZXDB_BASE_URL) + path
     last_exc = None
     for attempt in range(_retries):
         try:
@@ -535,7 +574,8 @@ def zxdb_parse_search(payload) -> tuple:
         return entries, total, page, total_pages, page_size
 
     # Pagination metadata (may appear under different keys)
-    # ZXInfo v3 uses ES envelope: hits.total.value (or hits.total as int)
+    # ZXInfo uses the raw ES envelope: hits.total.value (or hits.total as
+    # int). Unchanged between v3 and v5 - verified by a recursive key diff.
     _hits_meta = payload.get("hits")
     if isinstance(_hits_meta, dict):
         _hits_total = _hits_meta.get("total")
@@ -1170,7 +1210,7 @@ def _zxart_resolve_publishers_via_zxdb(title: str, year: str = "") -> str:
     API to recover a human-readable publisher name when zxArt only exposes
     an opaque numeric publisher id.
 
-    Strategy: search ZXDB by title (mode=tit) and return the publishers of
+    Strategy: search ZXDB by title (/search/titles/) and return the publishers of
     the best hit. If *year* is provided, prefer hits whose
     ``originalYearOfRelease`` / ``yearOfRelease`` matches. Falls back to
     release-level publishers when the top-level record has none. Results
@@ -1189,7 +1229,10 @@ def _zxart_resolve_publishers_via_zxdb(title: str, year: str = "") -> str:
     name = ""
     try:
         q = urllib.parse.quote(t)
-        payload = zxdb_fetch_json(f"/search?query={q}&mode=tit&size=10")
+        # v5: the term is a PATH segment. As a query parameter it is
+        # silently dropped and the call returns the unfiltered index.
+        payload = zxdb_fetch_json(
+            f"/search/titles/{urllib.parse.quote(q)}?mode=compact&size=10")
         hits = ((payload or {}).get("hits") or {}).get("hits") or []
         # Prefer year-matched hits when a year is provided.
         def _pubs_from_hit(hit):

@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.6.3"
+ZX_NEXT_UNITE_VERSION = "9.6.4"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -175,7 +175,20 @@ GETIT_STARTER_PACK_IMAGE_DIR = "/games/StarterPack"
 # Minimum number of characters required before a keyword search is accepted.
 SEARCH_MIN_CHARS = 3
 
-ZXDB_BASE_URL = "https://api.zxinfo.dk/v3"
+# ZXInfo moved to v5 and is retiring v3 (the API's author gave notice in
+# August 2026). The rename is not cosmetic: v3's "games" became "entries",
+# and v5 answers an UNKNOWN PATH WITH HTTP 200 and the plain-text body
+# "Hello World! api-v5 catch all ...". So a wrong path does not 404 - it
+# succeeds and returns a string where JSON was expected. Every mapping in
+# this app was verified against the live API by comparing RESULT SETS, not
+# status codes; see zxdb_fetch_json for the v3 -> v5 table.
+ZXDB_BASE_URL = "https://api.zxinfo.dk/v5"
+# Magazines never made it to v5 - /v5/magazines/{name} is a catch-all, and
+# the documents live in a separate Elasticsearch index from entries, so no
+# /entries route reaches them. v4 carries them, byte-identical to v3
+# (same _index, _id, _score and issue list), and is what zxinfo.dk's own
+# frontend uses. One endpoint, one base URL, kept apart so it is obvious.
+ZXDB_MAGAZINES_BASE_URL = "https://api.zxinfo.dk/v4"
 ZXDB_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
 ZXDB_PAGE_SIZE = 20
 
