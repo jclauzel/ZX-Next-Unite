@@ -1,6 +1,6 @@
-"""zxnu_zxdb_pane.py — ZXDB (ZXInfo API v3) gallery pane builder.
+"""zxnu_zxdb_pane.py — ZXDB (ZXInfo API v5) gallery pane builder.
 
-Strangler extraction from MainWindow.__init__: the ~3k-line ZXDB (ZXInfo API v3) UI
+Strangler extraction from MainWindow.__init__: the ~3k-line ZXDB (ZXInfo API v5) UI
 construction blob (widgets + navigation + search/detail/download closures) now
 lives here as build_zxdb_pane(host, ...). The operation-layer wiring that still
 lives in MainWindow (tab spinners, cross-search dispatch, hdfmonkey transfers,
@@ -76,7 +76,7 @@ def build_zxdb_pane(
     _right_disk_content,
 ):
     # -----------------------------------------------------------------------
-    # ZXDB UI construction (ZXInfo API v3)
+    # ZXDB UI construction (ZXInfo API v5)
     # -----------------------------------------------------------------------
 
     host.zxdb_form = QFormLayout()
@@ -288,7 +288,7 @@ def build_zxdb_pane(
         if not eid:
             return
         def _fn():
-            payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+            payload = zxdb_fetch_json(f"/entries/{urllib.parse.quote(eid)}")
             detail  = zxdb_parse_game_detail(payload)
             shots = detail.get("screenshots") or []
             if not shots and detail.get("screenshot_url"):
@@ -424,7 +424,7 @@ def build_zxdb_pane(
                 return
             zxdb_set_status(f"Loading {eid}\u2026")
             def _fn():
-                payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                payload = zxdb_fetch_json(f"/entries/{urllib.parse.quote(eid)}")
                 return zxdb_parse_game_detail(payload)
             def _on_ok(detail, _dr=dest_root, _pa=post_action):
                 zxdb_populate_detail(detail)
@@ -443,7 +443,7 @@ def build_zxdb_pane(
                 return
             zxdb_set_status(f"Loading {eid}\u2026")
             def _fn_dl():
-                payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                payload = zxdb_fetch_json(f"/entries/{urllib.parse.quote(eid)}")
                 return zxdb_parse_game_detail(payload)
             def _on_ok_dl(detail):
                 zxdb_populate_detail(detail)
@@ -462,7 +462,7 @@ def build_zxdb_pane(
                 return
             zxdb_set_status(f"Loading {eid}\u2026")
             def _fn_sd():
-                payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                payload = zxdb_fetch_json(f"/entries/{urllib.parse.quote(eid)}")
                 return zxdb_parse_game_detail(payload)
             def _on_ok_sd(detail):
                 zxdb_populate_detail(detail)
@@ -482,7 +482,7 @@ def build_zxdb_pane(
             zxdb_set_status(f"Finding titles similar to '{title}'\u2026")
             def _fn_mlt():
                 payload = zxdb_fetch_json(
-                    f"/games/morelikethis/{urllib.parse.quote(eid)}"
+                    f"/entries/morelikethis/{urllib.parse.quote(eid)}"
                     f"?mode=compact&size={ZXDB_PAGE_SIZE}"
                 )
                 entries, total, _pg, total_pages, _ps = zxdb_parse_search(payload)
@@ -1005,9 +1005,17 @@ def build_zxdb_pane(
                 "sort":   "rel_desc",
                 "contenttype": "SOFTWARE",
             }
+            # v5 SPLITS these. A search TERM is a path segment -- as a
+            # query parameter it is silently dropped and the unfiltered
+            # index comes back with a 200. A bare browse (no term) still
+            # uses the query string, where sort/contenttype/size/offset
+            # are all honoured. /search/titles/ is the closest match to
+            # v3's mode=tit; /search/ alone searches wider.
             if query:
-                params["query"] = query
-            path = f"/search?{urllib.parse.urlencode(params)}"
+                path = (f"/search/titles/{urllib.parse.quote(query)}"
+                        f"?{urllib.parse.urlencode(params)}")
+            else:
+                path = f"/search?{urllib.parse.urlencode(params)}"
 
             def _fn():
                 payload = zxdb_fetch_json(path)
@@ -1024,7 +1032,7 @@ def build_zxdb_pane(
                 "mode":   "compact",
                 "contenttype": "SOFTWARE",
             }
-            path = f"/games/byletter/{urllib.parse.quote(letter)}?{urllib.parse.urlencode(params)}"
+            path = f"/entries/byletter/{urllib.parse.quote(letter)}?{urllib.parse.urlencode(params)}"
 
             def _fn():
                 payload = zxdb_fetch_json(path)
@@ -1039,7 +1047,8 @@ def build_zxdb_pane(
                 mag_path = f"/magazines/{urllib.parse.quote(query)}"
 
                 def _fn():
-                    payload = zxdb_fetch_json(mag_path)
+                    payload = zxdb_fetch_json(mag_path,
+                                              base=ZXDB_MAGAZINES_BASE_URL)
                     # /magazines/{name} returns a single ES hit: {_id, _source, …}
                     # Wrap it so _zxdb_parse_magazine_list can handle it uniformly.
                     if isinstance(payload, dict) and "_source" in payload:
@@ -1061,18 +1070,21 @@ def build_zxdb_pane(
                 list_path = f"/magazines/?{urllib.parse.urlencode(params)}"
 
                 def _fn():
-                    payload = zxdb_fetch_json(list_path)
+                    payload = zxdb_fetch_json(list_path,
+                                              base=ZXDB_MAGAZINES_BASE_URL)
                     entries = _zxdb_parse_magazine_list(payload)
                     total = _zxdb_extract_es_total(payload) or len(entries)
                     total_pages = max(1, (total + ZXDB_PAGE_SIZE - 1) // ZXDB_PAGE_SIZE) if total else 1
                     return ("magazines", entries, total, page, total_pages)
 
         elif mode == "author":
-            # ZXInfo exposes both /authors/{name}/games and /publishers/{name}/games.
+            # ZXInfo v5 exposes both /entries/byauthor/{name} and
+            # /entries/bypublisher/{name} (v3 spelled these
+            # /authors/{name}/games and /publishers/{name}/games).
             # Many UI users type a publisher/label name (e.g. 'Ultimate'), so we
             # try authors first and fall back to publishers when authors yields
             # no hits — this matches the working URL the user supplied:
-            #   /publishers/{name}/games?mode=compact&...
+            #   /entries/bypublisher/{name}?mode=compact&...
             params = {
                 "size":   str(ZXDB_PAGE_SIZE),
                 "offset": str(offset),
@@ -1084,11 +1096,11 @@ def build_zxdb_pane(
 
             def _fn():
                 used = "authors"
-                payload = zxdb_fetch_json(f"/authors/{qname}/games?{qs}")
+                payload = zxdb_fetch_json(f"/entries/byauthor/{qname}?{qs}")
                 entries, total, _pg, total_pages, _ps = zxdb_parse_search(payload)
                 if not entries:
                     used = "publishers"
-                    payload = zxdb_fetch_json(f"/publishers/{qname}/games?{qs}")
+                    payload = zxdb_fetch_json(f"/entries/bypublisher/{qname}?{qs}")
                     entries, total, _pg, total_pages, _ps = zxdb_parse_search(payload)
                 for e in entries:
                     e["_kind"] = "game"
@@ -1149,7 +1161,7 @@ def build_zxdb_pane(
         _start_tab_spinner(ZX_NEXT_UNITE_TAB_TITLE_ZXDB)
 
         def _fn():
-            payload = zxdb_fetch_json(f"/games/random/{ZXDB_PAGE_SIZE}")
+            payload = zxdb_fetch_json(f"/entries/random/{ZXDB_PAGE_SIZE}")
             # /games/random returns an ES envelope: { hits: { hits: [...] } }
             entries = []
             if isinstance(payload, list):
@@ -1477,7 +1489,7 @@ def build_zxdb_pane(
                     "mode":        "compact",
                     "contenttype": "SOFTWARE",
                 }
-                path = f"/games/byletter/{urllib.parse.quote(letter)}?{urllib.parse.urlencode(params)}"
+                path = f"/entries/byletter/{urllib.parse.quote(letter)}?{urllib.parse.urlencode(params)}"
                 try:
                     payload = zxdb_fetch_json(path)
                     entries, page_total, _pg, _tp, _ps = zxdb_parse_search(payload)
@@ -1633,7 +1645,7 @@ def build_zxdb_pane(
         _zxdb_reset_preview()
 
         def _fn():
-            payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+            payload = zxdb_fetch_json(f"/entries/{urllib.parse.quote(eid)}")
             return zxdb_parse_game_detail(payload)
 
         def _on_ok(detail):
@@ -1671,7 +1683,8 @@ def build_zxdb_pane(
         def _fn():
             # /magazines/{name} returns a single ES hit whose _source contains
             # the full issues array (with id, files, cover_image per issue).
-            return zxdb_fetch_json(f"/magazines/{urllib.parse.quote(name)}")
+            return zxdb_fetch_json(f"/magazines/{urllib.parse.quote(name)}",
+                                   base=ZXDB_MAGAZINES_BASE_URL)
 
         def _on_ok(payload):
             if host._zxdb_selected_title != name:
@@ -1965,7 +1978,7 @@ def build_zxdb_pane(
                 return
             zxdb_set_status(f"Loading {eid}\u2026")
             def _fn():
-                payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                payload = zxdb_fetch_json(f"/entries/{urllib.parse.quote(eid)}")
                 return zxdb_parse_game_detail(payload)
             def _on_ok(detail):
                 zxdb_populate_detail(detail)
@@ -1986,7 +1999,7 @@ def build_zxdb_pane(
                 return
             zxdb_set_status(f"Loading {eid}\u2026")
             def _fn():
-                payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                payload = zxdb_fetch_json(f"/entries/{urllib.parse.quote(eid)}")
                 return zxdb_parse_game_detail(payload)
             def _on_ok(detail):
                 zxdb_populate_detail(detail)
@@ -2009,7 +2022,7 @@ def build_zxdb_pane(
                 return
             zxdb_set_status(f"Loading {eid}\u2026")
             def _fn():
-                payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                payload = zxdb_fetch_json(f"/entries/{urllib.parse.quote(eid)}")
                 return zxdb_parse_game_detail(payload)
             def _on_ok(detail):
                 zxdb_populate_detail(detail)
@@ -2048,7 +2061,7 @@ def build_zxdb_pane(
         def _fn():
             if kind == "magazine":
                 return ("magazine", {}, [])
-            payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+            payload = zxdb_fetch_json(f"/entries/{urllib.parse.quote(eid)}")
             detail  = zxdb_parse_game_detail(payload)
             shots   = detail.get("screenshots") or []
             if not shots and detail.get("screenshot_url"):
@@ -2164,7 +2177,8 @@ def build_zxdb_pane(
                 # Issues not loaded yet — load then open dialog
                 zxdb_set_status(f"Loading issues for '{mag_name}'…")
                 def _fn_dbl():
-                    payload = zxdb_fetch_json(f"/magazines/{urllib.parse.quote(mag_name)}")
+                    payload = zxdb_fetch_json(f"/magazines/{urllib.parse.quote(mag_name)}",
+                                              base=ZXDB_MAGAZINES_BASE_URL)
                     src = payload.get("_source", payload) if isinstance(payload, dict) else {}
                     return src.get("issues") or []
                 def _on_ok_dbl(issues):
@@ -2671,7 +2685,8 @@ def build_zxdb_pane(
                 else:
                     zxdb_set_status(f"Loading issues for '{mag_name}'…")
                     def _fn_all():
-                        payload = zxdb_fetch_json(f"/magazines/{urllib.parse.quote(mag_name)}")
+                        payload = zxdb_fetch_json(f"/magazines/{urllib.parse.quote(mag_name)}",
+                                              base=ZXDB_MAGAZINES_BASE_URL)
                         src = payload.get("_source", payload) if isinstance(payload, dict) else {}
                         return src.get("issues") or []
                     def _on_ok_all(issues):
@@ -2686,7 +2701,8 @@ def build_zxdb_pane(
                 zxdb_set_status(f"Fetching magazine '{mag_name}'…")
 
                 def _fn_mag():
-                    payload = zxdb_fetch_json(f"/magazines/{urllib.parse.quote(mag_name)}")
+                    payload = zxdb_fetch_json(f"/magazines/{urllib.parse.quote(mag_name)}",
+                                              base=ZXDB_MAGAZINES_BASE_URL)
                     if isinstance(payload, dict) and "_source" in payload:
                         wrapped = {"hits": {"hits": [payload], "total": {"value": 1}}}
                     elif isinstance(payload, list):
@@ -2718,7 +2734,8 @@ def build_zxdb_pane(
                 def _fn_issue():
                     return zxdb_fetch_json(
                         f"/magazines/{urllib.parse.quote(mag_name)}"
-                        f"/issues/{urllib.parse.quote(issue_id)}"
+                        f"/issues/{urllib.parse.quote(issue_id)}",
+                        base=ZXDB_MAGAZINES_BASE_URL,
                     )
 
                 def _on_ok_issue(payload):
@@ -2821,7 +2838,7 @@ def build_zxdb_pane(
                     return
                 zxdb_set_status(f"Loading {eid}…")
                 def _fn():
-                    payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                    payload = zxdb_fetch_json(f"/entries/{urllib.parse.quote(eid)}")
                     return zxdb_parse_game_detail(payload)
                 def _on_ok(detail, _dr=dest_root, _pa=post_action):
                     zxdb_populate_detail(detail)
@@ -2849,7 +2866,7 @@ def build_zxdb_pane(
                 zxdb_set_status(f"Loading {eid}…")
 
                 def _fn():
-                    payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                    payload = zxdb_fetch_json(f"/entries/{urllib.parse.quote(eid)}")
                     return zxdb_parse_game_detail(payload)
 
                 def _on_ok(detail):
@@ -2877,7 +2894,7 @@ def build_zxdb_pane(
                         return
                     zxdb_set_status(f"Loading {eid}…")
                     def _fn_sd():
-                        payload = zxdb_fetch_json(f"/games/{urllib.parse.quote(eid)}")
+                        payload = zxdb_fetch_json(f"/entries/{urllib.parse.quote(eid)}")
                         return zxdb_parse_game_detail(payload)
                     def _on_ok_sd(detail):
                         zxdb_populate_detail(detail)
@@ -2901,7 +2918,7 @@ def build_zxdb_pane(
 
                 def _fn_mlt():
                     payload = zxdb_fetch_json(
-                        f"/games/morelikethis/{urllib.parse.quote(eid)}"
+                        f"/entries/morelikethis/{urllib.parse.quote(eid)}"
                         f"?mode=compact&size={ZXDB_PAGE_SIZE}"
                     )
                     entries, total, _pg, total_pages, _ps = zxdb_parse_search(payload)

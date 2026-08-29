@@ -542,6 +542,58 @@ for _mod in ("zxnu_config.py", "zxnu_workers.py", "zxnu_api.py"):
     _src = open(os.path.join(REPO, _mod), encoding="utf-8").read()
     check(f"{_mod} carries the catch-all __all__", _CATCH_ALL in _src)
 
+# --------------------------------------------------------------------------
+# ZXInfo API v5 tripwires (9.6.x).
+#
+# The v3 endpoints are being retired. The migration is easy to REGRESS
+# silently, because v5 answers an unknown path with HTTP 200 and the body
+# "Hello World! api-v5 catch all ..." rather than a 404 -- so a wrong path
+# does not raise, does not 404, and does not look wrong in a log. It just
+# returns a string where JSON was expected.
+#
+# Two of the traps return valid JSON and so survive even a "did it parse"
+# check: v5 silently DROPS the query= search parameter and the author=/
+# publisher= filters, answering with the unfiltered index. The only tell is
+# that the result set is wrong, which no offline test can see. Hence source
+# tripwires: they cannot prove the API still behaves, but they can stop a
+# refactor from quietly reintroducing a spelling we know is dead.
+# --------------------------------------------------------------------------
+from zxnu_config import ZXDB_BASE_URL, ZXDB_MAGAZINES_BASE_URL  # noqa: E402
+
+check("ZXDB base URL is v5", ZXDB_BASE_URL.rstrip("/").endswith("/v5"),
+      ZXDB_BASE_URL)
+# Magazines never reached v5: /v5/magazines/{name} is a catch-all and the
+# documents live in a separate index, so no /entries route reaches them.
+check("ZXDB magazines base URL is v4",
+      ZXDB_MAGAZINES_BASE_URL.rstrip("/").endswith("/v4"),
+      ZXDB_MAGAZINES_BASE_URL)
+
+_pane_src = open(os.path.join(REPO, "zxnu_zxdb_pane.py"), encoding="utf-8").read()
+_api_src2 = open(os.path.join(REPO, "zxnu_api.py"), encoding="utf-8").read()
+
+# v3 spelled entries "games". Every one of these is a catch-all on v5.
+for _dead in ('f"/games/', '"/games/', "/authors/{qname}/games",
+              "/publishers/{qname}/games"):
+    check(f"no dead v3 path {_dead!r} in the ZXDB pane", _dead not in _pane_src)
+
+# The search TERM must be a path segment. As ?query= it is dropped and the
+# call returns the whole index with a 200.
+check("search term goes in the path, not ?query=",
+      "/search/titles/" in _pane_src and 'params["query"]' not in _pane_src)
+# Matched against CODE, not prose: the v3->v5 map in zxdb_fetch_json's
+# docstring names the dead spellings on purpose, and a bare substring ban
+# would fail on the documentation that explains why they are dead.
+_api_code = chr(10).join(l for l in _api_src2.splitlines()
+                        if "zxdb_fetch_json(" in l or 'f"/search' in l)
+check("the publisher lookup uses the v5 search path too",
+      "/search/titles/" in _api_src2
+      and "mode=tit" not in _api_code and "query=" not in _api_code)
+
+# The v5 replacements are actually present.
+for _live in ("/entries/", "/entries/byauthor/", "/entries/bypublisher/",
+              "/entries/morelikethis/", "/entries/byletter/", "/entries/random/"):
+    check(f"v5 path {_live!r} is used", _live in _pane_src)
+
 print()
 if FAIL:
     print(f"RESULT: {len(FAIL)} FAILURE(S)")
