@@ -1053,9 +1053,17 @@ def inspect_phase6():
     def spos(w):
         i = lay.indexOf(w)
         return None if i < 0 else lay.getItemPosition(i)[:2]
-    check("update-check toggle at settings row 0",
-          spos(cb) == (settings_row("zxnu_update_check"), 0)
-          and settings_row("zxnu_update_check") == 0, str(spos(cb)))
+    # Row 0 is the ZXNextRemote itch.io check since 9.6.5; the GitHub one
+    # sits right under it. Both resolved BY NAME - the pane's own rule
+    # (SETTINGS_TAB_ROWS), so inserting a row never renumbers this test.
+    check("update-check toggles at the top of Settings",
+          spos(win.settings_zxnextremote_update_check_checkbox)
+          == (settings_row("zxnextremote_update_check"), 0)
+          and settings_row("zxnextremote_update_check") == 0
+          and spos(cb) == (settings_row("zxnu_update_check"), 0)
+          and settings_row("zxnu_update_check")
+              > settings_row("zxnextremote_update_check"),
+          str(spos(cb)))
     check("UI language row right under it",
           spos(win.settings_ui_language_combo)
           == (settings_row("ui_language"), 1),
@@ -1336,7 +1344,8 @@ def inspect_phase9():
     # this check pins down).
     _lay = win.settings_ui_language_combo.parentWidget().layout()
     _pos = _lay.getItemPosition(_lay.indexOf(win.settings_ui_language_combo))[:2]
-    check("language combo on its own visible row (1,1)", _pos == (1, 1),
+    check("language combo on its own visible row",
+          _pos == (settings_row("ui_language"), 1),
           str(_pos))
     check("button translated at startup",
           win.selectimage.text() == "Seleccionar imagen de disco NextZXOS",
