@@ -997,6 +997,10 @@ class RemoteExplorerWidget(QWidget):
         # obtain safely (total partition size needs +3DOS/IDEDOS calls that
         # crash a dotN), so the pane shows "free" alone, never a percentage.
         self._free_space = {}
+        # The far responder's identity from the 'Y' version query -
+        # ("httpbridge", "1.0.2"), ("n2n", ...), ("sync", ...) - or
+        # ("", "") while unknown / when the far build predates it.
+        self._next_ident = ("", "")
         # Extra drive letters the USER declared (additional SD readers /
         # partitions the dot cannot discover), persisted by the host via
         # on_extra_drives_changed (SETTING_NEXTSYNC_EXTRA_DRIVES, e.g. "DE").
@@ -2014,11 +2018,18 @@ class RemoteExplorerWidget(QWidget):
         # an operation runs — reachable since quiet staging ops stopped
         # disabling the panes, e.g. the multi-Next baton moving here mid-drag
         # — would leave the operation one step short FOREVER.
+        # Who is serving, and which build? BEFORE drives/ls/free, so the
+        # top bar can name the machine while the listing still loads. RAW
+        # for the same op_done rule as drives; an old listener answers
+        # nothing and the pane simply shows no version (the worker
+        # degrades, never kills the session).
+        self._enqueue_raw(("version",))
         self._enqueue_raw(("drives",))
         self.refresh()
 
     def on_disconnected(self):
         self._set_connected(False)
+        self._next_ident = ("", "")
         # A pending paste precheck can never complete now.
         self._precheck = None
         # Abandon any in-flight moves: their transfers can't complete, so their
@@ -2478,6 +2489,13 @@ class RemoteExplorerWidget(QWidget):
             return
         self._enqueue_raw(("select_next", sid))
 
+    def on_ident(self, rtype, number):
+        """The 'Y' version reply: remember it and refresh the top bar, which
+        shows it after the free-space figure. ("", "") = the far build
+        predates the query - show nothing, the pre-ident look."""
+        self._next_ident = (rtype or "", number or "")
+        self._update_next_path_label()
+
     def on_drives(self, current, letters):
         """getdrives result: ``current`` is the dot's default drive letter and
         ``letters`` the drives it vouches for — always {C, M, current}; the
@@ -2565,9 +2583,15 @@ class RemoteExplorerWidget(QWidget):
         if free is not None:
             # Rich text so only the free-space part is coloured; the label
             # auto-detects HTML.
+            _ident = ""
+            if self._next_ident[0]:
+                _ident = ("&nbsp;&nbsp;<span style=\"color: #9cd2ff;\">"
+                          f"{html.escape(self._next_ident[0])} "
+                          f"{html.escape(self._next_ident[1])}</span>")
             self.next_path_label.setText(
                 f"Next: <b><span style=\"color: {self._free_color(free)};\">"
-                f"{html.escape(self._fmt_free(free))} free</span></b>")
+                f"{html.escape(self._fmt_free(free))} free</span></b>"
+                + _ident)
             self.next_path_label.setToolTip(
                 f"Free space on drive {self._cwd_drive()}: {free} bytes "
                 "(reported by the Next via F_GETFREE; NextZXOS exposes no "
@@ -2576,7 +2600,13 @@ class RemoteExplorerWidget(QWidget):
                 "· red: below 100 MB.\nRe-read after every transfer, "
                 "delete, rename or copy, so the figure tracks the card.")
         else:
-            self.next_path_label.setText("Next: connected")
+            if self._next_ident[0]:
+                self.next_path_label.setText(
+                    "Next: connected&nbsp;&nbsp;<span style=\"color: "
+                    f"#9cd2ff;\">{html.escape(self._next_ident[0])} "
+                    f"{html.escape(self._next_ident[1])}</span>")
+            else:
+                self.next_path_label.setText("Next: connected")
             self.next_path_label.setToolTip("")
         # Never stomp a path the user is midway through typing: setText only
         # while the box carries no uncommitted edit (isModified is cleared by

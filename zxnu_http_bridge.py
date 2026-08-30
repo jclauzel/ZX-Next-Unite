@@ -23,7 +23,7 @@ Wire-up contract (all a host must provide — see :class:`QueueBridgeHost`):
 * ``enqueue(cmd) -> bool``   put one command tuple on the live -listen
   session's queue (False when no session is running);
 * ``make_cmd(op, a1, a2, reply) -> tuple | None``   translate a canonical
-  bridge op (ls/get/put/mkdir/rmdir/rmtree/rm/ren/rcpy/rfsize/free/drives/
+  bridge op (ls/get/put/mkdir/rmdir/rmtree/rm/ren/rcpy/rfsize/free/drives/version/
   forceexit) into the host's own command-tuple dialect, with ``reply`` (a
   :class:`BridgeReply`) riding along as the LAST element (None = the host
   doesn't support that op → HTTP 501);
@@ -334,6 +334,9 @@ class NextSyncHttpBridge:
         "       Next; no selector = the active one; a departed sid = 410)\n"
         "  GET  /drives                     mounted drive letters\n"
         "  GET  /free?drive=C               free space on a partition\n"
+        "  GET  /version-type               what answers this session: httpbridge |\n"
+        "       n2n (ZX Next Remote flavors) | sync (the .sync5 dot)\n"
+        "  GET  /version-number             that responder's own build number\n"
         "  GET  /ls?path=/games             directory listing\n"
         "  GET  /get?path=/games/a.tap      download one file (raw bytes)\n"
         "  POST /put?path=/games/a.tap      upload (request body = the file)\n"
@@ -380,6 +383,14 @@ class NextSyncHttpBridge:
         # disconnects), so /status can report partition counts without a
         # round-trip on every poll.
         self._drives_cache = None
+        # /version-type + /version-number answers, keyed by skey("version").
+        # Positive AND negative results are kept: the wire probe against an
+        # old listener costs a false-disconnect log and a brief self-healing
+        # desync, a toll worth paying once per seat, never per route. Only
+        # sid-keyed entries are cached - sids are never reused within a run,
+        # while the None (active-session) bucket can move between machines
+        # mid-flight and must be re-asked every time.
+        self._ident_cache = {}
         # /put?append=1 chunked uploads: per-remote-path spool of the chunks
         # received so far (the Next's .http can POST at most one 16K bank per
         # request, so big files arrive in pieces). Guarded by its own lock —
@@ -876,6 +887,41 @@ class NextSyncHttpBridge:
                  "free_bytes": n, "free_human": fmt_size(n)},
                 ["OK", f"drive: {drive or '(current)'}",
                  f"free: {n} bytes ({fmt_size(n)})"])
+
+        # ---- identity (ZX Next Remote 1.0.2+ / .sync5 5.8+) -----------
+        # Both routes ride the ONE wire ident query ('Y'): the responder
+        # answers its flavor and its build in a single block, and the
+        # session layer caches it, so asking for both costs one exchange
+        # -- and against an OLD listener (which answers an unknown opcode
+        # with silence and a brief self-healing desync) the toll is paid
+        # once, then remembered. Built for update automation: the type
+        # names the artifact to fetch, the number says whether to.
+        def _ident_run():
+            k = skey("version")
+            if k[0] is not None and k in self._ident_cache:
+                return self._ident_cache[k]
+            res = run("version")
+            if k[0] is not None:
+                self._ident_cache[k] = res
+            return res
+
+        @app.route("/version-type")
+        def _version_type():
+            res = _ident_run()
+            if not res.get("ok"):
+                return fail(res, "version-type")
+            v = res.get("type", "")
+            return answer({"ok": True, "version-type": v},
+                          ["OK", f"version-type: {v}"])
+
+        @app.route("/version-number")
+        def _version_number():
+            res = _ident_run()
+            if not res.get("ok"):
+                return fail(res, "version-number")
+            v = res.get("number", "")
+            return answer({"ok": True, "version-number": v},
+                          ["OK", f"version-number: {v}"])
 
         # ---- listing --------------------------------------------------
         @app.route("/ls")

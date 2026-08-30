@@ -107,6 +107,8 @@ def phase_a():
             return ("free", a1, reply)
         if op == "drives":
             return ("drives", reply)
+        if op == "version":
+            return ("version", reply)
         if op == "forceexit":
             return ("quit", reply)
         return None
@@ -316,6 +318,13 @@ def phase_b():
     st, body = http(HTTP_B, "/ren?from=/a&to=/b")
     check("B /ren", st == 200, body)
 
+    st, body = http(HTTP_B, "/version-type?json=1")
+    j = json.loads(body)
+    check("B /version-type", st == 200 and j["version-type"] == "sync", j)
+    st, body = http(HTTP_B, "/version-number")
+    check("B /version-number (text)", st == 200
+          and b"version-number: 9.9.9" in body, body)
+
     st, body = http(HTTP_B, "/free?drive=m:&json=1")
     j = json.loads(body)
     check("B /free", st == 200 and j["free_bytes"] == 2048 * 512, j)
@@ -397,6 +406,8 @@ def phase_sessions():
             return ("ls", a1, reply)
         if op == "drives":
             return ("drives", reply)
+        if op == "version":
+            return ("version", reply)
         if op == "forceexit":
             return ("quit", reply)
         return None

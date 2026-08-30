@@ -877,7 +877,7 @@ def build_itchio_pane(
                 # CSpect3_1_3_0, …) side by side — so we may need to ask which to
                 # fetch. Returns None for non-owned items (→ itch-dl fallback).
                 def _list_fn(_g=_e, _k=key):
-                    return zxnu_itchio.list_owned_uploads(_g, _k)
+                    return zxnu_itchio.list_installable_uploads(_g, _k)
 
                 def _list_ok(listed, _v=_viewer, _k=key):
                     if listed is None:
@@ -1054,11 +1054,37 @@ def build_itchio_pane(
             getit_run_in_thread(_fn, _ok, _err)
         host._itchio_load_owned_games = _itchio_load_owned_games
 
+        # Sentinel for the creator entry: the user's OWN projects, drafts
+        # included - GET /profile/games. This is what makes a not-yet-
+        # published page visible to its author (the release-automation
+        # groundwork): "purchased" and "collections" can never show it.
+        _ITCHIO_CREATED_KEY = "__created__"
+
+        def _itchio_load_created_games():
+            key = _itchio_api_key()
+            if not key:
+                return
+            _itchio_set_status("Loading your created projects…")
+            def _fn(_k=key):
+                return zxnu_itchio.created_games(_k)
+            def _ok(games):
+                _itchio_populate(games)
+                drafts = sum(1 for g in games if not g.get("published"))
+                extra = f" ({drafts} draft(s))" if drafts else ""
+                _itchio_set_status(
+                    f"{len(games)} created project(s){extra}.")
+            def _err(e):
+                _itchio_set_status(f"itch.io: {e}")
+            getit_run_in_thread(_fn, _ok, _err)
+        host._itchio_load_created_games = _itchio_load_created_games
+
         def _itchio_load_selection(data):
             """Load whichever combo entry is selected (a collection id, or
             the purchases sentinel)."""
             if data == _ITCHIO_OWNED_KEY:
                 _itchio_load_owned_games()
+            elif data == _ITCHIO_CREATED_KEY:
+                _itchio_load_created_games()
             elif data:
                 _itchio_load_collection_games(data)
 
@@ -1094,11 +1120,16 @@ def build_itchio_pane(
                     raise RuntimeError(name)
                 cols  = zxnu_itchio.list_collections(_k)
                 owned = zxnu_itchio.owned_game_ids(_k)
-                return (name, cols, owned)
+                try:
+                    created = zxnu_itchio.created_games(_k)
+                except Exception:
+                    created = []      # a creator-less account is normal
+                return (name, cols, owned, created)
             def _ok(res):
                 _itchio_set_connecting(False)
                 host._itchio_set_connected(True)
-                name, cols, owned = res
+                name, cols, owned, created = res
+                host._itchio_created = created
                 host._itchio_collections = cols
                 host._itchio_owned = owned
                 # New connection → the cached search library is stale.
@@ -1109,6 +1140,13 @@ def build_itchio_pane(
                 host.itchio_collection_combo.addItem(
                     f"🛒 Purchased / Owned games ({len(owned)})",
                     _ITCHIO_OWNED_KEY)
+                # The creator's own projects - drafts included, hence the
+                # count fetched at connect: an empty creator account adds
+                # no entry rather than a dead row.
+                if created:
+                    host.itchio_collection_combo.addItem(
+                        f"\U0001f6e0 My projects / created ({len(created)})",
+                        _ITCHIO_CREATED_KEY)
                 for c in cols:
                     host.itchio_collection_combo.addItem(
                         f"{c['title']} ({c['count']})", c["id"])
@@ -1132,6 +1170,13 @@ def build_itchio_pane(
                 if _check_cspect is not None:
                     try:
                         _check_cspect()
+                    except Exception:
+                        pass
+                _check_zxnr = getattr(
+                    host, "_check_zxnextremote_update_async", None)
+                if _check_zxnr is not None:
+                    try:
+                        _check_zxnr()
                     except Exception:
                         pass
             def _err(e):

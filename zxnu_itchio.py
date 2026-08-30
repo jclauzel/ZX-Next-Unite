@@ -5,7 +5,8 @@ This module is intentionally self-contained and dependency-light:
 * Detection — :func:`itchdl_available` reports whether the optional ``itch-dl``
   package is importable. The whole itch.io tab is gated on this so the feature
   stays optional.
-* Browsing — collections, collection games, owned games and search are read
+* Browsing — collections, collection games, owned games, the user's OWN
+  created projects (drafts included) and search are read
   straight from the public itch.io API (``api.itch.io``) with the user's
   personal API key (https://itch.io/user/settings/api-keys), via ``urllib``.
   This needs no third-party code and keeps the browsing UI responsive.
@@ -30,7 +31,8 @@ import urllib.request
 import zipfile
 
 from zxnu_config import (ITCH_API_BASE, ITCH_USER_AGENT, ITCH_PAGE_SIZE,
-                         ITCH_MAX_PAGES, CSPECT_ITCH_URL, cspect_version_key)
+                         ITCH_MAX_PAGES, CSPECT_ITCH_URL,
+                         ZXNEXTREMOTE_ITCH_URL, cspect_version_key)
 
 
 # ── optional-dependency detection ──────────────────────────────────────────
@@ -205,12 +207,42 @@ def owned_games(api_key, max_pages=ITCH_MAX_PAGES, timeout=20):
     return games
 
 
+def created_games(api_key, timeout=20):
+    """Return the normalised games the AUTHENTICATED USER has created (or has
+    edit access to) - ``GET /profile/games``, the dashboard's "My projects".
+    Unlike owned/collection games this INCLUDES unpublished drafts (the API
+    game object carries a ``published`` boolean), which is the whole point:
+    a creator preparing a release sees the draft here before anyone else
+    can - the first rung of the release automation this category exists
+    for. Drafts are marked in the title so both views show it."""
+    games = []
+    data = _api_get("/profile/games", api_key, timeout=timeout)
+    for row in (data or {}).get("games", []) or []:
+        g = _normalise_game(row)
+        if not g:
+            continue
+        published = bool(row.get("published"))
+        g["published"] = published
+        if not published:
+            g["title"] = (g["title"] or "?") + "  [draft]"
+        games.append(g)
+    return games
+
+
 def library_games(api_key, collections, max_pages=ITCH_MAX_PAGES, timeout=20):
     """Return the user's combined library — purchased/owned games plus every
     game across *collections* — de-duplicated by game id. Used to search the
     user's own itch.io content (collections + purchases)."""
     seen = set()
     out = []
+    try:
+        for g in created_games(api_key, timeout=timeout):
+            gid = g.get("id")
+            if gid and gid not in seen:
+                seen.add(gid)
+                out.append(g)
+    except Exception:
+        pass          # a creator listing failure must not sink the search
     for g in owned_games(api_key, max_pages=max_pages, timeout=timeout):
         if g["id"] not in seen:
             seen.add(g["id"])
@@ -583,8 +615,12 @@ def _download_api_upload(upload_id, download_key_id, api_key, dest_path,
     not auto-followed) and the CDN URL then fetched with a clean request.
     *progress_cb* (see :func:`_stream_response_to_file`) is forwarded so callers
     can report download progress."""
-    api_url = (ITCH_API_BASE + f"/uploads/{upload_id}/download"
-               f"?download_key_id={download_key_id}")
+    api_url = ITCH_API_BASE + f"/uploads/{upload_id}/download"
+    if download_key_id:
+        # Owned item: the download key authorises the fetch. A CREATOR has
+        # no key for their own project - the bare authenticated call is
+        # what the itch.io dashboard itself uses (key_id=None path).
+        api_url += f"?download_key_id={download_key_id}"
     req = urllib.request.Request(api_url, headers={
         "Authorization": f"Bearer {api_key}",
         "User-Agent": ITCH_USER_AGENT,
@@ -646,6 +682,69 @@ def list_owned_uploads(game, api_key):
             "version_key": cspect_version_key(filename),
         })
     return game_id, key_id, uploads
+
+
+def _creator_game_id(game, api_key):
+    """Resolve *game* to the id of one of the account's OWN projects, or
+    ``None``. A dict fresh from :func:`created_games` already carries the id;
+    a minimal ``{"url": ...}`` dict (the update checks build those) is matched
+    against the creator listing by canonical URL."""
+    gid = str((game or {}).get("id") or "").strip()
+    if gid:
+        return gid
+    want = _canonical_itch_url((game or {}).get("url"))
+    if not want:
+        return None
+    try:
+        for g in created_games(api_key):
+            if _canonical_itch_url(g.get("url")) == want:
+                return g.get("id") or None
+    except Exception:
+        return None
+    return None
+
+
+def list_creator_uploads(game, api_key):
+    """:func:`list_owned_uploads`, for the account's OWN project.
+
+    A creator holds no download key for their own game - owned-keys will
+    never list it, and an UNPUBLISHED draft has no public page at all - but
+    ``GET /games/{id}/uploads`` answers the authenticated creator directly
+    (it is what the itch.io dashboard uses). Returns ``(game_id, None,
+    uploads)`` - the ``None`` download key flows through the download step,
+    which omits it from the URL - or ``None`` when the game is not one of
+    this account's projects / lists no uploads."""
+    game_id = _creator_game_id(game, api_key)
+    if not game_id:
+        return None
+    data = _api_get(f"/games/{game_id}/uploads", api_key)
+    raw = [u for u in ((data or {}).get("uploads") or []) if u.get("id")]
+    if not raw:
+        return None
+    raw.sort(key=lambda u: _version_sort_key(u.get("filename") or ""),
+             reverse=True)
+    uploads = []
+    for u in raw:
+        filename = u.get("filename") or f"upload-{u['id']}"
+        uploads.append({
+            "id": u["id"],
+            "filename": filename,
+            "size": u.get("size"),
+            "version_name": os.path.splitext(os.path.basename(filename))[0],
+            "version_key": cspect_version_key(filename),
+        })
+    return game_id, None, uploads
+
+
+def list_installable_uploads(game, api_key):
+    """The install flows' front door: owned uploads when the account holds a
+    download key, else the creator listing for the account's own projects.
+    Same ``(game_id, key_id, uploads)`` / ``None`` contract - key_id is
+    ``None`` on the creator path."""
+    listed = list_owned_uploads(game, api_key)
+    if listed is not None:
+        return listed
+    return list_creator_uploads(game, api_key)
 
 
 def download_owned_upload(game, api_key, dest_dir, upload, key_id,
@@ -809,6 +908,78 @@ def install_cspect_update(game, api_key, dest_dir, log_cb=None, progress_cb=None
     _log(f"Extracting {os.path.basename(newest)} …")
     extracted = extract_zip(newest)
     return extracted
+
+
+def latest_zxnextremote_upload(api_key, game=None):
+    """:func:`latest_cspect_upload`, for the user's own ZX Next Remote page.
+
+    Same shape and same BETA filter, one difference: the lookup goes through
+    :func:`list_installable_uploads`, because the maintainer's own account
+    reaches the page as its CREATOR (no download key - a draft is not even
+    ownable) while anyone else who grabbed it holds an ordinary owned key.
+    ``key_id`` is ``None`` on the creator path and the download step omits
+    it. Returns the newest-upload dict or ``None`` (nothing to offer)."""
+    game = game or {"url": ZXNEXTREMOTE_ITCH_URL, "title": "ZX Next Remote"}
+    listed = list_installable_uploads(game, api_key)
+    if listed is None:
+        return None
+    game_id, key_id, uploads = listed
+    uploads = [u for u in uploads
+               if "beta" not in (u.get("filename") or "").lower()
+               and "beta" not in (u.get("version_name") or "").lower()]
+    if not uploads:
+        return None
+    newest = uploads[0]
+    return {
+        "game": game,
+        "game_id": game_id,
+        "key_id": key_id,
+        "uploads": uploads,
+        "filename": newest["filename"],
+        "version_name": newest["version_name"],
+        "version_key": newest["version_key"],
+    }
+
+
+def install_zxnextremote_update(game, api_key, dest_dir, upload, key_id=None,
+                                log_cb=None, progress_cb=None):
+    """Download one specific ZX Next Remote build and extract it into its
+    version folder (``files/zxnextremote-1.0.2/``).
+
+    The CSpect twin routes through :func:`install_via_api`, which re-derives
+    an owned key - a dead end for the creator path - so this one calls
+    :func:`download_owned_upload` directly with whatever *key_id* the lookup
+    produced (``None`` = creator). The extract step is the shared one, so
+    each build keeps its own folder side by side - the layout the future
+    send-via-NextSync automation reads. Returns the extracted folder path;
+    raises ``RuntimeError`` with a readable reason on failure."""
+    def _log(line):
+        if log_cb:
+            try:
+                log_cb(line)
+            except Exception:
+                pass
+
+    ok, msg = download_owned_upload(game, api_key, dest_dir, upload, key_id,
+                                    log_cb=log_cb, progress_cb=progress_cb)
+    if not ok:
+        raise RuntimeError(msg)
+    install_dir = installed_path(game, dest_dir)
+    if not install_dir:
+        author, slug = _author_slug_from_url((game or {}).get("url"))
+        install_dir = os.path.join(dest_dir, author, slug)
+    zips = find_extractable_zips(install_dir, include_extracted=True)
+    if not zips:
+        raise RuntimeError(
+            f"the ZX Next Remote archive was downloaded but could not be "
+            f"located under {install_dir} to extract.")
+    # Extract exactly the build that was fetched, not merely the newest on
+    # disk - the user may deliberately have picked an older version.
+    want = (upload.get("filename") or "").lower()
+    chosen = next((z for z in zips
+                   if os.path.basename(z).lower() == want), zips[0])
+    _log(f"Extracting {os.path.basename(chosen)} …")
+    return extract_zip(chosen)
 
 
 def manual_install_zip(game, zip_path, dest_dir):

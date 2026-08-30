@@ -344,8 +344,8 @@ def test_initial_and_connection_state():
     w.on_connected()
     check("connect enables the pane", w._connected and w.btn_to_next.isEnabled()
           and w.next_path_edit.isEnabled())
-    check("connect asks drives then lists /",
-          drain(calls) == [("drives",), ("ls", "/")])
+    check("connect asks version, drives, then lists /",
+          drain(calls) == [("version",), ("drives",), ("ls", "/")])
 
     w.on_drives("C", ["C", "M"])
     combo = [w.next_drive_combo.itemText(i)
@@ -358,6 +358,17 @@ def test_initial_and_connection_state():
     w.on_free_space("C", 300 * 1024 * 1024)
     check("free space in top label", "300.0 MB free" in w.next_path_label.text()
           and "#2fb344" in w.next_path_label.text())
+
+    # The 'Y' version reply lands AFTER the free-space figure (1.0.2 wire
+    # ident); ("", "") = an old listener, the label shows no version.
+    w.on_ident("httpbridge", "1.0.2")
+    check("ident after the free space",
+          "httpbridge 1.0.2" in w.next_path_label.text()
+          and w.next_path_label.text().index("free")
+              < w.next_path_label.text().index("httpbridge"))
+    w.on_ident("", "")
+    check("old listener shows no version",
+          "httpbridge" not in w.next_path_label.text())
     check("the path lives in the bottom box, not the top label",
           w.next_path_edit.text() == "/")
     w.on_free_space("C", None)

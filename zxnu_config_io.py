@@ -419,6 +419,16 @@ def build_config_io(
                 host.settings_zxnu_update_check_checkbox.setChecked(_zxnu_upd_on)
                 host.settings_zxnu_update_check_checkbox.blockSignals(False)
 
+            # ZX Next Remote "check itch.io for a newer build" toggle
+            # (default on) - the CSpect toggle's twin below.
+            if hasattr(host, "settings_zxnextremote_update_check_checkbox"):
+                _zxnr_upd = configuration_dictionary.get(
+                    SETTING_ZXNEXTREMOTE_UPDATE_CHECK, "").strip().lower()
+                _zxnr_upd_on = _zxnr_upd not in ("false", "0", "no")
+                host.settings_zxnextremote_update_check_checkbox.blockSignals(True)
+                host.settings_zxnextremote_update_check_checkbox.setChecked(_zxnr_upd_on)
+                host.settings_zxnextremote_update_check_checkbox.blockSignals(False)
+
             # CSpect "check for a newer version on itch.io at startup" toggle
             # (default on). Always present as a widget (unlike MAME's, which
             # is gated on detection).

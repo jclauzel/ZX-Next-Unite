@@ -9,6 +9,13 @@
  * Use build.ps1 to build the .dot file (syncdev.dot), then copy it to the Next and run it from BASIC with
  */
 
+// The dot's OWN version - single source of truth: the banner below and
+// the 'Y' ident reply both splice this in at compile time, so the
+// version a controller reads over the wire can never drift from the
+// one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
+// in zxnu_config.py (the app's refresh-your-.sync5 advisory).
+#define SYNC_VERSION "5.8.0"
+
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
 
@@ -827,6 +834,7 @@ char *listen_cmd_name(unsigned char op)
         case 'Z': return "free";
         case 'C': return "rcpy";
         case 'S': return "rfsize";
+        case 'Y': return "ident";
         case 'Q': return "quit";
         default:  return "?";
     }
@@ -877,6 +885,28 @@ void listen_drives(unsigned char *inbuf, unsigned char *scratch)
         scratch[4 + n++] = cur;
     scratch[4 + n++] = 'M';
     send_block_rt(scratch, (unsigned short)(2 + n), inbuf);
+}
+
+// ident ('Y', v5.8.0): 'O' + "sync" + NUL + SYNC_VERSION, one status
+// block - the twin of ZX Next Remote's 1.0.2 fs_version, for the same
+// update automation: the type names WHAT answered (the dot is "sync",
+// the .nex flavors answer "httpbridge"/"n2n"), the number names its
+// build. One opcode for both facts: a pre-5.8 dot ignores an unknown
+// opcode in silence and the server's block parse then trips over the
+// next raw Poll, so every probe against an old build costs a false
+// "connection closed" log - once is enough.
+void listen_ident(unsigned char *inbuf, unsigned char *scratch)
+{
+    unsigned char n = 0;
+    const char *s = "sync";
+    const char *v = SYNC_VERSION;
+
+    g_packetno = 0;
+    scratch[2] = 'O';
+    while (*s) scratch[3 + n++] = (unsigned char)*s++;
+    scratch[3 + n++] = 0;
+    while (*v) scratch[3 + n++] = (unsigned char)*v++;
+    send_block_rt(scratch, (unsigned short)(1 + n), inbuf);
 }
 
 // psize/pfull ('Z'): free space on a partition, as one status block:
@@ -1150,7 +1180,7 @@ int main(int arglen, char *rawcmd)
     // zxnu_config.py (and the help text below): the app compares it against
     // the cfg's dotn_last_version to advise the user to refresh the .sync5
     // copy on their Next after updating the app.
-    print("NextSync 5.7.5 Clauzel/Komppa");
+    print("NextSync " SYNC_VERSION " Clauzel/Komppa");
 
     len = parse_cmdline(fn);
 
@@ -1533,6 +1563,7 @@ connbreak:
                 }
                 else if (op == 'W') { listen_drives(inbuf, scratch); vprint("drives done"); }
                 else if (op == 'Z') { listen_free(fn, inbuf, scratch); vprint("free done"); }
+                else if (op == 'Y') { listen_ident(inbuf, scratch); vprint("ident done"); }
                 else if (op == 'C')
                 {
                     // rcpy: the payload is src '\0' dst, exactly like ren -

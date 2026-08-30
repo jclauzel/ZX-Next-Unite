@@ -45,7 +45,9 @@ from zxnu_workers import *
 # mapping, so a call site that bypasses it fails the suite.
 # ---------------------------------------------------------------------------
 SETTINGS_TAB_ROWS = (
+    "zxnextremote_update_check",
     "zxnu_update_check",
+    "zxnextremote_itch_link",
     "ui_language",
     "wizard",
     "desktop_theme",
@@ -146,6 +148,49 @@ def build_settings_pane(
     host.settings_zxnu_update_check_checkbox.stateChanged.connect(
         lambda _s: settings_zxnu_update_check_changed())
     grid_tab_Settings.addWidget(host.settings_zxnu_update_check_checkbox, settings_grid_row("zxnu_update_check"), 0, 1, 2)
+
+    # -- ZX Next Remote: check itch.io for a newer build at startup --------
+    # The CSpect row's twin (see settings_cspect_update_check_changed below),
+    # sitting at the very top: this one watches the user's OWN itch.io
+    # project, so it works for the unpublished draft too (creator-path
+    # lookup, zxnu_itchio.list_installable_uploads).
+    def settings_zxnextremote_update_check_changed():
+        on = host.settings_zxnextremote_update_check_checkbox.isChecked()
+        configuration_dictionary[SETTING_ZXNEXTREMOTE_UPDATE_CHECK] = (
+            "true" if on else "false")
+        save_configuration_file()
+
+    host.settings_zxnextremote_update_check_checkbox = QCheckBox(
+        "Check for ZXNextRemote update on itch.io on startup")
+    _zxnr_upd_pref = configuration_dictionary.get(
+        SETTING_ZXNEXTREMOTE_UPDATE_CHECK, "").strip().lower()
+    host.settings_zxnextremote_update_check_checkbox.setChecked(
+        _zxnr_upd_pref not in ("false", "0", "no"))  # default on
+    host.settings_zxnextremote_update_check_checkbox.setToolTip(
+        "When an itch.io API key is configured and ZX Next Remote was\n"
+        "installed from itch.io, check at startup whether a newer build is\n"
+        "available and, if so, offer to download it - you pick the version,\n"
+        "and every version is kept in its own folder under downloads/itchio\n"
+        "(ready to send to a Next over NextSync). On by default. Saved to\n"
+        "the configuration file.")
+    host.settings_zxnextremote_update_check_checkbox.stateChanged.connect(
+        lambda _s: settings_zxnextremote_update_check_changed())
+    grid_tab_Settings.addWidget(
+        host.settings_zxnextremote_update_check_checkbox,
+        settings_grid_row("zxnextremote_update_check"), 0, 1, 2)
+
+    # The project page itself, right under the GitHub row - the house link
+    # idiom (rich-text label, opens in the browser).
+    host.settings_zxnextremote_itch_link = QLabel(
+        '<a href="https://jclauzel.itch.io/zxnextremote" '
+        'style="color:#9cd2ff;">\U0001f310 ZX Next Remote on itch.io \u2197</a>')
+    host.settings_zxnextremote_itch_link.setTextFormat(Qt.RichText)
+    host.settings_zxnextremote_itch_link.setOpenExternalLinks(True)
+    host.settings_zxnextremote_itch_link.setToolTip(
+        "Open the ZX Next Remote itch.io page in your browser.")
+    grid_tab_Settings.addWidget(
+        host.settings_zxnextremote_itch_link,
+        settings_grid_row("zxnextremote_itch_link"), 0, 1, 2)
 
     # ── Desktop theme (top of the Settings pane) ───────────────────────
     # Drives the SD Card explorer font colours. Automatic follows the OS

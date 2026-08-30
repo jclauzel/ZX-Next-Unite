@@ -539,6 +539,8 @@ LISTEN_HELP = """\
     rfsize <path>              total size of a file or whole directory
                                tree on the Next (dot v5.2+)
     drives                     list the mounted drives on the Next (dot v5.1+)
+    version                    what serves this session and its build number
+                               (ZXNR 1.0.2+ / dot v5.8+)
     psize [drive]              free space on a partition, in bytes (dot v5.2+)
     pfull [drive]              free space on a partition, human-readable (dot v5.2+)
     help                       show this help
@@ -709,8 +711,12 @@ _listen_cli_started = False
 
 # Live -listen session state for the HTTP bridge's /status route (see -http):
 # 'active' flips with the session, 'current'/'drives' cache the last getdrives
-# reply of this session.
-_listen_state = {'active': False, 'current': '', 'drives': None, 'addr': ''}
+# reply of this session, 'ident' the last version query ((type, number),
+# False = asked and unsupported, None = not asked yet) - cached because one
+# probe against an OLD listener costs a false-disconnect log and a brief
+# self-healing desync, a toll worth paying once per session, never per route.
+_listen_state = {'active': False, 'current': '', 'drives': None, 'addr': '',
+                 'ident': None}
 
 def _listen_queue():
     """The shared -listen command queue (created on first use). Both the
@@ -768,6 +774,8 @@ def _listen_console_reader(cmd_q):
             cmd_q.put(("rfsize", a1, ""))
         elif verb == "drives":
             cmd_q.put(("drives", "", ""))
+        elif verb == "version":
+            cmd_q.put(("ident", "", ""))
         elif verb in ("psize", "pfull"):
             cmd_q.put((verb, a1, ""))
         elif verb == "help":
@@ -817,6 +825,7 @@ def listen_session(conn, stats, _test_commands=None):
         _listen_state['current'] = ''
         _listen_state['drives'] = None
         _listen_state['addr'] = ''
+        _listen_state['ident'] = None
 
 def _listen_session_inner(conn, stats, _test_commands=None):
     global _in_transfer
@@ -984,6 +993,55 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 sendpacket(conn, b"V" + a1.encode() + b"\x00" + a2.encode(), 0)
                 ok = _listen_status(conn, f"ren {a1} -> {a2}", reply)
                 _reply_fill(reply, {'ok': bool(ok)})
+            elif op == "ident":
+                # version query (ZXNR 1.0.2+ / dot v5.8+): 'Y', no args. ONE
+                # status block back: 'O' + type + NUL + build number, e.g.
+                # O httpbridge NUL 1.0.2 - one opcode for both facts, because
+                # an older listener answers an unknown opcode with SILENCE
+                # and the block parse below then trips over its next raw
+                # Poll (a false "connection closed" that self-heals). That
+                # toll is paid once and CACHED for the session; the HTTP
+                # bridge's /version-type and /version-number both ride it.
+                cached = _listen_state.get('ident')
+                if cached is not None:
+                    # Served from cache = NO wire command goes out, but the
+                    # poll that popped this MUST still be answered or the
+                    # Next blocks in its receive forever (every arm here is
+                    # a poll ANSWER first). Idle it - the peer just
+                    # re-polls, and the web caller has its answer.
+                    sendpacket(conn, b"I", 0)
+                    if cached is False:
+                        _reply_fill(reply, {'ok': False,
+                                            'error': 'version not supported '
+                                                     '(needs ZXNR 1.0.2+ / '
+                                                     '.sync v5.8+)'})
+                    else:
+                        _reply_fill(reply, {'ok': True, 'type': cached[0],
+                                            'number': cached[1]})
+                    continue
+                res = {'type': '', 'number': ''}
+                def _handle_ident(payload, _r=res):
+                    if payload[0:1] == b'O' and len(payload) >= 2:
+                        body = payload[1:].split(b'\x00', 1)
+                        _r['type'] = body[0].decode(errors='replace')
+                        if len(body) > 1:
+                            _r['number'] = body[1].decode(errors='replace')
+                    return True
+                sendpacket(conn, b"Y", 0)
+                if _listen_recv_reply(conn, _handle_ident) and res['type']:
+                    print(f'{timestamp()} | version: {res["type"]} '
+                          f'{res["number"]}')
+                    _listen_state['ident'] = (res['type'], res['number'])
+                    _reply_fill(reply, {'ok': True, 'type': res['type'],
+                                        'number': res['number']})
+                else:
+                    print(f'{timestamp()} | version: not supported by this '
+                          'listener (needs ZXNR 1.0.2+ / .sync v5.8+)')
+                    _listen_state['ident'] = False
+                    _reply_fill(reply, {'ok': False,
+                                        'error': 'version not supported '
+                                                 '(needs ZXNR 1.0.2+ / '
+                                                 '.sync v5.8+)'})
             elif op == "drives":
                 # getdrives (dot v5.1+): one status block, 'O' + current drive
                 # letter + one letter per mounted drive. An older dot ignores
@@ -1252,6 +1310,7 @@ def _start_http_bridge(port):
         verbs = {"ls": "ls", "get": "get", "mkdir": "mkdir", "rmdir": "rmdir",
                  "rm": "rm", "ren": "ren", "rcpy": "rcpy", "rfsize": "rfsize",
                  "free": "psize", "drives": "drives",
+                 "version": "ident",
                  # /forceexit -> the MARKED quit: leave -listen and end
                  # the far application (a dot exits to BASIC either way).
                  "forceexit": "quit_app"}
@@ -1282,7 +1341,7 @@ def _start_http_bridge(port):
     if ok:
         print(f"{timestamp()} | HTTP bridge on port {port}: /status "
               "/sessions /drives /free /ls /get /put /mkdir /rmdir /rmtree "
-              "/rm /ren /rcpy /rfsize /sum /forceexit")
+              "/rm /ren /rcpy /rfsize /sum /version-type /version-number /forceexit")
         if opt_verbose:
             print(f"{timestamp()} | HTTP bridge: -v request/response logging "
                   "is ON")
@@ -1660,7 +1719,8 @@ for x in sys.argv[1:]:
         -w  - Start the NextSync HTTP bridge web server (Flask) on port 80:
               it republishes the -listen session as HTTP routes (/status
               /sessions /drives /free /ls /get /put /mkdir /rmdir /rmtree
-              /rm /ren /rcpy /rfsize /sum /forceexit),
+              /rm /ren /rcpy /rfsize /sum /version-type
+              /version-number /forceexit),
               so a Next running the built-in .http dot command - or curl -
               can drive the connected Next's file system. Port 80 is .http's
               own default (plain HTTP, the Next has no TLS). Requires the

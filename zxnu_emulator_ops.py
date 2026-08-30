@@ -2463,6 +2463,226 @@ def build_emulator_ops(
     # can kick the check once the config (enable flag + API key) has loaded.
     host._check_cspect_update_async = _check_cspect_update_async
 
+    # ---- ZX Next Remote: the CSpect updater's twin (9.6.5) ---------------
+    # Same gates, same logging voice, three deliberate differences:
+    #  * the lookup goes through list_installable_uploads, so the
+    #    maintainer's own account reaches the page as its CREATOR - the
+    #    unpublished draft included (no download key exists for it);
+    #  * saying Yes to the prompt opens a VERSION PICKER when several
+    #    builds are listed (newest preselected) - each fetched build lands
+    #    in its own files/<archive-stem>/ folder, side by side, which is
+    #    the layout the future send-via-NextSync automation reads;
+    #  * no emulator rescan on success - nothing executable was installed.
+
+    def _start_zxnextremote_update_install(info, upload):
+        if getattr(host, "_zxnextremote_update_installing", False):
+            return
+        host._zxnextremote_update_installing = True
+        game = info.get("game") or {"url": ZXNEXTREMOTE_ITCH_URL,
+                                    "title": "ZX Next Remote"}
+        api_key = (configuration_dictionary.get(SETTING_ITCHIO_API_KEY, "")
+                   or "").strip()
+        name = upload.get("version_name") or "the chosen build"
+        dest_dir = _cspect_update_dest_dir()   # the shared downloads/itchio root
+
+        add_main_log_window(ui_tr_now(
+            "ZXNextRemote update \u25b8 Starting download of {name} ({file}) "
+            "from itch.io into {folder}.").format(
+                name=name, file=upload.get("filename") or "archive",
+                folder=dest_dir))
+
+        sig = MameInstallSignals()
+        sig.status.connect(lambda line: add_main_log_window(line),
+                           Qt.QueuedConnection)
+        host._zxnextremote_update_signals = sig
+
+        def _log_cb(line):
+            try:
+                sig.status.emit(str(line))
+            except RuntimeError:
+                pass
+
+        def _progress_cb(read, total):
+            try:
+                if total:
+                    pct = min(100, int(read * 100 / total))
+                    sig.status.emit(
+                        f"ZXNextRemote update \u25b8 downloading\u2026 {pct}% "
+                        f"({read / 1048576:.1f}/{total / 1048576:.1f} MB)")
+                else:
+                    sig.status.emit(
+                        "ZXNextRemote update \u25b8 downloading\u2026 "
+                        f"{read / 1048576:.1f} MB")
+            except RuntimeError:
+                pass
+
+        def _job():
+            return zxnu_itchio.install_zxnextremote_update(
+                game, api_key, dest_dir, upload,
+                key_id=info.get("key_id"),
+                log_cb=_log_cb, progress_cb=_progress_cb)
+
+        def _ok(extracted):
+            host._zxnextremote_update_installing = False
+            add_main_log_window(ui_tr_now(
+                "ZXNextRemote update \u25b8 SUCCESS \u2014 {name} extracted "
+                "to: {path}").format(name=name, path=extracted))
+            try:
+                host._show_toast(
+                    "\u2705  ZX Next Remote downloaded",
+                    ui_tr_now(
+                        "ZX Next Remote {name} is unpacked in its own "
+                        "version folder \u2014 ready to send to a Next over "
+                        "NextSync.\r\n{extracted}").format(
+                            name=name, extracted=extracted),
+                    variant="green", duration_ms=9000)
+            except Exception:
+                pass
+
+        def _err(err):
+            host._zxnextremote_update_installing = False
+            detail = (err[1] if isinstance(err, (tuple, list)) and len(err) > 1
+                      else err)
+            add_main_log_window(ui_tr_now(
+                "ZXNextRemote update \u25b8 FAILED \u2014 {error}"
+            ).format(error=detail))
+            logging.error(f"ZXNextRemote update failed: {detail}")
+            try:
+                QMessageBox.warning(
+                    host, "ZXNextRemote update failed",
+                    "The ZX Next Remote update could not be completed.\n\n"
+                    f"{detail}\n\n"
+                    "You can retry later, or install it from the itch.io tab "
+                    "(https://jclauzel.itch.io/zxnextremote).")
+            except Exception:
+                pass
+
+        getit_run_in_thread(_job, _ok, _err)
+
+    def _prompt_zxnextremote_update(info):
+        """UI-thread dialog for a newer ZX Next Remote build. Unlike the
+        CSpect twin, saying Yes offers the whole VERSION LIST when itch.io
+        carries several builds - the user picks, newest preselected."""
+        installed_name = info.get("installed_name") or "the current build"
+        latest_name = info.get("version_name") or "a newer build"
+        box = QMessageBox(host)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle(ui_tr_now("ZX Next Remote update available"))
+        box.setText(ui_tr_now(
+            "A newer version of ZX Next Remote is available on itch.io.\n\n"
+            "Installed: {installed}\nLatest: {latest}\n\n"
+            "Download it now? (You will be able to pick the version.)"
+        ).format(installed=installed_name, latest=latest_name))
+        _attach_release_notes(box, info.get("notes"))
+        yes = box.addButton(ui_tr_now("Yes"), QMessageBox.AcceptRole)
+        box.addButton(ui_tr_now("Cancel"), QMessageBox.RejectRole)
+        box.setDefaultButton(yes)
+        box.exec()
+        if box.clickedButton() is not yes:
+            add_main_log_window(ui_tr_now(
+                "ZXNextRemote update \u25b8 user cancelled the update."))
+            return
+        uploads = info.get("uploads") or []
+        chosen = uploads[0] if uploads else None
+        if len(uploads) > 1:
+            names = [u.get("version_name") or u.get("filename") or "?"
+                     for u in uploads]
+            label, ok = QInputDialog.getItem(
+                host, ui_tr_now("Choose version to install"),
+                ui_tr_now("ZX Next Remote versions on itch.io "
+                          "(newest first):"),
+                names, 0, False)
+            if not ok:
+                add_main_log_window(ui_tr_now(
+                    "ZXNextRemote update \u25b8 user cancelled the update."))
+                return
+            chosen = uploads[names.index(label)]
+        if chosen is None:
+            return
+        add_main_log_window(ui_tr_now(
+            "ZXNextRemote update \u25b8 user chose to fetch {name}."
+        ).format(name=chosen.get("version_name") or "?"))
+        _start_zxnextremote_update_install(info, chosen)
+
+    def _check_zxnextremote_update_async():
+        if getattr(host, "_zxnextremote_update_checked", False):
+            return
+        if getattr(host, "_zxnextremote_update_installing", False):
+            return
+        pref = configuration_dictionary.get(
+            SETTING_ZXNEXTREMOTE_UPDATE_CHECK, "").strip().lower()
+        if pref in ("false", "0", "no"):
+            return  # user disabled the check in Settings
+        api_key = (configuration_dictionary.get(SETTING_ITCHIO_API_KEY, "")
+                   or "").strip()
+        if not api_key:
+            return  # no itch.io account configured - nothing to check
+        host._zxnextremote_update_checked = True
+        app_dir = ZXNU_DATA_ROOT
+
+        def _job():
+            installed_name, installed_dir = \
+                find_installed_zxnextremote_version(app_dir)
+            if not installed_name:
+                return {"skip": "no itch.io ZX Next Remote install was "
+                                "found to update"}
+            info = zxnu_itchio.latest_zxnextremote_upload(api_key)
+            if not info:
+                return {"skip": "itch.io lists no ZX Next Remote download "
+                                "for this account (not the creator, not "
+                                "owned, or only BETA builds)"}
+            info = dict(info)
+            info["installed_name"] = installed_name
+            info["installed_dir"] = installed_dir
+            info["newer"] = cspect_version_newer(
+                info.get("version_name") or "", installed_name)
+            return info
+
+        def _on_result(info):
+            try:
+                skip = info.get("skip")
+                if skip:
+                    add_main_log_window(ui_tr_now(
+                        "ZXNextRemote update check: {reason}."
+                    ).format(reason=skip))
+                    return
+                installed_name = info.get("installed_name")
+                latest_name = info.get("version_name")
+                if not info.get("newer"):
+                    add_main_log_window(ui_tr_now(
+                        "ZX Next Remote is up to date (installed "
+                        "{installed}, latest {latest})."
+                    ).format(installed=installed_name, latest=latest_name))
+                    return
+                add_main_log_window(ui_tr_now(
+                    "ZXNextRemote update \u25b8 newer build available: "
+                    "installed {installed}, latest {latest}."
+                ).format(installed=installed_name, latest=latest_name))
+                _game_url = ((info.get("game") or {}).get("url")
+                             or ZXNEXTREMOTE_ITCH_URL)
+                info["notes"] = (
+                    f"New ZX Next Remote build: {latest_name}\n\n"
+                    "The full changelog is on the ZX Next Remote itch.io "
+                    f"page:\n{_game_url}")
+                _prompt_zxnextremote_update(info)
+            except Exception as exc:
+                logging.info(
+                    f"ZXNextRemote update result handling failed: {exc}")
+
+        def _on_error(err):
+            detail = (err[1] if isinstance(err, (tuple, list)) and len(err) > 1
+                      else err)
+            add_main_log_window(ui_tr_now(
+                "ZXNextRemote update check skipped: {reason}"
+            ).format(reason=detail))
+            logging.info(f"ZXNextRemote update check skipped: {detail}")
+
+        add_main_log_window(ui_tr_now(
+            "Checking itch.io for a newer ZX Next Remote release\u2026"))
+        getit_run_in_thread(_job, _on_result, _on_error)
+
+    host._check_zxnextremote_update_async = _check_zxnextremote_update_async
+
 
     # Expose the emulator launch helpers so other UI surfaces (e.g. the
     # GalleryItemViewer action bars on GetIt / ZXDB / ZxArt) can trigger

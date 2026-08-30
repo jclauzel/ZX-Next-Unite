@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.6.4"
+ZX_NEXT_UNITE_VERSION = "9.6.5"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -29,7 +29,7 @@ ZX_NEXT_UNITE_VERSION = "9.6.4"
 # startup dotN-updated advisory compares this against the dotn_last_version
 # persisted in hdfg.cfg, so the user is told to refresh the copy on their
 # Next (which the app cannot deploy automatically).
-ZX_NEXT_UNITE_DOTN_VERSION = "5.7.5"
+ZX_NEXT_UNITE_DOTN_VERSION = "5.8.0"
 # Self-update check (Settings toggle, default on): the app's own releases.
 ZXNU_GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/jclauzel/ZX-Next-Unite/releases/latest"
 ZXNU_GITHUB_RELEASES_PAGE = "https://github.com/jclauzel/ZX-Next-Unite/releases"
@@ -207,6 +207,12 @@ ITCH_PAGE_SIZE = 30
 # owned CSpect download key and the newest available build (see
 # zxnu_itchio.latest_cspect_upload / install_cspect_update).
 CSPECT_ITCH_URL = "https://mdf200.itch.io/cspect"
+# Canonical itch.io page for ZX Next Remote (the user's own project). Its
+# startup update check and the Settings link both use it; the author/slug
+# parsed from it (jclauzel/zxnextremote) is also the downloads/itchio
+# folder every fetched build lands under - the layout the future
+# send-via-NextSync automation will read.
+ZXNEXTREMOTE_ITCH_URL = "https://jclauzel.itch.io/zxnextremote"
 # Safety bound on how many API pages the owned-games / collection / library
 # walks will follow. The walks stop naturally on the last (short) page; this is
 # only a runaway guard. Set high so large libraries (a user with 1000s of
@@ -391,6 +397,7 @@ SETTING_ITCHIO_API_KEY         = "itchio_api_key"          # str: personal itch.
 SETTING_SHOW_ITCHIO_TAB        = "show_itchio_tab"         # "false" => hide the itch.io tab (default shown when itch-dl is installed)
 SETTING_ITCHIO_VIEW_MODE       = "itchio_view_mode"        # "gallery" (default) or "table"
 SETTING_CSPECT_UPDATE_CHECK    = "cspect_update_check"     # "false" => skip the startup itch.io CSpect update check (default on)
+SETTING_ZXNEXTREMOTE_UPDATE_CHECK = "zxnextremote_update_check"  # "false" => skip the startup itch.io ZX Next Remote update check (default on)
 SETTING_ZXNU_UPDATE_CHECK      = "zxnu_update_check"       # "false" => skip the startup ZX Next Unite GitHub release check (default on)
 SETTING_DELETE_TO_RECYCLE_BIN  = "delete_to_recycle_bin"   # "false" => local explorer deletes are permanent; default on = send to the Recycle Bin (needs Send2Trash)
 SETTING_DOTN_LAST_VERSION      = "dotn_last_version"       # bundled .sync5 dotN version last seen by this cfg (drives the "update the dot on your Next" advisory)
@@ -1004,7 +1011,7 @@ SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVO
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_MAME_RS232_ESP, SETTING_MAME_RS232_ESP_PORT, SETTING_MAME_RS232_ESP_VERBOSE, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
 SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE,
-SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_DELETE_TO_RECYCLE_BIN,
+SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNEXTREMOTE_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_DELETE_TO_RECYCLE_BIN,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
 SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
 SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS, SETTING_RE_REMOTE_CWDS, SETTING_RE_MACHINE_NAMES, SETTING_RE_MACHINE_COLORS,
@@ -2276,6 +2283,34 @@ def find_installed_cspect_version(base_dir):
                 best_name = folder
                 best_path = os.path.join(dirpath, filename)
     return (best_name, best_path)
+
+
+def find_installed_zxnextremote_version(base_dir):
+    """Return ``(version_name, folder_path)`` for the newest ZX Next Remote
+    build installed under ``<base_dir>/downloads/itchio/jclauzel/zxnextremote/
+    files``, or ``(None, None)`` when none is present.
+
+    The CSpect probe hunts an executable; ZX Next Remote ships ``.nex`` files,
+    so the version is simply the newest EXTRACTED folder name (the archive
+    stem, e.g. ``zxnextremote-1.0.2``) - exactly how the shared extract step
+    lays versions out side by side, one folder per fetched build. Compared
+    with the same natural-order key the CSpect updater uses."""
+    try:
+        author, slug = "jclauzel", "zxnextremote"
+        files_dir = os.path.join(base_dir, DOWNLOADS_CSPECT_DIRNAME,
+                                 author, slug, "files")
+        if not os.path.isdir(files_dir):
+            return (None, None)
+        best_name, best_path = None, None
+        for name in os.listdir(files_dir):
+            full = os.path.join(files_dir, name)
+            if not os.path.isdir(full):
+                continue
+            if best_name is None or cspect_version_newer(name, best_name):
+                best_name, best_path = name, full
+        return (best_name, best_path)
+    except OSError:
+        return (None, None)
 
 
 def find_emulators_in_downloads(base_dir, scan_for_cspect=True, scan_for_hdfmonkey=True):

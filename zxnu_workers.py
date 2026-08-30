@@ -12,6 +12,9 @@ import logging
 import platform
 import shutil
 import socket
+
+# The ident reply separator (the version query): type NUL number.
+NULB = bytes([0])
 import struct
 import tempfile
 import threading
@@ -570,6 +573,12 @@ class RemoteExplorerSignals(QObject):
     # (current, letters): the Next's default drive + every mounted drive letter,
     # e.g. ("C", ["C", "M"]). ("", []) when the dot predates the 'W' command.
     drives       = Signal(str, object)
+    # (type, number): the far responder's identity from the 'Y' version
+    # query - ("httpbridge"/"n2n", "1.0.2") for a ZX Next Remote listener,
+    # ("sync", "5.8.0") for a dot. ("", "") when the far build predates the
+    # command (ZXNR < 1.0.2 / dot < 5.8) - the pane then shows nothing,
+    # exactly the pre-ident behaviour.
+    ident        = Signal(str, str)
     # (drive, free_bytes): result of a ("free", drive) query ('Z', dot v5.2+).
     # free_bytes is an int, or None when the query failed on the Next ('F') or
     # the dot predates 'Z' -- the log line says which. Free space is the ONLY
@@ -1334,6 +1343,44 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                                   'error': 'connection dropped'})
                             else:
                                 sig.error.emit(f"delete {path}: connection dropped")
+                    elif op == "version":
+                        # version query (ZXNR 1.0.2+ / dot v5.8+): 'Y', no
+                        # args. One status block back: 'O' + type + NUL +
+                        # build number. An old listener ignores the unknown
+                        # opcode and re-polls; its raw "Poll" fails the block
+                        # parse - degrade to unsupported, never kill the
+                        # session (drives' own rule). The bridge layer caches
+                        # per seat, so this fires once per seated Next.
+                        res = {'type': "", 'number': ""}
+
+                        def _hv(payload, _r=res):
+                            if payload[0:1] == b'O' and len(payload) >= 2:
+                                body = payload[1:].split(NULB, 1)
+                                _r['type'] = body[0].decode(errors='replace')
+                                if len(body) > 1:
+                                    _r['number'] = body[1].decode(
+                                        errors='replace')
+                            return True
+                        _re_sendpacket(conn, b"Y", 0)
+                        try:
+                            got_v = _re_reply_call(conn, _hv)
+                        except socket.timeout:
+                            got_v = False
+                        if got_v and res['type']:
+                            if reply:
+                                reply.put({'ok': True, 'type': res['type'],
+                                           'number': res['number']})
+                            else:
+                                sig.ident.emit(res['type'], res['number'])
+                        elif reply:
+                            reply.put({'ok': False,
+                                       'error': 'version not supported '
+                                                '(needs ZXNR 1.0.2+ / '
+                                                '.sync v5.8+)'})
+                        else:
+                            log("This listener does not answer the version "
+                                "query (pre ZXNR 1.0.2 / .sync v5.8).")
+                            sig.ident.emit("", "")
                     elif op == "drives":
                         # getdrives: one pushed status block, 'O' + current
                         # drive letter + one letter per mounted drive. An old
@@ -1598,6 +1645,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         ("rm",    remote_path)
         ("rmtree", remote_path)   -> recursive folder delete (see below)
         ("drives",)               -> query mounted drives (see below)
+        ("version",)              -> ask who serves the session + its build
         ("free",  drive_letter)   -> query a partition's free space (see below)
         ("rcpy",  src, dst)       -> copy locally ON the Next (see below)
         ("fsize", remote_path)    -> total size of a file/tree (see below)
