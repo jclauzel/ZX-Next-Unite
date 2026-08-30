@@ -209,6 +209,10 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
         elif op == b'W':
             # getdrives (dot v5.1+): 'O' + current drive letter + mounted letters.
             push(b'OC' + b"CM", 0)
+        elif op == b'Y':
+            # version query (ZXNR 1.0.2+ / dot v5.8+): one status block,
+            # 'O' + type + NUL + build number.
+            push(b'Osync' + bytes([0]) + b'9.9.9', 0)
         elif op == b'Z':
             # free space (dot v5.2+): 'O' + 4B little-endian free 512-byte
             # blocks, or 'F' when the drive can't be measured (like the dot's

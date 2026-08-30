@@ -540,6 +540,8 @@ def build_nextsync_pane(
             return ("free", a1, reply)
         if op == "drives":
             return ("drives", reply)
+        if op == "version":
+            return ("version", reply)
         if op == "forceexit":
             # The dot leaves -listen and exits to BASIC; ZX Next Remote
             # 0.9.47+ reads the marker and exits its application too
@@ -1370,6 +1372,7 @@ def build_nextsync_pane(
         host._re_sig.os_protected.connect(widget.on_os_protected)
         host._re_sig.drives.connect(widget.on_drives)
         host._re_sig.free_space.connect(widget.on_free_space)
+        host._re_sig.ident.connect(widget.on_ident)
         host._re_sig.fsize.connect(widget.on_fsize)
         host._re_sig.op_progress.connect(widget.on_op_progress)
         # Keep the HTTP bridge's /status state fresh. DirectConnection:

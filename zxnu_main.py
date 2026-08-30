@@ -1658,6 +1658,9 @@ class MainWindow(QMainWindow):
         # download+install jobs. See _check_cspect_update_async.
         self._cspect_update_checked = False
         self._cspect_update_installing = False
+        # The ZX Next Remote twin (same two-trigger shape).
+        self._zxnextremote_update_checked = False
+        self._zxnextremote_update_installing = False
 
         # Live QColor instances for the image explorer — updated by Settings pickers
         self.img_color_up_directory = hex_to_qcolor(DEFAULT_COLOR_UP_DIRECTORY)
@@ -4438,6 +4441,13 @@ class MainWindow(QMainWindow):
         _check_cspect = getattr(self, "_check_cspect_update_async", None)
         if _check_cspect is not None:
             QTimer.singleShot(2600, _check_cspect)
+
+        # And the ZX Next Remote build on itch.io - the CSpect check's twin
+        # (self-gating, once per session, post-login callback shares it).
+        # 3000 keeps it clear of the 1200/1800/2600/3400 stagger.
+        _check_zxnr = getattr(self, "_check_zxnextremote_update_async", None)
+        if _check_zxnr is not None:
+            QTimer.singleShot(3000, _check_zxnr)
 
         # The ".sync5 dot was updated" advisory (compares the bundled dotN
         # version with the one this cfg last saw) runs early — it concerns the
