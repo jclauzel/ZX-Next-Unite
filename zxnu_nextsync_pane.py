@@ -952,6 +952,16 @@ def build_nextsync_pane(
         except Exception:
             pass
 
+    def _re_on_zxnr_update_path_changed(path):
+        # The widget reports the full Next-side path a ZX Next Remote
+        # self-update just swapped; persist it so the next update's
+        # confirm dialog opens on what worked last time.
+        try:
+            configuration_dictionary[SETTING_ZXNR_UPDATE_PATH] = path or ""
+            save_configuration_file()
+        except Exception:
+            pass
+
     def _re_on_extra_drives_changed(letters):
         # The widget reports the user-declared extra Next drives (e.g. "DE"
         # for additional SD readers); persist so they reappear next session.
@@ -1055,6 +1065,17 @@ def build_nextsync_pane(
             # can be two sequential network requests) — the menu itself
             # must never touch the network.
             sync5_update_source=(lambda: host._resolve_sync5_update_binary()),
+            # The ZX Next Remote twin behind the "Update ZX Next Remote"
+            # session-tab entry and top-bar link: resolved by
+            # zxnu_emulator_ops from the newest extracted itch.io folder.
+            # LOCAL FILESYSTEM ONLY — no network — so unlike the dot's
+            # resolver the widget may call it on the UI thread (it still
+            # caches the answer per label refresh).
+            zxnr_update_source=(
+                lambda flavor: host._resolve_zxnr_update_binary(flavor)),
+            zxnr_update_path=configuration_dictionary.get(
+                SETTING_ZXNR_UPDATE_PATH) or "",
+            on_zxnr_update_path_changed=_re_on_zxnr_update_path_changed,
             # The local drive switcher lives IN this widget's nav row now
             # (9.6.0). It used to be the classic tab's combo, left behind
             # on a full-width row above the whole view: it stretched across

@@ -253,8 +253,9 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes):
     the 'G' read-back verify serves (the corrupt scenario hands back
     something other than what was staged); ``scenario`` == "no_release"
     refuses the 'U' handle-release with 'F' (a pre-5.9 dot),
-    "ren1_refuse" answers the first rename's 'V' with 'F', and the two
-    "kill_after_*" scenarios drop the link right after acking the 'U' /
+    "ren1_refuse" answers the first rename's 'V' with 'F', "ren1_osp"
+    answers it with the marked 'F'+"OSP" (ZXNR's OS protection), and the
+    two "kill_after_*" scenarios drop the link right after acking the 'U' /
     the first 'V' (a session dying mid-macro)."""
     sock.sendall(b"Listen")
     assert rx_payload(sock) == b"Listening"
@@ -310,7 +311,10 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes):
                 break
         elif op == b'V':
             ren1 = "\x00" in arg and arg.split("\x00", 1)[1].endswith(".bak")
-            push(b'F' if (scenario == "ren1_refuse" and ren1) else b'O', 0)
+            if ren1 and scenario == "ren1_osp":
+                push(b'FOSP', 0)        # refused by the OS protection (marked)
+            else:
+                push(b'F' if (scenario == "ren1_refuse" and ren1) else b'O', 0)
             if scenario == "kill_after_ren1" and ren1:
                 sock.close()
                 break
@@ -769,6 +773,54 @@ def main():
     else:
         print("FAIL updot-banner: ops=", ops, "staged=",
               [(p, len(b)) for p, b in staged], "upd=", upd, "puts=", puts)
+        ok = False
+
+    # ZXNR flavor: the generalized macro updates a ZX Next Remote .nex.
+    # cmd = ("update_dot", local, dir, ver, base_file, brand, marked_exit):
+    # every step path derives from the BASE file name, the brand + version
+    # are verified as SEPARATE substrings (ZXNR's title and version
+    # literals sit apart in the binary), the 'U' release is answered 'O',
+    # and the macro's final quit is the MARKED one ('Q'+'X') — the .nex
+    # saves its settings and soft-resets the Next into NextZXOS, where the
+    # swapped build relaunches.
+    zx_blob = (b"Next\x00" + bytes(range(256)) * 5
+               + b"ZXNextRemote\x00" + b"9.9.9\x00tail")
+    zx_file = os.path.join(tmp, "zxnextremote-n2n.nex")
+    open(zx_file, "wb").write(zx_blob)
+    ops, staged, upd, puts = run_update_scenario(
+        PORT + 10, [("update_dot", zx_file, "c:/apps", "9.9.9",
+                     "zxnextremote-n2n.nex", "ZXNextRemote", True)],
+        "ok", zx_blob)
+    zb = "c:/apps/zxnextremote-n2n.nex"
+    if (ops == [('P', zb + ".new"), ('G', zb + ".new"), ('U', ""),
+                ('X', zb + ".bak"), ('V', zb + "\x00" + zb + ".bak"),
+                ('V', zb + ".new\x00" + zb), ('Q', "X")]
+            and staged == [(zb + ".new", zx_blob)]
+            and len(upd) == 1 and upd[0][0]
+            and "soft-reset" in upd[0][1] and not puts):
+        print("PASS updot-zxnr: .nex-base paths, 'U' ok, marked quit "
+              "('Q'+'X'), dot_update(True) once")
+    else:
+        print("FAIL updot-zxnr: ops=", ops, "upd=", upd, "puts=", puts)
+        ok = False
+
+    # ...and a first rename the far side's OS PROTECTION refuses (the
+    # marked 'F'+"OSP" — ZXNR protects apps/, dot/, sys/ by default):
+    # nothing moved, but the verdict must NAME the protection, or the user
+    # hunts a phantom SD error. Post-'U' discipline still ends the session
+    # with a targeted quit — PLAIN 'Q', failure quits are never marked.
+    ops, staged, upd, puts = run_update_scenario(
+        PORT + 11, [("update_dot", zx_file, "c:/apps", "9.9.9",
+                     "zxnextremote-n2n.nex", "ZXNextRemote", True)],
+        "ren1_osp", zx_blob)
+    if (ops[-2:] == [('V', zb + "\x00" + zb + ".bak"), ('Q', "")]
+            and len(upd) == 1 and not upd[0][0]
+            and "OS protection" in upd[0][1]
+            and "may be missing" not in upd[0][1] and not puts):
+        print("PASS updot-osp: ren1 'F'+OSP -> dot_update(False) names the "
+              "OS protection, plain targeted 'Q'")
+    else:
+        print("FAIL updot-osp: ops=", ops, "upd=", upd, "puts=", puts)
         ok = False
 
     shutil.rmtree(tmp, ignore_errors=True)

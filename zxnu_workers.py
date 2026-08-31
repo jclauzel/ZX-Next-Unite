@@ -952,9 +952,18 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     if ok and not osp:
                         local_cmds.appendleft(("upd_verify", jid))
                     else:
+                        # Name the actual staged file, and the refuser: for
+                        # a ZXNR target dir under the Next's default-on OS
+                        # protection the FIRST refusal is this staging put,
+                        # and the confirm dialog promised the failure would
+                        # say so.
+                        _b = upd_jobs[jid].get('base', 'sync5')
                         local_cmds.appendleft(
                             ("upd_fail", jid,
-                             "staging sync5.new failed on the Next"))
+                             ("the far side's OS protection refused staging "
+                              + _b + ".new (Settings on the Next)") if osp
+                             else ("staging " + _b + ".new failed on the "
+                                   "Next")))
                     return
                 if pending[2] is not None:
                     if osp:
@@ -1611,42 +1620,64 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         #   NextZXOS's exit tidy-up still closes (nextsync.c,
                         #   the 'U' protocol comment) — so once released,
                         #   every failure path ends the session too.
-                        # cmd = ("update_dot", local_path, remote_dir, version)
+                        # cmd = ("update_dot", local_path, remote_dir, version
+                        #        [, base_file, brand, marked_exit]) — the
+                        # trailing three default to the .sync5 dot; the ZXNR
+                        # flavor passes its .nex file name, "ZXNextRemote",
+                        # and marked_exit=True (the Q+'X' quit soft-resets the
+                        # Next into NextZXOS so the swapped .nex can relaunch).
                         local, rdir, dver = cmd[1], cmd[2].rstrip("/"), cmd[3]
+                        base = cmd[4] if len(cmd) > 4 and cmd[4] else "sync5"
+                        brand = (cmd[5] if len(cmd) > 5 and cmd[5]
+                                 else "NextSync")
+                        marked = bool(cmd[6]) if len(cmd) > 6 else False
+                        disp = ".sync5" if base == "sync5" else base
                         try:
                             with open(local, 'rb') as fh:
                                 blob = fh.read()
                         except OSError as ex:
                             sig.dot_update.emit(False, ui_tr_now(
-                                "Remote .sync5 update failed while reading "
+                                "Remote {name} update failed while reading "
                                 "{path}: {error} — nothing was sent.").format(
-                                    path=local, error=ex))
+                                    name=disp, path=local, error=ex))
                             _re_sendpacket(conn, b"I", 0)
                             continue
-                        # The banner is embedded verbatim in the binary: a
-                        # blob without the expected one is the wrong file or a
-                        # stale build — refuse before a single byte moves.
-                        if dver and (b"NextSync " + dver.encode()) not in blob:
+                        # The brand + version are embedded verbatim in the
+                        # binary (the dot's banner is contiguous; ZXNR's title
+                        # and ZXNR_VERSION are separate literals): a blob
+                        # without them is the wrong file or a stale build —
+                        # refuse before a single byte moves.
+                        bad = False
+                        if brand == "NextSync":
+                            bad = bool(dver) and (
+                                b"NextSync " + dver.encode()) not in blob
+                        else:
+                            bad = (brand.encode() not in blob or
+                                   (bool(dver) and
+                                    dver.encode() not in blob))
+                        if bad:
                             sig.dot_update.emit(False, ui_tr_now(
-                                "Remote .sync5 update refused: {path} does not "
-                                "carry the expected 'NextSync {version}' "
-                                "banner — wrong or stale file.").format(
-                                    path=local, version=dver))
+                                "Remote {name} update refused: {path} does "
+                                "not look like a {brand} {version} build — "
+                                "wrong or stale file.").format(
+                                    name=disp, path=local, brand=brand,
+                                    version=dver))
                             _re_sendpacket(conn, b"I", 0)
                             continue
                         upd_seq += 1
                         upd_jobs[upd_seq] = {'data': blob, 'dir': rdir,
-                                             'ver': dver}
+                                             'ver': dver, 'base': base,
+                                             'name': disp, 'marked': marked}
+                        _newp = rdir + "/" + base + ".new"
                         sig.log.emit(ui_tr_now(
-                            "Remote .sync5 update: staging {path} "
+                            "Remote {name} update: staging {path} "
                             "({size} bytes)…").format(
-                                path=rdir + "/sync5.new", size=len(blob)))
+                                name=disp, path=_newp, size=len(blob)))
                         put_data = blob
                         put_ofs = 0
                         put_pkt = 0
-                        pending = ("put", rdir + "/sync5.new", None, upd_seq)
-                        _re_sendpacket(
-                            conn, b"P" + (rdir + "/sync5.new").encode(), 0)
+                        pending = ("put", _newp, None, upd_seq)
+                        _re_sendpacket(conn, b"P" + _newp.encode(), 0)
                         # the Next pulls the bytes via "Get" (served below);
                         # _put_finish chains upd_verify when the last byte goes.
                     elif op == "upd_verify":
@@ -1668,19 +1699,20 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             return o == b'B'
                         _re_sendpacket(
                             conn,
-                            b"G" + (job['dir'] + "/sync5.new").encode(), 0)
+                            b"G" + (job['dir'] + "/" + job['base']
+                                    + ".new").encode(), 0)
                         if (_re_reply_call(conn, _h) and
                                 bytes(got_back) == job['data']):
                             sig.log.emit(ui_tr_now(
-                                "Remote .sync5 update: staged copy verified "
+                                "Remote {name} update: staged copy verified "
                                 "({size} bytes) — swapping it in…").format(
-                                    size=len(got_back)))
+                                    name=job['name'], size=len(got_back)))
                             local_cmds.appendleft(("upd_release", jid))
                         else:
                             local_cmds.appendleft(
                                 ("upd_fail_rm", jid,
-                                 "the staged sync5.new read back different "
-                                 "from what was sent"))
+                                 "the staged " + job['base'] + ".new read "
+                                 "back different from what was sent"))
                     elif op == "upd_release":
                         # Step 2: 'U' — the dot closes the OS's own read
                         # handle on its file (hardware-measured: the renames
@@ -1704,8 +1736,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         else:
                             local_cmds.appendleft(
                                 ("upd_fail_rm", jid,
-                                 "the dot did not release its file "
-                                 "(needs .sync v5.9+)"))
+                                 "the far side did not answer the release "
+                                 "op (needs .sync v5.9+ / ZXNR 1.0.3+)"))
                     elif op == "upd_rmbak":
                         # Step 3: clear the first rename's destination —
                         # NextZXOS refuses rename-onto-existing, so this rm
@@ -1722,14 +1754,15 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             return True
                         _re_sendpacket(
                             conn,
-                            b"X" + (job['dir'] + "/sync5.bak").encode(), 0)
+                            b"X" + (job['dir'] + "/" + job['base']
+                                    + ".bak").encode(), 0)
                         if _re_reply_call(conn, _h):
                             local_cmds.appendleft(("upd_ren1", jid))
                         else:
                             local_cmds.appendleft(
                                 ("upd_fail", jid,
                                  "connection dropped while clearing "
-                                 "sync5.bak"))
+                                 + job['base'] + ".bak"))
                     elif op in ("upd_ren1", "upd_ren2"):
                         # Steps 4/5: the swap itself — two back-to-back
                         # renames, nothing between them. From here the card's
@@ -1744,15 +1777,16 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         if job is None:
                             _re_sendpacket(conn, b"I", 0)
                             continue
-                        d = job['dir']
+                        cur = job['dir'] + "/" + job['base']
                         job['swap_started'] = True
-                        old, new = ((d + "/sync5", d + "/sync5.bak")
+                        old, new = ((cur, cur + ".bak")
                                     if op == "upd_ren1" else
-                                    (d + "/sync5.new", d + "/sync5"))
-                        res = {'ok': None}
+                                    (cur + ".new", cur))
+                        res = {'ok': None, 'osp': False}
 
                         def _h(payload, _r=res):
                             _r['ok'] = (payload[0:1] == b'O')
+                            _r['osp'] = _re_is_osp(payload)
                             return True
                         _re_sendpacket(conn, b"V" + old.encode() + b"\x00" +
                                        new.encode(), 0)
@@ -1764,43 +1798,69 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             continue
                         upd_jobs.pop(jid, None)
                         if got_reply and op == "upd_ren1":
-                            # The dot REFUSED the first rename: nothing
-                            # moved, sync5 is untouched — but the handle is
-                            # released, so the session must still end.
+                            # The far side REFUSED the first rename: nothing
+                            # moved, the target is untouched — but the handle
+                            # is released, so the session must still end.
+                            # ZXNR's OS protection (default-on over apps/,
+                            # dot/, sys/, …) is the expected refuser there:
+                            # name it, or the user hunts a phantom SD error.
                             sig.dot_update.emit(False, ui_tr_now(
-                                "Remote .sync5 update failed: {reason}. "
+                                "Remote {name} update failed: {reason}. "
                                 "Nothing was swapped — the Next still runs "
-                                "its current dot.").format(
-                                    reason="could not rename sync5 aside"))
+                                "its current build.").format(
+                                    name=job['name'],
+                                    reason=("the far side's OS protection "
+                                            "refused renaming " + job['base']
+                                            + " (Settings on the Next)")
+                                           if res['osp'] else
+                                           ("could not rename " + job['base']
+                                            + " aside")))
                         else:
                             # ren2 refused, or either rename's reply lost:
                             # the card is (or may be) mid-swap. Delete
                             # NOTHING — .bak is the recovery copy.
                             sig.dot_update.emit(False, ui_tr_now(
-                                "Remote .sync5 update FAILED mid-swap: the "
-                                "Next may be missing {target}. If .sync5 no "
+                                "Remote {name} update FAILED mid-swap: the "
+                                "Next may be missing {target}. If it no "
                                 "longer starts, rename {backup} back to "
-                                "sync5 in the NextZXOS Browser (the staged "
+                                "{file} in the NextZXOS Browser (the staged "
                                 "{staged} can be deleted).").format(
-                                    target=d + "/sync5",
-                                    backup=d + "/sync5.bak",
-                                    staged=d + "/sync5.new"))
+                                    name=job['name'],
+                                    target=cur,
+                                    backup=cur + ".bak",
+                                    file=job['base'],
+                                    staged=cur + ".new"))
                         _re_sendpacket(conn, b"Q", 0)
                         _re_goodbye_linger(conn)
                         break
                     elif op == "upd_done":
                         # Step 6: success. Report, then a TARGETED quit — the
                         # broadcast "quit" arm would stop every other session.
+                        # A marked job (the ZXNR flavor) sends Q+'X' instead:
+                        # the .nex saves its settings and soft-resets the Next
+                        # into NextZXOS, where the swapped build relaunches.
                         jid = cmd[1]
-                        job = upd_jobs.pop(jid, None)
-                        sig.dot_update.emit(True, ui_tr_now(
-                            "Remote .sync5 update complete: {version} is on "
-                            "the card. The session will now close — run "
-                            "{command} on the Next to start the new "
-                            "dot.").format(
-                                version=(job or {}).get('ver', ''),
-                                command=".sync5 -listen"))
-                        _re_sendpacket(conn, b"Q", 0)
+                        job = upd_jobs.pop(jid, None) or {}
+                        if job.get('marked'):
+                            sig.dot_update.emit(True, ui_tr_now(
+                                "Remote {name} update complete: {version} is "
+                                "on the card. The Next will now soft-reset "
+                                "to NextZXOS — relaunch {file} to run the "
+                                "new build.").format(
+                                    name=job.get('name', ''),
+                                    version=job.get('ver', ''),
+                                    file=job.get('base', '')))
+                            _re_sendpacket(conn, b"Q" + RE_QUIT_EXIT_MARK, 0)
+                        else:
+                            sig.dot_update.emit(True, ui_tr_now(
+                                "Remote {name} update complete: {version} is "
+                                "on the card. The session will now close — "
+                                "run {command} on the Next to start the new "
+                                "build.").format(
+                                    name=job.get('name', ''),
+                                    version=job.get('ver', ''),
+                                    command=".sync5 -listen"))
+                            _re_sendpacket(conn, b"Q", 0)
                         _re_goodbye_linger(conn)
                         break
                     elif op == "upd_fail_rm":
@@ -1814,7 +1874,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 return True
                             _re_sendpacket(
                                 conn,
-                                b"X" + (job['dir'] + "/sync5.new").encode(), 0)
+                                b"X" + (job['dir'] + "/" + job['base']
+                                        + ".new").encode(), 0)
                             _re_reply_call(conn, _h)
                             local_cmds.appendleft(("upd_fail", jid, why))
                         else:
@@ -1823,9 +1884,11 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         jid, why = cmd[1], cmd[2]
                         job = upd_jobs.pop(jid, None)
                         sig.dot_update.emit(False, ui_tr_now(
-                            "Remote .sync5 update failed: {reason}. Nothing "
+                            "Remote {name} update failed: {reason}. Nothing "
                             "was swapped — the Next still runs its current "
-                            "dot.").format(reason=why))
+                            "build.").format(
+                                name=(job or {}).get('name', ''),
+                                reason=why))
                         if job is not None and job.get('released'):
                             # The dot's own handle is already closed: the
                             # post-'U' contract forbids any op that opens a
@@ -1876,19 +1939,24 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         # recovery wording -- the card's state is unknown and the .bak
         # instructions are the one message that must not be lost.
         for _job in upd_jobs.values():
+            _cur = _job['dir'] + "/" + _job.get('base', 'sync5')
             if _job.get('swap_started'):
                 sig.dot_update.emit(False, ui_tr_now(
-                    "Remote .sync5 update FAILED mid-swap: the Next may be "
-                    "missing {target}. If .sync5 no longer starts, rename "
-                    "{backup} back to sync5 in the NextZXOS Browser (the "
+                    "Remote {name} update FAILED mid-swap: the Next may be "
+                    "missing {target}. If it no longer starts, rename "
+                    "{backup} back to {file} in the NextZXOS Browser (the "
                     "staged {staged} can be deleted).").format(
-                        target=_job['dir'] + "/sync5",
-                        backup=_job['dir'] + "/sync5.bak",
-                        staged=_job['dir'] + "/sync5.new"))
+                        name=_job.get('name', ''),
+                        target=_cur,
+                        backup=_cur + ".bak",
+                        file=_job.get('base', ''),
+                        staged=_cur + ".new"))
             else:
                 sig.dot_update.emit(False, ui_tr_now(
-                    "Remote .sync5 update failed: {reason}. Nothing was "
-                    "swapped — the Next still runs its current dot.").format(
+                    "Remote {name} update failed: {reason}. Nothing was "
+                    "swapped — the Next still runs its current "
+                    "build.").format(
+                        name=_job.get('name', ''),
                         reason="the session ended before the update "
                                "finished"))
         upd_jobs.clear()
@@ -1939,8 +2007,9 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         ("rcpy",  src, dst)       -> copy locally ON the Next (see below)
         ("fsize", remote_path)    -> total size of a file/tree (see below)
         ("rename", old_path, new_path)
-        ("update_dot", local_file, remote_dir, version)
-                                  -> remote .sync5 self-update macro: stage
+        ("update_dot", local_file, remote_dir, version
+                       [, base_file, brand, marked_exit])
+                                  -> remote self-update macro: stage
                                      local_file as <remote_dir>/sync5.new
                                      ('P'), pull it back and byte-compare
                                      ('G'), have the dot release its own file
@@ -1954,6 +2023,13 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                                      the session (post-'U' contract); the
                                      outcome fires the dot_update signal
                                      exactly once, session death included.
+                                     The trailing three parameters default
+                                     to the dot ("sync5", "NextSync", plain
+                                     quit); the ZXNR flavor passes its .nex
+                                     file name, "ZXNextRemote", and
+                                     marked_exit=True (Q+'X': the .nex saves
+                                     settings and soft-resets into NextZXOS,
+                                     ZXNR 1.0.3+ answers 'U').
         ("mark",  token)          -> echoes back via sig.marked once reached
         ("quit",)
     ``stop_event`` (threading.Event) ends the session/thread.

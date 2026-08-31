@@ -415,7 +415,7 @@ def run_update_tests(tmp):
     for label, ident, needle in (
             ("None", None, "run 'version' first"),
             ("False", False, "did not answer the version query"),
-            ("ZXNR", ("httpbridge", "1.0.2"), "updates via itch.io"),
+            ("ZXNR", ("httpbridge", "1.0.2"), "needs ZXNR 1.0.3+"),
             ("Same", ("sync", "5.9.0"), "add 'force' to push anyway")):
         cap, out, done = run([("update", dot590, "")], ident)
         check(f"updGate{label}: refused ({needle!r}), nothing on the wire",
@@ -435,6 +435,44 @@ def run_update_tests(tmp):
     cap, out, done = run([("update", bannerless, "")], ("sync", "5.8.0"))
     check("updNoBan: bannerless local file refused, nothing on the wire",
           cap.get('wire') == [('Q', '')] and "carries no 'NextSync" in out and done,
+          f"{cap.get('wire')} / {out}")
+
+    # 6. ZXNR flavor: a ZX Next Remote listener (1.0.3+) updates its own
+    # .nex over the same macro. Everything the sync5 flow hardcoded now
+    # derives from the file's BASE name; the staged build's version rides
+    # the CONTAINING folder's itch.io-extract name (zxnextremote-9.9.9,
+    # the .nex has no parseable banner); and the macro ends with the
+    # MARKED quit ('Q'+'X') - the .nex saves its settings and soft-resets
+    # the Next into NextZXOS, where the swapped build relaunches.
+    zdir = os.path.join(tmp, "zxnextremote-9.9.9")
+    os.makedirs(zdir, exist_ok=True)
+    nexfile = os.path.join(zdir, "zxnextremote-n2n.nex")
+    nex_bytes = (b"Next\x00" + bytes(range(256)) * 6
+                 + b"ZXNextRemote\x00" + b"9.9.9\x00tail")
+    with open(nexfile, "wb") as f:
+        f.write(nex_bytes)
+    cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.3"))
+    zbase = "c:/apps/zxnextremote-n2n.nex"
+    want = [('P', zbase + ".new"),
+            ('G', zbase + ".new"),
+            ('U', ''),
+            ('X', zbase + ".bak"),
+            ('V', zbase + "\x00" + zbase + ".bak"),
+            ('V', zbase + ".new\x00" + zbase),
+            ('Q', 'X')]
+    check("updZXNR : .nex-base paths, marked quit ('Q'+'X') ends the macro",
+          cap.get('wire') == want
+          and cap.get('puts') == [(zbase + ".new", nex_bytes)]
+          and "update COMPLETE" in out and "soft-reset" in out and done,
+          f"{cap.get('wire')} / {out}")
+
+    # 6b. ...while a pre-1.0.3 ZXNR is refused before a byte moves (an older
+    # build answers the 'U' release with silence): nothing on the wire.
+    cap, out, done = run([("update", nexfile, "c:/apps")],
+                         ("httpbridge", "1.0.2"))
+    check("updZXNRold: pre-1.0.3 ZXNR refused, nothing on the wire",
+          cap.get('wire') == [('Q', '')] and "needs ZXNR 1.0.3+" in out
+          and done,
           f"{cap.get('wire')} / {out}")
 
     # The version gate's comparator, directly: int-tuple compare (so 5.10.0 is

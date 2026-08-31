@@ -115,6 +115,15 @@ def _parse_dot_version(s):
     return parts or None
 
 
+# ZX Next Remote listener ident types (the 'Y' reply), spelled exactly like
+# the artifact names — zxnextremote-<type>.nex, the 1.0.2 changelog's own
+# spelling rule — and the version floor for the self-update: the swap runs
+# through the far side's 'U' release op, which ZXNR grew in 1.0.3 (older
+# builds answer 'U' with silence).
+ZXNR_IDENT_TYPES = ("httpbridge", "n2n")
+ZXNR_SELF_UPDATE_FLOOR = (1, 0, 3)
+
+
 def _default_item_colors():
     """The SD Card Utility's image-tree item colours as a fresh dict of QColor.
 
@@ -951,7 +960,8 @@ class RemoteExplorerWidget(QWidget):
                  emulator_launchers=None, emulator_color_for=None,
                  emulator_images=None, on_emulator_image_picked=None,
                  on_emulator_color_changed=None, local_drives=None,
-                 sync5_update_source=None):
+                 sync5_update_source=None, zxnr_update_source=None,
+                 zxnr_update_path=None, on_zxnr_update_path_changed=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
         # host closure: enqueue_to(sid, cmd) -> bool, delivering ONE command
@@ -996,6 +1006,23 @@ class RemoteExplorerWidget(QWidget):
         # queued connection cannot be garbage-collected mid-flight.
         self._sync5_resolving = False
         self._sync5_resolve_signals = None
+        # host closure: (flavor) -> (path, version, "") or (None, None,
+        # reason) — the newest installed ZX Next Remote .nex for a
+        # "httpbridge"/"n2n" ident (zxnu_emulator_ops'
+        # _resolve_zxnr_update_binary). LOCAL FILESYSTEM ONLY, so unlike
+        # the dot's resolver it may run on the UI thread — but its answer
+        # is still CACHED per flavor (_zxnr_resolve): the top-bar label
+        # re-renders on every free-space report, and even a disk probe has
+        # no place in a repaint path. Absent means the session tabs and
+        # the top bar keep to the dot-only affordances.
+        self._zxnr_update_source = zxnr_update_source
+        self._zxnr_resolve_cache = {}        # flavor -> (path, ver, reason)
+        # Last-used full Next-side path of the swapped .nex, persisted by
+        # the host (SETTING_ZXNR_UPDATE_PATH) so the confirm dialog opens
+        # on what worked last time; empty => "c:/<flavor file name>".
+        self._zxnr_update_path = str(zxnr_update_path or "").strip()
+        self._on_zxnr_update_path_changed = (on_zxnr_update_path_changed
+                                             or (lambda p: None))
         self._on_sync_root_changed = on_sync_root_changed or (lambda p: None)
         # Surface Next-side failures ('F' replies / abandoned transfers) to the
         # user: on_toast(title, message, variant) pops a host toast.
@@ -2508,19 +2535,29 @@ class RemoteExplorerWidget(QWidget):
         # not known yet, and a modern far side must not be offered a push
         # it does not need; switching moves the baton, which re-asks (see
         # on_connected). A ZX Next Remote listener ("httpbridge"/"n2n")
-        # gets nothing — ZXNR updates via itch.io, and staging a file it
-        # never runs would only mislead. A dot already at this build (or
-        # newer) gets nothing either: there is nothing to update.
+        # follows the same shapes since the macro was generalized: a 1.0.3+
+        # ident with a NEWER build installed under downloads/itchio gets
+        # the confident entry, a pre-1.0.3 ident a disabled "predates
+        # self-update" one (its 'U' release op is missing), and no
+        # installed build a disabled entry naming the itch.io route — the
+        # resolver is disk-only, so asking it while the menu builds is
+        # fine. A dot or ZXNR already at this build (or newer) gets
+        # nothing: there is nothing to update.
         act_update = None
         known_old = None
-        if self._sync5_update_source is not None:
+        act_zxnr = None
+        zxnr_flavor = None
+        zxnr_old = None
+        if (self._sync5_update_source is not None
+                or self._zxnr_update_source is not None):
             ident = self._peer_idents.get(sid)
             local_ver = _parse_dot_version(ZX_NEXT_UNITE_DOTN_VERSION)
             if ident is None:
                 act_ask = menu.addAction(ui_tr_now(
                     ".sync5 version unknown — switch to this Next first"))
                 act_ask.setEnabled(False)
-            elif ident[0] == "sync":
+            elif (ident[0] == "sync"
+                    and self._sync5_update_source is not None):
                 rver = ident[1]
                 remote_ver = _parse_dot_version(rver)
                 if remote_ver is not None and remote_ver < (5, 9):
@@ -2544,7 +2581,45 @@ class RemoteExplorerWidget(QWidget):
                     # the confident update.
                     act_update = menu.addAction(ui_tr_now(
                         "Push new .sync5 to this Next…"))
-            elif not ident[0] and not ident[1]:
+            elif (ident[0] in ZXNR_IDENT_TYPES
+                    and self._zxnr_update_source is not None):
+                rver = ident[1]
+                remote_ver = _parse_dot_version(rver)
+                if (remote_ver is not None
+                        and remote_ver < ZXNR_SELF_UPDATE_FLOOR):
+                    # Predates the 'U' release op (ZXNR 1.0.3): a confident
+                    # entry would promise an update the far side answers
+                    # with silence. One hand copy and it self-updates
+                    # forever — the dot's disabled-and-honest shape.
+                    act_hand = menu.addAction(ui_tr_now(
+                        "ZX Next Remote {old} predates self-update — copy "
+                        "a new build to the Next by hand once").format(
+                            old=rver))
+                    act_hand.setEnabled(False)
+                elif remote_ver is not None:
+                    # An unparseable ZXNR version counts as UNKNOWN, never
+                    # as older (same rule as the dot) — no entry then.
+                    path, new_ver, _reason = self._zxnr_resolve(
+                        ident[0], fresh=True)
+                    new_parsed = (_parse_dot_version(new_ver)
+                                  if path else None)
+                    if not path:
+                        act_none = menu.addAction(ui_tr_now(
+                            "No ZX Next Remote build installed on this PC "
+                            "— fetch one via the itch.io tab or the "
+                            "Settings update check first"))
+                        act_none.setEnabled(False)
+                    elif (new_parsed is not None
+                            and new_parsed > remote_ver):
+                        zxnr_flavor = ident[0]
+                        zxnr_old = rver
+                        act_zxnr = menu.addAction(ui_tr_now(
+                            "Update ZX Next Remote on this Next "
+                            "({old} → {new})…").format(
+                                old=rver, new=new_ver))
+                    # same or newer installed: nothing to update.
+            elif (not ident[0] and not ident[1]
+                    and self._sync5_update_source is not None):
                 act_update = menu.addAction(ui_tr_now(
                     "Push new .sync5 to this Next…"))
         menu.addSeparator()
@@ -2556,6 +2631,8 @@ class RemoteExplorerWidget(QWidget):
             self._edit_machine_identity(addr)
         elif act_update is not None and chosen == act_update:
             self._update_dot_on_session(sid, known_old)
+        elif act_zxnr is not None and chosen == act_zxnr:
+            self._update_zxnr_on_session(sid, zxnr_flavor, zxnr_old)
         elif chosen == act_disc:
             self._disconnect_session(sid)
 
@@ -2675,6 +2752,110 @@ class RemoteExplorerWidget(QWidget):
         # drains the shared queue now.
         self._log(ui_tr_now("That Next is no longer on the line."))
 
+    def _zxnr_resolve(self, flavor, fresh=False):
+        """The ZXNR update source's answer for one flavor, cached.
+
+        The resolver is disk-only (the newest extracted itch.io folder),
+        so calling it while a menu builds is fine — but the top-bar label
+        re-renders on every free-space report, and even an os.listdir has
+        no place in a repaint path, so label renders read the cache. A
+        user gesture passes ``fresh=True`` to re-read the disk (the menu
+        open doubles as the manual "did my itch.io fetch land?" check),
+        and on_ident clears the cache so a fresh connection re-probes."""
+        if self._zxnr_update_source is None:
+            return (None, None, "no update source wired")
+        if not fresh and flavor in self._zxnr_resolve_cache:
+            return self._zxnr_resolve_cache[flavor]
+        try:
+            path, version, reason = self._zxnr_update_source(flavor)
+        except Exception:                       # noqa: BLE001
+            logging.exception("Remote explorer: ZXNR resolve failed")
+            path, version, reason = None, None, "internal error (see the log)"
+        res = (path, version, reason or "")
+        self._zxnr_resolve_cache[flavor] = res
+        return res
+
+    def _update_zxnr_on_session(self, sid, flavor, old_version):
+        """Confirm + enqueue the ("update_dot", …) macro in its ZX Next
+        Remote flavor for ONE session: the staged/verified/swapped file is
+        ``zxnextremote-<flavor>.nex`` and the success step's marked quit
+        (Q + the exit mark) has the .nex save its settings and soft-reset
+        the Next into NextZXOS.
+
+        Unlike the dot's path there is no worker-thread resolve: the ZXNR
+        source is LOCAL FILESYSTEM ONLY, so it runs right here on the UI
+        thread. Delivery follows _on_sync5_resolved's rule to the letter —
+        the TARGET session's OWN queue, and a wired targeted channel's
+        refusal is final (never the shared-queue fallback)."""
+        if self._zxnr_update_source is None:
+            return
+        path, version, reason = self._zxnr_resolve(flavor, fresh=True)
+        machine = self._machine_text_for(sid)
+        if not path:
+            # The reason string stays English on purpose (self-update
+            # advisories are documented untranslated), framed by a
+            # template like every composed dialog line.
+            QMessageBox.warning(
+                self, ui_tr_now("ZX Next Remote update"),
+                ui_tr_now("Could not obtain the ZX Next Remote build to "
+                          "send: {reason}").format(reason=reason))
+            return
+        base_default = f"zxnextremote-{flavor}.nex"
+        # The remembered path is ONE global string; pre-filling it for a
+        # session of the OTHER flavor would swap the right build over the
+        # WRONG file (both flavors embed the same brand+version bytes, so
+        # the staged-blob verify cannot catch it). A remembered path only
+        # survives as the default when its file name matches this
+        # session's flavor.
+        remembered = (self._zxnr_update_path or "").replace("\\", "/")
+        if remembered.rpartition("/")[2] != base_default:
+            remembered = ""
+        default_path = remembered or ("c:/" + base_default)
+        body = ui_tr_now(
+            "Update ZX Next Remote on {machine}: v{old} → v{new}.\n\n"
+            "The new build is staged on the Next's SD card, read back "
+            "and verified, then swapped in; the previous build is kept "
+            "next to it with a .bak ending (renaming it back is the "
+            "one-step recovery). The Next's OS protection (on by default "
+            "over apps/, dot/ and sys/) refuses the swap inside a "
+            "protected folder — the failure message will say so. On "
+            "success the Next soft-resets to NextZXOS — relaunch {file} "
+            "from there afterwards.\n\n"
+            "Full path of the .nex on the Next:").format(
+                machine=machine, old=old_version, new=version,
+                file=base_default)
+        target, okd = QInputDialog.getText(
+            self, ui_tr_now("ZX Next Remote update"), body,
+            QLineEdit.EchoMode.Normal, default_path)
+        if not okd:
+            return
+        target = str(target).strip().replace("\\", "/")
+        rdir, _, base = target.rpartition("/")
+        if not rdir or not base:
+            self._log(ui_tr_now(
+                "ZX Next Remote update: enter the FULL path of the .nex "
+                "on the Next (e.g. {example}).").format(
+                    example="c:/" + base_default))
+            return
+        self._zxnr_update_path = target
+        self._on_zxnr_update_path_changed(target)
+        cmd = ("update_dot", path, rdir, version, base,
+               "ZXNextRemote", True)
+        if self._enqueue_to_raw is None:
+            if sid == self._peer_active:
+                # No targeted channel wired at all: the shared queue still
+                # reaches the DRIVEN session (it is the one draining it).
+                self._enqueue_raw(cmd)
+                return
+            self._log(ui_tr_now("That Next is no longer on the line."))
+            return
+        if self._enqueue_to(sid, cmd):
+            return
+        # The wired targeted channel refused the sid: the worker reaped
+        # that session — never fall back to the shared queue (see
+        # _on_sync5_resolved).
+        self._log(ui_tr_now("That Next is no longer on the line."))
+
     def _on_machine_name_edit(self):
         """The ✎ button: name/colour the machine the combo currently shows."""
         ix = self.next_machine_combo.currentIndex()
@@ -2760,6 +2941,10 @@ class RemoteExplorerWidget(QWidget):
         shows it after the free-space figure. ("", "") = the far build
         predates the query - show nothing, the pre-ident look."""
         self._next_ident = (rtype or "", number or "")
+        # A fresh ident is a user-visible moment: drop the cached ZXNR
+        # resolver answers so the label's update link re-reads the disk
+        # (an itch.io fetch may have landed since the last connection).
+        self._zxnr_resolve_cache.clear()
         # File it under the DRIVEN session too: the query rides the shared
         # queue (on_connected / every baton move re-asks), which only the
         # baton holder drains, so this reply is that machine's answer. The
@@ -2868,16 +3053,51 @@ class RemoteExplorerWidget(QWidget):
         return ("&nbsp;&nbsp;<a href=\"sync5-update\" style=\"color: "
                 f"#7fe3a8;\">{text}</a>")
 
+    def _zxnr_update_link_html(self):
+        """The ZX Next Remote twin of _sync5_update_link_html, with the
+        session-tab menu's enabled-entry gate: the DRIVEN listener is a
+        ZXNR build ("httpbridge"/"n2n") that reported 1.0.3+ (the 'U'
+        release-op floor) and the newest installed itch.io build parses
+        NEWER. The label re-renders on every free-space report, so this
+        reads the CACHED resolver answer (refreshed on ident arrival and
+        whenever a session-tab menu opens — see _zxnr_resolve)."""
+        if self._zxnr_update_source is None or self._peer_active is None:
+            return ""
+        if self._next_ident[0] not in ZXNR_IDENT_TYPES:
+            return ""
+        remote_ver = _parse_dot_version(self._next_ident[1])
+        if remote_ver is None or remote_ver < ZXNR_SELF_UPDATE_FLOOR:
+            return ""
+        path, new_ver, _reason = self._zxnr_resolve(self._next_ident[0])
+        new_parsed = _parse_dot_version(new_ver) if path else None
+        if new_parsed is None or new_parsed <= remote_ver:
+            return ""
+        text = html.escape(ui_tr_now("Update to {new}").format(new=new_ver))
+        return ("&nbsp;&nbsp;<a href=\"zxnr-update\" style=\"color: "
+                f"#7fe3a8;\">{text}</a>")
+
+    def _ident_update_link_html(self):
+        """Whichever top-bar update link the DRIVEN ident earns: a "sync"
+        ident can only earn the dot's, a ZXNR ident only its own, so at
+        most one of the two is ever non-empty."""
+        return (self._sync5_update_link_html()
+                or self._zxnr_update_link_html())
+
     def _on_sync5_update_link(self, href):
-        """The top bar's update link: the one-click update for the DRIVEN
-        session. Re-checks the gate — the label could be a stale render
-        clicked mid-refresh — then rides the same resolve/confirm/enqueue
-        path as the session-tab menu entry."""
-        if href != "sync5-update":
-            return
-        if self._sync5_update_link_html() == "":
-            return                       # ident or baton moved under the click
-        self._update_dot_on_session(self._peer_active, self._next_ident[1])
+        """The top bar's update links: the one-click update for the DRIVEN
+        session, in either flavor. Re-checks the clicked link's gate — the
+        label could be a stale render clicked mid-refresh — then rides the
+        same confirm/enqueue path as the session-tab menu entry."""
+        if href == "sync5-update":
+            if self._sync5_update_link_html() == "":
+                return                   # ident or baton moved under the click
+            self._update_dot_on_session(
+                self._peer_active, self._next_ident[1])
+        elif href == "zxnr-update":
+            if self._zxnr_update_link_html() == "":
+                return                   # ident or baton moved under the click
+            self._update_zxnr_on_session(
+                self._peer_active, self._next_ident[0], self._next_ident[1])
 
     def _update_next_path_label(self):
         """Top label = the cached free space of the cwd's drive (if known);
@@ -2893,7 +3113,7 @@ class RemoteExplorerWidget(QWidget):
                 _ident = ("&nbsp;&nbsp;<span style=\"color: #9cd2ff;\">"
                           f"{html.escape(self._next_ident[0])} "
                           f"{html.escape(self._next_ident[1])}</span>"
-                          + self._sync5_update_link_html())
+                          + self._ident_update_link_html())
             self.next_path_label.setText(
                 f"Next: <b><span style=\"color: {self._free_color(free)};\">"
                 f"{html.escape(self._fmt_free(free))} free</span></b>"
@@ -2911,7 +3131,7 @@ class RemoteExplorerWidget(QWidget):
                     "Next: connected&nbsp;&nbsp;<span style=\"color: "
                     f"#9cd2ff;\">{html.escape(self._next_ident[0])} "
                     f"{html.escape(self._next_ident[1])}</span>"
-                    + self._sync5_update_link_html())
+                    + self._ident_update_link_html())
             else:
                 self.next_path_label.setText("Next: connected")
             self.next_path_label.setToolTip("")

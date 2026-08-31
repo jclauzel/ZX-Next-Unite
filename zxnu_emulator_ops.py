@@ -2338,6 +2338,59 @@ def build_emulator_ops(
     # resolved file to the session's ("update_dot", …) command.
     host._resolve_sync5_update_binary = _resolve_sync5_update_binary
 
+    # ── Remote ZX Next Remote self-update: binary sourcing ─────────────
+    # The generalized "update_dot" macro can also swap a running ZX Next
+    # Remote .nex over a live -listen session. Unlike the dot there is no
+    # bundled/release-asset copy to fall back to: the ONLY source is the
+    # newest itch.io install already extracted under downloads/itchio/
+    # (the Settings-tab ZX Next Remote update check and the itch.io tab
+    # both land builds there).
+
+    def _resolve_zxnr_update_binary(flavor):
+        """Locate the newest installed ZX Next Remote ``.nex`` for *flavor*.
+
+        ``flavor`` is the listener's ident type ('Y' reply — "httpbridge"
+        or "n2n"), spelled exactly like the artifact names since ZXNR
+        1.0.2, so the file to send is ``zxnextremote-<flavor>.nex`` inside
+        the newest extracted itch.io folder
+        (find_installed_zxnextremote_version); the version is that
+        folder's name suffix after "zxnextremote-" (e.g.
+        ``…/files/zxnextremote-1.0.3`` → "1.0.3").
+
+        Returns ``(path, version, "")`` on success or ``(None, None,
+        reason)``. LOCAL FILESYSTEM ONLY — no network — so unlike
+        _resolve_sync5_update_binary above it is safe on the UI thread
+        (the Remote Explorer calls it while building the session-tab menu
+        and, cached, the top-bar label). The reason strings stay English
+        on purpose, like the dot resolver's (self-update advisories are
+        documented untranslated)."""
+        folder_name, folder_path = \
+            find_installed_zxnextremote_version(ZXNU_DATA_ROOT)
+        if not folder_name or not folder_path:
+            return None, None, (
+                "no itch.io ZX Next Remote install was found on this PC — "
+                "fetch one first via the Settings tab's ZX Next Remote "
+                "update check or the itch.io tab")
+        prefix = "zxnextremote-"
+        version = (folder_name[len(prefix):].strip()
+                   if folder_name.lower().startswith(prefix) else "")
+        if not version:
+            return None, None, (
+                f"the newest install folder ({folder_name}) does not carry "
+                "a zxnextremote-<version> name, so its version is unknown")
+        nex = os.path.join(folder_path, f"zxnextremote-{flavor}.nex")
+        if not os.path.isfile(nex):
+            return None, None, (
+                f"the newest install ({folder_name}) has no "
+                f"zxnextremote-{flavor}.nex — re-fetch it via the Settings "
+                "tab's ZX Next Remote update check or the itch.io tab")
+        return nex, version, ""
+
+    # Consumed by the Remote Explorer's ZX Next Remote update action, which
+    # hands the resolved file to the session's ("update_dot", …, base,
+    # "ZXNextRemote", True) command.
+    host._resolve_zxnr_update_binary = _resolve_zxnr_update_binary
+
     # ── CSpect update check (itch.io) ──────────────────────────────────
     # Mirrors the MAME startup update check above, but sources the build
     # from the user's *owned* itch.io CSpect item instead of GitHub. The
@@ -2653,6 +2706,19 @@ def build_emulator_ops(
             add_main_log_window(ui_tr_now(
                 "ZXNextRemote update \u25b8 SUCCESS \u2014 {name} extracted "
                 "to: {path}").format(name=name, path=extracted))
+            # The Remote Explorer caches its "is a newer ZXNR build
+            # installed?" disk probe, and with a SINGLE connected session
+            # there is no menu-open gesture to refresh it (the tab strip
+            # needs two sessions) \u2014 without this poke, the top-bar
+            # "Update to x.y.z" link would not appear until the Next
+            # reconnected, despite the build having just landed.
+            _rew = getattr(host, "_re_widget", None)
+            if _rew is not None:
+                try:
+                    _rew._zxnr_resolve_cache.clear()
+                    _rew._update_next_path_label()
+                except (RuntimeError, AttributeError):
+                    pass
             try:
                 host._show_toast(
                     "\u2705  ZX Next Remote downloaded",
