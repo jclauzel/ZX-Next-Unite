@@ -245,6 +245,106 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
                 push(b'D', 1)
                 push(b'O', 2)
 
+def mock_update_next(sock, ops, staged, scenario, verify_bytes):
+    """Play the dot's half of an ("update_dot", ...) macro session. Records
+    every command the wire carries into ``ops`` as (op, arg) — 'I' idle
+    answers excluded, they are the worker saying "nothing queued" — and each
+    staging put into ``staged`` as (path, bytes). ``verify_bytes`` is what
+    the 'G' read-back verify serves (the corrupt scenario hands back
+    something other than what was staged); ``scenario`` == "no_release"
+    refuses the 'U' handle-release with 'F' (a pre-5.9 dot),
+    "ren1_refuse" answers the first rename's 'V' with 'F', "ren1_osp"
+    answers it with the marked 'F'+"OSP" (ZXNR's OS protection), and the
+    two "kill_after_*" scenarios drop the link right after acking the 'U' /
+    the first 'V' (a session dying mid-macro)."""
+    sock.sendall(b"Listen")
+    assert rx_payload(sock) == b"Listening"
+    def push(payload, pkt):
+        settle(); sock.sendall(frame(payload, pkt))
+        assert rx_payload(sock)[0:1] == b'O'
+    while True:
+        settle(); sock.sendall(b"Poll")
+        cmd = rx_payload(sock)
+        op, arg = cmd[0:1], cmd[1:].decode()
+        if op == b'I':
+            continue
+        ops.append((op.decode(), arg))
+        if op == b'Q':
+            # Same goodbye dance as mock_next: answer with the <= 5.7.4
+            # raw "Bye", swallow the "Later", close our end.
+            settle(); sock.sendall(b"Bye")
+            sock.settimeout(5.0)
+            try:
+                rx_payload(sock)
+            except (socket.timeout, OSError):
+                pass
+            try:
+                sock.close()
+            except OSError:
+                pass
+            break
+        if op == b'P':
+            buf = b''
+            while True:
+                settle(); sock.sendall(b"Get")
+                d = rx_payload(sock)
+                if not d: break
+                buf += d
+            staged.append((arg, buf))
+        elif op == b'G':
+            # The read-back verify pull: 'D' data blocks then the 'B' end.
+            pkt = 0
+            for i in range(0, len(verify_bytes), 500):
+                push(b'D' + verify_bytes[i:i + 500], pkt); pkt += 1
+            push(b'B', pkt)
+        elif op == b'X':
+            # sync5.bak missing on a first-ever update answers 'F' — the
+            # macro must shrug and carry on; the cleanup rm of the staged
+            # sync5.new succeeds.
+            push(b'F' if arg.endswith(".bak") else b'O', 0)
+        elif op == b'U':
+            push(b'F' if scenario == "no_release" else b'O', 0)
+            if scenario == "kill_after_u":
+                # Session dies right after the release is acked: the
+                # worker's finally block owes the exactly-once verdict.
+                sock.close()
+                break
+        elif op == b'V':
+            ren1 = "\x00" in arg and arg.split("\x00", 1)[1].endswith(".bak")
+            if ren1 and scenario == "ren1_osp":
+                push(b'FOSP', 0)        # refused by the OS protection (marked)
+            else:
+                push(b'F' if (scenario == "ren1_refuse" and ren1) else b'O', 0)
+            if scenario == "kill_after_ren1" and ren1:
+                sock.close()
+                break
+        else:
+            push(b'F', 0)                # unexpected op: refuse loudly
+
+def run_update_scenario(port, cmds, scenario, verify_bytes):
+    """Fresh worker + mock Next for one update_dot scenario. Returns
+    (ops, staged, upd, puts): the wire ops seen, the staged put(s), every
+    dot_update emission and every (stray) put_done emission."""
+    sig = RemoteExplorerSignals()
+    upd, puts = [], []
+    sig.dot_update.connect(lambda okf, msg: upd.append((okf, msg)), Qt.DirectConnection)
+    sig.put_done.connect(lambda okf, r: puts.append((okf, r)), Qt.DirectConnection)
+    q = queue.Queue()
+    for c in cmds:
+        q.put(c)
+    stop = threading.Event()
+    t = threading.Thread(target=run_remote_listen_server,
+                         args=(sig, q, stop, port), daemon=True)
+    t.start()
+    time.sleep(0.3)                       # let it bind/accept
+    ops, staged = [], []
+    s = socket.create_connection(("127.0.0.1", port), timeout=5)
+    try:
+        mock_update_next(s, ops, staged, scenario, verify_bytes)
+    finally:
+        stop.set(); t.join(timeout=5); s.close()
+    return ops, staged, upd, puts
+
 def main():
     app = QCoreApplication(sys.argv)
     tmp = tempfile.mkdtemp(prefix="re_test_")
@@ -529,6 +629,198 @@ def main():
     else:
         print("FAIL hangup: alive=", t3.is_alive(), "disc=", disc3,
               "logs=", logs3)
+        ok = False
+
+    # ── remote .sync5 self-update macro ("update_dot") ─────────────────
+    # The blob embeds the version banner the macro insists on, and is big
+    # enough (~1.4 KB) that the staging put and the verify pull both span
+    # several 512-byte frames.
+    upd_blob = b"\x00\x01" * 50 + b"NextSync 5.9.0" + bytes(range(256)) * 5
+    upd_file = os.path.join(tmp, "sync5.bin")
+    open(upd_file, "wb").write(upd_blob)
+
+    # Happy path: stage put -> read-back verify -> 'U' release -> rm
+    # sync5.bak ('F' = missing, must NOT abort) -> the two renames -> the
+    # macro's own TARGETED quit — in that exact order, every path fully
+    # qualified under the given remote dir. The 'U' comes BEFORE the .bak
+    # delete on purpose: a pre-5.9 dot refuses it, and failing there must
+    # leave nothing of the user's deleted. dot_update fires once with
+    # ok=True; the staging put must never leak a put_done.
+    ops, staged, upd, puts = run_update_scenario(
+        PORT + 3, [("update_dot", upd_file, "c:/dot", "5.9.0")],
+        "ok", upd_blob)
+    want_ops = [('P', "c:/dot/sync5.new"),
+                ('G', "c:/dot/sync5.new"),
+                ('U', ""),
+                ('X', "c:/dot/sync5.bak"),
+                ('V', "c:/dot/sync5\x00c:/dot/sync5.bak"),
+                ('V', "c:/dot/sync5.new\x00c:/dot/sync5"),
+                ('Q', "")]
+    if (ops == want_ops and staged == [("c:/dot/sync5.new", upd_blob)]
+            and len(upd) == 1 and upd[0][0] and not puts):
+        print("PASS updot: staged+verified+swapped in order, dot_update(True) once")
+    else:
+        print("FAIL updot: ops=", ops, "staged=",
+              [(p, len(b)) for p, b in staged], "upd=", upd, "puts=", puts)
+        ok = False
+
+    # Verify mismatch: the staged copy reads back corrupted. The macro must
+    # clean up the stage (rm sync5.new), never send the 'U' release — the
+    # dot's file handle stays untouched — and report dot_update(ok=False).
+    # The trailing 'Q' is the follow-up ("quit",), not the macro's.
+    ops, staged, upd, puts = run_update_scenario(
+        PORT + 4, [("update_dot", upd_file, "c:/dot", "5.9.0"), ("quit",)],
+        "ok", upd_blob[:-1] + bytes([upd_blob[-1] ^ 0xFF]))
+    if (ops == [('P', "c:/dot/sync5.new"), ('G', "c:/dot/sync5.new"),
+                ('X', "c:/dot/sync5.new"), ('Q', "")]
+            and not any(o == 'U' for o, _a in ops)
+            and len(upd) == 1 and not upd[0][0] and not puts):
+        print("PASS updot-corrupt: cleanup rm, no 'U', dot_update(False)")
+    else:
+        print("FAIL updot-corrupt: ops=", ops, "upd=", upd, "puts=", puts)
+        ok = False
+
+    # Release refused: a pre-5.9 dot answers the 'U' with 'F'. Because the
+    # 'U' now runs BEFORE the rm of sync5.bak, failing here must have
+    # deleted NOTHING of the user's — no 'X' of sync5.bak may ever have
+    # gone out. The macro still cleans up its own stage (rm sync5.new),
+    # never attempts a rename, and the session SURVIVES (release failure
+    # means not released): the trailing 'Q' is the follow-up ("quit",),
+    # served after the macro reported dot_update(ok=False).
+    ops, staged, upd, puts = run_update_scenario(
+        PORT + 5, [("update_dot", upd_file, "c:/dot", "5.9.0"), ("quit",)],
+        "no_release", upd_blob)
+    if (ops == [('P', "c:/dot/sync5.new"), ('G', "c:/dot/sync5.new"),
+                ('U', ""), ('X', "c:/dot/sync5.new"), ('Q', "")]
+            and ('X', "c:/dot/sync5.bak") not in ops
+            and not any(o == 'V' for o, _a in ops)
+            and len(upd) == 1 and not upd[0][0] and not puts):
+        print("PASS updot-norel: 'U' refused -> cleanup only, no .bak rm, "
+              "no 'V', session survives, dot_update(False)")
+    else:
+        print("FAIL updot-norel: ops=", ops, "upd=", upd, "puts=", puts)
+        ok = False
+
+    # Post-'U' discipline: the release succeeded but the FIRST rename was
+    # refused ('V' answered 'F'). Nothing moved — sync5 is untouched — but
+    # the dot's file handle is gone, so the macro must report ONE
+    # dot_update(ok=False) (the "nothing swapped" wording, no mid-swap
+    # scare) and end the session itself with a targeted 'Q': the queued
+    # follow-up rm must never be served.
+    ops, staged, upd, puts = run_update_scenario(
+        PORT + 7, [("update_dot", upd_file, "c:/dot", "5.9.0"),
+                   ("rm", "/never.txt")],
+        "ren1_refuse", upd_blob)
+    if (ops == [('P', "c:/dot/sync5.new"), ('G', "c:/dot/sync5.new"),
+                ('U', ""), ('X', "c:/dot/sync5.bak"),
+                ('V', "c:/dot/sync5\x00c:/dot/sync5.bak"), ('Q', "")]
+            and ('X', "/never.txt") not in ops
+            and len(upd) == 1 and not upd[0][0]
+            and "could not rename" in upd[0][1]
+            and "may be missing" not in upd[0][1] and not puts):
+        print("PASS updot-ren1F: refused ren1 -> dot_update(False) once, "
+              "targeted 'Q', no further ops served")
+    else:
+        print("FAIL updot-ren1F: ops=", ops, "upd=", upd, "puts=", puts)
+        ok = False
+
+    # Session killed mid-macro BEFORE any rename: the mock acks the 'U'
+    # then drops the link. The loop never reaches a terminal arm, so the
+    # finally block must emit the exactly-once dot_update(False) — with
+    # the "nothing swapped" wording, since no 'V' ever went out.
+    ops, staged, upd, puts = run_update_scenario(
+        PORT + 8, [("update_dot", upd_file, "c:/dot", "5.9.0")],
+        "kill_after_u", upd_blob)
+    if (ops == [('P', "c:/dot/sync5.new"), ('G', "c:/dot/sync5.new"),
+                ('U', "")]
+            and len(upd) == 1 and not upd[0][0]
+            and "may be missing" not in upd[0][1] and not puts):
+        print("PASS updot-killU: mid-macro death -> one dot_update(False), "
+              "no mid-swap scare")
+    else:
+        print("FAIL updot-killU: ops=", ops, "upd=", upd, "puts=", puts)
+        ok = False
+
+    # Session killed mid-SWAP: the mock acks the first rename then drops
+    # the link. The finally block owes the one dot_update(False) and it
+    # must carry the mid-swap recovery wording (a 'V' HAD been sent, so
+    # the card's state is unknown and .bak is the way back).
+    ops, staged, upd, puts = run_update_scenario(
+        PORT + 9, [("update_dot", upd_file, "c:/dot", "5.9.0")],
+        "kill_after_ren1", upd_blob)
+    if (ops == [('P', "c:/dot/sync5.new"), ('G', "c:/dot/sync5.new"),
+                ('U', ""), ('X', "c:/dot/sync5.bak"),
+                ('V', "c:/dot/sync5\x00c:/dot/sync5.bak")]
+            and len(upd) == 1 and not upd[0][0]
+            and "may be missing" in upd[0][1] and not puts):
+        print("PASS updot-killV: mid-swap death -> one dot_update(False) "
+              "with the recovery wording")
+    else:
+        print("FAIL updot-killV: ops=", ops, "upd=", upd, "puts=", puts)
+        ok = False
+
+    # Banner refusal: a local file without the expected "NextSync <ver>"
+    # banner is the wrong (or stale) build — refuse before a single byte
+    # moves. The only wire op is the follow-up quit's 'Q'.
+    nb_file = os.path.join(tmp, "not-sync5.bin")
+    open(nb_file, "wb").write(b"something else entirely")
+    ops, staged, upd, puts = run_update_scenario(
+        PORT + 6, [("update_dot", nb_file, "c:/dot", "5.9.0"), ("quit",)],
+        "ok", upd_blob)
+    if (ops == [('Q', "")] and not staged
+            and len(upd) == 1 and not upd[0][0] and not puts):
+        print("PASS updot-banner: refused locally, nothing sent for the job")
+    else:
+        print("FAIL updot-banner: ops=", ops, "staged=",
+              [(p, len(b)) for p, b in staged], "upd=", upd, "puts=", puts)
+        ok = False
+
+    # ZXNR flavor: the generalized macro updates a ZX Next Remote .nex.
+    # cmd = ("update_dot", local, dir, ver, base_file, brand, marked_exit):
+    # every step path derives from the BASE file name, the brand + version
+    # are verified as SEPARATE substrings (ZXNR's title and version
+    # literals sit apart in the binary), the 'U' release is answered 'O',
+    # and the macro's final quit is the MARKED one ('Q'+'X') — the .nex
+    # saves its settings and soft-resets the Next into NextZXOS, where the
+    # swapped build relaunches.
+    zx_blob = (b"Next\x00" + bytes(range(256)) * 5
+               + b"ZXNextRemote\x00" + b"9.9.9\x00tail")
+    zx_file = os.path.join(tmp, "zxnextremote-n2n.nex")
+    open(zx_file, "wb").write(zx_blob)
+    ops, staged, upd, puts = run_update_scenario(
+        PORT + 10, [("update_dot", zx_file, "c:/apps", "9.9.9",
+                     "zxnextremote-n2n.nex", "ZXNextRemote", True)],
+        "ok", zx_blob)
+    zb = "c:/apps/zxnextremote-n2n.nex"
+    if (ops == [('P', zb + ".new"), ('G', zb + ".new"), ('U', ""),
+                ('X', zb + ".bak"), ('V', zb + "\x00" + zb + ".bak"),
+                ('V', zb + ".new\x00" + zb), ('Q', "X")]
+            and staged == [(zb + ".new", zx_blob)]
+            and len(upd) == 1 and upd[0][0]
+            and "soft-reset" in upd[0][1] and not puts):
+        print("PASS updot-zxnr: .nex-base paths, 'U' ok, marked quit "
+              "('Q'+'X'), dot_update(True) once")
+    else:
+        print("FAIL updot-zxnr: ops=", ops, "upd=", upd, "puts=", puts)
+        ok = False
+
+    # ...and a first rename the far side's OS PROTECTION refuses (the
+    # marked 'F'+"OSP" — ZXNR protects apps/, dot/, sys/ by default):
+    # nothing moved, but the verdict must NAME the protection, or the user
+    # hunts a phantom SD error. Post-'U' discipline still ends the session
+    # with a targeted quit — PLAIN 'Q', failure quits are never marked.
+    ops, staged, upd, puts = run_update_scenario(
+        PORT + 11, [("update_dot", zx_file, "c:/apps", "9.9.9",
+                     "zxnextremote-n2n.nex", "ZXNextRemote", True)],
+        "ren1_osp", zx_blob)
+    if (ops[-2:] == [('V', zb + "\x00" + zb + ".bak"), ('Q', "")]
+            and len(upd) == 1 and not upd[0][0]
+            and "OS protection" in upd[0][1]
+            and "may be missing" not in upd[0][1] and not puts):
+        print("PASS updot-osp: ren1 'F'+OSP -> dot_update(False) names the "
+              "OS protection, plain targeted 'Q'")
+    else:
+        print("FAIL updot-osp: ops=", ops, "upd=", upd, "puts=", puts)
         ok = False
 
     shutil.rmtree(tmp, ignore_errors=True)

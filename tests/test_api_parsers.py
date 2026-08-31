@@ -446,6 +446,48 @@ check("zxnu picker: junk input -> None",
       select_zxnu_release_asset(None, "win32", "AMD64") is None
       and select_zxnu_release_asset({}, "win32", "AMD64") is None)
 
+# The release also carries the NextSync dotN as a bare 'sync5' asset (byte-
+# copied by release.yml; the remote .sync5 self-update downloads it by exact
+# name). The app-update picker must NEVER select it on any platform —
+# extensionless, it matches none of the platform matchers. That is a naming
+# CONTRACT, not luck: the asset must stay extensionless, because a rename
+# like "sync5-linux.tar.gz" WOULD satisfy the linux matcher (.tar.gz +
+# "linux" in the name) and get offered as an app update.
+_zxnu_platforms = (("win32", "AMD64"), ("linux", "x86_64"), ("darwin", "arm64"))
+for _plat, _mach in _zxnu_platforms:
+    _picked = select_zxnu_release_asset(_zxnu_release, _plat, _mach)
+    check(f"zxnu picker: sync5 asset never picked on {_plat}",
+          _picked is not None and _picked[0] != "sync5", str(_picked))
+check("zxnu picker: a sync5-only release matches no platform",
+      all(select_zxnu_release_asset(
+              {"assets": [{"name": "sync5",
+                           "browser_download_url": "https://x/sync5"}]},
+              _plat, _mach) is None
+          for _plat, _mach in _zxnu_platforms))
+# Document the rename trap (the behavior a rename would actually buy).
+check("zxnu picker: 'sync5-linux.tar.gz' WOULD match the linux matcher",
+      select_zxnu_release_asset(
+          {"assets": [{"name": "sync5-linux.tar.gz",
+                       "browser_download_url": "https://x/trap"}]},
+          "linux", "x86_64") is not None)
+
+# ---- sync5 banner check (zxnu_config) ---------------------------------------
+# Shared by the "update_dot" macro (zxnu_workers), the update-binary resolver
+# (zxnu_emulator_ops) and the release workflow's stale-dot gate.
+from zxnu_config import sync5_blob_has_banner  # noqa: E402
+
+check("sync5 banner: present in the blob",
+      sync5_blob_has_banner(
+          b"\x00junk NextSync 9.9.9 Clauzel/Komppa\xff", "9.9.9"))
+check("sync5 banner: absent -> False",
+      not sync5_blob_has_banner(b"\x00no banner here\xff", "9.9.9"))
+check("sync5 banner: a different version does not match",
+      not sync5_blob_has_banner(b"NextSync 9.9.8 Clauzel/Komppa", "9.9.9"))
+check("sync5 banner: the bare version without the prefix is not enough",
+      not sync5_blob_has_banner(b"v9.9.9 something", "9.9.9"))
+check("sync5 banner: empty blob -> False",
+      not sync5_blob_has_banner(b"", "9.9.9"))
+
 # tar.gz package: one version-stamped binary inside, exec bit restored.
 _pkg_dir = tempfile.mkdtemp(prefix="zxnu-pkg-")
 _bin_src = os.path.join(_pkg_dir, "zx-next-unite-v9.2.0")
@@ -593,6 +635,23 @@ check("the publisher lookup uses the v5 search path too",
 for _live in ("/entries/", "/entries/byauthor/", "/entries/bypublisher/",
               "/entries/morelikethis/", "/entries/byletter/", "/entries/random/"):
     check(f"v5 path {_live!r} is used", _live in _pane_src)
+
+# ---- stale-dot fast-fail ----------------------------------------------------
+# The checked-in dotN binary (the release's 'sync5' asset, and the blob the
+# remote .sync5 self-update stages) must embed the banner for the version the
+# app claims. release.yml gates on the same bytes, but only at tag time —
+# this check front-runs it, so a ZX_NEXT_UNITE_DOTN_VERSION bump without a
+# rebuilt binary fails ordinary CI instead of the release.
+from zxnu_config import ZX_NEXT_UNITE_DOTN_VERSION, sync5_blob_has_banner  # noqa: E402
+
+_syncdev = os.path.join(REPO, "nextsync", "sync", "server", "dot", "syncdev")
+check("dotN binary: nextsync/sync/server/dot/syncdev is checked in",
+      os.path.isfile(_syncdev), _syncdev)
+_dot_blob = open(_syncdev, "rb").read() if os.path.isfile(_syncdev) else b""
+check(f"dotN binary: carries the 'NextSync {ZX_NEXT_UNITE_DOTN_VERSION}' "
+      "banner (rebuild the dot after a version bump)",
+      sync5_blob_has_banner(_dot_blob, ZX_NEXT_UNITE_DOTN_VERSION),
+      f"{len(_dot_blob)} bytes read")
 
 print()
 if FAIL:

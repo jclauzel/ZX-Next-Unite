@@ -163,6 +163,23 @@ jobs:
           pattern: package-*
           path: package
           merge-multiple: true
+      - name: Verify the checked-in sync5 dotN carries the current banner
+        # The step below byte-copies nextsync/sync/server/dot/syncdev as the
+        # 'sync5' asset — nothing here ever rebuilds it. So a bump of
+        # ZX_NEXT_UNITE_DOTN_VERSION without a rebuilt dot would ship a stale
+        # binary that the in-app remote .sync5 self-update then refuses (it
+        # checks this same 'NextSync <version>' banner before sending a
+        # byte). Gate on the banner like the tag==version gates in the test
+        # job. python3 = the runner image's interpreter (no setup-python in
+        # this job).
+        shell: bash
+        run: |
+          dotver=$(python3 -c "import re; print(re.search(r'ZX_NEXT_UNITE_DOTN_VERSION = \"([^\"]+)\"', open('zxnu_config.py', encoding='utf-8').read()).group(1))")
+          if ! python3 -c "import sys; sys.exit(0 if b'NextSync ' + sys.argv[1].encode() in open('nextsync/sync/server/dot/syncdev', 'rb').read() else 1)" "$dotver"; then
+            echo "::error::nextsync/sync/server/dot/syncdev does not carry the 'NextSync ${dotver}' banner (ZX_NEXT_UNITE_DOTN_VERSION) — the release byte-copies this file as the sync5 asset, so rebuild the dotN (build_dotn.ps1) before tagging."
+            exit 1
+          fi
+          echo "sync5 banner OK: NextSync ${dotver}"
       - name: Attach the NextSync dotN as the sync5 asset
         run: cp nextsync/sync/server/dot/syncdev package/sync5
       - name: Create or update the draft release

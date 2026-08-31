@@ -3,7 +3,9 @@
 Drives nextsync5.listen_session() (the server) over a socketpair with a mock
 Next on the other end that implements the dot's half of the protocol, exactly
 as nextsync/sync/z88dk/nextsync.c does. Validates ls / get / put / mkdir /
-rmdir / rm framing without any hardware.
+rmdir / rm framing without any hardware, plus the 'update' console verb's
+stage/verify/swap macro (its own mock + sessions, since its happy path ends
+the session with 'Q').
 """
 import os, sys, socket, threading, tempfile, shutil, time, io, contextlib
 
@@ -151,6 +153,9 @@ def mock_next(sock, fake_entries, fake_file, captured):
             else:
                 captured['ren'] = arg
                 push(b'O', 0)
+        elif op == b'U':                            # release (dot v5.9+): the dot
+            captured['release'] = True              # closes its OWN file handle;
+            push(b'O', 0)                           # one status block back
         elif op in (b'M', b'R', b'X'):              # mkdir/rmdir/rm: status
             # "/sys" is OS-protected (marked refusal); "/locked" is an
             # ordinary failure, so both status paths are exercised.
@@ -198,6 +203,289 @@ def mock_next(sock, fake_entries, fake_file, captured):
                 push(b'F', 0)
             else:
                 push(b'O' + (4096).to_bytes(4, "little"), 0)   # 4096 blocks = 2 MB
+
+
+# --- mock Next for the 'update' macro ----------------------------------------
+# The update verb's happy path ends the session itself (updc_done sends 'Q'),
+# so it gets its own scripted mock rather than flags bolted onto mock_next.
+# This one records the wire ORDER in captured['wire'] (the macro's whole
+# point), remembers what each 'P' staged so a later 'G' of the same path can
+# echo the exact bytes back (or deliberately corrupted ones), answers the 'X'
+# of sync5.bak with 'F' (the macro must tolerate a missing .bak), and answers
+# 'U'/'V' per scenario (refuse_ren1 refuses the FIRST rename's 'V').
+def mock_update_next(sock, captured, corrupt_verify=False, refuse_release=False,
+                     refuse_ren1=False):
+    assert recv_payload(sock) == b"Listening"
+    staged = {}                                     # remote path -> bytes from 'P'
+
+    def push(payload, pkt):
+        _settle()
+        sock.sendall(frame(payload, pkt))
+        assert recv_payload(sock)[0:1] == b'O'      # server acks "Ok"
+
+    while True:
+        _settle()
+        sock.sendall(b"Poll")
+        cmd = recv_payload(sock)
+        _dbg(f"[MOCK-upd recv-cmd] {cmd[:24]!r}")
+        op, arg = cmd[0:1], cmd[1:].decode()
+        if op != b'I':                              # idle poll answers are not commands
+            captured.setdefault('wire', []).append((op.decode(), arg))
+        if op == b'Q':
+            _settle()
+            sock.sendall(b"Bye")                    # <= 5.7.4 goodbye, answered "Later"
+            sock.settimeout(5.0)
+            try:
+                recv_payload(sock)
+            except (socket.timeout, OSError):
+                pass
+            try:
+                sock.close()
+            except OSError:
+                pass
+            break
+        if op == b'I':
+            continue
+        if op == b'P':                              # staging put: pull the bytes
+            buf = b''
+            while True:
+                _settle()
+                sock.sendall(b"Get")
+                data = recv_payload(sock)
+                if len(data) == 0:
+                    break
+                buf += data
+            staged[arg] = buf
+            captured.setdefault('puts', []).append((arg, buf))
+        elif op == b'G':                            # verify read-back: echo what was
+            body = staged.get(arg, b'')             # staged (or corrupt the first byte)
+            if corrupt_verify and body:
+                body = bytes([body[0] ^ 0xff]) + body[1:]
+            pkt = 0
+            push(b'N' + len(body).to_bytes(4, "big")
+                 + bytes([len(arg)]) + arg.encode(), pkt); pkt += 1
+            push(b'D' + body, pkt); pkt += 1
+            push(b'E', pkt); pkt += 1
+            push(b'B', pkt)
+        elif op == b'X':                            # rm: no .bak exists -> 'F'
+            push(b'F' if arg.endswith("sync5.bak") else b'O', 0)
+        elif op == b'U':                            # release
+            push(b'F' if refuse_release else b'O', 0)
+        elif op == b'V':                            # the swap renames
+            ren1 = "\x00" in arg and arg.split("\x00", 1)[1].endswith(".bak")
+            push(b'F' if (refuse_ren1 and ren1) else b'O', 0)
+        elif op == b'L':                            # post-failure liveness ls
+            push(b'E', 0)
+
+
+def run_update_tests(tmp):
+    """The 'update' console verb: wire order of the stage/verify/swap macro,
+    the failure cleanups, the ident/banner gates, and _dot_ver_older itself.
+    Each scenario drives a fresh listen_session over its own socketpair with
+    ns._listen_state['ident'] (the cached 'version' answer the verb gates on)
+    set directly. Prints PASS/FAIL lines; returns True when all pass."""
+    ok = True
+
+    def check(label, cond, detail=""):
+        nonlocal ok
+        if cond:
+            print(f"PASS {label}")
+        else:
+            print(f"FAIL {label}: {detail}")
+            ok = False
+
+    # A plausible dot build: binary-ish, > MAX_PAYLOAD so the staging put is
+    # multi-packet, with the "NextSync <version> " banner embedded verbatim.
+    dot590 = os.path.join(tmp, "sync5-590.dot")
+    upd_bytes = b"\x7fDOT" + bytes(range(256)) * 6 + b"NextSync 5.9.0 build\x00tail"
+    with open(dot590, "wb") as f:
+        f.write(upd_bytes)
+    bannerless = os.path.join(tmp, "notadot.bin")
+    with open(bannerless, "wb") as f:
+        f.write(b"just bytes, no version banner at all " * 4)
+
+    def run(cmds, ident, corrupt_verify=False, refuse_release=False,
+            refuse_ren1=False):
+        srv, nxt = socket.socketpair()
+        for s in (srv, nxt):
+            try:
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            except (OSError, AttributeError):
+                pass
+        nxt.settimeout(10.0)      # a wedged macro fails the run, never hangs it
+        stats = {'packets': 0, 'totalbytes': 0, 'payloadbytes': 0,
+                 'retries': 0, 'restarts': 0, 'gee': 0}
+        captured = {}
+        ns._listen_state['ident'] = ident           # the cached 'version' answer
+        t = threading.Thread(target=ns.listen_session, args=(srv, stats, cmds),
+                             daemon=True)
+        srv_log = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(srv_log):
+                t.start()
+                mock_update_next(nxt, captured,
+                                 corrupt_verify=corrupt_verify,
+                                 refuse_release=refuse_release,
+                                 refuse_ren1=refuse_ren1)
+                t.join(timeout=5)
+        finally:
+            ns._listen_state['ident'] = None        # module-global: never leak
+            srv.close(); nxt.close()
+        return captured, srv_log.getvalue(), not t.is_alive()
+
+    # 1. Happy path: a 5.8.0 dot listening, staging a 5.9.0 build. The whole
+    # macro in order — the 'U' release BEFORE the rm of sync5.bak, so a
+    # pre-5.9 dot fails with nothing of the user's deleted — fully-qualified
+    # default c:/dot paths, the 'F' answer to rm sync5.bak tolerated, and
+    # the session ended by the macro's own 'Q'.
+    cap, out, done = run([("update", dot590, "")], ("sync", "5.8.0"))
+    want = [('P', 'c:/dot/sync5.new'),
+            ('G', 'c:/dot/sync5.new'),
+            ('U', ''),
+            ('X', 'c:/dot/sync5.bak'),
+            ('V', 'c:/dot/sync5\x00c:/dot/sync5.bak'),
+            ('V', 'c:/dot/sync5.new\x00c:/dot/sync5'),
+            ('Q', '')]
+    check("updOrder: P/G/U/X/V/V/Q with c:/dot paths ('F' on rm .bak tolerated)",
+          cap.get('wire') == want, f"{cap.get('wire')}")
+    check("updBytes: staged sync5.new byte-identical to the local file",
+          cap.get('puts') == [('c:/dot/sync5.new', upd_bytes)],
+          f"{[(p, len(b)) for p, b in cap.get('puts', [])]}")
+    check("updDone : reported COMPLETE and the session ended on the macro's 'Q'",
+          "update COMPLETE" in out and done, out)
+
+    # 2. Verify mismatch: the read-back differs -> cleanup rm of sync5.new,
+    # 'U' never sent, "update failed" reported, and the session stays alive
+    # (the queued ls after it still answers).
+    cap, out, done = run([("update", dot590, ""), ("ls", "/", "")],
+                         ("sync", "5.8.0"), corrupt_verify=True)
+    wire = cap.get('wire', [])
+    wire_ops = [w[0] for w in wire]
+    check("updVerF : mismatch cleaned up sync5.new; no 'U'/'V'; reported failed",
+          ('X', 'c:/dot/sync5.new') in wire
+          and 'U' not in wire_ops and 'V' not in wire_ops
+          and "update failed" in out and "read back different" in out,
+          f"{wire} / {out}")
+    check("updAlive: session survives the failed update (ls still answers)",
+          ('L', '/') in wire and "Listing (0 entries)" in out and done, out)
+
+    # 3. Release refused: 'U' answered 'F'. The 'U' runs BEFORE the rm of
+    # sync5.bak, so a refusal must have deleted NOTHING of the user's — no
+    # 'X' of sync5.bak ever goes out. The macro still cleans up its own
+    # stage (rm sync5.new AFTER the 'U'), no 'V' ever goes out, and the
+    # session STAYS alive (release failure means not released): the queued
+    # ls after it still answers.
+    cap, out, done = run([("update", dot590, ""), ("ls", "/", "")],
+                         ("sync", "5.8.0"), refuse_release=True)
+    wire = cap.get('wire', [])
+    seen = ('U', '') in wire and ('X', 'c:/dot/sync5.new') in wire
+    check("updRelF : refused 'U' -> cleanup rm of sync5.new, no rm of .bak, "
+          "no 'V' ever sent",
+          seen and wire.index(('X', 'c:/dot/sync5.new')) > wire.index(('U', ''))
+          and ('X', 'c:/dot/sync5.bak') not in wire
+          and not any(o == 'V' for o, _ in wire)
+          and "update failed" in out and "did not release" in out,
+          f"{wire} / {out}")
+    check("updRelA : session survives the refused release (ls still answers)",
+          ('L', '/') in wire and "Listing (0 entries)" in out and done, out)
+
+    # 3b. First rename refused post-'U': the release succeeded but ren1
+    # ('V' sync5 -> sync5.bak) answered 'F'. Nothing moved — but the dot's
+    # handle is gone, so the console must print the failure AND the macro
+    # must end the session itself with its own 'Q': the queued ls after it
+    # is never served, and nothing follows the 'Q' on the wire.
+    cap, out, done = run([("update", dot590, ""), ("ls", "/", "")],
+                         ("sync", "5.8.0"), refuse_ren1=True)
+    wire = cap.get('wire', [])
+    check("updRen1F: refused ren1 -> failure printed, session ends on the "
+          "macro's 'Q', nothing after",
+          wire == [('P', 'c:/dot/sync5.new'),
+                   ('G', 'c:/dot/sync5.new'),
+                   ('U', ''),
+                   ('X', 'c:/dot/sync5.bak'),
+                   ('V', 'c:/dot/sync5\x00c:/dot/sync5.bak'),
+                   ('Q', '')]
+          and "update failed" in out and "could not rename" in out
+          and "Nothing was swapped" in out and ('L', '/') not in wire
+          and done,
+          f"{wire} / {out}")
+
+    # 4a-d. Gating refusals: each leaves NOTHING update-related on the wire
+    # (only the harness's closing quit) and names its reason on the console.
+    for label, ident, needle in (
+            ("None", None, "run 'version' first"),
+            ("False", False, "did not answer the version query"),
+            ("ZXNR", ("httpbridge", "1.0.2"), "needs ZXNR 1.0.3+"),
+            ("Same", ("sync", "5.9.0"), "add 'force' to push anyway")):
+        cap, out, done = run([("update", dot590, "")], ident)
+        check(f"updGate{label}: refused ({needle!r}), nothing on the wire",
+              cap.get('wire') == [('Q', '')] and needle in out and done,
+              f"{cap.get('wire')} / {out}")
+
+    # 4e. ...but update_force overrides the same-version gate: the wire sees
+    # the staging 'P' (and the macro then runs to completion).
+    cap, out, done = run([("update_force", dot590, "")], ("sync", "5.9.0"))
+    check("updForce: same version + force DOES stage (wire sees the 'P')",
+          cap.get('wire', [])[:1] == [('P', 'c:/dot/sync5.new')]
+          and "update COMPLETE" in out and done,
+          f"{cap.get('wire')} / {out}")
+
+    # 5. A local file with no "NextSync <version>" banner is not a dot build:
+    # refused before anything touches the wire.
+    cap, out, done = run([("update", bannerless, "")], ("sync", "5.8.0"))
+    check("updNoBan: bannerless local file refused, nothing on the wire",
+          cap.get('wire') == [('Q', '')] and "carries no 'NextSync" in out and done,
+          f"{cap.get('wire')} / {out}")
+
+    # 6. ZXNR flavor: a ZX Next Remote listener (1.0.3+) updates its own
+    # .nex over the same macro. Everything the sync5 flow hardcoded now
+    # derives from the file's BASE name; the staged build's version rides
+    # the CONTAINING folder's itch.io-extract name (zxnextremote-9.9.9,
+    # the .nex has no parseable banner); and the macro ends with the
+    # MARKED quit ('Q'+'X') - the .nex saves its settings and soft-resets
+    # the Next into NextZXOS, where the swapped build relaunches.
+    zdir = os.path.join(tmp, "zxnextremote-9.9.9")
+    os.makedirs(zdir, exist_ok=True)
+    nexfile = os.path.join(zdir, "zxnextremote-n2n.nex")
+    nex_bytes = (b"Next\x00" + bytes(range(256)) * 6
+                 + b"ZXNextRemote\x00" + b"9.9.9\x00tail")
+    with open(nexfile, "wb") as f:
+        f.write(nex_bytes)
+    cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.3"))
+    zbase = "c:/apps/zxnextremote-n2n.nex"
+    want = [('P', zbase + ".new"),
+            ('G', zbase + ".new"),
+            ('U', ''),
+            ('X', zbase + ".bak"),
+            ('V', zbase + "\x00" + zbase + ".bak"),
+            ('V', zbase + ".new\x00" + zbase),
+            ('Q', 'X')]
+    check("updZXNR : .nex-base paths, marked quit ('Q'+'X') ends the macro",
+          cap.get('wire') == want
+          and cap.get('puts') == [(zbase + ".new", nex_bytes)]
+          and "update COMPLETE" in out and "soft-reset" in out and done,
+          f"{cap.get('wire')} / {out}")
+
+    # 6b. ...while a pre-1.0.3 ZXNR is refused before a byte moves (an older
+    # build answers the 'U' release with silence): nothing on the wire.
+    cap, out, done = run([("update", nexfile, "c:/apps")],
+                         ("httpbridge", "1.0.2"))
+    check("updZXNRold: pre-1.0.3 ZXNR refused, nothing on the wire",
+          cap.get('wire') == [('Q', '')] and "needs ZXNR 1.0.3+" in out
+          and done,
+          f"{cap.get('wire')} / {out}")
+
+    # The version gate's comparator, directly: int-tuple compare (so 5.10.0 is
+    # NEWER than 5.9.0) and unparseable = NOT older (update then demands force).
+    vcases = [(("5.8.0", "5.9.0"), True), (("5.9.0", "5.9.0"), False),
+              (("5.10.0", "5.9.0"), False), (("5.9.90", "5.9.0"), False),
+              (("dev", "5.9.0"), False)]
+    bad = [(args, ns._dot_ver_older(*args))
+           for args, wanted in vcases if ns._dot_ver_older(*args) != wanted]
+    check("verOlder: int-tuple compare (5.10 > 5.9) + unparseable = not older",
+          not bad, f"{bad}")
+
+    return ok
 
 
 def main():
@@ -252,6 +540,9 @@ def main():
         ("rcpy", "/games/a.tap", "/sys/a.tap"),     # copy INTO it     -> OSP
         ("mkdir", "/sys/evil2", "", osp_reply),     # same, bridge flavour
         ("ls", "/", ""),                            # stream still in sync
+        # release rides LAST before quit, mirroring the update flow's contract:
+        # after 'U' the server sends only path-based ops, then ends the session.
+        ("release", "", ""),                        # 'U': dot frees its own file
         # LAST: the marked quit ends the session, so nothing may follow.
         ("quit_app", "", ""),                       # /forceexit: marked quit
     ]
@@ -294,6 +585,12 @@ def main():
         print("PASS ren   :", captured['ren'].replace("\x00", " -> "))
     else:
         print(f"FAIL ren   : {captured.get('ren')!r}"); ok = False
+    # release ('U', dot v5.9+): framed as a bare opcode, one 'O' status back,
+    # reported OK by name (the update flow's enabling step).
+    if captured.get('release') and "release: OK" in server_out:
+        print("PASS release: 'U' framed and acknowledged OK")
+    else:
+        print("FAIL release: not framed or not reported OK"); ok = False
     # a missing folder must be reported (the 'F' reply), not silently swallowed;
     # that it landed mid-stream and every later command still passed proves the
     # 'F' block was consumed without desyncing the session.
@@ -407,6 +704,11 @@ def main():
         print("PASS session: ls/mkdir/rmdir/rm/ren framed and completed cleanly")
     else:
         print("FAIL session: did not finish"); ok = False
+
+    # The 'update' console verb rides fresh sessions of its own (its happy
+    # path ends the session with 'Q', so it cannot share the run above).
+    upd_ok = run_update_tests(tmp)
+    ok = ok and upd_ok
 
     shutil.rmtree(tmp, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")

@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.8.0"
+#define SYNC_VERSION "5.9.0"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -751,6 +751,7 @@ void parse_speed_switches(char *dst)
 //        'R' <path>   rmdir
 //        'X' <path>   rm (unlink)
 //        'V' <old>\0<new>  ren : rename/move a file or directory
+//        'U'          release : close the dot's OWN file handle (v5.9+)
 //        'W'          getdrives : the Next pushes the mounted drive letters
 //        'Z' [drive]  free  : free space on a partition (psize/pfull, v5.2+)
 //        'C' <src>\0<dst>  rcpy : copy a file/dir LOCALLY on the Next (v5.2+)
@@ -767,8 +768,15 @@ void parse_speed_switches(char *dst)
 //         entry = [1B flags][4B size, little-endian][1B namelen][name],
 //         flags bit0 = directory.
 //   get : send_file / send_dir ('N'/'D'/'E' per file), then a final 'B'.
-//   mkdir/rmdir/rm/ren : one status block, 'O' (ok) or 'F' (fail). 'ren'
-//         carries two NUL-separated paths in one frame (old then new).
+//   mkdir/rmdir/rm/ren/release : one status block, 'O' (ok) or 'F' (fail).
+//         'ren' carries two NUL-separated paths in one frame (old then new).
+//   release ('U', v5.9+): the dot closes the OS's own read handle on its
+//         /dot/sync5 file (held open by the dotN loader for the whole run),
+//         so the server can then swap a staged sync5.new in with ren ops -
+//         the running code is all in RAM and never re-reads the file. After
+//         'U' the server must send ONLY path-based ops (V/X/Q): anything
+//         that OPENS a file or directory could be handed the freed handle
+//         number, which NextZXOS's exit tidy-up still closes.
 //   getdrives : one status block, 'O' + <current drive letter> + <drive
 //         letters> (e.g. "O" "C" "CM"). The list is {C, M, current}: C and M
 //         are guaranteed by NextZXOS, the current drive is mounted by
@@ -830,6 +838,7 @@ char *listen_cmd_name(unsigned char op)
         case 'R': return "rmdir";
         case 'X': return "rm";
         case 'V': return "ren";
+        case 'U': return "release";
         case 'W': return "drives";
         case 'Z': return "free";
         case 'C': return "rcpy";
@@ -1577,6 +1586,15 @@ connbreak:
                 else if (op == 'M') { unsigned char ok = sync_mkdir(fn)  != 0xFF; vprint(ok ? "mkdir ok" : "mkdir fail"); listen_status(ok, inbuf, scratch); }
                 else if (op == 'R') { unsigned char ok = sync_rmdir(fn)  != 0xFF; vprint(ok ? "rmdir ok" : "rmdir fail"); listen_status(ok, inbuf, scratch); }
                 else if (op == 'X') { unsigned char ok = sync_unlink(fn) != 0xFF; vprint(ok ? "rm ok" : "rm fail"); listen_status(ok, inbuf, scratch); }
+                // release: close the OS's own read handle on this dot's file
+                // so the server can swap /dot/sync5 while we run (hardware-
+                // measured: ren on it fails while it is open). CONTRACT:
+                // after 'U' the server sends only V/X/Q - see the protocol
+                // comment above. No result vprint (unlike its M/R/X/V
+                // siblings): its two strings alone busted the 150-byte
+                // main-bank stack floor; -v still traces "> release" at
+                // dispatch and the PC reports the status block's verdict.
+                else if (op == 'U') { listen_status(sync_release_self() != 0xFF, inbuf, scratch); }
                 else if (op == 'V')
                 {
                     // ren: the payload is old '\0' new. fn already holds both -

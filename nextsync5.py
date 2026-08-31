@@ -533,6 +533,25 @@ LISTEN_HELP = """\
     rmdir <path>               remove a directory on the Next
     rm <path>                  delete a file on the Next
     ren <oldpath> <newpath>    rename/move a file or directory on the Next
+    release                    the dot closes its own file handle so /dot/sync5
+                               can be replaced with ren (dot v5.9+; after this
+                               send only ren/rm/quit - see the update flow)
+    update <file> [dir] [force]
+                               remote self-update of whoever is listening:
+                               a .sync dot (v5.9+) stages <file> as
+                               <dir>/sync5.new (default c:/dot); a ZX Next
+                               Remote .nex (1.0.3+) stages it under its own
+                               file name, its version read from a
+                               zxnextremote-X.Y.Z folder name — and REQUIRES
+                               an explicit [dir] (where the running .nex
+                               lives; c:/dot is the dot's default only). Both pull the
+                               staged copy back and byte-compare, release,
+                               clear the .bak, swap with two renames, then
+                               quit - marked for ZXNR, so the Next soft-
+                               resets to NextZXOS (release first: an old
+                               build fails there with nothing deleted).
+                               Gated on the cached 'version' answer; 'force'
+                               overrides the older-than-staged check
     rcpy <src> <dst>           copy a file/dir locally ON the Next, incl.
                                across partitions (dot v5.2+); a <dst>
                                ending in / keeps the source name
@@ -547,6 +566,47 @@ LISTEN_HELP = """\
     quit                       tell the Next to leave -listen and disconnect
     forceexit                  ...and end the far application too (ZXNR 0.9.47+)
 """
+
+def _dot_ver_older(remote, staged):
+    """True when the listener's reported version is strictly OLDER than the
+    staged build's banner version (int-tuple compare, so 5.10.0 > 5.9.0).
+    Unparseable on either side counts as NOT older - the update verb then
+    demands an explicit 'force' rather than guessing an update is safe."""
+    def parse(s):
+        try:
+            return tuple(int(p) for p in s.strip().split("."))
+        except ValueError:
+            return None
+    r, s = parse(remote), parse(staged)
+    if r is None or s is None:
+        return False
+    return r < s
+
+def _ver_at_least(s, floor):
+    """True when version string ``s`` parses and is >= the ``floor`` tuple.
+    Unparseable counts as NOT enough - the caller then refuses rather than
+    guessing the far build understands the newer opcodes."""
+    try:
+        v = tuple(int(p) for p in s.strip().split("."))
+    except ValueError:
+        return False
+    return v >= floor
+
+def _zxnr_staged_ver(path):
+    """Version of a staged ZX Next Remote build, read from the CONTAINING
+    folder's name - the itch.io extract layout puts each build in its own
+    zxnextremote-X.Y.Z folder (the .nex carries no parseable banner at a
+    fixed spot). Returns "" when the folder is named anything else; the
+    older-than-remote gate then cannot run, so plain 'update' refuses and
+    demands an explicit 'force'."""
+    folder = os.path.basename(os.path.dirname(os.path.abspath(path)))
+    if not folder.lower().startswith("zxnextremote-"):
+        return ""
+    ver = folder[len("zxnextremote-"):]
+    parts = ver.split(".")
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        return ver
+    return ""
 
 def _listen_recv_reply(conn, handler):
     """Read the framed blocks the Next pushes in reply to a command, acking each
@@ -768,6 +828,8 @@ def _listen_console_reader(cmd_q):
             cmd_q.put(("rm", a1, a2))
         elif verb in ("ren", "rename", "mv", "move"):
             cmd_q.put(("ren", a1, a2))
+        elif verb == "release":
+            cmd_q.put(("release", "", ""))
         elif verb in ("rcpy", "cp"):
             cmd_q.put(("rcpy", a1, a2))
         elif verb in ("rfsize", "du"):
@@ -776,6 +838,16 @@ def _listen_console_reader(cmd_q):
             cmd_q.put(("drives", "", ""))
         elif verb == "version":
             cmd_q.put(("ident", "", ""))
+        elif verb == "update":
+            # update <file> [dir] [force] - the trailing 'force' rides in the
+            # OP NAME, not a 4th tuple slot: the session treats any 4th
+            # element as a bridge reply sink and would call .put on it.
+            force = len(parts) > 2 and parts[-1].lower() == "force"
+            if force:
+                parts = parts[:-1]
+            cmd_q.put(("update_force" if force else "update",
+                       parts[1] if len(parts) > 1 else "",
+                       parts[2] if len(parts) > 2 else ""))
         elif verb in ("psize", "pfull"):
             cmd_q.put((verb, a1, ""))
         elif verb == "help":
@@ -860,6 +932,15 @@ def _listen_session_inner(conn, stats, _test_commands=None):
     put_pkt = 0
     last_packet = b''
     pending_put = None      # remote path of an in-flight put (for pass/fail report)
+    # The 'update' verb's continuation steps and single in-flight job. Steps
+    # are popped BEFORE the console/bridge queue, so nothing can interleave
+    # with the macro; a 3rd element on pending_put marks its staging put.
+    upd_steps = []          # [("updc_*", "", ""), ...] served ahead of cmd_q
+    upd_job = {}            # {'data': bytes, 'dir': str, 'ver': str,
+    #                          'base': str, 'marked': bool} - base is the far
+    #                          file name every step path derives from
+    #                          ("sync5" for the dot, the .nex name for ZXNR);
+    #                          marked jobs end with the marked quit
     while True:
         try:
             data = conn.recv(1024)
@@ -888,6 +969,10 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                     print(f'{timestamp()} | *** put {pending_put[0]}: FAILED on the Next ***')
                     _reply_fill(pending_put[1], {'ok': False,
                                                  'error': 'put failed on the Next'})
+                if len(pending_put) > 2:           # the update's staging put
+                    upd_steps.append(("updc_fail",
+                                      "staging " + upd_job.get('base', 'sync5')
+                                      + ".new failed on the Next", ""))
                 pending_put = None
                 _in_transfer = False
                 put_data = b''; put_ofs = 0; put_pkt = 0
@@ -900,14 +985,23 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 print(f'{timestamp()} | *** put {pending_put[0]}: FAILED on the Next ***')
                 _reply_fill(pending_put[1], {'ok': False,
                                              'error': 'put abandoned by the Next'})
+                if len(pending_put) > 2:           # the update's staging put
+                    upd_steps.append(("updc_fail",
+                                      "staging " + upd_job.get('base', 'sync5')
+                                      + ".new was abandoned by the Next", ""))
                 pending_put = None
                 _in_transfer = False
                 put_data = b''; put_ofs = 0; put_pkt = 0
-            try:
-                item = cmd_q.get_nowait()
-            except queue.Empty:
-                sendpacket(conn, b"I", 0)          # idle - the Next re-polls
-                continue
+            if upd_steps:
+                # An update macro is mid-flight: its next step outranks
+                # everything typed or bridged, so the sequence stays whole.
+                item = upd_steps.pop(0)
+            else:
+                try:
+                    item = cmd_q.get_nowait()
+                except queue.Empty:
+                    sendpacket(conn, b"I", 0)      # idle - the Next re-polls
+                    continue
             op, a1, a2 = item[0], item[1], item[2]
             # A 4th element is the HTTP bridge's result sink (BridgeReply):
             # fill it with the command's outcome so the web caller gets a
@@ -993,6 +1087,20 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 sendpacket(conn, b"V" + a1.encode() + b"\x00" + a2.encode(), 0)
                 ok = _listen_status(conn, f"ren {a1} -> {a2}", reply)
                 _reply_fill(reply, {'ok': bool(ok)})
+            elif op == "release":
+                # release (dot v5.9+): 'U', no args - the dot closes the OS's
+                # own read handle on its /dot/sync5 file so the file can be
+                # swapped with ren/rm while the session stays up (hardware-
+                # measured: ren on the open dot file fails, and works once
+                # released). CONTRACT: after this send ONLY path-based
+                # commands (ren/rm/quit) - anything that OPENS a file or
+                # directory on the Next could be handed the freed handle
+                # number, which NextZXOS still closes at dot exit. An older
+                # dot ignores the unknown opcode in silence (same toll as an
+                # unanswered version query: one false-disconnect log).
+                sendpacket(conn, b"U", 0)
+                ok = _listen_status(conn, "release", reply)
+                _reply_fill(reply, {'ok': bool(ok)})
             elif op == "ident":
                 # version query (ZXNR 1.0.2+ / dot v5.8+): 'Y', no args. ONE
                 # status block back: 'O' + type + NUL + build number, e.g.
@@ -1042,6 +1150,284 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                                         'error': 'version not supported '
                                                  '(needs ZXNR 1.0.2+ / '
                                                  '.sync v5.8+)'})
+            elif op in ("update", "update_force"):
+                # Remote self-update, step 0 (gate + stage) - the .sync5 dot
+                # or a ZX Next Remote .nex, per the cached 'version' answer.
+                # The rest of the macro rides upd_steps, popped ahead of the
+                # console/bridge queue so nothing interleaves: put <base>.new
+                # -> read-back byte-compare -> 'U' release -> rm <base>.bak ->
+                # ren <base>->bak -> ren new-><base> -> quit. The release
+                # comes BEFORE the .bak delete on purpose: a pre-5.9 dot (or
+                # pre-1.0.3 ZXNR) refuses 'U', and failing there deletes
+                # nothing of the user's ('X' is path-based, so it is legal
+                # after 'U'). After 'U' ONLY path-based commands go out
+                # (ren/rm/quit): anything that OPENS a file could be handed
+                # the freed handle number, which NextZXOS still closes at dot
+                # exit — so once released, every failure path also ends the
+                # session.
+                if upd_job:
+                    print("  update: one is already in flight")
+                    sendpacket(conn, b"I", 0)
+                    _reply_fill(reply, {'ok': False,
+                                        'error': 'update already running'})
+                    continue
+                blob = b''
+                try:
+                    if a1 and os.path.isfile(a1):
+                        with open(a1, 'rb') as fh:
+                            blob = fh.read()
+                except OSError:
+                    blob = b''
+                ident = _listen_state.get('ident')
+                refuse = ""
+                base, marked, bver = "sync5", False, ""
+                if not blob:
+                    refuse = f"local file not found or empty: {a1 or '<none>'}"
+                elif ident is None:
+                    refuse = ("run 'version' first - the update is gated on "
+                              "who is listening")
+                elif ident is False:
+                    refuse = ("the listener did not answer the version query "
+                              "- the update flow needs .sync v5.9+ / "
+                              "ZXNR 1.0.3+")
+                elif ident[0] == "sync":
+                    # The dot flavor. Its banner names the staged build
+                    # ("NextSync 5.9.0 ..."), embedded verbatim in the
+                    # binary - both the wrong-file check and the version
+                    # gate hang off it.
+                    bi = blob.find(b"NextSync ")
+                    if bi >= 0:
+                        bend = blob.find(b" ", bi + 9)
+                        if bend > 0:
+                            bver = blob[bi + 9:bend].decode(errors="replace")
+                    if not bver:
+                        refuse = (f"{a1} carries no 'NextSync <version>' "
+                                  "banner - not a sync dot build")
+                    elif op == "update" and not _dot_ver_older(ident[1], bver):
+                        refuse = (f"the Next already runs sync {ident[1]} "
+                                  f"(staged file is {bver}) - add 'force' to "
+                                  "push anyway")
+                elif ident[0] in ("httpbridge", "n2n"):
+                    # The ZX Next Remote flavor (1.0.3+ answers 'U'; older
+                    # builds meet it with silence): stage the .nex under its
+                    # own file name, and quit MARKED at the end - the .nex
+                    # saves its settings and soft-resets the Next into
+                    # NextZXOS. Its version comes from the CONTAINING
+                    # folder's name (see _zxnr_staged_ver); the title and
+                    # version literals sit apart in the binary, so they are
+                    # checked as separate substrings.
+                    base = os.path.basename(a1)
+                    marked = True
+                    bver = _zxnr_staged_ver(a1)
+                    if not _ver_at_least(ident[1], (1, 0, 3)):
+                        refuse = (f"the listener is ZXNR {ident[1]} - the "
+                                  "remote update flow needs ZXNR 1.0.3+")
+                    elif not a2:
+                        # "c:/dot" is the DOT's default; a .nex never lives
+                        # there (and ZXNR's default-on OS protection covers
+                        # dot/ anyway) - demand the real location.
+                        refuse = ("the ZXNR flavor needs an explicit remote "
+                                  "dir naming where the running .nex lives, "
+                                  "e.g.: update <file> c:/mydir")
+                    elif (b"ZXNextRemote" not in blob or
+                          (bool(bver) and bver.encode() not in blob)):
+                        refuse = (f"{a1} does not look like a ZXNextRemote"
+                                  f"{' ' + bver if bver else ''} build - "
+                                  "wrong or stale file")
+                    elif op == "update" and not bver:
+                        refuse = ("cannot read the staged build's version - "
+                                  "add 'force' to push anyway")
+                    elif op == "update" and not _dot_ver_older(ident[1], bver):
+                        refuse = (f"the Next already runs ZXNR {ident[1]} "
+                                  f"(staged build is {bver}) - add 'force' "
+                                  "to push anyway")
+                else:
+                    refuse = (f"the listener is '{ident[0]}' - this flow "
+                              "updates the .sync5 dot or a ZX Next Remote "
+                              "build")
+                if refuse:
+                    print(f"  update: {refuse}")
+                    sendpacket(conn, b"I", 0)
+                    _reply_fill(reply, {'ok': False, 'error': refuse})
+                    continue
+                upd_job.update({'data': blob,
+                                'dir': (a2 or "c:/dot").rstrip("/"),
+                                'ver': bver, 'base': base, 'marked': marked})
+                remote = upd_job['dir'] + "/" + base + ".new"
+                print(f'{timestamp()} | update: staging {remote} '
+                      f'({len(blob)} bytes)')
+                put_data = blob
+                put_ofs = 0
+                put_pkt = 0
+                pending_put = (remote, None, "update")   # 3rd slot = update
+                _in_transfer = True
+                sendpacket(conn, b"P" + remote.encode(), 0)
+                # the Next pulls the bytes with "Get" (served below); the
+                # completion paths chain updc_verify / updc_fail.
+            elif op == "updc_verify":
+                # Update step 1: pull the staged file back and byte-compare -
+                # the wire checksums are per-block and in-flight only, and
+                # the next steps make this file the running build itself.
+                got = bytearray()
+
+                def _hv(payload, _g=got):
+                    o = payload[0:1]
+                    if o == b'D':
+                        _g.extend(payload[1:])
+                    return o == b'B'
+                sendpacket(conn,
+                           b"G" + (upd_job['dir'] + "/" + upd_job['base']
+                                   + ".new").encode(), 0)
+                if (_listen_recv_reply(conn, _hv) and
+                        bytes(got) == upd_job['data']):
+                    print(f'{timestamp()} | update: staged copy verified '
+                          f'({len(got)} bytes) - swapping it in')
+                    upd_steps.append(("updc_release", "", ""))
+                else:
+                    upd_steps.append(("updc_fail_rm",
+                                      "the staged " + upd_job['base']
+                                      + ".new read back different from what "
+                                      "was sent", ""))
+            elif op == "updc_release":
+                # Update step 2: 'U' - the far side closes the OS's own read
+                # handle on its file (the renames FAIL while it is open,
+                # hardware-measured). Runs BEFORE the .bak delete so an old
+                # build fails here with nothing of the user's deleted.
+                # Path-based commands only from here on.
+                res = {'ok': False}
+
+                def _hr(payload, _r=res):
+                    _r['ok'] = (payload[0:1] == b'O')
+                    return True
+                sendpacket(conn, b"U", 0)
+                if _listen_recv_reply(conn, _hr) and res['ok']:
+                    print(f'{timestamp()} | update: the far side released '
+                          'its file')
+                    upd_job['released'] = True
+                    upd_steps.append(("updc_rmbak", "", ""))
+                else:
+                    upd_steps.append(("updc_fail_rm",
+                                      "the far side did not release its file "
+                                      "(needs .sync v5.9+ / ZXNR 1.0.3+)",
+                                      ""))
+            elif op == "updc_rmbak":
+                # Update step 3: clear the first rename's destination -
+                # NextZXOS refuses rename-onto-existing, so this rm is what
+                # makes repeat updates work. The far side answers 'F' when no
+                # .bak exists - fine (quiet handler, no FAILED noise; 'X'
+                # is path-based, legal after the release).
+                def _hx(payload):
+                    return True
+                sendpacket(conn,
+                           b"X" + (upd_job['dir'] + "/" + upd_job['base']
+                                   + ".bak").encode(), 0)
+                if _listen_recv_reply(conn, _hx):
+                    upd_steps.append(("updc_ren1", "", ""))
+                else:
+                    upd_steps.append(("updc_fail",
+                                      "connection dropped while clearing "
+                                      + upd_job['base'] + ".bak", ""))
+            elif op in ("updc_ren1", "updc_ren2"):
+                # Update steps 4/5: the swap itself, two back-to-back
+                # renames. From here the card's state is in motion: a LOST
+                # reply is reported as unknown/mid-swap, never as "nothing
+                # changed" (the rename may have landed with only its reply
+                # lost), and every failure ends the session (post-'U'
+                # contract - the operator must not keep browsing on a
+                # released handle).
+                base = upd_job['base']
+                cur = upd_job['dir'] + "/" + base
+                upd_job['swap'] = True
+                old, new = ((cur, cur + ".bak")
+                            if op == "updc_ren1" else
+                            (cur + ".new", cur))
+                res = {'ok': False, 'osp': False}
+
+                def _hn(payload, _r=res):
+                    _r['ok'] = (payload[0:1] == b'O')
+                    _r['osp'] = _is_osp(payload)
+                    return True
+                sendpacket(conn, b"V" + old.encode() + b"\x00" + new.encode(),
+                           0)
+                got_reply = _listen_recv_reply(conn, _hn)
+                if got_reply and res['ok']:
+                    upd_steps.append(("updc_ren2", "", "")
+                                     if op == "updc_ren1" else
+                                     ("updc_done", "", ""))
+                    continue
+                upd_job.clear()
+                if got_reply and op == "updc_ren1":
+                    # The far side REFUSED the first rename: nothing moved,
+                    # the target is untouched - but the handle is released,
+                    # so the session must still end. ZX Next Remote's OS
+                    # protection (default-on over apps/, dot/, sys/, ...) is
+                    # the expected refuser there: name it, or the operator
+                    # hunts a phantom SD error.
+                    why = (("the far side's OS protection refused renaming "
+                            + base + " (Settings on the Next)")
+                           if res['osp'] else
+                           f"could not rename {old} aside")
+                    print(f'{timestamp()} | *** update failed: {why}. '
+                          'Nothing was swapped - the Next still runs its '
+                          'current build. ***')
+                else:
+                    # ren2 refused, or either rename's reply lost: the card
+                    # is (or may be) mid-swap. Delete NOTHING - .bak is the
+                    # recovery copy.
+                    print(f'{timestamp()} | *** update FAILED mid-swap: the '
+                          f'Next may be missing {cur}. If {base} no '
+                          f'longer starts, rename {cur}.bak back to '
+                          f'{base} in the NextZXOS Browser. ***')
+                sendpacket(conn, b"Q", 0)
+                _goodbye_linger(conn)
+                break
+            elif op == "updc_done":
+                # Update step 6: success. Report, quit the session cleanly -
+                # the ident cache resets with it, so a reconnect + 'version'
+                # shows the NEW build as the confirmation. A marked job (the
+                # ZX Next Remote flavor) sends the MARKED quit instead: the
+                # .nex saves its settings and soft-resets the Next into
+                # NextZXOS, where the swapped build relaunches.
+                v = upd_job.get('ver', '')
+                base = upd_job.get('base', 'sync5')
+                was_marked = upd_job.get('marked', False)
+                upd_job.clear()
+                if was_marked:
+                    print(f'{timestamp()} | update COMPLETE: {base} {v} is '
+                          'on the card. The Next will now soft-reset to '
+                          f'NextZXOS - relaunch {base} to run the new build.')
+                    sendpacket(conn, b"Q" + QUIT_EXIT_MARK, 0)
+                else:
+                    print(f'{timestamp()} | update COMPLETE: sync {v} is on '
+                          'the card. The session will close - run .sync5 '
+                          "-listen on the Next, then 'version' here to "
+                          'confirm.')
+                    sendpacket(conn, b"Q", 0)
+                _goodbye_linger(conn)
+                break
+            elif op == "updc_fail_rm":
+                # Update failure with cleanup: delete the staged <base>.new
+                # (path-based, so legal even after 'U'), then report.
+                def _hx(payload):
+                    return True
+                sendpacket(conn,
+                           b"X" + (upd_job['dir'] + "/" + upd_job['base']
+                                   + ".new").encode(), 0)
+                _listen_recv_reply(conn, _hx)
+                upd_steps.append(("updc_fail", a1, ""))
+            elif op == "updc_fail":
+                was_released = upd_job.get('released', False)
+                upd_job.clear()
+                print(f'{timestamp()} | *** update failed: {a1}. Nothing was '
+                      'swapped - the Next still runs its current build. ***')
+                if was_released:
+                    # The far side's own handle is already closed: after 'U'
+                    # only path-based commands are legal, so the console
+                    # session cannot stay up for the operator to browse with.
+                    sendpacket(conn, b"Q", 0)
+                    _goodbye_linger(conn)
+                    break
+                sendpacket(conn, b"I", 0)
             elif op == "drives":
                 # getdrives (dot v5.1+): one status block, 'O' + current drive
                 # letter + one letter per mounted drive. An older dot ignores
@@ -1231,6 +1617,8 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 if pending_put is not None:        # every byte served -> success
                     print(f'{timestamp()} | put {pending_put[0]}: OK')
                     _reply_fill(pending_put[1], {'ok': True})
+                    if len(pending_put) > 2:       # the update's staging put:
+                        upd_steps.append(("updc_verify", "", ""))
                     pending_put = None
 
         elif data == b"Retry":
@@ -1248,6 +1636,24 @@ def _listen_session_inner(conn, stats, _test_commands=None):
         else:
             sendpacket(conn, b"I", 0)              # keep the Next moving
 
+    # An update job still open here means the session died mid-macro (the
+    # terminal arms clear it before they break): print the verdict the loop
+    # never reached - mid-swap gets the recovery wording, the one message
+    # that must not be lost. (A hard raise out of the loop skips this; the
+    # traceback then tells the story instead.)
+    if upd_job:
+        _b = upd_job.get('base', 'sync5')
+        _cur = upd_job['dir'] + "/" + _b
+        if upd_job.get('swap'):
+            print(f'{timestamp()} | *** update FAILED mid-swap: the Next may '
+                  f'be missing {_cur}. If {_b} no longer '
+                  f'starts, rename {_cur}.bak back to {_b} '
+                  'in the NextZXOS Browser. ***')
+        else:
+            print(f'{timestamp()} | *** update failed: the session ended '
+                  'before the update finished. Nothing was swapped - the '
+                  'Next still runs its current build. ***')
+        upd_job.clear()
     # The Next hung up: it pressed BREAK, sent "Bye", or the link dropped (or we
     # sent it "Q"). The main loop closes this connection and goes back to
     # accepting, so a restarted '.sync5 -listen' reconnects.

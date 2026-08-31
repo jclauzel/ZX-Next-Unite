@@ -427,6 +427,87 @@ CATALOGS = {
             "¿Pedir a este Next que salga del modo escucha y se cierre? ZX Next Remote cierra su aplicación; un punto '.sync5' vuelve a BASIC. El servidor sigue escuchando, así que puede volver a conectarse.",
         "Asked the Next to leave listen mode and exit.":
             "Se ha pedido al Next que salga del modo escucha y se cierre.",
+        "Remote .sync5 update": "Actualización remota de .sync5",
+        "Update .sync5 on this Next ({old} → {new})…":
+            "Actualizar .sync5 en este Next ({old} → {new})…",
+        "Update to {new}":
+            "Actualizar a {new}",
+        "Push new .sync5 to this Next…":
+            "Enviar el nuevo .sync5 a este Next…",
+        ".sync5 version unknown — switch to this Next first":
+            "Versión de .sync5 desconocida — cambia primero a este Next",
+        ".sync5 v{old} predates self-update — copy the new dot to the Next by hand once":
+            ".sync5 v{old} es anterior a la autoactualización — copia el nuevo dot al Next a mano una vez",
+        "Locating the .sync5 build to send…":
+            "Localizando el .sync5 a enviar…",
+        "Still locating the .sync5 build to send — one moment.":
+            "Todavía localizando el .sync5 a enviar — un momento.",
+        "Could not obtain the .sync5 build to send: {reason}":
+            "No se pudo obtener el .sync5 a enviar: {reason}",
+        ("Update .sync5 on {machine}: v{old} → v{new}.\n\nThe new dot is "
+         "staged on the Next's SD card, read back and verified, then "
+         "swapped in; the previous dot is kept as sync5.bak (renaming it "
+         "back to sync5 is the one-step recovery). The session ends when "
+         "the update completes — run {command} on the Next again "
+         "afterwards.\n\nTarget directory on the Next:"):
+            ("Actualizar .sync5 en {machine}: v{old} → v{new}.\n\nEl nuevo "
+             "dot se prepara en la tarjeta SD del Next, se relee y "
+             "verifica, y después se sustituye; el dot anterior se "
+             "conserva como sync5.bak (renombrarlo de nuevo a sync5 es la "
+             "recuperación en un paso). La sesión termina cuando la "
+             "actualización se completa — ejecuta {command} de nuevo en "
+             "el Next después.\n\nDirectorio de destino en el Next:"),
+        ("Push the new .sync5 (v{new}) to {machine}?\n\nThis machine's "
+         "version is unknown (an older dot, or an old ZX Next Remote "
+         "build — the two cannot be told apart), and the swap itself "
+         "only works when the far side is a .sync dot v5.9 or newer: on "
+         "anything older the staged sync5.new is left on the card and "
+         "nothing is swapped. The previous dot is kept as sync5.bak "
+         "(renaming it back to sync5 is the one-step recovery). The "
+         "session ends when the update completes — run {command} on the "
+         "Next again afterwards.\n\nTarget directory on the Next:"):
+            ("¿Enviar el nuevo .sync5 (v{new}) a {machine}?\n\nLa versión "
+             "de esta máquina es desconocida (un dot antiguo, o una "
+             "versión antigua de ZX Next Remote — no se pueden "
+             "distinguir), y la propia sustitución solo funciona cuando "
+             "el otro lado es un dot .sync v5.9 o más reciente: con algo "
+             "más antiguo el sync5.new preparado se queda en la tarjeta y "
+             "no se sustituye nada. El dot anterior se conserva como "
+             "sync5.bak (renombrarlo de nuevo a sync5 es la recuperación "
+             "en un paso). La sesión termina cuando la actualización se "
+             "completa — ejecuta {command} de nuevo en el Next "
+             "después.\n\nDirectorio de destino en el Next:"),
+        "ZX Next Remote update": "Actualización de ZX Next Remote",
+        "Update ZX Next Remote on this Next ({old} → {new})…":
+            "Actualizar ZX Next Remote en este Next ({old} → {new})…",
+        "ZX Next Remote {old} predates self-update — copy a new build to the Next by hand once":
+            "ZX Next Remote {old} es anterior a la autoactualización — copia una compilación nueva al Next a mano una vez",
+        "No ZX Next Remote build installed on this PC — fetch one via the itch.io tab or the Settings update check first":
+            "No hay ninguna compilación de ZX Next Remote instalada en este PC — obtén una primero desde la pestaña itch.io o la comprobación de actualizaciones de Ajustes",
+        "Could not obtain the ZX Next Remote build to send: {reason}":
+            "No se pudo obtener la compilación de ZX Next Remote a enviar: {reason}",
+        ("Update ZX Next Remote on {machine}: v{old} → v{new}.\n\nThe new "
+         "build is staged on the Next's SD card, read back and verified, "
+         "then swapped in; the previous build is kept next to it with a "
+         ".bak ending (renaming it back is the one-step recovery). The "
+         "Next's OS protection (on by default over apps/, dot/ and sys/) "
+         "refuses the swap inside a protected folder — the failure "
+         "message will say so. On success the Next soft-resets to "
+         "NextZXOS — relaunch {file} from there afterwards.\n\nFull path "
+         "of the .nex on the Next:"):
+            ("Actualizar ZX Next Remote en {machine}: v{old} → "
+             "v{new}.\n\nLa nueva compilación se prepara en la tarjeta SD "
+             "del Next, se relee y verifica, y después se sustituye; la "
+             "compilación anterior se conserva a su lado con la "
+             "terminación .bak (renombrarla de nuevo es la recuperación "
+             "en un paso). La protección del sistema del Next (activada "
+             "por defecto sobre apps/, dot/ y sys/) rechaza la "
+             "sustitución dentro de una carpeta protegida — el mensaje de "
+             "fallo lo dirá. Si todo va bien, el Next hace un reinicio "
+             "suave a NextZXOS — vuelve a lanzar {file} desde ahí "
+             "después.\n\nRuta completa del .nex en el Next:"),
+        "ZX Next Remote update: enter the FULL path of the .nex on the Next (e.g. {example}).":
+            "Actualización de ZX Next Remote: introduce la ruta COMPLETA del .nex en el Next (p. ej. {example}).",
         "Download File": "Descargar archivo",
         "Download NextZXOS Image": "Descargar imagen NextZXOS",
         "Download and install HDF Monkey": "Descargar e instalar HDF Monkey",
@@ -914,6 +995,22 @@ CATALOGS = {
             "Recibiendo archivos desde el Next...",
         "Receiving: {name} -> {path}":
             "Recibiendo: {name} -> {path}",
+        "Remote {name} update failed while reading {path}: {error} — nothing was sent.":
+            "Actualización remota de {name} fallida al leer {path}: {error} — no se ha enviado nada.",
+        "Remote {name} update refused: {path} does not look like a {brand} {version} build — wrong or stale file.":
+            "Actualización remota de {name} rechazada: {path} no parece una compilación {brand} {version} — archivo equivocado u obsoleto.",
+        "Remote {name} update: staging {path} ({size} bytes)…":
+            "Actualización remota de {name}: preparando {path} ({size} bytes)…",
+        "Remote {name} update: staged copy verified ({size} bytes) — swapping it in…":
+            "Actualización remota de {name}: copia preparada verificada ({size} bytes) — sustituyéndola…",
+        "Remote {name} update FAILED mid-swap: the Next may be missing {target}. If it no longer starts, rename {backup} back to {file} in the NextZXOS Browser (the staged {staged} can be deleted).":
+            "Actualización remota de {name} FALLIDA en plena sustitución: puede que el Next no tenga {target}. Si ya no arranca, renombra {backup} de nuevo a {file} en el Browser de NextZXOS (el {staged} preparado puede borrarse).",
+        "Remote {name} update complete: {version} is on the card. The session will now close — run {command} on the Next to start the new build.":
+            "Actualización remota de {name} completada: {version} ya está en la tarjeta. La sesión se cerrará ahora — ejecuta {command} en el Next para iniciar la nueva compilación.",
+        "Remote {name} update complete: {version} is on the card. The Next will now soft-reset to NextZXOS — relaunch {file} to run the new build.":
+            "Actualización remota de {name} completada: {version} ya está en la tarjeta. El Next hará ahora un reinicio suave a NextZXOS — vuelve a lanzar {file} para ejecutar la nueva compilación.",
+        "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
+            "Actualización remota de {name} fallida: {reason}. No se ha cambiado nada — el Next sigue ejecutando su compilación actual.",
         "Remote explorer: connected to {address}":
             "Explorador remoto: conectado a {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
@@ -1596,6 +1693,87 @@ CATALOGS = {
             "Pedir a este Next para sair do modo de escuta e terminar? O ZX Next Remote fecha a sua aplicação; um ponto '.sync5' volta ao BASIC. O servidor continua à escuta, por isso pode ligar-se de novo.",
         "Asked the Next to leave listen mode and exit.":
             "Pedido ao Next para sair do modo de escuta e terminar.",
+        "Remote .sync5 update": "Atualização remota do .sync5",
+        "Update .sync5 on this Next ({old} → {new})…":
+            "Atualizar o .sync5 neste Next ({old} → {new})…",
+        "Update to {new}":
+            "Atualizar para {new}",
+        "Push new .sync5 to this Next…":
+            "Enviar o novo .sync5 para este Next…",
+        ".sync5 version unknown — switch to this Next first":
+            "Versão do .sync5 desconhecida — muda primeiro para este Next",
+        ".sync5 v{old} predates self-update — copy the new dot to the Next by hand once":
+            ".sync5 v{old} é anterior à autoatualização — copia o novo dot para o Next à mão uma vez",
+        "Locating the .sync5 build to send…":
+            "A localizar o .sync5 a enviar…",
+        "Still locating the .sync5 build to send — one moment.":
+            "Ainda a localizar o .sync5 a enviar — um momento.",
+        "Could not obtain the .sync5 build to send: {reason}":
+            "Não foi possível obter o .sync5 a enviar: {reason}",
+        ("Update .sync5 on {machine}: v{old} → v{new}.\n\nThe new dot is "
+         "staged on the Next's SD card, read back and verified, then "
+         "swapped in; the previous dot is kept as sync5.bak (renaming it "
+         "back to sync5 is the one-step recovery). The session ends when "
+         "the update completes — run {command} on the Next again "
+         "afterwards.\n\nTarget directory on the Next:"):
+            ("Atualizar o .sync5 em {machine}: v{old} → v{new}.\n\nO novo "
+             "dot é preparado no cartão SD do Next, relido e verificado, "
+             "e depois substituído; o dot anterior fica guardado como "
+             "sync5.bak (renomeá-lo de volta para sync5 é a recuperação "
+             "num passo). A sessão termina quando a atualização se "
+             "completa — executa {command} de novo no Next "
+             "depois.\n\nDiretório de destino no Next:"),
+        ("Push the new .sync5 (v{new}) to {machine}?\n\nThis machine's "
+         "version is unknown (an older dot, or an old ZX Next Remote "
+         "build — the two cannot be told apart), and the swap itself "
+         "only works when the far side is a .sync dot v5.9 or newer: on "
+         "anything older the staged sync5.new is left on the card and "
+         "nothing is swapped. The previous dot is kept as sync5.bak "
+         "(renaming it back to sync5 is the one-step recovery). The "
+         "session ends when the update completes — run {command} on the "
+         "Next again afterwards.\n\nTarget directory on the Next:"):
+            ("Enviar o novo .sync5 (v{new}) para {machine}?\n\nA versão "
+             "desta máquina é desconhecida (um dot antigo, ou uma versão "
+             "antiga do ZX Next Remote — não é possível distingui-los), "
+             "e a própria substituição só funciona quando o outro lado é "
+             "um dot .sync v5.9 ou mais recente: com algo mais antigo o "
+             "sync5.new preparado fica no cartão e nada é substituído. O "
+             "dot anterior fica guardado como sync5.bak (renomeá-lo de "
+             "volta para sync5 é a recuperação num passo). A sessão "
+             "termina quando a atualização se completa — executa "
+             "{command} de novo no Next depois.\n\nDiretório de destino "
+             "no Next:"),
+        "ZX Next Remote update": "Atualização do ZX Next Remote",
+        "Update ZX Next Remote on this Next ({old} → {new})…":
+            "Atualizar o ZX Next Remote neste Next ({old} → {new})…",
+        "ZX Next Remote {old} predates self-update — copy a new build to the Next by hand once":
+            "O ZX Next Remote {old} é anterior à autoatualização — copia uma compilação nova para o Next à mão uma vez",
+        "No ZX Next Remote build installed on this PC — fetch one via the itch.io tab or the Settings update check first":
+            "Nenhuma compilação do ZX Next Remote instalada neste PC — obtém uma primeiro no separador itch.io ou na verificação de atualizações das Definições",
+        "Could not obtain the ZX Next Remote build to send: {reason}":
+            "Não foi possível obter a compilação do ZX Next Remote a enviar: {reason}",
+        ("Update ZX Next Remote on {machine}: v{old} → v{new}.\n\nThe new "
+         "build is staged on the Next's SD card, read back and verified, "
+         "then swapped in; the previous build is kept next to it with a "
+         ".bak ending (renaming it back is the one-step recovery). The "
+         "Next's OS protection (on by default over apps/, dot/ and sys/) "
+         "refuses the swap inside a protected folder — the failure "
+         "message will say so. On success the Next soft-resets to "
+         "NextZXOS — relaunch {file} from there afterwards.\n\nFull path "
+         "of the .nex on the Next:"):
+            ("Atualizar o ZX Next Remote em {machine}: v{old} → "
+             "v{new}.\n\nA nova compilação é preparada no cartão SD do "
+             "Next, relida e verificada, e depois substituída; a "
+             "compilação anterior fica ao lado com a terminação .bak "
+             "(renomeá-la de volta é a recuperação num passo). A proteção "
+             "do sistema do Next (ativa por omissão sobre apps/, dot/ e "
+             "sys/) recusa a troca dentro de uma pasta protegida — a "
+             "mensagem de falha irá indicá-lo. Em caso de sucesso o Next "
+             "faz um reinício suave para o NextZXOS — volta a lançar "
+             "{file} a partir daí depois.\n\nCaminho completo do .nex no "
+             "Next:"),
+        "ZX Next Remote update: enter the FULL path of the .nex on the Next (e.g. {example}).":
+            "Atualização do ZX Next Remote: introduz o caminho COMPLETO do .nex no Next (p. ex. {example}).",
         "Download File": "Transferir ficheiro",
         "Download NextZXOS Image": "Transferir imagem NextZXOS",
         "Download and install HDF Monkey": "Transferir e instalar o HDF Monkey",
@@ -2083,6 +2261,22 @@ CATALOGS = {
             "A receber ficheiros do Next...",
         "Receiving: {name} -> {path}":
             "A receber: {name} -> {path}",
+        "Remote {name} update failed while reading {path}: {error} — nothing was sent.":
+            "A atualização remota de {name} falhou ao ler {path}: {error} — nada foi enviado.",
+        "Remote {name} update refused: {path} does not look like a {brand} {version} build — wrong or stale file.":
+            "Atualização remota de {name} recusada: {path} não parece uma compilação {brand} {version} — ficheiro errado ou desatualizado.",
+        "Remote {name} update: staging {path} ({size} bytes)…":
+            "Atualização remota de {name}: a preparar {path} ({size} bytes)…",
+        "Remote {name} update: staged copy verified ({size} bytes) — swapping it in…":
+            "Atualização remota de {name}: cópia preparada verificada ({size} bytes) — a substituí-la…",
+        "Remote {name} update FAILED mid-swap: the Next may be missing {target}. If it no longer starts, rename {backup} back to {file} in the NextZXOS Browser (the staged {staged} can be deleted).":
+            "A atualização remota de {name} FALHOU a meio da troca: o Next pode não ter {target}. Se já não arrancar, renomeia {backup} de volta para {file} no Browser do NextZXOS (o {staged} preparado pode ser apagado).",
+        "Remote {name} update complete: {version} is on the card. The session will now close — run {command} on the Next to start the new build.":
+            "Atualização remota de {name} concluída: {version} já está no cartão. A sessão vai agora fechar — executa {command} no Next para iniciar a nova compilação.",
+        "Remote {name} update complete: {version} is on the card. The Next will now soft-reset to NextZXOS — relaunch {file} to run the new build.":
+            "Atualização remota de {name} concluída: {version} já está no cartão. O Next vai agora fazer um reinício suave para o NextZXOS — volta a lançar {file} para executar a nova compilação.",
+        "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
+            "A atualização remota de {name} falhou: {reason}. Nada foi trocado — o Next continua a executar a sua compilação atual.",
         "Remote explorer: connected to {address}":
             "Explorador remoto: ligado a {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
@@ -2763,6 +2957,87 @@ CATALOGS = {
             "Poprosić tego Nexta o wyjście z trybu nasłuchu i zakończenie? ZX Next Remote zamyka swoją aplikację; kropka '.sync5' wraca do BASIC-a. Serwer nadal nasłuchuje, więc można połączyć się ponownie.",
         "Asked the Next to leave listen mode and exit.":
             "Poproszono Nexta o wyjście z trybu nasłuchu i zakończenie.",
+        "Remote .sync5 update": "Zdalna aktualizacja .sync5",
+        "Update .sync5 on this Next ({old} → {new})…":
+            "Zaktualizuj .sync5 na tym Nexcie ({old} → {new})…",
+        "Update to {new}":
+            "Zaktualizuj do {new}",
+        "Push new .sync5 to this Next…":
+            "Wyślij nowy .sync5 na tego Nexta…",
+        ".sync5 version unknown — switch to this Next first":
+            "Nieznana wersja .sync5 — najpierw przełącz na tego Nexta",
+        ".sync5 v{old} predates self-update — copy the new dot to the Next by hand once":
+            ".sync5 v{old} jest starszy niż samoaktualizacja — raz skopiuj nowy dot na Nexta ręcznie",
+        "Locating the .sync5 build to send…":
+            "Szukanie pliku .sync5 do wysłania…",
+        "Still locating the .sync5 build to send — one moment.":
+            "Wciąż trwa szukanie pliku .sync5 do wysłania — chwileczkę.",
+        "Could not obtain the .sync5 build to send: {reason}":
+            "Nie udało się uzyskać pliku .sync5 do wysłania: {reason}",
+        ("Update .sync5 on {machine}: v{old} → v{new}.\n\nThe new dot is "
+         "staged on the Next's SD card, read back and verified, then "
+         "swapped in; the previous dot is kept as sync5.bak (renaming it "
+         "back to sync5 is the one-step recovery). The session ends when "
+         "the update completes — run {command} on the Next again "
+         "afterwards.\n\nTarget directory on the Next:"):
+            ("Aktualizacja .sync5 na {machine}: v{old} → v{new}.\n\nNowe "
+             "polecenie dot jest przygotowywane na karcie SD Nexta, "
+             "odczytywane z powrotem i weryfikowane, a następnie "
+             "podmieniane; poprzednie polecenie dot zostaje zachowane "
+             "jako sync5.bak (zmiana jego nazwy z powrotem na sync5 to "
+             "odzyskanie w jednym kroku). Sesja kończy się po zakończeniu "
+             "aktualizacji — uruchom potem {command} na Nexcie "
+             "ponownie.\n\nKatalog docelowy na Nexcie:"),
+        ("Push the new .sync5 (v{new}) to {machine}?\n\nThis machine's "
+         "version is unknown (an older dot, or an old ZX Next Remote "
+         "build — the two cannot be told apart), and the swap itself "
+         "only works when the far side is a .sync dot v5.9 or newer: on "
+         "anything older the staged sync5.new is left on the card and "
+         "nothing is swapped. The previous dot is kept as sync5.bak "
+         "(renaming it back to sync5 is the one-step recovery). The "
+         "session ends when the update completes — run {command} on the "
+         "Next again afterwards.\n\nTarget directory on the Next:"):
+            ("Wysłać nowy .sync5 (v{new}) na {machine}?\n\nWersja tej "
+             "maszyny jest nieznana (stare polecenie dot albo stara "
+             "wersja ZX Next Remote — nie da się ich rozróżnić), a sama "
+             "podmiana działa tylko wtedy, gdy po drugiej stronie jest "
+             "polecenie dot .sync w wersji v5.9 lub nowszej: przy czymś "
+             "starszym przygotowany sync5.new zostaje na karcie i nic "
+             "nie jest podmieniane. Poprzednie polecenie dot zostaje "
+             "zachowane jako sync5.bak (zmiana jego nazwy z powrotem na "
+             "sync5 to odzyskanie w jednym kroku). Sesja kończy się po "
+             "zakończeniu aktualizacji — uruchom potem {command} na "
+             "Nexcie ponownie.\n\nKatalog docelowy na Nexcie:"),
+        "ZX Next Remote update": "Aktualizacja ZX Next Remote",
+        "Update ZX Next Remote on this Next ({old} → {new})…":
+            "Zaktualizuj ZX Next Remote na tym Nexcie ({old} → {new})…",
+        "ZX Next Remote {old} predates self-update — copy a new build to the Next by hand once":
+            "ZX Next Remote {old} jest starszy niż samoaktualizacja — raz skopiuj nową kompilację na Nexta ręcznie",
+        "No ZX Next Remote build installed on this PC — fetch one via the itch.io tab or the Settings update check first":
+            "Brak zainstalowanej kompilacji ZX Next Remote na tym PC — pobierz ją najpierw z karty itch.io lub przez sprawdzanie aktualizacji w Ustawieniach",
+        "Could not obtain the ZX Next Remote build to send: {reason}":
+            "Nie udało się uzyskać kompilacji ZX Next Remote do wysłania: {reason}",
+        ("Update ZX Next Remote on {machine}: v{old} → v{new}.\n\nThe new "
+         "build is staged on the Next's SD card, read back and verified, "
+         "then swapped in; the previous build is kept next to it with a "
+         ".bak ending (renaming it back is the one-step recovery). The "
+         "Next's OS protection (on by default over apps/, dot/ and sys/) "
+         "refuses the swap inside a protected folder — the failure "
+         "message will say so. On success the Next soft-resets to "
+         "NextZXOS — relaunch {file} from there afterwards.\n\nFull path "
+         "of the .nex on the Next:"):
+            ("Aktualizacja ZX Next Remote na {machine}: v{old} → "
+             "v{new}.\n\nNowa kompilacja jest przygotowywana na karcie SD "
+             "Nexta, odczytywana z powrotem i weryfikowana, a następnie "
+             "podmieniana; poprzednia kompilacja zostaje obok z końcówką "
+             ".bak (zmiana jej nazwy z powrotem to odzyskanie w jednym "
+             "kroku). Ochrona systemu Nexta (domyślnie włączona dla "
+             "apps/, dot/ i sys/) odmawia podmiany w chronionym folderze "
+             "— komunikat o błędzie to powie. Po sukcesie Next wykona "
+             "miękki reset do NextZXOS — uruchom potem {file} stamtąd "
+             "ponownie.\n\nPełna ścieżka pliku .nex na Nexcie:"),
+        "ZX Next Remote update: enter the FULL path of the .nex on the Next (e.g. {example}).":
+            "Aktualizacja ZX Next Remote: podaj PEŁNĄ ścieżkę pliku .nex na Nexcie (np. {example}).",
         "Download File": "Pobierz plik",
         "Download NextZXOS Image": "Pobierz obraz NextZXOS",
         "Download and install HDF Monkey": "Pobierz i zainstaluj HDF Monkey",
@@ -3250,6 +3525,22 @@ CATALOGS = {
             "Odbieranie plików z Nexta...",
         "Receiving: {name} -> {path}":
             "Odbieranie: {name} -> {path}",
+        "Remote {name} update failed while reading {path}: {error} — nothing was sent.":
+            "Zdalna aktualizacja {name} nie powiodła się przy odczycie {path}: {error} — nic nie zostało wysłane.",
+        "Remote {name} update refused: {path} does not look like a {brand} {version} build — wrong or stale file.":
+            "Zdalna aktualizacja {name} odrzucona: {path} nie wygląda na kompilację {brand} {version} — zły lub przestarzały plik.",
+        "Remote {name} update: staging {path} ({size} bytes)…":
+            "Zdalna aktualizacja {name}: przygotowywanie {path} ({size} bajtów)…",
+        "Remote {name} update: staged copy verified ({size} bytes) — swapping it in…":
+            "Zdalna aktualizacja {name}: przygotowana kopia zweryfikowana ({size} bajtów) — podmienianie…",
+        "Remote {name} update FAILED mid-swap: the Next may be missing {target}. If it no longer starts, rename {backup} back to {file} in the NextZXOS Browser (the staged {staged} can be deleted).":
+            "Zdalna aktualizacja {name} NIE POWIODŁA SIĘ w trakcie podmiany: Next może nie mieć {target}. Jeśli już się nie uruchamia, zmień nazwę {backup} z powrotem na {file} w przeglądarce NextZXOS (przygotowany {staged} można usunąć).",
+        "Remote {name} update complete: {version} is on the card. The session will now close — run {command} on the Next to start the new build.":
+            "Zdalna aktualizacja {name} zakończona: {version} jest już na karcie. Sesja zostanie teraz zamknięta — wpisz {command} na Next, aby uruchomić nową kompilację.",
+        "Remote {name} update complete: {version} is on the card. The Next will now soft-reset to NextZXOS — relaunch {file} to run the new build.":
+            "Zdalna aktualizacja {name} zakończona: {version} jest już na karcie. Next wykona teraz miękki reset do NextZXOS — uruchom ponownie {file}, aby korzystać z nowej kompilacji.",
+        "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
+            "Zdalna aktualizacja {name} nie powiodła się: {reason}. Nic nie zostało podmienione — Next nadal używa dotychczasowej kompilacji.",
         "Remote explorer: connected to {address}":
             "Eksplorator zdalny: połączono z {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
@@ -3932,6 +4223,86 @@ CATALOGS = {
             "Попросить этот Next выйти из режима прослушивания и завершить работу? ZX Next Remote закроет своё приложение; точка '.sync5' вернётся в BASIC. Сервер продолжает слушать, поэтому можно подключиться снова.",
         "Asked the Next to leave listen mode and exit.":
             "Next-у отправлен запрос выйти из режима прослушивания и завершить работу.",
+        "Remote .sync5 update": "Удалённое обновление .sync5",
+        "Update .sync5 on this Next ({old} → {new})…":
+            "Обновить .sync5 на этом Next ({old} → {new})…",
+        "Update to {new}":
+            "Обновить до {new}",
+        "Push new .sync5 to this Next…":
+            "Отправить новый .sync5 на этот Next…",
+        ".sync5 version unknown — switch to this Next first":
+            "Версия .sync5 неизвестна — сначала переключитесь на этот Next",
+        ".sync5 v{old} predates self-update — copy the new dot to the Next by hand once":
+            ".sync5 v{old} появился до самообновления — один раз скопируйте новый dot на Next вручную",
+        "Locating the .sync5 build to send…":
+            "Поиск сборки .sync5 для отправки…",
+        "Still locating the .sync5 build to send — one moment.":
+            "Сборка .sync5 для отправки ещё ищется — минутку.",
+        "Could not obtain the .sync5 build to send: {reason}":
+            "Не удалось получить файл .sync5 для отправки: {reason}",
+        ("Update .sync5 on {machine}: v{old} → v{new}.\n\nThe new dot is "
+         "staged on the Next's SD card, read back and verified, then "
+         "swapped in; the previous dot is kept as sync5.bak (renaming it "
+         "back to sync5 is the one-step recovery). The session ends when "
+         "the update completes — run {command} on the Next again "
+         "afterwards.\n\nTarget directory on the Next:"):
+            ("Обновление .sync5 на {machine}: v{old} → v{new}.\n\nНовая "
+             "dot-команда записывается на SD-карту Next, считывается "
+             "обратно и проверяется, затем подменяется; прежняя "
+             "dot-команда сохраняется как sync5.bak (переименование "
+             "обратно в sync5 — восстановление в один шаг). Сессия "
+             "завершится по окончании обновления — после этого снова "
+             "запустите {command} на Next.\n\nЦелевой каталог на Next:"),
+        ("Push the new .sync5 (v{new}) to {machine}?\n\nThis machine's "
+         "version is unknown (an older dot, or an old ZX Next Remote "
+         "build — the two cannot be told apart), and the swap itself "
+         "only works when the far side is a .sync dot v5.9 or newer: on "
+         "anything older the staged sync5.new is left on the card and "
+         "nothing is swapped. The previous dot is kept as sync5.bak "
+         "(renaming it back to sync5 is the one-step recovery). The "
+         "session ends when the update completes — run {command} on the "
+         "Next again afterwards.\n\nTarget directory on the Next:"):
+            ("Отправить новый .sync5 (v{new}) на {machine}?\n\nВерсия "
+             "этой машины неизвестна (старая dot-команда или старая "
+             "версия ZX Next Remote — их невозможно различить), а сама "
+             "подмена работает только тогда, когда на той стороне "
+             "dot-команда .sync версии v5.9 или новее: на чём-то более "
+             "старом подготовленный sync5.new останется на карте и "
+             "ничего не будет подменено. Прежняя dot-команда сохраняется "
+             "как sync5.bak (переименование обратно в sync5 — "
+             "восстановление в один шаг). Сессия завершится по окончании "
+             "обновления — после этого снова запустите {command} на "
+             "Next.\n\nЦелевой каталог на Next:"),
+        "ZX Next Remote update": "Обновление ZX Next Remote",
+        "Update ZX Next Remote on this Next ({old} → {new})…":
+            "Обновить ZX Next Remote на этом Next ({old} → {new})…",
+        "ZX Next Remote {old} predates self-update — copy a new build to the Next by hand once":
+            "ZX Next Remote {old} появился до самообновления — один раз скопируйте новую сборку на Next вручную",
+        "No ZX Next Remote build installed on this PC — fetch one via the itch.io tab or the Settings update check first":
+            "На этом ПК не установлена сборка ZX Next Remote — сначала получите её на вкладке itch.io или через проверку обновлений в Настройках",
+        "Could not obtain the ZX Next Remote build to send: {reason}":
+            "Не удалось получить сборку ZX Next Remote для отправки: {reason}",
+        ("Update ZX Next Remote on {machine}: v{old} → v{new}.\n\nThe new "
+         "build is staged on the Next's SD card, read back and verified, "
+         "then swapped in; the previous build is kept next to it with a "
+         ".bak ending (renaming it back is the one-step recovery). The "
+         "Next's OS protection (on by default over apps/, dot/ and sys/) "
+         "refuses the swap inside a protected folder — the failure "
+         "message will say so. On success the Next soft-resets to "
+         "NextZXOS — relaunch {file} from there afterwards.\n\nFull path "
+         "of the .nex on the Next:"):
+            ("Обновление ZX Next Remote на {machine}: v{old} → "
+             "v{new}.\n\nНовая сборка записывается на SD-карту Next, "
+             "считывается обратно и проверяется, затем подменяется; "
+             "прежняя сборка остаётся рядом с окончанием .bak "
+             "(переименовать её обратно — восстановление в один шаг). "
+             "Защита системы Next (включена по умолчанию для apps/, dot/ "
+             "и sys/) откажет в подмене внутри защищённой папки — "
+             "сообщение об ошибке укажет на это. При успехе Next "
+             "выполнит мягкий сброс в NextZXOS — затем снова запустите "
+             "{file} оттуда.\n\nПолный путь к .nex на Next:"),
+        "ZX Next Remote update: enter the FULL path of the .nex on the Next (e.g. {example}).":
+            "Обновление ZX Next Remote: введите ПОЛНЫЙ путь к .nex на Next (например, {example}).",
         "Download File": "Скачать файл",
         "Download NextZXOS Image": "Скачать образ NextZXOS",
         "Download and install HDF Monkey": "Скачать и установить HDF Monkey",
@@ -4419,6 +4790,22 @@ CATALOGS = {
             "Получение файлов с Next...",
         "Receiving: {name} -> {path}":
             "Получение: {name} -> {path}",
+        "Remote {name} update failed while reading {path}: {error} — nothing was sent.":
+            "Удалённое обновление {name} не удалось при чтении {path}: {error} — ничего не отправлено.",
+        "Remote {name} update refused: {path} does not look like a {brand} {version} build — wrong or stale file.":
+            "Удалённое обновление {name} отклонено: {path} не похож на сборку {brand} {version} — неверный или устаревший файл.",
+        "Remote {name} update: staging {path} ({size} bytes)…":
+            "Удалённое обновление {name}: передача {path} ({size} байт)…",
+        "Remote {name} update: staged copy verified ({size} bytes) — swapping it in…":
+            "Удалённое обновление {name}: промежуточная копия проверена ({size} байт) — выполняется замена…",
+        "Remote {name} update FAILED mid-swap: the Next may be missing {target}. If it no longer starts, rename {backup} back to {file} in the NextZXOS Browser (the staged {staged} can be deleted).":
+            "Удалённое обновление {name} НЕ УДАЛОСЬ в середине замены: возможно, на Next сейчас нет {target}. Если он больше не запускается, переименуйте {backup} обратно в {file} в браузере NextZXOS (промежуточный файл {staged} можно удалить).",
+        "Remote {name} update complete: {version} is on the card. The session will now close — run {command} on the Next to start the new build.":
+            "Удалённое обновление {name} завершено: {version} уже на карте. Сессия сейчас будет закрыта — выполните {command} на Next, чтобы запустить новую сборку.",
+        "Remote {name} update complete: {version} is on the card. The Next will now soft-reset to NextZXOS — relaunch {file} to run the new build.":
+            "Удалённое обновление {name} завершено: {version} уже на карте. Next сейчас выполнит мягкий сброс в NextZXOS — запустите {file} заново, чтобы работать с новой сборкой.",
+        "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
+            "Удалённое обновление {name} не удалось: {reason}. Ничего не заменено — Next по-прежнему использует текущую сборку.",
         "Remote explorer: connected to {address}":
             "Удалённый проводник: подключено к {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
@@ -5100,6 +5487,84 @@ CATALOGS = {
             "Požádat tento Next, aby opustil režim naslouchání a skončil? ZX Next Remote zavře svou aplikaci; tečka '.sync5' se vrátí do BASICu. Server dál naslouchá, takže se lze připojit znovu.",
         "Asked the Next to leave listen mode and exit.":
             "Next byl požádán, aby opustil režim naslouchání a skončil.",
+        "Remote .sync5 update": "Vzdálená aktualizace .sync5",
+        "Update .sync5 on this Next ({old} → {new})…":
+            "Aktualizovat .sync5 na tomto Nextu ({old} → {new})…",
+        "Update to {new}":
+            "Aktualizovat na {new}",
+        "Push new .sync5 to this Next…":
+            "Odeslat nový .sync5 na tento Next…",
+        ".sync5 version unknown — switch to this Next first":
+            "Verze .sync5 není známa — nejdřív se přepněte na tento Next",
+        ".sync5 v{old} predates self-update — copy the new dot to the Next by hand once":
+            ".sync5 v{old} je starší než samoaktualizace — zkopírujte nový dot na Next jednou ručně",
+        "Locating the .sync5 build to send…":
+            "Hledání souboru .sync5 k odeslání…",
+        "Still locating the .sync5 build to send — one moment.":
+            "Soubor .sync5 k odeslání se stále hledá — okamžik.",
+        "Could not obtain the .sync5 build to send: {reason}":
+            "Nepodařilo se získat soubor .sync5 k odeslání: {reason}",
+        ("Update .sync5 on {machine}: v{old} → v{new}.\n\nThe new dot is "
+         "staged on the Next's SD card, read back and verified, then "
+         "swapped in; the previous dot is kept as sync5.bak (renaming it "
+         "back to sync5 is the one-step recovery). The session ends when "
+         "the update completes — run {command} on the Next again "
+         "afterwards.\n\nTarget directory on the Next:"):
+            ("Aktualizace .sync5 na {machine}: v{old} → v{new}.\n\nNový "
+             "dot příkaz se nahraje na SD kartu Nextu, načte zpět a "
+             "ověří, a poté vymění; předchozí dot příkaz zůstane uložen "
+             "jako sync5.bak (jeho přejmenování zpět na sync5 je obnova "
+             "jedním krokem). Relace skončí po dokončení aktualizace — "
+             "poté znovu spusťte {command} na Nextu.\n\nCílový adresář "
+             "na Nextu:"),
+        ("Push the new .sync5 (v{new}) to {machine}?\n\nThis machine's "
+         "version is unknown (an older dot, or an old ZX Next Remote "
+         "build — the two cannot be told apart), and the swap itself "
+         "only works when the far side is a .sync dot v5.9 or newer: on "
+         "anything older the staged sync5.new is left on the card and "
+         "nothing is swapped. The previous dot is kept as sync5.bak "
+         "(renaming it back to sync5 is the one-step recovery). The "
+         "session ends when the update completes — run {command} on the "
+         "Next again afterwards.\n\nTarget directory on the Next:"):
+            ("Odeslat nový .sync5 (v{new}) na {machine}?\n\nVerze tohoto "
+             "stroje není známa (starý dot příkaz, nebo stará verze ZX "
+             "Next Remote — nelze je rozlišit), a samotná výměna funguje "
+             "jen tehdy, když je na druhé straně dot příkaz .sync verze "
+             "v5.9 nebo novější: u čehokoli staršího zůstane připravený "
+             "sync5.new na kartě a nic se nevymění. Předchozí dot příkaz "
+             "zůstane uložen jako sync5.bak (jeho přejmenování zpět na "
+             "sync5 je obnova jedním krokem). Relace skončí po dokončení "
+             "aktualizace — poté znovu spusťte {command} na "
+             "Nextu.\n\nCílový adresář na Nextu:"),
+        "ZX Next Remote update": "Aktualizace ZX Next Remote",
+        "Update ZX Next Remote on this Next ({old} → {new})…":
+            "Aktualizovat ZX Next Remote na tomto Nextu ({old} → {new})…",
+        "ZX Next Remote {old} predates self-update — copy a new build to the Next by hand once":
+            "ZX Next Remote {old} je starší než samoaktualizace — zkopírujte nové sestavení na Next jednou ručně",
+        "No ZX Next Remote build installed on this PC — fetch one via the itch.io tab or the Settings update check first":
+            "Na tomto PC není nainstalováno žádné sestavení ZX Next Remote — nejprve je získejte na kartě itch.io nebo přes kontrolu aktualizací v Nastavení",
+        "Could not obtain the ZX Next Remote build to send: {reason}":
+            "Nepodařilo se získat sestavení ZX Next Remote k odeslání: {reason}",
+        ("Update ZX Next Remote on {machine}: v{old} → v{new}.\n\nThe new "
+         "build is staged on the Next's SD card, read back and verified, "
+         "then swapped in; the previous build is kept next to it with a "
+         ".bak ending (renaming it back is the one-step recovery). The "
+         "Next's OS protection (on by default over apps/, dot/ and sys/) "
+         "refuses the swap inside a protected folder — the failure "
+         "message will say so. On success the Next soft-resets to "
+         "NextZXOS — relaunch {file} from there afterwards.\n\nFull path "
+         "of the .nex on the Next:"):
+            ("Aktualizace ZX Next Remote na {machine}: v{old} → "
+             "v{new}.\n\nNové sestavení se nahraje na SD kartu Nextu, "
+             "načte zpět a ověří, a poté vymění; předchozí sestavení "
+             "zůstane vedle s koncovkou .bak (jeho přejmenování zpět je "
+             "obnova jedním krokem). Ochrana systému Nextu (ve výchozím "
+             "stavu zapnutá pro apps/, dot/ a sys/) výměnu v chráněné "
+             "složce odmítne — chybová zpráva to uvede. Při úspěchu Next "
+             "provede měkký reset do NextZXOS — poté odtud znovu spusťte "
+             "{file}.\n\nÚplná cesta k .nex na Nextu:"),
+        "ZX Next Remote update: enter the FULL path of the .nex on the Next (e.g. {example}).":
+            "Aktualizace ZX Next Remote: zadejte ÚPLNOU cestu k .nex na Nextu (např. {example}).",
         "Download File": "Stáhnout soubor",
         "Download NextZXOS Image": "Stáhnout obraz NextZXOS",
         "Download and install HDF Monkey": "Stáhnout a nainstalovat HDF Monkey",
@@ -5587,6 +6052,22 @@ CATALOGS = {
             "Přijímání souborů z Nextu...",
         "Receiving: {name} -> {path}":
             "Přijímání: {name} -> {path}",
+        "Remote {name} update failed while reading {path}: {error} — nothing was sent.":
+            "Vzdálená aktualizace {name} selhala při čtení {path}: {error} — nic nebylo odesláno.",
+        "Remote {name} update refused: {path} does not look like a {brand} {version} build — wrong or stale file.":
+            "Vzdálená aktualizace {name} odmítnuta: {path} nevypadá jako sestavení {brand} {version} — špatný nebo zastaralý soubor.",
+        "Remote {name} update: staging {path} ({size} bytes)…":
+            "Vzdálená aktualizace {name}: nahrávání {path} ({size} bajtů)…",
+        "Remote {name} update: staged copy verified ({size} bytes) — swapping it in…":
+            "Vzdálená aktualizace {name}: nahraná kopie ověřena ({size} bajtů) — probíhá výměna…",
+        "Remote {name} update FAILED mid-swap: the Next may be missing {target}. If it no longer starts, rename {backup} back to {file} in the NextZXOS Browser (the staged {staged} can be deleted).":
+            "Vzdálená aktualizace {name} SELHALA uprostřed výměny: Next možná nemá {target}. Pokud se už nespustí, přejmenujte {backup} zpět na {file} v prohlížeči NextZXOS (nahraný {staged} lze smazat).",
+        "Remote {name} update complete: {version} is on the card. The session will now close — run {command} on the Next to start the new build.":
+            "Vzdálená aktualizace {name} dokončena: {version} je na kartě. Relace se nyní ukončí — spusťte {command} na Nextu pro spuštění nového sestavení.",
+        "Remote {name} update complete: {version} is on the card. The Next will now soft-reset to NextZXOS — relaunch {file} to run the new build.":
+            "Vzdálená aktualizace {name} dokončena: {version} je na kartě. Next nyní provede měkký reset do NextZXOS — znovu spusťte {file}, aby se rozběhlo nové sestavení.",
+        "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
+            "Vzdálená aktualizace {name} selhala: {reason}. Nic nebylo vyměněno — Next stále používá své současné sestavení.",
         "Remote explorer: connected to {address}":
             "Vzdálený průzkumník: připojeno k {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
@@ -6270,6 +6751,89 @@ CATALOGS = {
             "Demander à ce Next de quitter le mode écoute et de se fermer ? ZX Next Remote ferme son application ; un point '.sync5' revient au BASIC. Le serveur continue d'écouter, il peut donc se reconnecter.",
         "Asked the Next to leave listen mode and exit.":
             "Demande envoyée au Next : quitter le mode écoute et se fermer.",
+        "Remote .sync5 update": "Mise à jour à distance de .sync5",
+        "Update .sync5 on this Next ({old} → {new})…":
+            "Mettre à jour .sync5 sur ce Next ({old} → {new})…",
+        "Update to {new}":
+            "Mettre à jour vers {new}",
+        "Push new .sync5 to this Next…":
+            "Envoyer le nouveau .sync5 sur ce Next…",
+        ".sync5 version unknown — switch to this Next first":
+            "Version de .sync5 inconnue — basculez d'abord sur ce Next",
+        ".sync5 v{old} predates self-update — copy the new dot to the Next by hand once":
+            ".sync5 v{old} est antérieur à l'auto-mise à jour — copiez une fois le nouveau dot sur le Next à la main",
+        "Locating the .sync5 build to send…":
+            "Localisation du .sync5 à envoyer…",
+        "Still locating the .sync5 build to send — one moment.":
+            "Toujours en train de localiser le .sync5 à envoyer — un instant.",
+        "Could not obtain the .sync5 build to send: {reason}":
+            "Impossible d'obtenir le .sync5 à envoyer : {reason}",
+        ("Update .sync5 on {machine}: v{old} → v{new}.\n\nThe new dot is "
+         "staged on the Next's SD card, read back and verified, then "
+         "swapped in; the previous dot is kept as sync5.bak (renaming it "
+         "back to sync5 is the one-step recovery). The session ends when "
+         "the update completes — run {command} on the Next again "
+         "afterwards.\n\nTarget directory on the Next:"):
+            ("Mise à jour de .sync5 sur {machine} : v{old} → "
+             "v{new}.\n\nLa nouvelle commande dot est déposée sur la "
+             "carte SD du Next, relue et vérifiée, puis mise en place ; "
+             "la commande dot précédente est conservée sous le nom "
+             "sync5.bak (la renommer en sync5 est la récupération en une "
+             "étape). La session se termine quand la mise à jour est "
+             "finie — relancez ensuite {command} sur le "
+             "Next.\n\nRépertoire cible sur le Next :"),
+        ("Push the new .sync5 (v{new}) to {machine}?\n\nThis machine's "
+         "version is unknown (an older dot, or an old ZX Next Remote "
+         "build — the two cannot be told apart), and the swap itself "
+         "only works when the far side is a .sync dot v5.9 or newer: on "
+         "anything older the staged sync5.new is left on the card and "
+         "nothing is swapped. The previous dot is kept as sync5.bak "
+         "(renaming it back to sync5 is the one-step recovery). The "
+         "session ends when the update completes — run {command} on the "
+         "Next again afterwards.\n\nTarget directory on the Next:"):
+            ("Envoyer le nouveau .sync5 (v{new}) sur {machine} ?\n\nLa "
+             "version de cette machine est inconnue (une ancienne "
+             "commande dot, ou une ancienne version de ZX Next Remote — "
+             "impossible de les distinguer), et l'échange lui-même ne "
+             "fonctionne que si l'autre côté est une commande dot .sync "
+             "v5.9 ou plus récente : avec quelque chose de plus ancien, "
+             "le sync5.new déposé reste sur la carte et rien n'est "
+             "échangé. La commande dot précédente est conservée sous le "
+             "nom sync5.bak (la renommer en sync5 est la récupération en "
+             "une étape). La session se termine quand la mise à jour est "
+             "finie — relancez ensuite {command} sur le "
+             "Next.\n\nRépertoire cible sur le Next :"),
+        "ZX Next Remote update": "Mise à jour de ZX Next Remote",
+        "Update ZX Next Remote on this Next ({old} → {new})…":
+            "Mettre à jour ZX Next Remote sur ce Next ({old} → {new})…",
+        "ZX Next Remote {old} predates self-update — copy a new build to the Next by hand once":
+            "ZX Next Remote {old} est antérieur à l'auto-mise à jour — copiez une fois une nouvelle compilation sur le Next à la main",
+        "No ZX Next Remote build installed on this PC — fetch one via the itch.io tab or the Settings update check first":
+            "Aucune compilation de ZX Next Remote installée sur ce PC — récupérez-en une d'abord via l'onglet itch.io ou la vérification de mise à jour des Réglages",
+        "Could not obtain the ZX Next Remote build to send: {reason}":
+            "Impossible d'obtenir la compilation de ZX Next Remote à envoyer : {reason}",
+        ("Update ZX Next Remote on {machine}: v{old} → v{new}.\n\nThe new "
+         "build is staged on the Next's SD card, read back and verified, "
+         "then swapped in; the previous build is kept next to it with a "
+         ".bak ending (renaming it back is the one-step recovery). The "
+         "Next's OS protection (on by default over apps/, dot/ and sys/) "
+         "refuses the swap inside a protected folder — the failure "
+         "message will say so. On success the Next soft-resets to "
+         "NextZXOS — relaunch {file} from there afterwards.\n\nFull path "
+         "of the .nex on the Next:"):
+            ("Mise à jour de ZX Next Remote sur {machine} : v{old} → "
+             "v{new}.\n\nLa nouvelle compilation est déposée sur la "
+             "carte SD du Next, relue et vérifiée, puis mise en place ; "
+             "la compilation précédente est conservée à côté avec la "
+             "terminaison .bak (la renommer en sens inverse est la "
+             "récupération en une étape). La protection du système du "
+             "Next (active par défaut sur apps/, dot/ et sys/) refuse la "
+             "substitution dans un dossier protégé — le message d'échec "
+             "le dira. En cas de succès le Next effectue un redémarrage "
+             "à chaud vers NextZXOS — relancez ensuite {file} depuis "
+             "là.\n\nChemin complet du .nex sur le Next :"),
+        "ZX Next Remote update: enter the FULL path of the .nex on the Next (e.g. {example}).":
+            "Mise à jour de ZX Next Remote : saisissez le chemin COMPLET du .nex sur le Next (p. ex. {example}).",
         "Download File": "Télécharger le fichier",
         "Download NextZXOS Image": "Télécharger l'image NextZXOS",
         "Download and install HDF Monkey": "Télécharger et installer HDF Monkey",
@@ -6758,6 +7322,22 @@ CATALOGS = {
             "Réception des fichiers depuis le Next...",
         "Receiving: {name} -> {path}":
             "Réception : {name} -> {path}",
+        "Remote {name} update failed while reading {path}: {error} — nothing was sent.":
+            "La mise à jour distante de {name} a échoué à la lecture de {path} : {error} — rien n'a été envoyé.",
+        "Remote {name} update refused: {path} does not look like a {brand} {version} build — wrong or stale file.":
+            "Mise à jour distante de {name} refusée : {path} ne ressemble pas à une compilation {brand} {version} — fichier erroné ou périmé.",
+        "Remote {name} update: staging {path} ({size} bytes)…":
+            "Mise à jour distante de {name} : envoi de {path} ({size} octets)…",
+        "Remote {name} update: staged copy verified ({size} bytes) — swapping it in…":
+            "Mise à jour distante de {name} : copie transférée vérifiée ({size} octets) — remplacement en cours…",
+        "Remote {name} update FAILED mid-swap: the Next may be missing {target}. If it no longer starts, rename {backup} back to {file} in the NextZXOS Browser (the staged {staged} can be deleted).":
+            "Mise à jour distante de {name} ÉCHOUÉE en plein remplacement : le Next n'a peut-être plus de {target}. S'il ne démarre plus, renommez {backup} en {file} dans le Browser de NextZXOS (le {staged} transféré peut être supprimé).",
+        "Remote {name} update complete: {version} is on the card. The session will now close — run {command} on the Next to start the new build.":
+            "Mise à jour distante de {name} terminée : {version} est sur la carte. La session va maintenant se fermer — lancez {command} sur le Next pour démarrer la nouvelle compilation.",
+        "Remote {name} update complete: {version} is on the card. The Next will now soft-reset to NextZXOS — relaunch {file} to run the new build.":
+            "Mise à jour distante de {name} terminée : {version} est sur la carte. Le Next va maintenant faire un redémarrage à chaud vers NextZXOS — relancez {file} pour exécuter la nouvelle compilation.",
+        "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
+            "Mise à jour distante de {name} échouée : {reason}. Rien n'a été remplacé — le Next exécute toujours sa compilation actuelle.",
         "Remote explorer: connected to {address}":
             "Explorateur distant : connecté à {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
