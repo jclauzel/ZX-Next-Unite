@@ -90,6 +90,19 @@ unsigned char sync_rename(const char *oldpath, const char *newpath)
    return esx_f_rename(oldpath, newpath);
 }
 
+/* Close the OS's own read handle on THIS dot's file. The dotN loader obtains
+ * it via M_GETHANDLE to stream the extra pages and never closes it, so
+ * /dot/sync5 stays "in use" for the whole run - hardware-measured: a rename
+ * on it fails while the handle is open, and succeeds on any non-open file.
+ * The -listen 'U' (release) op calls this so the server can then swap a
+ * staged sync5.new in with plain rename ops (the running code is all in RAM;
+ * the file is only needed at load). Same error convention as the wrappers
+ * above: 0xFF on error, callers treat "!= 0xFF" as success. */
+unsigned char sync_release_self(void)
+{
+   return esx_f_close(esx_m_gethandle());
+}
+
 /* Current drive for the -listen "getdrives" command, as a LETTER 'A'..'P'
  * (0 if unknown, so the caller can fall back to 'C').
  *

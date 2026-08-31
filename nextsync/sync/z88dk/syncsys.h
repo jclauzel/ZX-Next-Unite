@@ -36,6 +36,7 @@ extern unsigned char  sync_mkdir(const char *path);   /* create one directory */
 extern unsigned char  sync_rmdir(const char *path);   /* remove a directory    */
 extern unsigned char  sync_unlink(const char *path);  /* delete a file         */
 extern unsigned char  sync_rename(const char *oldpath, const char *newpath); /* rename/move a file or dir */
+extern unsigned char  sync_release_self(void);        /* close the dot's OWN file handle (-listen 'U') */
 extern unsigned char  sync_getdrive(void);             /* current drive letter 'A'..'P', 0 if unknown */
 
 /* Free space on a drive for the -listen "psize"/"pfull" commands, counted in

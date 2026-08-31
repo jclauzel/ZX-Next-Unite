@@ -533,6 +533,9 @@ LISTEN_HELP = """\
     rmdir <path>               remove a directory on the Next
     rm <path>                  delete a file on the Next
     ren <oldpath> <newpath>    rename/move a file or directory on the Next
+    release                    the dot closes its own file handle so /dot/sync5
+                               can be replaced with ren (dot v5.9+; after this
+                               send only ren/rm/quit - see the update flow)
     rcpy <src> <dst>           copy a file/dir locally ON the Next, incl.
                                across partitions (dot v5.2+); a <dst>
                                ending in / keeps the source name
@@ -768,6 +771,8 @@ def _listen_console_reader(cmd_q):
             cmd_q.put(("rm", a1, a2))
         elif verb in ("ren", "rename", "mv", "move"):
             cmd_q.put(("ren", a1, a2))
+        elif verb == "release":
+            cmd_q.put(("release", "", ""))
         elif verb in ("rcpy", "cp"):
             cmd_q.put(("rcpy", a1, a2))
         elif verb in ("rfsize", "du"):
@@ -992,6 +997,20 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 # the block framing is length-prefixed, so the NUL is safe.
                 sendpacket(conn, b"V" + a1.encode() + b"\x00" + a2.encode(), 0)
                 ok = _listen_status(conn, f"ren {a1} -> {a2}", reply)
+                _reply_fill(reply, {'ok': bool(ok)})
+            elif op == "release":
+                # release (dot v5.9+): 'U', no args - the dot closes the OS's
+                # own read handle on its /dot/sync5 file so the file can be
+                # swapped with ren/rm while the session stays up (hardware-
+                # measured: ren on the open dot file fails, and works once
+                # released). CONTRACT: after this send ONLY path-based
+                # commands (ren/rm/quit) - anything that OPENS a file or
+                # directory on the Next could be handed the freed handle
+                # number, which NextZXOS still closes at dot exit. An older
+                # dot ignores the unknown opcode in silence (same toll as an
+                # unanswered version query: one false-disconnect log).
+                sendpacket(conn, b"U", 0)
+                ok = _listen_status(conn, "release", reply)
                 _reply_fill(reply, {'ok': bool(ok)})
             elif op == "ident":
                 # version query (ZXNR 1.0.2+ / dot v5.8+): 'Y', no args. ONE

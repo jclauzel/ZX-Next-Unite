@@ -140,17 +140,21 @@ server-> Next   : one command frame, payload = opcode + optional path:
      'G' <path>   get   : the Next pushes the file / whole dir back
      'P' <path>   put   : the Next pulls the file from the server
      'M' <path>   mkdir      'R' <path>  rmdir      'X' <path>  rm
+     'V' <old>\0<new>  ren : rename/move a file or directory
+     'U'          release : close the dot's OWN file handle (v5.9+)
      'W'          getdrives : the Next pushes the mounted drive letters
      'Z' [drive]  free  : free space on a partition (psize/pfull, v5.2+)
      'C' <src>\0<dst>  rcpy : copy a file/dir LOCALLY on the Next (v5.2+)
      'S' <path>   rfsize : total size of a file / directory tree (v5.2+)
+     'Y'          ident : 'O' + "sync" + NUL + version (v5.8+)
      'Q'          quit  -> leave listen mode
 ```
 
 `ls`/`get`/`mkdir`/`rmdir`/`rm` answer by pushing blocks (each acked `"Ok"`, like
 `-send`): `ls` sends `'D'` blocks of packed `[flags][size LE][namelen][name]`
 entries then `'E'`; `get` reuses `send_file`/`send_dir` (`'N'`/`'D'`/`'E'` then a
-final `'B'`); the status ops send one `'O'`/`'F'` block. `put` reuses `transfer()`
+final `'B'`); the status ops (`mkdir`/`rmdir`/`rm`/`ren`/`release`) send one
+`'O'`/`'F'` block. `put` reuses `transfer()`
 — the Next pulls with `"Get"` and the server serves the bytes, exactly like a
 normal download. `getdrives` (v5.1+) sends one `'O'` block carrying the current
 drive letter (M_GETDRV) then the letters `{C, M, current}` — C and M are
@@ -160,6 +164,17 @@ the A:/B: floppy letters, and any M_P3DOS-routed call) remaps `$8000-$BFFF`
 mid-call and crashes the dotN — three separate real-hardware crashes confirmed
 this. Every `<path>` may carry an optional drive prefix (`m:/games`), and one
 without lands on the dot's current drive as before.
+
+`release` (`'U'`, v5.9+) makes the dot close the OS's **own read handle on its
+`/dot/sync5` file** — the dotN loader gets it via M_GETHANDLE to stream the
+extra pages and never closes it, so the file is "in use" for the whole run
+(hardware-measured: `ren` on it fails while open, succeeds once released; the
+running code is all in RAM and never re-reads the file). This is the enabling
+step of the remote self-update flow: stage the new build as `sync5.new` with
+`put`, verify it with `get`, then `release` and swap with two `ren` ops.
+**Contract: after `'U'` the server sends only path-based ops (`V`/`X`/`Q`)** —
+anything that OPENS a file or directory could be handed the freed handle
+number, which NextZXOS's exit tidy-up still closes.
 
 `rcpy` (`'C'`, v5.2+) copies a file or a whole directory tree **entirely on
 the Next** — no data crosses the wire, and because every esxDOS call takes

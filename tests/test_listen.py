@@ -151,6 +151,9 @@ def mock_next(sock, fake_entries, fake_file, captured):
             else:
                 captured['ren'] = arg
                 push(b'O', 0)
+        elif op == b'U':                            # release (dot v5.9+): the dot
+            captured['release'] = True              # closes its OWN file handle;
+            push(b'O', 0)                           # one status block back
         elif op in (b'M', b'R', b'X'):              # mkdir/rmdir/rm: status
             # "/sys" is OS-protected (marked refusal); "/locked" is an
             # ordinary failure, so both status paths are exercised.
@@ -252,6 +255,9 @@ def main():
         ("rcpy", "/games/a.tap", "/sys/a.tap"),     # copy INTO it     -> OSP
         ("mkdir", "/sys/evil2", "", osp_reply),     # same, bridge flavour
         ("ls", "/", ""),                            # stream still in sync
+        # release rides LAST before quit, mirroring the update flow's contract:
+        # after 'U' the server sends only path-based ops, then ends the session.
+        ("release", "", ""),                        # 'U': dot frees its own file
         # LAST: the marked quit ends the session, so nothing may follow.
         ("quit_app", "", ""),                       # /forceexit: marked quit
     ]
@@ -294,6 +300,12 @@ def main():
         print("PASS ren   :", captured['ren'].replace("\x00", " -> "))
     else:
         print(f"FAIL ren   : {captured.get('ren')!r}"); ok = False
+    # release ('U', dot v5.9+): framed as a bare opcode, one 'O' status back,
+    # reported OK by name (the update flow's enabling step).
+    if captured.get('release') and "release: OK" in server_out:
+        print("PASS release: 'U' framed and acknowledged OK")
+    else:
+        print("FAIL release: not framed or not reported OK"); ok = False
     # a missing folder must be reported (the 'F' reply), not silently swallowed;
     # that it landed mid-stream and every later command still passed proves the
     # 'F' block was consumed without desyncing the session.
