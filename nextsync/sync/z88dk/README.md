@@ -171,7 +171,11 @@ extra pages and never closes it, so the file is "in use" for the whole run
 (hardware-measured: `ren` on it fails while open, succeeds once released; the
 running code is all in RAM and never re-reads the file). This is the enabling
 step of the remote self-update flow: stage the new build as `sync5.new` with
-`put`, verify it with `get`, then `release` and swap with two `ren` ops.
+`put`, verify it with `get`, then `release` and swap with two `ren` ops — all
+scripted by the server's `update` verb (see *Updating and reverting over the
+wire* below). The flow is not dot-only: a ZX Next Remote `.nex` (1.0.3+)
+serving the session answers the same `'U'` with an immediate OK — it holds no
+handle on its own file.
 **Contract: after `'U'` the server sends only path-based ops (`V`/`X`/`Q`)** —
 anything that OPENS a file or directory could be handed the freed handle
 number, which NextZXOS's exit tidy-up still closes.
@@ -240,25 +244,105 @@ are rejected outright (the floppy trap), and unmounted letters remain the
 user's responsibility exactly as for every other drive-prefixed command.
 
 Server side: `nextsync5.py` gains a `listen_session()` (triggered by `"Listen"`)
-with a console CLI (`ls`/`get`/`put`/`mkdir`/`rmdir`/`rm`/`ren`/`drives`/
-`psize`/`pfull`/`rcpy`/`rfsize`/`quit`). The whole wire
+with a console CLI (`ls`/`get`/`put`/`mkdir`/`rmdir`/`rm`/`ren`/`release`/
+`update`/`rcpy`/`rfsize`/`drives`/`version`/`psize`/`pfull`/`quit`/
+`forceexit`). The whole wire
 protocol is covered by `tests/test_listen.py` (repo root), which drives
 `listen_session()` over a socketpair with a mock Next — run it with
 `python tests/test_listen.py`.
 (The app-side twin, `zxnu_workers.run_remote_listen_server`, is covered by
 `tests/test_remote_listen.py`.)
 
+### Updating and reverting over the wire
+
+A running `.sync5` dot (v5.9+) — or a ZX Next Remote `.nex` (1.0.3+) serving
+the session — can be replaced **over its own live `-listen` session**, no
+card pulling: the server stages the new build as `<name>.new`, pulls it back
+and byte-compares (the wire checksums are in-flight only), sends `'U'`
+(release), deletes `<name>.bak` (NextZXOS refuses rename-onto-existing, so
+that delete is load-bearing), renames `<name>` → `<name>.bak` and
+`<name>.new` → `<name>`, then ends the session. The previous build ALWAYS
+stays on the card as `<name>.bak` — that is the revert story. Version gating
+rides the `'Y'` ident: an older build answers `'U'` with silence and is
+never offered the automatic flow — a pre-5.9 dot (or pre-1.0.3 ZXNR) needs
+ONE hand-copy (or wire-push + Browser rename), after which it self-updates
+forever. A refusal before the renames changes nothing; a mid-swap failure
+names the recovery (rename the `.bak` back in the NextZXOS Browser). In the
+app, the Remote Explorer's top bar offers the same flow as an "Update to
+x.y.z" link when the connected build is older (plus a session-tab
+right-click menu with several Nexts seated); the update op is deliberately
+NOT exposed over the HTTP bridge.
+
+Update the dot (PC console = `python nextsync5.py -listen`, the Next runs
+`.sync5 -listen`):
+
+```
+listen> version
+listen> update nextsync/sync/server/dot/syncdev
+... update COMPLETE: sync 5.9.0 is on the card ...
+```
+
+`version` first is required — the verb is gated on the cached ident. The
+default target dir is `c:/dot`; add `force` to push a same-or-older build.
+A dot just closes at the end — re-run `.sync5 -listen`.
+
+Revert the dot (the previous build is `c:/dot/sync5.bak`; run from a live
+session of the CURRENT dot):
+
+```
+listen> rm c:/dot/sync5.old
+listen> release
+listen> ren c:/dot/sync5 c:/dot/sync5.old
+listen> ren c:/dot/sync5.bak c:/dot/sync5
+listen> quit
+```
+
+The `rm` clears the parking name (a FAILED there just means it did not
+exist), `release` frees the running dot's own file, and after it only
+`ren`/`rm`/`quit` are legal. Then re-run `.sync5 -listen`. Alternative when
+the older binary is still on the PC: `update <old-file> c:/dot force`.
+
+The same verbs update a **ZX Next Remote** `.nex` in File server mode (its
+own documentation covers that product's side of the story). The server
+mechanics differ in three ways: the `[dir]` is REQUIRED — it names where the
+running `.nex` lives (`c:/dot` is the dot's default only) — the staged
+build's version is read from a containing `zxnextremote-X.Y.Z` folder name
+(without one, plain `update` refuses and `force` pushes anyway), and the
+flow ends with the marked quit — settings saved, soft reset into NextZXOS,
+relaunch the `.nex` there:
+
+```
+listen> version
+listen> update zxnextremote-n2n.nex c:/mydir
+```
+
+Revert it with `update <older .nex> c:/mydir force`, or manually from a live
+File-server session:
+
+```
+listen> rm c:/mydir/zxnextremote-n2n.nex.old
+listen> release
+listen> ren c:/mydir/zxnextremote-n2n.nex c:/mydir/zxnextremote-n2n.nex.old
+listen> ren c:/mydir/zxnextremote-n2n.nex.bak c:/mydir/zxnextremote-n2n.nex
+listen> forceexit
+```
+
+`release` is an immediate OK on ZXNR (nothing is held); `forceexit` is the
+marked quit — settings saved, soft reset. If the `.nex` lives under a
+protected root (`apps/`, `dot/`, `sys/`, …), the renames are refused by name
+— ZXNR's default-on OS protection; move it or toggle Settings → OS
+protection on the Next.
+
 ## Status / testing
 
 - Builds clean as a valid dotN (~13 KB of code+data past the old 8 KB page;
   24 KB command file).
 - **Server `-listen` protocol is validated on localhost** by `tests/test_listen.py`
-  (ls/get/put/mkdir/rmdir/rm all pass against a mock Next). The **dot** side
-  compiles clean and reuses the proven send/receive paths, but the Next half of
-  `-listen` still needs a real-Next run to confirm.
-- **Not yet run on hardware or a NextZXOS emulator card.** This environment has
-  CSpect but no bootable NextZXOS system SD image, so a load test could not be
-  performed here. To smoke-test: copy `syncdev` to your card's `C:/DOT/` folder
+  (ls/get/put/mkdir/rmdir/rm — and the whole update macro — pass against a
+  mock Next), and the dot side is **hardware-confirmed release by release** on
+  real Nexts and clones (most recently v5.9.0's release-and-swap flow, proven
+  in both directions).
+- **First-run smoke test on a fresh card:** copy `syncdev` to your card's `C:/DOT/` folder
   and run `.syncdev` from NextZXOS BASIC — it should print its
   `NextSync <version> Clauzel/Komppa` banner (the version is
   `ZX_NEXT_UNITE_DOTN_VERSION` in `zxnu_config.py`) and return cleanly. Then
