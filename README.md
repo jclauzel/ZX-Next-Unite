@@ -52,6 +52,16 @@ emulator launch buttons below:
   `-start-remote-explorer-listener` switch to have the listen server running
   from startup with no clicks. See the
   [Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki#remote-file-explorer).
+- ⭐ **Remote self-update over the wire** — a running `.sync5` dot (v5.9+) or
+  [ZX Next Remote](https://jclauzel.itch.io/zxnextremote) `.nex` (1.0.3+) is updated over its own live `-listen`
+  session — no card pulling: the new build is staged, read back and
+  byte-verified, then swapped in place, and the previous build always stays
+  on the card as `<name>.bak` for an instant revert. Driven from the Remote
+  Explorer (an "Update to x.y.z" link appears when the connected build is
+  older) or the `nextsync5` console — CLI examples in the
+  [z88dk README](nextsync/sync/z88dk/README.md#updating-and-reverting-over-the-wire),
+  full story on the
+  [NextSync wiki page](https://github.com/jclauzel/ZX-Next-Unite/wiki/NextSync-tab).
 - ⭐ **HTTP bridge** — remote access to a Next's file system over plain **HTTP**:
   a built-in web server (Flask) republishes the Remote Explorer's `-listen`
   session as HTTP routes, so you can browse, download, upload and manage the

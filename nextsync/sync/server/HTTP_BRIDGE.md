@@ -269,6 +269,15 @@ automation: the type names the artifact to fetch, the number says
 whether to. Against an older listener (which ignores the unknown opcode)
 both routes answer **502** with `version not supported`.
 
+> The update itself is **deliberately not a bridge route**. These two routes
+> tell an automation *that* a new build is due; actually replacing the code
+> running on the Next stays a `listen>` console / Remote Explorer affordance
+> (the `update` verb — see
+> [Updating and reverting over the wire](../z88dk/README.md#updating-and-reverting-over-the-wire)).
+> Any LAN client of an unauthenticated bridge must not be able to swap the
+> binary a Next runs; if that ever gets revisited, it will be strictly
+> behind the bearer token.
+
 ### `GET /ls?path=/games` — directory listing
 
 ```
