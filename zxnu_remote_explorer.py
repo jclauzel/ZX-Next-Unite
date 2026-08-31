@@ -1409,6 +1409,13 @@ class RemoteExplorerWidget(QWidget):
         # the bottom of the pane since the UX pass that aligned it with the
         # local pane's sync-root box (both panes: bar / tree / path row).
         self.next_path_label = QLabel("Next: (not connected)", self)
+        # The top bar's "sync 5.8.0  Update to 5.9.0" link (rendered by
+        # _update_next_path_label when the DRIVEN dot is older): the label
+        # is the one place the version already shows, and with a single
+        # Next connected the session-tab strip — the other update
+        # affordance — is not even rendered (it needs two sessions), so
+        # this link is the primary way to reach the one-click update.
+        self.next_path_label.linkActivated.connect(self._on_sync5_update_link)
         next_up = CompactButton("Up", self)
         next_up.clicked.connect(self._next_up)
         refresh = CompactButton("Refresh", self, floor=72)
@@ -2839,6 +2846,39 @@ class RemoteExplorerWidget(QWidget):
             return "#dd9c07"       # yellow/amber: getting tight
         return "#e03131"           # red: nearly full
 
+    def _sync5_update_link_html(self):
+        """The "Update to x.y.z" link appended after the top bar's ident
+        span — rendered ONLY for the confident case (the DRIVEN dot
+        reported an older, v5.9+ version, so the 'U'-based swap will
+        actually work), exactly the session-tab menu's enabled-entry
+        gate. Everything else keeps its menu-side affordance: the link is
+        the single-session path, where the tab strip (two-session minimum)
+        does not exist to be right-clicked."""
+        if self._sync5_update_source is None or self._peer_active is None:
+            return ""
+        if self._next_ident[0] != "sync":
+            return ""
+        remote_ver = _parse_dot_version(self._next_ident[1])
+        local_ver = _parse_dot_version(ZX_NEXT_UNITE_DOTN_VERSION)
+        if (remote_ver is None or local_ver is None
+                or remote_ver < (5, 9) or remote_ver >= local_ver):
+            return ""
+        text = html.escape(ui_tr_now("Update to {new}").format(
+            new=ZX_NEXT_UNITE_DOTN_VERSION))
+        return ("&nbsp;&nbsp;<a href=\"sync5-update\" style=\"color: "
+                f"#7fe3a8;\">{text}</a>")
+
+    def _on_sync5_update_link(self, href):
+        """The top bar's update link: the one-click update for the DRIVEN
+        session. Re-checks the gate — the label could be a stale render
+        clicked mid-refresh — then rides the same resolve/confirm/enqueue
+        path as the session-tab menu entry."""
+        if href != "sync5-update":
+            return
+        if self._sync5_update_link_html() == "":
+            return                       # ident or baton moved under the click
+        self._update_dot_on_session(self._peer_active, self._next_ident[1])
+
     def _update_next_path_label(self):
         """Top label = the cached free space of the cwd's drive (if known);
         bottom path box = the cwd itself (mirroring the local pane's row).
@@ -2852,7 +2892,8 @@ class RemoteExplorerWidget(QWidget):
             if self._next_ident[0]:
                 _ident = ("&nbsp;&nbsp;<span style=\"color: #9cd2ff;\">"
                           f"{html.escape(self._next_ident[0])} "
-                          f"{html.escape(self._next_ident[1])}</span>")
+                          f"{html.escape(self._next_ident[1])}</span>"
+                          + self._sync5_update_link_html())
             self.next_path_label.setText(
                 f"Next: <b><span style=\"color: {self._free_color(free)};\">"
                 f"{html.escape(self._fmt_free(free))} free</span></b>"
@@ -2869,7 +2910,8 @@ class RemoteExplorerWidget(QWidget):
                 self.next_path_label.setText(
                     "Next: connected&nbsp;&nbsp;<span style=\"color: "
                     f"#9cd2ff;\">{html.escape(self._next_ident[0])} "
-                    f"{html.escape(self._next_ident[1])}</span>")
+                    f"{html.escape(self._next_ident[1])}</span>"
+                    + self._sync5_update_link_html())
             else:
                 self.next_path_label.setText("Next: connected")
             self.next_path_label.setToolTip("")

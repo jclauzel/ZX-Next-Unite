@@ -430,6 +430,8 @@ CATALOGS = {
         "Remote .sync5 update": "Actualización remota de .sync5",
         "Update .sync5 on this Next ({old} → {new})…":
             "Actualizar .sync5 en este Next ({old} → {new})…",
+        "Update to {new}":
+            "Actualizar a {new}",
         "Push new .sync5 to this Next…":
             "Enviar el nuevo .sync5 a este Next…",
         ".sync5 version unknown — switch to this Next first":
@@ -1661,6 +1663,8 @@ CATALOGS = {
         "Remote .sync5 update": "Atualização remota do .sync5",
         "Update .sync5 on this Next ({old} → {new})…":
             "Atualizar o .sync5 neste Next ({old} → {new})…",
+        "Update to {new}":
+            "Atualizar para {new}",
         "Push new .sync5 to this Next…":
             "Enviar o novo .sync5 para este Next…",
         ".sync5 version unknown — switch to this Next first":
@@ -2890,6 +2894,8 @@ CATALOGS = {
         "Remote .sync5 update": "Zdalna aktualizacja .sync5",
         "Update .sync5 on this Next ({old} → {new})…":
             "Zaktualizuj .sync5 na tym Nexcie ({old} → {new})…",
+        "Update to {new}":
+            "Zaktualizuj do {new}",
         "Push new .sync5 to this Next…":
             "Wyślij nowy .sync5 na tego Nexta…",
         ".sync5 version unknown — switch to this Next first":
@@ -4122,6 +4128,8 @@ CATALOGS = {
         "Remote .sync5 update": "Удалённое обновление .sync5",
         "Update .sync5 on this Next ({old} → {new})…":
             "Обновить .sync5 на этом Next ({old} → {new})…",
+        "Update to {new}":
+            "Обновить до {new}",
         "Push new .sync5 to this Next…":
             "Отправить новый .sync5 на этот Next…",
         ".sync5 version unknown — switch to this Next first":
@@ -5352,6 +5360,8 @@ CATALOGS = {
         "Remote .sync5 update": "Vzdálená aktualizace .sync5",
         "Update .sync5 on this Next ({old} → {new})…":
             "Aktualizovat .sync5 na tomto Nextu ({old} → {new})…",
+        "Update to {new}":
+            "Aktualizovat na {new}",
         "Push new .sync5 to this Next…":
             "Odeslat nový .sync5 na tento Next…",
         ".sync5 version unknown — switch to this Next first":
@@ -6583,6 +6593,8 @@ CATALOGS = {
         "Remote .sync5 update": "Mise à jour à distance de .sync5",
         "Update .sync5 on this Next ({old} → {new})…":
             "Mettre à jour .sync5 sur ce Next ({old} → {new})…",
+        "Update to {new}":
+            "Mettre à jour vers {new}",
         "Push new .sync5 to this Next…":
             "Envoyer le nouveau .sync5 sur ce Next…",
         ".sync5 version unknown — switch to this Next first":
