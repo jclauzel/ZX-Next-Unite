@@ -1000,6 +1000,18 @@ def build_nextsync_pane(
                 host._re_mini_retro.stop()
             stack.setCurrentWidget(host._re_mini_log)
 
+    def _nextsync_on_dot_update(ok, message):
+        # The ("update_dot", …) macro's one terminal outcome, success or
+        # failure: into the NextSync log (the durable record — progress
+        # lines already ride sig.log into the same window) AND a toast so
+        # the verdict is seen from whichever tab is in front. The body is
+        # already translated at its emit site in zxnu_workers; the static
+        # title goes through the _show_toast chokepoint like every other.
+        add_nextsync_log_window(str(message))
+        host._show_toast("Remote .sync5 update", str(message),
+                         variant=("green" if ok else "red"),
+                         duration_ms=12000)
+
     def _nextsync_build_remote_explorer():
         if host._re_widget is not None:
             return host._re_widget
@@ -1036,6 +1048,13 @@ def build_nextsync_pane(
             # strip and its Launch buttons wear too.
             emulator_color_for=lambda n: host.emulator_color_for(n),
             on_emulator_color_changed=lambda n, c: host.set_emulator_color(n, c),
+            # The dotN build behind the session tabs' "Update .sync5"
+            # action: resolved by zxnu_emulator_ops (source checkout, or
+            # this release's own 'sync5' asset) on CLICK only, and on a
+            # worker thread (the widget's _Sync5ResolveTask — the resolve
+            # can be two sequential network requests) — the menu itself
+            # must never touch the network.
+            sync5_update_source=(lambda: host._resolve_sync5_update_binary()),
             # The local drive switcher lives IN this widget's nav row now
             # (9.6.0). It used to be the classic tab's combo, left behind
             # on a full-width row above the whole view: it stretched across
@@ -1373,6 +1392,12 @@ def build_nextsync_pane(
         host._re_sig.drives.connect(widget.on_drives)
         host._re_sig.free_space.connect(widget.on_free_space)
         host._re_sig.ident.connect(widget.on_ident)
+        # Terminal verdict of the remote .sync5 self-update macro: the log
+        # is the durable record, the toast reaches the user whatever tab
+        # is in front. The message arrives already translated (emit-site
+        # ui_tr_now in zxnu_workers), so it passes through untouched; the
+        # static title translates inside the _show_toast chokepoint.
+        host._re_sig.dot_update.connect(_nextsync_on_dot_update)
         host._re_sig.fsize.connect(widget.on_fsize)
         host._re_sig.op_progress.connect(widget.on_op_progress)
         # Keep the HTTP bridge's /status state fresh. DirectConnection:

@@ -2212,6 +2212,132 @@ def build_emulator_ops(
 
     host._check_dotn_version_advisory = _check_dotn_version_advisory
 
+    # ── Remote .sync5 self-update: binary sourcing ─────────────────────
+    # The Remote Explorer's dot self-update (the "update_dot" macro in
+    # zxnu_workers) needs the CURRENT dotN build as a local file before it
+    # can stage anything. Two places can provide it, tried in order: a
+    # source checkout carries it next to this module, a frozen binary
+    # fetches the 'sync5' asset CI byte-copied onto THIS app version's
+    # release. Either way the bytes must wear the 'NextSync <version>'
+    # banner (sync5_blob_has_banner) or the candidate is refused as wrong
+    # or stale — the same refusal the macro itself repeats before sending.
+
+    def _resolve_sync5_update_binary():
+        """Locate the .sync5 dotN build matching ZX_NEXT_UNITE_DOTN_VERSION.
+
+        Returns ``(path, version, "")`` on success or ``(None, None,
+        reason)`` with a human-readable reason on failure; *version* is
+        always ZX_NEXT_UNITE_DOTN_VERSION. Resolution order:
+
+        1. source checkout — nextsync/sync/server/dot/syncdev next to this
+           module (fresh after a git pull; absent in a frozen build);
+        2. the 'sync5' asset of this app version's own GitHub release (the
+           per-tag API, not /latest, so the dot always matches THIS build
+           even after a newer release ships), downloaded into
+           downloads/sync5/ and reused from there while its banner holds.
+
+        Synchronous, and bounded only per SOCKET OPERATION, not overall:
+        the worst case is TWO sequential requests (the release-tag API,
+        then the asset download), each opened with timeout=10 — and
+        urllib applies that per socket operation, so a slow-dripping
+        server can stretch either request well past 10 s. Callers must
+        therefore run this OFF the UI thread (the Remote Explorer's
+        _Sync5ResolveTask does). Network and disk trouble never raise
+        out — they come back as the reason string."""
+        version = ZX_NEXT_UNITE_DOTN_VERSION
+        # 1. Source checkout: the checked-in build next to this module.
+        checkout = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "nextsync", "sync", "server", "dot", "syncdev")
+        try:
+            with open(checkout, "rb") as fh:
+                blob = fh.read()
+            if sync5_blob_has_banner(blob, version):
+                return checkout, version, ""
+            # Wrong banner = a stale local build (version bumped, dot not
+            # rebuilt) — fall through to the release asset, which the
+            # workflow gate guarantees was fresh when the tag shipped.
+            logging.info(
+                f"sync5 resolve: {checkout} lacks the 'NextSync {version}' "
+                "banner (stale build?) — trying the release asset")
+        except OSError:
+            pass  # frozen build / no source tree: try the release asset
+
+        # 2. This app version's release asset. A prior download is reused
+        # while it still wears the banner — the banner embeds the exact
+        # version, so a matching cache IS the right build and repeat calls
+        # stay offline.
+        dest_dir = os.path.join(ZXNU_DATA_ROOT, "downloads", "sync5")
+        dest = os.path.join(dest_dir, "sync5")
+        try:
+            with open(dest, "rb") as fh:
+                if sync5_blob_has_banner(fh.read(), version):
+                    return dest, version, ""
+        except OSError:
+            pass  # not downloaded yet
+
+        tag = f"v{ZX_NEXT_UNITE_VERSION}"
+        try:
+            req = urllib.request.Request(
+                ZXNU_GITHUB_RELEASE_TAG_API.format(tag=tag),
+                headers={"User-Agent": ZXART_USER_AGENT,
+                         "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                release = json.loads(resp.read().decode("utf-8", "replace"))
+        except Exception as exc:   # offline, 404 (draft/unpublished), …
+            return None, None, (
+                f"no dotN build found next to the app, and the GitHub "
+                f"release {tag} could not be fetched: {exc}")
+
+        asset = next(
+            (a for a in (release.get("assets") or [])
+             if isinstance(a, dict) and a.get("name") == "sync5"), None)
+        if not asset or not asset.get("browser_download_url"):
+            return None, None, (
+                f"no dotN build found next to the app, and the GitHub "
+                f"release {tag} carries no 'sync5' asset")
+        try:
+            size = int(asset.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0
+
+        tmp = dest + ".part"
+        try:
+            req = urllib.request.Request(
+                asset["browser_download_url"],
+                headers={"User-Agent": ZXART_USER_AGENT})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                blob = resp.read()
+            # Verify BEFORE the file takes its final name (same rule as the
+            # app self-update above): size against what the release lists,
+            # then the banner against the version this build expects.
+            if size and len(blob) != size:
+                return None, None, (
+                    f"the sync5 asset of release {tag} downloaded as "
+                    f"{len(blob)} bytes but the release lists {size} — "
+                    "truncated download, please retry")
+            if not sync5_blob_has_banner(blob, version):
+                return None, None, (
+                    f"the sync5 asset of release {tag} does not carry the "
+                    f"'NextSync {version}' banner — wrong or stale release "
+                    "build")
+            os.makedirs(dest_dir, exist_ok=True)
+            with open(tmp, "wb") as out:
+                out.write(blob)
+            os.replace(tmp, dest)
+            return dest, version, ""
+        except Exception as exc:   # network/disk trouble must never raise
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            return None, None, (
+                f"downloading the sync5 asset of release {tag} failed: {exc}")
+
+    # Consumed by the Remote Explorer's dot-update action, which hands the
+    # resolved file to the session's ("update_dot", …) command.
+    host._resolve_sync5_update_binary = _resolve_sync5_update_binary
+
     # ── CSpect update check (itch.io) ──────────────────────────────────
     # Mirrors the MAME startup update check above, but sources the build
     # from the user's *owned* itch.io CSpect item instead of GitHub. The

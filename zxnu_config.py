@@ -32,6 +32,10 @@ ZX_NEXT_UNITE_VERSION = "9.6.5"
 ZX_NEXT_UNITE_DOTN_VERSION = "5.9.0"
 # Self-update check (Settings toggle, default on): the app's own releases.
 ZXNU_GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/jclauzel/ZX-Next-Unite/releases/latest"
+# Per-tag lookup: the remote .sync5 self-update fetches THIS app version's
+# release (whose 'sync5' asset CI byte-copied from the checked-in dotN),
+# never whatever happens to be latest.
+ZXNU_GITHUB_RELEASE_TAG_API = "https://api.github.com/repos/jclauzel/ZX-Next-Unite/releases/tags/{tag}"
 ZXNU_GITHUB_RELEASES_PAGE = "https://github.com/jclauzel/ZX-Next-Unite/releases"
 # Set to False to hide all Download / Send to SD Card / Send via NextSync
 # buttons and context-menu actions for the respective pane.
@@ -2865,6 +2869,20 @@ def sha256_of_file(path, chunk_size=1024 * 1024):
                 break
             h.update(chunk)
     return h.hexdigest()
+
+
+def sync5_blob_has_banner(blob: bytes, version: str) -> bool:
+    """True when *blob* (the raw bytes of a .sync5 dotN build) embeds the
+    ``NextSync <version>`` startup banner. The banner is compiled verbatim
+    into the dot (nextsync/sync/z88dk/nextsync.c), so its presence is the
+    cheap wrong-or-stale-build check every sync5 consumer shares: the remote
+    self-update macro refuses a blob without it before a byte moves
+    (zxnu_workers, the "update_dot" macro), the update-binary resolver in
+    zxnu_emulator_ops vets both the checked-in syncdev and a downloaded
+    'sync5' release asset with it, and the release workflow gates on the
+    same bytes so a ZX_NEXT_UNITE_DOTN_VERSION bump without a rebuilt dot
+    cannot ship."""
+    return (b"NextSync " + version.encode()) in blob
 
 
 # Pinned SHA-256 of the jjjs hdfmonkey archive at HDF_MONKEY_JJJS_URL (a static
