@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.0"
+ZX_NEXT_UNITE_VERSION = "9.7.1"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -29,7 +29,7 @@ ZX_NEXT_UNITE_VERSION = "9.7.0"
 # startup dotN-updated advisory compares this against the dotn_last_version
 # persisted in hdfg.cfg, so the user is told to refresh the copy on their
 # Next (which the app cannot deploy automatically).
-ZX_NEXT_UNITE_DOTN_VERSION = "5.9.0"
+ZX_NEXT_UNITE_DOTN_VERSION = "5.9.1"
 # Self-update check (Settings toggle, default on): the app's own releases.
 ZXNU_GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/jclauzel/ZX-Next-Unite/releases/latest"
 # Per-tag lookup: the remote .sync5 self-update fetches THIS app version's

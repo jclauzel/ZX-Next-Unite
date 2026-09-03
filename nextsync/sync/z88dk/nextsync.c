@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.0"
+#define SYNC_VERSION "5.9.1"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -411,10 +411,14 @@ unsigned char createfilewithpath(char * fn)
     if (g_verbose) { vprint("open:"); vprint(fn); }
     filehandle = fopen(fn, 2 + 0x0c);  // write + create new file, delete existing
     if (filehandle) { vprint("open ok"); return filehandle; }
-    vprint("open failed, mkdir path");
-    // Okay, couldn't create the file, so let's try to make the path.
-    // We need to call makepath for each directory in the tree to build
-    // complex paths.
+    // Couldn't create the file - the usual cause is a missing directory
+    // level (a stock NextZXOS card has c:/sys but no c:/sys/config, so the
+    // very first ".sync5 <ip>" lands here). This is the recovery, not a
+    // failure - the old "open failed, mkdir path" trace read like one and
+    // got the first-run config save reported as broken (5.9.1): make the
+    // path one level at a time, then retry the open below. Keep the string
+    // SHORT - main-bank rodata is stack headroom (build_dotn.ps1's floor).
+    vprint("creating path");
     slash = fn;
     while (*slash)
     {
@@ -422,8 +426,14 @@ unsigned char createfilewithpath(char * fn)
         if (*slash == '/')
         {
             *slash = 0;      // esx_f_mkdir wants a 0-terminated path prefix
-            if (g_verbose) { vprint("mkdir:"); vprint(fn); }
-            sync_mkdir(fn);  // make this directory level (ignore "exists")
+            // Skip the bare drive prefix ("c:"): mkdir on a drive root can
+            // never create anything and only added a scary no-op to the
+            // trace.
+            if (slash[-1] != ':')
+            {
+                if (g_verbose) { vprint("mkdir:"); vprint(fn); }
+                sync_mkdir(fn);  // make this directory level (ignore "exists")
+            }
             *slash = '/';
         }
     }
