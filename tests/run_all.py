@@ -39,6 +39,7 @@ SUITES = [
     ("test_cspect_autostart.py",  120, None),
     ("test_mame_autostart.py",   120, None),
     ("test_nextsync_autostart.py", 120, None),
+    ("test_nextsync_verify_crc.py", 120, None),
     ("test_image_lock.py",      120, None),
     ("test_pane_imports.py",    120, None),
     ("test_hdf_workers.py",     120, None),

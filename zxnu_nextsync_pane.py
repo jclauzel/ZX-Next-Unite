@@ -1043,6 +1043,19 @@ def build_nextsync_pane(
                          variant=("green" if ok else "red"),
                          duration_ms=12000)
 
+    def _nextsync_on_put_verify_failed(message):
+        # The verify-after-put verdict (9.7.3): RED in the NextSync log (the
+        # durable record - the Classic list and the RE mini list colour the
+        # item, the retro mirrors print it plain) AND a red toast, whatever
+        # tab is in front. The message arrives already translated (emit-site
+        # ui_tr_now in zxnu_workers). The widget's own on_put_done(False)
+        # follows in emission order and adds "Upload failed: <name>" to the
+        # batch's end-of-op summary toast; this one outlives it (12 s vs
+        # 9 s) since every toast shares the same corner.
+        add_nextsync_log_window(str(message), color=FONT_RED)
+        host._show_toast("❌  NextSync CRC-32 verification failed",
+                         str(message), variant="red", duration_ms=12000)
+
     def _nextsync_build_remote_explorer():
         if host._re_widget is not None:
             return host._re_widget
@@ -1470,6 +1483,8 @@ def build_nextsync_pane(
         # ui_tr_now in zxnu_workers), so it passes through untouched; the
         # static title translates inside the _show_toast chokepoint.
         host._re_sig.dot_update.connect(_nextsync_on_dot_update)
+        # The verify-after-put verdict (9.7.3): red log line + red toast.
+        host._re_sig.put_verify_failed.connect(_nextsync_on_put_verify_failed)
         host._re_sig.fsize.connect(widget.on_fsize)
         host._re_sig.op_progress.connect(widget.on_op_progress)
         # Keep the HTTP bridge's /status state fresh. DirectConnection:
@@ -1495,7 +1510,12 @@ def build_nextsync_pane(
         host._re_thread = threading.Thread(
             target=run_remote_listen_server,
             args=(host._re_sig, host._re_queue, host._re_stop),
-            kwargs={"control": host._re_control},
+            # verify_crc (9.7.3): the Settings toggle, read by the worker
+            # PER PUT — a flip applies to the next file, no restart (the
+            # update_prompt_enabled shape above; the lambda runs on the
+            # worker thread: a GIL-atomic dict.get of a whole string).
+            kwargs={"control": host._re_control,
+                    "verify_crc": lambda: nextsync_verify_crc_enabled(configuration_dictionary)},
             daemon=True)
         host._re_thread.start()
         host._re_running = True

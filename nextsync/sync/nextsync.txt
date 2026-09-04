@@ -397,6 +397,13 @@ PC's copy without pulling it back. Bit by bit at 28 MHz, about 30 KB/s: a
 1 MB file takes half a minute. (A standalone ".sync -crc" verb did not fit
 the dot's byte budget; ZX Next Remote answers the same request.)
 
+ZX Next Unite 9.7.3 asks by itself after every Remote Explorer upload
+(Settings -> "Verify CRC", on by default), compares with the CRC-32 of what
+it sent and deletes a copy that differs; a listener older than v5.9.2 /
+ZX Next Remote 1.0.8 is not asked and the file is kept unverified. The
+classic .sync5 sync cannot be checked this way - the dot has left listen
+mode by then.
+
 Notes / limitations:
 - The configured server (from .sync <server>) is reused; configure it once with
   a normal .sync first.

@@ -8,7 +8,9 @@ import zlib
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from PySide6.QtCore import QCoreApplication, Qt
 from zxnu_http_bridge import BridgeReply
-from zxnu_workers import RemoteExplorerSignals, run_remote_listen_server
+import zxnu_workers
+from zxnu_workers import (RemoteExplorerSignals, run_remote_listen_server,
+                          re_peer_answers_crc, re_verify_wait)
 
 PORT = 2049
 
@@ -78,6 +80,8 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
         # esxDOS accepts an optional drive prefix ("m:/games") on every path;
         # the mock fs is drive-less, so strip it exactly like esxDOS resolves it.
         arg_np = arg[2:] if (len(arg) >= 2 and arg[1] == ":") else arg
+        if op != b'I':
+            cap.setdefault('ops', []).append((op.decode(), arg))
         if op == b'Q':
             # 'Q' alone = leave listen mode (a server shutting down);
             # 'Q'+'X' = leave AND end the application (/forceexit).
@@ -162,6 +166,10 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
                 d = rx_payload(sock)
                 if not d: break
                 buf += d
+            stored = buf
+            if arg_np.startswith("/corrupt") and buf:
+                stored = buf[:-1] + bytes([buf[-1] ^ 0xFF])   # a bad SD write
+            cap.setdefault('files', {})[arg] = stored
             cap['put'] = (arg, buf)
         elif op == b'V':                     # ren: arg is "old\x00new"
             # A protecting ZXNextRemote listener refuses a write whose src OR
@@ -186,6 +194,10 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
                     push_status(1)
                 else:
                     push_status(0)
+            elif arg_np.startswith("/corrupt/locked"):
+                push_status(0)               # a delete the Next refuses
+            elif arg_np.startswith("/corrupt/osp"):
+                push(b'FOSP', 0)             # ZXNR OS protection refuses it
             else:
                 push(b'O', 0)
         elif op == b'R':
@@ -213,14 +225,27 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
         elif op == b'Y':
             # version query (ZXNR 1.0.2+ / dot v5.8+): one status block,
             # 'O' + type + NUL + build number.
-            push(b'Osync' + bytes([0]) + b'9.9.9', 0)
+            ident = cap.get('ident', b'Osync' + bytes([0]) + b'9.9.9')
+            if ident is None:
+                continue                     # a pre-5.8 listener ignores 'Y' and re-polls
+            push(ident, 0)
         elif op == b'K':
             # crc (dot v5.9.2+ / ZXNR 1.0.8+): 'O' + 8 upper-case hex digits
             # of the file's CRC-32 (zlib.crc32's value), 'F' when it did not
             # open. The digits here are the CRC of the PATH, so a test can
             # predict them without a file table.
-            if arg.rstrip("/") == "/gone":
+            if cap.get('k_silent'):
+                continue                     # a listener that ignores 'K' re-polls
+            if arg.rstrip("/") == "/gone" or arg_np.startswith("/unv"):
                 push(b'F', 0)
+            elif arg_np.startswith("/ospread"):
+                push(b'FOSP', 0)             # ZXNR read-side OS protection
+            elif arg_np.startswith("/die"):
+                sock.close(); break          # the link drops mid-check
+            elif arg in cap.get('files', {}):
+                push(b'O' + ("%08X" % (zlib.crc32(cap['files'][arg]) & 0xffffffff)).encode(), 0)
+                if arg_np.startswith("/corrupt/hangup"):
+                    sock.close(); break      # hangs up before the 'X' can be served
             else:
                 push(b'O' + ("%08X" % (zlib.crc32(arg.encode()) & 0xffffffff)).encode(), 0)
         elif op == b'Z':
@@ -344,7 +369,10 @@ def run_update_scenario(port, cmds, scenario, verify_bytes):
         q.put(c)
     stop = threading.Event()
     t = threading.Thread(target=run_remote_listen_server,
-                         args=(sig, q, stop, port), daemon=True)
+                         args=(sig, q, stop, port),
+                         # verify ON: the exact want_ops equality below pins
+                         # that the staging put never draws a 'K' (9.7.3)
+                         kwargs={"verify_crc": lambda: True}, daemon=True)
     t.start()
     time.sleep(0.3)                       # let it bind/accept
     ops, staged = [], []
@@ -354,6 +382,31 @@ def run_update_scenario(port, cmds, scenario, verify_bytes):
     finally:
         stop.set(); t.join(timeout=5); s.close()
     return ops, staged, upd, puts
+
+def run_verify_scenario(port, cmds, cap=None, verify=lambda: True):
+    """Fresh worker + mock_next for one verify-after-put scenario (9.7.3).
+    Returns (cap, events): cap['ops'] is the wire ('I' excluded), events the
+    ORDERED emissions - ('put', ok, remote), ('red', message), ('log', line)."""
+    sig = RemoteExplorerSignals()
+    events = []
+    sig.put_done.connect(lambda okf, r: events.append(('put', okf, r)), Qt.DirectConnection)
+    sig.put_verify_failed.connect(lambda m: events.append(('red', m)), Qt.DirectConnection)
+    sig.log.connect(lambda s: events.append(('log', s)), Qt.DirectConnection)
+    q = queue.Queue()
+    for c in cmds:
+        q.put(c)
+    stop = threading.Event()
+    t = threading.Thread(target=run_remote_listen_server, args=(sig, q, stop, port),
+                         kwargs={"verify_crc": verify}, daemon=True)
+    t.start()
+    time.sleep(0.3)
+    cap = {} if cap is None else cap
+    s = socket.create_connection(("127.0.0.1", port), timeout=5)
+    try:
+        mock_next(s, [], b"", cap, {})
+    finally:
+        stop.set(); t.join(timeout=5); s.close()
+    return cap, events
 
 def main():
     app = QCoreApplication(sys.argv)
@@ -435,6 +488,22 @@ def main():
         stop.set(); t.join(timeout=5); s.close()
 
     ok = True
+    # ── pure gates of the verify-after-put (9.7.3) ─────────────────────
+    _yes = [('sync', '5.9.2'), ('sync', '5.10.0'), ('sync', '5.9.10'),
+            ('httpbridge', '1.0.8'), ('n2n', '1.0.9'), (' SYNC ', '5.9.2')]
+    _no = [('sync', '5.9.1'), ('n2n', '1.0.7'), ('', ''), ('sync', ''),
+           ('sync', 'x.y'), ('other', '9.9.9'), (None, None)]
+    if (all(re_peer_answers_crc(*p) for p in _yes)
+            and not any(re_peer_answers_crc(*p) for p in _no)):
+        print("PASS vcrc-gate: dot >= 5.9.2 / ZXNR >= 1.0.8 answer 'K', nothing else")
+    else:
+        print("FAIL vcrc-gate:", [(p, re_peer_answers_crc(*p)) for p in _yes + _no]); ok = False
+    if (re_verify_wait(0) == 60.0 and re_verify_wait(1_500_000) == 160.0
+            and re_verify_wait(10**12) == 3600.0):
+        print("PASS vcrc-wait: 60 s + size/15 KB/s, capped at an hour")
+    else:
+        print("FAIL vcrc-wait:", re_verify_wait(0), re_verify_wait(1_500_000),
+              re_verify_wait(10**12)); ok = False
     if got['listing'] and got['listing'][0] == "/" and len(got['listing'][1]) == 2:
         print("PASS ls   :", got['listing'][1])
     else:
@@ -464,6 +533,12 @@ def main():
         print("PASS put-sig: put_done(ok) for /ho/up.bin")
     else:
         print("FAIL put-sig:", got['puts']); ok = False
+    # verify_crc left at its None default: the worker's behaviour is
+    # byte-identical to 9.7.2 - no 'K' follows a put (9.7.3).
+    if ('K', '/ho/up.bin') not in cap.get('ops', []):
+        print("PASS put-noverify: no 'K' after the put with verify_crc=None")
+    else:
+        print("FAIL put-noverify:", cap.get('ops')); ok = False
     # A put the Next rejects ('F' status) must surface as put_done(ok=False) and
     # the server must have acked the block (so cap['put_fail'] was recorded).
     if (False, "/locked/up.bin") in got['puts'] and cap.get('put_fail') == "/locked/up.bin":
@@ -846,6 +921,229 @@ def main():
     else:
         print("FAIL updot-osp: ops=", ops, "upd=", upd, "puts=", puts)
         ok = False
+
+    # ── verify-after-put (Settings → Verify CRC, 9.7.3) ────────────────
+    # A UI put is followed by the worker's own 'K' exchange as a local_cmds
+    # continuation, gated on the session's 'Y' ident (self-probed when nobody
+    # asked); a DIFFERENT digest deletes the corrupted copy ('X') and reports
+    # the red verdict THEN put_done(False); every doubt ('F', 'F'+OSP,
+    # silence, an old listener) keeps the file and reports put_done(True).
+    # One put_done per put, in every path - session death included.
+    want = "%08X" % (zlib.crc32(put_bytes) & 0xffffffff)
+    bad = "%08X" % (zlib.crc32(put_bytes[:-1] + bytes([put_bytes[-1] ^ 0xFF])) & 0xffffffff)
+    zxnu_workers.RE_VERIFY_WAIT_FLOOR = 2.0   # read at call time; nothing here waits it out
+
+    def _split(events):
+        return ([(e[1], e[2]) for e in events if e[0] == 'put'],
+                [e[1] for e in events if e[0] == 'red'],
+                [e[1] for e in events if e[0] == 'log'])
+
+    def _order(events):
+        # index of the first 'red' and the first 'put' emission
+        r = next((i for i, e in enumerate(events) if e[0] == 'red'), None)
+        p = next((i for i, e in enumerate(events) if e[0] == 'put'), None)
+        return r, p
+
+    # A: verified - the worker self-probes 'Y' (nobody asked), then 'K'.
+    vcap, ev = run_verify_scenario(PORT + 12, [("put", putfile, "/ho/"), ("quit",)])
+    puts, reds, logs = _split(ev)
+    if (vcap.get('ops') == [('P', '/ho/up.bin'), ('Y', ''), ('K', '/ho/up.bin'), ('Q', '')]
+            and puts == [(True, '/ho/up.bin')] and reds == []
+            and "crc32 /ho/up.bin: verifying 2048 bytes on the Next…" in logs
+            and f"crc32 /ho/up.bin: {want} — verified" in logs):
+        print("PASS vcrc-ok: P, self-probed Y, K, verified, one put_done(True)")
+    else:
+        print("FAIL vcrc-ok: ops=", vcap.get('ops'), "puts=", puts, "reds=", reds,
+              "logs=", logs); ok = False
+
+    # B: the copy on the Next differs -> 'X', red verdict, put_done(False).
+    vcap, ev = run_verify_scenario(PORT + 13, [("put", putfile, "/corrupt/"), ("quit",)])
+    puts, reds, logs = _split(ev)
+    ri, pi = _order(ev)
+    if (vcap.get('ops') == [('P', '/corrupt/up.bin'), ('Y', ''), ('K', '/corrupt/up.bin'),
+                            ('X', '/corrupt/up.bin'), ('Q', '')]
+            and puts == [(False, '/corrupt/up.bin')]
+            and len(reds) == 1 and "/corrupt/up.bin" in reds[0] and want in reds[0]
+            and bad in reds[0] and "has been deleted" in reds[0]
+            and ri is not None and pi is not None and ri < pi
+            and any("MISMATCH" in ln for ln in logs)):
+        print("PASS vcrc-bad: mismatch -> X, red verdict, then put_done(False)")
+    else:
+        print("FAIL vcrc-bad: ops=", vcap.get('ops'), "puts=", puts, "reds=", reds,
+              "order=", (ri, pi), "logs=", logs); ok = False
+
+    # C: mismatch, but the Next refuses the delete ('F' on 'X').
+    vcap, ev = run_verify_scenario(PORT + 14, [("put", putfile, "/corrupt/locked.bin"), ("quit",)])
+    puts, reds, logs = _split(ev)
+    if (vcap.get('ops') == [('P', '/corrupt/locked.bin'), ('Y', ''),
+                            ('K', '/corrupt/locked.bin'), ('X', '/corrupt/locked.bin'), ('Q', '')]
+            and puts == [(False, '/corrupt/locked.bin')]
+            and len(reds) == 1 and "could NOT be deleted" in reds[0]
+            and "the Next refused the delete" in reds[0]):
+        print("PASS vcrc-badlock: refused delete -> red 'could NOT be deleted', put_done(False)")
+    else:
+        print("FAIL vcrc-badlock: ops=", vcap.get('ops'), "puts=", puts, "reds=", reds); ok = False
+
+    # D: mismatch, the delete refused by ZXNR's OS protection ('F'+OSP on 'X').
+    vcap, ev = run_verify_scenario(PORT + 15, [("put", putfile, "/corrupt/osp.bin"), ("quit",)])
+    puts, reds, logs = _split(ev)
+    if (puts == [(False, '/corrupt/osp.bin')] and len(reds) == 1
+            and "OS protection refused the delete" in reds[0]):
+        print("PASS vcrc-badosp: OSP-refused delete named in the red verdict")
+    else:
+        print("FAIL vcrc-badosp: ops=", vcap.get('ops'), "puts=", puts, "reds=", reds); ok = False
+
+    # E: 'F' on 'K' (the file did not open) is doubt, not corruption.
+    vcap, ev = run_verify_scenario(PORT + 16, [("put", putfile, "/unv/up.bin"), ("quit",)])
+    puts, reds, logs = _split(ev)
+    if (vcap.get('ops') == [('P', '/unv/up.bin'), ('Y', ''), ('K', '/unv/up.bin'), ('Q', '')]
+            and puts == [(True, '/unv/up.bin')] and reds == []
+            and any("not verified" in ln and "did not open" in ln for ln in logs)):
+        print("PASS vcrc-F: 'F' on K -> not verified, file kept, put_done(True), no X")
+    else:
+        print("FAIL vcrc-F: ops=", vcap.get('ops'), "puts=", puts, "reds=", reds,
+              "logs=", logs); ok = False
+
+    # F: 'F'+OSP on 'K' (read-side OS protection) - same shape, named.
+    vcap, ev = run_verify_scenario(PORT + 17, [("put", putfile, "/ospread/up.bin"), ("quit",)])
+    puts, reds, logs = _split(ev)
+    if (vcap.get('ops') == [('P', '/ospread/up.bin'), ('Y', ''), ('K', '/ospread/up.bin'), ('Q', '')]
+            and puts == [(True, '/ospread/up.bin')] and reds == []
+            and any("OS protection refused the read" in ln for ln in logs)):
+        print("PASS vcrc-Fosp: 'F'+OSP on K -> not verified, OS protection named")
+    else:
+        print("FAIL vcrc-Fosp: ops=", vcap.get('ops'), "puts=", puts, "reds=", reds,
+              "logs=", logs); ok = False
+
+    # G: an old dot (5.9.1) cached by the version arm: no 'K' ever, ONE
+    # advisory for the session, every put reported done.
+    vcap, ev = run_verify_scenario(
+        PORT + 18, [("version",), ("put", putfile, "/ho/"), ("put", putfile, "/ho2/"), ("quit",)],
+        cap={'ident': b'Osync' + bytes([0]) + b'5.9.1'})
+    puts, reds, logs = _split(ev)
+    if (vcap.get('ops') == [('Y', ''), ('P', '/ho/up.bin'), ('P', '/ho2/up.bin'), ('Q', '')]
+            and puts == [(True, '/ho/up.bin'), (True, '/ho2/up.bin')] and reds == []
+            and sum(1 for ln in logs if "verification skipped" in ln) == 1):
+        print("PASS vcrc-old: dot 5.9.1 -> one Y, zero K/X, one advisory, puts done")
+    else:
+        print("FAIL vcrc-old: ops=", vcap.get('ops'), "puts=", puts, "reds=", reds,
+              "logs=", logs); ok = False
+
+    # H: a pre-5.8 listener ignores 'Y' (re-polls): unsupported, unverified.
+    vcap, ev = run_verify_scenario(PORT + 19, [("put", putfile, "/ho/"), ("quit",)],
+                                   cap={'ident': None})
+    puts, reds, logs = _split(ev)
+    if (vcap.get('ops') == [('P', '/ho/up.bin'), ('Y', ''), ('Q', '')]
+            and puts == [(True, '/ho/up.bin')] and reds == []
+            and any("verification skipped" in ln for ln in logs)):
+        print("PASS vcrc-noY: silent 'Y' -> no K, advisory, put_done(True)")
+    else:
+        print("FAIL vcrc-noY: ops=", vcap.get('ops'), "puts=", puts, "reds=", reds,
+              "logs=", logs); ok = False
+
+    # I / J: the ZXNR floor - 1.0.8 is asked, 1.0.7 is not.
+    vcap, ev = run_verify_scenario(PORT + 20, [("put", putfile, "/ho/"), ("quit",)],
+                                   cap={'ident': b'On2n' + bytes([0]) + b'1.0.8'})
+    puts, reds, logs = _split(ev)
+    if (vcap.get('ops') == [('P', '/ho/up.bin'), ('Y', ''), ('K', '/ho/up.bin'), ('Q', '')]
+            and puts == [(True, '/ho/up.bin')] and reds == []
+            and f"crc32 /ho/up.bin: {want} — verified" in logs):
+        print("PASS vcrc-zxnr: n2n 1.0.8 -> K asked, verified")
+    else:
+        print("FAIL vcrc-zxnr: ops=", vcap.get('ops'), "puts=", puts, "logs=", logs); ok = False
+    vcap, ev = run_verify_scenario(PORT + 21, [("put", putfile, "/ho/"), ("quit",)],
+                                   cap={'ident': b'Ohttpbridge' + bytes([0]) + b'1.0.7'})
+    puts, reds, logs = _split(ev)
+    if (vcap.get('ops') == [('P', '/ho/up.bin'), ('Y', ''), ('Q', '')]
+            and puts == [(True, '/ho/up.bin')] and reds == []
+            and any("verification skipped" in ln for ln in logs)):
+        print("PASS vcrc-zxnrold: httpbridge 1.0.7 -> no K, advisory")
+    else:
+        print("FAIL vcrc-zxnrold: ops=", vcap.get('ops'), "puts=", puts, "logs=", logs); ok = False
+
+    # K: the toggle off -> the 9.7.2 behaviour, not even a 'Y'.
+    vcap, ev = run_verify_scenario(PORT + 22, [("put", putfile, "/ho/"), ("quit",)],
+                                   verify=lambda: False)
+    puts, reds, logs = _split(ev)
+    if (vcap.get('ops') == [('P', '/ho/up.bin'), ('Q', '')]
+            and puts == [(True, '/ho/up.bin')] and reds == []):
+        print("PASS vcrc-off: verify off -> P, Q only, put_done(True)")
+    else:
+        print("FAIL vcrc-off: ops=", vcap.get('ops'), "puts=", puts, "reds=", reds); ok = False
+
+    # L: the toggle is read PER PUT (a flip applies to the next file, no restart).
+    flag = [True, False]
+    vcap, ev = run_verify_scenario(
+        PORT + 23, [("put", putfile, "/ho/"), ("put", putfile, "/ho2/"), ("quit",)],
+        verify=lambda: flag.pop(0))
+    puts, reds, logs = _split(ev)
+    if (vcap.get('ops') == [('P', '/ho/up.bin'), ('Y', ''), ('K', '/ho/up.bin'),
+                            ('P', '/ho2/up.bin'), ('Q', '')]
+            and puts == [(True, '/ho/up.bin'), (True, '/ho2/up.bin')] and reds == []):
+        print("PASS vcrc-flip: toggle read per put - second put unverified, no restart")
+    else:
+        print("FAIL vcrc-flip: ops=", vcap.get('ops'), "puts=", puts, "reds=", reds); ok = False
+
+    # M: a bridge put (BridgeReply sink) is exempt - /put + /crc stay the
+    # caller's own two-step; no UI put_done either.
+    bpv = BridgeReply()
+    vcap, ev = run_verify_scenario(PORT + 24, [("put", putfile, "/ho/", bpv), ("quit",)])
+    puts, reds, logs = _split(ev)
+    bres = bpv.wait(5)
+    if (vcap.get('ops') == [('P', '/ho/up.bin'), ('Q', '')]
+            and bres == {'ok': True} and puts == [] and reds == []):
+        print("PASS vcrc-bridge: bridge put exempt - no Y/K, reply {'ok': True}, no put_done")
+    else:
+        print("FAIL vcrc-bridge: ops=", vcap.get('ops'), "bres=", bres, "puts=", puts); ok = False
+
+    # N: a listener that answers 'Y' but ignores 'K' (re-polls): no answer,
+    # file kept, no X.
+    vcap, ev = run_verify_scenario(PORT + 25, [("put", putfile, "/ho/"), ("quit",)],
+                                   cap={'k_silent': True})
+    puts, reds, logs = _split(ev)
+    if (vcap.get('ops') == [('P', '/ho/up.bin'), ('Y', ''), ('K', '/ho/up.bin'), ('Q', '')]
+            and puts == [(True, '/ho/up.bin')] and reds == []
+            and any("no answer" in ln for ln in logs)):
+        print("PASS vcrc-Ksilent: ignored K -> no answer, file kept, put_done(True)")
+    else:
+        print("FAIL vcrc-Ksilent: ops=", vcap.get('ops'), "puts=", puts, "reds=", reds,
+              "logs=", logs); ok = False
+
+    # O: the link drops while the 'K' is out: unverified, ONE put_done(True).
+    vcap, ev = run_verify_scenario(PORT + 26, [("put", putfile, "/die/up.bin")])
+    puts, reds, logs = _split(ev)
+    if (vcap.get('ops') == [('P', '/die/up.bin'), ('Y', ''), ('K', '/die/up.bin')]
+            and puts == [(True, '/die/up.bin')] and reds == []
+            and any("no answer" in ln for ln in logs)):
+        print("PASS vcrc-drop: link drop on K -> exactly one put_done(True), no red")
+    else:
+        print("FAIL vcrc-drop: ops=", vcap.get('ops'), "puts=", puts, "reds=", reds,
+              "logs=", logs); ok = False
+
+    # P: the Next hangs up AFTER answering a bad digest, before the 'X' can be
+    # served: the finally backstop owes the red verdict + ONE put_done(False).
+    vcap, ev = run_verify_scenario(PORT + 27, [("put", putfile, "/corrupt/hangup.bin")])
+    puts, reds, logs = _split(ev)
+    ri, pi = _order(ev)
+    if (vcap.get('ops') == [('P', '/corrupt/hangup.bin'), ('Y', ''), ('K', '/corrupt/hangup.bin')]
+            and puts == [(False, '/corrupt/hangup.bin')]
+            and len(reds) == 1 and "could NOT be deleted" in reds[0]
+            and "session ended" in reds[0]
+            and ri is not None and pi is not None and ri < pi):
+        print("PASS vcrc-hangup: death before X -> finally reports red, one put_done(False)")
+    else:
+        print("FAIL vcrc-hangup: ops=", vcap.get('ops'), "puts=", puts, "reds=", reds,
+              "order=", (ri, pi), "logs=", logs); ok = False
+
+    # The new signal's shape: put_verify_failed(str).
+    seen_v = []
+    sv = RemoteExplorerSignals()
+    sv.put_verify_failed.connect(seen_v.append, Qt.DirectConnection)
+    sv.put_verify_failed.emit("m")
+    if seen_v == ["m"]:
+        print("PASS vcrc-signal: put_verify_failed(str)")
+    else:
+        print("FAIL vcrc-signal:", seen_v); ok = False
 
     shutil.rmtree(tmp, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")

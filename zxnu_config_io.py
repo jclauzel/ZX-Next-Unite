@@ -426,6 +426,14 @@ def build_config_io(
                 host.settings_re_update_prompt_checkbox.blockSignals(True)
                 host.settings_re_update_prompt_checkbox.setChecked(_re_upd_on)
                 host.settings_re_update_prompt_checkbox.blockSignals(False)
+            # Verify-after-put CRC-32 check of Remote Explorer uploads
+            # (default on, 9.7.3). blockSignals: the checkbox handler
+            # rewrites the dict value.
+            if hasattr(host, "settings_nextsync_verify_crc_checkbox"):
+                _vc_on = nextsync_verify_crc_enabled(configuration_dictionary)
+                host.settings_nextsync_verify_crc_checkbox.blockSignals(True)
+                host.settings_nextsync_verify_crc_checkbox.setChecked(_vc_on)
+                host.settings_nextsync_verify_crc_checkbox.blockSignals(False)
 
             # ZX Next Remote "check itch.io for a newer build" toggle
             # (default on) - the CSpect toggle's twin below.

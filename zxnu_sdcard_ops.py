@@ -505,10 +505,15 @@ def build_sdcard_utils(
             except Exception:
                 pass
 
-    def add_nextsync_log_window(string_to_log:str, from_top:bool = True):
-
+    def add_nextsync_log_window(string_to_log: str, from_top: bool = True,
+                                color=None):
+        # color (9.7.3): an optional QColor/Qt.GlobalColor foreground for the
+        # two QListWidget sinks (the CRC-32 verdict is FONT_RED); the pygame
+        # retro mirrors are text-only and print the same words plain.
         newItem = QListWidgetItem()
         newItem.setText(string_to_log)
+        if color is not None:
+            newItem.setForeground(color)
         if from_top:
             host.nextsync_log.insertItem(0, newItem)
         else:
@@ -529,10 +534,13 @@ def build_sdcard_utils(
         mini = getattr(host, "_re_mini_log", None)
         if mini is not None:
             try:
+                _mi = QListWidgetItem(string_to_log)
+                if color is not None:
+                    _mi.setForeground(color)
                 if from_top:
-                    mini.insertItem(0, string_to_log)
+                    mini.insertItem(0, _mi)
                 else:
-                    mini.addItem(string_to_log)
+                    mini.addItem(_mi)
                 while mini.count() > 500:
                     mini.takeItem(mini.count() - 1)
             except Exception:
