@@ -384,6 +384,19 @@ This requires an up-to-date app: send mode negotiates a new protocol version,
 before, so existing setups are unaffected. An older app that only knows Sync3
 will refuse the upload ("App too old for upload").
 
+
+Checking a file (v5.9.2 / ZX Next Unite)
+----------------------------------------
+
+In -listen mode the PC can ask the dot for the CRC-32 of a file on the Next:
+the app's HTTP bridge /crc route and the nextsync5.py console's "crc <path>"
+verb both do. The dot works it out itself, 2 KB at a time so any size fits,
+prints the 8 hex digits on the Next's screen and answers them to the PC - the
+value zlib, PKZIP and 7-Zip compute, so a transfer can be checked against the
+PC's copy without pulling it back. Bit by bit at 28 MHz, about 30 KB/s: a
+1 MB file takes half a minute. (A standalone ".sync -crc" verb did not fit
+the dot's byte budget; ZX Next Remote answers the same request.)
+
 Notes / limitations:
 - The configured server (from .sync <server>) is reused; configure it once with
   a normal .sync first.

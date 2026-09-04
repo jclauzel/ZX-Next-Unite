@@ -186,6 +186,8 @@ if PHASE == 1:
     if not HDFMONKEY:
         skip("hdfmonkey not found (PATH or downloads/) — phases 1-3 need it")
     ensure_scratch(fresh=True)
+    with open(CFG, "a") as f:                # a saved local | image split (9.7.2)
+        f.write("sdcard_hsplitter_sizes=520,680\n")
     os.makedirs(PASTE_SUB)
     with open(PASTE_FILE, "w") as f:
         f.write("x")
@@ -212,6 +214,8 @@ elif PHASE in (2, 3):
         f.write(BASE_CFG
                 + f"hddffile={HDF}\nimage_explorerpath={saved}\n"
                 + "color_retro_log=#112233\n"
+                + "general_font_size=8\n"            # the application font (9.7.2)
+                + "re_update_prompt=false\n"         # the connect-time update offer, off
                 # A hand-picked ground, with the Custom mode that picking one
                 # leaves behind - the only mode in which a pick SURVIVES a
                 # restart (every other mode recomputes the palette on load).
@@ -330,7 +334,8 @@ elif PHASE == 11:
     # which is also how a user who last used it gets there.
     ensure_scratch(fresh=False)
     with open(CFG, "w") as f:
-        f.write(BASE_CFG + "nextsync_remote_explorer=true\n")
+        f.write(BASE_CFG + "nextsync_remote_explorer=true\n"
+                + "nextsync_re_splitter_sizes=520,680\n")   # a saved local | Next split (9.7.2)
 elif PHASE in (6, 7):
     # Phase 6: dotn_last_version older than the bundled dotN -> the ".sync5
     # needs updating on your Next" advisory popup must fire, and the Settings
@@ -434,8 +439,55 @@ def inspect_phase1():
         return None if i < 0 else grid.getItemPosition(i)[:2]
     # The Remote Explorer mirroring (9.5.19): nav bars above the trees,
     # the path boxes BELOW them, the image buttons at the very bottom.
-    check("local nav bar at grid (0,0)", pos(win.local_nav_row_container) == (0, 0), str(pos(win.local_nav_row_container)))
-    check("image nav bar at grid (0,2)", pos(win.image_nav_row_container) == (0, 2), str(pos(win.image_nav_row_container)))
+    # 9.7.2: the local column is ONE widget on the left of a horizontal
+    # splitter (nav bar / tree row / path row stacked), and the image side
+    # keeps the grid, re-indexed - column 0 the transfer buttons, column 1
+    # the image widgets - so the two explorers' split is draggable.
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QSplitter
+    _lcol = win.sdcard_explorer.local_column.layout()
+    check("local nav bar tops the left column", _lcol.indexOf(win.local_nav_row_container) == 0, str(_lcol.indexOf(win.local_nav_row_container)))
+    check("image nav bar at image-side grid (0,1)", pos(win.image_nav_row_container) == (0, 1), str(pos(win.image_nav_row_container)))
+    _hs = getattr(win, "sdcard_hsplitter", None)
+    check("SD Card local | image splitter exists", isinstance(_hs, QSplitter))
+    if _hs is not None:
+        check("SD Card split is horizontal", _hs.orientation() == Qt.Horizontal)
+        check("SD Card split holds the local column and the image side",
+              _hs.count() == 2 and _hs.widget(0) is win.sdcard_explorer.local_column
+              and _hs.widget(1) is win.sdcard_explorer.image_side)
+        check("transfer buttons at image-side grid (1,0)",
+              pos(win.centralbuttonscontainer) == (1, 0), str(pos(win.centralbuttonscontainer)))
+        # Restored from the cfg (520,680 -> 43% left): compare the RATIO,
+        # QSplitter rescales requested sizes to the actual width.
+        wait_until(lambda: sum(_hs.sizes()) > 0 and _hs.handle(1).width() > 0, 10, "SD Card split laid out")
+        _sz = _hs.sizes(); _ratio = (_sz[0] / float(sum(_sz))) if sum(_sz) else 0
+        check("SD Card split restores its saved position on startup", abs(_ratio - 520 / 1200.0) < 0.08, str(_sz))
+        # The caption keeps its text when there is room and clips when the
+        # splitter squeezes the row - it must never resolve to 0px (review).
+        _cap = win.sdcard_explorer.diskimageexplorerlabel
+        _row = win.sdcard_explorer.image_path_row_container
+        _row.resize(1200, 30); _row.layout().activate(); QApplication.processEvents()
+        _wide = _cap.width()
+        check("the Disk Image Explorer caption shows its text when there is room",
+              _wide >= _cap.sizeHint().width() - 2 and _wide > 60, f"{_wide}px, hint {_cap.sizeHint().width()}px")
+        # A layout-managed row cannot be resized below its minimum from a
+        # test, so measure the minimum itself: the caption must add a pixel
+        # to it (its explicit minimum), never its text width.
+        _lay = _row.layout()
+        _others = sum(_lay.itemAt(i).minimumSize().width() for i in range(_lay.count())
+                      if _lay.itemAt(i).widget() is not _cap)
+        _m = _lay.contentsMargins()
+        _share = (_lay.minimumSize().width() - _others - _m.left() - _m.right()
+                  - max(_lay.spacing(), 0) * (_lay.count() - 1))
+        check("...but never holds the row open: its share of the row minimum is a pixel, not the text",
+              _cap.minimumWidth() == 1 and _share <= 40 < _cap.sizeHint().width(),
+              f"share {_share}px, hint {_cap.sizeHint().width()}px")
+        check("SD Card split handle is a thin bar, not a square", 1 <= _hs.handle(1).width() <= 12, str(_hs.handle(1).width()))
+        _hs.splitterMoved.emit(123, 1)          # what a real drag emits
+        check("dragging the SD Card split persists it to the cfg",
+              wait_until(lambda: any(l.startswith("sdcard_hsplitter_sizes=") for l in cfg_lines()),
+                         3, "the debounced splitter save"),
+              str([l for l in cfg_lines() if "splitter" in l]))
     _lnav = win.local_nav_row_container.layout()
     check("local nav = Up|Refresh",
           _lnav.indexOf(win.local_explorer_up_button) == 0
@@ -444,8 +496,8 @@ def inspect_phase1():
     check("image nav = Up|Refresh",
           _inav.indexOf(win.image_explorer_up_button) == 0
           and _inav.indexOf(win.image_explorer_refresh_button) == 1)
-    check("local path row at grid (2,0)", pos(win.local_path_row_container) == (2, 0), str(pos(win.local_path_row_container)))
-    check("image path row at grid (2,2)", pos(win.image_path_row_container) == (2, 2), str(pos(win.image_path_row_container)))
+    check("local path row bottoms the left column", _lcol.indexOf(win.local_path_row_container) == 2, str(_lcol.indexOf(win.local_path_row_container)))
+    check("image path row at image-side grid (2,1)", pos(win.image_path_row_container) == (2, 1), str(pos(win.image_path_row_container)))
     _lrow = win.local_path_row_container.layout()
     check("local path row = label|path box",
           _lrow.indexOf(win.localexplorerlabel) == 0
@@ -472,9 +524,9 @@ def inspect_phase1():
     # so the CONTAINER is what sits at (1,0) now - same cell, same column
     # stretch, one row inside it.
     _pane = win.sdcard_explorer
-    check("local explorer row at grid (1,0)",
-          pos(_pane.local_tree_row_container) == (1, 0),
-          str(pos(_pane.local_tree_row_container)))
+    check("local explorer row is the left column's middle (stretch) row",
+          _pane.local_column.layout().indexOf(_pane.local_tree_row_container) == 1,
+          str(_pane.local_column.layout().indexOf(_pane.local_tree_row_container)))
     _ltree = _pane.local_tree_row_container.layout()
     check("local tree row = emulator strip|tree (strip on the OUTER edge)",
           _ltree.indexOf(_pane.local_emulator_strip) == 0
@@ -521,6 +573,50 @@ def inspect_phase1():
     _pane._emulator_launchers = _saved_launchers
     _pane.refresh_emulator_strip()
 
+    # ---- hovering a GREYED launch surface re-checks its image (9.7.2) ----
+    # The busy verdict is a cache; an emulator killed from outside leaves
+    # it stale. Pointing at a greyed tab (or a disabled Launch button)
+    # asks the host to re-probe THAT emulator - deferred, so a rebuild of
+    # the strip never happens from inside the tab's own event. A working
+    # tab and an enabled button ask nothing.
+    from PySide6.QtCore import QEvent as _QEvent, QPointF as _QPointF
+    from PySide6.QtGui import QEnterEvent as _QEnterEvent
+    _rechecks = []
+    _saved_recheck = win._recheck_emulator_launchability
+    win._recheck_emulator_launchability = lambda n=None: _rechecks.append(n)
+    _pane._emulator_launchers = lambda: [("Mame", lambda: None, "busy"),
+                                         ("CSpect", lambda: None, "")]
+    _pane.refresh_emulator_strip()
+    _busy_tab, _free_tab = _pane._emulator_tabs
+
+    def _enter(w):
+        QApplication.sendEvent(w, _QEnterEvent(_QPointF(3, 3), _QPointF(3, 3), _QPointF(3, 3)))
+        QApplication.processEvents()          # the re-check is deferred
+    check("a busy emulator's tab is greyed, a free one is not",
+          _busy_tab._blocked and not _free_tab._blocked)
+    _enter(_free_tab)
+    check("hovering a working tab asks nothing", _rechecks == [], str(_rechecks))
+    _enter(_busy_tab)
+    check("hovering a greyed tab re-checks THAT emulator", _rechecks == ["Mame"], str(_rechecks))
+    check("both Launch buttons carry the hover re-check filter",
+          set(getattr(win, "_launch_hover_filters", {}) or {}) == {"button_start_mame", "button_start_cspect"},
+          str(sorted(getattr(win, "_launch_hover_filters", {}) or {})))
+    _mame_was = win.button_start_mame.isEnabled()
+    win.button_start_mame.setEnabled(False)
+    _rechecks.clear()
+    QApplication.sendEvent(win.button_start_mame, _QEvent(_QEvent.Type.Enter))
+    QApplication.processEvents()
+    check("hovering the greyed Launch Mame button re-checks MAME", _rechecks == ["MAME"], str(_rechecks))
+    win.button_start_mame.setEnabled(True)
+    _rechecks.clear()
+    QApplication.sendEvent(win.button_start_mame, _QEvent(_QEvent.Type.Enter))
+    QApplication.processEvents()
+    check("an enabled Launch button does not re-check", _rechecks == [], str(_rechecks))
+    win.button_start_mame.setEnabled(_mame_was)
+    win._recheck_emulator_launchability = _saved_recheck
+    _pane._emulator_launchers = _saved_launchers
+    _pane.refresh_emulator_strip()
+
     # Both strips are drawn from ONE list, so they can never disagree.
     check("the host refreshes BOTH strips from one entry point",
           callable(getattr(win, "_refresh_emulator_strips", None)))
@@ -555,7 +651,7 @@ def inspect_phase1():
     check("resetting puts the button back on the app theme and forgets it",
           win.button_start_cspect.styleSheet() == ""
           and win.emulator_color_for("CSpect") is None)
-    check("image explorer at grid (1,2)", pos(win.image_explorer_container) == (1, 2), str(pos(win.image_explorer_container)))
+    check("image explorer at image-side grid (1,1)", pos(win.image_explorer_container) == (1, 1), str(pos(win.image_explorer_container)))
     check("button cluster no longer a grid row of its own",
           pos(win.imageexplorerbuttonscontainer) is None,
           str(pos(win.imageexplorerbuttonscontainer)))
@@ -610,6 +706,33 @@ def inspect_phase1():
     ok = wait_until(lambda: win.diskimageexplorerpathinput.text() == "/",
                     what="image load -> path box '/'")
     check("image loaded, box shows /", ok, win.diskimageexplorerpathinput.text())
+
+    # The real re-check (9.7.2): a stale BUSY verdict on the selected image
+    # greys MAME; the hover re-probe finds the file free, clears it and
+    # re-gates (True); asked again with nothing changed it does nothing
+    # (False). The clock is reset between calls: hovers are throttled.
+    from zxnu_config import IMAGE_WRITE_BUSY as _BUSY
+    _img_key = win._image_state_key(win.imageinput.currentText())
+    win._image_write_state[_img_key] = _BUSY
+    check("a cached BUSY verdict greys MAME", bool(win._image_busy_reason("MAME")))
+    # While a load holds every SD Card control, a hover must not re-gate:
+    # the buttons are grey for the lock's sake, not the verdict's (review).
+    win._sdcard_controls_locked = True
+    win._launch_recheck_clock = 0.0
+    check("hover re-check: skipped while the SD Card controls are locked",
+          win._recheck_emulator_launchability("Mame") is False
+          and win._image_write_state.get(_img_key) == _BUSY)
+    win._sdcard_controls_locked = False
+    win._launch_recheck_clock = 0.0
+    check("hover re-check: a free file clears the stale verdict and re-gates",
+          win._recheck_emulator_launchability("Mame") is True
+          and not win._image_busy_reason("MAME"),
+          str(win._image_busy_reason("MAME")))
+    win._launch_recheck_clock = 0.0
+    check("hover re-check: an unchanged verdict does not re-gate",
+          win._recheck_emulator_launchability("Mame") is False)
+    check("hover re-check: throttled within half a second",
+          win._recheck_emulator_launchability("Mame") is False)
 
     if ok:
         win.diskimageexplorerpathinput.setText("/games/sub")
@@ -791,6 +914,13 @@ def inspect_phase2():
     check("box shows restored path", win.diskimageexplorerpathinput.text() == "/games/sub",
           win.diskimageexplorerpathinput.text())
     check("tree selection valid", win.image_treeview.currentIndex().isValid())
+    check("general font size restored from cfg (8 pt applied)",
+          win.settings_general_font_combo.font().pointSize() == 8
+          and win.settings_zxnu_update_check_checkbox.font().pointSize() == 8
+          and win.settings_general_font_combo.currentData() == 8,
+          f"{win.settings_general_font_combo.font().pointSize()} / {win.settings_general_font_combo.currentData()}")
+    check("update-on-connect prompt restored unchecked from cfg",
+          not win.settings_re_update_prompt_checkbox.isChecked())
     check("retro color restored from cfg",
           win.img_color_retro_log.name().lower() == "#112233", win.img_color_retro_log.name())
     check("retro swatch shows restored color",
@@ -1053,6 +1183,42 @@ def inspect_phase6():
     def spos(w):
         i = lay.indexOf(w)
         return None if i < 0 else lay.getItemPosition(i)[:2]
+
+    # ---- general font size + update-on-connect prompt rows (9.7.2) --------
+    check("general font combo at its named row",
+          spos(win.settings_general_font_combo) == (settings_row("general_font"), 1),
+          str(spos(win.settings_general_font_combo)))
+    check("general font row sits directly above the Background colour row",
+          settings_row("general_font") + 1 == settings_row("color_background"))
+    # Measured on BUILT widgets, not QApplication.font(): with the app
+    # stylesheet installed, existing widgets only follow a setFont after a
+    # re-polish (review) - which is exactly what these pins prove.
+    _pt0 = win.settings_general_font_combo.font().pointSize()
+    win.settings_general_font_combo.setCurrentIndex(win.settings_general_font_combo.findData(9))
+    QApplication.processEvents()
+    check("picking 9 applies the application font live, to widgets already built",
+          win.settings_general_font_combo.font().pointSize() == 9
+          and win.settings_zxnu_update_check_checkbox.font().pointSize() == 9
+          and win.button_start_mame.font().pointSize() == 9,
+          str((win.settings_general_font_combo.font().pointSize(),
+               win.settings_zxnu_update_check_checkbox.font().pointSize(),
+               win.button_start_mame.font().pointSize())))
+    check("general font size persists to cfg", "general_font_size=9" in cfg_lines(),
+          str([l for l in cfg_lines() if l.startswith("general_font")]))
+    win.settings_general_font_combo.setCurrentIndex(0)
+    QApplication.processEvents()
+    check("Default restores the startup size and clears the cfg value",
+          win.settings_general_font_combo.font().pointSize() == _pt0 and "general_font_size=" in cfg_lines(),
+          f"{win.settings_general_font_combo.font().pointSize()} vs {_pt0}")
+    check("update-on-connect prompt toggle sits directly below the ZXNU update check",
+          spos(win.settings_re_update_prompt_checkbox) == (settings_row("re_update_prompt"), 0)
+          and settings_row("re_update_prompt") == settings_row("zxnu_update_check") + 1,
+          str(spos(win.settings_re_update_prompt_checkbox)))
+    win.settings_re_update_prompt_checkbox.setChecked(False)
+    QApplication.processEvents()
+    check("update-on-connect prompt toggle persists to cfg", "re_update_prompt=false" in cfg_lines(),
+          str([l for l in cfg_lines() if l.startswith("re_update")]))
+    win.settings_re_update_prompt_checkbox.setChecked(True)
     # Row 0 is the ZXNextRemote itch.io check since 9.6.5; the GitHub one
     # sits right under it. Both resolved BY NAME - the pane's own rule
     # (SETTINGS_TAB_ROWS), so inserting a row never renumbers this test.
@@ -1473,6 +1639,86 @@ def inspect_phase11():
         app.quit()
         return
 
+    # 9.7.2: the local | Next split is a horizontal splitter whose one
+    # handle sits between the local pane and the arrows + Next pane; a drag
+    # persists "left,right" to the cfg (restored on the next build).
+    from PySide6.QtCore import Qt as _Qt
+    from PySide6.QtWidgets import QSplitter as _QSplitter
+    _hs = getattr(re_widget, "hsplitter", None)
+    check("Remote Explorer local | Next splitter exists", isinstance(_hs, _QSplitter))
+    if _hs is not None:
+        check("Remote Explorer split is horizontal with two sides",
+              _hs.orientation() == _Qt.Horizontal and _hs.count() == 2)
+        check("Remote Explorer split: local pane left, arrows + Next pane right",
+              _hs.widget(0).isAncestorOf(re_widget.local_view)
+              and _hs.widget(1).isAncestorOf(re_widget.next_view)
+              and _hs.widget(1).isAncestorOf(re_widget.btn_to_next))
+        from PySide6.QtWidgets import QSizePolicy as _QSizePolicy
+        wait_until(lambda: sum(_hs.sizes()) > 0 and _hs.handle(1).width() > 0, 10, "Remote Explorer split laid out")
+        _sz = _hs.sizes(); _ratio = (_sz[0] / float(sum(_sz))) if sum(_sz) else 0
+        check("Remote Explorer split restores its saved position on startup", abs(_ratio - 520 / 1200.0) < 0.08, str(_sz))
+        check("Remote Explorer split handle is a thin bar, not a square", 1 <= _hs.handle(1).width() <= 12, str(_hs.handle(1).width()))
+        # The status label's text grows on connect; it must not set the
+        # Next pane's floor (that is what stopped the handle when connected).
+        check("Next status label does not dictate the pane's minimum width",
+              re_widget.next_path_label.sizePolicy().horizontalPolicy() == _QSizePolicy.Ignored)
+        _hs.splitterMoved.emit(200, 1)
+        check("dragging the Remote Explorer split persists it to the cfg",
+              wait_until(lambda: any(l.startswith("nextsync_re_splitter_sizes=") for l in cfg_lines()),
+                         3, "the debounced splitter save"),
+              str([l for l in cfg_lines() if "splitter" in l]))
+    # Del is the right-click "Delete" on BOTH panes: each handler prompts
+    # before touching anything, so here they are stubbed to prove the key
+    # ROUTES to them (the prompts themselves are covered by phase 5's
+    # confirm-dialog pins on the SD Card tree).
+    _calls = []
+    re_widget._local_delete_selected = lambda: _calls.append("local")
+    re_widget._delete_selected = lambda: _calls.append("next")
+    _press_delete(re_widget.local_view)
+    _was_connected = re_widget._connected
+    re_widget._connected = True
+    try:
+        _press_delete(re_widget.next_view)
+    finally:
+        re_widget._connected = _was_connected
+    check("Del on the Remote Explorer's local pane reaches its delete-with-prompt", "local" in _calls, str(_calls))
+    check("Del on the Remote Explorer's Next pane reaches its delete-with-prompt", "next" in _calls, str(_calls))
+
+    # Hovering a greyed emulator tab on THIS strip reaches the same host
+    # re-check as the SD Card tab's (9.7.2), through the widget's hook.
+    from PySide6.QtCore import QPointF as _QPointF
+    from PySide6.QtGui import QEnterEvent as _QEnterEvent
+    _rechecks = []
+    _saved_recheck = win._recheck_emulator_launchability
+    win._recheck_emulator_launchability = lambda n=None: _rechecks.append(n)
+    _saved_launchers = re_widget._emulator_launchers
+    re_widget._emulator_launchers = lambda: [("CSpect", lambda: None, "busy")]
+    re_widget.refresh_emulator_strip()
+    _tab = re_widget._emulator_tabs[0]
+    QApplication.sendEvent(_tab, _QEnterEvent(_QPointF(3, 3), _QPointF(3, 3), _QPointF(3, 3)))
+    QApplication.processEvents()
+    check("Remote Explorer: hovering a greyed emulator tab re-checks it through the host",
+          _rechecks == ["CSpect"], str(_rechecks))
+    win._recheck_emulator_launchability = _saved_recheck
+    re_widget._emulator_launchers = _saved_launchers
+    re_widget.refresh_emulator_strip()
+
+    # A toast can carry an offer (9.7.2): a second button that closes the
+    # toast and then runs the callback from the event loop.
+    from PySide6.QtWidgets import QPushButton as _QPushButton
+    _hits = []
+    win._show_toast("⚠  Update available for this Next", "body", variant="yellow",
+                    duration_ms=5000, action=("Update now", lambda: _hits.append(1)))
+    QApplication.processEvents()
+    _toast = win._live_toasts[-1] if getattr(win, "_live_toasts", None) else None
+    _btns = {b.text(): b for b in _toast.findChildren(_QPushButton)} if _toast is not None else {}
+    check("the offer toast shows an Update now button beside Cancel (the refusal)",
+          set(_btns) >= {"Update now", "Cancel"} and "OK" not in _btns, str(sorted(_btns)))
+    if "Update now" in _btns:
+        _btns["Update now"].click()
+        wait_until(lambda: _hits == [1], 3, "the toast's accept callback")
+    check("clicking it runs the accept callback", _hits == [1], str(_hits))
+
     # The stack page is the CONTAINER (explorer + mini log) since the RE
     # view grew its own log strip; the explorer widget lives inside it.
     check("the Remote Explorer container is the visible page of the log stack",
@@ -1534,6 +1780,11 @@ def inspect_phase11():
 
 
 def inspect_phase12():
+    # The resting state (no image loaded, or a failed load) must not hold
+    # the SD Card lock: it would leave the hover re-check dead (review).
+    _rw = find_win()
+    check("SD Card controls are not locked in the resting state",
+          _rw is not None and not getattr(_rw, "_sdcard_controls_locked", False))
     """With NO disk image loaded, the SD Card tab's LOCAL explorer must stay
     usable.
 

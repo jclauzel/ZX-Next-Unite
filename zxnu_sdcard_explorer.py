@@ -58,6 +58,8 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QProgressBar,
+    QSizePolicy,
+    QSplitter,
     QStyle,
     QTreeView,
     QVBoxLayout,
@@ -70,7 +72,7 @@ from zxnu_i18n import ui_tr_now
 # means the two strips cannot drift apart.
 from zxnu_remote_explorer import EmulatorTab, emulator_color_menu
 from zxnu_config import (SETTING_EXPLORERPATH, SETTING_IMAGE_EXPLORERPATH,
-                         is_filetype_a_directory)
+                         SPLITTER_HANDLE_QSS_HORIZONTAL, is_filetype_a_directory)
 from zxnu_workers import (CompactButton, DotDotFirstProxyModel,
                           HdfTaskWorker, as_emulator_launch,
                           bind_select_all_except_updir)
@@ -249,6 +251,16 @@ class SdCardExplorerPane(QWidget):
 
         self.diskimageexplorerlabel = QLabel()
         self.diskimageexplorerlabel.setText("Disk Image Explorer: ")
+        # A caption, not a floor (9.7.2): translated it runs ~280px, and a
+        # QLabel's minimum is its text width, so with the path box and the
+        # button cluster beside it the image side could never shrink past
+        # ~600px and the local ⇄ image splitter stopped early. An explicit
+        # minimum overrides that text-width minimum (qSmartMinSize), so the
+        # row can shrink and the caption clips - while its Preferred hint
+        # still earns it the full text whenever there is room. NOT
+        # QSizePolicy.Ignored: on a stretch-0 item that resolves to a 0px
+        # hint, and the caption vanished at every window size (review).
+        self.diskimageexplorerlabel.setMinimumWidth(1)
 
         self.diskimageexplorerpathinput = QLineEdit()
         self.diskimageexplorerpathinput.setPlaceholderText("Path inside the SD card image...")
@@ -299,23 +311,53 @@ class SdCardExplorerPane(QWidget):
         # then ONE bottom row per side — the image side's carries the path
         # box AND the New Folder / Rename / Delete buttons together, the
         # Remote Explorer's exact bottom row.
-        self.sdcard_explorer_grid = QGridLayout(self)
+        # Since 9.7.2 the two explorers sit either side of a HORIZONTAL
+        # QSplitter, so the local / disk-image split is the user's to drag
+        # - exactly like the explorers / log split below it - and persists
+        # (SETTING_SDCARD_HSPLITTER, "left,right" px) through the same
+        # helper. The LEFT side is the local column (nav bar / tree row /
+        # path row stacked); the RIGHT side keeps the grid the image
+        # explorer always had, re-indexed: column 0 the transfer-arrow
+        # buttons, column 1 the image widgets (nav / explorer / path rows).
+        self.local_column = QWidget(self)
+        _local_col = QVBoxLayout(self.local_column)
+        _local_col.setContentsMargins(0, 0, 0, 0)
+        _local_col.addWidget(self.local_nav_row_container)
+        _local_col.addWidget(self.local_tree_row_container, 1)
+        _local_col.addWidget(self.local_path_row_container)
+
+        self.image_side = QWidget(self)
+        self.sdcard_explorer_grid = QGridLayout(self.image_side)
         self.sdcard_explorer_grid.setContentsMargins(0, 0, 0, 0)
-        self.sdcard_explorer_grid.addWidget(self.local_nav_row_container, 0, 0)
-        self.sdcard_explorer_grid.addWidget(self.image_nav_row_container, 0, 2)
-        self.sdcard_explorer_grid.addWidget(self.local_tree_row_container, 1, 0)
-        self.sdcard_explorer_grid.addWidget(self.image_explorer_container, 1, 2)
-        self.sdcard_explorer_grid.addWidget(self.local_path_row_container, 2, 0)
-        self.sdcard_explorer_grid.addWidget(self.image_path_row_container, 2, 2)
-        self.sdcard_explorer_grid.setColumnStretch(0, 1)
-        self.sdcard_explorer_grid.setColumnStretch(2, 1)
+        self.sdcard_explorer_grid.addWidget(self.image_nav_row_container, 0, 1)
+        self.sdcard_explorer_grid.addWidget(self.image_explorer_container, 1, 1)
+        self.sdcard_explorer_grid.addWidget(self.image_path_row_container, 2, 1)
+        self.sdcard_explorer_grid.setColumnStretch(1, 1)
         self.sdcard_explorer_grid.setRowStretch(1, 1)
-        # The centre transfer-buttons column (1,1) and the New Folder /
-        # Rename / Delete cluster are operation-wired widgets: when not
-        # handed in here, MainWindow adds them once it has built them (the
-        # button cluster goes INTO the image path row, right of the box).
+
+        self.sdcard_hsplitter = QSplitter(Qt.Horizontal, self)
+        self.sdcard_hsplitter.addWidget(self.local_column)
+        self.sdcard_hsplitter.addWidget(self.image_side)
+        self.sdcard_hsplitter.setChildrenCollapsible(False)
+        self.sdcard_hsplitter.setStretchFactor(0, 1)
+        self.sdcard_hsplitter.setStretchFactor(1, 1)
+        self.sdcard_hsplitter.setHandleWidth(10)
+        self.sdcard_hsplitter.setStyleSheet(SPLITTER_HANDLE_QSS_HORIZONTAL)
+        # The English literal, NOT ui_tr_now: the startup / language-switch
+        # tree walk translates tooltips from the widget catalog, and caches
+        # the English source the first time it sees one. A pre-translated
+        # text has no source to cache and freezes in that language (review).
+        self.sdcard_hsplitter.handle(1).setToolTip(
+            "Drag to resize the local / disk image explorers split.")
+        _outer = QHBoxLayout(self)
+        _outer.setContentsMargins(0, 0, 0, 0)
+        _outer.addWidget(self.sdcard_hsplitter)
+        # The centre transfer-buttons column (image side, (1,0)) and the New
+        # Folder / Rename / Delete cluster are operation-wired widgets: when
+        # not handed in here, MainWindow adds them once it has built them
+        # (the button cluster goes INTO the image path row, right of the box).
         if transfer_buttons_container is not None:
-            self.sdcard_explorer_grid.addWidget(transfer_buttons_container, 1, 1)
+            self.sdcard_explorer_grid.addWidget(transfer_buttons_container, 1, 0)
         if image_buttons_container is not None:
             image_path_row.addWidget(image_buttons_container)
 
@@ -352,9 +394,25 @@ class SdCardExplorerPane(QWidget):
                     emulator=name)),
                 blocked=bool(why),
                 tint=self._emulator_color(name),
-                on_menu=(lambda pos, n=name: self._emulator_tab_menu(n, pos)))
+                on_menu=(lambda pos, n=name: self._emulator_tab_menu(n, pos)),
+                on_hover_blocked=(lambda n=name: self._recheck_emulator(n)))
             self._emulator_strip_box.insertWidget(i, tab)
             self._emulator_tabs.append(tab)
+
+    def _recheck_emulator(self, name):
+        """A greyed tab was hovered: ask the host to re-probe *name*'s image.
+
+        The host re-gates every launch surface itself when the verdict has
+        changed (zxnu_emulator_ops' _recheck_emulator_launchability), which
+        rebuilds this strip - so nothing is touched here.
+        """
+        fn = getattr(self._host, "_recheck_emulator_launchability", None)
+        if fn is None:
+            return
+        try:
+            fn(name)
+        except Exception:                       # noqa: BLE001
+            logging.exception("SD Card explorer: emulator re-check failed")
 
     def _emulator_color(self, name):
         """This emulator's picked colour as a QColor, or None — read from

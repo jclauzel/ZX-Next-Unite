@@ -20,7 +20,7 @@ import threading
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from PySide6.QtCore import QCoreApplication, Qt
 from zxnu_config import UP_DIRECTORY
-from zxnu_workers import (HdfTaskSignals, _run_delete_task, _run_get_task,
+from zxnu_workers import (HdfTaskSignals, HdfTaskWorker, _run_delete_task, _run_get_task,
                           _run_put_external_task, _run_put_task,
                           get_parent_root_directory_splited, is_directory,
                           zip_unique_name)
@@ -396,6 +396,50 @@ def test_put_external():
         shutil.rmtree(local, ignore_errors=True)
 
 
+def test_emit_after_teardown():
+    """The worker's final emits survive an owner that is already gone.
+
+    At application exit the owner drops its reference while a job is
+    still finishing; the HdfTaskSignals object is destroyed with it and
+    every emit raises "Signal source has been deleted" - which PySide
+    printed as an unhandled error out of QRunnable::run at the end of the
+    offscreen suite's phase 1. Nobody is left to notify, so run() must
+    simply finish (9.7.2). A live owner is still told everything.
+    """
+    global ok
+    from shiboken6 import delete as _cpp_delete
+
+    # A live owner hears finished, and error when the job raises.
+    live = HdfTaskWorker(lambda signals, cancel: None)
+    heard = []
+    live.signals.finished.connect(lambda: heard.append("finished"), Qt.DirectConnection)
+    live.run()
+    check("live owner still hears finished", heard == ["finished"], str(heard))
+    failing = HdfTaskWorker(lambda signals, cancel: (_ for _ in ()).throw(ValueError("boom")))
+    heard = []
+    failing.signals.error.connect(heard.append, Qt.DirectConnection)
+    failing.run()
+    check("live owner still hears the job's error", heard == ["boom"], str(heard))
+
+    # The owner (and its signals object) torn down mid-job: no exception.
+    for label, job in (("finished", lambda signals, cancel: None),
+                       ("error", lambda signals, cancel: (_ for _ in ()).throw(ValueError("boom")))):
+        gone = HdfTaskWorker(job)
+        _cpp_delete(gone.signals)
+        try:
+            gone.run()
+            check(f"{label} emit after the owner's teardown does not raise", True)
+        except RuntimeError as exc:
+            check(f"{label} emit after the owner's teardown does not raise", False, str(exc))
+    cancelled = HdfTaskWorker(lambda signals, cancel: cancel.set())
+    _cpp_delete(cancelled.signals)
+    try:
+        cancelled.run()
+        check("cancelled + finished emits after teardown do not raise", True)
+    except RuntimeError as exc:
+        check("cancelled + finished emits after teardown do not raise", False, str(exc))
+
+
 def main():
     QCoreApplication(sys.argv)   # signals only — no display, no event loop
     # The failure-path tests make the workers call logging.error on purpose;
@@ -408,6 +452,7 @@ def main():
     test_put_single()
     test_put_directory()
     test_put_external()
+    test_emit_after_teardown()
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
     sys.exit(0 if ok else 1)
 

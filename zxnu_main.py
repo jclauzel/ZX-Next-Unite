@@ -1238,7 +1238,7 @@ class MainWindow(QMainWindow):
 
     def _show_toast(self, title: str, message: str = "", *, variant: str = "green",
                     duration_ms: int = 10000, rich: bool = False,
-                    corner: str = "bottom-right"):
+                    corner: str = "bottom-right", action=None):
         """Show a small, auto-dismissing toast anchored to a window corner
         (``corner``: "bottom-right", the default, or "bottom-left").
 
@@ -1253,6 +1253,11 @@ class MainWindow(QMainWindow):
         links (use ``<br>`` for line breaks and ``<a href=…>`` for links);
         otherwise it is plain text so embedded URLs and ``\\r\\n`` line breaks
         are shown verbatim.
+
+        ``action`` is an optional ``(label, callback)``: a second button
+        wearing *label* (translated) that closes the toast and then runs
+        *callback* from the event loop - how an offer such as "Update now"
+        is accepted (9.7.2).
         """
         # Runtime i18n chokepoint: static toast titles/bodies translate here
         # via exact catalog match (see the toasts section of zxnu_i18n).
@@ -1300,12 +1305,19 @@ class MainWindow(QMainWindow):
 
             btn_row = QHBoxLayout()
             btn_row.addStretch(1)
-            ok_btn = QPushButton("OK")
+            # Beside an offer the dismiss button is a refusal, so it says so:
+            # "Cancel" simply closes the toast and nothing is updated.
+            ok_btn = QPushButton(ui_tr_now("Cancel") if action else "OK")
             ok_btn.setStyleSheet(
                 f"QPushButton {{ color: #eee; background: {btn_bg}; border: 1px solid"
                 f" {btn_border}; border-radius: 4px; padding: 4px 18px; }}"
                 f"QPushButton:hover {{ background: {btn_hover}; }}"
             )
+            act_btn = None
+            if action:
+                act_btn = QPushButton(ui_tr_now(str(action[0])))
+                act_btn.setStyleSheet(ok_btn.styleSheet())
+                btn_row.addWidget(act_btn)
             btn_row.addWidget(ok_btn)
             lay.addLayout(btn_row)
 
@@ -1338,6 +1350,13 @@ class MainWindow(QMainWindow):
 
             timer.timeout.connect(_dismiss)
             ok_btn.clicked.connect(_dismiss)
+            if act_btn is not None:
+                def _accept():
+                    _dismiss()
+                    # After the toast is gone: the callback may open a modal
+                    # dialog, and not from inside this button's click.
+                    QTimer.singleShot(0, action[1])
+                act_btn.clicked.connect(_accept)
 
             toast.show()
             toast.raise_()
@@ -1953,7 +1972,11 @@ class MainWindow(QMainWindow):
                 pass
 
         def set_all_buttons_disabled():
-
+            # The lock is a state of its own, not just a set of disabled
+            # widgets: the hover re-check on a greyed Launch button must
+            # not re-gate (and so re-enable) anything while it holds
+            # (review, 9.7.2). Cleared by set_all_buttons_enabled.
+            self._sdcard_controls_locked = True
             self.imageinput.setDisabled(True)
             _lock_image_clear_button(True)
             self.selectimage.setDisabled(True)
@@ -1993,6 +2016,7 @@ class MainWindow(QMainWindow):
             _update_mame_launch_tooltip()
 
         def set_all_buttons_enabled():
+            self._sdcard_controls_locked = False
             self.imageinput.setDisabled(False)
             _lock_image_clear_button(False)
             self.selectimage.setDisabled(False)
@@ -2135,6 +2159,13 @@ class MainWindow(QMainWindow):
         self._refresh_mame_launch_ui = _refresh_mame_launch_ui
 
         def enable_image_selection():
+            # The resting state - startup, a failed load, a cleared image
+            # box - is reached as set_all_buttons_disabled() followed by
+            # THIS, never through set_all_buttons_enabled(): the lock the
+            # former set must be released here too, or the hover re-check
+            # on a greyed Launch button stays dead until a load succeeds
+            # (review, 9.7.2).
+            self._sdcard_controls_locked = False
             self.imageinput.setDisabled(False)
             _lock_image_clear_button(False)
             self.selectimage.setDisabled(False)
@@ -2963,6 +2994,7 @@ class MainWindow(QMainWindow):
         self.diskimageexplorerpathinput = _pane.diskimageexplorerpathinput
         self.image_path_row_container = _pane.image_path_row_container
         self.sdcard_explorer_grid = _pane.sdcard_explorer_grid
+        self.sdcard_hsplitter = _pane.sdcard_hsplitter   # local ⇄ image split (9.7.2)
         self.sdcard_explorer_container = _pane
         self._image_recolor_all = _pane.image_recolor_all
 
@@ -3247,7 +3279,10 @@ class MainWindow(QMainWindow):
         self.centralbuttons.addWidget(self.button_to_disk)
         self.centralbuttons.setAlignment(Qt.AlignCenter)
         self.centralbuttonscontainer.setLayout(self.centralbuttons)
-        self.sdcard_explorer_grid.addWidget(self.centralbuttonscontainer, 1, 1)
+        # Column 0 of the image SIDE's grid since 9.7.2 (the local column
+        # moved out to the left of a splitter, so the image side's grid
+        # starts at the transfer buttons: col 0 arrows, col 1 image).
+        self.sdcard_explorer_grid.addWidget(self.centralbuttonscontainer, 1, 0)
 
         self.listWidgetLog = QListWidget(self)
 
@@ -3324,6 +3359,12 @@ class MainWindow(QMainWindow):
         self.button_delete_files = QPushButton("DeleteFiles", self)
         self.button_delete_files.setText("Delete")
         self.button_delete_files.clicked.connect(delete_files_button_show_confirmation_buttons)
+        # Their translated labels ("Nouveau dossier" ...) would otherwise fix the
+        # image side's floor at ~350px of buttons and stop the local ⇄ image
+        # splitter early (9.7.2): an explicit minimum lets the row give way,
+        # the labels clipping past it.
+        for _b in (self.button_new_folder, self.button_rename, self.button_delete_files):
+            _b.setMinimumWidth(56)
 
         self.imageexplorerbuttons.addWidget(self.button_new_folder)
         self.imageexplorerbuttons.addWidget(self.button_rename)
@@ -3431,14 +3472,28 @@ class MainWindow(QMainWindow):
             user drag. splitterMoved only fires for real drags (never for
             programmatic setSizes, including the restore in
             load_configuration_file), so a restore can't echo back into the
-            file; save_configuration_file is a no-op while _initialising."""
+            file; save_configuration_file is a no-op while _initialising.
+
+            The dictionary is updated on every move, the FILE once the drag
+            pauses (300 ms): splitterMoved fires per mouse-move and the cfg
+            writer rewrites the whole file each time (review, 9.7.2). A
+            quit inside that window loses nothing: every quit path closes
+            the window, and the closeEvent save writes the dictionary."""
+            _flush = QTimer(splitter)
+            _flush.setSingleShot(True)
+            _flush.setInterval(300)
+            _flush.timeout.connect(save_configuration_file)
+
             def _on_moved(_pos, _index):
                 configuration_dictionary[setting_key] = ",".join(
                     str(_s) for _s in splitter.sizes())
-                save_configuration_file()
+                _flush.start()
             splitter.splitterMoved.connect(_on_moved)
 
         _splitter_persist_on_move(self.sdcard_splitter, SETTING_SDCARD_SPLITTER)
+        # The local ⇄ disk-image explorers split (9.7.2): same helper, same
+        # cfg round-trip ("left,right" px), restored by load_configuration_file.
+        _splitter_persist_on_move(self.sdcard_hsplitter, SETTING_SDCARD_HSPLITTER)
 
         self.zx_next_unite_form.addRow(self.sdcard_splitter)
 
@@ -3628,6 +3683,14 @@ class MainWindow(QMainWindow):
         self.button_start_cspect.clicked.connect(launch_cspect)
         self.cspect_group_layout.addWidget(self.button_start_cspect)
         _bind_emulator_button_color_menu(self.button_start_cspect, "CSpect")
+        # Pointing at a GREYED Launch button re-probes its disk image and
+        # re-gates every launch surface if the verdict changed (9.7.2) -
+        # the way out of a grey-out that outlived the emulator holding the
+        # image. Armed here because both buttons must exist first; the
+        # closure itself is installed by zxnu_emulator_ops.
+        _arm_hover_recheck = getattr(self, "_arm_launch_hover_recheck", None)
+        if _arm_hover_recheck is not None:
+            _arm_hover_recheck()
 
         # Populate Screen Size Combo
         self.cspect_screensize = QComboBox()

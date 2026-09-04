@@ -10,4 +10,6 @@ zcc_opt.def
 # parent nextsync/.gitignore's *.asm / *.lst rules (meant for SDCC-generated
 # files) would otherwise drop them and make the dotN unbuildable from a clone.
 !uart.asm
+# crc32.asm too (v5.9.2): the hand-written CRC-32 core + hex formatter.
+!crc32.asm
 !zproject.lst

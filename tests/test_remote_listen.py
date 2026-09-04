@@ -3,6 +3,7 @@
 dot's half of the protocol; we drive the worker via its command queue and check
 the emitted signals."""
 import os, sys, socket, threading, queue, tempfile, shutil, time
+import zlib
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from PySide6.QtCore import QCoreApplication, Qt
@@ -213,6 +214,15 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
             # version query (ZXNR 1.0.2+ / dot v5.8+): one status block,
             # 'O' + type + NUL + build number.
             push(b'Osync' + bytes([0]) + b'9.9.9', 0)
+        elif op == b'K':
+            # crc (dot v5.9.2+ / ZXNR 1.0.8+): 'O' + 8 upper-case hex digits
+            # of the file's CRC-32 (zlib.crc32's value), 'F' when it did not
+            # open. The digits here are the CRC of the PATH, so a test can
+            # predict them without a file table.
+            if arg.rstrip("/") == "/gone":
+                push(b'F', 0)
+            else:
+                push(b'O' + ("%08X" % (zlib.crc32(arg.encode()) & 0xffffffff)).encode(), 0)
         elif op == b'Z':
             # free space (dot v5.2+): 'O' + 4B little-endian free 512-byte
             # blocks, or 'F' when the drive can't be measured (like the dot's
@@ -380,6 +390,8 @@ def main():
     cmd_q = queue.Queue()
     stop = threading.Event()
     bp = BridgeReply()   # rides the second protected put below
+    crc_ok = BridgeReply()   # the crc answers ride reply sinks (bridge shape)
+    crc_no = BridgeReply()
     # "ls /gone" sits between real commands on purpose: if the 'F' (opendir-fail)
     # reply were mishandled it would desync the stream and break everything after.
     for c in [("mkdir", "/ho"), ("ls", "/"), ("ls", "/gone"),
@@ -397,6 +409,8 @@ def main():
               ("rcpy", "/locked/t", "/t2"),         # unreadable source -> 'F'
               ("fsize", "/games/lev"),              # tree size incl. 48-bit hi
               ("fsize", "/gone"),                   # missing path -> 'F' -> None
+              ("crc", "/games/a.tap", crc_ok),      # CRC-32 ON the Next: 'O' + 8 hex
+              ("crc", "/gone", crc_no),             # missing file -> 'F' -> not ok
               ("rmtree", "M:/del3"),                # drive-prefixed recursive delete
               ("rename", "/ho/a.txt", "/ho/b.txt"),
               # OS protection (0.9.0): a protecting listener refuses these with
@@ -500,6 +514,16 @@ def main():
         print("PASS rcpy : ", cap['rcpy'])
     else:
         print("FAIL rcpy : ", cap.get('rcpy'), got['ops']); ok = False
+    # crc ('K', dot v5.9.2+ / ZXNR 1.0.8+): 'O' + 8 upper-case hex digits to
+    # the reply sink, 'F' reported as a failure, the stream intact after.
+    _want_crc = "%08X" % (zlib.crc32(b"/games/a.tap") & 0xffffffff)
+    _c_ok = crc_ok.wait(5)
+    _c_no = crc_no.wait(5)
+    if (_c_ok and _c_ok.get('ok') and _c_ok.get('crc32') == _want_crc
+            and _c_no and not _c_no.get('ok')):
+        print("PASS crc  : ", _c_ok.get('crc32'))
+    else:
+        print("FAIL crc  : ", _c_ok, _c_no); ok = False
     # rfsize ('S'): the totals must decode - bytes = size_hi*2^32 + size_lo =
     # 1*4294967296 + 512 (the 48-bit path) - and both signals must fire:
     # op_done(ok, "size", path) then fsize(path, data|None). The 'F' must

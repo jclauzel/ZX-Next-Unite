@@ -385,6 +385,8 @@ CATALOGS = {
         "Port:": "Puerto:",
         "Reset theme": "Restablecer tema",
         "Retro log font size:": "Tamaño de letra del registro retro:",
+        "General font size:": "Tamaño de letra general:",
+        "Point size of the application font used by labels, buttons, combos,\ntabs and the explorers' default text. Smaller sizes help the whole\nwindow fit a small screen. Applies immediately; the retro log\nconsoles keep their own size (see below).": "Tamaño en puntos de la fuente de la aplicación usada por etiquetas, botones,\ncombos, pestañas y el texto por defecto de los exploradores. Los tamaños\npequeños ayudan a que toda la ventana quepa en una pantalla pequeña. Se aplica\nal instante; las consolas de registro retro conservan su propio tamaño (abajo).",
         "Search:": "Buscar:",
         "Search: ": "Buscar: ",
         "View:": "Vista:",
@@ -430,6 +432,7 @@ CATALOGS = {
         "Remote .sync5 update": "Actualización remota de .sync5",
         "Update .sync5 on this Next ({old} → {new})…":
             "Actualizar .sync5 en este Next ({old} → {new})…",
+        "Update .sync5 on this Next ({old} → {new})": "Actualizar .sync5 en este Next ({old} → {new})",
         "Update to {new}":
             "Actualizar a {new}",
         "Push new .sync5 to this Next…":
@@ -1084,6 +1087,8 @@ CATALOGS = {
             "Buscar actualizaciones de CSpect en itch.io al iniciar",
         "Check for ZX Next Unite updates at startup on Github":
             "Buscar actualizaciones de ZX Next Unite en GitHub al iniciar",
+        "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Ofrecer actualizar un .sync5 / ZX Next Remote antiguo cuando se conecta un Next",
+        "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Cuando un Next se conecta al Explorador remoto con un .sync5 o una\nversión de ZX Next Remote más antigua que la de este PC, mostrar un aviso\nde 10 segundos que ofrece enviar la nueva versión de inmediato.",
         "Check for a newer MAME version at startup":
             "Buscar una versión más reciente de MAME al iniciar",
         "Disable 'No emulators detected' message at startup":
@@ -1151,6 +1156,8 @@ CATALOGS = {
             "No hay ninguna imagen de tarjeta SD cargada.",
         "Re-read the current local folder from disk.":
             "Volver a leer la carpeta local actual desde el disco.",
+        "Drag to resize the local / Next explorers split.": "Arrastra para redimensionar la división entre los exploradores local y Next.",
+        "Drag to resize the local / disk image explorers split.": "Arrastra para redimensionar la división entre el explorador local y el de la imagen de disco.",
         "Drag to resize the file explorers / log window split.":
             "Arrastra para redimensionar la división exploradores / registro.",
         "Drag to resize the results / MOTD split.":
@@ -1651,6 +1658,8 @@ CATALOGS = {
         "Port:": "Porta:",
         "Reset theme": "Repor tema",
         "Retro log font size:": "Tamanho da letra do registo retro:",
+        "General font size:": "Tamanho da letra geral:",
+        "Point size of the application font used by labels, buttons, combos,\ntabs and the explorers' default text. Smaller sizes help the whole\nwindow fit a small screen. Applies immediately; the retro log\nconsoles keep their own size (see below).": "Tamanho em pontos da fonte da aplicação usada por rótulos, botões, combos,\nseparadores e o texto por defeito dos exploradores. Tamanhos menores ajudam a\njanela inteira a caber num ecrã pequeno. Aplica-se de imediato; as consolas de\nregisto retro mantêm o seu próprio tamanho (abaixo).",
         "Search:": "Pesquisar:",
         "Search: ": "Pesquisar: ",
         "View:": "Vista:",
@@ -1696,6 +1705,7 @@ CATALOGS = {
         "Remote .sync5 update": "Atualização remota do .sync5",
         "Update .sync5 on this Next ({old} → {new})…":
             "Atualizar o .sync5 neste Next ({old} → {new})…",
+        "Update .sync5 on this Next ({old} → {new})": "Atualizar o .sync5 neste Next ({old} → {new})",
         "Update to {new}":
             "Atualizar para {new}",
         "Push new .sync5 to this Next…":
@@ -2350,6 +2360,8 @@ CATALOGS = {
             "Procurar atualizações do CSpect no itch.io ao arrancar",
         "Check for ZX Next Unite updates at startup on Github":
             "Procurar atualizações do ZX Next Unite no GitHub ao arrancar",
+        "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Propor atualizar um .sync5 / ZX Next Remote antigo quando um Next se liga",
+        "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Quando um Next se liga ao Explorador remoto com um .sync5 ou uma versão\ndo ZX Next Remote mais antiga do que a deste PC, mostrar um aviso de 10\nsegundos a propor enviar já a versão mais recente.",
         "Check for a newer MAME version at startup":
             "Procurar uma versão mais recente do MAME ao arrancar",
         "Disable 'No emulators detected' message at startup":
@@ -2417,6 +2429,8 @@ CATALOGS = {
             "Nenhuma imagem de cartão SD está carregada.",
         "Re-read the current local folder from disk.":
             "Voltar a ler a pasta local atual a partir do disco.",
+        "Drag to resize the local / Next explorers split.": "Arraste para redimensionar a divisão entre os exploradores local e Next.",
+        "Drag to resize the local / disk image explorers split.": "Arraste para redimensionar a divisão entre o explorador local e o da imagem de disco.",
         "Drag to resize the file explorers / log window split.":
             "Arraste para redimensionar a divisão exploradores / registo.",
         "Drag to resize the results / MOTD split.":
@@ -2915,6 +2929,8 @@ CATALOGS = {
         "Port:": "Port:",
         "Reset theme": "Resetuj motyw",
         "Retro log font size:": "Rozmiar czcionki dziennika retro:",
+        "General font size:": "Ogólny rozmiar czcionki:",
+        "Point size of the application font used by labels, buttons, combos,\ntabs and the explorers' default text. Smaller sizes help the whole\nwindow fit a small screen. Applies immediately; the retro log\nconsoles keep their own size (see below).": "Rozmiar w punktach czcionki aplikacji używanej przez etykiety, przyciski, listy,\nkarty i domyślny tekst eksploratorów. Mniejsze rozmiary pomagają zmieścić całe\nokno na małym ekranie. Działa natychmiast; konsole dziennika retro zachowują\nwłasny rozmiar (poniżej).",
         "Search:": "Szukaj:",
         "Search: ": "Szukaj: ",
         "View:": "Widok:",
@@ -2960,6 +2976,7 @@ CATALOGS = {
         "Remote .sync5 update": "Zdalna aktualizacja .sync5",
         "Update .sync5 on this Next ({old} → {new})…":
             "Zaktualizuj .sync5 na tym Nexcie ({old} → {new})…",
+        "Update .sync5 on this Next ({old} → {new})": "Zaktualizuj .sync5 na tym Nexcie ({old} → {new})",
         "Update to {new}":
             "Zaktualizuj do {new}",
         "Push new .sync5 to this Next…":
@@ -3614,6 +3631,8 @@ CATALOGS = {
             "Sprawdzaj aktualizacje CSpect na itch.io przy starcie",
         "Check for ZX Next Unite updates at startup on Github":
             "Sprawdzaj aktualizacje ZX Next Unite na GitHubie przy starcie",
+        "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Proponuj aktualizację starszego .sync5 / ZX Next Remote, gdy Next się połączy",
+        "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Gdy Next połączy się ze Zdalnym eksploratorem ze starszym .sync5 lub\nstarszą wersją ZX Next Remote niż ma ten PC, pokaż 10-sekundowy monit\nz propozycją natychmiastowego wysłania nowszej wersji.",
         "Check for a newer MAME version at startup":
             "Sprawdzaj nowszą wersję MAME przy starcie",
         "Disable 'No emulators detected' message at startup":
@@ -3681,6 +3700,8 @@ CATALOGS = {
             "Żaden obraz karty SD nie jest wczytany.",
         "Re-read the current local folder from disk.":
             "Odczytaj ponownie bieżący folder lokalny z dysku.",
+        "Drag to resize the local / Next explorers split.": "Przeciągnij, aby zmienić podział między eksploratorem lokalnym a Next.",
+        "Drag to resize the local / disk image explorers split.": "Przeciągnij, aby zmienić podział między eksploratorem lokalnym a eksploratorem obrazu dysku.",
         "Drag to resize the file explorers / log window split.":
             "Przeciągnij, aby zmienić podział eksploratory / dziennik.",
         "Drag to resize the results / MOTD split.":
@@ -4181,6 +4202,8 @@ CATALOGS = {
         "Port:": "Порт:",
         "Reset theme": "Сбросить тему",
         "Retro log font size:": "Размер шрифта ретро-журнала:",
+        "General font size:": "Общий размер шрифта:",
+        "Point size of the application font used by labels, buttons, combos,\ntabs and the explorers' default text. Smaller sizes help the whole\nwindow fit a small screen. Applies immediately; the retro log\nconsoles keep their own size (see below).": "Размер в пунктах шрифта приложения для надписей, кнопок, списков, вкладок и\nтекста проводников по умолчанию. Меньшие размеры помогают уместить всё окно на\nмаленьком экране. Применяется сразу; ретро-консоли журнала сохраняют свой\nразмер (ниже).",
         "Search:": "Поиск:",
         "Search: ": "Поиск: ",
         "View:": "Вид:",
@@ -4226,6 +4249,7 @@ CATALOGS = {
         "Remote .sync5 update": "Удалённое обновление .sync5",
         "Update .sync5 on this Next ({old} → {new})…":
             "Обновить .sync5 на этом Next ({old} → {new})…",
+        "Update .sync5 on this Next ({old} → {new})": "Обновить .sync5 на этом Next ({old} → {new})",
         "Update to {new}":
             "Обновить до {new}",
         "Push new .sync5 to this Next…":
@@ -4879,6 +4903,8 @@ CATALOGS = {
             "Проверять обновления CSpect на itch.io при запуске",
         "Check for ZX Next Unite updates at startup on Github":
             "Проверять обновления ZX Next Unite на GitHub при запуске",
+        "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Предлагать обновить устаревший .sync5 / ZX Next Remote при подключении Next",
+        "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Когда Next подключается к удалённому проводнику со старым .sync5 или\nстарой сборкой ZX Next Remote, чем есть на этом ПК, показать 10-секундное\nпредложение сразу отправить новую версию.",
         "Check for a newer MAME version at startup":
             "Проверять новую версию MAME при запуске",
         "Disable 'No emulators detected' message at startup":
@@ -4946,6 +4972,8 @@ CATALOGS = {
             "Образ SD-карты сейчас не загружен.",
         "Re-read the current local folder from disk.":
             "Перечитать текущую локальную папку с диска.",
+        "Drag to resize the local / Next explorers split.": "Перетащите, чтобы изменить разделение между локальным проводником и Next.",
+        "Drag to resize the local / disk image explorers split.": "Перетащите, чтобы изменить разделение между локальным проводником и проводником образа диска.",
         "Drag to resize the file explorers / log window split.":
             "Перетащите, чтобы изменить разделение проводники / журнал.",
         "Drag to resize the results / MOTD split.":
@@ -5445,6 +5473,8 @@ CATALOGS = {
         "Port:": "Port:",
         "Reset theme": "Obnovit motiv",
         "Retro log font size:": "Velikost písma retro protokolu:",
+        "General font size:": "Obecná velikost písma:",
+        "Point size of the application font used by labels, buttons, combos,\ntabs and the explorers' default text. Smaller sizes help the whole\nwindow fit a small screen. Applies immediately; the retro log\nconsoles keep their own size (see below).": "Velikost písma aplikace v bodech pro popisky, tlačítka, seznamy, karty a\nvýchozí text průzkumníků. Menší velikosti pomohou vměstnat celé okno na malou\nobrazovku. Projeví se ihned; retro konzole protokolu si ponechají vlastní\nvelikost (níže).",
         "Search:": "Hledat:",
         "Search: ": "Hledat: ",
         "View:": "Zobrazení:",
@@ -5490,6 +5520,7 @@ CATALOGS = {
         "Remote .sync5 update": "Vzdálená aktualizace .sync5",
         "Update .sync5 on this Next ({old} → {new})…":
             "Aktualizovat .sync5 na tomto Nextu ({old} → {new})…",
+        "Update .sync5 on this Next ({old} → {new})": "Aktualizovat .sync5 na tomto Nextu ({old} → {new})",
         "Update to {new}":
             "Aktualizovat na {new}",
         "Push new .sync5 to this Next…":
@@ -6141,6 +6172,8 @@ CATALOGS = {
             "Při startu hledat aktualizace CSpect na itch.io",
         "Check for ZX Next Unite updates at startup on Github":
             "Při startu hledat aktualizace ZX Next Unite na GitHubu",
+        "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Nabídnout aktualizaci staršího .sync5 / ZX Next Remote, když se Next připojí",
+        "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Když se Next připojí ke Vzdálenému průzkumníku se starším .sync5 nebo\nstarší verzí ZX Next Remote, než má tento počítač, zobrazit 10sekundovou\nvýzvu s nabídkou hned odeslat novější verzi.",
         "Check for a newer MAME version at startup":
             "Při startu hledat novější verzi MAME",
         "Disable 'No emulators detected' message at startup":
@@ -6208,6 +6241,8 @@ CATALOGS = {
             "Není načten žádný obraz karty SD.",
         "Re-read the current local folder from disk.":
             "Znovu načíst aktuální místní složku z disku.",
+        "Drag to resize the local / Next explorers split.": "Tažením změníte rozdělení mezi místním průzkumníkem a Next.",
+        "Drag to resize the local / disk image explorers split.": "Tažením změníte rozdělení mezi místním průzkumníkem a průzkumníkem obrazu disku.",
         "Drag to resize the file explorers / log window split.":
             "Tažením změníte rozdělení průzkumníky / protokol.",
         "Drag to resize the results / MOTD split.":
@@ -6709,6 +6744,8 @@ CATALOGS = {
         "Port:": "Port :",
         "Reset theme": "Réinitialiser le thème",
         "Retro log font size:": "Taille de police du journal rétro :",
+        "General font size:": "Taille de police générale :",
+        "Point size of the application font used by labels, buttons, combos,\ntabs and the explorers' default text. Smaller sizes help the whole\nwindow fit a small screen. Applies immediately; the retro log\nconsoles keep their own size (see below).": "Taille en points de la police de l'application utilisée par les libellés,\nboutons, listes, onglets et le texte par défaut des explorateurs. Une taille\nplus petite aide la fenêtre entière à tenir sur un petit écran. Appliqué\nimmédiatement ; les consoles de journal rétro gardent leur propre taille (ci-dessous).",
         "Search:": "Rechercher :",
         "Search: ": "Rechercher : ",
         "View:": "Vue :",
@@ -6754,6 +6791,7 @@ CATALOGS = {
         "Remote .sync5 update": "Mise à jour à distance de .sync5",
         "Update .sync5 on this Next ({old} → {new})…":
             "Mettre à jour .sync5 sur ce Next ({old} → {new})…",
+        "Update .sync5 on this Next ({old} → {new})": "Mettre à jour .sync5 sur ce Next ({old} → {new})",
         "Update to {new}":
             "Mettre à jour vers {new}",
         "Push new .sync5 to this Next…":
@@ -7411,6 +7449,8 @@ CATALOGS = {
             "Vérifier les mises à jour de CSpect sur itch.io au démarrage",
         "Check for ZX Next Unite updates at startup on Github":
             "Vérifier les mises à jour de ZX Next Unite sur GitHub au démarrage",
+        "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Proposer de mettre à jour un .sync5 / ZX Next Remote ancien quand un Next se connecte",
+        "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Quand un Next se connecte à l'Explorateur distant avec un .sync5 ou une\nversion de ZX Next Remote plus ancienne que celle de ce PC, afficher une\ninvite de 10 secondes proposant d'envoyer la nouvelle version tout de suite.",
         "Check for a newer MAME version at startup":
             "Vérifier une version plus récente de MAME au démarrage",
         "Disable 'No emulators detected' message at startup":
@@ -7478,6 +7518,8 @@ CATALOGS = {
             "Aucune image de carte SD n'est chargée.",
         "Re-read the current local folder from disk.":
             "Relire le dossier local courant depuis le disque.",
+        "Drag to resize the local / Next explorers split.": "Faites glisser pour redimensionner la séparation entre les explorateurs local et Next.",
+        "Drag to resize the local / disk image explorers split.": "Faites glisser pour redimensionner la séparation entre l'explorateur local et celui de l'image disque.",
         "Drag to resize the file explorers / log window split.":
             "Faites glisser pour redimensionner la séparation explorateurs / journal.",
         "Drag to resize the results / MOTD split.":
@@ -7856,6 +7898,11 @@ _TOAST_CATALOGS = {
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Annulation — s'arrêtera une fois le transfert du fichier en cours terminé, afin d'éviter toute corruption de fichier…",
         "NextSync server started": "Serveur NextSync démarré",
+        "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "L'offre de mise à jour ne s'applique plus : le Next s'est déconnecté, ou un autre Next est piloté maintenant.",
+        "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Mise à jour de .sync5 sur {machine} : v{old} → v{new}, dans {target} (l'ancien dot est conservé sous sync5.bak). La session se termine à la fin de la mise à jour — relancez ensuite {command} sur le Next.",
+        "⚠  Update available for this Next": "⚠  Mise à jour disponible pour ce Next",
+        "This version {old} of {flavor} is obsolete, would you like to update now to version {new}?": "Cette version {old} de {flavor} est obsolète, voulez-vous mettre à jour maintenant vers la version {new} ?",
+        "Update now": "Mettre à jour maintenant",
         "You have started a Remote Explorer nextsync server already": "Un serveur NextSync Remote Explorer est déjà démarré",
         "✅  Sent via Remote Explorer": "✅  Envoyé via le Remote Explorer",
         "Remote Explorer is busy": "Le Remote Explorer est occupé",
@@ -7972,6 +8019,11 @@ _TOAST_CATALOGS = {
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Cancelando — se detendrá cuando el archivo actual termine de transferirse, para evitar la corrupción de archivos…",
         "NextSync server started": "Servidor NextSync iniciado",
+        "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "La oferta de actualización ya no se aplica: el Next se desconectó, o ahora se controla otro Next.",
+        "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Actualizando .sync5 en {machine}: v{old} → v{new}, en {target} (el dot anterior se conserva como sync5.bak). La sesión termina cuando la actualización se completa — vuelve a ejecutar {command} en el Next después.",
+        "⚠  Update available for this Next": "⚠  Actualización disponible para este Next",
+        "This version {old} of {flavor} is obsolete, would you like to update now to version {new}?": "Esta versión {old} de {flavor} está obsoleta, ¿quieres actualizar ahora a la versión {new}?",
+        "Update now": "Actualizar ahora",
         "You have started a Remote Explorer nextsync server already": "Ya ha iniciado un servidor NextSync del Remote Explorer",
         "✅  Sent via Remote Explorer": "✅  Enviado mediante el Remote Explorer",
         "Remote Explorer is busy": "El Remote Explorer está ocupado",
@@ -8088,6 +8140,11 @@ _TOAST_CATALOGS = {
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "A cancelar — vai parar quando o ficheiro atual acabar de ser transferido, para evitar a corrupção de ficheiros…",
         "NextSync server started": "Servidor NextSync iniciado",
+        "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "A oferta de atualização já não se aplica: o Next desligou-se, ou agora é outro Next que está a ser controlado.",
+        "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "A atualizar o .sync5 em {machine}: v{old} → v{new}, em {target} (o dot anterior fica guardado como sync5.bak). A sessão termina quando a atualização concluir — volte a executar {command} no Next depois.",
+        "⚠  Update available for this Next": "⚠  Atualização disponível para este Next",
+        "This version {old} of {flavor} is obsolete, would you like to update now to version {new}?": "Esta versão {old} de {flavor} está obsoleta, quer atualizar agora para a versão {new}?",
+        "Update now": "Atualizar agora",
         "You have started a Remote Explorer nextsync server already": "Já iniciou um servidor NextSync do Remote Explorer",
         "✅  Sent via Remote Explorer": "✅  Enviado através do Remote Explorer",
         "Remote Explorer is busy": "O Remote Explorer está ocupado",
@@ -8204,6 +8261,11 @@ _TOAST_CATALOGS = {
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Anulowanie — zatrzyma się, gdy bieżący plik zakończy przesyłanie, aby uniknąć uszkodzenia plików…",
         "NextSync server started": "Serwer NextSync uruchomiony",
+        "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "Oferta aktualizacji już nie obowiązuje: Next się rozłączył lub sterowany jest teraz inny Next.",
+        "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Aktualizacja .sync5 na {machine}: v{old} → v{new}, w {target} (poprzedni dot zostaje zachowany jako sync5.bak). Sesja kończy się po zakończeniu aktualizacji — uruchom potem ponownie {command} na Next.",
+        "⚠  Update available for this Next": "⚠  Dostępna aktualizacja dla tego Next",
+        "This version {old} of {flavor} is obsolete, would you like to update now to version {new}?": "Ta wersja {old} {flavor} jest przestarzała, czy chcesz teraz zaktualizować do wersji {new}?",
+        "Update now": "Aktualizuj teraz",
         "You have started a Remote Explorer nextsync server already": "Serwer NextSync Remote Explorera jest już uruchomiony",
         "✅  Sent via Remote Explorer": "✅  Wysłano przez Remote Explorer",
         "Remote Explorer is busy": "Remote Explorer jest zajęty",
@@ -8320,6 +8382,11 @@ _TOAST_CATALOGS = {
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Отмена — остановится, когда завершится передача текущего файла, чтобы избежать повреждения файлов…",
         "NextSync server started": "Сервер NextSync запущен",
+        "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "Предложение обновления больше не действует: Next отключился или теперь управляется другой Next.",
+        "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Обновление .sync5 на {machine}: v{old} → v{new}, в {target} (прежний dot сохранён как sync5.bak). Сессия завершится после обновления — затем снова запустите {command} на Next.",
+        "⚠  Update available for this Next": "⚠  Доступно обновление для этого Next",
+        "This version {old} of {flavor} is obsolete, would you like to update now to version {new}?": "Эта версия {old} {flavor} устарела, обновить сейчас до версии {new}?",
+        "Update now": "Обновить сейчас",
         "You have started a Remote Explorer nextsync server already": "Сервер NextSync Remote Explorer уже запущен",
         "✅  Sent via Remote Explorer": "✅  Отправлено через Remote Explorer",
         "Remote Explorer is busy": "Remote Explorer занят",
@@ -8436,6 +8503,11 @@ _TOAST_CATALOGS = {
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Rušení — zastaví se, jakmile se dokončí přenos aktuálního souboru, aby nedošlo k poškození souborů…",
         "NextSync server started": "Server NextSync spuštěn",
+        "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "Nabídka aktualizace už neplatí: Next se odpojil, nebo je nyní řízen jiný Next.",
+        "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Aktualizace .sync5 na {machine}: v{old} → v{new}, v {target} (předchozí dot zůstává jako sync5.bak). Relace skončí po dokončení aktualizace — poté na Next znovu spusťte {command}.",
+        "⚠  Update available for this Next": "⚠  Pro tento Next je k dispozici aktualizace",
+        "This version {old} of {flavor} is obsolete, would you like to update now to version {new}?": "Tato verze {old} {flavor} je zastaralá, chcete nyní aktualizovat na verzi {new}?",
+        "Update now": "Aktualizovat nyní",
         "You have started a Remote Explorer nextsync server already": "Server NextSync Remote Exploreru už běží",
         "✅  Sent via Remote Explorer": "✅  Odesláno přes Remote Explorer",
         "Remote Explorer is busy": "Remote Explorer je zaneprázdněn",
