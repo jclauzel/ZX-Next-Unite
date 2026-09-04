@@ -28,7 +28,7 @@ import platform
 import threading
 import time
 
-from zxnu_i18n import ui_tr_now
+from zxnu_i18n import current_ui_language, translate_widget_tree, ui_tr_now
 
 from PySide6 import QtCore
 from PySide6.QtCore import (Qt, QTimer, QRect, QDir)
@@ -542,6 +542,8 @@ def build_nextsync_pane(
             return ("drives", reply)
         if op == "version":
             return ("version", reply)
+        if op == "crc":
+            return ("crc", a1, reply)
         if op == "forceexit":
             # The dot leaves -listen and exits to BASIC; ZX Next Remote
             # 0.9.47+ reads the marker and exits its application too
@@ -952,6 +954,25 @@ def build_nextsync_pane(
         except Exception:
             pass
 
+    # splitterMoved fires on every mouse-move of a drag, and the cfg writer
+    # rewrites the whole file each time - so the dictionary is updated at
+    # once and the FILE once the drag pauses (review, 9.7.2). A quit in
+    # that window loses nothing: every quit path closes the window, and
+    # the closeEvent save writes the dictionary.
+    _re_splitter_flush = QTimer(host)
+    _re_splitter_flush.setSingleShot(True)
+    _re_splitter_flush.setInterval(300)
+    _re_splitter_flush.timeout.connect(save_configuration_file)
+
+    def _re_on_splitter_moved(value):
+        # The widget reports its local ⇄ Next pane widths ("left,right" px)
+        # on every drag; persist them so the split reopens where it was.
+        try:
+            configuration_dictionary[SETTING_NEXTSYNC_RE_SPLITTER] = value
+            _re_splitter_flush.start()
+        except Exception:
+            pass
+
     def _re_on_zxnr_update_path_changed(path):
         # The widget reports the full Next-side path a ZX Next Remote
         # self-update just swapped; persist it so the next update's
@@ -1057,6 +1078,22 @@ def build_nextsync_pane(
             # colour picked on this strip is the colour the SD Card tab's
             # strip and its Launch buttons wear too.
             emulator_color_for=lambda n: host.emulator_color_for(n),
+            # A hover on a greyed strip tab re-probes that emulator's image
+            # (9.7.2); looked up at call time, the closure is installed by
+            # zxnu_emulator_ops after this pane is wired.
+            on_emulator_recheck=lambda n: getattr(
+                host, "_recheck_emulator_launchability",
+                lambda *_a: False)(n),
+            # The connect-time update offer (9.7.2): a 10-second yellow
+            # toast with an "Update now" button; the Settings toggle is
+            # read per connection, so a change needs no restart.
+            update_prompt_enabled=lambda: (configuration_dictionary.get(
+                SETTING_RE_UPDATE_PROMPT, "") or "").strip().lower()
+                not in ("false", "0", "no"),
+            on_update_prompt=lambda body, accept: host._show_toast(
+                "⚠  Update available for this Next", body,
+                variant="yellow", duration_ms=10000,
+                action=("Update now", accept)),
             on_emulator_color_changed=lambda n, c: host.set_emulator_color(n, c),
             # The dotN build behind the session tabs' "Update .sync5"
             # action: resolved by zxnu_emulator_ops (source checkout, or
@@ -1076,6 +1113,12 @@ def build_nextsync_pane(
             zxnr_update_path=configuration_dictionary.get(
                 SETTING_ZXNR_UPDATE_PATH) or "",
             on_zxnr_update_path_changed=_re_on_zxnr_update_path_changed,
+            # The local ⇄ Next split (9.7.2): restored from the cfg here -
+            # this widget is built lazily, after load_configuration_file's
+            # splitter restore has run - and persisted by the move callback.
+            splitter_sizes=configuration_dictionary.get(
+                SETTING_NEXTSYNC_RE_SPLITTER) or None,
+            on_splitter_moved=_re_on_splitter_moved,
             # The local drive switcher lives IN this widget's nav row now
             # (9.6.0). It used to be the classic tab's combo, left behind
             # on a full-width row above the whole view: it stretched across
@@ -1169,6 +1212,14 @@ def build_nextsync_pane(
         widget.set_idle_status_provider(_re_idle_status)
         widget.set_idle_details_provider(_re_idle_details)
         _re_update_start_button()
+        # Built after the UI language is known: walk it once so its
+        # catalogued texts and tooltips are translated now AND their
+        # English sources cached for the next language switch (the same
+        # step the gallery takes for its lazily built pages).
+        try:
+            translate_widget_tree(widget, current_ui_language())
+        except Exception:                       # noqa: BLE001
+            logging.exception("Remote explorer: initial translation failed")
         return widget
 
     # Soft green "breathing" pulse on the running indicator (same idea as the

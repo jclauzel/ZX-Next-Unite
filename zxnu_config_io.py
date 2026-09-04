@@ -418,6 +418,14 @@ def build_config_io(
                 host.settings_zxnu_update_check_checkbox.blockSignals(True)
                 host.settings_zxnu_update_check_checkbox.setChecked(_zxnu_upd_on)
                 host.settings_zxnu_update_check_checkbox.blockSignals(False)
+            # Offer-to-update-on-connect toast (default on, 9.7.2).
+            if hasattr(host, "settings_re_update_prompt_checkbox"):
+                _re_upd = (configuration_dictionary.get(
+                    SETTING_RE_UPDATE_PROMPT, "") or "").strip().lower()
+                _re_upd_on = _re_upd not in ("false", "0", "no")   # default on
+                host.settings_re_update_prompt_checkbox.blockSignals(True)
+                host.settings_re_update_prompt_checkbox.setChecked(_re_upd_on)
+                host.settings_re_update_prompt_checkbox.blockSignals(False)
 
             # ZX Next Remote "check itch.io for a newer build" toggle
             # (default on) - the CSpect toggle's twin below.
@@ -570,6 +578,24 @@ def build_config_io(
                     # Apply to any retro log widgets already built.
                     if hasattr(host, "_apply_retro_log_font_size"):
                         host._apply_retro_log_font_size(_rlf)
+            # Application font size (9.7.2): "" or 0 = the startup default.
+            _gf_raw = (configuration_dictionary.get(SETTING_GENERAL_FONT_SIZE, "") or "").strip()
+            if _gf_raw:
+                try:
+                    _gf = int(_gf_raw)
+                except (TypeError, ValueError):
+                    _gf = 0
+                if _gf in GENERAL_FONT_SIZE_CHOICES:
+                    host._general_font_size = _gf
+                    _gfcb = getattr(host, "settings_general_font_combo", None)
+                    if _gfcb is not None:
+                        _gfi = _gfcb.findData(_gf)
+                        if _gfi >= 0:
+                            _gfcb.blockSignals(True)
+                            _gfcb.setCurrentIndex(_gfi)
+                            _gfcb.blockSignals(False)
+                    if hasattr(host, "_apply_general_font_size"):
+                        host._apply_general_font_size(_gf)
 
             # Per-pane view mode: "table" (default) or "gallery"
             for _pane_key, _attr in (
@@ -753,14 +779,19 @@ def build_config_io(
                     configuration_dictionary.get(_font_key, ""))
 
             # Restore the saved splitter positions (SD Card explorers ⇄
-            # log, GetIt results ⇄ MOTD). The window is not shown yet, so
-            # QSplitter re-applies the sizes on first layout; the stretch
-            # factors (top pane 1, bottom pane 0) absorb any difference
-            # between the saved and actual window height, keeping the
-            # bottom pane at its saved height.
+            # log, GetIt results ⇄ MOTD, and since 9.7.2 the SD Card
+            # local ⇄ disk-image explorers side by side - that one's pair
+            # is "left,right"; the loop below is pair-agnostic). The window
+            # is not shown yet, so QSplitter re-applies the sizes on first
+            # layout; the stretch factors absorb any difference between the
+            # saved and actual window size. The Remote Explorer's own
+            # local ⇄ Next splitter is NOT here: that widget is built
+            # lazily, after this runs, so it restores itself from the cfg
+            # on construction (zxnu_nextsync_pane passes the value in).
             for _split_key, _split_attr in (
                 (SETTING_SDCARD_SPLITTER, "sdcard_splitter"),
                 (SETTING_GETIT_SPLITTER,  "getit_splitter"),
+                (SETTING_SDCARD_HSPLITTER, "sdcard_hsplitter"),
             ):
                 _split_pref = str(configuration_dictionary.get(
                     _split_key, "")).strip()

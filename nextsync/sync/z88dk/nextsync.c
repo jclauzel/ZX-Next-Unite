@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.1"
+#define SYNC_VERSION "5.9.2"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -78,6 +78,12 @@ extern void anim_end(void);
 // one pose (self-limited to one per frame, no-op without -v); spin(0)
 // blanks the cell again.
 extern void spin(unsigned char go);
+// CRC-32 (v5.9.2): the bit-serial core lives in the head page (crc32.asm),
+// the hex formatter in the main bank; the accumulator is main-bank bss so
+// the head page's stomped-at-load data top never holds state (5.7.3).
+extern void crc_update(unsigned char *p, unsigned short n) __z88dk_callee;
+extern void crc_hex(char *dst) __z88dk_fastcall;
+unsigned char crc_acc[4];
 // The spinner's pose art, read by spin() (anim.c, head page). It lives HERE
 // so it lands in main-bank rodata - the head page is packed to the byte, and
 // head-page code reads main-bank data freely (both stay mapped). 6 rows per
@@ -766,6 +772,7 @@ void parse_speed_switches(char *dst)
 //        'Z' [drive]  free  : free space on a partition (psize/pfull, v5.2+)
 //        'C' <src>\0<dst>  rcpy : copy a file/dir LOCALLY on the Next (v5.2+)
 //        'S' <path>   rfsize : total size of a file / directory tree (v5.2+)
+//        'K' <path>   crc : CRC-32 of a file, 'O' + 8 hex digits (v5.9.2+)
 //        'Q'          quit  -> leave listen mode
 //
 // Every <path> may carry an optional drive prefix ("m:/games"); esxDOS
@@ -837,6 +844,50 @@ unsigned char break_pressed(void)
 // Map a -listen command opcode to its command name, so the -v trace prints a
 // consistent verb ("ls", "get", "put", "mkdir", ...) for every command instead
 // of the raw single-letter opcode. Returns "?" for anything unexpected.
+// The -v result words, shared (v5.9.2). "ls done" / "rfsize done" / "rcpy
+// malformed" each carried their own literal, and main-bank rodata is stack
+// headroom: the crc verb below was paid for by folding them into three.
+// The trace loses nothing - the "> verb path" echo line names the command.
+static char s_ok[] = "ok";
+static char s_fail[] = "fail";
+static char s_bad[] = "bad";
+
+// CRC-32 (IEEE 802.3, reflected - what zlib.crc32 and the ZX Next Remote
+// listener compute) of one file, 2 KB at a time through inbuf so any size
+// fits (v5.9.2). Writes the 8 upper-case hex digits at out, NUL-terminated;
+// 0 = the file did not open, or a read failed mid-way (esx_f_read answers
+// 0xFFFF then, never a short count as success) - never the digest of a
+// prefix dressed up as the whole file. sync_read answers 0 at the end;
+// an errno check on top cost 25 bytes the main bank does not have.
+// Reached from the 'K' listener op only: a standalone "-crc <file>" verb
+// was built and measured - its parse, branch and help line left 23 bytes
+// of stack headroom against the 156-byte floor - so the PC asks instead
+// (Unite's Remote Explorer, the HTTP bridge's /crc, the console's crc verb)
+// and the digits are printed here for the Next's screen as they go out.
+extern char inbuf[2048];   // the 2 KB receive buffer, declared with the
+                           // other big statics below (uart.asm bounds on it)
+unsigned char crc_run(char *path, char *out)
+{
+    unsigned char fh = fopen(path, 1);
+    unsigned short n;
+    if (!fh) return 0;
+    memset(crc_acc, 0xff, 4);
+    for (;;)
+    {
+        n = fread(fh, inbuf, 2048);
+        if (n == 0 || n > 2048) break;
+        crc_update((unsigned char *)inbuf, n);
+        spin(1);
+    }
+    fclose(fh);
+    spin(0);
+    if (n > 2048)
+        return 0;
+    crc_hex(out);
+    out[8] = 0;
+    return 1;
+}
+
 char *listen_cmd_name(unsigned char op)
 {
     switch (op)
@@ -854,6 +905,7 @@ char *listen_cmd_name(unsigned char op)
         case 'C': return "rcpy";
         case 'S': return "rfsize";
         case 'Y': return "ident";
+        case 'K': return "crc";
         case 'Q': return "quit";
         default:  return "?";
     }
@@ -1108,7 +1160,9 @@ static char fn[256];
 char inbuf[2048];          // NOT static: uart.asm's receive() hard-bounds its
                            // drain at the link-time constant _inbuf+2048 (v5.7)
 static char scratch[1280]; // outgoing block: 1024 file bytes + opcode + framing (~1030 max)
-static char sendpath[256];
+static char sendpath[256]; // -send's path, and send_dir's walk extends it IN
+                           // PLACE up to 254 chars (its guard) - so 256, not the
+                           // 160 the command line alone would need (v5.9.2 tried)
 static char cleancmd[160]; // command line with speed switches removed (never
                            // touch the OS buffer). 256 -> 160 in 5.7.3: the
                            // source is tail_copy's 158-cap private copy (a
@@ -1542,7 +1596,7 @@ connbreak:
                 // tick self-limits to one step per frame, so the sprites
                 // glide instead of stuttering once per poll).
                 else if (op == 'I') { for (len = 0; len < 30000; len++) anim_tick(); }
-                else if (op == 'L') { listen_ls(fn, inbuf, scratch); vprint("ls done"); }
+                else if (op == 'L') { listen_ls(fn, inbuf, scratch); vprint(s_ok); }
                 else if (op == 'G')
                 {
                     // get: push the file, or the whole directory tree, then 'B'.
@@ -1577,25 +1631,30 @@ connbreak:
                     // couldn't create the file (2) or the transfer gave up (1) -
                     // push an 'F' status so the server knows and can report it; on
                     // success the server already counted every byte, so send none.
-                    if (transfer(fn, inbuf)) { vprint("put failed"); listen_status(0, inbuf, scratch); }
-                    else vprint("put done");
+                    if (transfer(fn, inbuf)) { vprint(s_fail); listen_status(0, inbuf, scratch); }
+                    else vprint(s_ok);
                 }
-                else if (op == 'W') { listen_drives(inbuf, scratch); vprint("drives done"); }
-                else if (op == 'Z') { listen_free(fn, inbuf, scratch); vprint("free done"); }
-                else if (op == 'Y') { listen_ident(inbuf, scratch); vprint("ident done"); }
+                else if (op == 'W') { listen_drives(inbuf, scratch); vprint(s_ok); }
+                else if (op == 'Z') { listen_free(fn, inbuf, scratch); vprint(s_ok); }
+                else if (op == 'Y') { listen_ident(inbuf, scratch); vprint(s_ok); }
+                // crc ('K', v5.9.2): 'O' + 8 hex digits of the file's CRC-32,
+                // printed here too (verbose or not: it is the answer).
+                else if (op == 'K') { g_packetno = 0;
+                                      if (crc_run(fn, (char *)scratch + 3)) { print((char *)scratch + 3); scratch[2] = 'O'; send_block_rt(scratch, 9, inbuf); }
+                                      else listen_status(0, inbuf, scratch); }
                 else if (op == 'C')
                 {
                     // rcpy: the payload is src '\0' dst, exactly like ren -
                     // the embedded NUL terminates src, fn[al]=0 terminates dst.
                     unsigned short sp = 0;
                     while (sp < al && fn[sp]) sp++;
-                    if (sp < al) { listen_rcpy(fn, fn + sp + 1, inbuf, scratch); vprint("rcpy done"); }
-                    else { vprint("rcpy malformed"); listen_status(0, inbuf, scratch); }
+                    if (sp < al) { listen_rcpy(fn, fn + sp + 1, inbuf, scratch); vprint(s_ok); }
+                    else { vprint(s_bad); listen_status(0, inbuf, scratch); }
                 }
-                else if (op == 'S') { listen_rfsize(fn, inbuf, scratch); vprint("rfsize done"); }
-                else if (op == 'M') { unsigned char ok = sync_mkdir(fn)  != 0xFF; vprint(ok ? "mkdir ok" : "mkdir fail"); listen_status(ok, inbuf, scratch); }
-                else if (op == 'R') { unsigned char ok = sync_rmdir(fn)  != 0xFF; vprint(ok ? "rmdir ok" : "rmdir fail"); listen_status(ok, inbuf, scratch); }
-                else if (op == 'X') { unsigned char ok = sync_unlink(fn) != 0xFF; vprint(ok ? "rm ok" : "rm fail"); listen_status(ok, inbuf, scratch); }
+                else if (op == 'S') { listen_rfsize(fn, inbuf, scratch); vprint(s_ok); }
+                else if (op == 'M') { unsigned char ok = sync_mkdir(fn)  != 0xFF; vprint(ok ? s_ok : s_fail); listen_status(ok, inbuf, scratch); }
+                else if (op == 'R') { unsigned char ok = sync_rmdir(fn)  != 0xFF; vprint(ok ? s_ok : s_fail); listen_status(ok, inbuf, scratch); }
+                else if (op == 'X') { unsigned char ok = sync_unlink(fn) != 0xFF; vprint(ok ? s_ok : s_fail); listen_status(ok, inbuf, scratch); }
                 // release: close the OS's own read handle on this dot's file
                 // so the server can swap /dot/sync5 while we run (hardware-
                 // measured: ren on it fails while it is open). CONTRACT:
@@ -1618,7 +1677,7 @@ connbreak:
                         vprint(ok ? "ren ok" : "ren fail");
                         listen_status(ok, inbuf, scratch);
                     }
-                    else { vprint("ren malformed"); listen_status(0, inbuf, scratch); }
+                    else { vprint(s_bad); listen_status(0, inbuf, scratch); }
                 }
             }
         }

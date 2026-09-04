@@ -557,6 +557,8 @@ LISTEN_HELP = """\
                                ending in / keeps the source name
     rfsize <path>              total size of a file or whole directory
                                tree on the Next (dot v5.2+)
+    crc <path>                 CRC-32 of one file, computed ON the Next:
+                               8 hex digits (dot v5.9.2+ / ZXNR 1.0.8+)
     drives                     list the mounted drives on the Next (dot v5.1+)
     version                    what serves this session and its build number
                                (ZXNR 1.0.2+ / dot v5.8+)
@@ -834,6 +836,8 @@ def _listen_console_reader(cmd_q):
             cmd_q.put(("rcpy", a1, a2))
         elif verb in ("rfsize", "du"):
             cmd_q.put(("rfsize", a1, ""))
+        elif verb == "crc":
+            cmd_q.put(("crc", a1, ""))
         elif verb == "drives":
             cmd_q.put(("drives", "", ""))
         elif verb == "version":
@@ -1557,6 +1561,35 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                     _reply_fill(reply, {'ok': False,
                                         'error': 'rcpy not supported '
                                                  '(needs .sync v5.2+)'})
+            elif op == "crc":
+                # crc (dot v5.9.2+ / ZXNR 1.0.8+): the CRC-32 of one file ON
+                # the Next, 'O' + 8 upper-case hex digits (IEEE, zlib.crc32's
+                # value) or 'F' when it did not open. The Next answers
+                # nothing while it streams the file: the wait is just long.
+                if not a1:
+                    print("  usage: crc <path>")
+                    _reply_fill(reply, {'ok': False, 'error': 'missing path'})
+                    continue
+                res = {'crc32': '', 'fail': False}
+                def _handle_crc(payload, _r=res):
+                    o = payload[0:1]
+                    if o == b'O' and len(payload) >= 9:
+                        _r['crc32'] = payload[1:9].decode(errors='replace').upper()
+                    elif o == b'F':
+                        _r['fail'] = True
+                    return True
+                sendpacket(conn, b"K" + a1.encode(), 0)
+                if _listen_recv_reply(conn, _handle_crc) and res['crc32']:
+                    print(f'{timestamp()} | crc32 {a1}: {res["crc32"]}')
+                    _reply_fill(reply, {'ok': True, 'path': a1,
+                                        'crc32': res['crc32']})
+                else:
+                    why = ('the file did not open' if res['fail'] else
+                           'no answer (missing file, or the listener '
+                           'predates .sync v5.9.2 / ZXNR 1.0.8)')
+                    print(f'{timestamp()} | crc32 {a1}: {why}')
+                    _reply_fill(reply, {'ok': False,
+                                        'error': f'crc failed: {why}'})
             elif op == "rfsize":
                 # rfsize (dot v5.2+): total size of a file or whole directory
                 # tree ON the Next - rcpy's "will it fit" companion. The Next
@@ -1717,6 +1750,7 @@ def _start_http_bridge(port):
                  "rm": "rm", "ren": "ren", "rcpy": "rcpy", "rfsize": "rfsize",
                  "free": "psize", "drives": "drives",
                  "version": "ident",
+                 "crc": "crc",
                  # /forceexit -> the MARKED quit: leave -listen and end
                  # the far application (a dot exits to BASIC either way).
                  "forceexit": "quit_app"}

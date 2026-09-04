@@ -6,3 +6,4 @@ free_head.asm
 rcpy_head.asm
 rfsize_head.asm
 uart.asm
+crc32.asm

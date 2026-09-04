@@ -118,7 +118,7 @@ DEFAULT_TIMEOUT = 45.0     # quick verbs: one poll round-trip + margin
 # has already failed from the client's seat. Raise BOTH together if the
 # bridge ever streams instead of collect-then-respond.
 LONG_TIMEOUT = 270.0
-_LONG_OPS = ("get", "put", "rcpy", "rfsize", "rmtree")
+_LONG_OPS = ("get", "put", "rcpy", "rfsize", "rmtree", "crc")
 
 
 def fmt_size(nbytes):
@@ -351,6 +351,8 @@ class NextSyncHttpBridge:
         "  GET  /rfsize?path=/games         total size of a file / tree\n"
         "  GET  /sum?path=/f                16-bit additive checksum + size\n"
         "       of one file (&bare=1: just the checksum digits)\n"
+        "  GET  /crc?path=/f                CRC-32 of one file, computed ON the\n"
+        "       Next (8 hex digits; &bare=1: just the digits)\n"
         "  GET  /forceexit                  make the Next leave -listen and exit\n")
 
     def __init__(self, host_adapter, listen_host="0.0.0.0", port=DEFAULT_PORT,
@@ -733,15 +735,18 @@ class NextSyncHttpBridge:
             those callers opted into."""
             return (sid_now(), path)
 
-        def run(op, a1="", a2="", body=None):
+        def run(op, a1="", a2="", body=None, timeout=None):
             sid = sid_now()
             self._log(f"HTTP bridge: {op} {a1} {a2}".rstrip()
                       + (f" [session {sid}]" if sid is not None else ""))
+            # Each kwarg only when asked for: adapters (and test fakes)
+            # that never learned `session` or `timeout` still work.
+            kw = {"body": body}
+            if timeout is not None:
+                kw["timeout"] = timeout
             if sid is None:
-                # No selector -> the pre-session call shape, so adapters
-                # (and test fakes) that never learned the kwarg still work.
-                return self._adapter.run(op, a1, a2, body=body)
-            return self._adapter.run(op, a1, a2, body=body, session=sid)
+                return self._adapter.run(op, a1, a2, **kw)
+            return self._adapter.run(op, a1, a2, session=sid, **kw)
 
         def need(*names):
             """Fetch required query args (supporting aliases per name tuple);
@@ -1101,6 +1106,36 @@ class NextSyncHttpBridge:
                 {"ok": True, "path": v[0], "bytes": len(data), "sum16": csum},
                 ["OK", f"path: {v[0]}", f"bytes: {len(data)}",
                  f"sum16: {csum}"])
+
+        @app.route("/crc")
+        def _crc():
+            """CRC-32 of one remote file, computed ON the Next (dot v5.9.2+
+            / ZX Next Remote 1.0.8+): 8 upper-case hex digits of the IEEE
+            polynomial - zlib.crc32's value - so a caller checks a transfer
+            against its own copy from 8 characters instead of pulling the
+            file back (which /sum does). &bare=1 answers just the digits. A
+            listener that predates the op does not answer: 502."""
+            v = need(("path", "file"))
+            if not v:
+                return bad("missing ?path=")
+            # The Next answers nothing while it streams the file, and the
+            # dot manages ~30 KB/s, so the flat LONG_TIMEOUT (270 s) would
+            # 504 a big file with the Next still busy. Size the wait from
+            # the file instead (rfsize, dot v5.2+; 15 KB/s worst case plus
+            # a minute), falling back to a flat 15 minutes when the size is
+            # not known. The worker's own ceiling is an hour.
+            wait = 900.0
+            sz = run("rfsize", v[0])
+            if sz.get("ok") and isinstance(sz.get("bytes"), int):
+                wait = 60.0 + sz["bytes"] / 15000.0
+            res = run("crc", v[0], timeout=wait)
+            if not res.get("ok"):
+                return fail(res, f"crc {v[0]}")
+            digest = str(res.get("crc32") or "").upper()
+            if request.args.get("bare") in ("1", "true", "yes"):
+                return Response(f"{digest}\n", mimetype="text/plain")
+            return answer({"ok": True, "path": v[0], "crc32": digest},
+                          ["OK", f"path: {v[0]}", f"crc32: {digest}"])
 
         # ---- single-path verbs ---------------------------------------
         def _path_verb(op, what):

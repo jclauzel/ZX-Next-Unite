@@ -40,7 +40,7 @@ import urllib.request
 import webbrowser
 import zipfile
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from zxnu_config import *
@@ -564,6 +564,117 @@ def build_emulator_ops(
         return free
 
     host._reprobe_and_regate = _reprobe_and_regate
+
+    # ---- hover on a greyed launch surface (9.7.2) ---------------------
+    # _image_busy_reason reads a CACHE: the verdict the probes around a
+    # load or a launch recorded, plus the pids this app started. Nothing
+    # re-probed when the holder simply went away - MAME killed from the
+    # Task Manager, or an emulator this app never launched and so never
+    # polls - and the "already in use" grey-out outlived it until the
+    # next load or launch gesture. Pointing at a greyed tab or button is
+    # the gesture that says "I want this one", so it re-runs the probe
+    # and, ONLY when the verdict changed, re-gates every surface. "Only
+    # when changed" is load-bearing: a re-gate rebuilds the strips, the
+    # rebuilt tab under the pointer is entered afresh, and without it
+    # every hover would rebuild forever.
+    host._launch_recheck_clock = 0.0
+
+    def _recheck_emulator_launchability(emulator=None):
+        """Re-probe the image *emulator* would open; re-gate if it changed.
+
+        *emulator* is a strip label ("Mame", "Mame (flatpak)", "CSpect")
+        or a blocker name ("MAME"); None re-checks both. Throttled to two
+        probes a second - Enter events arrive on every pointer crossing
+        and the probe is a real file open. Returns True when a re-gate
+        ran, False when nothing changed (or the call was throttled).
+        """
+        if getattr(host, "_sdcard_controls_locked", False):
+            # A load is running and set_all_buttons_disabled() holds every
+            # SD Card control: the Launch buttons are grey for THAT reason,
+            # and a re-gate here would hand one back mid-load. The load's
+            # own probe re-gates when it finishes (review, 9.7.2).
+            return False
+        now = time.monotonic()
+        if now - host._launch_recheck_clock < 0.5:
+            return False
+        host._launch_recheck_clock = now
+        label = str(emulator or "").strip().upper()
+        if label.startswith("MAME"):
+            names = ("MAME",)
+        elif label.startswith("CSPECT"):
+            names = ("CSpect",)
+        else:
+            names = ("MAME", "CSpect")
+
+        def _shown_reason(name):
+            # What the surfaces are SHOWING: the verdict as cached, before
+            # the pruning and probing below touch it.
+            path = _image_for(name)
+            key = _image_state_key(path) if path else ""
+            if key and (host._images_held_by_us.get(key)
+                        or host._image_write_state.get(key)
+                        == IMAGE_WRITE_BUSY):
+                return _image_busy_message(path)
+            return ""
+
+        before = {n: _shown_reason(n) for n in names}
+        for n in names:
+            path = _image_for(n)
+            key = _image_state_key(path) if path else ""
+            if not key or _image_held_by_us(key):
+                continue           # ours and still alive: nothing to ask
+            if host._image_write_state.get(key) == IMAGE_WRITE_BUSY:
+                _probe_image_write_access(path)
+        after = {n: _image_busy_reason(n) for n in names}
+        if after == before:
+            return False
+        _refresh_emulator_launchability()
+        return True
+
+    host._recheck_emulator_launchability = _recheck_emulator_launchability
+
+    class _GreyedLaunchHover(QObject):
+        """Enter / tooltip on a DISABLED Launch button re-checks its image.
+
+        Qt still delivers Enter and ToolTip events to a disabled widget
+        (the hint tooltips on these very buttons rely on it), so an event
+        filter is enough - no subclass, no mouse tracking. Deferred by a
+        zero-timer for the reason the strip tabs defer: the re-gate may
+        rebuild widgets, and not from inside their own event delivery.
+        Looked up on the host at fire time so a test can stand in for it.
+        """
+
+        def __init__(self, emulator, button):
+            super().__init__(button)
+            self._emulator = emulator
+
+        def eventFilter(self, obj, event):
+            if (event.type() in (QEvent.Enter, QEvent.ToolTip)
+                    and not obj.isEnabled()):
+                recheck = getattr(host, "_recheck_emulator_launchability",
+                                  None)
+                if recheck is not None:
+                    QTimer.singleShot(0, lambda e=self._emulator: recheck(e))
+            return False
+
+    def _arm_launch_hover_recheck():
+        """Install the hover re-check on the SD Card tab's two Launch
+        buttons. Idempotent; called once they exist (they are built after
+        this module is wired). The filters are parented to their buttons
+        and kept on the host, so they outlive this call."""
+        filters = getattr(host, "_launch_hover_filters", None)
+        if filters is None:
+            filters = host._launch_hover_filters = {}
+        for attr, name in (("button_start_mame", "MAME"),
+                           ("button_start_cspect", "CSpect")):
+            button = getattr(host, attr, None)
+            if button is None or attr in filters:
+                continue
+            flt = _GreyedLaunchHover(name, button)
+            button.installEventFilter(flt)
+            filters[attr] = flt
+
+    host._arm_launch_hover_recheck = _arm_launch_hover_recheck
 
     def _writable_image_choices():
         """The remembered disk images that can be taken for writing NOW.

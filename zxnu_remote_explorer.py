@@ -19,6 +19,7 @@ import random
 import shutil
 import sys
 import tempfile
+import textwrap
 import time
 
 from zxnu_http_bridge import session_label   # stdlib-only at import
@@ -36,13 +37,14 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QColorDialog, QComboBox, QDialog,
     QDialogButtonBox, QFileSystemModel, QGridLayout, QHBoxLayout,
     QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
-    QStyle, QTreeView, QVBoxLayout, QWidget,
+    QSizePolicy, QSplitter, QStyle, QTreeView, QVBoxLayout, QWidget,
 )
 
 from zxnu_config import (
     DEFAULT_COLOR_UP_DIRECTORY, DEFAULT_COLOR_DIR_NAME, DEFAULT_COLOR_DIR_TYPE,
     DEFAULT_COLOR_FILE_NAME, DEFAULT_COLOR_FILE_EXT, DEFAULT_COLOR_FILE_SIZE,
-    DEFAULT_COLOR_GENERAL_TEXT, ZX_NEXT_UNITE_DOTN_VERSION, hex_to_qcolor,
+    DEFAULT_COLOR_GENERAL_TEXT, SPLITTER_HANDLE_QSS_HORIZONTAL, ZX_NEXT_UNITE_DOTN_VERSION,
+    hex_to_qcolor,
     open_path_with_system_shell, qcolor_to_hex, readable_text_color,
 )
 from zxnu_workers import (
@@ -100,6 +102,23 @@ def _re_sort_to_str(key, order):
     return f"{key}:{'desc' if order == Qt.DescendingOrder else 'asc'}"
 
 
+def _wrap_dialog_text(text, width=76):
+    """Hard-wrap *text* for a QInputDialog label, paragraph by paragraph.
+
+    The label is a plain QLabel without word wrap, so a long paragraph is
+    ONE line and the dialog grows to fit it - past the right edge of a
+    laptop screen, input box and all (9.7.2). 76 columns of the app's
+    monospace font sit comfortably inside any display the app runs on.
+    Hyphens are not break points: the text names files such as
+    zxnextremote-httpbridge.nex, which three of the translations placed
+    exactly where the default rule cut them in two (review).
+    """
+    return "\n\n".join(
+        textwrap.fill(par, width, break_on_hyphens=False,
+                      break_long_words=False) if par.strip() else par
+        for par in str(text).split("\n\n"))
+
+
 def _parse_dot_version(s):
     """Parse a dot version string ("5.8.0") to an int tuple for ordering.
 
@@ -122,6 +141,14 @@ def _parse_dot_version(s):
 # builds answer 'U' with silence).
 ZXNR_IDENT_TYPES = ("httpbridge", "n2n")
 ZXNR_SELF_UPDATE_FLOOR = (1, 0, 3)
+# Where a .sync5 dot lives on every Next: NextZXOS's dot-command folder,
+# the only place ".sync5" resolves from the command line. The remote
+# update therefore never asks (9.7.2) - it used to prompt for a target
+# directory that had exactly one right answer.
+SYNC5_DOT_DIR = "c:/dot"
+# Where a ZX Next Remote .nex is recommended to live; the update prompt's
+# default, still editable because a user may keep the app elsewhere.
+ZXNR_HOME_DIR = "c:/home"
 
 
 def _default_item_colors():
@@ -561,7 +588,8 @@ class EmulatorTab(SessionTab):
     """
 
     def __init__(self, text, on_click, parent=None, *, tooltip="",
-                 tint=None, on_menu=None, blocked=False):
+                 tint=None, on_menu=None, blocked=False,
+                 on_hover_blocked=None):
         super().__init__(text, False, on_click, parent,
                          tint=tint, on_menu=on_menu)
         # *blocked*: the emulator is installed but cannot start right now
@@ -571,10 +599,30 @@ class EmulatorTab(SessionTab):
         # reason as its tooltip. Tabs are rebuilt wholesale on every
         # refresh, so this arrives with the constructor exactly like *tint*.
         self._blocked = bool(blocked)
+        # *on_hover_blocked* (9.7.2): pointing at a GREYED tab re-asks the
+        # host whether its image is still busy. The busy verdict is a cache
+        # (zxnu_emulator_ops._image_busy_reason), and an emulator that went
+        # away on its own - killed from outside, or never started by this
+        # app - leaves it stale, so the tab stayed grey until the next load
+        # or launch. A tab that is not blocked never calls it.
+        self._on_hover_blocked = on_hover_blocked
         if self._blocked:
             self.setCursor(Qt.ForbiddenCursor)
         if tooltip:
             self.setToolTip(tooltip)
+
+    def enterEvent(self, event):
+        """Hover on a greyed tab: hand the re-check to the host, DEFERRED.
+
+        A zero-timer rather than a direct call: when the verdict has
+        changed the host re-gates every surface, which rebuilds this very
+        strip - and deleting the tab from inside its own event delivery
+        is not something Qt forgives. The callback belongs to the pane,
+        not to this tab, so it is safe to fire after the tab is gone.
+        """
+        super().enterEvent(event)
+        if self._blocked and self._on_hover_blocked is not None:
+            QTimer.singleShot(0, self._on_hover_blocked)
 
 
 def emulator_color_menu(parent, label, current, on_picked, global_pos,
@@ -934,8 +982,31 @@ class _Sync5ResolveTask(QRunnable):
         except Exception:                       # noqa: BLE001
             logging.exception("Remote explorer: sync5 resolve failed")
             path, version, reason = None, None, "internal error (see the log)"
-        self.signals.resolved.emit(
-            (self._sid, self._old_version, path, version, reason or ""))
+        # The signals object is the RemoteExplorerWidget's (its
+        # _sync5_resolve_signals). Quit the app while a resolve is still in
+        # flight and the widget - the QObject with it - is destroyed before
+        # this thread gets here, so the emit raises "Signal source has been
+        # deleted", which PySide prints as an unhandled error out of
+        # QRunnable::run. Nobody is left to tell: swallow it. A live owner
+        # is notified exactly as before. Same shutdown race, same answer as
+        # HdfTaskWorker._emit in zxnu_workers (9.7.2).
+        try:
+            self.signals.resolved.emit(
+                (self._sid, self._old_version, path, version, reason or ""))
+        except RuntimeError:
+            pass
+
+
+def _parse_splitter_sizes(value):
+    """``"left,right"`` (px, as the cfg stores it) or a 2-sequence -> a
+    ``[left, right]`` list QSplitter.setSizes accepts, or None when absent or
+    malformed (a bad value must never keep the pane from opening)."""
+    try:
+        parts = value.split(",") if isinstance(value, str) else list(value or ())
+        left, right = (int(str(v).strip()) for v in parts[:2])
+        return [left, right] if left > 0 and right > 0 else None
+    except (TypeError, ValueError):
+        return None
 
 
 class RemoteExplorerWidget(QWidget):
@@ -961,7 +1032,10 @@ class RemoteExplorerWidget(QWidget):
                  emulator_images=None, on_emulator_image_picked=None,
                  on_emulator_color_changed=None, local_drives=None,
                  sync5_update_source=None, zxnr_update_source=None,
-                 zxnr_update_path=None, on_zxnr_update_path_changed=None):
+                 zxnr_update_path=None, on_zxnr_update_path_changed=None,
+                 splitter_sizes=None, on_splitter_moved=None,
+                 on_emulator_recheck=None, update_prompt_enabled=None,
+                 on_update_prompt=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
         # host closure: enqueue_to(sid, cmd) -> bool, delivering ONE command
@@ -986,6 +1060,22 @@ class RemoteExplorerWidget(QWidget):
         # about which emulators exist or how one is started - same seam as
         # _emulator_entries above; without the hook the strip never shows.
         self._emulator_launchers = emulator_launchers or (lambda: [])
+        # host closure: name -> None, "re-probe THAT emulator's image and
+        # re-gate if it changed" (9.7.2). Fired by a hover on a greyed
+        # strip tab; the host rebuilds the strip itself when anything
+        # changed. Same seam as the hooks around it - absent means a hover
+        # does nothing.
+        self._on_emulator_recheck = on_emulator_recheck
+        # The connect-time update offer (9.7.2): ``on_update_prompt(body,
+        # accept)`` shows the toast (the host owns toasts), *accept* being
+        # the zero-argument callable that starts the update; ``update_
+        # prompt_enabled()`` is read at ident time so the Settings toggle
+        # applies to the next connection without a restart. Hooks, not a
+        # host reference, like every channel into this widget.
+        self._on_update_prompt = on_update_prompt
+        self._update_prompt_enabled = update_prompt_enabled
+        self._update_prompted = set()   # (sid, kind, old): once per session+version
+        self._update_prompt_retry = False   # a modal deferred the offer; one retry chain
         # The writable-image picks its strip tabs offer on right-click, and
         # what to do with one. Hooks rather than a host reference, matching
         # every other channel into this widget; absent means the menu keeps
@@ -1436,6 +1526,14 @@ class RemoteExplorerWidget(QWidget):
         # the bottom of the pane since the UX pass that aligned it with the
         # local pane's sync-root box (both panes: bar / tree / path row).
         self.next_path_label = QLabel("Next: (not connected)", self)
+        # Its text grows once a Next connects ("Next: 7.9 GB free  sync
+        # 5.9.1"), and a QLabel's minimum size IS its text width - which
+        # made the whole Next pane refuse to shrink below that and stopped
+        # the local ⇄ Next splitter dead once connected (9.7.2). Ignored:
+        # the label takes whatever the bar has left (it already carries the
+        # stretch) and clips, rather than dictating the pane's floor.
+        self.next_path_label.setSizePolicy(QSizePolicy.Ignored,
+                                           QSizePolicy.Preferred)
         # The top bar's "sync 5.8.0  Update to 5.9.0" link (rendered by
         # _update_next_path_label when the DRIVEN dot is older): the label
         # is the one place the version already shows, and with a single
@@ -1494,6 +1592,13 @@ class RemoteExplorerWidget(QWidget):
         # report).
         self.next_machine_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToContents)
+        # ...for its PREFERRED width. AdjustToContents also makes the longest
+        # item ("192.168.18.147 #1 - Mame") the combo's MINIMUM, which became
+        # part of the Next pane's floor and stopped the local ⇄ Next splitter
+        # once connected (9.7.2). An explicit minimum wins over that hint in
+        # the layout's arithmetic, so the combo still widens to its content
+        # when there is room and simply clips when the pane is dragged narrow.
+        self.next_machine_combo.setMinimumWidth(96)
         # The small round ✎ next to the machine combo (9.5.18): name the
         # machine the combo shows. Hidden/shown together with the combo.
         self.next_machine_name_btn = QPushButton("✎", self)
@@ -1574,6 +1679,11 @@ class RemoteExplorerWidget(QWidget):
         self.btn_rename.clicked.connect(self._rename_selected)
         self.btn_delete = QPushButton("Delete", self)
         self.btn_delete.clicked.connect(self._delete_selected)
+        # Their translated labels ("Nouveau dossier") would otherwise fix the
+        # pane's floor at ~350px of buttons (9.7.2): an explicit minimum lets
+        # the row give way to the splitter, the labels clipping past it.
+        for _b in (self.btn_new_folder, self.btn_rename, self.btn_delete):
+            _b.setMinimumWidth(56)
         next_tools = QHBoxLayout()
         next_tools.setContentsMargins(0, 0, 0, 0)
         next_tools.addWidget(self.next_path_edit, 1)
@@ -1588,14 +1698,44 @@ class RemoteExplorerWidget(QWidget):
         self.next_container = next_container
         next_container.installEventFilter(self)   # keep the overlay sized
 
-        # ---- assemble the 3-column grid -----------------------------------
+        # ---- assemble: [ local ] | [ arrows | Next ] behind a splitter -----
+        # The transfer-arrow column travels with the Next pane, so the ONE
+        # handle sits between the local explorer and everything to its right;
+        # the split is the user's to drag (9.7.2), exactly like the SD Card
+        # tab's, and the host restores it through splitter_sizes ("left,right"
+        # px from the cfg) and persists every drag through on_splitter_moved.
+        right_side = QWidget(self)
+        right_box = QHBoxLayout(right_side)
+        right_box.setContentsMargins(0, 0, 0, 0)
+        right_box.addWidget(centre_container, 0)
+        right_box.addWidget(next_container, 1)
+        self.hsplitter = QSplitter(Qt.Horizontal, self)
+        self.hsplitter.addWidget(local_container)
+        self.hsplitter.addWidget(right_side)
+        self.hsplitter.setChildrenCollapsible(False)
+        self.hsplitter.setStretchFactor(0, 1)
+        self.hsplitter.setStretchFactor(1, 1)
+        self.hsplitter.setHandleWidth(10)
+        self.hsplitter.setStyleSheet(SPLITTER_HANDLE_QSS_HORIZONTAL)
+        # The English literal, NOT ui_tr_now: this widget is built lazily,
+        # after the UI language is known, and the tree walk that translates
+        # tooltips caches the English source the first time it sees one -
+        # a pre-translated text has none and freezes in that language
+        # (review). The NextSync pane walks the widget once it is built.
+        self.hsplitter.handle(1).setToolTip(
+            "Drag to resize the local / Next explorers split.")
+        _sizes = _parse_splitter_sizes(splitter_sizes)
+        if _sizes:
+            self.hsplitter.setSizes(_sizes)
+        if on_splitter_moved is not None:
+            # splitterMoved fires for real drags only, never for the
+            # setSizes above, so a restore can't echo back into the cfg.
+            self.hsplitter.splitterMoved.connect(
+                lambda _pos, _idx: on_splitter_moved(
+                    ",".join(str(_s) for _s in self.hsplitter.sizes())))
         grid = QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.addWidget(local_container, 0, 0)
-        grid.addWidget(centre_container, 0, 1)
-        grid.addWidget(next_container, 0, 2)
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(2, 1)
+        grid.addWidget(self.hsplitter, 0, 0)
         grid.setRowStretch(0, 1)
 
         self._set_connected(False)
@@ -2144,6 +2284,7 @@ class RemoteExplorerWidget(QWidget):
         # The per-session idents die with the session, exactly like the
         # roster below: a fresh worker deals fresh sids.
         self._peer_idents.clear()
+        self._update_prompted.clear()      # a new connection may be offered again
         # A pending paste precheck can never complete now.
         self._precheck = None
         # Abandon any in-flight moves: their transfers can't complete, so their
@@ -2263,9 +2404,23 @@ class RemoteExplorerWidget(QWidget):
                     emulator=name)),
                 blocked=bool(why),
                 tint=self._emulator_color(name),
-                on_menu=(lambda pos, n=name: self._emulator_tab_menu(n, pos)))
+                on_menu=(lambda pos, n=name: self._emulator_tab_menu(n, pos)),
+                on_hover_blocked=(lambda n=name: self._recheck_emulator(n)))
             self._emulator_strip_box.insertWidget(i, tab)
             self._emulator_tabs.append(tab)
+
+    def _recheck_emulator(self, name):
+        """A greyed tab was hovered: ask the host to re-probe *name*'s image.
+
+        The host re-gates every launch surface itself when the verdict has
+        changed - which rebuilds this strip - so nothing is touched here.
+        """
+        if self._on_emulator_recheck is None:
+            return
+        try:
+            self._on_emulator_recheck(name)
+        except Exception:                       # noqa: BLE001
+            logging.exception("Remote explorer: emulator re-check failed")
 
     def _emulator_color(self, name):
         """This emulator's picked colour as a QColor, or None.
@@ -2573,7 +2728,7 @@ class RemoteExplorerWidget(QWidget):
                         and remote_ver < local_ver):
                     known_old = rver
                     act_update = menu.addAction(ui_tr_now(
-                        "Update .sync5 on this Next ({old} → {new})…").format(
+                        "Update .sync5 on this Next ({old} → {new})").format(
                             old=rver, new=ZX_NEXT_UNITE_DOTN_VERSION))
                 elif remote_ver is None:
                     # A "sync" ident whose version does not parse counts as
@@ -2670,11 +2825,12 @@ class RemoteExplorerWidget(QWidget):
                               signals))
 
     def _on_sync5_resolved(self, payload):
-        """The resolve worker's answer, on the UI thread: confirm dialog,
-        then queue the whole ("update_dot", …) macro for that session.
+        """The resolve worker's answer, on the UI thread: queue the whole
+        ("update_dot", …) macro for that session, into SYNC5_DOT_DIR.
 
-        The target directory is editable because 'c:/dot' is only the
-        convention, not a rule the card enforces.
+        No target prompt since 9.7.2: a dot command lives in c:/dot or it
+        is not a dot command, so the question had one answer. Only the
+        unknown-version push still asks a yes/no (see below).
 
         Delivery follows _disconnect_session's rule: the TARGET session's
         OWN queue, never the shared one — the baton can move while the
@@ -2700,18 +2856,24 @@ class RemoteExplorerWidget(QWidget):
                 ui_tr_now("Could not obtain the .sync5 build to send: "
                           "{reason}").format(reason=reason))
             return
+        target = SYNC5_DOT_DIR
         if old_version:
-            body = ui_tr_now(
-                "Update .sync5 on {machine}: v{old} → v{new}.\n\n"
-                "The new dot is staged on the Next's SD card, read back "
-                "and verified, then swapped in; the previous dot is kept "
-                "as sync5.bak (renaming it back to sync5 is the one-step "
-                "recovery). The session ends when the update completes — "
-                "run {command} on the Next again afterwards.\n\n"
-                "Target directory on the Next:").format(
+            # A known, older dot: no dialog at all (9.7.2). The target has
+            # exactly one right answer, and the reassurance the old prompt
+            # carried goes to the log instead, where it stays readable
+            # after the session ends.
+            self._log(ui_tr_now(
+                "Updating .sync5 on {machine}: v{old} → v{new}, in {target} "
+                "(the previous dot is kept as sync5.bak). The session ends "
+                "when the update completes — run {command} on the Next "
+                "again afterwards.").format(
                     machine=machine, old=old_version, new=version,
-                    command="'.sync5 -listen'")
+                    target=target, command="'.sync5 -listen'"))
         else:
+            # Version unknown: still a yes/no, because the swap silently
+            # does nothing on a dot older than v5.9 and the user should
+            # know that before the session is spent on it. No path entry:
+            # the target is stated, not asked.
             body = ui_tr_now(
                 "Push the new .sync5 (v{new}) to {machine}?\n\n"
                 "This machine's version is unknown (an older dot, or an "
@@ -2725,15 +2887,12 @@ class RemoteExplorerWidget(QWidget):
                 "{command} on the Next again afterwards.\n\n"
                 "Target directory on the Next:").format(
                     machine=machine, new=version,
-                    command="'.sync5 -listen'")
-        target, okd = QInputDialog.getText(
-            self, ui_tr_now("Remote .sync5 update"), body,
-            QLineEdit.EchoMode.Normal, "c:/dot")
-        if not okd:
-            return
-        target = str(target).strip()
-        if not target:
-            return
+                    command="'.sync5 -listen'") + " " + target
+            if QMessageBox.question(
+                    self, ui_tr_now("Remote .sync5 update"), body,
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No) != QMessageBox.Yes:
+                return
         cmd = ("update_dot", path, target, version)
         if self._enqueue_to_raw is None:
             if sid == self._peer_active:
@@ -2810,7 +2969,7 @@ class RemoteExplorerWidget(QWidget):
         remembered = (self._zxnr_update_path or "").replace("\\", "/")
         if remembered.rpartition("/")[2] != base_default:
             remembered = ""
-        default_path = remembered or ("c:/" + base_default)
+        default_path = remembered or (ZXNR_HOME_DIR + "/" + base_default)
         body = ui_tr_now(
             "Update ZX Next Remote on {machine}: v{old} → v{new}.\n\n"
             "The new build is staged on the Next's SD card, read back "
@@ -2824,6 +2983,11 @@ class RemoteExplorerWidget(QWidget):
             "Full path of the .nex on the Next:").format(
                 machine=machine, old=old_version, new=version,
                 file=base_default)
+        # QInputDialog's label does not wrap: one long paragraph made the
+        # dialog wider than a laptop screen, its input box off the right
+        # edge (9.7.2). Wrapped here, paragraph by paragraph, AFTER
+        # translation so every language gets the same treatment.
+        body = _wrap_dialog_text(body)
         target, okd = QInputDialog.getText(
             self, ui_tr_now("ZX Next Remote update"), body,
             QLineEdit.EchoMode.Normal, default_path)
@@ -2835,7 +2999,7 @@ class RemoteExplorerWidget(QWidget):
             self._log(ui_tr_now(
                 "ZX Next Remote update: enter the FULL path of the .nex "
                 "on the Next (e.g. {example}).").format(
-                    example="c:/" + base_default))
+                    example=ZXNR_HOME_DIR + "/" + base_default))
             return
         self._zxnr_update_path = target
         self._on_zxnr_update_path_changed(target)
@@ -2952,6 +3116,90 @@ class RemoteExplorerWidget(QWidget):
         if self._peer_active is not None:
             self._peer_idents[self._peer_active] = self._next_ident
         self._update_next_path_label()
+        self._maybe_prompt_update()
+
+    def _maybe_prompt_update(self):
+        """A fresh ident: if this PC can update the DRIVEN binary, say so
+        once - a 10-second offer the host shows as a toast (9.7.2).
+
+        Once per session AND version: the query is re-asked on every baton
+        move, and a Next the user chose not to update must not be nagged
+        each time the baton comes back; a NEW version (it was updated, or
+        a different build now answers) is a new offer, as is a new
+        connection (on_disconnected clears the set). Honours the Settings
+        toggle at this moment, so flipping it needs no restart. Accepting
+        rides the top-bar link's own path (gate re-check, confirm, enqueue)
+        for the driven session.
+        """
+        if self._on_update_prompt is None:
+            return
+        try:
+            if (self._update_prompt_enabled is not None
+                    and not self._update_prompt_enabled()):
+                return
+        except Exception:                       # noqa: BLE001
+            return
+        if QApplication.activeModalWidget() is not None:
+            # A dialog holds the UI (a transfer's progress box, a colour
+            # picker, an earlier accept's target prompt): a toast under
+            # it cannot be clicked and would expire unseen. Deferred, not
+            # dropped - on a single Next no further ident would ever come
+            # to offer it again (review). One retry chain at a time; each
+            # retry re-reads every gate.
+            if not self._update_prompt_retry:
+                self._update_prompt_retry = True
+                QTimer.singleShot(1000, self._retry_prompt_update)
+            return
+        offer = self._sync5_update_offer()
+        if offer is not None:
+            old, new = offer
+            kind, href = ".sync5", "sync5-update"
+        else:
+            offer = self._zxnr_update_offer()
+            if offer is None:
+                return
+            flavor, old, new = offer
+            kind, href = f"ZX Next Remote {flavor}", "zxnr-update"
+        sid, ident = self._peer_active, self._next_ident
+        key = (sid, kind, old)
+        if key in self._update_prompted:
+            return
+        self._update_prompted.add(key)
+        body = ui_tr_now(
+            "This version {old} of {flavor} is obsolete, would you like to "
+            "update now to version {new}?").format(old=old, flavor=kind, new=new)
+        try:
+            self._on_update_prompt(
+                body, lambda s=sid, i=ident, h=href:
+                self._accept_update_offer(s, i, h))
+        except Exception:                       # noqa: BLE001
+            logging.exception("Remote explorer: update prompt failed")
+
+    def _accept_update_offer(self, sid, ident, href):
+        """The toast's "Update now": update the session the offer was MADE
+        for - not whichever Next happens to be driven when the button is
+        clicked, which can differ once a toast has sat there a while with
+        two Nexts on the line (review, 9.7.2). The session must still be
+        on the roster with the same ident; otherwise the offer no longer
+        applies and the log says so.
+        """
+        on_line = any(s == sid for s, _addr in self._peer_map)
+        if not on_line or self._peer_idents.get(sid) != ident:
+            self._log(ui_tr_now(
+                "The update offer no longer applies: the Next "
+                "disconnected, or another Next is driven now."))
+            return
+        if href == "sync5-update":
+            self._update_dot_on_session(sid, ident[1])
+        else:
+            self._update_zxnr_on_session(sid, ident[0], ident[1])
+
+    def _retry_prompt_update(self):
+        """The deferred offer (a modal was up at ident time): try again,
+        every gate re-read - the Next may be gone, or updated meanwhile."""
+        self._update_prompt_retry = False
+        if self._connected:
+            self._maybe_prompt_update()
 
     def on_drives(self, current, letters):
         """getdrives result: ``current`` is the dot's default drive letter and
@@ -3031,48 +3279,64 @@ class RemoteExplorerWidget(QWidget):
             return "#dd9c07"       # yellow/amber: getting tight
         return "#e03131"           # red: nearly full
 
-    def _sync5_update_link_html(self):
-        """The "Update to x.y.z" link appended after the top bar's ident
-        span — rendered ONLY for the confident case (the DRIVEN dot
-        reported an older, v5.9+ version, so the 'U'-based swap will
-        actually work), exactly the session-tab menu's enabled-entry
-        gate. Everything else keeps its menu-side affordance: the link is
-        the single-session path, where the tab strip (two-session minimum)
-        does not exist to be right-clicked."""
+    def _sync5_update_offer(self):
+        """``(old, new)`` when this PC can update the DRIVEN dot - the
+        confident case only (it reported an older, v5.9+ version, so the
+        'U'-based swap will actually work), exactly the session-tab menu's
+        enabled-entry gate; None otherwise. The top-bar link, the
+        connect-time offer (9.7.2) and the link's click all read THIS, so
+        there is one gate to keep right."""
         if self._sync5_update_source is None or self._peer_active is None:
-            return ""
+            return None
         if self._next_ident[0] != "sync":
-            return ""
+            return None
         remote_ver = _parse_dot_version(self._next_ident[1])
         local_ver = _parse_dot_version(ZX_NEXT_UNITE_DOTN_VERSION)
         if (remote_ver is None or local_ver is None
                 or remote_ver < (5, 9) or remote_ver >= local_ver):
+            return None
+        return (self._next_ident[1], ZX_NEXT_UNITE_DOTN_VERSION)
+
+    def _sync5_update_link_html(self):
+        """The "Update to x.y.z" link appended after the top bar's ident
+        span, rendered only when _sync5_update_offer says so. Everything
+        else keeps its menu-side affordance: the link is the single-session
+        path, where the tab strip (two-session minimum) does not exist to
+        be right-clicked."""
+        offer = self._sync5_update_offer()
+        if offer is None:
             return ""
-        text = html.escape(ui_tr_now("Update to {new}").format(
-            new=ZX_NEXT_UNITE_DOTN_VERSION))
+        text = html.escape(ui_tr_now("Update to {new}").format(new=offer[1]))
         return ("&nbsp;&nbsp;<a href=\"sync5-update\" style=\"color: "
                 f"#7fe3a8;\">{text}</a>")
 
-    def _zxnr_update_link_html(self):
-        """The ZX Next Remote twin of _sync5_update_link_html, with the
-        session-tab menu's enabled-entry gate: the DRIVEN listener is a
-        ZXNR build ("httpbridge"/"n2n") that reported 1.0.3+ (the 'U'
-        release-op floor) and the newest installed itch.io build parses
-        NEWER. The label re-renders on every free-space report, so this
-        reads the CACHED resolver answer (refreshed on ident arrival and
-        whenever a session-tab menu opens — see _zxnr_resolve)."""
+    def _zxnr_update_offer(self):
+        """``(flavor, old, new)`` when this PC can update the DRIVEN ZX Next
+        Remote listener: a ZXNR build ("httpbridge"/"n2n") that reported
+        1.0.3+ (the 'U' release-op floor) and the newest installed itch.io
+        build parses NEWER; None otherwise. Reads the CACHED resolver
+        answer (refreshed on ident arrival and whenever a session-tab menu
+        opens - see _zxnr_resolve), so it is cheap enough for every label
+        render. The sync5 twin's note applies: one gate, three readers."""
         if self._zxnr_update_source is None or self._peer_active is None:
-            return ""
+            return None
         if self._next_ident[0] not in ZXNR_IDENT_TYPES:
-            return ""
+            return None
         remote_ver = _parse_dot_version(self._next_ident[1])
         if remote_ver is None or remote_ver < ZXNR_SELF_UPDATE_FLOOR:
-            return ""
+            return None
         path, new_ver, _reason = self._zxnr_resolve(self._next_ident[0])
         new_parsed = _parse_dot_version(new_ver) if path else None
         if new_parsed is None or new_parsed <= remote_ver:
+            return None
+        return (self._next_ident[0], self._next_ident[1], new_ver)
+
+    def _zxnr_update_link_html(self):
+        """The ZX Next Remote twin of _sync5_update_link_html."""
+        offer = self._zxnr_update_offer()
+        if offer is None:
             return ""
-        text = html.escape(ui_tr_now("Update to {new}").format(new=new_ver))
+        text = html.escape(ui_tr_now("Update to {new}").format(new=offer[2]))
         return ("&nbsp;&nbsp;<a href=\"zxnr-update\" style=\"color: "
                 f"#7fe3a8;\">{text}</a>")
 
@@ -3090,12 +3354,26 @@ class RemoteExplorerWidget(QWidget):
         same confirm/enqueue path as the session-tab menu entry."""
         if href == "sync5-update":
             if self._sync5_update_link_html() == "":
-                return                   # ident or baton moved under the click
+                # The offer (link or toast) outlived its gate: the Next
+                # disconnected, or another one is driven now. Say so - an
+                # accepted offer that silently does nothing reads as a
+                # broken button (review, 9.7.2).
+                self._log(ui_tr_now(
+                    "The update offer no longer applies: the Next "
+                    "disconnected, or another Next is driven now."))
+                return
             self._update_dot_on_session(
                 self._peer_active, self._next_ident[1])
         elif href == "zxnr-update":
             if self._zxnr_update_link_html() == "":
-                return                   # ident or baton moved under the click
+                # The offer (link or toast) outlived its gate: the Next
+                # disconnected, or another one is driven now. Say so - an
+                # accepted offer that silently does nothing reads as a
+                # broken button (review, 9.7.2).
+                self._log(ui_tr_now(
+                    "The update offer no longer applies: the Next "
+                    "disconnected, or another Next is driven now."))
+                return
             self._update_zxnr_on_session(
                 self._peer_active, self._next_ident[0], self._next_ident[1])
 

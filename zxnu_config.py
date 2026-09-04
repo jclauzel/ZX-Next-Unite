@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.1"
+ZX_NEXT_UNITE_VERSION = "9.7.2"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -29,7 +29,7 @@ ZX_NEXT_UNITE_VERSION = "9.7.1"
 # startup dotN-updated advisory compares this against the dotn_last_version
 # persisted in hdfg.cfg, so the user is told to refresh the copy on their
 # Next (which the app cannot deploy automatically).
-ZX_NEXT_UNITE_DOTN_VERSION = "5.9.1"
+ZX_NEXT_UNITE_DOTN_VERSION = "5.9.2"
 # Self-update check (Settings toggle, default on): the app's own releases.
 ZXNU_GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/jclauzel/ZX-Next-Unite/releases/latest"
 # Per-tag lookup: the remote .sync5 self-update fetches THIS app version's
@@ -379,8 +379,11 @@ SETTING_NEXTSYNC_PYGAME_MODE   = "nextsync_pygame_mode"    # "true" => retro 8-b
 SETTING_SDCARD_PYGAME_LOG      = "sdcard_pygame_log"       # "true" => retro 8-bit pygame log window on the SD Card utility tab, else classic list
 SETTING_SDCARD_SPLITTER        = "sdcard_splitter_sizes"   # "top,bottom" pane heights (px) of the SD Card explorers ⇄ log splitter
 SETTING_GETIT_SPLITTER         = "getit_splitter_sizes"    # "top,bottom" pane heights (px) of the GetIt results ⇄ MOTD splitter
+SETTING_SDCARD_HSPLITTER       = "sdcard_hsplitter_sizes"  # "left,right" pane widths (px) of the SD Card local ⇄ disk-image explorers splitter (9.7.2)
+SETTING_NEXTSYNC_RE_SPLITTER   = "nextsync_re_splitter_sizes"  # "left,right" pane widths (px) of the Remote Explorer local ⇄ Next splitter (9.7.2)
 SETTING_HELP_PYGAME_LOG        = "help_pygame_log"         # "true" => retro 8-bit pygame console on the "?" Help tab, else classic list
 SETTING_RETRO_LOG_FONT_SIZE    = "retro_log_font_size"    # int point size for the retro 8-bit log windows (SD Card + NextSync)
+SETTING_GENERAL_FONT_SIZE      = "general_font_size"      # int point size of the application (Qt) font; "" = the platform default (9.7.2)
 # ---- the last-look UX set (9.5.14): captured at every save (so the final
 # closeEvent save carries the shutdown truth), restored before first paint —
 # the user returns to the monitor, window size and explorer layouts they
@@ -403,9 +406,10 @@ SETTING_ITCHIO_VIEW_MODE       = "itchio_view_mode"        # "gallery" (default)
 SETTING_CSPECT_UPDATE_CHECK    = "cspect_update_check"     # "false" => skip the startup itch.io CSpect update check (default on)
 SETTING_ZXNEXTREMOTE_UPDATE_CHECK = "zxnextremote_update_check"  # "false" => skip the startup itch.io ZX Next Remote update check (default on)
 SETTING_ZXNU_UPDATE_CHECK      = "zxnu_update_check"       # "false" => skip the startup ZX Next Unite GitHub release check (default on)
+SETTING_RE_UPDATE_PROMPT       = "re_update_prompt"       # "false" => no toast offering to update an older .sync5 / ZXNR when a Next connects (default on, 9.7.2)
 SETTING_DELETE_TO_RECYCLE_BIN  = "delete_to_recycle_bin"   # "false" => local explorer deletes are permanent; default on = send to the Recycle Bin (needs Send2Trash)
 SETTING_DOTN_LAST_VERSION      = "dotn_last_version"       # bundled .sync5 dotN version last seen by this cfg (drives the "update the dot on your Next" advisory)
-SETTING_ZXNR_UPDATE_PATH       = "zxnr_update_path"        # last full Next-side path a ZX Next Remote self-update swapped (Remote Explorer; empty => "c:/zxnextremote-<flavor>.nex")
+SETTING_ZXNR_UPDATE_PATH       = "zxnr_update_path"        # last full Next-side path a ZX Next Remote self-update swapped (Remote Explorer; empty => ZXNR_HOME_DIR + "/zxnextremote-<flavor>.nex", i.e. c:/home/…; 9.7.2)
 # Per-pane item-viewer mode: "true" => open items in the Retro (pygame) viewer
 # (renders .txt/instruction pages as a log console), else the Classic Qt viewer.
 SETTING_GETIT_ITEM_RETRO       = "getit_item_retro"
@@ -603,6 +607,11 @@ GALLERY_SLIDESHOW_SECS_CHOICES = (5, 10, 15, 30, 60)
 # zxnu_pygame.RetroLogWidget so existing configs render identically.
 DEFAULT_RETRO_LOG_FONT_SIZE    = 13
 RETRO_LOG_FONT_SIZE_CHOICES    = (9, 10, 11, 12, 13, 14, 16, 18, 20, 24)
+# Application (Qt) font point size (9.7.2): the size every label, button,
+# combo, tab and the explorers' default text inherit from QApplication.
+# 0 / "" = the platform default zxnu_main resolves at startup (Consolas at
+# the system size); smaller sizes let the whole window fit a laptop screen.
+GENERAL_FONT_SIZE_CHOICES      = (7, 8, 9, 10, 11, 12, 13, 14)
 # The live slideshow pause time (seconds) is kept in a module-level global so
 # every viewer shares one user-configurable cadence without threading a getter
 # through each constructor. MainWindow calls set_gallery_slideshow_secs() on
@@ -1015,7 +1024,7 @@ SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, S
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_MAME_RS232_ESP, SETTING_MAME_RS232_ESP_PORT, SETTING_MAME_RS232_ESP_VERBOSE, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
-SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE,
+SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_SDCARD_HSPLITTER, SETTING_NEXTSYNC_RE_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE, SETTING_GENERAL_FONT_SIZE, SETTING_RE_UPDATE_PROMPT,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNEXTREMOTE_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_ZXNR_UPDATE_PATH, SETTING_DELETE_TO_RECYCLE_BIN,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
 SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
@@ -1208,12 +1217,18 @@ def views_background_qss(background_hex, alpha=NEXT_VIEWS_BG_ALPHA):
             " border: 1px solid #33335a; }")
 
 
-# Shared splitter-handle style (SD Card + GetIt splitters): the default
-# handle is invisible on dark themes, so users never discover they can
-# resize the panes. Paint a centered translucent "grab pill" (the margins
-# only shrink the painted box — the full handle stays grabbable) with the
-# app's magenta accent on hover. Translucent grays read on light AND dark
-# themes; both orientations covered so the constant works anywhere.
+# Splitter-handle style for Qt.Vertical splitters (SD Card explorers ⇄ log,
+# GetIt results ⇄ MOTD): the default handle is invisible on dark themes, so
+# users never discover they can resize the panes. Paint a centered
+# translucent "grab pill" (the 120px side margins only shrink the painted
+# box — the full handle stays grabbable) with the app's magenta accent on
+# hover. Translucent grays read on light AND dark themes.
+#
+# Qt.VERTICAL SPLITTERS ONLY. Applied to a Qt.Horizontal splitter, Qt folds
+# this rule's 120px side margins into the handle's WIDTH: measured offscreen,
+# a 10px handle came out 250px wide — the big translucent square that sat
+# between the Remote Explorer / SD Card panes when 9.7.2 first added their
+# side-by-side splitters. Those use SPLITTER_HANDLE_QSS_HORIZONTAL below.
 SPLITTER_HANDLE_QSS = (
     "QSplitter::handle:vertical {"
     " background: rgba(150, 150, 190, 70);"
@@ -1223,16 +1238,37 @@ SPLITTER_HANDLE_QSS = (
     "QSplitter::handle:vertical:hover {"
     " background: rgba(255, 60, 255, 140);"
     " border-top: 1px solid rgba(255, 130, 255, 210);"
-    " border-bottom: 1px solid rgba(255, 130, 255, 210); }"
+    " border-bottom: 1px solid rgba(255, 130, 255, 210); }")
+
+# The Qt.Horizontal twin (Remote Explorer local ⇄ Next, SD Card local ⇄ image
+# explorers, 9.7.2): a thin full-height translucent bar, same colours, same
+# hover accent. The width is EXPLICIT and there is no vertical inset: on this
+# orientation Qt turns margins into handle width rather than a shorter
+# painted pill (the 250px square above), so the bar simply runs the pane's
+# full height — which also keeps it visible on a short pane. 10px matches
+# setHandleWidth(10) at every call site.
+#
+# The trailing ':vertical { margin: 0 }' is load-bearing, not tidiness. A
+# stylesheet CASCADES to descendants, and the SD Card tab's horizontal
+# splitter is nested inside sdcard_splitter, whose SPLITTER_HANDLE_QSS
+# carries the ':vertical' rule with the 120px side margins — which Qt then
+# folds into the NESTED handle's width exactly as above (measured offscreen:
+# 250px inside a styled vertical splitter, 10px with this override, the
+# parent's own pill unchanged). A rule on the child wins the cascade, so
+# every horizontal splitter carrying this constant is immune wherever it
+# is nested — no per-call-site remembering.
+SPLITTER_HANDLE_QSS_HORIZONTAL = (
     "QSplitter::handle:horizontal {"
+    " width: 10px; margin: 0 1px;"
     " background: rgba(150, 150, 190, 70);"
     " border-left: 1px solid rgba(180, 180, 220, 110);"
     " border-right: 1px solid rgba(180, 180, 220, 110);"
-    " border-radius: 4px; margin: 120px 1px; }"
+    " border-radius: 4px; }"
     "QSplitter::handle:horizontal:hover {"
     " background: rgba(255, 60, 255, 140);"
     " border-left: 1px solid rgba(255, 130, 255, 210);"
-    " border-right: 1px solid rgba(255, 130, 255, 210); }")
+    " border-right: 1px solid rgba(255, 130, 255, 210); }"
+    "QSplitter::handle:vertical { margin: 0px; }")
 
 CSPECT_SCREEN_SIZES = (("Screen Size X1", "-w1"),("Screen Size X2", "-w2"),("Screen Size X3", "-w3"), ("Screen Size X4", "-w4"), ("Fullscreen", "-fullscreen"))
 CSPECT_SOUND = (("Sound On", ""),("Sound Off", "-sound"))

@@ -64,12 +64,14 @@ $C000–$FFFF   (mmu6/7)              : NextZXOS (saved/restored by the crt)
 very top of mmu5; v5.2's `0xBF00` wasted the last 256 bytes, which nothing in
 the dotn crt or clib touches). The large buffers (`inbuf`,
 `scratch`, …) are file-scope statics so they land in the main bank and keep the
-stack small. Current layout: main-bank content ends at `0xBDDC`
-(`__BSS_END_tail` in `syncdev.map`), leaving ~548 bytes of stack below `0xC000`;
-the primary dot page ends at `0x3EE8` (`__CODE_END_tail`), 24 bytes below the
-hard `0x3F00` line — content past it triggers appmake's "may overlap stack
-area" warning and sits where the dotn loader's own startup/exit stack (SP =
-`0x4000`) and its 128-byte exit-message buffer (`0x3F76+`) can scribble.
+stack small. Current layout (v5.9.2): main-bank content ends at `0xBF60`
+(`__BSS_END_head` in `syncdev.map`), leaving 160 bytes of stack below `0xC000`
+(`build_dotn.ps1` refuses a build under 150; 5.7.1's proven floor is 156);
+the primary dot page ends at `0x3EF5` (`__CODE_END_tail`), 26 bytes below the
+hard `0x3F0F` line the build enforces — content past it triggers appmake's
+"may overlap stack area" warning and sits where the dotn loader's own
+startup/exit stack (SP = `0x4000`) and its 128-byte exit-message buffer
+(`0x3F76+`) can scribble.
 **Both pools are tight — check those two numbers after any change, and treat
 that appmake warning as an error.**
 To protect the stack headroom, the code and const data of `anim.c` (sprites +
@@ -147,6 +149,7 @@ server-> Next   : one command frame, payload = opcode + optional path:
      'C' <src>\0<dst>  rcpy : copy a file/dir LOCALLY on the Next (v5.2+)
      'S' <path>   rfsize : total size of a file / directory tree (v5.2+)
      'Y'          ident : 'O' + "sync" + NUL + version (v5.8+)
+     'K' <path>   crc : CRC-32 of a file, 'O' + 8 hex digits (v5.9.2+)
      'Q'          quit  -> leave listen mode
 ```
 

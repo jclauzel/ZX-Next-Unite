@@ -83,9 +83,11 @@ class FakeInput:
     """Replaces zxnu_remote_explorer.QInputDialog: getText pops scripted
     (text, ok) answers; an empty script answers a cancel."""
     queue = []
+    seen = []          # every getText call's positional args (9.7.2 pins)
 
     @classmethod
     def getText(cls, *a, **k):
+        cls.seen.append(a)
         return cls.queue.pop(0) if cls.queue else ("", False)
 
 
@@ -186,7 +188,11 @@ def make_widget(**kw):
         emulator_launchers=kw.get("emulator_launchers"),
         emulator_color_for=kw.get("emulator_color_for"),
         on_emulator_color_changed=kw.get("on_emulator_color_changed"),
-        local_drives=kw.get("local_drives"))
+        local_drives=kw.get("local_drives"),
+        sync5_update_source=kw.get("sync5_update_source"),
+        zxnr_update_source=kw.get("zxnr_update_source"),
+        update_prompt_enabled=kw.get("update_prompt_enabled"),
+        on_update_prompt=kw.get("on_update_prompt"))
     return w, calls
 
 
@@ -2456,6 +2462,203 @@ def test_emulator_start_from_next():
           launched and os.path.basename(launched[0]) == "y.nex", str(launched))
 
 
+def test_sync5_resolve_task_survives_teardown():
+    """_Sync5ResolveTask's one emit tolerates a signals object the widget's
+    teardown has already destroyed - the app quitting while the resolve is
+    still on the pool, which PySide otherwise prints as "Signal source has
+    been deleted" out of QRunnable::run - while a live owner still gets its
+    payload. Same shutdown race and same guard as HdfTaskWorker, pinned in
+    tests/test_hdf_workers.py."""
+    from shiboken6 import delete as _cpp_delete
+
+    def failing():
+        raise OSError("net")
+
+    # Live owner: the answer arrives as ONE (sid, old_version, path, version,
+    # reason) tuple, and a raising resolver becomes the internal-error payload
+    # instead of an exception out of run().
+    heard = []
+    signals = rex._Sync5ResolveSignals()
+    signals.resolved.connect(heard.append, Qt.DirectConnection)
+    rex._Sync5ResolveTask(lambda: ("/tmp/sync5.dot", "5.2", ""), 1, "5.1",
+                          signals).run()
+    check("sync5 resolve: a live owner gets the payload",
+          heard == [(1, "5.1", "/tmp/sync5.dot", "5.2", "")], str(heard))
+    heard.clear()
+    rex._Sync5ResolveTask(failing, 2, "5.1", signals).run()
+    check("sync5 resolve: a raising resolver is reported, not raised",
+          len(heard) == 1 and heard[0][:3] == (2, "5.1", None)
+          and "internal error" in heard[0][4], str(heard))
+
+    # Owner gone: the QObject is destroyed while the task is still running,
+    # on both the happy and the failing path.
+    for label, source in (("ok", lambda: ("/tmp/sync5.dot", "5.2", "")),
+                          ("failing", failing)):
+        gone = rex._Sync5ResolveSignals()
+        task = rex._Sync5ResolveTask(source, 3, "5.1", gone)
+        _cpp_delete(gone)
+        what = f"sync5 resolve ({label}): emit after the owner's teardown does not raise"
+        try:
+            task.run()
+            check(what, True)
+        except RuntimeError as exc:
+            check(what, False, str(exc))
+
+
+def test_update_targets():
+    """Where the remote updates go (9.7.2): the .sync5 dot always to
+    c:/dot with no prompt at all for a known, older dot, and a yes/no
+    only for a dot of unknown version; a ZX Next Remote .nex through the
+    prompt, defaulting to c:/home, its explanation wrapped so the dialog
+    cannot outgrow a laptop screen."""
+    _nex = tempfile.NamedTemporaryFile(suffix=".nex", delete=False); _nex.close()
+    w, calls = make_widget(
+        sync5_update_source=lambda: ("C:/x/sync5", "5.9.1", ""),
+        zxnr_update_source=lambda flavor: (_nex.name, "1.0.9", ""))
+    connect_widget(w, calls)
+    w.on_peers((1, [(1, "10.0.0.5")]))
+    FakeInput.queue = []; FakeInput.seen = []
+    w._on_sync5_resolved((1, "5.9.0", "C:/x/sync5", "5.9.1", ""))
+    check("a known older .sync5 is updated straight into c:/dot, no prompt",
+          calls["q_to"] == [(1, ("update_dot", "C:/x/sync5", "c:/dot", "5.9.1"))] and FakeInput.seen == [],
+          str((calls["q_to"], FakeInput.seen)))
+    check("...and the log says where it went and what happens next",
+          any("c:/dot" in l and "sync5.bak" in l for l in calls["log"]), str(calls["log"][-1:]))
+    calls["q_to"].clear()
+    FakeMsg.answer = FakeMsg.No
+    w._on_sync5_resolved((1, "", "C:/x/sync5", "5.9.1", ""))
+    check("an unknown-version push still asks yes/no, and No sends nothing",
+          calls["q_to"] == [] and FakeInput.seen == [], str(calls["q_to"]))
+    FakeMsg.answer = FakeMsg.Yes
+    w._on_sync5_resolved((1, "", "C:/x/sync5", "5.9.1", ""))
+    check("...and Yes sends it to c:/dot as well",
+          calls["q_to"] == [(1, ("update_dot", "C:/x/sync5", "c:/dot", "5.9.1"))] and FakeInput.seen == [],
+          str(calls["q_to"]))
+    calls["q_to"].clear()
+    FakeInput.queue = [("c:/home/zxnextremote-n2n.nex", True)]; FakeInput.seen = []
+    w._update_zxnr_on_session(1, "n2n", "1.0.5")
+    check("a ZX Next Remote update still prompts, defaulting to c:/home",
+          len(FakeInput.seen) == 1 and FakeInput.seen[0][4] == "c:/home/zxnextremote-n2n.nex",
+          str(FakeInput.seen[0][4] if FakeInput.seen else None))
+    body = FakeInput.seen[0][2] if FakeInput.seen else ""
+    longest = max((len(l) for l in body.split(chr(10))), default=0)
+    check("...with its explanation wrapped to dialog width",
+          bool(body) and longest <= 80 and body.count(chr(10)) >= 6, f"longest line {longest}")
+    check("...and the .nex file name never split at its hyphen",
+          any("zxnextremote-n2n.nex" in l for l in body.split(chr(10))), body)
+    check("...and the answer is split into folder and file for the macro",
+          calls["q_to"] == [(1, ("update_dot", _nex.name, "c:/home", "1.0.9",
+                                 "zxnextremote-n2n.nex", "ZXNextRemote", True))],
+          str(calls["q_to"]))
+    FakeInput.seen = []
+    try:
+        os.unlink(_nex.name)
+    except OSError:
+        pass
+
+
+def test_update_prompt():
+    """The connect-time update offer (9.7.2): once the ident arrives and
+    this PC holds a newer .sync5 / ZXNR than the driven Next reported, the
+    widget asks the host for ONE prompt per session+version, whose accept
+    callable rides the top-bar link's update path. Silent when the toggle
+    is off, when nothing newer is held, and for a listener that predates
+    self-update; a new connection may be offered again."""
+    from zxnu_config import ZX_NEXT_UNITE_DOTN_VERSION as _LOCAL
+    _nex = tempfile.NamedTemporaryFile(suffix=".nex", delete=False); _nex.close()
+    prompts, links = [], []
+    w, calls = make_widget(
+        sync5_update_source=lambda: ("C:/x/sync5", _LOCAL, ""),
+        zxnr_update_source=lambda flavor: (_nex.name, "1.0.9", ""),
+        update_prompt_enabled=lambda: True,
+        on_update_prompt=lambda body, accept: prompts.append((body, accept)))
+    connect_widget(w, calls)
+    w.on_peers((1, [(1, "10.0.0.5")]))
+    w._update_dot_on_session = lambda sid, old: links.append(("dot", sid, old))
+    w._update_zxnr_on_session = lambda sid, flavor, old: links.append(("zxnr", sid, flavor, old))
+    w.on_ident("sync", "5.9.0")
+    check("an older .sync5 earns one prompt", len(prompts) == 1, str(len(prompts)))
+    body = prompts[0][0] if prompts else ""
+    check("...naming the old and new versions and the flavour",
+          "5.9.0" in body and _LOCAL in body and ".sync5" in body, body)
+    w.on_ident("sync", "5.9.0")
+    check("the same session+version is not asked twice", len(prompts) == 1, str(len(prompts)))
+    if prompts:
+        prompts[0][1]()
+    check("accepting updates the session it was offered for, through the dot-update path",
+          links == [("dot", 1, "5.9.0")], str(links))
+    # The accept is bound to the session it was OFFERED for: after the
+    # baton moves to another Next, A's offer still updates A; once A has
+    # left the roster, accepting says so instead of touching anyone.
+    links.clear()
+    w.on_peers((2, [(1, "10.0.0.5"), (2, "10.0.0.7")]))     # baton to B
+    if prompts:
+        prompts[0][1]()
+    check("accepting A's offer after the baton moved still updates A",
+          links == [("dot", 1, "5.9.0")], str(links))
+    links.clear(); calls["log"].clear()
+    w.on_peers((2, [(2, "10.0.0.7")]))                        # A left
+    if prompts:
+        prompts[0][1]()
+    check("accepting an offer for a Next that left does nothing but say so",
+          links == [] and any("no longer applies" in l for l in calls["log"]),
+          str((links, calls["log"][-1:])))
+    w.on_peers((1, [(1, "10.0.0.5")]))                        # A back, driven
+    w.on_ident("sync", _LOCAL)
+    check("an up-to-date dot is left alone", len(prompts) == 1, str(len(prompts)))
+    w.on_ident("n2n", "1.0.5")
+    check("an older ZX Next Remote earns its own prompt",
+          len(prompts) == 2 and "ZX Next Remote n2n" in prompts[-1][0] and "1.0.9" in prompts[-1][0],
+          prompts[-1][0] if prompts else "")
+    if len(prompts) == 2:
+        prompts[-1][1]()
+    check("...whose accept updates that session through the ZXNR update path",
+          links[-1:] == [("zxnr", 1, "n2n", "1.0.5")], str(links))
+    w.on_ident("n2n", "1.0.2")
+    check("a listener below the self-update floor is not offered one", len(prompts) == 2, str(len(prompts)))
+    w.on_disconnected()
+    w.on_connected()
+    w.on_peers((1, [(1, "10.0.0.5")]))
+    w.on_ident("sync", "5.9.0")
+    check("a new connection is offered again", len(prompts) == 3, str(len(prompts)))
+    # The Settings toggle, read at ident time: off means no prompt, while
+    # the top bar's own link still offers the update.
+    w2, calls2 = make_widget(
+        sync5_update_source=lambda: ("C:/x/sync5", _LOCAL, ""),
+        update_prompt_enabled=lambda: False,
+        on_update_prompt=lambda body, accept: prompts.append((body, accept)))
+    connect_widget(w2, calls2)
+    w2.on_peers((1, [(1, "10.0.0.5")]))
+    w2.on_ident("sync", "5.9.0")
+    check("the toggle off means no prompt", len(prompts) == 3, str(len(prompts)))
+    check("...while the top-bar link still offers the update",
+          w2._sync5_update_offer() == ("5.9.0", _LOCAL) and "sync5-update" in w2._sync5_update_link_html())
+    # A modal dialog up at ident time DEFERS the offer (a toast under it
+    # could not be clicked): it surfaces once the dialog is gone.
+    w3, calls3 = make_widget(
+        sync5_update_source=lambda: ("C:/x/sync5", _LOCAL, ""),
+        update_prompt_enabled=lambda: True,
+        on_update_prompt=lambda body, accept: prompts.append((body, accept)))
+    connect_widget(w3, calls3)
+    w3.on_peers((1, [(1, "10.0.0.5")]))
+    dlg = QDialog(); dlg.setModal(True); dlg.show()
+    QApplication.processEvents()
+    n0 = len(prompts)
+    w3.on_ident("sync", "5.9.0")
+    check("no offer while a modal dialog is up",
+          len(prompts) == n0 and QApplication.activeModalWidget() is not None,
+          str((len(prompts) - n0, QApplication.activeModalWidget())))
+    dlg.close()
+    end = time.monotonic() + 3.0
+    while len(prompts) == n0 and time.monotonic() < end:
+        QApplication.processEvents(); time.sleep(0.02)
+    check("...and it surfaces once the dialog is gone", len(prompts) == n0 + 1, str(len(prompts) - n0))
+    try:
+        os.unlink(_nex.name)
+    except OSError:
+        pass
+
+
 def main():
     logging.disable(logging.CRITICAL)
     app = QApplication(sys.argv)  # noqa: F841 — QWidget construction needs it
@@ -2467,6 +2670,8 @@ def main():
         test_multi_next_folders_follow_the_baton()
         test_machine_names_follow_the_address()
         test_session_tab_menu()
+        test_update_prompt()
+        test_update_targets()
         test_machine_colors()
         test_emulator_strip()
         test_emulator_colors()
@@ -2493,6 +2698,7 @@ def main():
         test_idle_details_provider()
         test_compact_buttons_fit_translated_labels()
         test_emulator_start_from_next()
+        test_sync5_resolve_task_survives_teardown()
         test_select_all_skips_updir()
         test_os_protection_stops_and_explains()
         test_font_zoom()

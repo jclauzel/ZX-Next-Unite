@@ -30,6 +30,7 @@ from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
 from PySide6.QtCore import (
     QEvent, QItemSelection, QItemSelectionModel, QObject, QPoint, QRect,
     QRunnable, QSize, QSortFilterProxyModel, QTimer, Qt, Signal, Slot,
+    QRegularExpression,
 )
 from PySide6.QtGui import QFontInfo
 # ui_tr_now translates the USER-FACING server log lines at their call sites
@@ -447,6 +448,15 @@ def bind_listen_socket(port):
 
 class DotDotFirstProxyModel(QSortFilterProxyModel):
     """Proxy model that always keeps the '..' parent directory entry at the top."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # The name filter has always matched case-insensitively (the old
+        # substring test lower()ed both sides); saying so here makes the
+        # regular expression Qt builds from setFilterWildcard carry the
+        # option, so filterAcceptsRow can use it as it is.
+        self.setFilterCaseSensitivity(Qt.CaseInsensitive)
+
     def lessThan(self, left, right):
         source_model = self.sourceModel()
         left_name = source_model.fileName(left)
@@ -475,11 +485,23 @@ class DotDotFirstProxyModel(QSortFilterProxyModel):
         # Always show the parent-directory entry
         if source_model.fileName(index) == "..":
             return True
-        pattern = self.filterRegularExpression().pattern()
-        if not pattern:
+        # Match with the regular expression the proxy holds, NOT with its
+        # pattern text as a substring (9.7.2). setFilterWildcard("abc")
+        # stores "(?s:abc)" on Qt 6.10 (older Qt stored the bare text), so
+        # the substring test could never match a real name - and an EMPTY
+        # filter, "(?s:)", rejected every row too, leaving only what
+        # recursive filtering rescued through a populated ".." child. That
+        # rescue depends on which folders happen to have been fetched,
+        # which is how the local Refresh could land on an invalid root.
+        # Unanchored, so "abc" still means "contains abc"; "*" and "?"
+        # now work as well.
+        rx = self.filterRegularExpression()
+        if not rx.pattern() or not rx.isValid():
             return True
-        name = source_model.fileName(index)
-        return pattern.lower() in name.lower()
+        if not (rx.patternOptions() & QRegularExpression.CaseInsensitiveOption):
+            rx = QRegularExpression(rx.pattern(), rx.patternOptions()
+                                    | QRegularExpression.CaseInsensitiveOption)
+        return rx.match(source_model.fileName(index)).hasMatch()
 
 def bind_select_all_except_updir(view, is_updir):
     """Make the view's Select All (Ctrl-A, or any programmatic selectAll)
@@ -1417,6 +1439,47 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             log("This listener does not answer the version "
                                 "query (pre ZXNR 1.0.2 / .sync v5.8).")
                             sig.ident.emit("", "")
+                    elif op == "crc":
+                        # CRC-32 of ONE file computed ON the Next ('K', dot
+                        # v5.9.2+ / ZXNR 1.0.8+): 'O' + 8 upper-case hex
+                        # digits (IEEE, zlib.crc32's value), 'F' when the
+                        # file did not open. The Next streams the file and
+                        # answers nothing meanwhile, so the wait is long: a
+                        # 1 MB file takes the dot ~30 s. The bridge sizes
+                        # its own wait from rfsize; this is the worker's
+                        # ceiling - an hour, ~100 MB on the dot. An old
+                        # listener ignores the unknown opcode - degrade
+                        # like 'version', never kill the session.
+                        path = cmd[1]
+                        res = {'crc32': "", 'fail': False}
+
+                        def _hc(payload, _r=res):
+                            o = payload[0:1]
+                            if o == b'O' and len(payload) >= 9:
+                                _r['crc32'] = payload[1:9].decode(
+                                    errors='replace').upper()
+                            elif o == b'F':
+                                _r['fail'] = True
+                            return True
+                        _re_sendpacket(conn, b"K" + path.encode(), 0)
+                        try:
+                            got_c = _re_reply_call(conn, _hc, timeout=3600.0)
+                        except socket.timeout:
+                            got_c = False
+                        if got_c and res['crc32']:
+                            log(f"crc32 {path}: {res['crc32']}")
+                            if reply:
+                                reply.put({'ok': True, 'path': path,
+                                           'crc32': res['crc32']})
+                        else:
+                            why = ('the file did not open' if res['fail']
+                                   else 'no answer: the file did not open, '
+                                        'or the listener predates .sync '
+                                        'v5.9.2 / ZXNR 1.0.8')
+                            log(f"crc32 {path}: {why}")
+                            if reply:
+                                reply.put({'ok': False,
+                                           'error': f'crc failed ({why})'})
                     elif op == "drives":
                         # getdrives: one pushed status block, 'O' + current
                         # drive letter + one letter per mounted drive. An old
@@ -2006,6 +2069,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         ("free",  drive_letter)   -> query a partition's free space (see below)
         ("rcpy",  src, dst)       -> copy locally ON the Next (see below)
         ("fsize", remote_path)    -> total size of a file/tree (see below)
+        ("crc",   remote_path)    -> CRC-32 of one file, computed on the Next
         ("rename", old_path, new_path)
         ("update_dot", local_file, remote_dir, version
                        [, base_file, brand, marked_exit])
@@ -2318,7 +2382,14 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
 
 
 class HdfTaskSignals(QObject):
-    """Signals for background hdfmonkey task workers."""
+    """Signals for background hdfmonkey task workers.
+
+    The HdfTaskWorker that creates the instance is its only holder; the
+    dialog and log slots a caller connects merely listen (nobody keeps the
+    worker either once it is handed to the pool). So at application exit
+    the object can already be destroyed while the pool thread is still
+    finishing run(), and any emit then raises "Signal source has been
+    deleted" - which HdfTaskWorker._emit swallows on purpose."""
     progress  = Signal(int)   # 0-100
     status    = Signal(str)   # "action line\nfilename line"
     finished  = Signal()
@@ -2388,11 +2459,28 @@ class HdfTaskWorker(QRunnable):
         try:
             self.fn(self.signals, self.cancel_event, *self.args, **self.kwargs)
         except Exception as exc:
-            self.signals.error.emit(str(exc))
+            self._emit("error", str(exc))
         finally:
             if self.cancel_event.is_set():
-                self.signals.cancelled.emit()
-            self.signals.finished.emit()
+                self._emit("cancelled")
+            self._emit("finished")
+
+    def _emit(self, name, *args):
+        """Emit ``signals.<name>``, unless the owner has already gone.
+
+        At application exit the owner drops its reference while the job
+        is still finishing (see the HdfTaskSignals docstring for why that
+        reference matters), the signals object is destroyed with it, and
+        the emit raises "Signal source has been deleted" - printed by
+        PySide as an unhandled error from QRunnable::run, seen at the end
+        of the offscreen suite's phase 1 (9.7.2). There is nobody left to
+        tell, so the RuntimeError is swallowed here; a live owner is
+        notified exactly as before.
+        """
+        try:
+            getattr(self.signals, name).emit(*args)
+        except RuntimeError:
+            pass
 
 
 class HdfProgressDialog(QDialog):

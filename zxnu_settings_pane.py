@@ -19,7 +19,7 @@ import os
 import sys
 
 from PySide6.QtCore import (Qt, QTimer)
-from PySide6.QtGui import (QColor, QPixmap)
+from PySide6.QtGui import (QColor, QFont, QPixmap)
 from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QPushButton, QCheckBox,
     QComboBox, QLineEdit, QGridLayout, QHBoxLayout, QVBoxLayout, QFrame,
     QScrollArea, QSlider, QSpinBox, QColorDialog)
@@ -47,6 +47,7 @@ from zxnu_workers import *
 SETTINGS_TAB_ROWS = (
     "zxnextremote_update_check",
     "zxnu_update_check",
+    "re_update_prompt",
     "zxnextremote_itch_link",
     "ui_language",
     "wizard",
@@ -66,6 +67,7 @@ SETTINGS_TAB_ROWS = (
     "gallery_slideshow",
     "search_sort",
     "colors_section",
+    "general_font",
     "color_background",
     "color_up_directory",
     "color_dir_name",
@@ -148,6 +150,26 @@ def build_settings_pane(
     host.settings_zxnu_update_check_checkbox.stateChanged.connect(
         lambda _s: settings_zxnu_update_check_changed())
     grid_tab_Settings.addWidget(host.settings_zxnu_update_check_checkbox, settings_grid_row("zxnu_update_check"), 0, 1, 2)
+
+    # Offer to update an obsolete .sync5 / ZX Next Remote on connect (9.7.2):
+    # the Remote Explorer reads this at ident time, so the toggle applies to
+    # the very next connection without a restart. Default on.
+    def settings_re_update_prompt_changed():
+        on = host.settings_re_update_prompt_checkbox.isChecked()
+        configuration_dictionary[SETTING_RE_UPDATE_PROMPT] = (
+            "true" if on else "false")
+        save_configuration_file()
+
+    host.settings_re_update_prompt_checkbox = QCheckBox(
+        "Offer to update an older .sync5 / ZX Next Remote when a Next connects")
+    host.settings_re_update_prompt_checkbox.setChecked(True)  # default on
+    host.settings_re_update_prompt_checkbox.setToolTip(
+        "When a Next connects to the Remote Explorer running an older .sync5 dot\n"
+        "or ZX Next Remote build than this PC holds, show a 10-second prompt\n"
+        "offering to push the newer version right away.")
+    host.settings_re_update_prompt_checkbox.stateChanged.connect(
+        lambda _s: settings_re_update_prompt_changed())
+    grid_tab_Settings.addWidget(host.settings_re_update_prompt_checkbox, settings_grid_row("re_update_prompt"), 0, 1, 2)
 
     # -- ZX Next Remote: check itch.io for a newer build at startup --------
     # The CSpect row's twin (see settings_cspect_update_check_changed below),
@@ -716,6 +738,66 @@ def build_settings_pane(
         "image explorer, plus the general app text color (labels, checkboxes,\n"
         "section headers) used across the app in Classic (non-pygame) mode.")
     grid_tab_Settings.addWidget(settings_section_lbl, settings_grid_row("colors_section"), 0, 1, 2)
+
+    # General (application) font size (9.7.2): the Qt font every label,
+    # button, combo, tab and the explorers' default text inherit. A smaller
+    # size is how the whole window fits a laptop screen. Widgets that pin
+    # their own font - the Ctrl+wheel-zoomed trees, the retro consoles
+    # (their own row below), pixel-sized stylesheets - keep it, by design.
+    general_font_lbl = QLabel("General font size:")
+    general_font_lbl.setToolTip(
+        "Point size of the application font used by labels, buttons, combos,\n"
+        "tabs and the explorers' default text. Smaller sizes help the whole\n"
+        "window fit a small screen. Applies immediately; the retro log\n"
+        "consoles keep their own size (see below).")
+    grid_tab_Settings.addWidget(general_font_lbl, settings_grid_row("general_font"), 0)
+
+    _appinst = QApplication.instance()
+    _default_pt = _appinst.font().pointSize() if _appinst is not None else 0
+    if _default_pt <= 0:
+        _default_pt = 10
+    host._general_font_default_pt = _default_pt   # what zxnu_main resolved at startup
+    host._general_font_size = 0                    # 0 = that default
+
+    def _apply_general_font_size(pt):
+        """Push *pt* (0 = the startup default) to the application font.
+
+        QApplication.setFont after the widgets exist re-resolves every
+        widget that has not set a font of its own, so the change is live;
+        the window's minimum size follows on the next layout pass.
+        """
+        app = QApplication.instance()
+        if app is None:
+            return
+        f = QFont(app.font())
+        f.setPointSize(int(pt) if int(pt) > 0 else host._general_font_default_pt)
+        app.setFont(f)
+        # With an application stylesheet installed (NEXT_CHROME_QSS, from
+        # startup) Qt does NOT re-resolve the fonts of widgets that already
+        # exist on setFont alone - only widgets built afterwards came up in
+        # the new size (review). Re-setting the sheet re-polishes every
+        # widget, so the pick is live for the whole window.
+        app.setStyleSheet(app.styleSheet())
+    host._apply_general_font_size = _apply_general_font_size
+
+    def _settings_general_font_changed():
+        try:
+            pt = int(host.settings_general_font_combo.currentData() or 0)
+        except (TypeError, ValueError):
+            pt = 0
+        host._general_font_size = pt
+        _apply_general_font_size(pt)
+        configuration_dictionary[SETTING_GENERAL_FONT_SIZE] = str(pt) if pt else ""
+        save_configuration_file()
+
+    host.settings_general_font_combo = QComboBox()
+    host.settings_general_font_combo.addItem(f"Default ({_default_pt})", 0)
+    for _pt in GENERAL_FONT_SIZE_CHOICES:
+        host.settings_general_font_combo.addItem(str(_pt), _pt)
+    host.settings_general_font_combo.setToolTip(general_font_lbl.toolTip())
+    host.settings_general_font_combo.currentIndexChanged.connect(
+        lambda _i: _settings_general_font_changed())
+    grid_tab_Settings.addWidget(host.settings_general_font_combo, settings_grid_row("general_font"), 1)
 
     host.settings_btn_color_background = _make_color_button(
         SETTING_COLOR_BACKGROUND, "img_color_background",

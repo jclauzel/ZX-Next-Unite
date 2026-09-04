@@ -436,6 +436,39 @@ additive checksum** (sum of all bytes mod 65536) — cheap for a NextBASIC
 caller to mirror while uploading. `&bare=1` answers just the checksum
 digits (`20671`), trivial to parse on the Next.
 
+### `GET /crc?path=/games/a.nex` — verify a transfer (CRC-32, computed on the Next)
+
+```
+curl "http://localhost/crc?path=/incoming/sample-4k.txt"
+.http -h 192.168.1.10 -u "/crc?path=/incoming/sample-4k.txt&bare=1" -f crc.txt
+```
+```
+OK
+path: /incoming/sample-4k.txt
+crc32: 1A2B3C4D
+```
+The Next streams the file through a small buffer - any size fits - and
+answers its **CRC-32** (IEEE 802.3: the polynomial `zlib.crc32`, 7-Zip's
+CRC32 column and PKZIP use) as 8 upper-case hex digits. Unlike `/sum`,
+nothing is pulled back over the wire: 8 characters travel, not the file.
+`&bare=1` answers just the digits (`1A2B3C4D`), trivial to parse on the
+Next. To compare with the PC's copy:
+
+```
+python -c "import sys,zlib;print('%08X'%(zlib.crc32(open(sys.argv[1],'rb').read())&0xffffffff))" sample-4k.txt
+```
+
+Needs `.sync5` v5.9.2+ or ZX Next Remote 1.0.8+ on the Next; an older
+listener does not know the op and the route answers 502. Both listeners
+also print the digits on the Next's own screen as they answer - the dot on
+its text console, ZX Next Remote on its Listener console - so a checksum
+is readable at the Next itself, too. The dot computes it bit by bit (about
+30 KB/s at 28 MHz - a 1 MB file in ~35 s); the ZX Next Remote listener is
+table-driven and several times faster. The route sizes its wait from the
+file (an `rfsize` first), so a large file does not hit the usual 270-second
+limit; the PC side's own ceiling is one hour. A read that fails mid-file
+answers 502, never the digest of a partial file.
+
 ### Emulator note — CSpect ESP, `-7`, MAME + jesperl
 
 **CSpect**'s built-in ESP emulation is **7-bit**: a binary byte like `0xFF`

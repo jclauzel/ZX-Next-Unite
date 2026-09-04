@@ -8,6 +8,7 @@ stage/verify/swap macro (its own mock + sessions, since its happy path ends
 the session with 'Q').
 """
 import os, sys, socket, threading, tempfile, shutil, time, io, contextlib
+import zlib
 
 # nextsync5.py lives at the repo root (next to zxnu_http_bridge.py, which it
 # imports for the optional -w/-http web server).
@@ -156,6 +157,11 @@ def mock_next(sock, fake_entries, fake_file, captured):
         elif op == b'U':                            # release (dot v5.9+): the dot
             captured['release'] = True              # closes its OWN file handle;
             push(b'O', 0)                           # one status block back
+        elif op == b'K':                            # crc (dot v5.9.2+): 'O' + 8 hex
+            if arg.rstrip("/") == "/gone":          # digits (of the PATH here, so the
+                push(b'F', 0)                       # test can predict them); 'F' when
+            else:                                   # the file does not open
+                push(b'O' + ("%08X" % (zlib.crc32(arg.encode()) & 0xffffffff)).encode(), 0)
         elif op in (b'M', b'R', b'X'):              # mkdir/rmdir/rm: status
             # "/sys" is OS-protected (marked refusal); "/locked" is an
             # ordinary failure, so both status paths are exercised.
@@ -530,6 +536,8 @@ def main():
         ("rcpy", "/locked/tree", "/copy2"),         # unreadable source -> 'F'
         ("rfsize", "/games", ""),                   # tree size: files/dirs/bytes
         ("rfsize", "/gone", ""),                    # missing path -> 'F'
+        ("crc", "/games/a.tap", ""),                # CRC-32 of a file ON the Next
+        ("crc", "/gone", ""),                       # missing file -> 'F'
         ("ren", "/games/a.tap", "/games/b.tap"),
         # OS protection: every status-block verb must report the marked
         # 'F'+OSP refusal BY NAME (and answer a bridge caller 401
@@ -633,6 +641,13 @@ def main():
         print("PASS rcpyF : 'F' reply reported as FAILED")
     else:
         print("FAIL rcpyF : 'F' reply not reported"); ok = False
+    # crc ('K'): the digits echoed by the server, the missing file reported.
+    _want_crc = "%08X" % (zlib.crc32(b"/games/a.tap") & 0xffffffff)
+    if (f"crc32 /games/a.tap: {_want_crc}" in server_out
+            and "crc32 /gone: the file did not open" in server_out):
+        print("PASS crc: digits echoed, missing file reported")
+    else:
+        print("FAIL crc: ", [l for l in server_out.splitlines() if "crc32" in l]); ok = False
     # rfsize ('S'): the terminal totals must decode (incl. the 48-bit split)
     # and the per-directory progress must be echoed.
     if ("scanning /games" in server_out

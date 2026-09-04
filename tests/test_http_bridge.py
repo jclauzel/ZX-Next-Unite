@@ -7,6 +7,7 @@ hosts, against the mock Next of test_remote_listen:
 Run with: python test_http_bridge.py
 """
 import json
+import zlib
 import os
 import queue
 import socket
@@ -109,6 +110,8 @@ def phase_a():
             return ("drives", reply)
         if op == "version":
             return ("version", reply)
+        if op == "crc":
+            return ("crc", a1, reply)
         if op == "forceexit":
             return ("quit", reply)
         return None
@@ -210,6 +213,20 @@ def phase_a():
 
     st, body = http(HTTP_A, "/rfsize?path=/gone")
     check("A /rfsize fail -> 502", st == 502, body)
+
+    # /crc: the CRC-32 computed ON the Next ('K'), 8 upper-case hex digits;
+    # &bare=1 is just the digits; a file that does not open is 502; no path
+    # is 400.
+    _want_crc = "%08X" % (zlib.crc32(b"/games/a.tap") & 0xffffffff)
+    st, body = http(HTTP_A, "/crc?path=/games/a.tap&json=1")
+    j = json.loads(body)
+    check("A /crc (computed on the Next)", st == 200 and j["crc32"] == _want_crc, j)
+    st, body = http(HTTP_A, "/crc?path=/games/a.tap&bare=1")
+    check("A /crc bare", st == 200 and body.strip() == _want_crc.encode(), body)
+    st, body = http(HTTP_A, "/crc?path=/gone")
+    check("A /crc fail -> 502", st == 502, body)
+    st, body = http(HTTP_A, "/crc")
+    check("A /crc without a path -> 400", st == 400, body)
 
     st, body = http(HTTP_A, "/free?drive=m:&json=1")
     j = json.loads(body)
@@ -333,6 +350,11 @@ def phase_b():
     j = json.loads(body)
     check("B /rfsize", st == 200 and j["bytes"] == (1 << 32) + 512, j)
 
+    st, body = http(HTTP_B, "/crc?path=/games/a.tap&json=1")
+    j = json.loads(body)
+    check("B /crc (console server)", st == 200
+          and j["crc32"] == "%08X" % (zlib.crc32(b"/games/a.tap") & 0xffffffff), j)
+
     st, body = http(HTTP_B, "/rmtree?path=/del")
     check("B /rmtree unsupported -> 501", st == 501, body)
 
@@ -408,6 +430,8 @@ def phase_sessions():
             return ("drives", reply)
         if op == "version":
             return ("version", reply)
+        if op == "crc":
+            return ("crc", a1, reply)
         if op == "forceexit":
             return ("quit", reply)
         return None
