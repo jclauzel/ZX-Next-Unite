@@ -653,6 +653,44 @@ check(f"dotN binary: carries the 'NextSync {ZX_NEXT_UNITE_DOTN_VERSION}' "
       sync5_blob_has_banner(_dot_blob, ZX_NEXT_UNITE_DOTN_VERSION),
       f"{len(_dot_blob)} bytes read")
 
+# ---- itch.io build-name ordering --------------------------------------------
+# cspect_version_key's extension strip used os.path.splitext, which on a DOTTED
+# version took the last component for an extension: zxnextremote-1.0.7 keyed as
+# zxnextremote-1.0, so every ZX Next Remote patch level tied. The update sender
+# then pushed whichever install folder it listed first, and the startup check
+# compared an upload name that kept its digit against a folder that had lost
+# it. CSpect's underscore names never hit it. Pins for both shapes.
+import tempfile  # noqa: E402
+from zxnu_config import (cspect_version_key, cspect_version_newer,  # noqa: E402
+                         find_installed_zxnextremote_version)
+
+check("build order: zxnextremote-1.0.7 is newer than 1.0.3",
+      cspect_version_newer("zxnextremote-1.0.7", "zxnextremote-1.0.3"))
+check("build order: 1.0.3 is not newer than 1.0.7",
+      not cspect_version_newer("zxnextremote-1.0.3", "zxnextremote-1.0.7"))
+check("build order: 1.0.10 is newer than 1.0.7 (numeric, not lexical)",
+      cspect_version_newer("zxnextremote-1.0.10", "zxnextremote-1.0.7"))
+check("build order: a .zip upload keys equal to its extracted folder",
+      cspect_version_key("zxnextremote-1.0.7.zip")
+      == cspect_version_key("zxnextremote-1.0.7"))
+check("build order: an identical version is not 'newer' (no spurious update)",
+      not cspect_version_newer("zxnextremote-1.0.7.zip", "zxnextremote-1.0.7"))
+check("build order: CSpect underscore names unchanged (3_1_10 > 3_1_4)",
+      cspect_version_newer("CSpect3_1_10_0", "CSpect3_1_4_0"))
+check("build order: a CSpect .zip vs its folder still tie",
+      not cspect_version_newer("CSpect3_1_4_0.zip", "CSpect3_1_4_0"))
+with tempfile.TemporaryDirectory() as _td:
+    _files = os.path.join(_td, "downloads", "itchio", "jclauzel",
+                          "zxnextremote", "files")
+    for _v in ("zxnextremote-1.0.3", "zxnextremote-1.0.10",
+               "zxnextremote-1.0.7"):
+        os.makedirs(os.path.join(_files, _v))
+    open(os.path.join(_files, "zxnextremote-1.0.10.zip"), "wb").close()
+    _name, _path = find_installed_zxnextremote_version(_td)
+    check("installed ZXNR: the highest dotted FOLDER wins (1.0.10), not the "
+          "first listed and not the .zip", _name == "zxnextremote-1.0.10",
+          str(_name))
+
 print()
 if FAIL:
     print(f"RESULT: {len(FAIL)} FAILURE(S)")

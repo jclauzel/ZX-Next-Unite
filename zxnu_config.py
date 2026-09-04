@@ -2239,9 +2239,26 @@ def cspect_version_key(name):
     (``CSpect3_1_4_0.zip``) — otherwise the trailing ``.zip`` token would make an
     identical version compare as *newer* and trigger a spurious update. Digit
     runs compare as ints, other runs as lower-case text."""
-    stem = os.path.splitext(os.path.basename(name or ""))[0]
+    stem = _version_stem(name)
     return [int(tok) if tok.isdigit() else tok.lower()
             for tok in re.split(r"(\d+)", stem)]
+
+
+def _version_stem(name):
+    """The build name with a real archive extension stripped and nothing else.
+
+    ``os.path.splitext`` is the wrong tool here: on a DOTTED version it takes
+    the last component for an extension, so ``zxnextremote-1.0.7`` became
+    ``zxnextremote-1.0`` and every patch level of ZX Next Remote (1.0.3, 1.0.7,
+    1.0.10) collapsed onto one key — the update sender then pushed whichever
+    install folder it listed first, and the startup check compared an itch.io
+    upload name that had kept its patch digit (its ``.zip`` really is an
+    extension) against an install folder that had lost it. Only a suffix that
+    is not purely numeric is an extension (``.zip``, ``.7z``); ``.7`` is a
+    version component. CSpect's underscore names never hit this."""
+    base = os.path.basename(name or "")
+    root, ext = os.path.splitext(base)
+    return root if ext and not ext[1:].isdigit() else base
 
 
 def cspect_version_newer(candidate_name, installed_name):
@@ -2257,8 +2274,8 @@ def cspect_version_newer(candidate_name, installed_name):
     try:
         return ck > ik
     except TypeError:
-        a = os.path.splitext(os.path.basename(candidate_name or ""))[0].lower()
-        b = os.path.splitext(os.path.basename(installed_name or ""))[0].lower()
+        a = _version_stem(candidate_name).lower()
+        b = _version_stem(installed_name).lower()
         return a > b
 
 
