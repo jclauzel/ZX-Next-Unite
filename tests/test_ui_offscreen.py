@@ -216,6 +216,7 @@ elif PHASE in (2, 3):
                 + "color_retro_log=#112233\n"
                 + "general_font_size=8\n"            # the application font (9.7.2)
                 + "re_update_prompt=false\n"         # the connect-time update offer, off
+                + "nextsync_verify_crc=false\n"   # the verify-after-put check, off (9.7.3)
                 # A hand-picked ground, with the Custom mode that picking one
                 # leaves behind - the only mode in which a pick SURVIVES a
                 # restart (every other mode recomputes the palette on load).
@@ -921,6 +922,8 @@ def inspect_phase2():
           f"{win.settings_general_font_combo.font().pointSize()} / {win.settings_general_font_combo.currentData()}")
     check("update-on-connect prompt restored unchecked from cfg",
           not win.settings_re_update_prompt_checkbox.isChecked())
+    check("verify-CRC toggle restored unchecked from cfg",
+          not win.settings_nextsync_verify_crc_checkbox.isChecked())
     check("retro color restored from cfg",
           win.img_color_retro_log.name().lower() == "#112233", win.img_color_retro_log.name())
     check("retro swatch shows restored color",
@@ -1374,6 +1377,26 @@ def inspect_phase6():
           and settings_row("re_autostart") + 1
           == settings_row("nextsync_send_conflict"),
           str(spos(win.settings_nextsync_send_conflict_combo)))
+    # Verify-after-put toggle (9.7.3): the row right under the send-conflict
+    # combo, persisted both ways, and the red log line it uses.
+    vc = win.settings_nextsync_verify_crc_checkbox
+    check("verify-CRC toggle directly under the send-conflict row",
+          spos(vc) == (settings_row("nextsync_verify_crc"), 0)
+          and settings_row("nextsync_send_conflict") + 1 == settings_row("nextsync_verify_crc"),
+          str(spos(vc)))
+    vc.setChecked(False)
+    QApplication.processEvents()
+    check("verify-CRC toggle persists off to cfg", "nextsync_verify_crc=false" in cfg_lines(),
+          str([l for l in cfg_lines() if l.startswith("nextsync_verify")]))
+    vc.setChecked(True)
+    QApplication.processEvents()
+    check("verify-CRC toggle persists on to cfg", "nextsync_verify_crc=true" in cfg_lines())
+    _red = sys.modules["zxnu_config"].FONT_RED
+    win.add_nextsync_log_window("crc pin", color=_red)
+    _it = win.nextsync_log.item(0)
+    check("NextSync log line takes a colour", _it.text() == "crc pin"
+          and _it.foreground().color().name() == "#ff0000",
+          f"{_it.text()!r} {_it.foreground().color().name()}")
     check("RE-autostart default off", not ac.isChecked())
     # Ticking it WITHOUT a sync root must refuse: the box reverts to off
     # (with a toast advising to set one) and nothing lands in the cfg.
@@ -1437,6 +1460,8 @@ def inspect_phase7():
     timer = _arm_msgbox_autoclose(seen)
     check("update-check toggle defaults ON (no cfg key)",
           win.settings_zxnu_update_check_checkbox.isChecked())
+    check("verify-CRC toggle defaults ON (no cfg key)",
+          win.settings_nextsync_verify_crc_checkbox.isChecked())
     if win.settings_delete_to_recycle_bin_checkbox.isEnabled():
         check("recycle toggle defaults ON (no cfg key)",
               win.settings_delete_to_recycle_bin_checkbox.isChecked())
@@ -1520,6 +1545,11 @@ def inspect_phase9():
           win.settings_no_prompt_on_deletion_checkbox.text()
           == "No pedir confirmación al eliminar.",
           win.settings_no_prompt_on_deletion_checkbox.text())
+    from zxnu_i18n import CATALOGS   # late: the settings_row rule
+    check("verify-CRC checkbox translated at startup",
+          win.settings_nextsync_verify_crc_checkbox.text()
+          == CATALOGS["es"]["NextSync — Verify CRC of every file sent to the Next (Remote Explorer)"],
+          win.settings_nextsync_verify_crc_checkbox.text())
     check("placeholder translated at startup",
           win.filtertext.placeholderText() == "Filtrar por nombre…",
           win.filtertext.placeholderText())

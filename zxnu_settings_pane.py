@@ -57,6 +57,7 @@ SETTINGS_TAB_ROWS = (
     "delete_to_recycle_bin",
     "re_autostart",
     "nextsync_send_conflict",
+    "nextsync_verify_crc",
     "avail_check",
     "multi_search",
     "search_autocomplete",
@@ -2099,6 +2100,34 @@ def build_settings_pane(
     host.settings_nextsync_send_conflict_combo.currentIndexChanged.connect(
         lambda _i: _settings_nextsync_send_conflict_changed())
     grid_tab_Settings.addWidget(host.settings_nextsync_send_conflict_combo, settings_grid_row("nextsync_send_conflict"), 1)
+
+    # ── NextSync: verify every Remote Explorer upload by CRC-32 (9.7.3) ──
+    # The -listen worker reads this PER PUT through a 0-arg hook handed over
+    # by zxnu_nextsync_pane, so a flip applies to the next file that lands
+    # without restarting the server. Default on. Classic '.sync5' syncs
+    # cannot be verified: the dot only answers 'K' inside a -listen session.
+    def _settings_nextsync_verify_crc_changed():
+        on = host.settings_nextsync_verify_crc_checkbox.isChecked()
+        configuration_dictionary[SETTING_NEXTSYNC_VERIFY_CRC] = (
+            "true" if on else "false")
+        save_configuration_file()
+
+    host.settings_nextsync_verify_crc_checkbox = QCheckBox(
+        "NextSync — Verify CRC of every file sent to the Next (Remote Explorer)")
+    host.settings_nextsync_verify_crc_checkbox.setChecked(True)   # default on
+    host.settings_nextsync_verify_crc_checkbox.setToolTip(
+        "After the Remote Explorer sends a file to a Next running '.sync5 -listen'\n"
+        "(drag & drop, paste, a gallery's Send via NextSync), ask the Next for the\n"
+        "CRC-32 of the copy that landed and compare it with what was sent. On a\n"
+        "definite mismatch the corrupted copy is deleted from the Next and a red\n"
+        "line + toast report it. Needs .sync5 v5.9.2+ or ZX Next Remote 1.0.8+ on\n"
+        "the Next: an older listener is not asked and the file is kept, unverified.\n"
+        "Classic '.sync5' syncs cannot be verified. On by default.\n"
+        "Saved to the configuration file.")
+    host.settings_nextsync_verify_crc_checkbox.stateChanged.connect(
+        lambda _s: _settings_nextsync_verify_crc_changed())
+    grid_tab_Settings.addWidget(host.settings_nextsync_verify_crc_checkbox,
+                                settings_grid_row("nextsync_verify_crc"), 0, 1, 2)
 
     # ── Unite! search result sort / render preference ──────────────────
     def _settings_search_sort_changed():

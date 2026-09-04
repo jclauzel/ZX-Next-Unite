@@ -1014,6 +1014,10 @@ CATALOGS = {
             "Actualización remota de {name} completada: {version} ya está en la tarjeta. El Next hará ahora un reinicio suave a NextZXOS — vuelve a lanzar {file} para ejecutar la nueva compilación.",
         "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
             "Actualización remota de {name} fallida: {reason}. No se ha cambiado nada — el Next sigue ejecutando su compilación actual.",
+        "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy has been deleted from the Next — send the file again.":
+            "La verificación CRC-32 ha FALLADO para {path}: se envió {sent} pero el Next tiene {got}. La copia dañada se ha borrado del Next — envía el archivo de nuevo.",
+        "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy could NOT be deleted from the Next ({reason}) — remove it by hand and send the file again.":
+            "La verificación CRC-32 ha FALLADO para {path}: se envió {sent} pero el Next tiene {got}. La copia dañada NO se ha podido borrar del Next ({reason}) — bórrala a mano y envía el archivo de nuevo.",
         "Remote explorer: connected to {address}":
             "Explorador remoto: conectado a {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
@@ -1089,6 +1093,8 @@ CATALOGS = {
             "Buscar actualizaciones de ZX Next Unite en GitHub al iniciar",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Ofrecer actualizar un .sync5 / ZX Next Remote antiguo cuando se conecta un Next",
         "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Cuando un Next se conecta al Explorador remoto con un .sync5 o una\nversión de ZX Next Remote más antigua que la de este PC, mostrar un aviso\nde 10 segundos que ofrece enviar la nueva versión de inmediato.",
+        "NextSync — Verify CRC of every file sent to the Next (Remote Explorer)": "NextSync — Verificar el CRC de cada archivo enviado al Next (Explorador remoto)",
+        "After the Remote Explorer sends a file to a Next running '.sync5 -listen'\n(drag & drop, paste, a gallery's Send via NextSync), ask the Next for the\nCRC-32 of the copy that landed and compare it with what was sent. On a\ndefinite mismatch the corrupted copy is deleted from the Next and a red\nline + toast report it. Needs .sync5 v5.9.2+ or ZX Next Remote 1.0.8+ on\nthe Next: an older listener is not asked and the file is kept, unverified.\nClassic '.sync5' syncs cannot be verified. On by default.\nSaved to the configuration file.": "Después de que el Explorador remoto envíe un archivo a un Next con '.sync5 -listen'\n(arrastrar y soltar, pegar, «Enviar por NextSync» de una galería), pedir al Next el\nCRC-32 de la copia recibida y compararlo con lo enviado. Ante una discrepancia clara,\nla copia dañada se borra del Next y una línea roja + un aviso lo informan.\nRequiere .sync5 v5.9.2+ o ZX Next Remote 1.0.8+ en el Next: a un receptor más antiguo\nno se le pregunta y el archivo se conserva sin verificar.\nLas sincronizaciones clásicas con '.sync5' no se pueden verificar. Activado por defecto.\nSe guarda en el archivo de configuración.",
         "Check for a newer MAME version at startup":
             "Buscar una versión más reciente de MAME al iniciar",
         "Disable 'No emulators detected' message at startup":
@@ -2287,6 +2293,10 @@ CATALOGS = {
             "Atualização remota de {name} concluída: {version} já está no cartão. O Next vai agora fazer um reinício suave para o NextZXOS — volta a lançar {file} para executar a nova compilação.",
         "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
             "A atualização remota de {name} falhou: {reason}. Nada foi trocado — o Next continua a executar a sua compilação atual.",
+        "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy has been deleted from the Next — send the file again.":
+            "A verificação CRC-32 FALHOU para {path}: foi enviado {sent} mas o Next tem {got}. A cópia corrompida foi apagada do Next — envia o ficheiro de novo.",
+        "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy could NOT be deleted from the Next ({reason}) — remove it by hand and send the file again.":
+            "A verificação CRC-32 FALHOU para {path}: foi enviado {sent} mas o Next tem {got}. NÃO foi possível apagar a cópia corrompida do Next ({reason}) — apaga-a manualmente e envia o ficheiro de novo.",
         "Remote explorer: connected to {address}":
             "Explorador remoto: ligado a {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
@@ -2362,6 +2372,8 @@ CATALOGS = {
             "Procurar atualizações do ZX Next Unite no GitHub ao arrancar",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Propor atualizar um .sync5 / ZX Next Remote antigo quando um Next se liga",
         "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Quando um Next se liga ao Explorador remoto com um .sync5 ou uma versão\ndo ZX Next Remote mais antiga do que a deste PC, mostrar um aviso de 10\nsegundos a propor enviar já a versão mais recente.",
+        "NextSync — Verify CRC of every file sent to the Next (Remote Explorer)": "NextSync — Verificar o CRC de cada ficheiro enviado ao Next (Explorador remoto)",
+        "After the Remote Explorer sends a file to a Next running '.sync5 -listen'\n(drag & drop, paste, a gallery's Send via NextSync), ask the Next for the\nCRC-32 of the copy that landed and compare it with what was sent. On a\ndefinite mismatch the corrupted copy is deleted from the Next and a red\nline + toast report it. Needs .sync5 v5.9.2+ or ZX Next Remote 1.0.8+ on\nthe Next: an older listener is not asked and the file is kept, unverified.\nClassic '.sync5' syncs cannot be verified. On by default.\nSaved to the configuration file.": "Depois de o Explorador remoto enviar um ficheiro a um Next a correr '.sync5 -listen'\n(arrastar e largar, colar, «Enviar via NextSync» de uma galeria), pedir ao Next o\nCRC-32 da cópia que chegou e compará-lo com o que foi enviado. Numa discrepância clara,\na cópia corrompida é apagada do Next e uma linha vermelha + um aviso assinalam-no.\nRequer .sync5 v5.9.2+ ou ZX Next Remote 1.0.8+ no Next: um recetor mais antigo\nnão é consultado e o ficheiro é mantido, sem verificação.\nAs sincronizações clássicas com '.sync5' não podem ser verificadas. Ativado por defeito.\nGuardado no ficheiro de configuração.",
         "Check for a newer MAME version at startup":
             "Procurar uma versão mais recente do MAME ao arrancar",
         "Disable 'No emulators detected' message at startup":
@@ -3558,6 +3570,10 @@ CATALOGS = {
             "Zdalna aktualizacja {name} zakończona: {version} jest już na karcie. Next wykona teraz miękki reset do NextZXOS — uruchom ponownie {file}, aby korzystać z nowej kompilacji.",
         "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
             "Zdalna aktualizacja {name} nie powiodła się: {reason}. Nic nie zostało podmienione — Next nadal używa dotychczasowej kompilacji.",
+        "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy has been deleted from the Next — send the file again.":
+            "Weryfikacja CRC-32 NIE POWIODŁA SIĘ dla {path}: wysłano {sent}, ale Next ma {got}. Uszkodzona kopia została usunięta z Next — wyślij plik ponownie.",
+        "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy could NOT be deleted from the Next ({reason}) — remove it by hand and send the file again.":
+            "Weryfikacja CRC-32 NIE POWIODŁA SIĘ dla {path}: wysłano {sent}, ale Next ma {got}. Uszkodzonej kopii NIE udało się usunąć z Next ({reason}) — usuń ją ręcznie i wyślij plik ponownie.",
         "Remote explorer: connected to {address}":
             "Eksplorator zdalny: połączono z {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
@@ -3633,6 +3649,8 @@ CATALOGS = {
             "Sprawdzaj aktualizacje ZX Next Unite na GitHubie przy starcie",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Proponuj aktualizację starszego .sync5 / ZX Next Remote, gdy Next się połączy",
         "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Gdy Next połączy się ze Zdalnym eksploratorem ze starszym .sync5 lub\nstarszą wersją ZX Next Remote niż ma ten PC, pokaż 10-sekundowy monit\nz propozycją natychmiastowego wysłania nowszej wersji.",
+        "NextSync — Verify CRC of every file sent to the Next (Remote Explorer)": "NextSync — Sprawdzaj CRC każdego pliku wysłanego do Next (Zdalny eksplorator)",
+        "After the Remote Explorer sends a file to a Next running '.sync5 -listen'\n(drag & drop, paste, a gallery's Send via NextSync), ask the Next for the\nCRC-32 of the copy that landed and compare it with what was sent. On a\ndefinite mismatch the corrupted copy is deleted from the Next and a red\nline + toast report it. Needs .sync5 v5.9.2+ or ZX Next Remote 1.0.8+ on\nthe Next: an older listener is not asked and the file is kept, unverified.\nClassic '.sync5' syncs cannot be verified. On by default.\nSaved to the configuration file.": "Gdy Zdalny eksplorator wyśle plik do Next z uruchomionym '.sync5 -listen'\n(przeciągnij i upuść, wklej, „Wyślij przez NextSync” z galerii), zapytaj Next o\nCRC-32 zapisanej kopii i porównaj ją z tym, co wysłano. Przy jednoznacznej\nniezgodności uszkodzona kopia jest usuwana z Next, a czerwona linia + powiadomienie\no tym informują. Wymaga .sync5 v5.9.2+ lub ZX Next Remote 1.0.8+ na Next: starszy\nodbiorca nie jest pytany, a plik zostaje zachowany bez weryfikacji.\nKlasycznych synchronizacji '.sync5' nie da się zweryfikować. Domyślnie włączone.\nZapisywane w pliku konfiguracji.",
         "Check for a newer MAME version at startup":
             "Sprawdzaj nowszą wersję MAME przy starcie",
         "Disable 'No emulators detected' message at startup":
@@ -4830,6 +4848,10 @@ CATALOGS = {
             "Удалённое обновление {name} завершено: {version} уже на карте. Next сейчас выполнит мягкий сброс в NextZXOS — запустите {file} заново, чтобы работать с новой сборкой.",
         "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
             "Удалённое обновление {name} не удалось: {reason}. Ничего не заменено — Next по-прежнему использует текущую сборку.",
+        "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy has been deleted from the Next — send the file again.":
+            "Проверка CRC-32 НЕ ПРОЙДЕНА для {path}: отправлено {sent}, но на Next записано {got}. Повреждённая копия удалена с Next — отправьте файл заново.",
+        "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy could NOT be deleted from the Next ({reason}) — remove it by hand and send the file again.":
+            "Проверка CRC-32 НЕ ПРОЙДЕНА для {path}: отправлено {sent}, но на Next записано {got}. Повреждённую копию НЕ удалось удалить с Next ({reason}) — удалите её вручную и отправьте файл заново.",
         "Remote explorer: connected to {address}":
             "Удалённый проводник: подключено к {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
@@ -4905,6 +4927,8 @@ CATALOGS = {
             "Проверять обновления ZX Next Unite на GitHub при запуске",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Предлагать обновить устаревший .sync5 / ZX Next Remote при подключении Next",
         "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Когда Next подключается к удалённому проводнику со старым .sync5 или\nстарой сборкой ZX Next Remote, чем есть на этом ПК, показать 10-секундное\nпредложение сразу отправить новую версию.",
+        "NextSync — Verify CRC of every file sent to the Next (Remote Explorer)": "NextSync — Проверять CRC каждого файла, отправленного на Next (удалённый проводник)",
+        "After the Remote Explorer sends a file to a Next running '.sync5 -listen'\n(drag & drop, paste, a gallery's Send via NextSync), ask the Next for the\nCRC-32 of the copy that landed and compare it with what was sent. On a\ndefinite mismatch the corrupted copy is deleted from the Next and a red\nline + toast report it. Needs .sync5 v5.9.2+ or ZX Next Remote 1.0.8+ on\nthe Next: an older listener is not asked and the file is kept, unverified.\nClassic '.sync5' syncs cannot be verified. On by default.\nSaved to the configuration file.": "После того как удалённый проводник отправит файл на Next с запущенным '.sync5 -listen'\n(перетаскивание, вставка, «Отправить через NextSync» из галереи), запросить у Next\nCRC-32 записанной копии и сравнить её с отправленным. При явном несовпадении\nповреждённая копия удаляется с Next, а красная строка + уведомление сообщают об этом.\nТребуется .sync5 v5.9.2+ или ZX Next Remote 1.0.8+ на Next: более старый приёмник\nне опрашивается, и файл сохраняется без проверки.\nКлассическую синхронизацию '.sync5' проверить нельзя. Включено по умолчанию.\nСохраняется в файле конфигурации.",
         "Check for a newer MAME version at startup":
             "Проверять новую версию MAME при запуске",
         "Disable 'No emulators detected' message at startup":
@@ -6099,6 +6123,10 @@ CATALOGS = {
             "Vzdálená aktualizace {name} dokončena: {version} je na kartě. Next nyní provede měkký reset do NextZXOS — znovu spusťte {file}, aby se rozběhlo nové sestavení.",
         "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
             "Vzdálená aktualizace {name} selhala: {reason}. Nic nebylo vyměněno — Next stále používá své současné sestavení.",
+        "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy has been deleted from the Next — send the file again.":
+            "Ověření CRC-32 SELHALO pro {path}: odesláno {sent}, ale Next má {got}. Poškozená kopie byla z Next smazána — odešlete soubor znovu.",
+        "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy could NOT be deleted from the Next ({reason}) — remove it by hand and send the file again.":
+            "Ověření CRC-32 SELHALO pro {path}: odesláno {sent}, ale Next má {got}. Poškozenou kopii se z Next NEPODAŘILO smazat ({reason}) — smažte ji ručně a odešlete soubor znovu.",
         "Remote explorer: connected to {address}":
             "Vzdálený průzkumník: připojeno k {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
@@ -6174,6 +6202,8 @@ CATALOGS = {
             "Při startu hledat aktualizace ZX Next Unite na GitHubu",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Nabídnout aktualizaci staršího .sync5 / ZX Next Remote, když se Next připojí",
         "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Když se Next připojí ke Vzdálenému průzkumníku se starším .sync5 nebo\nstarší verzí ZX Next Remote, než má tento počítač, zobrazit 10sekundovou\nvýzvu s nabídkou hned odeslat novější verzi.",
+        "NextSync — Verify CRC of every file sent to the Next (Remote Explorer)": "NextSync — Ověřovat CRC každého souboru odeslaného do Next (Vzdálený průzkumník)",
+        "After the Remote Explorer sends a file to a Next running '.sync5 -listen'\n(drag & drop, paste, a gallery's Send via NextSync), ask the Next for the\nCRC-32 of the copy that landed and compare it with what was sent. On a\ndefinite mismatch the corrupted copy is deleted from the Next and a red\nline + toast report it. Needs .sync5 v5.9.2+ or ZX Next Remote 1.0.8+ on\nthe Next: an older listener is not asked and the file is kept, unverified.\nClassic '.sync5' syncs cannot be verified. On by default.\nSaved to the configuration file.": "Poté, co Vzdálený průzkumník odešle soubor do Next se spuštěným '.sync5 -listen'\n(přetažení, vložení, „Odeslat přes NextSync“ z galerie), vyžádat si od Next\nCRC-32 uložené kopie a porovnat jej s tím, co bylo odesláno. Při jednoznačné\nneshodě je poškozená kopie z Next smazána a ohlásí to červený řádek + oznámení.\nVyžaduje .sync5 v5.9.2+ nebo ZX Next Remote 1.0.8+ na Next: starší přijímač\nnení dotázán a soubor zůstane zachován bez ověření.\nKlasické synchronizace '.sync5' ověřit nelze. Ve výchozím nastavení zapnuto.\nUkládá se do konfiguračního souboru.",
         "Check for a newer MAME version at startup":
             "Při startu hledat novější verzi MAME",
         "Disable 'No emulators detected' message at startup":
@@ -7376,6 +7406,10 @@ CATALOGS = {
             "Mise à jour distante de {name} terminée : {version} est sur la carte. Le Next va maintenant faire un redémarrage à chaud vers NextZXOS — relancez {file} pour exécuter la nouvelle compilation.",
         "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
             "Mise à jour distante de {name} échouée : {reason}. Rien n'a été remplacé — le Next exécute toujours sa compilation actuelle.",
+        "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy has been deleted from the Next — send the file again.":
+            "La vérification CRC-32 a ÉCHOUÉ pour {path} : {sent} a été envoyé mais le Next contient {got}. La copie corrompue a été supprimée du Next — renvoyez le fichier.",
+        "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy could NOT be deleted from the Next ({reason}) — remove it by hand and send the file again.":
+            "La vérification CRC-32 a ÉCHOUÉ pour {path} : {sent} a été envoyé mais le Next contient {got}. La copie corrompue n'a PAS pu être supprimée du Next ({reason}) — supprimez-la à la main et renvoyez le fichier.",
         "Remote explorer: connected to {address}":
             "Explorateur distant : connecté à {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
@@ -7451,6 +7485,8 @@ CATALOGS = {
             "Vérifier les mises à jour de ZX Next Unite sur GitHub au démarrage",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Proposer de mettre à jour un .sync5 / ZX Next Remote ancien quand un Next se connecte",
         "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Quand un Next se connecte à l'Explorateur distant avec un .sync5 ou une\nversion de ZX Next Remote plus ancienne que celle de ce PC, afficher une\ninvite de 10 secondes proposant d'envoyer la nouvelle version tout de suite.",
+        "NextSync — Verify CRC of every file sent to the Next (Remote Explorer)": "NextSync — Vérifier le CRC de chaque fichier envoyé au Next (Explorateur distant)",
+        "After the Remote Explorer sends a file to a Next running '.sync5 -listen'\n(drag & drop, paste, a gallery's Send via NextSync), ask the Next for the\nCRC-32 of the copy that landed and compare it with what was sent. On a\ndefinite mismatch the corrupted copy is deleted from the Next and a red\nline + toast report it. Needs .sync5 v5.9.2+ or ZX Next Remote 1.0.8+ on\nthe Next: an older listener is not asked and the file is kept, unverified.\nClassic '.sync5' syncs cannot be verified. On by default.\nSaved to the configuration file.": "Après que l'Explorateur distant a envoyé un fichier à un Next exécutant '.sync5 -listen'\n(glisser-déposer, coller, « Envoyer via NextSync » d'une galerie), demander au Next le\nCRC-32 de la copie arrivée et le comparer à ce qui a été envoyé. En cas d'écart avéré,\nla copie corrompue est supprimée du Next et une ligne rouge + une notification le signalent.\nNécessite .sync5 v5.9.2+ ou ZX Next Remote 1.0.8+ sur le Next : un récepteur plus\nancien n'est pas interrogé et le fichier est conservé, non vérifié.\nLes synchronisations classiques '.sync5' ne peuvent pas être vérifiées. Activé par défaut.\nEnregistré dans le fichier de configuration.",
         "Check for a newer MAME version at startup":
             "Vérifier une version plus récente de MAME au démarrage",
         "Disable 'No emulators detected' message at startup":
@@ -7901,6 +7937,7 @@ _TOAST_CATALOGS = {
         "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "L'offre de mise à jour ne s'applique plus : le Next s'est déconnecté, ou un autre Next est piloté maintenant.",
         "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Mise à jour de .sync5 sur {machine} : v{old} → v{new}, dans {target} (l'ancien dot est conservé sous sync5.bak). La session se termine à la fin de la mise à jour — relancez ensuite {command} sur le Next.",
         "⚠  Update available for this Next": "⚠  Mise à jour disponible pour ce Next",
+        "❌  NextSync CRC-32 verification failed": "❌  Échec de la vérification CRC-32 NextSync",
         "This version {old} of {flavor} is obsolete, would you like to update now to version {new}?": "Cette version {old} de {flavor} est obsolète, voulez-vous mettre à jour maintenant vers la version {new} ?",
         "Update now": "Mettre à jour maintenant",
         "You have started a Remote Explorer nextsync server already": "Un serveur NextSync Remote Explorer est déjà démarré",
@@ -8022,6 +8059,7 @@ _TOAST_CATALOGS = {
         "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "La oferta de actualización ya no se aplica: el Next se desconectó, o ahora se controla otro Next.",
         "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Actualizando .sync5 en {machine}: v{old} → v{new}, en {target} (el dot anterior se conserva como sync5.bak). La sesión termina cuando la actualización se completa — vuelve a ejecutar {command} en el Next después.",
         "⚠  Update available for this Next": "⚠  Actualización disponible para este Next",
+        "❌  NextSync CRC-32 verification failed": "❌  Verificación CRC-32 de NextSync fallida",
         "This version {old} of {flavor} is obsolete, would you like to update now to version {new}?": "Esta versión {old} de {flavor} está obsoleta, ¿quieres actualizar ahora a la versión {new}?",
         "Update now": "Actualizar ahora",
         "You have started a Remote Explorer nextsync server already": "Ya ha iniciado un servidor NextSync del Remote Explorer",
@@ -8143,6 +8181,7 @@ _TOAST_CATALOGS = {
         "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "A oferta de atualização já não se aplica: o Next desligou-se, ou agora é outro Next que está a ser controlado.",
         "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "A atualizar o .sync5 em {machine}: v{old} → v{new}, em {target} (o dot anterior fica guardado como sync5.bak). A sessão termina quando a atualização concluir — volte a executar {command} no Next depois.",
         "⚠  Update available for this Next": "⚠  Atualização disponível para este Next",
+        "❌  NextSync CRC-32 verification failed": "❌  Verificação CRC-32 do NextSync falhou",
         "This version {old} of {flavor} is obsolete, would you like to update now to version {new}?": "Esta versão {old} de {flavor} está obsoleta, quer atualizar agora para a versão {new}?",
         "Update now": "Atualizar agora",
         "You have started a Remote Explorer nextsync server already": "Já iniciou um servidor NextSync do Remote Explorer",
@@ -8264,6 +8303,7 @@ _TOAST_CATALOGS = {
         "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "Oferta aktualizacji już nie obowiązuje: Next się rozłączył lub sterowany jest teraz inny Next.",
         "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Aktualizacja .sync5 na {machine}: v{old} → v{new}, w {target} (poprzedni dot zostaje zachowany jako sync5.bak). Sesja kończy się po zakończeniu aktualizacji — uruchom potem ponownie {command} na Next.",
         "⚠  Update available for this Next": "⚠  Dostępna aktualizacja dla tego Next",
+        "❌  NextSync CRC-32 verification failed": "❌  Weryfikacja CRC-32 NextSync nie powiodła się",
         "This version {old} of {flavor} is obsolete, would you like to update now to version {new}?": "Ta wersja {old} {flavor} jest przestarzała, czy chcesz teraz zaktualizować do wersji {new}?",
         "Update now": "Aktualizuj teraz",
         "You have started a Remote Explorer nextsync server already": "Serwer NextSync Remote Explorera jest już uruchomiony",
@@ -8385,6 +8425,7 @@ _TOAST_CATALOGS = {
         "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "Предложение обновления больше не действует: Next отключился или теперь управляется другой Next.",
         "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Обновление .sync5 на {machine}: v{old} → v{new}, в {target} (прежний dot сохранён как sync5.bak). Сессия завершится после обновления — затем снова запустите {command} на Next.",
         "⚠  Update available for this Next": "⚠  Доступно обновление для этого Next",
+        "❌  NextSync CRC-32 verification failed": "❌  Проверка CRC-32 NextSync не пройдена",
         "This version {old} of {flavor} is obsolete, would you like to update now to version {new}?": "Эта версия {old} {flavor} устарела, обновить сейчас до версии {new}?",
         "Update now": "Обновить сейчас",
         "You have started a Remote Explorer nextsync server already": "Сервер NextSync Remote Explorer уже запущен",
@@ -8506,6 +8547,7 @@ _TOAST_CATALOGS = {
         "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "Nabídka aktualizace už neplatí: Next se odpojil, nebo je nyní řízen jiný Next.",
         "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Aktualizace .sync5 na {machine}: v{old} → v{new}, v {target} (předchozí dot zůstává jako sync5.bak). Relace skončí po dokončení aktualizace — poté na Next znovu spusťte {command}.",
         "⚠  Update available for this Next": "⚠  Pro tento Next je k dispozici aktualizace",
+        "❌  NextSync CRC-32 verification failed": "❌  Ověření CRC-32 NextSync selhalo",
         "This version {old} of {flavor} is obsolete, would you like to update now to version {new}?": "Tato verze {old} {flavor} je zastaralá, chcete nyní aktualizovat na verzi {new}?",
         "Update now": "Aktualizovat nyní",
         "You have started a Remote Explorer nextsync server already": "Server NextSync Remote Exploreru už běží",

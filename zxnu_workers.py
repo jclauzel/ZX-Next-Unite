@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 import weakref
+import zlib
 from collections import deque, namedtuple
 from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
                          TREE_FONT_MAX_PT, TREE_FONT_MIN_PT,
@@ -592,6 +593,15 @@ class RemoteExplorerSignals(QObject):
     # emit-site translated (ui_tr_now), with the step's diagnostic reason
     # left English like every other protocol diagnostic.
     dot_update   = Signal(bool, str)
+    # (message): the verify-after-put (Settings → Verify CRC, 9.7.3) found
+    # the copy on the Next DIFFERENT from the bytes sent. Emit-site
+    # translated (ui_tr_now, dot_update's shape); says whether the corrupted
+    # copy was deleted. The pane prints it RED and toasts red. ALWAYS
+    # followed by the put's own put_done(False, remote), so the widget's
+    # one-report-per-command accounting is untouched. Unverified outcomes
+    # (old listener, 'F', silence) never come here: they log and report
+    # put_done(True).
+    put_verify_failed = Signal(str)
     op_done      = Signal(bool, str, str) # (ok, op, path) mkdir/rmdir/rm result
     # (op, path): a WRITE was refused by the far side's OS protection
     # (a ZXNextRemote listener, 0.9.0). Distinct from op_done so the UI can
@@ -784,6 +794,36 @@ PEER_SILENCE_LIMIT = 45.0
 #: kept as the over-capacity answer.
 RE_MAX_PEERS = 4
 
+#: Listener builds that answer the 'K' (crc) op, by 'Y' ident type:
+#: the .sync5 dot from v5.9.2, ZX Next Remote (httpbridge/n2n) from 1.0.8.
+RE_CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8)}
+#: Verify-after-put reply wait = floor + size/rate (the HTTP bridge's /crc
+#: formula, 15 KB/s worst case plus a minute), capped at the crc op's hour.
+#: Read at CALL time so the test suite can shorten the floor.
+RE_VERIFY_WAIT_FLOOR = 60.0
+RE_VERIFY_BYTES_PER_S = 15000.0
+
+
+def re_peer_answers_crc(rtype, number):
+    """True when a 'Y' ident (type, number) names a listener that answers
+    'K': a .sync5 dot >= 5.9.2 or ZX Next Remote >= 1.0.8. Unknown type,
+    empty or unparseable version => False - never probe blind: an older
+    listener meets 'K' with silence, and that would cost a wait per file."""
+    floor = RE_CRC_FLOORS.get((rtype or "").strip().lower())
+    if floor is None:
+        return False
+    try:
+        v = tuple(int(p) for p in str(number or "").strip().split("."))
+    except ValueError:
+        return False
+    return bool(v) and v >= floor
+
+
+def re_verify_wait(size_bytes):
+    """Seconds to wait for ONE 'K' answer over a file of size_bytes."""
+    return min(3600.0, RE_VERIFY_WAIT_FLOOR
+               + max(0, int(size_bytes)) / RE_VERIFY_BYTES_PER_S)
+
 
 def _re_reply_call(conn, handler, timeout=None):
     """:func:`_re_recv_reply` under a per-command socket timeout.
@@ -950,6 +990,17 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
     # the session dies mid-macro (Wi-Fi drop, a Bye during staging, stop).
     # Steps ride local_cmds like rmtree's walk, so nothing interleaves.
     upd_jobs = {}
+    # Verify-after-put jobs (9.7.3): id -> {'remote', 'crc' (8 hex of the
+    # bytes SENT), 'size', 'state', 'got'}. Pre-try like upd_jobs: the
+    # finally settles the ONE put_done each still owes. vstate carries the
+    # id counter and the once-per-session "skipped" advisory flag.
+    vjobs = {}
+    vstate = {'seq': 0, 'skip_said': False}
+    # This session's 'Y' answer (type, number) once anyone asked - the widget
+    # on connect / every baton move, or the verify step's own probe; ("", "")
+    # = asked, unsupported. The verify gate reads it so an old listener is
+    # never sent a 'K'.
+    sess_ident = None
 
     try:
         with conn:
@@ -958,6 +1009,61 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
             put_pkt = 0
             last_packet = b''
             pending = None   # ("put", remote, bridge_reply|None) awaiting completion
+
+            def _query_ident():
+                # The 'Y' exchange, shared by the version arm and the verify
+                # step's self-probe: (type, number), or ("", "") when the
+                # listener predates it - its raw "Poll" fails the block parse
+                # at once (no wait paid; the stray bytes hit the loop's
+                # catch-all idle reply).
+                res = {'type': "", 'number': ""}
+
+                def _hv(payload, _r=res):
+                    if payload[0:1] == b'O' and len(payload) >= 2:
+                        body = payload[1:].split(NULB, 1)
+                        _r['type'] = body[0].decode(errors='replace')
+                        if len(body) > 1:
+                            _r['number'] = body[1].decode(errors='replace')
+                    return True
+                _re_sendpacket(conn, b"Y", 0)
+                got_v = _re_reply_call(conn, _hv)
+                return ((res['type'], res['number'])
+                        if got_v and res['type'] else ("", ""))
+
+            def _verify_wanted():
+                # The Settings toggle via the injected 0-arg hook, read per
+                # put (no server restart). Absent or broken => off.
+                fn = shared.get('verify_crc')
+                if fn is None:
+                    return False
+                try:
+                    return bool(fn())
+                except Exception:                                  # noqa: BLE001
+                    logging.exception("Remote explorer: verify_crc hook failed")
+                    return False
+
+            def _verify_skip_advisory():
+                if not vstate['skip_said']:
+                    vstate['skip_said'] = True
+                    log("crc32: verification skipped for this Next — its "
+                        "listener predates .sync v5.9.2 / ZX Next Remote 1.0.8 "
+                        "(or does not answer the version query); files are "
+                        "sent unverified")
+
+            def _plan_verify(remote):
+                # put_data is STILL the file just served (kept for a late
+                # Retry/Restart, see the Get arm): the digest is of the bytes
+                # actually sent. Call only from _put_finish(True).
+                if sess_ident is not None and not re_peer_answers_crc(*sess_ident):
+                    _verify_skip_advisory()
+                    sig.put_done.emit(True, remote)
+                    return
+                vstate['seq'] += 1
+                vid = vstate['seq']
+                vjobs[vid] = {'remote': remote,
+                              'crc': "%08X" % (zlib.crc32(put_data) & 0xffffffff),
+                              'size': len(put_data), 'state': 'queued', 'got': ""}
+                local_cmds.appendleft(("put_verify", vid))
 
             def _put_finish(ok, osp=False):
                 # Resolve the pending put: to its bridge reply when it has
@@ -997,6 +1103,12 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                         'error': 'put failed on the Next'})
                 elif osp:
                     sig.os_protected.emit("put", pending[1])
+                elif ok and _verify_wanted():
+                    # Verify-after-put (9.7.3): hold this put's ONE put_done
+                    # until the 'K' verdict (or the finally backstop). Bridge
+                    # puts took the reply branch above; the update_dot
+                    # staging put returned from the jid block.
+                    _plan_verify(pending[1])
                 else:
                     sig.put_done.emit(bool(ok), pending[1])
             # rmtree walk state: sub-commands the worker generates for itself
@@ -1409,27 +1521,16 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # parse - degrade to unsupported, never kill the
                         # session (drives' own rule). The bridge layer caches
                         # per seat, so this fires once per seated Next.
-                        res = {'type': "", 'number': ""}
-
-                        def _hv(payload, _r=res):
-                            if payload[0:1] == b'O' and len(payload) >= 2:
-                                body = payload[1:].split(NULB, 1)
-                                _r['type'] = body[0].decode(errors='replace')
-                                if len(body) > 1:
-                                    _r['number'] = body[1].decode(
-                                        errors='replace')
-                            return True
-                        _re_sendpacket(conn, b"Y", 0)
-                        try:
-                            got_v = _re_reply_call(conn, _hv)
-                        except socket.timeout:
-                            got_v = False
-                        if got_v and res['type']:
+                        # 9.7.3: the answer is cached per session (sess_ident)
+                        # - the verify-after-put gate reads it, so an old
+                        # listener is never sent a 'K'.
+                        sess_ident = _query_ident()
+                        if sess_ident[0]:
                             if reply:
-                                reply.put({'ok': True, 'type': res['type'],
-                                           'number': res['number']})
+                                reply.put({'ok': True, 'type': sess_ident[0],
+                                           'number': sess_ident[1]})
                             else:
-                                sig.ident.emit(res['type'], res['number'])
+                                sig.ident.emit(sess_ident[0], sess_ident[1])
                         elif reply:
                             reply.put({'ok': False,
                                        'error': 'version not supported '
@@ -1480,6 +1581,123 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             if reply:
                                 reply.put({'ok': False,
                                            'error': f'crc failed ({why})'})
+                    elif op == "put_verify":
+                        # Verify-after-put (Settings → Verify CRC, 9.7.3): a
+                        # local_cmds continuation of the put that just landed
+                        # (upd_verify's shape - nothing interleaves, and it
+                        # stays on the session that did the put). Gated on
+                        # this session's 'Y' ident - asked here if nobody did
+                        # - so an old listener never waits out a 'K'. Then the
+                        # crc op's exchange against the digest of the bytes
+                        # served, the wait sized like the bridge's /crc.
+                        # Silence, 'F', 'F'+OSP or a malformed digest is NOT
+                        # corruption: keep the file, say it is unverified,
+                        # report the put as done.
+                        vid = cmd[1]
+                        job = vjobs.get(vid)
+                        if job is None:
+                            _re_sendpacket(conn, b"I", 0)
+                            continue
+                        if sess_ident is None:
+                            sess_ident = _query_ident()    # answers this Poll
+                            local_cmds.appendleft(cmd)     # back on the next one
+                            continue
+                        if not re_peer_answers_crc(*sess_ident):
+                            vjobs.pop(vid, None)
+                            _verify_skip_advisory()
+                            sig.put_done.emit(True, job['remote'])
+                            _re_sendpacket(conn, b"I", 0)  # this Poll needs an answer
+                            continue
+                        wait = re_verify_wait(job['size'])
+                        log(f"crc32 {job['remote']}: verifying {job['size']} "
+                            "bytes on the Next…")
+                        res = {'crc32': "", 'fail': False, 'osp': False}
+
+                        def _hk(payload, _r=res):
+                            o = payload[0:1]
+                            if o == b'O' and len(payload) >= 9:
+                                _r['crc32'] = payload[1:9].decode(
+                                    errors='replace').upper()
+                            elif o == b'F':
+                                _r['fail'] = True
+                                _r['osp'] = _re_is_osp(payload)
+                            return True
+                        job['state'] = 'asking'
+                        _re_sendpacket(conn, b"K" + job['remote'].encode(), 0)
+                        got_k = _re_reply_call(conn, _hk, timeout=wait)
+                        digest = res['crc32']
+                        if (got_k and len(digest) == 8
+                                and all(c in "0123456789ABCDEF" for c in digest)):
+                            if digest == job['crc']:
+                                log(f"crc32 {job['remote']}: {digest} — verified")
+                                vjobs.pop(vid, None)
+                                sig.put_done.emit(True, job['remote'])
+                            else:
+                                log(f"crc32 {job['remote']}: {digest} on the Next, "
+                                    f"{job['crc']} sent — MISMATCH, deleting the "
+                                    "corrupted copy")
+                                job['state'] = 'mismatch'
+                                job['got'] = digest
+                                local_cmds.appendleft(("put_verify_rm", vid))
+                        else:
+                            if res['osp']:
+                                why = "the far side's OS protection refused the read"
+                            elif res['fail']:
+                                why = "the file did not open on the Next"
+                            elif got_k:
+                                why = "malformed digest from the Next"
+                            else:
+                                why = ("no answer: the listener predates .sync "
+                                       "v5.9.2 / ZXNR 1.0.8, or the link dropped")
+                            log(f"crc32 {job['remote']}: not verified ({why}) "
+                                "— file kept")
+                            vjobs.pop(vid, None)
+                            sig.put_done.emit(True, job['remote'])
+                    elif op == "put_verify_rm":
+                        # The digest differed: delete the corrupted copy ('X',
+                        # path-based; upd_fail_rm's shape - NO op_done, nothing
+                        # enqueued this), then the red verdict, then the put's
+                        # ONE put_done(False) - in that order, so the log reads
+                        # verdict first, the widget's "Upload failed" after.
+                        vid = cmd[1]
+                        job = vjobs.get(vid)
+                        if job is None:
+                            _re_sendpacket(conn, b"I", 0)
+                            continue
+                        resx = {'ok': None, 'osp': False}
+
+                        def _hx(payload, _r=resx):
+                            _r['ok'] = (payload[0:1] == b'O')
+                            _r['osp'] = _re_is_osp(payload)
+                            return True
+                        job['state'] = 'deleting'
+                        _re_sendpacket(conn, b"X" + job['remote'].encode(), 0)
+                        got_x = _re_reply_call(conn, _hx)
+                        vjobs.pop(vid, None)
+                        if got_x and resx['ok']:
+                            log(f"crc32 {job['remote']}: corrupted copy deleted")
+                            msg = ui_tr_now(
+                                "CRC-32 verification FAILED for {path}: {sent} was "
+                                "sent but the Next holds {got}. The corrupted copy "
+                                "has been deleted from the Next — send the file "
+                                "again.").format(path=job['remote'], sent=job['crc'],
+                                                 got=job['got'])
+                        else:
+                            detail = ("the far side's OS protection refused the delete"
+                                      if resx['osp'] else
+                                      "the Next refused the delete" if got_x else
+                                      "no answer from the Next to the delete")
+                            log(f"crc32 {job['remote']}: corrupted copy NOT deleted "
+                                f"({detail})")
+                            msg = ui_tr_now(
+                                "CRC-32 verification FAILED for {path}: {sent} was "
+                                "sent but the Next holds {got}. The corrupted copy "
+                                "could NOT be deleted from the Next ({reason}) — "
+                                "remove it by hand and send the file again.").format(
+                                    path=job['remote'], sent=job['crc'],
+                                    got=job['got'], reason=detail)
+                        sig.put_verify_failed.emit(msg)
+                        sig.put_done.emit(False, job['remote'])
                     elif op == "drives":
                         # getdrives: one pushed status block, 'O' + current
                         # drive letter + one letter per mounted drive. An old
@@ -2023,6 +2241,28 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         reason="the session ended before the update "
                                "finished"))
         upd_jobs.clear()
+        # 9.7.3: a verify still owed here = the session died between the put
+        # and its verdict. Settle its ONE put_done - never silently: a copy
+        # already known corrupt goes red (undeleted), an unchecked one is
+        # reported sent-but-unverified.
+        for _vj in vjobs.values():
+            if _vj['state'] in ('mismatch', 'deleting'):
+                log(f"crc32 {_vj['remote']}: corrupted copy NOT deleted "
+                    "(the session ended first)")
+                sig.put_verify_failed.emit(ui_tr_now(
+                    "CRC-32 verification FAILED for {path}: {sent} was sent "
+                    "but the Next holds {got}. The corrupted copy could NOT be "
+                    "deleted from the Next ({reason}) — remove it by hand and "
+                    "send the file again.").format(
+                        path=_vj['remote'], sent=_vj['crc'], got=_vj['got'],
+                        reason="the session ended before the corrupted copy "
+                               "could be deleted"))
+                sig.put_done.emit(False, _vj['remote'])
+            else:
+                log(f"crc32 {_vj['remote']}: not verified (the session ended "
+                    "before the check) — file kept")
+                sig.put_done.emit(True, _vj['remote'])
+        vjobs.clear()
         # Session-TARGETED commands still queued (never taken) would
         # otherwise strand their HTTP callers for the full bridge timeout:
         # fail them now, with the 410 the bridge maps to "session gone".
@@ -2043,7 +2283,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
 
 
 def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
-                             max_payload=512, control=None):
+                             max_payload=512, control=None, verify_crc=None):
     # max_payload is 512, not the protocol's 1024 cap: ZXNextRemote's bench
     # testing found Next CLONES (N-Go) corrupt >512-byte continuous UART
     # bursts at the Medium/Fast rates — deterministically, close checksums —
@@ -2070,6 +2310,8 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         ("rcpy",  src, dst)       -> copy locally ON the Next (see below)
         ("fsize", remote_path)    -> total size of a file/tree (see below)
         ("crc",   remote_path)    -> CRC-32 of one file, computed on the Next
+                                  -> also asked automatically after each UI
+                                     put when verify_crc() is on (9.7.3)
         ("rename", old_path, new_path)
         ("update_dot", local_file, remote_dir, version
                        [, base_file, brand, marked_exit])
@@ -2149,6 +2391,17 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
     This is the app-side twin of nextsync5.py's listen_session: same wire
     protocol, but driven by the UI queue and reporting via Qt signals instead of
     a console CLI. It never touches the Sync3/Sync4 sync paths.
+
+    ``verify_crc`` is an optional 0-arg callable read at each put's
+    completion (the Settings toggle, no restart). When true, a UI put (no
+    BridgeReply, not an update_dot stage) is followed on local_cmds by
+    ``put_verify`` -- 'K' on the resolved path, gated on the session's cached
+    'Y' ident (dot >= 5.9.2 / ZXNR >= 1.0.8; older peers get one advisory and
+    stay unverified) -- and, on a DIFFERENT 8-hex digest, ``put_verify_rm``
+    ('X', then put_verify_failed + put_done(False)). 'F', 'F'+OSP, silence or
+    a malformed digest keep the file and report put_done(True). One put_done
+    per put, always; bridge puts keep /put + /crc as the caller's own
+    two-step.
     """
     def log(msg):
         sig.log.emit(msg)
@@ -2205,7 +2458,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             sig.peers.emit(payload)
 
         shared = {'peers': peers, 'lock': plock, 'state': state,
-                  'emit_peers': _emit_peers}
+                  'emit_peers': _emit_peers, 'verify_crc': verify_crc}
 
         # ---- the control surface (HTTP bridge -> this worker) ----------
         # Both closures take plock themselves, so a bridge thread's check
