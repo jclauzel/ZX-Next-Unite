@@ -110,6 +110,13 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
             if arg_np.rstrip("/") == "/gone":
                 push(b'F', 0)            # opendir failed on the Next: folder is gone
                 continue
+            if arg_np.rstrip("/").startswith("/sys"):
+                # Read+write OS protection refuses the LISTING with the MARKED
+                # 'F'+"OSP" (fsrv.c) - distinct from a plain miss so the worker
+                # raises os_protected / relays 401, not "folder gone" / 502.
+                push(b'FOSP', 0)
+                cap.setdefault('ls_osp', []).append(arg)
+                continue
             if arg_np.rstrip("/").startswith("/del"):
                 # rmtree playground: list from the mock fs, dirs first, with the
                 # "." / ".." entries a real readdir yields (the walker must skip
@@ -132,6 +139,13 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
         elif op == b'G':
             # A directory get streams every file with its FULL Next path, exactly
             # as the dot's send_dir does (e.g. get "/games/lev" -> "/games/lev/..").
+            if arg.startswith("/sys"):
+                # Read-protected source: a get has no failure frame, so a ZXNR
+                # listener LEADS the empty walk with the marked 'F'+OSP purely so
+                # the refusal is nameable, then the 'B' every peer expects.
+                push(b'FOSP', 0); push(b'B', 1)
+                cap.setdefault('get_osp', []).append(arg)
+                continue
             if arg.rstrip("/").endswith("/lev"):
                 pkt = 0
                 for rel, data in (("/games/lev/a.bin", b"AAAA"),
@@ -443,6 +457,8 @@ def main():
     cmd_q = queue.Queue()
     stop = threading.Event()
     bp = BridgeReply()   # rides the second protected put below
+    ls_osp_bp = BridgeReply()  # the bridge-flavour protected LISTING (9.7.4)
+    get_osp_bp = BridgeReply()  # the bridge-flavour protected GET (9.7.4)
     crc_ok = BridgeReply()   # the crc answers ride reply sinks (bridge shape)
     crc_no = BridgeReply()
     # "ls /gone" sits between real commands on purpose: if the 'F' (opendir-fail)
@@ -474,6 +490,14 @@ def main():
               ("rename", "/games/x", "/sys/x"),     # protected dst   -> OSP
               ("put", putfile, "/sys/up.bin"),      # protected put -> 'F'+OSP
               ("put", putfile, "/sys/up2.bin", bp), # same, bridge flavour -> 401
+              # Read-side OS protection (9.7.4): a listing or a get refused by
+              # the far side's Read+write protection answers the marked 'F'+OSP.
+              # It must raise os_protected (UI) / relay 401 (bridge), NEVER the
+              # "missing folder?" 502 that made a protected browse unreadable.
+              ("ls", "/sys"),                       # protected listing -> OSP
+              ("ls", "/sys", ls_osp_bp),            # same, bridge flavour -> 401
+              ("get", "/sys/secret.bin", getdir),   # protected get -> OSP
+              ("get", "/sys/secret.bin", getdir, get_osp_bp),  # bridge -> 401
               ("ls", "/"),                          # proves the stream survived
               ("quit_app",)]:
         cmd_q.put(c)
@@ -631,16 +655,36 @@ def main():
         print("PASS lsfail:", got['ls_failed'])
     else:
         print("FAIL lsfail:", got['ls_failed']); ok = False
-    # OS protection (0.9.0): each protected write raised os_protected(op, path)
-    # and NOT a plain op_done(False) — and the marker was never mistaken for a
-    # normal failure. The trailing ls "/" still succeeded, proving the OSP 'F'
-    # blocks did not desync the stream.
+    # OS protection: each protected write raised os_protected(op, path) and NOT
+    # a plain op_done(False) — and, since 9.7.4, the READ verbs (ls of a
+    # protected folder, get of a protected source) do the same instead of
+    # reading as "folder gone" / an empty pull. The trailing ls "/" still
+    # succeeded, proving the OSP 'F' blocks did not desync the stream.
     if (got['osp'] == [("mkdir", "/sys/evil"), ("rm", "/sys/config/boot"),
-                       ("rename", "/games/x"), ("put", "/sys/up.bin")]
-            and not any(o[2] and str(o[2]).startswith("/sys") for o in got['ops'])):
+                       ("rename", "/games/x"), ("put", "/sys/up.bin"),
+                       ("ls", "/sys"), ("get", "/sys/secret.bin")]
+            and not any(o[2] and str(o[2]).startswith("/sys") for o in got['ops'])
+            and "/sys" not in [p for p in got['ls_failed']]):
         print("PASS osprot:", got['osp'])
     else:
         print("FAIL osprot:", got['osp'], "ops:", got['ops']); ok = False
+    # Read-side OS protection over the BRIDGE (9.7.4): a protected listing and
+    # a protected get each relay the same 401 + os-protected body a blocked
+    # write does — the "missing folder?" 502 (or a phantom empty listing) is
+    # exactly the mislabelling this fixes. The mock saw both the UI and the
+    # bridge attempt of each (cap), proving the marked block was acked and the
+    # stream stayed in sync for the trailing ls "/".
+    ls_bres = ls_osp_bp.wait(5)
+    get_bres = get_osp_bp.wait(5)
+    if (ls_bres and ls_bres.get('http') == 401
+            and "os-protected" in str(ls_bres.get('error', ''))
+            and get_bres and get_bres.get('http') == 401
+            and cap.get('ls_osp') == ["/sys", "/sys"]
+            and cap.get('get_osp') == ["/sys/secret.bin", "/sys/secret.bin"]):
+        print("PASS osprot-read-bridge: ls & get -> 401 os-protected")
+    else:
+        print("FAIL osprot-read-bridge:", ls_bres, get_bres,
+              cap.get('ls_osp'), cap.get('get_osp')); ok = False
     # A protected PUT: ZXNextRemote (put_plain=0) refuses with the MARKED
     # 'F'+OSP block. UI path: os_protected("put", path) and never a plain
     # put_done(False); bridge path: the same 401 + explanation every other
