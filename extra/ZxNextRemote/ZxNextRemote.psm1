@@ -313,8 +313,51 @@ class ZxNextBridgeHttp {
 }
 
 # ---------------------------------------------------------------------------
+# CRC-32 (IEEE 802.3, reflected - the polynomial zlib.crc32, 7-Zip's CRC32
+# column and PKZIP use, and what the Next's crc op answers), table-driven,
+# in plain PowerShell so it runs unchanged on 5.1 and 7 with no Add-Type
+# compile step. Arithmetic is done in [long] and masked to 32 bits: an
+# 8-digit PowerShell hex literal is a SIGNED Int32 (0xFFFFFFFF is -1), so
+# the two constants below are spelled in decimal on purpose.
+# ---------------------------------------------------------------------------
+class ZxNextCrc32 {
+    hidden static [long[]] $Table
+
+    hidden static [long[]] BuildTable() {
+        $t = New-Object 'long[]' 256
+        for ($n = 0; $n -lt 256; $n++) {
+            $c = [long]$n
+            for ($k = 0; $k -lt 8; $k++) {
+                if (($c -band 1) -ne 0) {
+                    $c = 3988292384 -bxor ($c -shr 1)      # 0xEDB88320
+                } else {
+                    $c = $c -shr 1
+                }
+            }
+            $t[$n] = $c
+        }
+        return $t
+    }
+
+    # The CRC-32 of $data as 8 upper-case hex digits - the shape the
+    # bridge's /crc answers, so the two compare as strings.
+    static [string] Hex([byte[]]$data) {
+        if ($null -eq [ZxNextCrc32]::Table) {
+            [ZxNextCrc32]::Table = [ZxNextCrc32]::BuildTable()
+        }
+        $t = [ZxNextCrc32]::Table
+        $crc = [long]4294967295                            # 0xFFFFFFFF
+        foreach ($b in $data) {
+            $crc = $t[[int](($crc -bxor $b) -band 255)] -bxor ($crc -shr 8)
+        }
+        $crc = $crc -bxor 4294967295
+        return ('{0:X8}' -f $crc)
+    }
+}
+
+# ---------------------------------------------------------------------------
 # One entry of a directory listing. Path is pre-joined so an entry can be
-# handed straight back to Get()/Rm()/Sum() - the user's
+# handed straight back to Get()/Rm()/Crc()/Sum() - the user's
 # $session.get($list[0]) just works.
 # ---------------------------------------------------------------------------
 class ZxNextRemoteFileEntry {
@@ -509,6 +552,55 @@ class ZxNextRemoteSession {
     }
 
     # ---- verification -----------------------------------------------------
+    # Two proofs that an upload landed intact, both about the bytes ON THE
+    # NEXT. Crc()/VerifyCrc() ride the bridge's /crc: the Next hashes the
+    # file itself and 8 hex digits come back - nothing is pulled over
+    # Wi-Fi, so a big build verifies in seconds. They need a listener that
+    # knows the op (.sync5 dot 5.9.2+, ZX Next Remote 1.0.8+); an older one
+    # answers 502, surfaced as reason NextRefused. Sum() rides /sum, which
+    # pulls the whole file back through the bridge - slow, but every
+    # listener supports it. Verify() picks for you: the CRC-32 when the far
+    # side answers, the size + sum16 read-back otherwise.
+    [psobject] Crc([string]$remotePath) {
+        $j = $this.Call(('/crc?path={0}&json=1' -f [ZxNextBridgeHttp]::Esc($remotePath)),
+                        'GET', $null, $this.Connection.LongTimeoutSec, $false)
+        return [pscustomobject]@{
+            Path  = [string]$j.path
+            Crc32 = ([string]$j.crc32).ToUpperInvariant()
+        }
+    }
+    [psobject] Crc([ZxNextRemoteFileEntry]$entry) {
+        if ($entry.Dir) {
+            throw [ZxNextRemoteError]::new(
+                ('{0} is a directory - Crc() reads one file (RfSize() sizes a tree)' -f $entry.Path),
+                0, [ZxNextRemoteError]::BadRequest, '/crc', '')
+        }
+        return $this.Crc($entry.Path)
+    }
+
+    # The PC-side digest in the shape Crc() answers (8 upper-case hex digits
+    # of the IEEE CRC-32 - zlib.crc32's, 7-Zip's, PKZIP's), so a script can
+    # compare the two itself and print both on a mismatch.
+    [string] LocalCrc32([byte[]]$data) {
+        return [ZxNextCrc32]::Hex($data)
+    }
+    [string] LocalCrc32([string]$localPath) {
+        return [ZxNextCrc32]::Hex([System.IO.File]::ReadAllBytes(
+            [ZxNextBridgeHttp]::ResolveLocal($localPath)))
+    }
+
+    # Strict CRC-32 proof: $true/$false from two digests, and it THROWS
+    # (reason NextRefused) when the Next cannot be asked - an old listener,
+    # a file that did not open - so "unverified" is never mistaken for
+    # "verified".
+    [bool] VerifyCrc([byte[]]$data, [string]$remotePath) {
+        return ($this.Crc($remotePath).Crc32 -eq [ZxNextCrc32]::Hex($data))
+    }
+    [bool] VerifyCrc([string]$localPath, [string]$remotePath) {
+        return $this.VerifyCrc([System.IO.File]::ReadAllBytes(
+            [ZxNextBridgeHttp]::ResolveLocal($localPath)), $remotePath)
+    }
+
     [psobject] Sum([string]$remotePath) {
         $j = $this.Call(('/sum?path={0}&json=1' -f [ZxNextBridgeHttp]::Esc($remotePath)),
                         'GET', $null, $this.Connection.LongTimeoutSec, $false)
@@ -518,19 +610,6 @@ class ZxNextRemoteSession {
             Sum16 = [int]$j.sum16
         }
     }
-
-    # End-to-end check of an uploaded file: compares the LOCAL size and
-    # 16-bit additive checksum against what /sum reads back off the Next.
-    [bool] Verify([string]$localPath, [string]$remotePath) {
-        $bytes = [System.IO.File]::ReadAllBytes(
-            [ZxNextBridgeHttp]::ResolveLocal($localPath))
-        $local = 0
-        foreach ($b in $bytes) { $local += $b }
-        $local = $local -band 0xFFFF
-        $remote = $this.Sum($remotePath)
-        return ($remote.Bytes -eq $bytes.Length -and $remote.Sum16 -eq $local)
-    }
-
     [psobject] Sum([ZxNextRemoteFileEntry]$entry) {
         if ($entry.Dir) {
             throw [ZxNextRemoteError]::new(
@@ -538,6 +617,39 @@ class ZxNextRemoteSession {
                 0, [ZxNextRemoteError]::BadRequest, '/sum', '')
         }
         return $this.Sum($entry.Path)
+    }
+
+    # End-to-end check of an uploaded file with the best proof the far side
+    # offers: the CRC-32 computed on the Next when its listener answers
+    # /crc, else the size + 16-bit additive checksum /sum reads back off the
+    # Next (the pre-1.1.0 behaviour, and every listener's). A file the Next
+    # cannot read fails BOTH ways and throws.
+    [bool] Verify([byte[]]$data, [string]$remotePath) {
+        try {
+            return $this.VerifyCrc($data, $remotePath)
+        } catch [ZxNextRemoteError] {
+            $r = $_.Exception.Reason
+            # A bridge older than the /crc route itself (ZX-Next-Unite
+            # before 9.7.2) answers Flask's plain 404 - HttpError, status
+            # 404 - and must get the 1.0.0 verdict, not an exception.
+            $noRoute = ($r -eq [ZxNextRemoteError]::HttpError -and
+                        $_.Exception.StatusCode -eq 404)
+            if ($r -ne [ZxNextRemoteError]::NextRefused -and
+                $r -ne [ZxNextRemoteError]::Unsupported -and
+                -not $noRoute) { throw }
+            # An old listener (no crc op), a file /crc could not open, or
+            # no /crc route at all: the read-back settles it - a missing
+            # file fails there too.
+        }
+        $local = 0
+        foreach ($b in $data) { $local += $b }
+        $local = $local -band 0xFFFF
+        $remote = $this.Sum($remotePath)
+        return ($remote.Bytes -eq $data.Length -and $remote.Sum16 -eq $local)
+    }
+    [bool] Verify([string]$localPath, [string]$remotePath) {
+        return $this.Verify([System.IO.File]::ReadAllBytes(
+            [ZxNextBridgeHttp]::ResolveLocal($localPath)), $remotePath)
     }
 
     # ---- directory / file management -------------------------------------

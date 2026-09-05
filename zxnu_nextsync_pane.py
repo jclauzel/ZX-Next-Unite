@@ -650,7 +650,7 @@ def build_nextsync_pane(
                           ).format(port=port)
                 + " (routes: /status /sessions /drives /free /ls /get "
                   "/put /mkdir /rmdir /rmtree /rm /ren /rcpy /rfsize /sum "
-                  "/forceexit)")
+                  "/crc /forceexit)")
             if _token_on and _token:
                 add_nextsync_log_window(ui_tr_now(
                     "NextSync HTTP bridge: bearer-token protection is ON "

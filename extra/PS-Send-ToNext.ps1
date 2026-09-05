@@ -10,6 +10,13 @@
   by parsing HTTP bodies. VS Code integration: PowerShell/vscode-sample/
   and the walkthrough in PowerShell/PowerShellHelperClass.md.
 
+  The verify step asks the Next for the CRC-32 of the file it holds
+  (/crc, computed ON the Next - 8 hex digits come back, not the file) and
+  compares it with the CRC-32 of the bytes that were pushed. A ZX Next
+  Remote older than 1.0.8 (or a .sync5 dot older than 5.9.2) does not know
+  the op; the script then falls back to Send-ToNext.ps1's size + 16-bit
+  checksum read-back (/sum), so the verdict is real either way.
+
   NEW: the -autoexec switch manages the Next-side loop file
   (c:/nextzxos/autoexec.bas <-> autoexec_.bas, the parked name) without
   pulling the SD card:
@@ -19,8 +26,9 @@
       -autoexec:Off     autoexec.bas exists   -> rename to autoexec_.bas
                         (the machine boots normally, loop parked)
       -autoexec:Deploy  autoexec.bas missing  -> send extra/autoexec.bas
-                        into c:/nextzxos/ (verified with /sum); an existing
-                        one is never overwritten
+                        into c:/nextzxos/ (verified - the module's
+                        Verify(): CRC-32 on the Next, or the /sum
+                        read-back); an existing one is never overwritten
 
   -autoexec on its own does ONLY that and exits - it does not also push a
   build. To do both in one run, add -AndSend (push the cfg's file) or pass
@@ -336,25 +344,64 @@ try {
 }
 
 # --- 4. verify: the bytes ON THE NEXT, not the bytes we hoped to send ----
+# The CRC-32 is computed ON the Next (/crc): 8 hex digits come back instead
+# of the whole file, so a big build verifies in seconds. A listener that
+# predates the op (ZX Next Remote < 1.0.8, .sync5 dot < 5.9.2) answers
+# NextRefused; the size + sum16 read-back (/sum) then takes over, so an
+# older Next still gets a real verdict - just a slower one. Anything else
+# going wrong (bridge gone, token, timeout) is exit 4 as before.
 Write-Host "Verifying on the Next..." -ForegroundColor Cyan
-$localSum = 0
-foreach ($b in $bytes) { $localSum += $b }
-$localSum = $localSum -band 0xFFFF
-$remoteSum = $null
+$localCrc = $session.LocalCrc32($bytes)
+$remoteCrc = $null
 try {
-    $remoteSum = $session.Sum($remotePath)
+    $remoteCrc = $session.Crc($remotePath).Crc32
 } catch {
-    Write-Host "WARNING: could not read back the checksum - $($_.Exception.Message)" -ForegroundColor Yellow
-    Write-Host "FAILED: sent, but the Next could not be asked to verify it." -ForegroundColor Red
-    exit 4
+    $why = Get-ZxReason $_
+    if ($why -ne 'NextRefused' -and $why -ne 'Unsupported') {
+        Write-Host "WARNING: could not ask the Next for the CRC-32 - $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "FAILED: sent, but the Next could not be asked to verify it." -ForegroundColor Red
+        exit 4
+    }
+    # A 502 from /crc has two meanings, told apart by the bridge's own text
+    # (the error's Detail): a listener that predates the crc op, or a file
+    # the Next could not open for hashing. Either way /sum settles it below.
+    $detail = ''
+    $dp = $_.Exception.PSObject.Properties['Detail']
+    if ($dp) { $detail = [string]$dp.Value }
+    if ($detail -match 'predates') {
+        Write-Host "  (this Next's listener predates the crc op - reading the checksum back instead)" -ForegroundColor DarkGray
+    } else {
+        Write-Host ("  (the Next could not compute the CRC-32: {0} - reading the checksum back instead)" -f $detail) -ForegroundColor DarkGray
+    }
 }
-if ($remoteSum.Bytes -ne $bytes.Length -or $remoteSum.Sum16 -ne $localSum) {
-    Write-Host "FAILED: VERIFICATION MISMATCH - the file on the Next is not what was sent." -ForegroundColor Red
-    Write-Host ("  here : {0,8:N0} bytes  checksum 0x{1:X4}" -f $bytes.Length, $localSum) -ForegroundColor Red
-    Write-Host ("  Next : {0,8:N0} bytes  checksum 0x{1:X4}" -f $remoteSum.Bytes, $remoteSum.Sum16) -ForegroundColor Red
-    exit 4
+if ($null -ne $remoteCrc) {
+    if ($remoteCrc -ne $localCrc) {
+        Write-Host "FAILED: VERIFICATION MISMATCH - the file on the Next is not what was sent." -ForegroundColor Red
+        Write-Host ("  here : {0,8:N0} bytes  CRC-32 {1}" -f $bytes.Length, $localCrc) -ForegroundColor Red
+        Write-Host ("  Next :                 CRC-32 {0}" -f $remoteCrc) -ForegroundColor Red
+        exit 4
+    }
+    Write-Host ("SENT AND VERIFIED: {0} -> {1}  (CRC-32 {2}, computed on the Next)" -f $name, $remotePath, $remoteCrc) -ForegroundColor Green
+} else {
+    $localSum = 0
+    foreach ($b in $bytes) { $localSum += $b }
+    $localSum = $localSum -band 0xFFFF
+    $remoteSum = $null
+    try {
+        $remoteSum = $session.Sum($remotePath)
+    } catch {
+        Write-Host "WARNING: could not read back the checksum - $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "FAILED: sent, but the Next could not be asked to verify it." -ForegroundColor Red
+        exit 4
+    }
+    if ($remoteSum.Bytes -ne $bytes.Length -or $remoteSum.Sum16 -ne $localSum) {
+        Write-Host "FAILED: VERIFICATION MISMATCH - the file on the Next is not what was sent." -ForegroundColor Red
+        Write-Host ("  here : {0,8:N0} bytes  checksum 0x{1:X4}" -f $bytes.Length, $localSum) -ForegroundColor Red
+        Write-Host ("  Next : {0,8:N0} bytes  checksum 0x{1:X4}" -f $remoteSum.Bytes, $remoteSum.Sum16) -ForegroundColor Red
+        exit 4
+    }
+    Write-Host ("SENT AND VERIFIED: {0} -> {1}  (size + checksum 0x{2:X4}, read back)" -f $name, $remotePath, $localSum) -ForegroundColor Green
 }
-Write-Host ("SENT AND VERIFIED: {0} -> {1}" -f $name, $remotePath) -ForegroundColor Green
 
 # --- 5. hand the machine back to the loop -------------------------------
 if ($doExit) {

@@ -57,7 +57,7 @@ LONG DESCRIPTION
         Methods:
           Ls() / Ls($path)         ZxNextRemoteFileEntry[] (Dir, Size,
                                    Name, and Path pre-joined so an entry
-                                   feeds straight back into Get/Rm/Sum).
+                                   feeds straight back into Get/Rm/Crc/Sum).
           Exists($path)            $true when the file/folder exists
                                    (implemented as an Ls of the parent).
           Get($path)               the file as [byte[]].
@@ -65,11 +65,34 @@ LONG DESCRIPTION
           Get($entry[, $local])    same, straight from an Ls() entry.
           Put($localPath, $remote) upload a file.
           Put([byte[]], $remote)   upload from memory.
+          Crc($path)               the file's CRC-32 computed ON THE NEXT
+                                   (/crc): .Crc32 = 8 upper-case hex digits
+                                   (IEEE - zlib/7-Zip/PKZIP's), .Path. Only
+                                   8 characters travel, not the file. Needs
+                                   a listener with the crc op (.sync5 dot
+                                   5.9.2+, ZX Next Remote 1.0.8+); an older
+                                   one throws reason NextRefused.
+          Crc($entry)              same, straight from an Ls() entry.
+          LocalCrc32([byte[]])     the PC-side digest in Crc()'s shape, so a
+          LocalCrc32($localPath)   script can compare the two itself (and
+                                   print both on a mismatch).
+          VerifyCrc($local, $remote)   strict CRC-32 proof a Put landed
+          VerifyCrc([byte[]], $remote) intact: $true/$false from the two
+                                   digests; THROWS (NextRefused) when the
+                                   Next cannot be asked - an old listener, a
+                                   file that did not open - so "unverified"
+                                   is never mistaken for "verified".
           Sum($path)               size + 16-bit additive checksum, as the
-                                   file reads back OFF THE NEXT.
-          Verify($local, $remote)  $true when the local file's size and
-                                   sum16 match what Sum() reads back - the
-                                   end-to-end proof a Put landed intact.
+                                   file reads back OFF THE NEXT (/sum pulls
+                                   the whole file through the bridge - slow,
+                                   but every listener supports it).
+          Verify($local, $remote)  $true when the upload landed intact, by
+          Verify([byte[]], $remote) the best proof the far side offers: the
+                                   CRC-32 computed on the Next when its
+                                   listener answers /crc, else the size +
+                                   sum16 read-back (the pre-1.1.0 behaviour).
+                                   A file the Next cannot read fails both
+                                   ways and throws.
           MkDir/RmDir/RmTree/Rm($path)
           Ren($from, $to)          rename / move (same drive).
           Rcpy($src, $dst)         copy ON the Next, partitions included.
@@ -98,7 +121,11 @@ ERROR HANDLING
       NoNextConnected     HTTP 503: bridge up, no Next in -listen.
       Timeout             HTTP 504, or the local timeout tripped.
       BadRequest          HTTP 400: bad arguments.
-      NextRefused         HTTP 502: the Next reported a failure.
+      NextRefused         HTTP 502: the Next reported a failure - also
+                          what /crc (Crc/VerifyCrc) answers on a listener
+                          that predates the crc op (.sync5 dot < 5.9.2,
+                          ZX Next Remote < 1.0.8); Verify() falls back to
+                          /sum on it, the strict methods let it through.
       Unsupported         HTTP 501: this bridge host lacks the verb
                           (nextsync5.py has no /rmtree).
       BridgeUnreachable   no HTTP answer at all (wrong address, bridge
@@ -135,6 +162,9 @@ EXAMPLES
     $s.Get($list[0], "$env:TEMP\first-file")
     $s.Put('build\game.nex', '/home/incoming.nex')
     if (-not $s.Verify('build\game.nex', '/home/incoming.nex')) { throw 'bad copy' }
+    # ...or show your work: the two CRC-32s, the Next's and yours
+    $s.Crc('/home/incoming.nex').Crc32          # e.g. 1A2B3C4D, computed on the Next
+    $s.LocalCrc32('build\game.nex')             # the same 8 digits when it landed intact
     $remote.Close()
 
 SEE ALSO

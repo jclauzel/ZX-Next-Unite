@@ -54,8 +54,9 @@ emulator launch buttons below:
   [Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki#remote-file-explorer).
 - ⭐ **Remote self-update over the wire** — a running `.sync5` dot (v5.9+) or
   [ZX Next Remote](https://jclauzel.itch.io/zxnextremote) `.nex` (1.0.3+) is updated over its own live `-listen`
-  session — no card pulling: the new build is staged, read back and
-  byte-verified, then swapped in place, and the previous build always stays
+  session — no card pulling: the new build is staged, verified against the
+  CRC-32 the Next computes of it (read back and byte-compared on builds
+  that predate the crc op), then swapped in place, and the previous build always stays
   on the card as `<name>.bak` for an instant revert. Driven from the Remote
   Explorer (an "Update to x.y.z" link appears when the connected build is
   older) or the `nextsync5` console — CLI examples in the
@@ -71,8 +72,9 @@ emulator launch buttons below:
   [HTTP bridge documentation](nextsync/sync/server/HTTP_BRIDGE.md).
 - ⭐ **PowerShell module (`ZxNextRemote`)** — drive a connected Next's SD card
   from a script or a prompt, with no HTTP call in sight: list the seated
-  machines, `Ls`/`Get`/`Put`/`Ren`/`Rcpy`, and `Verify` an upload against a
-  checksum read back **off the Next**. Runs on Windows PowerShell 5.1 and
+  machines, `Ls`/`Get`/`Put`/`Ren`/`Rcpy`, and `Verify` an upload against the
+  **CRC-32 the Next computes of it** (`Crc`/`VerifyCrc`; the size + checksum
+  read-back stays as the fallback for older listeners). Runs on Windows PowerShell 5.1 and
   PowerShell 7 (macOS/Linux included), with typed errors that tell the
   bridge's two different 401s apart — a wrong bearer token vs a write the
   remote machine's OS protection refused. It powers `PS-Send-ToNext.ps1`, a

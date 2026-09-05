@@ -1111,6 +1111,38 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     _plan_verify(pending[1])
                 else:
                     sig.put_done.emit(bool(ok), pending[1])
+
+            def _upd_read_back(jid, job):
+                # The update macro's read-back verify: pull the staged
+                # <base>.new back with 'G' and byte-compare it with what was
+                # served, then chain the release or the cleanup failure. One
+                # wire command, so it answers the Poll it is called from —
+                # by upd_verify directly (a listener that predates the crc
+                # op) or via the upd_getback step (the fallback after a 'K'
+                # that gave no verdict).
+                got_back = bytearray()
+
+                def _h(payload, _g=got_back):
+                    o = payload[0:1]
+                    if o == b'D':
+                        _g.extend(payload[1:])
+                    return o == b'B'
+                _re_sendpacket(
+                    conn,
+                    b"G" + (job['dir'] + "/" + job['base'] + ".new").encode(),
+                    0)
+                if (_re_reply_call(conn, _h) and
+                        bytes(got_back) == job['data']):
+                    sig.log.emit(ui_tr_now(
+                        "Remote {name} update: staged copy verified "
+                        "({size} bytes) — swapping it in…").format(
+                            name=job['name'], size=len(got_back)))
+                    local_cmds.appendleft(("upd_release", jid))
+                else:
+                    local_cmds.appendleft(
+                        ("upd_fail_rm", jid,
+                         "the staged " + job['base'] + ".new read "
+                         "back different from what was sent"))
             # rmtree walk state: sub-commands the worker generates for itself
             # (rmtree_ls/rmtree_rm/rmtree_rmdir) are served before the host
             # queue, so a recursive delete runs as one contiguous batch.
@@ -1922,7 +1954,9 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # Remote .sync5 self-update, step 0 (stage). The whole
                         # macro rides local_cmds like rmtree's walk, so no
                         # baton move or bridge command can interleave:
-                        #   put sync5.new -> get-back verify -> 'U' release ->
+                        #   put sync5.new -> verify (the Next's own CRC-32
+                        #   via 'K' on a 5.9.2+/1.0.8+ listener, else the
+                        #   get-back byte-compare) -> 'U' release ->
                         #   rm .bak -> ren sync5->bak -> ren new->sync5 ->
                         #   targeted quit. The release comes BEFORE the .bak
                         #   delete on purpose: a pre-5.9 dot refuses 'U', and
@@ -1995,38 +2029,95 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # the Next pulls the bytes via "Get" (served below);
                         # _put_finish chains upd_verify when the last byte goes.
                     elif op == "upd_verify":
-                        # Step 1: pull the staged file back and byte-compare.
-                        # The wire checksums are per-block and in-flight only —
-                        # nothing verifies what LANDED on the SD card, and the
-                        # next step makes this file the dot itself.
+                        # Step 1: prove what LANDED on the SD card. The wire
+                        # checksums are per-block and in-flight only, and the
+                        # next step makes this file the running build itself.
+                        # 9.7.5: ask the Next for the staged file's CRC-32
+                        # ('K', dot 5.9.2+ / ZXNR 1.0.8+) and compare it with
+                        # zlib.crc32 of the bytes served — 8 hex digits come
+                        # back instead of the whole file over Wi-Fi. Gated on
+                        # this session's cached 'Y' ident (asked here if
+                        # nobody did, put_verify's shape): an older listener
+                        # meets 'K' with silence, so it keeps the pull-back
+                        # byte-compare (_upd_read_back). Only a DEFINITE
+                        # answer decides here — equal digests swap, different
+                        # ones fail with cleanup, an OS-protected read fails
+                        # naming the protection; silence, a plain 'F' or a
+                        # malformed digest prove nothing either way and drop
+                        # to the read-back, which stays authoritative.
                         jid = cmd[1]
                         job = upd_jobs.get(jid)
                         if job is None:
                             _re_sendpacket(conn, b"I", 0)
                             continue
-                        got_back = bytearray()
+                        if sess_ident is None:
+                            sess_ident = _query_ident()    # answers this Poll
+                            local_cmds.appendleft(cmd)     # back on the next one
+                            continue
+                        _newp = job['dir'] + "/" + job['base'] + ".new"
+                        if not re_peer_answers_crc(*sess_ident):
+                            _upd_read_back(jid, job)       # answers this Poll
+                            continue
+                        want = "%08X" % (zlib.crc32(job['data']) & 0xffffffff)
+                        wait = re_verify_wait(len(job['data']))
+                        res = {'crc32': "", 'fail': False, 'osp': False}
 
-                        def _h(payload, _g=got_back):
+                        def _hk(payload, _r=res):
                             o = payload[0:1]
-                            if o == b'D':
-                                _g.extend(payload[1:])
-                            return o == b'B'
-                        _re_sendpacket(
-                            conn,
-                            b"G" + (job['dir'] + "/" + job['base']
-                                    + ".new").encode(), 0)
-                        if (_re_reply_call(conn, _h) and
-                                bytes(got_back) == job['data']):
-                            sig.log.emit(ui_tr_now(
-                                "Remote {name} update: staged copy verified "
-                                "({size} bytes) — swapping it in…").format(
-                                    name=job['name'], size=len(got_back)))
-                            local_cmds.appendleft(("upd_release", jid))
-                        else:
+                            if o == b'O' and len(payload) >= 9:
+                                _r['crc32'] = payload[1:9].decode(
+                                    errors='replace').upper()
+                            elif o == b'F':
+                                _r['fail'] = True
+                                _r['osp'] = _re_is_osp(payload)
+                            return True
+                        _re_sendpacket(conn, b"K" + _newp.encode(), 0)
+                        got_k = _re_reply_call(conn, _hk, timeout=wait)
+                        digest = res['crc32']
+                        if (got_k and len(digest) == 8
+                                and all(c in "0123456789ABCDEF" for c in digest)):
+                            if digest == want:
+                                sig.log.emit(ui_tr_now(
+                                    "Remote {name} update: staged copy "
+                                    "verified by CRC-32 {crc} ({size} bytes) "
+                                    "— swapping it in…").format(
+                                        name=job['name'], crc=digest,
+                                        size=len(job['data'])))
+                                local_cmds.appendleft(("upd_release", jid))
+                            else:
+                                local_cmds.appendleft(
+                                    ("upd_fail_rm", jid,
+                                     "the staged " + job['base'] + ".new's "
+                                     "CRC-32 on the Next (" + digest + ") "
+                                     "differs from what was sent (" + want
+                                     + ")"))
+                        elif res['osp']:
                             local_cmds.appendleft(
                                 ("upd_fail_rm", jid,
-                                 "the staged " + job['base'] + ".new read "
-                                 "back different from what was sent"))
+                                 "the far side's OS protection refused "
+                                 "reading back the staged " + job['base']
+                                 + ".new (Settings on the Next)"))
+                        else:
+                            if res['fail']:
+                                why = "the staged file did not open for the crc op"
+                            elif got_k:
+                                why = "malformed digest from the Next"
+                            else:
+                                why = "no answer to the crc op"
+                            log(f"crc32 {_newp}: {why} — reading the staged "
+                                "copy back instead")
+                            local_cmds.appendleft(("upd_getback", jid))
+                    elif op == "upd_getback":
+                        # Step 1, the read-back way: pull the staged file back
+                        # and byte-compare. The path for listeners that
+                        # predate the crc op, and the fallback when 'K' gave
+                        # no verdict (see upd_verify).
+                        jid = cmd[1]
+                        job = upd_jobs.get(jid)
+                        if job is None:
+                            _re_sendpacket(conn, b"I", 0)
+                            continue
+                        _upd_read_back(jid, job)
                     elif op == "upd_release":
                         # Step 2: 'U' — the dot closes the OS's own read
                         # handle on its file (hardware-measured: the renames
@@ -2350,8 +2441,14 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                        [, base_file, brand, marked_exit])
                                   -> remote self-update macro: stage
                                      local_file as <remote_dir>/sync5.new
-                                     ('P'), pull it back and byte-compare
-                                     ('G'), have the dot release its own file
+                                     ('P'), verify the staged copy — its
+                                     CRC-32 computed on the Next ('K', dot
+                                     5.9.2+ / ZXNR 1.0.8+ per the session's
+                                     cached 'Y' ident) against zlib.crc32 of
+                                     the bytes served, else pulled back and
+                                     byte-compared ('G'; also the fallback
+                                     when 'K' gives no verdict) — have the
+                                     dot release its own file
                                      handle ('U', dot v5.9+ — BEFORE the .bak
                                      delete, so an old dot fails with nothing
                                      deleted), clear sync5.bak ('X'), swap

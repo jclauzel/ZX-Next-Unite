@@ -11,8 +11,8 @@ Odds and ends that support the project but are not part of the app.
 | `Get-PyLineCounts.ps1` | Per-module line-count report for the Python sources |
 | `detectenvironnement.bas` / `.txt` | NextBASIC environment-detection helper and its notes |
 | `Send-ToNext.ps1` | Push a build to a real Next over Unite's NextSync HTTP bridge, verified end-to-end (see below) |
-| `ZxNextRemote/` | PowerShell module (classes + cmdlets, PS 5.1 and 7): a typed client for the NextSync HTTP bridge - sessions, ls/get/put/ren/rcpy..., bridge-scoped bearer token, and typed errors that tell the two 401s apart (token vs OS protection). Docs: `PowerShell/PowerShellHelperClass.md`; tests: `tests/test_powershell_module.py` |
-| `PS-Send-ToNext.ps1` | `Send-ToNext.ps1` rebuilt on that module - same cfg/exit codes, plus `-autoexec:On/Off/Deploy` to manage the Next-side loop file remotely and `-AndSend` to combine it with a push. VS Code one-click sample: `PowerShell/vscode-sample/`; a ready-made demo project: [SampleNex](https://github.com/jclauzel/SampleNex) |
+| `ZxNextRemote/` | PowerShell module (classes + cmdlets, PS 5.1 and 7): a typed client for the NextSync HTTP bridge - sessions, ls/get/put/ren/rcpy..., `Verify`/`Crc`/`VerifyCrc` (the CRC-32 computed **on the Next**; `Verify` falls back to the `/sum` read-back on a listener that predates the op, the strict two throw), bridge-scoped bearer token, and typed errors that tell the two 401s apart (token vs OS protection). Docs: `PowerShell/PowerShellHelperClass.md`; tests: `tests/test_powershell_module.py` |
+| `PS-Send-ToNext.ps1` | `Send-ToNext.ps1` rebuilt on that module - same cfg/exit codes, verified by the Next's own CRC-32 (`/crc`; falls back to the `/sum` read-back on a listener older than ZX Next Remote 1.0.8 / `.sync5` 5.9.2), plus `-autoexec:On/Off/Deploy` to manage the Next-side loop file remotely and `-AndSend` to combine it with a push. VS Code one-click sample: `PowerShell/vscode-sample/`; a ready-made demo project: [SampleNex](https://github.com/jclauzel/SampleNex) |
 | `autoexec.bas` / `.txt` | The Next-side loop `Send-ToNext.ps1` pushes into: listen, receive, run, repeat — in either ZX Next Remote flavour. Drop `autoexec.bas` into `/nextzxos/` on the card as-is |
 
 ## Regenerating the README/wiki tour GIF
@@ -258,7 +258,10 @@ It polls `/status` every 2 s until a Next appears, PUTs the file, and then
 file *as it landed*, compared against the same sum computed locally. A
 transfer is only ever reported as success when those match — an HTTP 200 on
 its own is not proof the bytes arrived intact. Finally `/forceexit` tells the
-Next to exit and reboot into the pushed build.
+Next to exit and reboot into the pushed build. (`PS-Send-ToNext.ps1`, the
+module-based rebuild, verifies with the **CRC-32 the Next computes** of the
+file instead — `/crc`, 8 hex digits over the wire, no read-back — and only
+falls back to this `/sum` check on a listener that predates the crc op.)
 
 Exit codes, for a VS Code task or CI to branch on:
 

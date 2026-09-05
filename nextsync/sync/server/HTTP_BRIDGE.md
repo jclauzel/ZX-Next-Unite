@@ -459,7 +459,12 @@ python -c "import sys,zlib;print('%08X'%(zlib.crc32(open(sys.argv[1],'rb').read(
 ```
 
 Needs `.sync5` v5.9.2+ or ZX Next Remote 1.0.8+ on the Next; an older
-listener does not know the op and the route answers 502. Both listeners
+listener does not know the op and the route answers 502. This is the check
+the `ZxNextRemote` PowerShell module's `Crc()`/`VerifyCrc()` ride (strict:
+that 502 surfaces as reason `NextRefused`), the proof its `Verify()` and
+`PS-Send-ToNext.ps1` try first (falling back to `/sum` on that 502), and the
+same `'K'` op the remote self-update macro uses to prove its staged copy
+before swapping it in (Unite 9.7.5 / `nextsync5.py`'s `update` verb). Both listeners
 also print the digits on the Next's own screen as they answer - the dot on
 its text console, ZX Next Remote on its Listener console - so a checksum
 is readable at the Next itself, too. The dot computes it bit by bit (about

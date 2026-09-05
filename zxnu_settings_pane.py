@@ -1285,7 +1285,7 @@ def build_settings_pane(
             "change it with the port box on the right) that republishes\n"
             "the Remote Explorer's '.sync5 -L' (-l or -listen) session as HTTP routes:\n"
             "/status /sessions /drives /free /ls /get /put /mkdir /rmdir /rmtree\n"
-            "/rm /ren /rcpy /rfsize /sum /forceexit. A Next running the built-in .http\n"
+            "/rm /ren /rcpy /rfsize /sum /crc /forceexit. A Next running the built-in .http\n"
             "command (HTTP only, no TLS) — or curl, or a browser — can then\n"
             "drive the file system of the Next connected in -listen mode.\n"
             "The server starts automatically with the app while this is enabled\n"

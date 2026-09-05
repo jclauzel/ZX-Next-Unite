@@ -2972,8 +2972,8 @@ class RemoteExplorerWidget(QWidget):
         default_path = remembered or (ZXNR_HOME_DIR + "/" + base_default)
         body = ui_tr_now(
             "Update ZX Next Remote on {machine}: v{old} → v{new}.\n\n"
-            "The new build is staged on the Next's SD card, read back "
-            "and verified, then swapped in; the previous build is kept "
+            "The new build is staged on the Next's SD card, verified, "
+            "then swapped in; the previous build is kept "
             "next to it with a .bak ending (renaming it back is the "
             "one-step recovery). The Next's OS protection (on by default "
             "over apps/, dot/ and sys/) refuses the swap inside a "

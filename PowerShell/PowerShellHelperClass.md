@@ -164,10 +164,21 @@ $bytes = $s.Get('/games/boot.bas')            # as [byte[]]
 $s.Get('/games/boot.bas', 'C:\tmp\boot.bas')  # to a local file
 $s.Get($list[0], 'C:\tmp\first.bin')          # straight from an Ls() entry
 
-# upload, then PROVE it landed intact (size + 16-bit checksum, read back
-# off the Next — an HTTP 200 alone is not proof)
+# upload, then PROVE it landed intact — an HTTP 200 alone is not proof.
+# Verify() asks the Next for the CRC-32 of the file it holds (/crc: the
+# Next hashes it, 8 hex digits come back, nothing is pulled over Wi-Fi) and
+# compares it with the local file's; on a listener that predates the crc op
+# (.sync5 dot < 5.9.2, ZX Next Remote < 1.0.8) it falls back to the size +
+# 16-bit checksum read-back (/sum) — slower, but still a real verdict.
 $s.Put('build\game.nex', '/home/incoming.nex')
 if (-not $s.Verify('build\game.nex', '/home/incoming.nex')) { throw 'bad copy' }
+
+# the same proof, shown: the Next's digest and yours
+$s.Crc('/home/incoming.nex').Crc32            # e.g. 1A2B3C4D, computed on the Next
+$s.LocalCrc32('build\game.nex')               # 1A2B3C4D too when it landed intact
+$s.VerifyCrc('build\game.nex', '/home/incoming.nex')   # strict: $true/$false, or it
+                                              # THROWS (NextRefused) when the Next
+                                              # cannot be asked — never a silent $false
 
 # manage
 $s.Exists('/nextzxos/autoexec.bas')           # $true / $false
@@ -263,10 +274,15 @@ when the bridge is unreachable (loop and retry) but it **throws** on
 `extra/PS-Send-ToNext.ps1` is `Send-ToNext.ps1` rebuilt on this module:
 same `Send-ToNext.cfg` (it writes a commented sample on first run), same
 exit codes, same cycle — wait for a Next on the bridge, `Put` the build,
-**`Verify`** it (size + checksum read back off the Next), `/forceexit` so
-the Next-side `autoexec.bas` loop boots into it. The Next-side setup is
-documented in [`extra/README.md`](../extra/README.md) ("Push-to-hardware
-from VS Code").
+**verify** it, `/forceexit` so the Next-side `autoexec.bas` loop boots into
+it. The verify step compares the **CRC-32 the Next computes** of the file
+it holds (`Crc`, 8 hex digits over the wire) with `LocalCrc32` of the bytes
+that were pushed — seconds for a big build, and the report names the
+digest. A ZX Next Remote older than 1.0.8 (or a `.sync5` dot older than
+5.9.2) does not know the crc op; the script then says so and falls back to
+`Send-ToNext.ps1`'s size + 16-bit checksum read-back (`Sum`), so the
+verdict is real either way. The Next-side setup is documented in
+[`extra/README.md`](../extra/README.md) ("Push-to-hardware from VS Code").
 
 New here: **`-autoexec`** manages that Next-side loop file without pulling
 the SD card. The loop lives at `c:/nextzxos/autoexec.bas`; "parked" is the
