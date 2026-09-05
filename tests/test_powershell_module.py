@@ -17,6 +17,11 @@ Six bridges:
   BROKEN - one seat whose /crc fails to open the file it just accepted
            (the OTHER meaning of that 502; PS-Send must not blame the
            listener's age, and /sum still settles the verdict).
+  PRECRC - not a NextSyncHttpBridge at all but a Flask app shaped like a
+           ZX-Next-Unite bridge from before 9.7.2: /put and /sum with the
+           real routes' JSON and NO /crc route, so Flask's own 404 is what
+           the module's Verify() must swallow on its way to the /sum
+           fallback (the strict Crc() surfaces it as HttpError 404).
   (dead) - a port nothing listens on (BridgeUnreachable).
 
 The PS driver (test_powershell_module.ps1) runs under EVERY PowerShell
@@ -33,6 +38,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import zlib
 
@@ -47,6 +53,7 @@ OSP_PORT = 18592
 DEAD_PORT = 18593
 OLD_PORT = 18594          # one seat whose listener predates the crc op
 BROKEN_PORT = 18595       # one seat whose /crc cannot open the file it holds
+OLDBRIDGE_PORT = 18596    # a BRIDGE that predates the /crc route (Unite < 9.7.2)
 TOKEN = "t0ken-t0ken-t0ken"
 
 ok = True
@@ -255,6 +262,54 @@ class SingleSeatAdapter:
         return self.seat.run(op, a1, a2, body=body)
 
 
+class PreCrcBridge:
+    """A bridge from before the /crc route existed (ZX-Next-Unite < 9.7.2),
+    as a bare Flask app rather than a NextSyncHttpBridge (which always
+    registers /crc): /status, /put and /sum answer with the real routes'
+    JSON shapes, everything else - /crc included - gets Flask's genuine
+    404 page. The module's Verify() must treat that 404 as "no crc here"
+    and fall back to /sum; its strict Crc() must surface it as HttpError."""
+
+    def __init__(self, port):
+        from flask import Flask, jsonify, request
+        from werkzeug.serving import make_server
+        self.files = {}
+        app = Flask("pre-crc-bridge")
+
+        @app.route("/status")
+        def _status():
+            return jsonify({"ok": True, "listening": True, "connected": True,
+                            "current": "C", "drives": ["C"], "partitions": 1,
+                            "inflight": 0})
+
+        @app.route("/put", methods=["POST", "PUT"])
+        def _put():
+            p = request.args.get("path", "")
+            self.files[p] = request.get_data()
+            return jsonify({"ok": True, "path": p, "bytes": len(self.files[p])})
+
+        @app.route("/sum")
+        def _sum():
+            p = request.args.get("path", "")
+            data = self.files.get(p)
+            if data is None:
+                return jsonify({"ok": False, "error": f"no such file {p}",
+                                "status": 502}), 502
+            return jsonify({"ok": True, "path": p, "bytes": len(data),
+                            "sum16": sum(data) & 0xFFFF})
+
+        self.port = port
+        self._server = make_server("127.0.0.1", port, app, threaded=True)
+        self._thread = threading.Thread(target=self._server.serve_forever,
+                                        daemon=True)
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        self._server.shutdown()
+
+
 class OspAdapter:
     """The OTHER 401: reads work, writes are os-protected. Plus one verb per
     remaining classification - rmtree 501, ren 503, free('slow') hangs."""
@@ -320,6 +375,9 @@ def main():
     for b in bridges:
         okd, err = b.start()
         check(f"bridge on {b.port} started", okd, err)
+    precrc = PreCrcBridge(OLDBRIDGE_PORT)
+    precrc.start()
+    check(f"pre-/crc bridge on {OLDBRIDGE_PORT} started", precrc._thread.is_alive())
 
     tmp = tempfile.mkdtemp(prefix="zxnr-psmod-")
     try:
@@ -330,6 +388,7 @@ def main():
                 "-ModulePath", module,
                 "-PlainPort", str(PLAIN_PORT), "-TokenPort", str(TOKEN_PORT),
                 "-OspPort", str(OSP_PORT), "-DeadPort", str(DEAD_PORT),
+                "-OldBridgePort", str(OLDBRIDGE_PORT),
                 "-Token", TOKEN, "-TmpDir", tmp])
             sys.stdout.write(r.stdout)
             if r.stderr.strip():
@@ -472,6 +531,7 @@ def main():
     finally:
         for b in bridges:
             b.stop()
+        precrc.stop()
         shutil.rmtree(tmp, ignore_errors=True)
 
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
