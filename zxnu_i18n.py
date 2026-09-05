@@ -447,19 +447,6 @@ CATALOGS = {
             "Todavía localizando el .sync5 a enviar — un momento.",
         "Could not obtain the .sync5 build to send: {reason}":
             "No se pudo obtener el .sync5 a enviar: {reason}",
-        ("Update .sync5 on {machine}: v{old} → v{new}.\n\nThe new dot is "
-         "staged on the Next's SD card, read back and verified, then "
-         "swapped in; the previous dot is kept as sync5.bak (renaming it "
-         "back to sync5 is the one-step recovery). The session ends when "
-         "the update completes — run {command} on the Next again "
-         "afterwards.\n\nTarget directory on the Next:"):
-            ("Actualizar .sync5 en {machine}: v{old} → v{new}.\n\nEl nuevo "
-             "dot se prepara en la tarjeta SD del Next, se relee y "
-             "verifica, y después se sustituye; el dot anterior se "
-             "conserva como sync5.bak (renombrarlo de nuevo a sync5 es la "
-             "recuperación en un paso). La sesión termina cuando la "
-             "actualización se completa — ejecuta {command} de nuevo en "
-             "el Next después.\n\nDirectorio de destino en el Next:"),
         ("Push the new .sync5 (v{new}) to {machine}?\n\nThis machine's "
          "version is unknown (an older dot, or an old ZX Next Remote "
          "build — the two cannot be told apart), and the swap itself "
@@ -1728,19 +1715,6 @@ CATALOGS = {
             "Ainda a localizar o .sync5 a enviar — um momento.",
         "Could not obtain the .sync5 build to send: {reason}":
             "Não foi possível obter o .sync5 a enviar: {reason}",
-        ("Update .sync5 on {machine}: v{old} → v{new}.\n\nThe new dot is "
-         "staged on the Next's SD card, read back and verified, then "
-         "swapped in; the previous dot is kept as sync5.bak (renaming it "
-         "back to sync5 is the one-step recovery). The session ends when "
-         "the update completes — run {command} on the Next again "
-         "afterwards.\n\nTarget directory on the Next:"):
-            ("Atualizar o .sync5 em {machine}: v{old} → v{new}.\n\nO novo "
-             "dot é preparado no cartão SD do Next, relido e verificado, "
-             "e depois substituído; o dot anterior fica guardado como "
-             "sync5.bak (renomeá-lo de volta para sync5 é a recuperação "
-             "num passo). A sessão termina quando a atualização se "
-             "completa — executa {command} de novo no Next "
-             "depois.\n\nDiretório de destino no Next:"),
         ("Push the new .sync5 (v{new}) to {machine}?\n\nThis machine's "
          "version is unknown (an older dot, or an old ZX Next Remote "
          "build — the two cannot be told apart), and the swap itself "
@@ -3007,20 +2981,6 @@ CATALOGS = {
             "Wciąż trwa szukanie pliku .sync5 do wysłania — chwileczkę.",
         "Could not obtain the .sync5 build to send: {reason}":
             "Nie udało się uzyskać pliku .sync5 do wysłania: {reason}",
-        ("Update .sync5 on {machine}: v{old} → v{new}.\n\nThe new dot is "
-         "staged on the Next's SD card, read back and verified, then "
-         "swapped in; the previous dot is kept as sync5.bak (renaming it "
-         "back to sync5 is the one-step recovery). The session ends when "
-         "the update completes — run {command} on the Next again "
-         "afterwards.\n\nTarget directory on the Next:"):
-            ("Aktualizacja .sync5 na {machine}: v{old} → v{new}.\n\nNowe "
-             "polecenie dot jest przygotowywane na karcie SD Nexta, "
-             "odczytywane z powrotem i weryfikowane, a następnie "
-             "podmieniane; poprzednie polecenie dot zostaje zachowane "
-             "jako sync5.bak (zmiana jego nazwy z powrotem na sync5 to "
-             "odzyskanie w jednym kroku). Sesja kończy się po zakończeniu "
-             "aktualizacji — uruchom potem {command} na Nexcie "
-             "ponownie.\n\nKatalog docelowy na Nexcie:"),
         ("Push the new .sync5 (v{new}) to {machine}?\n\nThis machine's "
          "version is unknown (an older dot, or an old ZX Next Remote "
          "build — the two cannot be told apart), and the swap itself "
@@ -4288,19 +4248,6 @@ CATALOGS = {
             "Сборка .sync5 для отправки ещё ищется — минутку.",
         "Could not obtain the .sync5 build to send: {reason}":
             "Не удалось получить файл .sync5 для отправки: {reason}",
-        ("Update .sync5 on {machine}: v{old} → v{new}.\n\nThe new dot is "
-         "staged on the Next's SD card, read back and verified, then "
-         "swapped in; the previous dot is kept as sync5.bak (renaming it "
-         "back to sync5 is the one-step recovery). The session ends when "
-         "the update completes — run {command} on the Next again "
-         "afterwards.\n\nTarget directory on the Next:"):
-            ("Обновление .sync5 на {machine}: v{old} → v{new}.\n\nНовая "
-             "dot-команда записывается на SD-карту Next, считывается "
-             "обратно и проверяется, затем подменяется; прежняя "
-             "dot-команда сохраняется как sync5.bak (переименование "
-             "обратно в sync5 — восстановление в один шаг). Сессия "
-             "завершится по окончании обновления — после этого снова "
-             "запустите {command} на Next.\n\nЦелевой каталог на Next:"),
         ("Push the new .sync5 (v{new}) to {machine}?\n\nThis machine's "
          "version is unknown (an older dot, or an old ZX Next Remote "
          "build — the two cannot be told apart), and the swap itself "
@@ -5567,19 +5514,6 @@ CATALOGS = {
             "Soubor .sync5 k odeslání se stále hledá — okamžik.",
         "Could not obtain the .sync5 build to send: {reason}":
             "Nepodařilo se získat soubor .sync5 k odeslání: {reason}",
-        ("Update .sync5 on {machine}: v{old} → v{new}.\n\nThe new dot is "
-         "staged on the Next's SD card, read back and verified, then "
-         "swapped in; the previous dot is kept as sync5.bak (renaming it "
-         "back to sync5 is the one-step recovery). The session ends when "
-         "the update completes — run {command} on the Next again "
-         "afterwards.\n\nTarget directory on the Next:"):
-            ("Aktualizace .sync5 na {machine}: v{old} → v{new}.\n\nNový "
-             "dot příkaz se nahraje na SD kartu Nextu, načte zpět a "
-             "ověří, a poté vymění; předchozí dot příkaz zůstane uložen "
-             "jako sync5.bak (jeho přejmenování zpět na sync5 je obnova "
-             "jedním krokem). Relace skončí po dokončení aktualizace — "
-             "poté znovu spusťte {command} na Nextu.\n\nCílový adresář "
-             "na Nextu:"),
         ("Push the new .sync5 (v{new}) to {machine}?\n\nThis machine's "
          "version is unknown (an older dot, or an old ZX Next Remote "
          "build — the two cannot be told apart), and the swap itself "
@@ -6846,20 +6780,6 @@ CATALOGS = {
             "Toujours en train de localiser le .sync5 à envoyer — un instant.",
         "Could not obtain the .sync5 build to send: {reason}":
             "Impossible d'obtenir le .sync5 à envoyer : {reason}",
-        ("Update .sync5 on {machine}: v{old} → v{new}.\n\nThe new dot is "
-         "staged on the Next's SD card, read back and verified, then "
-         "swapped in; the previous dot is kept as sync5.bak (renaming it "
-         "back to sync5 is the one-step recovery). The session ends when "
-         "the update completes — run {command} on the Next again "
-         "afterwards.\n\nTarget directory on the Next:"):
-            ("Mise à jour de .sync5 sur {machine} : v{old} → "
-             "v{new}.\n\nLa nouvelle commande dot est déposée sur la "
-             "carte SD du Next, relue et vérifiée, puis mise en place ; "
-             "la commande dot précédente est conservée sous le nom "
-             "sync5.bak (la renommer en sync5 est la récupération en une "
-             "étape). La session se termine quand la mise à jour est "
-             "finie — relancez ensuite {command} sur le "
-             "Next.\n\nRépertoire cible sur le Next :"),
         ("Push the new .sync5 (v{new}) to {machine}?\n\nThis machine's "
          "version is unknown (an older dot, or an old ZX Next Remote "
          "build — the two cannot be told apart), and the swap itself "

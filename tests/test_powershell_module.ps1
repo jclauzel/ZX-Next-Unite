@@ -19,6 +19,7 @@ param(
     [Parameter(Mandatory)] [int]$TokenPort,
     [Parameter(Mandatory)] [int]$OspPort,
     [Parameter(Mandatory)] [int]$DeadPort,
+    [Parameter(Mandatory)] [int]$OldBridgePort,
     [Parameter(Mandatory)] [string]$Token,
     [Parameter(Mandatory)] [string]$TmpDir
 )
@@ -184,6 +185,29 @@ Check 'old listener: the fallback still catches a difference' `
 Check 'old listener: Verify of a missing file throws' `
     ((Get-ThrownReason { $s2.Verify($data, '/no-such.bin') }) -eq 'NextRefused')
 [void]$s2.Rm('/old.bin')
+
+# A BRIDGE that predates the /crc route (ZX-Next-Unite < 9.7.2): Flask's
+# plain 404 - HttpError, status 404 - is not a verdict about the file, so
+# Verify() must fall through to /sum exactly as 1.0.0 did, while the strict
+# Crc() lets the 404 out (it is not a NextRefused).
+$obCon = New-ZxNextRemoteConnection -IpAddress 127.0.0.1 -Port $OldBridgePort
+$ob = (New-ZxNextRemote $obCon).ManageSession()
+[void]$ob.Put($data, '/old-bridge.bin')
+$obStatus = 0
+try { [void]$ob.Crc('/old-bridge.bin') } catch {
+    $sp = $_.Exception.PSObject.Properties['StatusCode']
+    if ($sp) { $obStatus = [int]$sp.Value }
+}
+Check 'pre-/crc bridge: Crc -> HttpError with status 404 (no such route)' `
+    ((Get-ThrownReason { $ob.Crc('/old-bridge.bin') }) -eq 'HttpError' -and $obStatus -eq 404) $obStatus
+Check 'pre-/crc bridge: VerifyCrc lets the 404 out too (strict)' `
+    ((Get-ThrownReason { $ob.VerifyCrc($data, '/old-bridge.bin') }) -eq 'HttpError')
+Check 'pre-/crc bridge: Verify falls back to /sum -> true (the 1.0.0 verdict)' `
+    ($ob.Verify($data, '/old-bridge.bin'))
+Check 'pre-/crc bridge: the fallback still catches a difference' `
+    (-not $ob.Verify([byte[]](1..100), '/old-bridge.bin'))
+Check 'pre-/crc bridge: Verify of a missing file throws (fails both ways)' `
+    ((Get-ThrownReason { $ob.Verify($data, '/no-such.bin') }) -eq 'NextRefused')
 
 [System.IO.File]::WriteAllBytes($push, [byte[]](1..100))
 Check 'Verify: false once the local file differs' `
