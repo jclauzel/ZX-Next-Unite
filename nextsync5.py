@@ -645,13 +645,14 @@ def _listen_ls(conn, path="."):
     reply reader keeps waiting for more blocks the Next never sends and then
     misreads its next "Poll" as a frame, desyncing the whole session."""
     entries = []
-    st = {'failed': False}
+    st = {'failed': False, 'osp': False}
     def handle(payload):
         op = payload[0:1]
         if op == b'E':
             return True
         if op == b'F':                      # opendir failed on the Next: folder gone
             st['failed'] = True
+            st['osp'] = _is_osp(payload)    # ...or Read+write OS protection refused it
             return True
         if op == b'D':
             i = 1
@@ -665,26 +666,36 @@ def _listen_ls(conn, path="."):
                 entries.append((flags & 1, size, name))
         return False
     if not _listen_recv_reply(conn, handle):
-        return (False, False, [])
+        return (False, False, False, [])
+    if st['osp']:
+        print(f'{timestamp()} | ls {path}: BLOCKED by the remote OS protection')
+        return (True, True, True, [])
     if st['failed']:
         print(f'{timestamp()} | ls {path}: no such directory on the Next')
-        return (True, True, [])
+        return (True, True, False, [])
     entries.sort(key=lambda e: (0 if e[0] else 1, e[2].lower()))
     print(f'{timestamp()} | Listing ({len(entries)} entries):')
     for is_dir, size, name in entries:
         print(f'   {"<DIR>":>12}  {name}' if is_dir else f'   {size:>12}  {name}')
-    # (replied?, opendir-failed?, entries) - consumed by the HTTP bridge; the
-    # console path ignores it.
-    return (True, False, entries)
+    # (replied?, opendir-failed?, os-protected?, entries) - consumed by the HTTP
+    # bridge; the console path ignores it.
+    return (True, False, False, entries)
 
 def _listen_get(conn, dest_root):
     """Receive a 'get': 'N'/'D'/'E' per file then 'B'. Writes under dest_root.
-    Returns (replied?, files_written, last_local_path) - the HTTP bridge needs
-    the written-file count/path; the console path ignores it."""
-    st = {'f': None, 'name': None, 'bytes': 0, 'count': 0, 'last': None}
+    Returns (replied?, files_written, last_local_path, os_protected?) - the HTTP
+    bridge needs the written-file count/path; the console path ignores it."""
+    st = {'f': None, 'name': None, 'bytes': 0, 'count': 0, 'last': None,
+          'osp': False}
     os.makedirs(dest_root, exist_ok=True)
     def handle(payload):
         op = payload[0:1]
+        if payload[0:1] == b'F' and _is_osp(payload):
+            # Read-protected source: a get has no failure frame, so a ZX Next
+            # Remote listener leads its empty walk with the marked 'F'+OSP so
+            # the refusal is nameable. The 'B' still follows and ends it.
+            st['osp'] = True
+            return False
         if op == b'N':
             namelen = payload[5] if len(payload) > 5 else 0
             name = payload[6:6+namelen].decode(errors='replace')
@@ -718,7 +729,7 @@ def _listen_get(conn, dest_root):
     _listen_get_result = _listen_recv_reply(conn, handle)
     if st['f']:
         st['f'].close()
-    return (_listen_get_result, st['count'], st['last'])
+    return (_listen_get_result, st['count'], st['last'], st['osp'])
 
 def _fmt_size(nbytes):
     """Human-readable size for pfull: 512 -> '512 bytes', 1536000 -> '1.5 MB'."""
@@ -1027,12 +1038,19 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 break
             elif op == "ls":
                 sendpacket(conn, b"L" + (a1 or ".").encode(), 0)
-                replied, gone, entries = _listen_ls(conn, a1 or ".")
-                _reply_fill(reply,
-                            {'ok': True, 'entries': entries} if replied and not gone
-                            else {'ok': False,
-                                  'error': 'no such directory on the Next'
-                                           if replied else 'connection dropped'})
+                replied, gone, osp, entries = _listen_ls(conn, a1 or ".")
+                if osp:
+                    # Read+write OS protection refused the listing: the same
+                    # 401 + os-protected body every blocked write relays, so
+                    # a protected browse over the bridge is named, not a 502.
+                    _reply_fill(reply, {'ok': False, 'error': OSP_ERROR,
+                                        'http': 401})
+                else:
+                    _reply_fill(reply,
+                                {'ok': True, 'entries': entries} if replied and not gone
+                                else {'ok': False,
+                                      'error': 'no such directory on the Next'
+                                               if replied else 'connection dropped'})
             elif op == "get":
                 if not a1:
                     print("  usage: get <path> [dest]")
@@ -1040,12 +1058,16 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                     continue
                 sendpacket(conn, b"G" + a1.encode(), 0)
                 _in_transfer = True
-                got_ok, got_count, got_last = _listen_get(conn, a2 or ".")
+                got_ok, got_count, got_last, got_osp = _listen_get(conn, a2 or ".")
                 _in_transfer = False
-                _reply_fill(reply,
-                            {'ok': True, 'count': got_count, 'last': got_last}
-                            if got_ok else
-                            {'ok': False, 'error': 'get failed'})
+                if got_osp:
+                    _reply_fill(reply, {'ok': False, 'error': OSP_ERROR,
+                                        'http': 401})
+                else:
+                    _reply_fill(reply,
+                                {'ok': True, 'count': got_count, 'last': got_last}
+                                if got_ok else
+                                {'ok': False, 'error': 'get failed'})
             elif op == "put":
                 if not a1 or not os.path.isfile(a1):
                     print(f"  put: local file not found: {a1}")

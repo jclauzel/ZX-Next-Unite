@@ -1277,8 +1277,13 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # single 'F' status block if opendir failed (the folder is
                         # gone). Track which so a missing folder isn't mistaken for
                         # an empty one - and so the 'F' block is consumed instead of
-                        # desyncing the stream.
-                        st = {'failed': False}
+                        # desyncing the stream. A ZX Next Remote listener whose
+                        # Read+write OS protection refuses the listing answers the
+                        # MARKED 'F'+OSP: tell that apart from a plain miss so the
+                        # bridge relays it as 401 os-protected - not the "missing
+                        # folder?" 502 that made a protected browse read as an
+                        # unexplained failure - and the UI raises os_protected.
+                        st = {'failed': False, 'osp': False}
 
                         def _h(payload, _e=entries, _st=st):
                             o = payload[0:1]
@@ -1286,6 +1291,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 return True
                             if o == b'F':
                                 _st['failed'] = True
+                                _st['osp'] = _re_is_osp(payload)
                                 return True
                             if o == b'D':
                                 i = 1
@@ -1300,7 +1306,17 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             return False
                         _re_sendpacket(conn, b"L" + path.encode(), 0)
                         if _re_reply_call(conn, _h):
-                            if st['failed']:
+                            if st['osp']:
+                                # Read-protected on the far side: the same
+                                # 401 + os-protected relay every blocked
+                                # write gets, and the os_protected toast on
+                                # the UI path - never "folder gone".
+                                if reply:
+                                    reply.put({'ok': False, 'http': 401,
+                                               'error': RE_OSP_ERROR})
+                                else:
+                                    sig.os_protected.emit("ls", path)
+                            elif st['failed']:
                                 if reply:
                                     reply.put({'ok': False,
                                                'error': f"ls {path} failed "
@@ -1325,10 +1341,18 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         remote, dest_dir = cmd[1], cmd[2]
                         os.makedirs(dest_dir, exist_ok=True)
                         st = {'f': None, 'name': None, 'bytes': 0, 'last': None,
-                              'count': 0}
+                              'count': 0, 'osp': False}
 
                         def _h(payload, _st=st, _dd=dest_dir, _remote=remote):
                             o = payload[0:1]
+                            if o == b'F' and _re_is_osp(payload):
+                                # A read-protected SOURCE. A get has no
+                                # failure frame, so a ZX Next Remote listener
+                                # leads its empty walk with the marked 'F'+OSP
+                                # purely so this is nameable; the 'B' still
+                                # follows and ends the stream with nothing.
+                                _st['osp'] = True
+                                return False
                             if o == b'N':
                                 namelen = payload[5] if len(payload) > 5 else 0
                                 name = payload[6:6+namelen].decode(errors='replace')
@@ -1363,7 +1387,16 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         ok = _re_reply_call(conn, _h)
                         if st['f']:
                             st['f'].close()
-                        if reply:
+                        if st['osp']:
+                            # Read-protected source: the same 401 relay and
+                            # os_protected toast a blocked write draws, not a
+                            # phantom "0 files" success or a plain failure.
+                            if reply:
+                                reply.put({'ok': False, 'http': 401,
+                                           'error': RE_OSP_ERROR})
+                            else:
+                                sig.os_protected.emit("get", remote)
+                        elif reply:
                             reply.put({'ok': bool(ok), 'count': st['count'],
                                        'last': st['last']}
                                       if ok else {'ok': False, 'error': 'get failed'})

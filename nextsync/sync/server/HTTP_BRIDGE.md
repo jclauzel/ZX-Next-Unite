@@ -632,12 +632,18 @@ curl "http://localhost/rfsize?path=/games&json=1"
   `ZXNEXTUNITE-BRIDGE-TOKEN` option and why the transport is still clear text.
 * **`401` with an `os-protected` body** (distinct from the bearer-token
   `401`): the connected Next is **ZX Next Remote** acting as the listener
-  with its *OS protection* setting on, and the write verb (`/put`, `/mkdir`,
-  `/rmdir`, `/rm`, `/ren`, `/rcpy`) targeted one of the folders it guards.
-  Read verbs (`/ls`, `/get`) are never blocked. The fix is on that machine —
-  adjust its OS-protection setting or its protected-folder list. The bridge
-  itself does not implement this guard, and the `.sync5` dotN never triggers
-  it; it is purely a property of a ZX Next Remote listener.
+  with its *OS protection* setting on, and the verb targeted one of the
+  folders it guards. Any write verb (`/put`, `/mkdir`, `/rmdir`, `/rm`,
+  `/ren`, `/rcpy`) draws it whenever protection is on; and at the
+  **Read+write** level (its default) the read verbs `/ls` and `/get` draw
+  it too — a protected browse or download. **Before ZX-Next-Unite 9.7.4
+  neither refusal said why**: a refused `/ls` came back as the generic
+  "missing folder?" `502`, and a refused `/get` as an empty (0-file)
+  "success" — the more dangerous silent-wrong-result case. Both are a
+  proper `401` with the `os-protected` body now. The fix is on that machine — adjust
+  its OS-protection setting or its protected-folder list. The bridge
+  itself does not implement this guard, and the `.sync5` dotN never
+  triggers it; it is purely a property of a ZX Next Remote listener.
 * Long operations (`/get`, `/put`, `/rcpy`, `/rfsize`, `/rmtree`) wait up to
   270 s (`LONG_TIMEOUT` in zxnu_http_bridge.py, deliberately just under
   the strictest known client's patience); quick verbs time out after 45 s (`504`).
