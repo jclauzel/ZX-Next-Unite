@@ -260,8 +260,12 @@ protocol is covered by `tests/test_listen.py` (repo root), which drives
 
 A running `.sync5` dot (v5.9+) — or a ZX Next Remote `.nex` (1.0.3+) serving
 the session — can be replaced **over its own live `-listen` session**, no
-card pulling: the server stages the new build as `<name>.new`, pulls it back
-and byte-compares (the wire checksums are in-flight only), sends `'U'`
+card pulling: the server stages the new build as `<name>.new`, verifies it —
+on a listener that answers the `'K'` crc op (dot 5.9.2+, ZX Next Remote
+1.0.8+) by comparing the Next's own CRC-32 of the staged file with that of
+the bytes sent, 8 hex digits instead of the file coming back; on an older
+one by pulling it back and byte-comparing (the wire checksums are in-flight
+only) — sends `'U'`
 (release), deletes `<name>.bak` (NextZXOS refuses rename-onto-existing, so
 that delete is load-bearing), renames `<name>` → `<name>.bak` and
 `<name>.new` → `<name>`, then ends the session. The previous build ALWAYS

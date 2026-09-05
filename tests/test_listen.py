@@ -220,7 +220,13 @@ def mock_next(sock, fake_entries, fake_file, captured):
 # of sync5.bak with 'F' (the macro must tolerate a missing .bak), and answers
 # 'U'/'V' per scenario (refuse_ren1 refuses the FIRST rename's 'V').
 def mock_update_next(sock, captured, corrupt_verify=False, refuse_release=False,
-                     refuse_ren1=False):
+                     refuse_ren1=False, k_mode="ok"):
+    # k_mode: how a 'K' (the 9.7.5 crc verify) is met - "ok" answers the
+    # CRC-32 of what the 'G' arm would serve (corrupt_verify included, so a
+    # corrupted copy is caught by the digest), "F" says the file did not
+    # open, "osp" is ZXNR's marked read refusal, "short" a well-framed but
+    # malformed digest, "silent" a listener that ignores the opcode and
+    # re-polls (the raw "Poll" fails the server's block parse at once).
     assert recv_payload(sock) == b"Listening"
     staged = {}                                     # remote path -> bytes from 'P'
 
@@ -263,6 +269,20 @@ def mock_update_next(sock, captured, corrupt_verify=False, refuse_release=False,
                 buf += data
             staged[arg] = buf
             captured.setdefault('puts', []).append((arg, buf))
+        elif op == b'K':                            # crc verify: the digest of what
+            body = staged.get(arg, b'')             # the Next holds (corrupted or not)
+            if corrupt_verify and body:
+                body = bytes([body[0] ^ 0xff]) + body[1:]
+            if k_mode == "silent":
+                continue
+            if k_mode == "F":
+                push(b'F', 0)
+            elif k_mode == "osp":
+                push(b'FOSP', 0)
+            elif k_mode == "short":
+                push(b'O1234', 0)
+            else:
+                push(b'O' + ("%08X" % (zlib.crc32(body) & 0xffffffff)).encode(), 0)
         elif op == b'G':                            # verify read-back: echo what was
             body = staged.get(arg, b'')             # staged (or corrupt the first byte)
             if corrupt_verify and body:
@@ -311,7 +331,7 @@ def run_update_tests(tmp):
         f.write(b"just bytes, no version banner at all " * 4)
 
     def run(cmds, ident, corrupt_verify=False, refuse_release=False,
-            refuse_ren1=False):
+            refuse_ren1=False, k_mode="ok"):
         srv, nxt = socket.socketpair()
         for s in (srv, nxt):
             try:
@@ -332,7 +352,7 @@ def run_update_tests(tmp):
                 mock_update_next(nxt, captured,
                                  corrupt_verify=corrupt_verify,
                                  refuse_release=refuse_release,
-                                 refuse_ren1=refuse_ren1)
+                                 refuse_ren1=refuse_ren1, k_mode=k_mode)
                 t.join(timeout=5)
         finally:
             ns._listen_state['ident'] = None        # module-global: never leak
@@ -480,6 +500,146 @@ def run_update_tests(tmp):
           cap.get('wire') == [('Q', '')] and "needs ZXNR 1.0.3+" in out
           and done,
           f"{cap.get('wire')} / {out}")
+
+    # 7. The crc verify (9.7.5). A listener whose cached 'version' answer
+    # names a build with the crc op (dot 5.9.2+ / ZXNR 1.0.8+) is asked for
+    # the staged file's CRC-32 with 'K' instead of pulling it back with 'G':
+    # the wire carries P/K/U/X/V/V/Q - no 'G', no 'Y' (the verb was gated on
+    # the cached ident) - and the console names the digest.
+    # (A 5.9.2 listener already outranks the 5.9.0 build above - the version
+    # gate would refuse - so these scenarios stage a 5.9.3 banner.)
+    dot593 = os.path.join(tmp, "sync5-593.dot")
+    upd_bytes = b"\x7fDOT" + bytes(range(256)) * 6 + b"NextSync 5.9.3 build\x00tail"
+    with open(dot593, "wb") as f:
+        f.write(upd_bytes)
+    want_crc = "%08X" % (zlib.crc32(upd_bytes) & 0xffffffff)
+    cap, out, done = run([("update", dot593, "")], ("sync", "5.9.2"))
+    check("updCrc  : P/K/U/X/V/V/Q - crc verify, nothing pulled back",
+          cap.get('wire') == [('P', 'c:/dot/sync5.new'),
+                              ('K', 'c:/dot/sync5.new'),
+                              ('U', ''),
+                              ('X', 'c:/dot/sync5.bak'),
+                              ('V', 'c:/dot/sync5\x00c:/dot/sync5.bak'),
+                              ('V', 'c:/dot/sync5.new\x00c:/dot/sync5'),
+                              ('Q', '')]
+          and f"verified by CRC-32 {want_crc}" in out
+          and "update COMPLETE" in out and done,
+          f"{cap.get('wire')} / {out}")
+
+    # 7b. A DIFFERENT digest is a verdict, not a doubt: cleanup rm of
+    # sync5.new, no 'U', no read-back, both digests on the console, and
+    # the session survives (the queued ls still answers).
+    bad_crc = "%08X" % (zlib.crc32(bytes([upd_bytes[0] ^ 0xff]) + upd_bytes[1:])
+                        & 0xffffffff)
+    cap, out, done = run([("update", dot593, ""), ("ls", "/", "")],
+                         ("sync", "5.9.2"), corrupt_verify=True)
+    wire = cap.get('wire', [])
+    wire_ops = [w[0] for w in wire]
+    check("updCrcF : crc mismatch -> cleanup sync5.new, no 'U'/'G'/'V', both "
+          "digests named, session alive",
+          wire[:3] == [('P', 'c:/dot/sync5.new'), ('K', 'c:/dot/sync5.new'),
+                       ('X', 'c:/dot/sync5.new')]
+          and not any(o in ('U', 'G', 'V') for o in wire_ops)
+          and "update failed" in out and "CRC-32" in out
+          and want_crc in out and bad_crc in out
+          and ('L', '/') in wire and "Listing (0 entries)" in out and done,
+          f"{wire} / {out}")
+
+    # 7c. 'K' met with a plain 'F' (the staged file did not open for the
+    # crc op) proves nothing either way: the macro drops to the read-back,
+    # which serves the right bytes here, and the update completes.
+    cap, out, done = run([("update", dot593, "")], ("sync", "5.9.2"),
+                         k_mode="F")
+    check("updCrcFb: 'F' on K -> 'G' read-back fallback, then the swap",
+          cap.get('wire') == [('P', 'c:/dot/sync5.new'),
+                              ('K', 'c:/dot/sync5.new'),
+                              ('G', 'c:/dot/sync5.new'),
+                              ('U', ''),
+                              ('X', 'c:/dot/sync5.bak'),
+                              ('V', 'c:/dot/sync5\x00c:/dot/sync5.bak'),
+                              ('V', 'c:/dot/sync5.new\x00c:/dot/sync5'),
+                              ('Q', '')]
+          and "reading the staged copy back instead" in out
+          and "update COMPLETE" in out and done,
+          f"{cap.get('wire')} / {out}")
+
+    # 7d. The ZXNR flavor on a 1.0.8 listener: crc verify + the marked quit.
+    cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"))
+    check("updCrcZX: ZXNR 1.0.8 -> P/K/U/X/V/V then 'Q'+'X'",
+          cap.get('wire') == [('P', zbase + ".new"),
+                              ('K', zbase + ".new"),
+                              ('U', ''),
+                              ('X', zbase + ".bak"),
+                              ('V', zbase + "\x00" + zbase + ".bak"),
+                              ('V', zbase + ".new\x00" + zbase),
+                              ('Q', 'X')]
+          and "update COMPLETE" in out and "soft-reset" in out and done,
+          f"{cap.get('wire')} / {out}")
+
+    # 7f. 'K' ignored by a listener whose ident CLAIMED the op: its raw
+    # re-Poll fails the block parse at once (no wait paid), the leftover
+    # bytes meet the loop's idle answer, and the next Poll pops the
+    # read-back - same shape as 7c, "no answer" named on the console.
+    cap, out, done = run([("update", dot593, "")], ("sync", "5.9.2"),
+                         k_mode="silent")
+    check("updCrcSi: ignored K -> 'G' read-back fallback, then the swap",
+          cap.get('wire') == [('P', 'c:/dot/sync5.new'),
+                              ('K', 'c:/dot/sync5.new'),
+                              ('G', 'c:/dot/sync5.new'),
+                              ('U', ''),
+                              ('X', 'c:/dot/sync5.bak'),
+                              ('V', 'c:/dot/sync5\x00c:/dot/sync5.bak'),
+                              ('V', 'c:/dot/sync5.new\x00c:/dot/sync5'),
+                              ('Q', '')]
+          and "no answer to the crc op" in out
+          and "reading the staged copy back instead" in out
+          and "update COMPLETE" in out and done,
+          f"{cap.get('wire')} / {out}")
+
+    # 7g. A malformed digest (well-framed 'O' + 4 chars) proves nothing
+    # either way: the same fallback, "malformed" named.
+    cap, out, done = run([("update", dot593, "")], ("sync", "5.9.2"),
+                         k_mode="short")
+    check("updCrcMf: malformed digest -> 'G' read-back fallback, then the swap",
+          cap.get('wire') == [('P', 'c:/dot/sync5.new'),
+                              ('K', 'c:/dot/sync5.new'),
+                              ('G', 'c:/dot/sync5.new'),
+                              ('U', ''),
+                              ('X', 'c:/dot/sync5.bak'),
+                              ('V', 'c:/dot/sync5\x00c:/dot/sync5.bak'),
+                              ('V', 'c:/dot/sync5.new\x00c:/dot/sync5'),
+                              ('Q', '')]
+          and "malformed digest from the Next" in out
+          and "update COMPLETE" in out and done,
+          f"{cap.get('wire')} / {out}")
+
+    # 7h. 'K' refused by the far side's OS protection (the marked 'F'+OSP):
+    # a definite refusal - cleanup rm of sync5.new, no 'U'/'G'/'V', the
+    # protection named, and the session survives (the queued ls answers).
+    cap, out, done = run([("update", dot593, ""), ("ls", "/", "")],
+                         ("sync", "5.9.2"), k_mode="osp")
+    wire = cap.get('wire', [])
+    check("updCrcOs: 'F'+OSP on K -> cleanup, no 'U'/'G'/'V', OS protection "
+          "named, session alive",
+          wire[:3] == [('P', 'c:/dot/sync5.new'), ('K', 'c:/dot/sync5.new'),
+                       ('X', 'c:/dot/sync5.new')]
+          and not any(o in ('U', 'G', 'V') for o, _ in wire)
+          and "update failed" in out and "OS protection" in out
+          and ('L', '/') in wire and "Listing (0 entries)" in out and done,
+          f"{wire} / {out}")
+
+    # 7e. The gate itself: exactly the crc floors, never a blind probe.
+    check("crcGate : floors by ident type, None/False/unknown/unparseable = no",
+          ns._peer_answers_crc(("sync", "5.9.2"))
+          and ns._peer_answers_crc(("sync", "5.10.0"))
+          and not ns._peer_answers_crc(("sync", "5.9.1"))
+          and ns._peer_answers_crc(("n2n", "1.0.8"))
+          and ns._peer_answers_crc(("httpbridge", "1.1.0"))
+          and not ns._peer_answers_crc(("httpbridge", "1.0.7"))
+          and not ns._peer_answers_crc(None)
+          and not ns._peer_answers_crc(False)
+          and not ns._peer_answers_crc(("weird", "9.9.9"))
+          and not ns._peer_answers_crc(("sync", "banana")))
 
     # The version gate's comparator, directly: int-tuple compare (so 5.10.0 is
     # NEWER than 5.9.0) and unparseable = NOT older (update then demands force).

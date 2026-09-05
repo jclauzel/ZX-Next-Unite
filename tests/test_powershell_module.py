@@ -4,20 +4,26 @@ fake adapters - the same adapter-level seam test_http_bridge.py's token/OSP
 phases use, so the module is exercised against the actual bridge code
 (routing, JSON shapes, the two distinct 401s), not against a mock of it.
 
-Four bridges:
+Six bridges:
   PLAIN  - two-seat roster (sids 1/2, distinct in-memory filesystems),
-           session-header routing, every op verb.
+           session-header routing, every op verb; seat 2's listener
+           predates the crc op (/crc answers 502) so the module's
+           CRC-32 -> sum16 fallback is pinned next to seat 1's crc path.
   TOKEN  - bearer-token protected (the TokenRequired 401).
   OSP    - writes answer 401 os-protected, rmtree 501, ren 503, and a
            'slow' /free that outlasts a 1 s client timeout (OsProtected /
            Unsupported / NoNextConnected / Timeout classification).
+  OLD    - one seat whose listener predates the crc op (PS-Send's fallback).
+  BROKEN - one seat whose /crc fails to open the file it just accepted
+           (the OTHER meaning of that 502; PS-Send must not blame the
+           listener's age, and /sum still settles the verdict).
   (dead) - a port nothing listens on (BridgeUnreachable).
 
 The PS driver (test_powershell_module.ps1) runs under EVERY PowerShell
 found - Windows PowerShell 5.1 (the documented floor) and pwsh 7 (what
 mac/linux users run). PS-Send-ToNext.ps1 is then exercised end-to-end under
-the first shell: plain push+verify+forceexit, the three -autoexec actions,
-and the exit-2 token path.
+the first shell: plain push+verify(CRC-32)+forceexit, the two /crc-502
+fallbacks, the three -autoexec actions, and the exit-2 token path.
 
 Skips cleanly when Flask or every PowerShell is missing.
 Run with: python test_powershell_module.py
@@ -28,6 +34,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zlib
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -38,6 +45,8 @@ PLAIN_PORT = 18590
 TOKEN_PORT = 18591
 OSP_PORT = 18592
 DEAD_PORT = 18593
+OLD_PORT = 18594          # one seat whose listener predates the crc op
+BROKEN_PORT = 18595       # one seat whose /crc cannot open the file it holds
 TOKEN = "t0ken-t0ken-t0ken"
 
 ok = True
@@ -73,10 +82,18 @@ from zxnu_workers import RE_OSP_ERROR            # noqa: E402
 class SeatFs:
     """One seat's SD card: dirs + path->bytes files, '/' separated,
     case-preserving. A leading 'c:' drive prefix is accepted and dropped -
-    the same forgiving path handling the Next-side commands have."""
+    the same forgiving path handling the Next-side commands have. ``crc``
+    False plays a listener that predates the 'K' crc op (dot < 5.9.2 /
+    ZXNR < 1.0.8): the worker's "no answer" failure, which the bridge
+    relays as 502 - the module's Verify() and PS-Send-ToNext.ps1 must then
+    fall back to the /sum read-back. ``crc`` "broken" plays the OTHER 502:
+    the listener knows the op but answers 'F' (the file did not open) for
+    every file, so the fallback must be worded as that, not as the
+    listener's age."""
 
-    def __init__(self, files):
+    def __init__(self, files, crc=True):
         self.files = dict(files)
+        self.crc = crc
         self.dirs = {"/", "/games", "/incoming", "/nextzxos", "/home"}
 
     @staticmethod
@@ -121,6 +138,22 @@ class SeatFs:
         if op == "put":
             self.files[self.norm(a1)] = bytes(body or b"")
             return {"ok": True}
+        if op == "crc":
+            # The bridge's /crc: rfsize first (served above), then the 'K'
+            # op - 'O' + 8 upper-case hex digits of the file's CRC-32, or
+            # the worker's failure (a directory or a missing file does not
+            # open on the Next; an old listener never answers) -> 502.
+            if self.crc is False:
+                return {"ok": False, "http": 502,
+                        "error": "crc failed (no answer: the file did not open, "
+                                 "or the listener predates .sync v5.9.2 / "
+                                 "ZXNR 1.0.8)"}
+            p = self.norm(a1)
+            if self.crc == "broken" or p in self.dirs or p not in self.files:
+                return {"ok": False, "http": 502,
+                        "error": "crc failed (the file did not open)"}
+            return {"ok": True, "path": a1,
+                    "crc32": "%08X" % (zlib.crc32(self.files[p]) & 0xffffffff)}
         if op == "mkdir":
             self.dirs.add(self.norm(a1))
             return {"ok": True}
@@ -171,12 +204,14 @@ class SeatFs:
 
 
 class PlainAdapter:
-    """Two seats with distinct filesystems; a stale sid answers 410."""
+    """Two seats with distinct filesystems; a stale sid answers 410. Seat 2's
+    listener predates the crc op (see SeatFs) so the driver can pin the
+    module's CRC-32 -> sum16 fallback next to seat 1's crc path."""
 
     def __init__(self):
         self.seats = {
             1: SeatFs({"/one.txt": b"seat one", "/games/boot.bas": b"ten chars!" * 5}),
-            2: SeatFs({"/two.txt": b"seat two"}),
+            2: SeatFs({"/two.txt": b"seat two"}, crc=False),
         }
         self.forceexits = 0
 
@@ -196,6 +231,28 @@ class PlainAdapter:
         if seat is None:
             return {"ok": False, "http": 410, "error": f"session {sid} is gone"}
         return seat.run(op, a1, a2, body=body)
+
+
+class SingleSeatAdapter:
+    """One seat (the active one, like a real single-Next bridge) whose /crc
+    always answers 502 - ``crc=False`` a listener that predates the op,
+    ``crc="broken"`` one whose 'K' meets 'F' - so a push can only be
+    verified the read-back way. Drives PS-Send-ToNext.ps1's two fallback
+    wordings end to end."""
+
+    def __init__(self, crc):
+        self.seat = SeatFs({"/one.txt": b"single seat"}, crc=crc)
+        self.forceexits = 0
+
+    def state(self):
+        return {"listening": True, "connected": True,
+                "current": "C", "drives": ["C"]}
+
+    def run(self, op, a1="", a2="", body=None, timeout=None, session=None):
+        if op == "forceexit":
+            self.forceexits += 1
+            return {"ok": True}
+        return self.seat.run(op, a1, a2, body=body)
 
 
 class OspAdapter:
@@ -251,10 +308,14 @@ def main():
     check("PS-Send-ToNext.ps1 exists", os.path.isfile(sender), sender)
 
     plain = PlainAdapter()
+    old = SingleSeatAdapter(crc=False)
+    broken = SingleSeatAdapter(crc="broken")
     bridges = [
         NextSyncHttpBridge(plain, port=PLAIN_PORT),
         NextSyncHttpBridge(PlainAdapter(), port=TOKEN_PORT, auth_token=TOKEN),
         NextSyncHttpBridge(OspAdapter(), port=OSP_PORT),
+        NextSyncHttpBridge(old, port=OLD_PORT),
+        NextSyncHttpBridge(broken, port=BROKEN_PORT),
     ]
     for b in bridges:
         okd, err = b.start()
@@ -301,6 +362,51 @@ def main():
         check("push: forceexit was broadcast", plain.forceexits == base + 1,
               plain.forceexits - base)
         check("push: reported verified", "SENT AND VERIFIED" in r.stdout)
+        # 1.1.0: the verdict comes from the CRC-32 the Next computed - the
+        # digest of the pushed bytes is named, and no /sum read-back ran.
+        want_crc = "%08X" % (zlib.crc32(payload) & 0xffffffff)
+        check("push: verified by the Next's CRC-32 (no read-back)",
+              f"CRC-32 {want_crc}" in r.stdout and "computed on the Next" in r.stdout
+              and "read back" not in r.stdout, r.stdout[-600:])
+
+        # ...and against a listener that predates the crc op the script
+        # falls back to Send-ToNext.ps1's size + sum16 read-back: still a
+        # real verdict (exit 0, bytes landed, forceexit), just the slow way,
+        # and it SAYS so.
+        cfg_old = os.path.join(tmp, "send-old.cfg")
+        with open(cfg_old, "w") as f:
+            f.write(f"bridge_ip = 127.0.0.1\nbridge_port = {OLD_PORT}\n"
+                    f"file = {build}\nremote_path = /home/incoming.nex\n"
+                    "forceexit_after_send = yes\nwait_timeout = 15\n")
+        r = run_ps(exe, sender, ["-Config", cfg_old])
+        check("old listener: exit 0 via the read-back fallback", r.returncode == 0,
+              f"exit {r.returncode}\n{r.stdout[-1500:]}\n{r.stderr[-500:]}")
+        check("old listener: the exact bytes landed",
+              old.seat.files.get("/home/incoming.nex") == payload)
+        check("old listener: fallback named, sum16 verdict, forceexit sent",
+              "predates the crc op" in r.stdout and "read back" in r.stdout
+              and "SENT AND VERIFIED" in r.stdout and old.forceexits == 1,
+              (r.stdout[-600:], old.forceexits))
+
+        # The OTHER /crc 502 - the listener knows the op but the file did
+        # not open for hashing: the script must not blame the listener's
+        # age (the bridge's own text is echoed instead), and the /sum
+        # read-back still settles the verdict.
+        cfg_broken = os.path.join(tmp, "send-broken.cfg")
+        with open(cfg_broken, "w") as f:
+            f.write(f"bridge_ip = 127.0.0.1\nbridge_port = {BROKEN_PORT}\n"
+                    f"file = {build}\nremote_path = /home/incoming.nex\n"
+                    "forceexit_after_send = yes\nwait_timeout = 15\n")
+        r = run_ps(exe, sender, ["-Config", cfg_broken])
+        check("broken crc: exit 0 via the read-back fallback", r.returncode == 0,
+              f"exit {r.returncode}\n{r.stdout[-1500:]}\n{r.stderr[-500:]}")
+        check("broken crc: the bridge's reason is echoed, not the listener's age",
+              "could not compute the CRC-32" in r.stdout
+              and "did not open" in r.stdout
+              and "predates the crc op" not in r.stdout
+              and "read back" in r.stdout and "SENT AND VERIFIED" in r.stdout
+              and broken.seat.files.get("/home/incoming.nex") == payload,
+              r.stdout[-600:])
 
         # -autoexec:Deploy - installs extra/autoexec.bas, does NOT push
         with open(os.path.join(REPO, "extra", "autoexec.bas"), "rb") as f:

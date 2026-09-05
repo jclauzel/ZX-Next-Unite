@@ -150,6 +150,41 @@ foreach ($b in $data) { $localSum += $b }
 Check 'Sum: size and sum16 as read back' `
     ($sum.Bytes -eq $data.Length -and $sum.Sum16 -eq ($localSum -band 0xFFFF)) ($sum | Out-String)
 Check 'Verify: true for an intact push' ($s1.Verify($push, '/incoming/push.bin'))
+
+# ---- CRC-32 (module 1.1.0): computed ON the Next, nothing pulled back -----
+$crc = $s1.Crc('/incoming/push.bin')
+Check 'Crc: 8 upper-case hex digits' ($crc.Crc32 -match '^[0-9A-F]{8}$') ($crc | Out-String)
+Check 'Crc: names the path' ($crc.Path -eq '/incoming/push.bin')
+Check 'LocalCrc32(bytes): the IEEE check vector 123456789 -> CBF43926' `
+    ($s1.LocalCrc32([System.Text.Encoding]::ASCII.GetBytes('123456789')) -eq 'CBF43926')
+Check 'LocalCrc32(bytes): empty -> 00000000' ($s1.LocalCrc32([byte[]]@()) -eq '00000000')
+Check 'LocalCrc32(file) equals LocalCrc32(bytes)' ($s1.LocalCrc32($push) -eq $s1.LocalCrc32($data))
+Check 'Crc on the Next equals the local digest' ($crc.Crc32 -eq $s1.LocalCrc32($data))
+Check 'VerifyCrc(file): true for an intact push' ($s1.VerifyCrc($push, '/incoming/push.bin'))
+Check 'VerifyCrc(bytes): true for the pushed bytes' ($s1.VerifyCrc($data, '/incoming/push.bin'))
+Check 'VerifyCrc(bytes): false for other bytes' `
+    (-not $s1.VerifyCrc([byte[]](1..100), '/incoming/push.bin'))
+Check 'VerifyCrc of a missing file -> NextRefused (never a silent $false)' `
+    ((Get-ThrownReason { $s1.VerifyCrc($data, '/incoming/no-such.bin') }) -eq 'NextRefused')
+Check 'Crc(dir entry) refuses locally' `
+    ((Get-ThrownReason { $s1.Crc(($s1.Ls('/') | Where-Object { $_.Dir } | Select-Object -First 1)) }) -eq 'BadRequest')
+Check 'Verify(bytes) overload: true for the pushed bytes' ($s1.Verify($data, '/incoming/push.bin'))
+Check 'Verify of a missing file throws NextRefused (fails both ways)' `
+    ((Get-ThrownReason { $s1.Verify($data, '/incoming/no-such.bin') }) -eq 'NextRefused')
+
+# Seat 2's listener predates the crc op (/crc answers 502): the strict
+# methods say so loudly, Verify() falls back to the sum16 read-back.
+[void]$s2.Put($data, '/old.bin')
+Check 'old listener: Crc -> NextRefused' ((Get-ThrownReason { $s2.Crc('/old.bin') }) -eq 'NextRefused')
+Check 'old listener: VerifyCrc -> NextRefused (strict: never a silent verdict)' `
+    ((Get-ThrownReason { $s2.VerifyCrc($data, '/old.bin') }) -eq 'NextRefused')
+Check 'old listener: Verify falls back to the sum16 read-back -> true' ($s2.Verify($data, '/old.bin'))
+Check 'old listener: the fallback still catches a difference' `
+    (-not $s2.Verify([byte[]](1..100), '/old.bin'))
+Check 'old listener: Verify of a missing file throws' `
+    ((Get-ThrownReason { $s2.Verify($data, '/no-such.bin') }) -eq 'NextRefused')
+[void]$s2.Rm('/old.bin')
+
 [System.IO.File]::WriteAllBytes($push, [byte[]](1..100))
 Check 'Verify: false once the local file differs' `
     (-not $s1.Verify($push, '/incoming/push.bin'))

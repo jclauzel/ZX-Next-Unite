@@ -27,6 +27,7 @@ import os
 import shlex
 import threading
 import queue
+import zlib
 
 assert sys.version_info >= (3, 6) # We need 3.6 for f"" strings.
 
@@ -544,8 +545,11 @@ LISTEN_HELP = """\
                                file name, its version read from a
                                zxnextremote-X.Y.Z folder name — and REQUIRES
                                an explicit [dir] (where the running .nex
-                               lives; c:/dot is the dot's default only). Both pull the
-                               staged copy back and byte-compare, release,
+                               lives; c:/dot is the dot's default only). Both
+                               verify the staged copy - its CRC-32 computed
+                               ON the Next when the listener answers the crc
+                               op (dot 5.9.2+ / ZXNR 1.0.8+), else pulled back
+                               and byte-compared - then release,
                                clear the .bak, swap with two renames, then
                                quit - marked for ZXNR, so the Next soft-
                                resets to NextZXOS (release first: an old
@@ -593,6 +597,22 @@ def _ver_at_least(s, floor):
     except ValueError:
         return False
     return v >= floor
+
+# Listener builds that answer the 'K' (crc) op, by 'version' ident type: the
+# .sync5 dot from v5.9.2, ZX Next Remote (httpbridge/n2n) from 1.0.8. A
+# hand-kept twin of zxnu_workers.RE_CRC_FLOORS - this script imports no app
+# module (see the OSP_MARK note above).
+CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8)}
+
+def _peer_answers_crc(ident):
+    """True when a cached 'version' answer ``(type, number)`` names a
+    listener that answers 'K'. None/False (never asked / unsupported), an
+    unknown type or an unparseable number => False: an older listener meets
+    'K' with silence, so it is never asked blind."""
+    if not ident:
+        return False
+    floor = CRC_FLOORS.get((ident[0] or "").strip().lower())
+    return floor is not None and _ver_at_least(ident[1] or "", floor)
 
 def _zxnr_staged_ver(path):
     """Version of a staged ZX Next Remote build, read from the CONTAINING
@@ -956,6 +976,35 @@ def _listen_session_inner(conn, stats, _test_commands=None):
     #                          file name every step path derives from
     #                          ("sync5" for the dot, the .nex name for ZXNR);
     #                          marked jobs end with the marked quit
+
+    def _upd_read_back():
+        # The update macro's read-back verify: pull the staged <base>.new
+        # back with 'G' and byte-compare it with what was sent, then chain
+        # the release or the cleanup failure. One wire command, so it
+        # answers the Poll it is called from - by updc_verify directly (a
+        # listener that predates the crc op) or via the updc_getback step
+        # (the fallback after a 'K' that gave no verdict).
+        got = bytearray()
+
+        def _hv(payload, _g=got):
+            o = payload[0:1]
+            if o == b'D':
+                _g.extend(payload[1:])
+            return o == b'B'
+        sendpacket(conn,
+                   b"G" + (upd_job['dir'] + "/" + upd_job['base']
+                           + ".new").encode(), 0)
+        if (_listen_recv_reply(conn, _hv) and
+                bytes(got) == upd_job['data']):
+            print(f'{timestamp()} | update: staged copy verified '
+                  f'({len(got)} bytes) - swapping it in')
+            upd_steps.append(("updc_release", "", ""))
+        else:
+            upd_steps.append(("updc_fail_rm",
+                              "the staged " + upd_job['base']
+                              + ".new read back different from what "
+                              "was sent", ""))
+
     while True:
         try:
             data = conn.recv(1024)
@@ -1181,7 +1230,9 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 # or a ZX Next Remote .nex, per the cached 'version' answer.
                 # The rest of the macro rides upd_steps, popped ahead of the
                 # console/bridge queue so nothing interleaves: put <base>.new
-                # -> read-back byte-compare -> 'U' release -> rm <base>.bak ->
+                # -> verify (the Next's CRC-32 via 'K' on a 5.9.2+/1.0.8+
+                # listener, else the read-back byte-compare) -> 'U' release
+                # -> rm <base>.bak ->
                 # ren <base>->bak -> ren new-><base> -> quit. The release
                 # comes BEFORE the .bak delete on purpose: a pre-5.9 dot (or
                 # pre-1.0.3 ZXNR) refuses 'U', and failing there deletes
@@ -1291,29 +1342,73 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 # the Next pulls the bytes with "Get" (served below); the
                 # completion paths chain updc_verify / updc_fail.
             elif op == "updc_verify":
-                # Update step 1: pull the staged file back and byte-compare -
-                # the wire checksums are per-block and in-flight only, and
-                # the next steps make this file the running build itself.
-                got = bytearray()
+                # Update step 1: prove what LANDED - the wire checksums are
+                # per-block and in-flight only, and the next steps make this
+                # file the running build itself. 9.7.5: a listener that
+                # answers the crc op (dot 5.9.2+ / ZXNR 1.0.8+, per the
+                # cached 'version' answer the verb was gated on) is asked for
+                # the staged file's CRC-32 ('K') and it is compared with
+                # zlib.crc32 of the bytes sent - 8 hex digits travel, not the
+                # file. Only a DEFINITE answer decides here: equal digests
+                # swap, different ones fail with cleanup, an OS-protected
+                # read fails naming the protection; silence, a plain 'F' or a
+                # malformed digest prove nothing either way and drop to the
+                # pull-back byte-compare (updc_getback), which an older
+                # listener takes directly. The Next answers nothing while it
+                # hashes; the conn is blocking, so the wait is just long
+                # (the console crc verb's own rule).
+                remote_new = upd_job['dir'] + "/" + upd_job['base'] + ".new"
+                if not _peer_answers_crc(_listen_state.get('ident')):
+                    _upd_read_back()                # answers this Poll
+                    continue
+                want = "%08X" % (zlib.crc32(upd_job['data']) & 0xffffffff)
+                res = {'crc32': '', 'fail': False, 'osp': False}
 
-                def _hv(payload, _g=got):
+                def _hk(payload, _r=res):
                     o = payload[0:1]
-                    if o == b'D':
-                        _g.extend(payload[1:])
-                    return o == b'B'
-                sendpacket(conn,
-                           b"G" + (upd_job['dir'] + "/" + upd_job['base']
-                                   + ".new").encode(), 0)
-                if (_listen_recv_reply(conn, _hv) and
-                        bytes(got) == upd_job['data']):
-                    print(f'{timestamp()} | update: staged copy verified '
-                          f'({len(got)} bytes) - swapping it in')
-                    upd_steps.append(("updc_release", "", ""))
-                else:
+                    if o == b'O' and len(payload) >= 9:
+                        _r['crc32'] = payload[1:9].decode(errors='replace').upper()
+                    elif o == b'F':
+                        _r['fail'] = True
+                        _r['osp'] = _is_osp(payload)
+                    return True
+                sendpacket(conn, b"K" + remote_new.encode(), 0)
+                got_k = _listen_recv_reply(conn, _hk)
+                digest = res['crc32']
+                if (got_k and len(digest) == 8
+                        and all(c in "0123456789ABCDEF" for c in digest)):
+                    if digest == want:
+                        print(f'{timestamp()} | update: staged copy verified by '
+                              f'CRC-32 {digest} ({len(upd_job["data"])} bytes) '
+                              '- swapping it in')
+                        upd_steps.append(("updc_release", "", ""))
+                    else:
+                        upd_steps.append(("updc_fail_rm",
+                                          "the staged " + upd_job['base']
+                                          + ".new's CRC-32 on the Next ("
+                                          + digest + ") differs from what was "
+                                          "sent (" + want + ")", ""))
+                elif res['osp']:
                     upd_steps.append(("updc_fail_rm",
-                                      "the staged " + upd_job['base']
-                                      + ".new read back different from what "
-                                      "was sent", ""))
+                                      "the far side's OS protection refused "
+                                      "reading back the staged "
+                                      + upd_job['base'] + ".new (Settings on "
+                                      "the Next)", ""))
+                else:
+                    if res['fail']:
+                        why = "the staged file did not open for the crc op"
+                    elif got_k:
+                        why = "malformed digest from the Next"
+                    else:
+                        why = "no answer to the crc op"
+                    print(f'{timestamp()} | update: {why} - reading the staged '
+                          'copy back instead')
+                    upd_steps.append(("updc_getback", "", ""))
+            elif op == "updc_getback":
+                # Update step 1, the read-back way: pull the staged file back
+                # and byte-compare (listeners that predate the crc op, and the
+                # fallback when 'K' gave no verdict - see updc_verify).
+                _upd_read_back()
             elif op == "updc_release":
                 # Update step 2: 'U' - the far side closes the OS's own read
                 # handle on its file (the renames FAIL while it is open,
@@ -1803,7 +1898,7 @@ def _start_http_bridge(port):
     if ok:
         print(f"{timestamp()} | HTTP bridge on port {port}: /status "
               "/sessions /drives /free /ls /get /put /mkdir /rmdir /rmtree "
-              "/rm /ren /rcpy /rfsize /sum /version-type /version-number /forceexit")
+              "/rm /ren /rcpy /rfsize /sum /crc /version-type /version-number /forceexit")
         if opt_verbose:
             print(f"{timestamp()} | HTTP bridge: -v request/response logging "
                   "is ON")
@@ -2181,7 +2276,7 @@ for x in sys.argv[1:]:
         -w  - Start the NextSync HTTP bridge web server (Flask) on port 80:
               it republishes the -listen session as HTTP routes (/status
               /sessions /drives /free /ls /get /put /mkdir /rmdir /rmtree
-              /rm /ren /rcpy /rfsize /sum /version-type
+              /rm /ren /rcpy /rfsize /sum /crc /version-type
               /version-number /forceexit),
               so a Next running the built-in .http dot command - or curl -
               can drive the connected Next's file system. Port 80 is .http's

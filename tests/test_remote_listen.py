@@ -254,6 +254,8 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
                 push(b'F', 0)
             elif arg_np.startswith("/ospread"):
                 push(b'FOSP', 0)             # ZXNR read-side OS protection
+            elif arg_np.startswith("/malformed"):
+                push(b'O1234', 0)            # well-framed, not 8 hex digits
             elif arg_np.startswith("/die"):
                 sock.close(); break          # the link drops mid-check
             elif arg in cap.get('files', {}):
@@ -294,18 +296,24 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
                 push(b'D', 1)
                 push(b'O', 2)
 
-def mock_update_next(sock, ops, staged, scenario, verify_bytes):
+def mock_update_next(sock, ops, staged, scenario, verify_bytes,
+                     ident=b'Osync' + bytes([0]) + b'9.9.9', k_mode="ok"):
     """Play the dot's half of an ("update_dot", ...) macro session. Records
     every command the wire carries into ``ops`` as (op, arg) — 'I' idle
     answers excluded, they are the worker saying "nothing queued" — and each
     staging put into ``staged`` as (path, bytes). ``verify_bytes`` is what
-    the 'G' read-back verify serves (the corrupt scenario hands back
-    something other than what was staged); ``scenario`` == "no_release"
-    refuses the 'U' handle-release with 'F' (a pre-5.9 dot),
-    "ren1_refuse" answers the first rename's 'V' with 'F', "ren1_osp"
-    answers it with the marked 'F'+"OSP" (ZXNR's OS protection), and the
-    two "kill_after_*" scenarios drop the link right after acking the 'U' /
-    the first 'V' (a session dying mid-macro)."""
+    the Next "holds" after the staging put: the 'K' crc verify answers its
+    CRC-32 and the 'G' read-back verify serves it (the corrupt scenarios hand
+    back something other than what was staged). ``ident`` is the 'Y' answer
+    (None = a pre-5.8 listener that ignores the opcode and re-polls; the
+    default names a crc-capable dot) and ``k_mode`` how a 'K' is met: "ok"
+    (the digest), "F" (the file did not open), "osp" (the marked read
+    refusal) or "silent" (ignored, re-poll — a listener that predates the
+    op). ``scenario`` == "no_release" refuses the 'U' handle-release with
+    'F' (a pre-5.9 dot), "ren1_refuse" answers the first rename's 'V' with
+    'F', "ren1_osp" answers it with the marked 'F'+"OSP" (ZXNR's OS
+    protection), and the two "kill_after_*" scenarios drop the link right
+    after acking the 'U' / the first 'V' (a session dying mid-macro)."""
     sock.sendall(b"Listen")
     assert rx_payload(sock) == b"Listening"
     def push(payload, pkt):
@@ -340,6 +348,24 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes):
                 if not d: break
                 buf += d
             staged.append((arg, buf))
+        elif op == b'Y':
+            # The ident the verify step gates its 'K' on (asked once, since
+            # nobody else did in these scenarios).
+            if ident is None:
+                continue                     # a pre-5.8 listener ignores 'Y' and re-polls
+            push(ident, 0)
+        elif op == b'K':
+            # The crc verify (9.7.5): the CRC-32 of what the Next holds.
+            if k_mode == "silent":
+                continue                     # a listener that ignores 'K' re-polls
+            if k_mode == "F":
+                push(b'F', 0)
+            elif k_mode == "osp":
+                push(b'FOSP', 0)
+            elif k_mode == "malformed":
+                push(b'O1234', 0)            # well-framed, but not 8 hex digits
+            else:
+                push(b'O' + ("%08X" % (zlib.crc32(verify_bytes) & 0xffffffff)).encode(), 0)
         elif op == b'G':
             # The read-back verify pull: 'D' data blocks then the 'B' end.
             pkt = 0
@@ -370,14 +396,17 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes):
         else:
             push(b'F', 0)                # unexpected op: refuse loudly
 
-def run_update_scenario(port, cmds, scenario, verify_bytes):
+def run_update_scenario(port, cmds, scenario, verify_bytes,
+                        ident=b'Osync' + bytes([0]) + b'9.9.9', k_mode="ok"):
     """Fresh worker + mock Next for one update_dot scenario. Returns
-    (ops, staged, upd, puts): the wire ops seen, the staged put(s), every
-    dot_update emission and every (stray) put_done emission."""
+    (ops, staged, upd, puts, logs): the wire ops seen, the staged put(s),
+    every dot_update emission, every (stray) put_done emission and the log
+    lines. ``ident``/``k_mode`` reach :func:`mock_update_next`."""
     sig = RemoteExplorerSignals()
-    upd, puts = [], []
+    upd, puts, logs = [], [], []
     sig.dot_update.connect(lambda okf, msg: upd.append((okf, msg)), Qt.DirectConnection)
     sig.put_done.connect(lambda okf, r: puts.append((okf, r)), Qt.DirectConnection)
+    sig.log.connect(lambda s: logs.append(s), Qt.DirectConnection)
     q = queue.Queue()
     for c in cmds:
         q.put(c)
@@ -392,10 +421,11 @@ def run_update_scenario(port, cmds, scenario, verify_bytes):
     ops, staged = [], []
     s = socket.create_connection(("127.0.0.1", port), timeout=5)
     try:
-        mock_update_next(s, ops, staged, scenario, verify_bytes)
+        mock_update_next(s, ops, staged, scenario, verify_bytes,
+                         ident=ident, k_mode=k_mode)
     finally:
         stop.set(); t.join(timeout=5); s.close()
-    return ops, staged, upd, puts
+    return ops, staged, upd, puts, logs
 
 def run_verify_scenario(port, cmds, cap=None, verify=lambda: True):
     """Fresh worker + mock_next for one verify-after-put scenario (9.7.3).
@@ -782,45 +812,192 @@ def main():
     upd_file = os.path.join(tmp, "sync5.bin")
     open(upd_file, "wb").write(upd_blob)
 
-    # Happy path: stage put -> read-back verify -> 'U' release -> rm
-    # sync5.bak ('F' = missing, must NOT abort) -> the two renames -> the
-    # macro's own TARGETED quit — in that exact order, every path fully
-    # qualified under the given remote dir. The 'U' comes BEFORE the .bak
-    # delete on purpose: a pre-5.9 dot refuses it, and failing there must
-    # leave nothing of the user's deleted. dot_update fires once with
-    # ok=True; the staging put must never leak a put_done.
-    ops, staged, upd, puts = run_update_scenario(
+    # Happy path (9.7.5: the crc verify): stage put -> 'Y' ident (nobody
+    # asked yet) -> 'K' crc of the staged file, compared with zlib.crc32 of
+    # the bytes served -> 'U' release -> rm sync5.bak ('F' = missing, must
+    # NOT abort) -> the two renames -> the macro's own TARGETED quit — in
+    # that exact order, every path fully qualified under the given remote
+    # dir, and NO 'G': the file never comes back over the wire. The 'U'
+    # comes BEFORE the .bak delete on purpose: a pre-5.9 dot refuses it,
+    # and failing there must leave nothing of the user's deleted.
+    # dot_update fires once with ok=True; the staging put must never leak
+    # a put_done.
+    upd_crc = "%08X" % (zlib.crc32(upd_blob) & 0xffffffff)
+    upd_bad_blob = upd_blob[:-1] + bytes([upd_blob[-1] ^ 0xFF])
+    upd_bad_crc = "%08X" % (zlib.crc32(upd_bad_blob) & 0xffffffff)
+    ops, staged, upd, puts, logs = run_update_scenario(
         PORT + 3, [("update_dot", upd_file, "c:/dot", "5.9.0")],
         "ok", upd_blob)
     want_ops = [('P', "c:/dot/sync5.new"),
-                ('G', "c:/dot/sync5.new"),
+                ('Y', ""),
+                ('K', "c:/dot/sync5.new"),
                 ('U', ""),
                 ('X', "c:/dot/sync5.bak"),
                 ('V', "c:/dot/sync5\x00c:/dot/sync5.bak"),
                 ('V', "c:/dot/sync5.new\x00c:/dot/sync5"),
                 ('Q', "")]
     if (ops == want_ops and staged == [("c:/dot/sync5.new", upd_blob)]
-            and len(upd) == 1 and upd[0][0] and not puts):
-        print("PASS updot: staged+verified+swapped in order, dot_update(True) once")
+            and len(upd) == 1 and upd[0][0] and not puts
+            and any(f"verified by CRC-32 {upd_crc} ({len(upd_blob)} bytes)" in ln
+                    for ln in logs)):
+        print("PASS updot: staged, crc-verified (Y, K, no G), swapped in order, "
+              "dot_update(True) once")
     else:
         print("FAIL updot: ops=", ops, "staged=",
-              [(p, len(b)) for p, b in staged], "upd=", upd, "puts=", puts)
+              [(p, len(b)) for p, b in staged], "upd=", upd, "puts=", puts,
+              "logs=", logs)
         ok = False
 
-    # Verify mismatch: the staged copy reads back corrupted. The macro must
-    # clean up the stage (rm sync5.new), never send the 'U' release — the
-    # dot's file handle stays untouched — and report dot_update(ok=False).
-    # The trailing 'Q' is the follow-up ("quit",), not the macro's.
-    ops, staged, upd, puts = run_update_scenario(
+    # Verify mismatch: the Next's CRC-32 of the staged copy differs from the
+    # digest of what was sent. The macro must clean up the stage (rm
+    # sync5.new), never send the 'U' release — the dot's file handle stays
+    # untouched — never fall back to a read-back (a DIFFERENT digest is a
+    # verdict, not a doubt), and report dot_update(ok=False) naming both
+    # digests. The trailing 'Q' is the follow-up ("quit",), not the macro's.
+    ops, staged, upd, puts, logs = run_update_scenario(
         PORT + 4, [("update_dot", upd_file, "c:/dot", "5.9.0"), ("quit",)],
-        "ok", upd_blob[:-1] + bytes([upd_blob[-1] ^ 0xFF]))
-    if (ops == [('P', "c:/dot/sync5.new"), ('G', "c:/dot/sync5.new"),
+        "ok", upd_bad_blob)
+    if (ops == [('P', "c:/dot/sync5.new"), ('Y', ""), ('K', "c:/dot/sync5.new"),
                 ('X', "c:/dot/sync5.new"), ('Q', "")]
-            and not any(o == 'U' for o, _a in ops)
-            and len(upd) == 1 and not upd[0][0] and not puts):
-        print("PASS updot-corrupt: cleanup rm, no 'U', dot_update(False)")
+            and not any(o in ('U', 'G') for o, _a in ops)
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and "CRC-32" in upd[0][1] and upd_crc in upd[0][1]
+            and upd_bad_crc in upd[0][1]):
+        print("PASS updot-corrupt: crc mismatch -> cleanup rm, no 'U', no 'G', "
+              "dot_update(False) names both digests")
     else:
         print("FAIL updot-corrupt: ops=", ops, "upd=", upd, "puts=", puts)
+        ok = False
+
+    # The read-back path, still the ONLY one for a listener that predates
+    # the crc op (a pre-5.9.2 dot: the common case when the dot being
+    # updated is old). The 'Y' answer gates it: 'G' pulls the staged copy
+    # back and byte-compares, the wire never carries a 'K'.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 30, [("update_dot", upd_file, "c:/dot", "5.9.0")],
+        "ok", upd_blob, ident=b'Osync' + bytes([0]) + b'5.8.0')
+    if (ops == [('P', "c:/dot/sync5.new"), ('Y', ""), ('G', "c:/dot/sync5.new"),
+                ('U', ""), ('X', "c:/dot/sync5.bak"),
+                ('V', "c:/dot/sync5\x00c:/dot/sync5.bak"),
+                ('V', "c:/dot/sync5.new\x00c:/dot/sync5"), ('Q', "")]
+            and len(upd) == 1 and upd[0][0] and not puts
+            and any(f"staged copy verified ({len(upd_blob)} bytes)" in ln
+                    for ln in logs)
+            and not any("CRC-32" in ln for ln in logs)):
+        print("PASS updot-old: dot 5.8.0 -> no 'K', 'G' read-back, swapped, "
+              "dot_update(True)")
+    else:
+        print("FAIL updot-old: ops=", ops, "upd=", upd, "puts=", puts,
+              "logs=", logs)
+        ok = False
+
+    # ...and its mismatch: the read-back differs -> cleanup rm, no 'U', the
+    # historical "read back different" wording.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 31, [("update_dot", upd_file, "c:/dot", "5.9.0"), ("quit",)],
+        "ok", upd_bad_blob, ident=b'Osync' + bytes([0]) + b'5.8.0')
+    if (ops == [('P', "c:/dot/sync5.new"), ('Y', ""), ('G', "c:/dot/sync5.new"),
+                ('X', "c:/dot/sync5.new"), ('Q', "")]
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and "read back different" in upd[0][1]):
+        print("PASS updot-oldcorrupt: read-back mismatch -> cleanup rm, no 'U', "
+              "dot_update(False)")
+    else:
+        print("FAIL updot-oldcorrupt: ops=", ops, "upd=", upd, "puts=", puts)
+        ok = False
+
+    # A listener that ignores 'Y' altogether (pre-5.8): the ident probe
+    # comes back empty, so the gate says "no crc" and the read-back runs.
+    # The stray raw Poll the ignored 'Y' leaves behind must not derail the
+    # macro (the loop's catch-all idle answer eats it).
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 32, [("update_dot", upd_file, "c:/dot", "5.9.0")],
+        "ok", upd_blob, ident=None)
+    if (ops == [('P', "c:/dot/sync5.new"), ('Y', ""), ('G', "c:/dot/sync5.new"),
+                ('U', ""), ('X', "c:/dot/sync5.bak"),
+                ('V', "c:/dot/sync5\x00c:/dot/sync5.bak"),
+                ('V', "c:/dot/sync5.new\x00c:/dot/sync5"), ('Q', "")]
+            and len(upd) == 1 and upd[0][0] and not puts):
+        print("PASS updot-noY: silent 'Y' -> read-back path, swapped, "
+              "dot_update(True)")
+    else:
+        print("FAIL updot-noY: ops=", ops, "upd=", upd, "puts=", puts)
+        ok = False
+
+    # 'K' met with a plain 'F' (the staged file did not open for the crc
+    # op): no verdict either way, so the macro drops to the read-back —
+    # which here serves the right bytes, and the update completes.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 33, [("update_dot", upd_file, "c:/dot", "5.9.0")],
+        "ok", upd_blob, k_mode="F")
+    if (ops == [('P', "c:/dot/sync5.new"), ('Y', ""), ('K', "c:/dot/sync5.new"),
+                ('G', "c:/dot/sync5.new"), ('U', ""), ('X', "c:/dot/sync5.bak"),
+                ('V', "c:/dot/sync5\x00c:/dot/sync5.bak"),
+                ('V', "c:/dot/sync5.new\x00c:/dot/sync5"), ('Q', "")]
+            and len(upd) == 1 and upd[0][0] and not puts
+            and any("did not open for the crc op" in ln
+                    and "reading the staged copy back instead" in ln
+                    for ln in logs)):
+        print("PASS updot-kF: 'F' on K -> read-back fallback, swapped, "
+              "dot_update(True)")
+    else:
+        print("FAIL updot-kF: ops=", ops, "upd=", upd, "puts=", puts,
+              "logs=", logs)
+        ok = False
+
+    # 'K' ignored by a listener whose ident CLAIMED the op (its raw re-poll
+    # fails the block parse at once — no wait paid): same fallback.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 34, [("update_dot", upd_file, "c:/dot", "5.9.0")],
+        "ok", upd_blob, k_mode="silent")
+    if (ops == [('P', "c:/dot/sync5.new"), ('Y', ""), ('K', "c:/dot/sync5.new"),
+                ('G', "c:/dot/sync5.new"), ('U', ""), ('X', "c:/dot/sync5.bak"),
+                ('V', "c:/dot/sync5\x00c:/dot/sync5.bak"),
+                ('V', "c:/dot/sync5.new\x00c:/dot/sync5"), ('Q', "")]
+            and len(upd) == 1 and upd[0][0] and not puts
+            and any("no answer to the crc op" in ln for ln in logs)):
+        print("PASS updot-ksilent: ignored K -> read-back fallback, swapped, "
+              "dot_update(True)")
+    else:
+        print("FAIL updot-ksilent: ops=", ops, "upd=", upd, "puts=", puts,
+              "logs=", logs)
+        ok = False
+
+    # 'K' refused by the far side's OS protection (the marked 'F'+"OSP"):
+    # a definite refusal, not a doubt — cleanup rm (which the same
+    # protection may refuse; the macro reports regardless), no 'U', no
+    # read-back, and the verdict NAMES the protection.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 35, [("update_dot", upd_file, "c:/dot", "5.9.0"), ("quit",)],
+        "ok", upd_blob, k_mode="osp")
+    if (ops == [('P', "c:/dot/sync5.new"), ('Y', ""), ('K', "c:/dot/sync5.new"),
+                ('X', "c:/dot/sync5.new"), ('Q', "")]
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and "OS protection" in upd[0][1]):
+        print("PASS updot-kosp: 'F'+OSP on K -> cleanup, no 'U'/'G', verdict "
+              "names the OS protection")
+    else:
+        print("FAIL updot-kosp: ops=", ops, "upd=", upd, "puts=", puts)
+        ok = False
+
+    # A well-framed 'O' whose digest is not 8 hex digits proves nothing
+    # either way: the read-back fallback, "malformed" named in the log.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 37, [("update_dot", upd_file, "c:/dot", "5.9.0")],
+        "ok", upd_blob, k_mode="malformed")
+    if (ops == [('P', "c:/dot/sync5.new"), ('Y', ""), ('K', "c:/dot/sync5.new"),
+                ('G', "c:/dot/sync5.new"), ('U', ""), ('X', "c:/dot/sync5.bak"),
+                ('V', "c:/dot/sync5\x00c:/dot/sync5.bak"),
+                ('V', "c:/dot/sync5.new\x00c:/dot/sync5"), ('Q', "")]
+            and len(upd) == 1 and upd[0][0] and not puts
+            and any("malformed digest from the Next" in ln
+                    and "reading the staged copy back instead" in ln
+                    for ln in logs)):
+        print("PASS updot-kmalformed: malformed digest -> read-back fallback, "
+              "swapped, dot_update(True)")
+    else:
+        print("FAIL updot-kmalformed: ops=", ops, "upd=", upd, "puts=", puts,
+              "logs=", logs)
         ok = False
 
     # Release refused: a pre-5.9 dot answers the 'U' with 'F'. Because the
@@ -830,10 +1007,10 @@ def main():
     # never attempts a rename, and the session SURVIVES (release failure
     # means not released): the trailing 'Q' is the follow-up ("quit",),
     # served after the macro reported dot_update(ok=False).
-    ops, staged, upd, puts = run_update_scenario(
+    ops, staged, upd, puts, logs = run_update_scenario(
         PORT + 5, [("update_dot", upd_file, "c:/dot", "5.9.0"), ("quit",)],
         "no_release", upd_blob)
-    if (ops == [('P', "c:/dot/sync5.new"), ('G', "c:/dot/sync5.new"),
+    if (ops == [('P', "c:/dot/sync5.new"), ('Y', ""), ('K', "c:/dot/sync5.new"),
                 ('U', ""), ('X', "c:/dot/sync5.new"), ('Q', "")]
             and ('X', "c:/dot/sync5.bak") not in ops
             and not any(o == 'V' for o, _a in ops)
@@ -850,11 +1027,11 @@ def main():
     # dot_update(ok=False) (the "nothing swapped" wording, no mid-swap
     # scare) and end the session itself with a targeted 'Q': the queued
     # follow-up rm must never be served.
-    ops, staged, upd, puts = run_update_scenario(
+    ops, staged, upd, puts, logs = run_update_scenario(
         PORT + 7, [("update_dot", upd_file, "c:/dot", "5.9.0"),
                    ("rm", "/never.txt")],
         "ren1_refuse", upd_blob)
-    if (ops == [('P', "c:/dot/sync5.new"), ('G', "c:/dot/sync5.new"),
+    if (ops == [('P', "c:/dot/sync5.new"), ('Y', ""), ('K', "c:/dot/sync5.new"),
                 ('U', ""), ('X', "c:/dot/sync5.bak"),
                 ('V', "c:/dot/sync5\x00c:/dot/sync5.bak"), ('Q', "")]
             and ('X', "/never.txt") not in ops
@@ -871,10 +1048,10 @@ def main():
     # then drops the link. The loop never reaches a terminal arm, so the
     # finally block must emit the exactly-once dot_update(False) — with
     # the "nothing swapped" wording, since no 'V' ever went out.
-    ops, staged, upd, puts = run_update_scenario(
+    ops, staged, upd, puts, logs = run_update_scenario(
         PORT + 8, [("update_dot", upd_file, "c:/dot", "5.9.0")],
         "kill_after_u", upd_blob)
-    if (ops == [('P', "c:/dot/sync5.new"), ('G', "c:/dot/sync5.new"),
+    if (ops == [('P', "c:/dot/sync5.new"), ('Y', ""), ('K', "c:/dot/sync5.new"),
                 ('U', "")]
             and len(upd) == 1 and not upd[0][0]
             and "may be missing" not in upd[0][1] and not puts):
@@ -888,10 +1065,10 @@ def main():
     # the link. The finally block owes the one dot_update(False) and it
     # must carry the mid-swap recovery wording (a 'V' HAD been sent, so
     # the card's state is unknown and .bak is the way back).
-    ops, staged, upd, puts = run_update_scenario(
+    ops, staged, upd, puts, logs = run_update_scenario(
         PORT + 9, [("update_dot", upd_file, "c:/dot", "5.9.0")],
         "kill_after_ren1", upd_blob)
-    if (ops == [('P', "c:/dot/sync5.new"), ('G', "c:/dot/sync5.new"),
+    if (ops == [('P', "c:/dot/sync5.new"), ('Y', ""), ('K', "c:/dot/sync5.new"),
                 ('U', ""), ('X', "c:/dot/sync5.bak"),
                 ('V', "c:/dot/sync5\x00c:/dot/sync5.bak")]
             and len(upd) == 1 and not upd[0][0]
@@ -907,7 +1084,7 @@ def main():
     # moves. The only wire op is the follow-up quit's 'Q'.
     nb_file = os.path.join(tmp, "not-sync5.bin")
     open(nb_file, "wb").write(b"something else entirely")
-    ops, staged, upd, puts = run_update_scenario(
+    ops, staged, upd, puts, logs = run_update_scenario(
         PORT + 6, [("update_dot", nb_file, "c:/dot", "5.9.0"), ("quit",)],
         "ok", upd_blob)
     if (ops == [('Q', "")] and not staged
@@ -925,26 +1102,43 @@ def main():
     # literals sit apart in the binary), the 'U' release is answered 'O',
     # and the macro's final quit is the MARKED one ('Q'+'X') — the .nex
     # saves its settings and soft-resets the Next into NextZXOS, where the
-    # swapped build relaunches.
+    # swapped build relaunches. A ZXNR 1.0.8 listener answers 'K', so the
+    # verify is the crc one.
     zx_blob = (b"Next\x00" + bytes(range(256)) * 5
                + b"ZXNextRemote\x00" + b"9.9.9\x00tail")
     zx_file = os.path.join(tmp, "zxnextremote-n2n.nex")
     open(zx_file, "wb").write(zx_blob)
-    ops, staged, upd, puts = run_update_scenario(
+    ops, staged, upd, puts, logs = run_update_scenario(
         PORT + 10, [("update_dot", zx_file, "c:/apps", "9.9.9",
                      "zxnextremote-n2n.nex", "ZXNextRemote", True)],
-        "ok", zx_blob)
+        "ok", zx_blob, ident=b'On2n' + bytes([0]) + b'1.0.8')
     zb = "c:/apps/zxnextremote-n2n.nex"
-    if (ops == [('P', zb + ".new"), ('G', zb + ".new"), ('U', ""),
+    if (ops == [('P', zb + ".new"), ('Y', ""), ('K', zb + ".new"), ('U', ""),
                 ('X', zb + ".bak"), ('V', zb + "\x00" + zb + ".bak"),
                 ('V', zb + ".new\x00" + zb), ('Q', "X")]
             and staged == [(zb + ".new", zx_blob)]
             and len(upd) == 1 and upd[0][0]
             and "soft-reset" in upd[0][1] and not puts):
-        print("PASS updot-zxnr: .nex-base paths, 'U' ok, marked quit "
-              "('Q'+'X'), dot_update(True) once")
+        print("PASS updot-zxnr: .nex-base paths, crc verify, 'U' ok, marked "
+              "quit ('Q'+'X'), dot_update(True) once")
     else:
         print("FAIL updot-zxnr: ops=", ops, "upd=", upd, "puts=", puts)
+        ok = False
+
+    # ...a ZXNR 1.0.7 listener predates the crc op: the read-back path,
+    # everything else identical (marked quit included).
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 36, [("update_dot", zx_file, "c:/apps", "9.9.9",
+                     "zxnextremote-n2n.nex", "ZXNextRemote", True)],
+        "ok", zx_blob, ident=b'Ohttpbridge' + bytes([0]) + b'1.0.7')
+    if (ops == [('P', zb + ".new"), ('Y', ""), ('G', zb + ".new"), ('U', ""),
+                ('X', zb + ".bak"), ('V', zb + "\x00" + zb + ".bak"),
+                ('V', zb + ".new\x00" + zb), ('Q', "X")]
+            and len(upd) == 1 and upd[0][0] and not puts):
+        print("PASS updot-zxnrold: ZXNR 1.0.7 -> read-back verify, marked quit, "
+              "dot_update(True)")
+    else:
+        print("FAIL updot-zxnrold: ops=", ops, "upd=", upd, "puts=", puts)
         ok = False
 
     # ...and a first rename the far side's OS PROTECTION refuses (the
@@ -952,10 +1146,10 @@ def main():
     # nothing moved, but the verdict must NAME the protection, or the user
     # hunts a phantom SD error. Post-'U' discipline still ends the session
     # with a targeted quit — PLAIN 'Q', failure quits are never marked.
-    ops, staged, upd, puts = run_update_scenario(
+    ops, staged, upd, puts, logs = run_update_scenario(
         PORT + 11, [("update_dot", zx_file, "c:/apps", "9.9.9",
                      "zxnextremote-n2n.nex", "ZXNextRemote", True)],
-        "ren1_osp", zx_blob)
+        "ren1_osp", zx_blob, ident=b'On2n' + bytes([0]) + b'1.0.8')
     if (ops[-2:] == [('V', zb + "\x00" + zb + ".bak"), ('Q', "")]
             and len(upd) == 1 and not upd[0][0]
             and "OS protection" in upd[0][1]
@@ -1047,6 +1241,20 @@ def main():
     else:
         print("FAIL vcrc-F: ops=", vcap.get('ops'), "puts=", puts, "reds=", reds,
               "logs=", logs); ok = False
+
+    # E2: a well-framed 'O' whose digest is not 8 hex digits is doubt too -
+    # the digest-shape guard, never exercised before 9.7.5.
+    vcap, ev = run_verify_scenario(PORT + 38, [("put", putfile, "/malformed/up.bin"), ("quit",)])
+    puts, reds, logs = _split(ev)
+    if (vcap.get('ops') == [('P', '/malformed/up.bin'), ('Y', ''),
+                            ('K', '/malformed/up.bin'), ('Q', '')]
+            and puts == [(True, '/malformed/up.bin')] and reds == []
+            and any("not verified" in ln and "malformed digest" in ln for ln in logs)):
+        print("PASS vcrc-malformed: short digest on K -> not verified, file kept, "
+              "put_done(True), no X")
+    else:
+        print("FAIL vcrc-malformed: ops=", vcap.get('ops'), "puts=", puts,
+              "reds=", reds, "logs=", logs); ok = False
 
     # F: 'F'+OSP on 'K' (read-side OS protection) - same shape, named.
     vcap, ev = run_verify_scenario(PORT + 17, [("put", putfile, "/ospread/up.bin"), ("quit",)])

@@ -490,8 +490,8 @@ CATALOGS = {
         "Could not obtain the ZX Next Remote build to send: {reason}":
             "No se pudo obtener la compilación de ZX Next Remote a enviar: {reason}",
         ("Update ZX Next Remote on {machine}: v{old} → v{new}.\n\nThe new "
-         "build is staged on the Next's SD card, read back and verified, "
-         "then swapped in; the previous build is kept next to it with a "
+         "build is staged on the Next's SD card, verified, then swapped "
+         "in; the previous build is kept next to it with a "
          ".bak ending (renaming it back is the one-step recovery). The "
          "Next's OS protection (on by default over apps/, dot/ and sys/) "
          "refuses the swap inside a protected folder — the failure "
@@ -500,7 +500,7 @@ CATALOGS = {
          "of the .nex on the Next:"):
             ("Actualizar ZX Next Remote en {machine}: v{old} → "
              "v{new}.\n\nLa nueva compilación se prepara en la tarjeta SD "
-             "del Next, se relee y verifica, y después se sustituye; la "
+             "del Next, se verifica y después se sustituye; la "
              "compilación anterior se conserva a su lado con la "
              "terminación .bak (renombrarla de nuevo es la recuperación "
              "en un paso). La protección del sistema del Next (activada "
@@ -1006,6 +1006,8 @@ CATALOGS = {
             "Actualización remota de {name}: preparando {path} ({size} bytes)…",
         "Remote {name} update: staged copy verified ({size} bytes) — swapping it in…":
             "Actualización remota de {name}: copia preparada verificada ({size} bytes) — sustituyéndola…",
+        "Remote {name} update: staged copy verified by CRC-32 {crc} ({size} bytes) — swapping it in…":
+            "Actualización remota de {name}: copia preparada verificada por CRC-32 {crc} ({size} bytes) — sustituyéndola…",
         "Remote {name} update FAILED mid-swap: the Next may be missing {target}. If it no longer starts, rename {backup} back to {file} in the NextZXOS Browser (the staged {staged} can be deleted).":
             "Actualización remota de {name} FALLIDA en plena sustitución: puede que el Next no tenga {target}. Si ya no arranca, renombra {backup} de nuevo a {file} en el Browser de NextZXOS (el {staged} preparado puede borrarse).",
         "Remote {name} update complete: {version} is on the card. The session will now close — run {command} on the Next to start the new build.":
@@ -1769,8 +1771,8 @@ CATALOGS = {
         "Could not obtain the ZX Next Remote build to send: {reason}":
             "Não foi possível obter a compilação do ZX Next Remote a enviar: {reason}",
         ("Update ZX Next Remote on {machine}: v{old} → v{new}.\n\nThe new "
-         "build is staged on the Next's SD card, read back and verified, "
-         "then swapped in; the previous build is kept next to it with a "
+         "build is staged on the Next's SD card, verified, then swapped "
+         "in; the previous build is kept next to it with a "
          ".bak ending (renaming it back is the one-step recovery). The "
          "Next's OS protection (on by default over apps/, dot/ and sys/) "
          "refuses the swap inside a protected folder — the failure "
@@ -1779,7 +1781,7 @@ CATALOGS = {
          "of the .nex on the Next:"):
             ("Atualizar o ZX Next Remote em {machine}: v{old} → "
              "v{new}.\n\nA nova compilação é preparada no cartão SD do "
-             "Next, relida e verificada, e depois substituída; a "
+             "Next, verificada e depois substituída; a "
              "compilação anterior fica ao lado com a terminação .bak "
              "(renomeá-la de volta é a recuperação num passo). A proteção "
              "do sistema do Next (ativa por omissão sobre apps/, dot/ e "
@@ -2285,6 +2287,8 @@ CATALOGS = {
             "Atualização remota de {name}: a preparar {path} ({size} bytes)…",
         "Remote {name} update: staged copy verified ({size} bytes) — swapping it in…":
             "Atualização remota de {name}: cópia preparada verificada ({size} bytes) — a substituí-la…",
+        "Remote {name} update: staged copy verified by CRC-32 {crc} ({size} bytes) — swapping it in…":
+            "Atualização remota de {name}: cópia preparada verificada por CRC-32 {crc} ({size} bytes) — a substituí-la…",
         "Remote {name} update FAILED mid-swap: the Next may be missing {target}. If it no longer starts, rename {backup} back to {file} in the NextZXOS Browser (the staged {staged} can be deleted).":
             "A atualização remota de {name} FALHOU a meio da troca: o Next pode não ter {target}. Se já não arrancar, renomeia {backup} de volta para {file} no Browser do NextZXOS (o {staged} preparado pode ser apagado).",
         "Remote {name} update complete: {version} is on the card. The session will now close — run {command} on the Next to start the new build.":
@@ -3047,8 +3051,8 @@ CATALOGS = {
         "Could not obtain the ZX Next Remote build to send: {reason}":
             "Nie udało się uzyskać kompilacji ZX Next Remote do wysłania: {reason}",
         ("Update ZX Next Remote on {machine}: v{old} → v{new}.\n\nThe new "
-         "build is staged on the Next's SD card, read back and verified, "
-         "then swapped in; the previous build is kept next to it with a "
+         "build is staged on the Next's SD card, verified, then swapped "
+         "in; the previous build is kept next to it with a "
          ".bak ending (renaming it back is the one-step recovery). The "
          "Next's OS protection (on by default over apps/, dot/ and sys/) "
          "refuses the swap inside a protected folder — the failure "
@@ -3057,7 +3061,7 @@ CATALOGS = {
          "of the .nex on the Next:"):
             ("Aktualizacja ZX Next Remote na {machine}: v{old} → "
              "v{new}.\n\nNowa kompilacja jest przygotowywana na karcie SD "
-             "Nexta, odczytywana z powrotem i weryfikowana, a następnie "
+             "Nexta, weryfikowana, a następnie "
              "podmieniana; poprzednia kompilacja zostaje obok z końcówką "
              ".bak (zmiana jej nazwy z powrotem to odzyskanie w jednym "
              "kroku). Ochrona systemu Nexta (domyślnie włączona dla "
@@ -3562,6 +3566,8 @@ CATALOGS = {
             "Zdalna aktualizacja {name}: przygotowywanie {path} ({size} bajtów)…",
         "Remote {name} update: staged copy verified ({size} bytes) — swapping it in…":
             "Zdalna aktualizacja {name}: przygotowana kopia zweryfikowana ({size} bajtów) — podmienianie…",
+        "Remote {name} update: staged copy verified by CRC-32 {crc} ({size} bytes) — swapping it in…":
+            "Zdalna aktualizacja {name}: przygotowana kopia zweryfikowana sumą CRC-32 {crc} ({size} bajtów) — podmienianie…",
         "Remote {name} update FAILED mid-swap: the Next may be missing {target}. If it no longer starts, rename {backup} back to {file} in the NextZXOS Browser (the staged {staged} can be deleted).":
             "Zdalna aktualizacja {name} NIE POWIODŁA SIĘ w trakcie podmiany: Next może nie mieć {target}. Jeśli już się nie uruchamia, zmień nazwę {backup} z powrotem na {file} w przeglądarce NextZXOS (przygotowany {staged} można usunąć).",
         "Remote {name} update complete: {version} is on the card. The session will now close — run {command} on the Next to start the new build.":
@@ -4325,8 +4331,8 @@ CATALOGS = {
         "Could not obtain the ZX Next Remote build to send: {reason}":
             "Не удалось получить сборку ZX Next Remote для отправки: {reason}",
         ("Update ZX Next Remote on {machine}: v{old} → v{new}.\n\nThe new "
-         "build is staged on the Next's SD card, read back and verified, "
-         "then swapped in; the previous build is kept next to it with a "
+         "build is staged on the Next's SD card, verified, then swapped "
+         "in; the previous build is kept next to it with a "
          ".bak ending (renaming it back is the one-step recovery). The "
          "Next's OS protection (on by default over apps/, dot/ and sys/) "
          "refuses the swap inside a protected folder — the failure "
@@ -4335,7 +4341,7 @@ CATALOGS = {
          "of the .nex on the Next:"):
             ("Обновление ZX Next Remote на {machine}: v{old} → "
              "v{new}.\n\nНовая сборка записывается на SD-карту Next, "
-             "считывается обратно и проверяется, затем подменяется; "
+             "проверяется, затем подменяется; "
              "прежняя сборка остаётся рядом с окончанием .bak "
              "(переименовать её обратно — восстановление в один шаг). "
              "Защита системы Next (включена по умолчанию для apps/, dot/ "
@@ -4840,6 +4846,8 @@ CATALOGS = {
             "Удалённое обновление {name}: передача {path} ({size} байт)…",
         "Remote {name} update: staged copy verified ({size} bytes) — swapping it in…":
             "Удалённое обновление {name}: промежуточная копия проверена ({size} байт) — выполняется замена…",
+        "Remote {name} update: staged copy verified by CRC-32 {crc} ({size} bytes) — swapping it in…":
+            "Удалённое обновление {name}: промежуточная копия проверена по CRC-32 {crc} ({size} байт) — выполняется замена…",
         "Remote {name} update FAILED mid-swap: the Next may be missing {target}. If it no longer starts, rename {backup} back to {file} in the NextZXOS Browser (the staged {staged} can be deleted).":
             "Удалённое обновление {name} НЕ УДАЛОСЬ в середине замены: возможно, на Next сейчас нет {target}. Если он больше не запускается, переименуйте {backup} обратно в {file} в браузере NextZXOS (промежуточный файл {staged} можно удалить).",
         "Remote {name} update complete: {version} is on the card. The session will now close — run {command} on the Next to start the new build.":
@@ -5601,8 +5609,8 @@ CATALOGS = {
         "Could not obtain the ZX Next Remote build to send: {reason}":
             "Nepodařilo se získat sestavení ZX Next Remote k odeslání: {reason}",
         ("Update ZX Next Remote on {machine}: v{old} → v{new}.\n\nThe new "
-         "build is staged on the Next's SD card, read back and verified, "
-         "then swapped in; the previous build is kept next to it with a "
+         "build is staged on the Next's SD card, verified, then swapped "
+         "in; the previous build is kept next to it with a "
          ".bak ending (renaming it back is the one-step recovery). The "
          "Next's OS protection (on by default over apps/, dot/ and sys/) "
          "refuses the swap inside a protected folder — the failure "
@@ -5611,7 +5619,7 @@ CATALOGS = {
          "of the .nex on the Next:"):
             ("Aktualizace ZX Next Remote na {machine}: v{old} → "
              "v{new}.\n\nNové sestavení se nahraje na SD kartu Nextu, "
-             "načte zpět a ověří, a poté vymění; předchozí sestavení "
+             "ověří a poté vymění; předchozí sestavení "
              "zůstane vedle s koncovkou .bak (jeho přejmenování zpět je "
              "obnova jedním krokem). Ochrana systému Nextu (ve výchozím "
              "stavu zapnutá pro apps/, dot/ a sys/) výměnu v chráněné "
@@ -6115,6 +6123,8 @@ CATALOGS = {
             "Vzdálená aktualizace {name}: nahrávání {path} ({size} bajtů)…",
         "Remote {name} update: staged copy verified ({size} bytes) — swapping it in…":
             "Vzdálená aktualizace {name}: nahraná kopie ověřena ({size} bajtů) — probíhá výměna…",
+        "Remote {name} update: staged copy verified by CRC-32 {crc} ({size} bytes) — swapping it in…":
+            "Vzdálená aktualizace {name}: nahraná kopie ověřena podle CRC-32 {crc} ({size} bajtů) — probíhá výměna…",
         "Remote {name} update FAILED mid-swap: the Next may be missing {target}. If it no longer starts, rename {backup} back to {file} in the NextZXOS Browser (the staged {staged} can be deleted).":
             "Vzdálená aktualizace {name} SELHALA uprostřed výměny: Next možná nemá {target}. Pokud se už nespustí, přejmenujte {backup} zpět na {file} v prohlížeči NextZXOS (nahraný {staged} lze smazat).",
         "Remote {name} update complete: {version} is on the card. The session will now close — run {command} on the Next to start the new build.":
@@ -6881,8 +6891,8 @@ CATALOGS = {
         "Could not obtain the ZX Next Remote build to send: {reason}":
             "Impossible d'obtenir la compilation de ZX Next Remote à envoyer : {reason}",
         ("Update ZX Next Remote on {machine}: v{old} → v{new}.\n\nThe new "
-         "build is staged on the Next's SD card, read back and verified, "
-         "then swapped in; the previous build is kept next to it with a "
+         "build is staged on the Next's SD card, verified, then swapped "
+         "in; the previous build is kept next to it with a "
          ".bak ending (renaming it back is the one-step recovery). The "
          "Next's OS protection (on by default over apps/, dot/ and sys/) "
          "refuses the swap inside a protected folder — the failure "
@@ -6891,7 +6901,7 @@ CATALOGS = {
          "of the .nex on the Next:"):
             ("Mise à jour de ZX Next Remote sur {machine} : v{old} → "
              "v{new}.\n\nLa nouvelle compilation est déposée sur la "
-             "carte SD du Next, relue et vérifiée, puis mise en place ; "
+             "carte SD du Next, vérifiée, puis mise en place ; "
              "la compilation précédente est conservée à côté avec la "
              "terminaison .bak (la renommer en sens inverse est la "
              "récupération en une étape). La protection du système du "
@@ -7398,6 +7408,8 @@ CATALOGS = {
             "Mise à jour distante de {name} : envoi de {path} ({size} octets)…",
         "Remote {name} update: staged copy verified ({size} bytes) — swapping it in…":
             "Mise à jour distante de {name} : copie transférée vérifiée ({size} octets) — remplacement en cours…",
+        "Remote {name} update: staged copy verified by CRC-32 {crc} ({size} bytes) — swapping it in…":
+            "Mise à jour distante de {name} : copie transférée vérifiée par CRC-32 {crc} ({size} octets) — remplacement en cours…",
         "Remote {name} update FAILED mid-swap: the Next may be missing {target}. If it no longer starts, rename {backup} back to {file} in the NextZXOS Browser (the staged {staged} can be deleted).":
             "Mise à jour distante de {name} ÉCHOUÉE en plein remplacement : le Next n'a peut-être plus de {target}. S'il ne démarre plus, renommez {backup} en {file} dans le Browser de NextZXOS (le {staged} transféré peut être supprimé).",
         "Remote {name} update complete: {version} is on the card. The session will now close — run {command} on the Next to start the new build.":
