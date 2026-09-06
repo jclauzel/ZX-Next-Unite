@@ -470,7 +470,9 @@ def run_update_scenario(port, cmds, scenario, verify_bytes,
     lines. ``ident``/``k_mode``/``pak`` reach :func:`mock_update_next`."""
     sig = RemoteExplorerSignals()
     upd, puts, logs = [], [], []
-    sig.dot_update.connect(lambda okf, msg: upd.append((okf, msg)), Qt.DirectConnection)
+    # (ok, message, brand) since 9.7.10: the brand picks the toast's title.
+    sig.dot_update.connect(lambda okf, msg, brand: upd.append((okf, msg, brand)),
+                           Qt.DirectConnection)
     sig.put_done.connect(lambda okf, r: puts.append((okf, r)), Qt.DirectConnection)
     sig.log.connect(lambda s: logs.append(s), Qt.DirectConnection)
     q = queue.Queue()
@@ -904,6 +906,7 @@ def main():
                 ('Q', "")]
     if (ops == want_ops and staged == [("c:/dot/sync5.new", upd_blob)]
             and len(upd) == 1 and upd[0][0] and not puts
+            and upd[0][2] == "NextSync"          # the dot's brand titles the toast
             and any(f"verified by CRC-32 {upd_crc} ({len(upd_blob)} bytes)" in ln
                     for ln in logs)):
         print("PASS updot: staged, crc-verified (Y, K, no G), swapped in order, "
@@ -1109,6 +1112,10 @@ def main():
     else:
         print("FAIL updot-ren1F: ops=", ops, "upd=", upd, "puts=", puts)
         ok = False
+    if upd and upd[0][2] == "NextSync":
+        print("PASS updot-ren1F-brand: the verdict carries the NextSync brand for its toast title")
+    else:
+        print("FAIL updot-ren1F-brand: upd=", upd); ok = False
 
     # Session killed mid-macro BEFORE any rename: the mock acks the 'U'
     # then drops the link. The loop never reaches a terminal arm, so the
@@ -1126,6 +1133,10 @@ def main():
     else:
         print("FAIL updot-killU: ops=", ops, "upd=", upd, "puts=", puts)
         ok = False
+    if upd and upd[0][2] == "NextSync":
+        print("PASS updot-killU-brand: the verdict carries the NextSync brand for its toast title")
+    else:
+        print("FAIL updot-killU-brand: upd=", upd); ok = False
 
     # Session killed mid-SWAP: the mock acks the first rename then drops
     # the link. The finally block owes the one dot_update(False) and it
@@ -1184,7 +1195,8 @@ def main():
                 ('V', zb + ".new\x00" + zb), ('Q', "X")]
             and staged == [(zb + ".new", zx_blob)]
             and len(upd) == 1 and upd[0][0]
-            and "soft-reset" in upd[0][1] and not puts):
+            and "soft-reset" in upd[0][1] and not puts
+            and upd[0][2] == "ZXNextRemote"):    # its own brand, its own toast title
         print("PASS updot-zxnr: .nex-base paths, crc verify, 'U' ok, marked "
               "quit ('Q'+'X'), dot_update(True) once")
     else:
@@ -1225,6 +1237,10 @@ def main():
     else:
         print("FAIL updot-osp: ops=", ops, "upd=", upd, "puts=", puts)
         ok = False
+    if upd and upd[0][2] == "ZXNextRemote":
+        print("PASS updot-osp-brand: the verdict carries the ZXNextRemote brand for its toast title")
+    else:
+        print("FAIL updot-osp-brand: upd=", upd); ok = False
 
     # ── deploypak.txt extras of a ZXNR package update (9.7.6) ─────────
     # cmd[7] carries the read_deploypak plan: the extras go FIRST (the swap
@@ -1404,6 +1420,10 @@ def main():
         print("PASS pak-put-osp: the marked put refusal fails at once, no retry")
     else:
         print("FAIL pak-put-osp: ops=", ops, "upd=", upd); ok = False
+    if upd and upd[0][2] == "ZXNextRemote":
+        print("PASS pak-put-osp-brand: the verdict carries the ZXNextRemote brand for its toast title")
+    else:
+        print("FAIL pak-put-osp-brand: upd=", upd); ok = False
 
     # A ZXNR 1.0.7 listener predates the crc op: every extra is READ BACK
     # ('G') and byte-compared instead - never shipped unverified - and the
@@ -1490,6 +1510,10 @@ def main():
         print("PASS pak-death: link lost mid-extras -> one verdict in the extras wording")
     else:
         print("FAIL pak-death: ops=", ops, "upd=", upd, "puts=", puts); ok = False
+    if upd and upd[0][2] == "ZXNextRemote":
+        print("PASS pak-death-brand: the verdict carries the ZXNextRemote brand for its toast title")
+    else:
+        print("FAIL pak-death-brand: upd=", upd); ok = False
 
     # A dot-flavor job without cmd[7] (every pre-9.7.6 caller) is untouched:
     # the exact sequences above already pin it; here the 7-tuple ZXNR shape
@@ -1555,6 +1579,10 @@ def main():
         print("PASS sib-stale: a sibling without the brand+version refuses, nothing sent")
     else:
         print("FAIL sib-stale: ops=", ops, "upd=", upd); ok = False
+    if upd and upd[0][2] == "ZXNextRemote":
+        print("PASS sib-stale-brand: the verdict carries the ZXNextRemote brand for its toast title")
+    else:
+        print("FAIL sib-stale-brand: upd=", upd); ok = False
     gone = os.path.join(pak_dir, "zxnextremote-gone.nex")
     ops, staged, upd, puts, logs = run_update_scenario(
         PORT + 63, [pak_cmd[:7] + ([("sibling", gone, "zxnextremote-httpbridge.nex")],),
