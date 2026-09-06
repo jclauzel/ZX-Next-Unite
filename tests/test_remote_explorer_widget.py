@@ -2514,10 +2514,18 @@ def test_update_targets():
     only for a dot of unknown version; a ZX Next Remote .nex through the
     prompt, defaulting to c:/home, its explanation wrapped so the dialog
     cannot outgrow a laptop screen."""
-    _nex = tempfile.NamedTemporaryFile(suffix=".nex", delete=False); _nex.close()
+    # A ZXNR package folder holds BOTH flavors (9.7.7: the other one goes
+    # alongside every update, so a lone .nex is refused).
+    import shutil as _shutil
+    pkg0 = tempfile.mkdtemp(prefix="zxnr_pkg0_")
+    nex0 = os.path.join(pkg0, "zxnextremote-n2n.nex")
+    sib0 = os.path.join(pkg0, "zxnextremote-httpbridge.nex")
+    for p in (nex0, sib0):
+        with open(p, "wb") as fh:
+            fh.write(b"ZXNextRemote 1.0.9")
     w, calls = make_widget(
         sync5_update_source=lambda: ("C:/x/sync5", "5.9.1", ""),
-        zxnr_update_source=lambda flavor: (_nex.name, "1.0.9", ""))
+        zxnr_update_source=lambda flavor: (nex0, "1.0.9", ""))
     connect_widget(w, calls)
     w.on_peers((1, [(1, "10.0.0.5")]))
     FakeInput.queue = []; FakeInput.seen = []
@@ -2549,34 +2557,63 @@ def test_update_targets():
           bool(body) and longest <= 80 and body.count(chr(10)) >= 6, f"longest line {longest}")
     check("...and the .nex file name never split at its hyphen",
           any("zxnextremote-n2n.nex" in l for l in body.split(chr(10))), body)
-    check("...and the answer is split into folder and file for the macro",
-          calls["q_to"] == [(1, ("update_dot", _nex.name, "c:/home", "1.0.9",
-                                 "zxnextremote-n2n.nex", "ZXNextRemote", True))],
+    check("...and the answer is split into folder and file for the macro, the other "
+          "flavor's build riding along as the plan (9.7.7)",
+          calls["q_to"] == [(1, ("update_dot", nex0, "c:/home", "1.0.9",
+                                 "zxnextremote-n2n.nex", "ZXNextRemote", True,
+                                 [("sibling", sib0, "zxnextremote-httpbridge.nex")]))],
           str(calls["q_to"]))
+    check("...and the body says the httpbridge build goes alongside",
+          "both flavors on the card stay in step" in " ".join(body.split())
+          and "zxnextremote-httpbridge.nex" in body, body)
+    check("...and the log says so too",
+          any("the httpbridge build zxnextremote-httpbridge.nex goes alongside into c:/home first"
+              in l for l in calls["log"]), str(calls["log"][-2:]))
+    # The other flavor's canonical name typed as the target of an n2n
+    # session: the sibling would be sent, then swapped over itself —
+    # refused after the prompt, nothing enqueued.
+    calls["q_to"].clear(); FakeInput.seen = []; calls["log"].clear()
+    FakeInput.queue = [("c:/home/zxnextremote-httpbridge.nex", True)]
+    w._update_zxnr_on_session(1, "n2n", "1.0.5")
+    check("...typing the other flavor's file name as the target is refused",
+          calls["q_to"] == [] and len(FakeInput.seen) == 1
+          and any("is the name of a file sent alongside the build" in l
+                  and "runs a n2n build" in l for l in calls["log"]),
+          str((calls["q_to"], calls["log"][-1:])))
+    # A package without the other flavor is incomplete: refused before the
+    # prompt, nothing enqueued.
+    os.unlink(sib0)
+    calls["q_to"].clear(); FakeInput.seen = []; FakeMsg.warnings = []
+    FakeInput.queue = [("c:/home/zxnextremote-n2n.nex", True)]
+    w._update_zxnr_on_session(1, "n2n", "1.0.5")
+    check("...a package without the other flavor's build refuses before the prompt",
+          calls["q_to"] == [] and FakeInput.seen == [] and len(FakeMsg.warnings) == 1
+          and "has no zxnextremote-httpbridge.nex" in FakeMsg.warnings[0],
+          str((calls["q_to"], FakeInput.seen, FakeMsg.warnings)))
     FakeInput.seen = []
-    try:
-        os.unlink(_nex.name)
-    except OSError:
-        pass
+    _shutil.rmtree(pkg0, ignore_errors=True)
 
     # 9.7.6: a package whose folder carries a deploypak.txt sends its extras
     # too. The confirm body says so - and that the .bak revert does not
     # cover them - the log lists them, and the macro's cmd grows an 8th
-    # element: the read_deploypak plan (the .nex being swapped is skipped
-    # even when listed). A broken manifest refuses BEFORE the prompt; a
+    # element: the read_deploypak plan (the .nex being swapped AND the
+    # other flavor's build are skipped even when listed - the sibling
+    # already rides first). A broken manifest refuses BEFORE the prompt; a
     # remote path over 254 bytes refuses after it, nothing enqueued.
-    import shutil as _shutil
     pkg = tempfile.mkdtemp(prefix="zxnr_pak_")
     nex2 = os.path.join(pkg, "zxnextremote-n2n.nex")
+    sib2 = os.path.join(pkg, "zxnextremote-httpbridge.nex")
     menu = os.path.join(pkg, "menu.nxi")
     spr = os.path.join(pkg, "spr", "m0.spr")
     os.makedirs(os.path.dirname(spr))
-    for p, data in ((nex2, b"ZXNextRemote 1.0.9"), (menu, b"MENU"), (spr, b"SPR")):
+    for p, data in ((nex2, b"ZXNextRemote 1.0.9"), (sib2, b"ZXNextRemote 1.0.9"),
+                    (menu, b"MENU"), (spr, b"SPR")):
         with open(p, "wb") as fh:
             fh.write(data)
     pakfile = os.path.join(pkg, "deploypak.txt")
     with open(pakfile, "w", encoding="utf-8") as fh:
-        fh.write("# extras\nmenu.nxi\nspr\nzxnextremote-n2n.nex\n")
+        fh.write("# extras\nmenu.nxi\nspr\nzxnextremote-n2n.nex\n"
+                 "zxnextremote-httpbridge.nex\n")
     w2, calls2 = make_widget(
         sync5_update_source=lambda: ("C:/x/sync5", "5.9.1", ""),
         zxnr_update_source=lambda flavor: (nex2, "1.0.9", ""))
@@ -2590,8 +2627,10 @@ def test_update_targets():
           "deploypak.txt lists 2 file(s) and 1 folder(s)" in body
           and ".bak revert does not cover them" in body
           and body.endswith("Full path of the .nex on the Next:"), body)
-    plan = [("put", menu, "menu.nxi"), ("mkdir", "spr"), ("put", spr, "spr/m0.spr")]
-    check("...and the macro's cmd carries the plan as its 8th element",
+    plan = [("sibling", sib2, "zxnextremote-httpbridge.nex"),
+            ("put", menu, "menu.nxi"), ("mkdir", "spr"), ("put", spr, "spr/m0.spr")]
+    check("...and the macro's cmd carries the plan as its 8th element (sibling first, "
+          "the manifest's copy of it skipped)",
           calls2["q_to"] == [(1, ("update_dot", nex2, "c:/home", "1.0.9",
                                   "zxnextremote-n2n.nex", "ZXNextRemote", True, plan))],
           str(calls2["q_to"]))

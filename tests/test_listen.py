@@ -535,18 +535,31 @@ def run_update_tests(tmp):
                  + b"ZXNextRemote\x00" + b"9.9.9\x00tail")
     with open(nexfile, "wb") as f:
         f.write(nex_bytes)
+    # 9.7.7: the package's OTHER flavor rides first - both builds on the
+    # card stay in step - so the sibling lives beside the .nex from here on
+    # (a 1.0.3 listener predates the crc op: it is read back, like the
+    # staged build).
+    sibfile = os.path.join(zdir, "zxnextremote-httpbridge.nex")
+    sib_bytes = (b"Next\x00" + bytes(range(256)) * 4
+                 + b"ZXNextRemote\x00" + b"9.9.9\x00sib")
+    with open(sibfile, "wb") as f:
+        f.write(sib_bytes)
+    zsib = "c:/apps/zxnextremote-httpbridge.nex"
     cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.3"))
     zbase = "c:/apps/zxnextremote-n2n.nex"
-    want = [('P', zbase + ".new"),
+    want = [('P', zsib), ('G', zsib),
+            ('P', zbase + ".new"),
             ('G', zbase + ".new"),
             ('U', ''),
             ('X', zbase + ".bak"),
             ('V', zbase + "\x00" + zbase + ".bak"),
             ('V', zbase + ".new\x00" + zbase),
             ('Q', 'X')]
-    check("updZXNR : .nex-base paths, marked quit ('Q'+'X') ends the macro",
+    check("updZXNR : the other flavor first (read back), .nex-base paths, marked "
+          "quit ('Q'+'X') ends the macro",
           cap.get('wire') == want
-          and cap.get('puts') == [(zbase + ".new", nex_bytes)]
+          and cap.get('puts') == [(zsib, sib_bytes), (zbase + ".new", nex_bytes)]
+          and "sending the other flavor's build " + zsib in out
           and "update COMPLETE" in out and "soft-reset" in out and done,
           f"{cap.get('wire')} / {out}")
 
@@ -623,8 +636,9 @@ def run_update_tests(tmp):
 
     # 7d. The ZXNR flavor on a 1.0.8 listener: crc verify + the marked quit.
     cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"))
-    check("updCrcZX: ZXNR 1.0.8 -> P/K/U/X/V/V then 'Q'+'X'",
-          cap.get('wire') == [('P', zbase + ".new"),
+    check("updCrcZX: ZXNR 1.0.8 -> sibling P/K, then P/K/U/X/V/V then 'Q'+'X'",
+          cap.get('wire') == [('P', zsib), ('K', zsib),
+                              ('P', zbase + ".new"),
                               ('K', zbase + ".new"),
                               ('U', ''),
                               ('X', zbase + ".bak"),
@@ -738,13 +752,15 @@ def run_update_tests(tmp):
     n_try = ns.UPD_EXTRA_RETRIES + 1
     try:
         cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"))
-        want = [('P', ext["menu"]), ('K', ext["menu"]), ('M', "c:/apps/data"),
-                ('P', ext["a"]), ('K', ext["a"]), ('M', "c:/apps/data/sub"),
-                ('P', ext["b"]), ('K', ext["b"])] + tail
-        check("updPak   : extras first (P+K each, M per folder), then the swap",
+        sh = [('P', zsib), ('K', zsib)]        # the sibling build, always first
+        want = sh + [('P', ext["menu"]), ('K', ext["menu"]), ('M', "c:/apps/data"),
+                     ('P', ext["a"]), ('K', ext["a"]), ('M', "c:/apps/data/sub"),
+                     ('P', ext["b"]), ('K', ext["b"])] + tail
+        check("updPak   : sibling, then extras (P+K each, M per folder), then the swap",
               cap.get('wire') == want
-              and cap.get('puts') == [(ext["menu"], menu_b), (ext["a"], a_b),
-                                      (ext["b"], b_b), (zbase + ".new", nex_bytes)]
+              and cap.get('puts') == [(zsib, sib_bytes), (ext["menu"], menu_b),
+                                      (ext["a"], a_b), (ext["b"], b_b),
+                                      (zbase + ".new", nex_bytes)]
               and "deploypak.txt lists 3 file(s) and 2 folder(s)" in out
               and "file 1 of 3: " + ext["menu"] in out
               and "all 3 deploypak.txt file(s) are on the card" in out
@@ -754,7 +770,7 @@ def run_update_tests(tmp):
         cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
                              pak={'k_bad': {ext["a"]: 1}})
         check("updPakRt : one bad digest -> the file goes again, then on",
-              cap.get('wire') == want[:3] + [('P', ext["a"]), ('K', ext["a"])] + want[3:]
+              cap.get('wire') == want[:5] + [('P', ext["a"]), ('K', ext["a"])] + want[5:]
               and "retry 1 of 3" in out and "retry 2 of 3" not in out
               and "update COMPLETE" in out and done,
               f"{cap.get('wire')} / {out}")
@@ -764,20 +780,21 @@ def run_update_tests(tmp):
         wire = cap.get('wire', [])
         check(f"updPakGv : {n_try} bad digests -> X the extra, failure names it, "
               "nothing staged, session alive",
-              wire[:3 + 2 * n_try + 1] == want[:3] + [('P', ext["a"]), ('K', ext["a"])] * n_try
+              wire[:5 + 2 * n_try + 1] == want[:5] + [('P', ext["a"]), ('K', ext["a"])] * n_try
                                           + [('X', ext["a"])]
               and not any(a.endswith(".new") for _o, a in wire)
               and ('L', '/') in wire
               and "update failed while sending " + ext["a"] + " from deploypak.txt" in out
               and f"{n_try} attempts" in out and "copy left on the Next was deleted" in out
               and "1 of the 3 file(s)" in out and "Nothing was swapped" in out
+              and "The other flavor's build " + zsib + " had already been replaced on the card too" in out
               and "Listing (0 entries)" in out and done,
               f"{wire} / {out}")
 
         cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
                              pak={'mkdir': 'F', 'ls': 'DE'})
         check("updPakMk : mkdir 'F' + a listing -> the folder exists, carry on",
-              cap.get('wire') == [('P', ext["menu"]), ('K', ext["menu"]),
+              cap.get('wire') == sh + [('P', ext["menu"]), ('K', ext["menu"]),
                                   ('M', "c:/apps/data"), ('L', "c:/apps/data"),
                                   ('P', ext["a"]), ('K', ext["a"]),
                                   ('M', "c:/apps/data/sub"), ('L', "c:/apps/data/sub"),
@@ -788,9 +805,9 @@ def run_update_tests(tmp):
         cap, out, done = run([("update", nexfile, "c:/apps"), ("ls", "/", "")],
                              ("n2n", "1.0.8"), pak={'mkdir': 'F', 'ls': 'F'})
         check("updPakMkF: mkdir 'F' + listing 'F' -> fails naming the folder",
-              cap.get('wire', [])[:5] == [('P', ext["menu"]), ('K', ext["menu"]),
-                                          ('M', "c:/apps/data"), ('L', "c:/apps/data"),
-                                          ('L', '/')]
+              cap.get('wire', [])[:7] == sh + [('P', ext["menu"]), ('K', ext["menu"]),
+                                               ('M', "c:/apps/data"), ('L', "c:/apps/data"),
+                                               ('L', '/')]
               and "could not create c:/apps/data" in out
               and "1 of the 3 file(s)" in out and done,
               f"{cap.get('wire')} / {out}")
@@ -798,15 +815,15 @@ def run_update_tests(tmp):
         cap, out, done = run([("update", nexfile, "c:/apps"), ("ls", "/", "")],
                              ("n2n", "1.0.8"), pak={'mkdir': 'FOSP'})
         check("updPakMkO: the marked mkdir refusal fails at once, naming the protection",
-              cap.get('wire', [])[:4] == [('P', ext["menu"]), ('K', ext["menu"]),
-                                          ('M', "c:/apps/data"), ('L', '/')]
+              cap.get('wire', [])[:6] == sh + [('P', ext["menu"]), ('K', ext["menu"]),
+                                               ('M', "c:/apps/data"), ('L', '/')]
               and "OS protection refused creating c:/apps/data" in out and done,
               f"{cap.get('wire')} / {out}")
 
         cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
                              pak={'p_refuse': {ext["menu"]: 1}})
         check("updPakPr : a refused put is sent again (said so), then on",
-              cap.get('wire') == [('P', ext["menu"])] + want
+              cap.get('wire') == sh + [('P', ext["menu"])] + want[2:]
               and "the Next refused menu.nxi - sending it again (retry 1 of 3)" in out
               and "update COMPLETE" in out and done,
               f"{cap.get('wire')} / {out}")
@@ -814,9 +831,9 @@ def run_update_tests(tmp):
         cap, out, done = run([("update", nexfile, "c:/apps"), ("ls", "/", "")],
                              ("n2n", "1.0.8"), pak={'p_refuse': {ext["menu"]: 99}})
         check(f"updPakPF : a put refused every time -> X, failure after {n_try} sends, nothing staged",
-              cap.get('wire', [])[:n_try + 2] == [('P', ext["menu"])] * n_try
+              cap.get('wire', [])[:n_try + 4] == sh + [('P', ext["menu"])] * n_try
                                                  + [('X', ext["menu"]), ('L', '/')]
-              and not cap.get('puts')
+              and cap.get('puts') == [(zsib, sib_bytes)]
               and f"the Next refused menu.nxi {n_try} times" in out
               and "copy left on the Next was deleted" in out
               and "0 of the 3 file(s)" in out and done,
@@ -825,9 +842,9 @@ def run_update_tests(tmp):
         cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
                              pak={'k_silent': {ext["menu"]}})
         check("updPakKs : a silent 'K' -> the read-back decides, then on",
-              cap.get('wire', [])[:3] == [('P', ext["menu"]), ('K', ext["menu"]),
-                                          ('G', ext["menu"])]
-              and cap.get('wire', [])[3:] == want[2:]
+              cap.get('wire', [])[:5] == sh + [('P', ext["menu"]), ('K', ext["menu"]),
+                                               ('G', ext["menu"])]
+              and cap.get('wire', [])[5:] == want[4:]
               and "reading the copy back instead" in out
               and "update COMPLETE" in out and done,
               f"{cap.get('wire')} / {out}")
@@ -835,8 +852,8 @@ def run_update_tests(tmp):
         cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
                              pak={'kill_at': ext["a"]})
         check("updPakDie: link lost mid-extras -> the extras wording, nothing swapped",
-              cap.get('wire') == [('P', ext["menu"]), ('K', ext["menu"]),
-                                  ('M', "c:/apps/data"), ('P', ext["a"])]
+              cap.get('wire') == sh + [('P', ext["menu"]), ('K', ext["menu"]),
+                                       ('M', "c:/apps/data"), ('P', ext["a"])]
               and "session ended while sending " + ext["a"] + " from deploypak.txt" in out
               and "1 of the 3 file(s)" in out and "Nothing was swapped" in out
               and "mid-swap" not in out and done,
@@ -845,7 +862,7 @@ def run_update_tests(tmp):
         cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
                              pak={'kill_after_k': ext["b"]})
         check("updPakDiA: link lost after the last extra -> 'all replaced, build not staged'",
-              cap.get('wire') == want[:8]
+              cap.get('wire') == want[:10]
               and "after all 3 deploypak.txt file(s) had been replaced" in out
               and "cut short" not in out and done,
               f"{cap.get('wire')} / {out}")
@@ -853,8 +870,8 @@ def run_update_tests(tmp):
         cap, out, done = run([("update", nexfile, "c:/apps"), ("ls", "/", "")],
                              ("n2n", "1.0.8"), pak={'mkdir': 'F', 'ls': 'FOSP'})
         check("updPakLsO: mkdir 'F' + listing 'F'+OSP -> fails naming the protection",
-              cap.get('wire', [])[:4] == [('P', ext["menu"]), ('K', ext["menu"]),
-                                          ('M', "c:/apps/data"), ('L', "c:/apps/data")]
+              cap.get('wire', [])[:6] == sh + [('P', ext["menu"]), ('K', ext["menu"]),
+                                               ('M', "c:/apps/data"), ('L', "c:/apps/data")]
               and "OS protection refused creating c:/apps/data" in out and done,
               f"{cap.get('wire')} / {out}")
 
@@ -864,6 +881,7 @@ def run_update_tests(tmp):
               cap.get('wire', [])[-2:] == [('V', zbase + "\x00" + zbase + ".bak"), ('Q', '')]
               and "could not rename" in out
               and "3 of the 3 deploypak.txt file(s) had already been replaced" in out
+              and "The other flavor's build " + zsib + " had already been replaced on the card too" in out
               and done,
               f"{cap.get('wire')} / {out}")
 
@@ -877,16 +895,17 @@ def run_update_tests(tmp):
         cap, out, done = run([("update", nexfile, "c:/apps"), ("ls", "/", "")],
                              ("n2n", "1.0.8"), pak={'p_osp': {ext["a"]}})
         check("updPakOsp: the marked put refusal fails at once, no retry",
-              cap.get('wire', [])[:5] == [('P', ext["menu"]), ('K', ext["menu"]),
-                                          ('M', "c:/apps/data"), ('P', ext["a"]),
-                                          ('L', '/')]
+              cap.get('wire', [])[:7] == sh + [('P', ext["menu"]), ('K', ext["menu"]),
+                                               ('M', "c:/apps/data"), ('P', ext["a"]),
+                                               ('L', '/')]
               and "OS protection refused writing it" in out
               and "1 of the 3 file(s)" in out and done,
               f"{cap.get('wire')} / {out}")
 
         cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.3"))
         check("updPakRb : a pre-crc listener reads every extra back and compares",
-              cap.get('wire') == [('P', ext["menu"]), ('G', ext["menu"]),
+              cap.get('wire') == [('P', zsib), ('G', zsib),
+                                  ('P', ext["menu"]), ('G', ext["menu"]),
                                   ('M', "c:/apps/data"), ('P', ext["a"]), ('G', ext["a"]),
                                   ('M', "c:/apps/data/sub"), ('P', ext["b"]), ('G', ext["b"]),
                                   ('P', zbase + ".new"), ('G', zbase + ".new"), ('U', ''),
@@ -900,7 +919,7 @@ def run_update_tests(tmp):
         cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.3"),
                              pak={'k_bad': {ext["b"]: 1}})
         check("updPakRbR: a read-back that differs re-sends the file",
-              cap.get('wire', [])[5:10] == [('M', "c:/apps/data/sub"), ('P', ext["b"]),
+              cap.get('wire', [])[7:12] == [('M', "c:/apps/data/sub"), ('P', ext["b"]),
                                             ('G', ext["b"]), ('P', ext["b"]),
                                             ('G', ext["b"])]
               and "retry 1 of 3" in out and "update COMPLETE" in out and done,
@@ -939,6 +958,73 @@ def run_update_tests(tmp):
             os.remove(pakfile)
         except OSError:
             pass
+
+    # 9. The other flavor's build (9.7.7) on its own: a package without it
+    # refuses on plain 'update' ('force' pushes the one build and says the
+    # other flavor is NOT updated), a stale one refuses like a stale .nex,
+    # and as a companion it is crc-checked, re-sent, named apart in every
+    # verdict.
+    os.rename(sibfile, sibfile + ".away")
+    try:
+        cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"))
+        check("updSibNo : a package without the other flavor refuses, nothing sent",
+              cap.get('wire') == [('Q', '')]
+              and "has no zxnextremote-httpbridge.nex" in out and done,
+              f"{cap.get('wire')} / {out}")
+        cap, out, done = run([("update_force", nexfile, "c:/apps")], ("n2n", "1.0.8"))
+        check("updSibFrc: 'force' pushes the one build without its sibling, and says so",
+              cap.get('wire', [])[:2] == [('P', zbase + ".new"), ('K', zbase + ".new")]
+              and "the other flavor is NOT updated (force)" in out
+              and "update COMPLETE" in out and done,
+              f"{cap.get('wire')} / {out}")
+    finally:
+        os.rename(sibfile + ".away", sibfile)
+    with open(sibfile, "wb") as f:
+        f.write(b"junk, not a build " * 40)
+    try:
+        cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"))
+        check("updSibSt : a stale sibling refuses before a byte moves",
+              cap.get('wire') == [('Q', '')]
+              and "does not look like a ZXNextRemote 9.9.9 build" in out and done,
+              f"{cap.get('wire')} / {out}")
+    finally:
+        with open(sibfile, "wb") as f:
+            f.write(sib_bytes)
+    cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
+                         pak={'k_bad': {zsib: 1}})
+    check("updSibRt : a bad digest on the sibling re-sends it",
+          cap.get('wire', [])[:4] == [('P', zsib), ('K', zsib), ('P', zsib), ('K', zsib)]
+          and "retry 1 of 3" in out and "update COMPLETE" in out and done,
+          f"{cap.get('wire')} / {out}")
+    cap, out, done = run([("update", nexfile, "c:/apps"), ("ls", "/", "")],
+                         ("n2n", "1.0.8"), pak={'p_osp': {zsib}})
+    check("updSibOsp: a refused sibling fails naming the other flavor's build",
+          cap.get('wire', [])[:2] == [('P', zsib), ('L', '/')]
+          and "update failed while sending the other flavor's build " + zsib in out
+          and "OS protection refused writing" in out
+          and "Nothing was swapped" in out and done,
+          f"{cap.get('wire')} / {out}")
+    cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
+                         pak={'kill_at': zsib})
+    check("updSibDie: link lost on the sibling -> its own verdict",
+          cap.get('wire') == [('P', zsib)]
+          and "session ended while sending the other flavor's build " + zsib in out
+          and "Nothing was swapped" in out and done,
+          f"{cap.get('wire')} / {out}")
+    cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
+                         pak={'kill_after_k': zsib})
+    check("updSibDiA: link lost after the lone sibling landed -> its own verdict, no manifest talk",
+          cap.get('wire') == [('P', zsib), ('K', zsib)]
+          and "after the other flavor's build " + zsib + " had been replaced" in out
+          and "deploypak.txt" not in out and "Nothing was swapped" in out and done,
+          f"{cap.get('wire')} / {out}")
+    cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
+                         refuse_ren1=True)
+    check("updSibR1 : a refused swap after the sibling landed names it",
+          "could not rename" in out
+          and "The other flavor's build " + zsib + " had already been replaced on the card too" in out
+          and done,
+          f"{cap.get('wire')} / {out}")
     return ok
 
 

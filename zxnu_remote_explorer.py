@@ -2962,14 +2962,37 @@ class RemoteExplorerWidget(QWidget):
                           "send: {reason}").format(reason=reason))
             return
         base_default = f"zxnextremote-{flavor}.nex"
+        # The OTHER flavor's build (9.7.7): a ZXNR package ships both
+        # transports, and a card whose two .nex disagree on version is a
+        # support call — so the sibling goes alongside, FIRST, into the
+        # same folder under its own canonical name, crc-checked like every
+        # companion. A package without it is incomplete: refuse, like a
+        # broken manifest (the reason stays English like the resolver's).
+        other = "n2n" if flavor == "httpbridge" else "httpbridge"
+        sib_name = f"zxnextremote-{other}.nex"
+        sib_path = os.path.join(os.path.dirname(path), sib_name)
+        if not os.path.isfile(sib_path):
+            QMessageBox.warning(
+                self, ui_tr_now("ZX Next Remote update"),
+                ui_tr_now("Could not obtain the ZX Next Remote build to "
+                          "send: {reason}").format(
+                              reason=f"the package has no {sib_name} to send "
+                                     "alongside (both flavors are kept in "
+                                     "step) — re-fetch it via the Settings "
+                                     "tab's ZX Next Remote update check or "
+                                     "the itch.io tab"))
+            return
         # deploypak.txt (9.7.6): the package's extra files (.nxi menus,
         # .spr banks, whole folders), sent to the .nex's folder on the Next
         # BEFORE the build is staged — the swap ends the session. A broken
         # manifest refuses here, before a byte moves (the macro's rule for
-        # a wrong blob); the reason stays English like the resolver's.
+        # a wrong blob); the reason stays English like the resolver's. The
+        # sibling is a skip name: listing it in the manifest sends nothing
+        # twice.
         extras, problems = read_deploypak(
             os.path.dirname(path),
-            (base_default, base_default + ".new", base_default + ".bak"))
+            (base_default, base_default + ".new", base_default + ".bak",
+             sib_name))
         if problems:
             QMessageBox.warning(
                 self, ui_tr_now("ZX Next Remote update"),
@@ -2979,6 +3002,7 @@ class RemoteExplorerWidget(QWidget):
                                      + "; ".join(problems)))
             return
         n_files, n_dirs = deploypak_counts(extras)
+        extras = [("sibling", sib_path, sib_name)] + extras
         # The remembered path is ONE global string; pre-filling it for a
         # session of the OTHER flavor would swap the right build over the
         # WRONG file (both flavors embed the same brand+version bytes, so
@@ -3002,21 +3026,29 @@ class RemoteExplorerWidget(QWidget):
             "Full path of the .nex on the Next:").format(
                 machine=machine, old=old_version, new=version,
                 file=base_default)
-        if extras:
-            # Its own paragraph, slotted in before the closing prompt line
-            # (every catalog keeps that final "\n\n" paragraph): says what
-            # the manifest adds AND the consequence — the extras overwrite
-            # in place, so the .bak revert promised above does not cover
-            # them.
-            head, _sep, tail = body.rpartition("\n\n")
-            body = head + "\n\n" + ui_tr_now(
+        # Their own paragraph(s), slotted in before the closing prompt line
+        # (every catalog keeps that final "\n\n" paragraph): the sibling
+        # build that goes alongside, then what the manifest adds — AND the
+        # consequence: companions overwrite in place, so the .bak revert
+        # promised above does not cover them.
+        head, _sep, tail = body.rpartition("\n\n")
+        paras = [ui_tr_now(
+            "The package's {other} build ({file}) is sent into the same "
+            "folder FIRST, checked against the CRC-32 the Next computes and "
+            "re-sent up to {retries} times, so both flavors on the card stay "
+            "in step — written in place, so the .bak revert does not cover "
+            "it.").format(other=other, file=sib_name,
+                          retries=RE_UPD_EXTRA_RETRIES)]
+        if n_files or n_dirs:
+            paras.append(ui_tr_now(
                 "Its deploypak.txt lists {files} file(s) and {folders} "
                 "folder(s): they are sent into the same folder FIRST, each "
                 "checked against the CRC-32 the Next computes and re-sent "
                 "up to {retries} times — and written in place, so the .bak "
                 "revert does not cover them.").format(
                     files=n_files, folders=n_dirs,
-                    retries=RE_UPD_EXTRA_RETRIES) + "\n\n" + tail
+                    retries=RE_UPD_EXTRA_RETRIES))
+        body = head + "\n\n" + "\n\n".join(paras) + "\n\n" + tail
         # QInputDialog's label does not wrap: one long paragraph made the
         # dialog wider than a laptop screen, its input box off the right
         # edge (9.7.2). Wrapped here, paragraph by paragraph, AFTER
@@ -3034,6 +3066,21 @@ class RemoteExplorerWidget(QWidget):
                 "ZX Next Remote update: enter the FULL path of the .nex "
                 "on the Next (e.g. {example}).").format(
                     example=ZXNR_HOME_DIR + "/" + base_default))
+            return
+        # The sibling follows the session's IDENT flavor, the target is what
+        # was TYPED: the other flavor's name typed here would have its
+        # build sent, then renamed aside and overwritten by itself. A
+        # companion can never be the build being swapped (nor its
+        # .new/.bak); the worker refuses this too, this is the one that can
+        # point at the typed path.
+        _taken = {base.lower(), (base + ".new").lower(), (base + ".bak").lower()}
+        clash = next((s[-1] for s in extras if s[-1].lower() in _taken), "")
+        if clash:
+            self._log(ui_tr_now(
+                "ZX Next Remote update: {path} is the name of a file sent "
+                "alongside the build ({file}) — this session runs a {flavor} "
+                "build, so its .nex cannot be that file; nothing was "
+                "sent.").format(path=target, file=clash, flavor=flavor))
             return
         # The listener copies a command's path into a 254-byte buffer and
         # TRUNCATES a longer one (the file then lands under a different
@@ -3064,18 +3111,21 @@ class RemoteExplorerWidget(QWidget):
             return
         self._zxnr_update_path = target
         self._on_zxnr_update_path_changed(target)
-        if extras:
+        self._log(ui_tr_now(
+            "ZX Next Remote update: the {other} build {file} goes alongside "
+            "into {dir} first.").format(other=other, file=sib_name, dir=rdir))
+        if n_files or n_dirs:
             self._log(ui_tr_now(
                 "ZX Next Remote update: deploypak.txt lists {files} file(s) "
                 "and {folders} folder(s) for {dir}: {items}").format(
                     files=n_files, folders=n_dirs, dir=rdir,
-                    items=", ".join(s[-1] for s in extras)))
+                    items=", ".join(s[-1] for s in extras
+                                    if s[0] != "sibling")))
+        # cmd[7]: the companions plan — the sibling build, then the
+        # manifest's steps (9.7.6 sent the 7-tuple when there was no
+        # manifest; since 9.7.7 a ZXNR update always has a companion).
         cmd = ("update_dot", path, rdir, version, base,
-               "ZXNextRemote", True)
-        if extras:
-            # cmd[7]: the plan (only when there is one — the historical
-            # 7-tuple stays the shape a package without a manifest sends).
-            cmd = cmd + (extras,)
+               "ZXNextRemote", True, extras)
         if self._enqueue_to_raw is None:
             if sid == self._peer_active:
                 # No targeted channel wired at all: the shared queue still

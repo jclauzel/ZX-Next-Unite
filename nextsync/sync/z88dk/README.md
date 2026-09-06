@@ -360,6 +360,17 @@ zxnrmonkeys0.spr
 gfx/
 ```
 
+**The other flavour goes first, always** (Unite 9.7.7). A ZX Next Remote
+package ships both transports, and a card whose `zxnextremote-n2n.nex` and
+`zxnextremote-httpbridge.nex` disagree on version is a support call — so
+whichever flavour is being updated, the package's OTHER build is sent into
+the same folder before anything else, under its canonical name, checked
+against the Next's CRC-32 and re-sent up to 3 times like every companion.
+A package missing it is incomplete: the Remote Explorer refuses the update,
+and the console's `update` refuses too unless you add `force` (which then
+pushes the one build without its sibling). Listing the other flavour in
+`deploypak.txt` sends nothing twice.
+
 The rules: paths are relative to the folder holding the manifest; `/` and
 `\` both separate; letter case does not matter (an entry is matched to the
 package's files case-blind, as the Next's FAT would, and sent under its
@@ -391,6 +402,8 @@ The console shows the flow line by line:
 ```
 listen> update zxnextremote-n2n.nex c:/mydir
 update: deploypak.txt lists 2 file(s) and 0 folder(s) to send to c:/mydir first
+update: sending the other flavor's build c:/mydir/zxnextremote-httpbridge.nex (115200 bytes) alongside
+update: c:/mydir/zxnextremote-httpbridge.nex verified by CRC-32 9F0E1D2C (115200 bytes)
 update: sending deploypak.txt file 1 of 2: c:/mydir/zxnrmenu0b.nxi (49152 bytes)
 update: c:/mydir/zxnrmenu0b.nxi verified by CRC-32 1A2B3C4D (49152 bytes)
 update: sending deploypak.txt file 2 of 2: c:/mydir/zxnrmonkeys0.spr (8192 bytes)
