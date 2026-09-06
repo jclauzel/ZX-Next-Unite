@@ -45,11 +45,18 @@ from zxnu_config import (SETTING_NEXTSYNC_EXPLORERPATH,
                          SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_SP_OFFERED,
                          ZXART_USER_AGENT, mame_windows_asset_arch)
 from zxnu_i18n import current_ui_language
+import zxnu_wizard_content
 from zxnu_wizard_content import (DISCLAIMER_STEPS, GITHUB_URL, GUIDES,
                                  JOKES, KUDOS_NAMES, STORIES, TEXTS,
                                  TOUR_STEPS, USER_MANUAL_PAGE,
                                  WIKI_PAGE_BASE, WIKI_RAW_BASE,
-                                 wizard_lines, wizard_tr)
+                                 ZXNR_ITCH_URL, wizard_lines, wizard_tr)
+
+#: The ZX Next Remote "did you know" (9.7.9): the chance one 9 s idle tick
+#: brings it up (once a session — roughly once every three quiet minutes),
+#: and how many pages its deep dive has (zxnr.more1 … moreN).
+ZXNR_PITCH_CHANCE = 0.05
+ZXNR_PITCH_PAGES = 3
 
 
 def _is_linux():
@@ -560,6 +567,7 @@ class WizardManager(QObject):
         self._qs_timer.timeout.connect(self._qs_tick)
         # In-depth guide offers: fire once per guided tab per session.
         self._offered_tabs = set()
+        self._zxnr_pitched = False      # the idle "did you know", once a session
         tabw = getattr(host, "_tab_widget", None)
         if tabw is not None:
             tabw.currentChanged.connect(self._on_tab_switched)
@@ -654,6 +662,12 @@ class WizardManager(QObject):
                 or self.bubble.isVisible() or self._stroll_timer.isActive()):
             return
         roll = random.random()
+        if not self._zxnr_pitched and roll < ZXNR_PITCH_CHANCE:
+            # Once a session, in a quiet moment: the ZX Next Remote "did
+            # you know" (9.7.9). Never persisted — a returning user hears
+            # it again another day, and it is one click to Not now.
+            self.pitch_zxnr()
+            return
         if roll < 0.40:
             self.sprite.set_gesture("look", cycles=2)      # glance around
         elif roll < 0.55:
@@ -1110,10 +1124,19 @@ class WizardManager(QObject):
                 buttons.append((self._tr(btn_key),
                                 lambda _=False, g=guide_id, n=target:
                                     self._show_guide_node(g, n)))
+        # A node may add reference links to the row (the ZX Next Remote
+        # itch.io page on the Remote Explorer nodes): (label key, the name
+        # of a URL constant in zxnu_wizard_content).
+        links = self._guide_links(guide["page"])
+        for label_key, url_const in node.get("extra_links", ()):
+            url = getattr(zxnu_wizard_content, url_const, "")
+            if url:
+                links.append((self._tr(label_key),
+                              lambda _=False, u=url: self._open_url(u)))
         self._respeak = lambda: self._show_guide_node(guide_id, node_id)
         self._say(text, buttons,
                   gesture=node.get("gesture", "talk"), cycles=10,
-                  links=self._guide_links(guide["page"]))
+                  links=links)
 
     def _goto_tab(self, title_prefix):
         """Switch the main tab widget to the tab whose title starts with
@@ -1304,6 +1327,41 @@ class WizardManager(QObject):
                    (self._tr("btn.close"), self._dismiss)],
                   gesture=gesture, cycles=cycles)
 
+    # ── ZX Next Remote: the "did you know" pitch and its deep dive (9.7.9) ─
+    def _zxnr_links(self):
+        """The reference row of every ZX Next Remote bubble: the itch.io
+        page first (the point of the pitch), then the usual manual + GitHub
+        pair, aimed at the NextSync page."""
+        return ([(self._tr("btn.itch"),
+                  lambda _=False: self._open_url(ZXNR_ITCH_URL))]
+                + self._guide_links("NextSync-tab"))
+
+    def pitch_zxnr(self):
+        """"Did you know?" — a friendly word about ZX Next Remote, the
+        companion app on the Next itself: files both ways over Wi-Fi, even
+        Next to Next, no SD card swapping. Two buttons: the deep dive, or
+        Not now. Counts as this session's one idle pitch; the click menu
+        can bring it back any time."""
+        self._zxnr_pitched = True
+        self._respeak = self.pitch_zxnr
+        self._say(self._tr("zxnr.didyouknow"),
+                  [(self._tr("btn.moreinfo"), lambda _=False: self._zxnr_node(1)),
+                   (self._tr("btn.later"), self._dismiss)],
+                  gesture="wave", cycles=4, links=self._zxnr_links())
+
+    def _zxnr_node(self, index):
+        """The deep dive, three pages: OS protection; mouse, the on-Next
+        explorer and Next-to-Next; end-to-end CRC checks and the fun of it
+        — the itch.io link on every one."""
+        last = index >= ZXNR_PITCH_PAGES
+        buttons = ([(self._tr("btn.close"), self._dismiss)] if last else
+                   [(self._tr("btn.next"), lambda _=False, i=index + 1: self._zxnr_node(i)),
+                    (self._tr("btn.close"), self._dismiss)])
+        self._respeak = lambda: self._zxnr_node(index)
+        self._say(self._tr(f"zxnr.more{index}"), buttons,
+                  gesture="cast" if last else "point", cycles=6,
+                  links=self._zxnr_links())
+
     def tell_joke(self):
         self._show_fun(JOKES, self._draw_index(JOKES, self._joke_bag),
                        self.tell_joke, "cast", 4)
@@ -1321,6 +1379,7 @@ class WizardManager(QObject):
                    (self._tr("btn.tour"), self.start_tour),
                    (self._tr("btn.joke"), self.tell_joke),
                    (self._tr("btn.story"), self.tell_story),
+                   (self._tr("btn.zxnr"), self.pitch_zxnr),
                    (self._tr("btn.off"), self.turn_off)],
                   gesture="wave", cycles=3,
                   links=self._guide_links(None)

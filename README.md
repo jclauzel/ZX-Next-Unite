@@ -27,8 +27,11 @@ management, both directions, remote zip/unzip included.
 
 **Meet Wizzy** — the built-in onboarding wizard tours every tab, offers
 in-depth guides for the SD Card and NextSync tools, speaks seven languages
-(switching live with the app language), tells Speccy jokes — and walks like
-an Egyptian:
+(switching live with the app language), tells Speccy jokes, offers to put
+the `.sync5` dot into a freshly loaded disk image, has a friendly word about
+[ZX Next Remote](https://jclauzel.itch.io/zxnextremote) — the companion app
+on the Next itself, files both ways over Wi-Fi and even Next to Next — and
+walks like an Egyptian:
 
 ![Wizzy the wizard touring the tabs](docs/media/wizzy-tour.gif)
 
