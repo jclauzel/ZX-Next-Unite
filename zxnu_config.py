@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.7"
+ZX_NEXT_UNITE_VERSION = "9.7.8"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -407,6 +407,7 @@ SETTING_CSPECT_UPDATE_CHECK    = "cspect_update_check"     # "false" => skip the
 SETTING_ZXNEXTREMOTE_UPDATE_CHECK = "zxnextremote_update_check"  # "false" => skip the startup itch.io ZX Next Remote update check (default on)
 SETTING_ZXNU_UPDATE_CHECK      = "zxnu_update_check"       # "false" => skip the startup ZX Next Unite GitHub release check (default on)
 SETTING_RE_UPDATE_PROMPT       = "re_update_prompt"       # "false" => no toast offering to update an older .sync5 / ZXNR when a Next connects (default on, 9.7.2)
+SETTING_SYNC5_IMG_AUTODEPLOY   = "sync5_img_autodeploy"   # "false" => never offer to download + deploy the .sync5 dot into a loaded disk image's /dot (default on, 9.7.8)
 SETTING_DELETE_TO_RECYCLE_BIN  = "delete_to_recycle_bin"   # "false" => local explorer deletes are permanent; default on = send to the Recycle Bin (needs Send2Trash)
 SETTING_DOTN_LAST_VERSION      = "dotn_last_version"       # bundled .sync5 dotN version last seen by this cfg (drives the "update the dot on your Next" advisory)
 SETTING_ZXNR_UPDATE_PATH       = "zxnr_update_path"        # last full Next-side path a ZX Next Remote self-update swapped (Remote Explorer; empty => ZXNR_HOME_DIR + "/zxnextremote-<flavor>.nex", i.e. c:/home/…; 9.7.2)
@@ -1025,7 +1026,7 @@ SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, S
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_MAME_RS232_ESP, SETTING_MAME_RS232_ESP_PORT, SETTING_MAME_RS232_ESP_VERBOSE, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
-SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_VERIFY_CRC, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_SDCARD_HSPLITTER, SETTING_NEXTSYNC_RE_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE, SETTING_GENERAL_FONT_SIZE, SETTING_RE_UPDATE_PROMPT,
+SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_VERIFY_CRC, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_SDCARD_HSPLITTER, SETTING_NEXTSYNC_RE_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE, SETTING_GENERAL_FONT_SIZE, SETTING_RE_UPDATE_PROMPT, SETTING_SYNC5_IMG_AUTODEPLOY,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNEXTREMOTE_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_ZXNR_UPDATE_PATH, SETTING_DELETE_TO_RECYCLE_BIN,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
 SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
@@ -3132,6 +3133,27 @@ def sync5_blob_has_banner(blob: bytes, version: str) -> bool:
     same bytes so a ZX_NEXT_UNITE_DOTN_VERSION bump without a rebuilt dot
     cannot ship."""
     return (b"NextSync " + version.encode()) in blob
+
+
+def sync5_blob_version(blob) -> str:
+    """The version a .sync5 dotN build embeds in its startup banner
+    (``NextSync <x.y.z> …``), or ``""`` when the bytes carry none — a
+    pre-banner dot, or not a dot at all. The companion of
+    :func:`sync5_blob_has_banner` for the callers that need the NUMBER
+    rather than a yes/no: the disk-image auto-deploy (9.7.8) compares it
+    with ZX_NEXT_UNITE_DOTN_VERSION to tell an older dot on the card."""
+    m = re.search(rb"NextSync (\d+\.\d+\.\d+)", blob or b"")
+    return m.group(1).decode("ascii") if m else ""
+
+
+def sync5_version_key(version) -> tuple:
+    """``"5.9.2"`` → ``(5, 9, 2)``; anything unparseable → ``()`` (sorts
+    below every real version, which is how an unknown build reads as
+    older)."""
+    try:
+        return tuple(int(p) for p in str(version or "").strip().split("."))
+    except ValueError:
+        return ()
 
 
 # Pinned SHA-256 of the jjjs hdfmonkey archive at HDF_MONKEY_JJJS_URL (a static

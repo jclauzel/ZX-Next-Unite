@@ -407,6 +407,7 @@ from zxnu_tab_ops import build_tab_ops
 from zxnu_retro_ui import (build_main_retro_log, build_sidebar_anim,
     build_help_retro_log, build_content_disclaimer)
 from zxnu_wizard import build_wizard
+from zxnu_sync5_img import build_sync5_img_ops
 from zxnu_network import build_network_watch
 from zxnu_favorites_pane import (build_favorites_helpers,
     build_favorites_pane, build_favorites_ops)
@@ -2394,6 +2395,24 @@ class MainWindow(QMainWindow):
         download_nextzxos_image = self.download_nextzxos_image
         execute_hdf_monkey = self.execute_hdf_monkey
         execute_shell_command = self.execute_shell_command
+        # The .sync5 auto-deploy into a loaded disk image (9.7.8): its
+        # check hangs off load_image (looked up by name at load time) and
+        # asks through Wizzy or a toast. Qt-free module, hooks injected;
+        # the wizard and the tree-reload helper are built later in this
+        # __init__, hence the forwarding lambdas.
+        build_sync5_img_ops(
+            self,
+            configuration_dictionary=configuration_dictionary,
+            execute_hdf_monkey=execute_hdf_monkey,
+            resolve_sync5=lambda: self._resolve_sync5_update_binary(),
+            run_in_thread=getit_run_in_thread,
+            show_toast=lambda *a, **k: self._show_toast(*a, **k),
+            add_log=lambda *a, **k: add_main_log_window(*a, **k),
+            wizard=lambda: getattr(self, "_wizard", None),
+            image_reload_dir=lambda p: self.image_reload_dir(p),
+            defer=lambda ms, fn: QTimer.singleShot(ms, fn),
+            reprobe=lambda p: self._reprobe_and_regate(p),
+        )
         image_newfolder = self.image_newfolder
         image_newfolder_cancel = self.image_newfolder_cancel
         image_newfolder_create = self.image_newfolder_create

@@ -1129,6 +1129,40 @@ CATALOGS = {
         "Check for ZX Next Unite updates at startup on Github":
             "Buscar actualizaciones de ZX Next Unite en GitHub al iniciar",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Ofrecer actualizar un .sync5 / ZX Next Remote antiguo cuando se conecta un Next",
+        "Auto update and deploy .sync5 command in an .img file":
+            "Actualizar y desplegar automáticamente el comando .sync5 en un archivo .img",
+        "When a disk image is loaded on the SD Card tab and its /dot folder has no\n.sync5 command, or an older one than this ZX Next Unite ships, offer to\ndownload the latest build from GitHub and deploy it into /dot — the\nNext-side half of NextSync the emulated Next needs for the Remote Explorer.":
+            "Cuando se carga una imagen de disco en la pestaña SD Card y su carpeta /dot no\ntiene el comando .sync5, o tiene uno más antiguo que el que trae este ZX Next\nUnite, ofrecer descargar la última compilación de GitHub y desplegarla en /dot —\nla mitad de NextSync que el Next emulado necesita para el Explorador remoto.",
+        ".sync5 for this disk image":
+            ".sync5 para esta imagen de disco",
+        "Deploy now":
+            "Desplegar ahora",
+        ".sync5 deployed":
+            ".sync5 desplegado",
+        ".sync5 deploy failed":
+            "Fallo al desplegar .sync5",
+        "This disk image has no .sync5 command in /dot. Download the latest (v{new}) from GitHub and put it there? The NextSync Remote Explorer needs it on the emulated Next. (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "Esta imagen de disco no tiene el comando .sync5 en /dot. ¿Descargar la última versión (v{new}) de GitHub y ponerla ahí? El Explorador remoto de NextSync la necesita en el Next emulado. (Desactiva este aviso en Ajustes → 'Actualizar y desplegar automáticamente el comando .sync5 en un archivo .img'.)",
+        "The .sync5 in this disk image's /dot is v{old}; this ZX Next Unite ships v{new}. Download it and replace the old one? (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "El .sync5 en /dot de esta imagen de disco es la v{old}; este ZX Next Unite trae la v{new}. ¿Descargarla y sustituir la antigua? (Desactiva este aviso en Ajustes → 'Actualizar y desplegar automáticamente el comando .sync5 en un archivo .img'.)",
+        "The .sync5 in this disk image's /dot carries no version banner (an old build). Download v{new} and replace it? (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "El .sync5 en /dot de esta imagen de disco no lleva indicador de versión (compilación antigua). ¿Descargar la v{new} y sustituirlo? (Desactiva este aviso en Ajustes → 'Actualizar y desplegar automáticamente el comando .sync5 en un archivo .img'.)",
+        ".sync5 check skipped: {image} is in use by an emulator — close it and load the image again to deploy the dot.":
+            "Comprobación de .sync5 omitida: {image} está en uso por un emulador — ciérralo y vuelve a cargar la imagen para desplegar el comando.",
+        ".sync5 check skipped: {image} cannot be written (read-only, or out of this app's reach) — nothing can be deployed into it.":
+            "Comprobación de .sync5 omitida: no se puede escribir en {image} (solo lectura, o fuera del alcance de esta aplicación) — no se puede desplegar nada en ella.",
+        ".sync5 check: {image} has a {path} that hdfmonkey could not read back — leaving it alone.":
+            "Comprobación de .sync5: {image} tiene un {path} que hdfmonkey no ha podido leer — se deja como está.",
+        ".sync5 check: {image} needs the dot ({state}) but the build cannot be obtained right now — {reason}":
+            "Comprobación de .sync5: {image} necesita el comando ({state}) pero ahora mismo no se puede obtener la compilación — {reason}",
+        "{image} is in use by an emulator — close it and load the image again to deploy the dot.":
+            "{image} está en uso por un emulador — ciérralo y vuelve a cargar la imagen para desplegar el comando.",
+        ".sync5 deploy: fetching v{new} and writing it to {image}{path}…":
+            "Despliegue de .sync5: obteniendo la v{new} y escribiéndola en {image}{path}…",
+        ".sync5 v{new} is now in {image}{path} — the emulated Next can run '.sync5 -listen' for the Remote Explorer.":
+            ".sync5 v{new} ya está en {image}{path} — el Next emulado puede ejecutar '.sync5 -listen' para el Explorador remoto.",
+        ".sync5 deploy into {image} failed: {reason}":
+            "El despliegue de .sync5 en {image} ha fallado: {reason}",
         "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Cuando un Next se conecta al Explorador remoto con un .sync5 o una\nversión de ZX Next Remote más antigua que la de este PC, mostrar un aviso\nde 10 segundos que ofrece enviar la nueva versión de inmediato.",
         "NextSync — Verify CRC of every file sent to the Next (Remote Explorer)": "NextSync — Verificar el CRC de cada archivo enviado al Next (Explorador remoto)",
         "After the Remote Explorer sends a file to a Next running '.sync5 -listen'\n(drag & drop, paste, a gallery's Send via NextSync), ask the Next for the\nCRC-32 of the copy that landed and compare it with what was sent. On a\ndefinite mismatch the corrupted copy is deleted from the Next and a red\nline + toast report it. Needs .sync5 v5.9.2+ or ZX Next Remote 1.0.8+ on\nthe Next: an older listener is not asked and the file is kept, unverified.\nClassic '.sync5' syncs cannot be verified. On by default.\nSaved to the configuration file.": "Después de que el Explorador remoto envíe un archivo a un Next con '.sync5 -listen'\n(arrastrar y soltar, pegar, «Enviar por NextSync» de una galería), pedir al Next el\nCRC-32 de la copia recibida y compararlo con lo enviado. Ante una discrepancia clara,\nla copia dañada se borra del Next y una línea roja + un aviso lo informan.\nRequiere .sync5 v5.9.2+ o ZX Next Remote 1.0.8+ en el Next: a un receptor más antiguo\nno se le pregunta y el archivo se conserva sin verificar.\nLas sincronizaciones clásicas con '.sync5' no se pueden verificar. Activado por defecto.\nSe guarda en el archivo de configuración.",
@@ -2445,6 +2479,40 @@ CATALOGS = {
         "Check for ZX Next Unite updates at startup on Github":
             "Procurar atualizações do ZX Next Unite no GitHub ao arrancar",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Propor atualizar um .sync5 / ZX Next Remote antigo quando um Next se liga",
+        "Auto update and deploy .sync5 command in an .img file":
+            "Atualizar e implementar automaticamente o comando .sync5 num ficheiro .img",
+        "When a disk image is loaded on the SD Card tab and its /dot folder has no\n.sync5 command, or an older one than this ZX Next Unite ships, offer to\ndownload the latest build from GitHub and deploy it into /dot — the\nNext-side half of NextSync the emulated Next needs for the Remote Explorer.":
+            "Quando uma imagem de disco é carregada no separador SD Card e a sua pasta /dot\nnão tem o comando .sync5, ou tem um mais antigo do que o que este ZX Next Unite\ntraz, propor descarregar a compilação mais recente do GitHub e implementá-la em\n/dot — a metade do NextSync que o Next emulado precisa para o Explorador remoto.",
+        ".sync5 for this disk image":
+            ".sync5 para esta imagem de disco",
+        "Deploy now":
+            "Implementar agora",
+        ".sync5 deployed":
+            ".sync5 implementado",
+        ".sync5 deploy failed":
+            "Falha ao implementar o .sync5",
+        "This disk image has no .sync5 command in /dot. Download the latest (v{new}) from GitHub and put it there? The NextSync Remote Explorer needs it on the emulated Next. (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "Esta imagem de disco não tem o comando .sync5 em /dot. Descarregar a versão mais recente (v{new}) do GitHub e pô-la lá? O Explorador remoto do NextSync precisa dele no Next emulado. (Desligue esta oferta em Definições → 'Atualizar e implementar automaticamente o comando .sync5 num ficheiro .img'.)",
+        "The .sync5 in this disk image's /dot is v{old}; this ZX Next Unite ships v{new}. Download it and replace the old one? (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "O .sync5 em /dot desta imagem de disco é a v{old}; este ZX Next Unite traz a v{new}. Descarregá-la e substituir a antiga? (Desligue esta oferta em Definições → 'Atualizar e implementar automaticamente o comando .sync5 num ficheiro .img'.)",
+        "The .sync5 in this disk image's /dot carries no version banner (an old build). Download v{new} and replace it? (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "O .sync5 em /dot desta imagem de disco não tem indicador de versão (compilação antiga). Descarregar a v{new} e substituí-lo? (Desligue esta oferta em Definições → 'Atualizar e implementar automaticamente o comando .sync5 num ficheiro .img'.)",
+        ".sync5 check skipped: {image} is in use by an emulator — close it and load the image again to deploy the dot.":
+            "Verificação do .sync5 ignorada: {image} está em uso por um emulador — feche-o e carregue a imagem de novo para implementar o comando.",
+        ".sync5 check skipped: {image} cannot be written (read-only, or out of this app's reach) — nothing can be deployed into it.":
+            "Verificação do .sync5 ignorada: não é possível escrever em {image} (só de leitura, ou fora do alcance desta aplicação) — nada pode ser implementado nela.",
+        ".sync5 check: {image} has a {path} that hdfmonkey could not read back — leaving it alone.":
+            "Verificação do .sync5: {image} tem um {path} que o hdfmonkey não conseguiu ler — fica como está.",
+        ".sync5 check: {image} needs the dot ({state}) but the build cannot be obtained right now — {reason}":
+            "Verificação do .sync5: {image} precisa do comando ({state}) mas de momento não é possível obter a compilação — {reason}",
+        "{image} is in use by an emulator — close it and load the image again to deploy the dot.":
+            "{image} está em uso por um emulador — feche-o e carregue a imagem de novo para implementar o comando.",
+        ".sync5 deploy: fetching v{new} and writing it to {image}{path}…":
+            "Implementação do .sync5: a obter a v{new} e a escrevê-la em {image}{path}…",
+        ".sync5 v{new} is now in {image}{path} — the emulated Next can run '.sync5 -listen' for the Remote Explorer.":
+            ".sync5 v{new} está agora em {image}{path} — o Next emulado pode executar '.sync5 -listen' para o Explorador remoto.",
+        ".sync5 deploy into {image} failed: {reason}":
+            "A implementação do .sync5 em {image} falhou: {reason}",
         "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Quando um Next se liga ao Explorador remoto com um .sync5 ou uma versão\ndo ZX Next Remote mais antiga do que a deste PC, mostrar um aviso de 10\nsegundos a propor enviar já a versão mais recente.",
         "NextSync — Verify CRC of every file sent to the Next (Remote Explorer)": "NextSync — Verificar o CRC de cada ficheiro enviado ao Next (Explorador remoto)",
         "After the Remote Explorer sends a file to a Next running '.sync5 -listen'\n(drag & drop, paste, a gallery's Send via NextSync), ask the Next for the\nCRC-32 of the copy that landed and compare it with what was sent. On a\ndefinite mismatch the corrupted copy is deleted from the Next and a red\nline + toast report it. Needs .sync5 v5.9.2+ or ZX Next Remote 1.0.8+ on\nthe Next: an older listener is not asked and the file is kept, unverified.\nClassic '.sync5' syncs cannot be verified. On by default.\nSaved to the configuration file.": "Depois de o Explorador remoto enviar um ficheiro a um Next a correr '.sync5 -listen'\n(arrastar e largar, colar, «Enviar via NextSync» de uma galeria), pedir ao Next o\nCRC-32 da cópia que chegou e compará-lo com o que foi enviado. Numa discrepância clara,\na cópia corrompida é apagada do Next e uma linha vermelha + um aviso assinalam-no.\nRequer .sync5 v5.9.2+ ou ZX Next Remote 1.0.8+ no Next: um recetor mais antigo\nnão é consultado e o ficheiro é mantido, sem verificação.\nAs sincronizações clássicas com '.sync5' não podem ser verificadas. Ativado por defeito.\nGuardado no ficheiro de configuração.",
@@ -3758,6 +3826,40 @@ CATALOGS = {
         "Check for ZX Next Unite updates at startup on Github":
             "Sprawdzaj aktualizacje ZX Next Unite na GitHubie przy starcie",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Proponuj aktualizację starszego .sync5 / ZX Next Remote, gdy Next się połączy",
+        "Auto update and deploy .sync5 command in an .img file":
+            "Automatycznie aktualizuj i wdrażaj polecenie .sync5 w pliku .img",
+        "When a disk image is loaded on the SD Card tab and its /dot folder has no\n.sync5 command, or an older one than this ZX Next Unite ships, offer to\ndownload the latest build from GitHub and deploy it into /dot — the\nNext-side half of NextSync the emulated Next needs for the Remote Explorer.":
+            "Gdy obraz dysku zostanie wczytany na karcie SD Card, a jego folder /dot nie\nzawiera polecenia .sync5 lub zawiera starsze niż dostarczane z tym ZX Next Unite,\nzaproponuj pobranie najnowszej kompilacji z GitHuba i wdrożenie jej do /dot —\npołówki NextSync, której emulowany Next potrzebuje do Zdalnego eksploratora.",
+        ".sync5 for this disk image":
+            ".sync5 dla tego obrazu dysku",
+        "Deploy now":
+            "Wdróż teraz",
+        ".sync5 deployed":
+            ".sync5 wdrożony",
+        ".sync5 deploy failed":
+            "Wdrożenie .sync5 nie powiodło się",
+        "This disk image has no .sync5 command in /dot. Download the latest (v{new}) from GitHub and put it there? The NextSync Remote Explorer needs it on the emulated Next. (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "Ten obraz dysku nie ma polecenia .sync5 w /dot. Pobrać najnowszą wersję (v{new}) z GitHuba i tam ją umieścić? Zdalny eksplorator NextSync potrzebuje jej na emulowanym Nexcie. (Wyłącz tę propozycję w Ustawieniach → 'Automatycznie aktualizuj i wdrażaj polecenie .sync5 w pliku .img'.)",
+        "The .sync5 in this disk image's /dot is v{old}; this ZX Next Unite ships v{new}. Download it and replace the old one? (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "Polecenie .sync5 w /dot tego obrazu dysku ma wersję v{old}; ten ZX Next Unite dostarcza v{new}. Pobrać ją i zastąpić starą? (Wyłącz tę propozycję w Ustawieniach → 'Automatycznie aktualizuj i wdrażaj polecenie .sync5 w pliku .img'.)",
+        "The .sync5 in this disk image's /dot carries no version banner (an old build). Download v{new} and replace it? (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "Polecenie .sync5 w /dot tego obrazu dysku nie ma oznaczenia wersji (stara kompilacja). Pobrać v{new} i je zastąpić? (Wyłącz tę propozycję w Ustawieniach → 'Automatycznie aktualizuj i wdrażaj polecenie .sync5 w pliku .img'.)",
+        ".sync5 check skipped: {image} is in use by an emulator — close it and load the image again to deploy the dot.":
+            "Sprawdzenie .sync5 pominięte: {image} jest używany przez emulator — zamknij go i wczytaj obraz ponownie, aby wdrożyć polecenie.",
+        ".sync5 check skipped: {image} cannot be written (read-only, or out of this app's reach) — nothing can be deployed into it.":
+            "Sprawdzenie .sync5 pominięte: nie można zapisywać do {image} (tylko do odczytu lub poza zasięgiem tej aplikacji) — nie da się w nim niczego wdrożyć.",
+        ".sync5 check: {image} has a {path} that hdfmonkey could not read back — leaving it alone.":
+            "Sprawdzenie .sync5: {image} zawiera {path}, którego hdfmonkey nie mógł odczytać — pozostawiono bez zmian.",
+        ".sync5 check: {image} needs the dot ({state}) but the build cannot be obtained right now — {reason}":
+            "Sprawdzenie .sync5: {image} potrzebuje polecenia ({state}), ale nie można teraz pobrać kompilacji — {reason}",
+        "{image} is in use by an emulator — close it and load the image again to deploy the dot.":
+            "{image} jest używany przez emulator — zamknij go i wczytaj obraz ponownie, aby wdrożyć polecenie.",
+        ".sync5 deploy: fetching v{new} and writing it to {image}{path}…":
+            "Wdrażanie .sync5: pobieranie v{new} i zapis do {image}{path}…",
+        ".sync5 v{new} is now in {image}{path} — the emulated Next can run '.sync5 -listen' for the Remote Explorer.":
+            ".sync5 v{new} jest już w {image}{path} — emulowany Next może uruchomić '.sync5 -listen' dla Zdalnego eksploratora.",
+        ".sync5 deploy into {image} failed: {reason}":
+            "Wdrożenie .sync5 do {image} nie powiodło się: {reason}",
         "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Gdy Next połączy się ze Zdalnym eksploratorem ze starszym .sync5 lub\nstarszą wersją ZX Next Remote niż ma ten PC, pokaż 10-sekundowy monit\nz propozycją natychmiastowego wysłania nowszej wersji.",
         "NextSync — Verify CRC of every file sent to the Next (Remote Explorer)": "NextSync — Sprawdzaj CRC każdego pliku wysłanego do Next (Zdalny eksplorator)",
         "After the Remote Explorer sends a file to a Next running '.sync5 -listen'\n(drag & drop, paste, a gallery's Send via NextSync), ask the Next for the\nCRC-32 of the copy that landed and compare it with what was sent. On a\ndefinite mismatch the corrupted copy is deleted from the Next and a red\nline + toast report it. Needs .sync5 v5.9.2+ or ZX Next Remote 1.0.8+ on\nthe Next: an older listener is not asked and the file is kept, unverified.\nClassic '.sync5' syncs cannot be verified. On by default.\nSaved to the configuration file.": "Gdy Zdalny eksplorator wyśle plik do Next z uruchomionym '.sync5 -listen'\n(przeciągnij i upuść, wklej, „Wyślij przez NextSync” z galerii), zapytaj Next o\nCRC-32 zapisanej kopii i porównaj ją z tym, co wysłano. Przy jednoznacznej\nniezgodności uszkodzona kopia jest usuwana z Next, a czerwona linia + powiadomienie\no tym informują. Wymaga .sync5 v5.9.2+ lub ZX Next Remote 1.0.8+ na Next: starszy\nodbiorca nie jest pytany, a plik zostaje zachowany bez weryfikacji.\nKlasycznych synchronizacji '.sync5' nie da się zweryfikować. Domyślnie włączone.\nZapisywane w pliku konfiguracji.",
@@ -5073,6 +5175,40 @@ CATALOGS = {
         "Check for ZX Next Unite updates at startup on Github":
             "Проверять обновления ZX Next Unite на GitHub при запуске",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Предлагать обновить устаревший .sync5 / ZX Next Remote при подключении Next",
+        "Auto update and deploy .sync5 command in an .img file":
+            "Автоматически обновлять и разворачивать команду .sync5 в файле .img",
+        "When a disk image is loaded on the SD Card tab and its /dot folder has no\n.sync5 command, or an older one than this ZX Next Unite ships, offer to\ndownload the latest build from GitHub and deploy it into /dot — the\nNext-side half of NextSync the emulated Next needs for the Remote Explorer.":
+            "Когда образ диска загружен на вкладке SD Card, а в его папке /dot нет команды\n.sync5 или она старее поставляемой с этим ZX Next Unite, предложить скачать\nпоследнюю сборку с GitHub и развернуть её в /dot — половину NextSync, которая\nнужна эмулируемому Next для Удалённого проводника.",
+        ".sync5 for this disk image":
+            ".sync5 для этого образа диска",
+        "Deploy now":
+            "Развернуть сейчас",
+        ".sync5 deployed":
+            ".sync5 развёрнут",
+        ".sync5 deploy failed":
+            "Развернуть .sync5 не удалось",
+        "This disk image has no .sync5 command in /dot. Download the latest (v{new}) from GitHub and put it there? The NextSync Remote Explorer needs it on the emulated Next. (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "В этом образе диска нет команды .sync5 в /dot. Скачать последнюю версию (v{new}) с GitHub и положить её туда? Удалённому проводнику NextSync она нужна на эмулируемом Next. (Отключить это предложение: Настройки → 'Автоматически обновлять и разворачивать команду .sync5 в файле .img'.)",
+        "The .sync5 in this disk image's /dot is v{old}; this ZX Next Unite ships v{new}. Download it and replace the old one? (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "Команда .sync5 в /dot этого образа диска имеет версию v{old}; этот ZX Next Unite поставляется с v{new}. Скачать её и заменить старую? (Отключить это предложение: Настройки → 'Автоматически обновлять и разворачивать команду .sync5 в файле .img'.)",
+        "The .sync5 in this disk image's /dot carries no version banner (an old build). Download v{new} and replace it? (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "Команда .sync5 в /dot этого образа диска не содержит метки версии (старая сборка). Скачать v{new} и заменить её? (Отключить это предложение: Настройки → 'Автоматически обновлять и разворачивать команду .sync5 в файле .img'.)",
+        ".sync5 check skipped: {image} is in use by an emulator — close it and load the image again to deploy the dot.":
+            "Проверка .sync5 пропущена: {image} используется эмулятором — закройте его и загрузите образ снова, чтобы развернуть команду.",
+        ".sync5 check skipped: {image} cannot be written (read-only, or out of this app's reach) — nothing can be deployed into it.":
+            "Проверка .sync5 пропущена: в {image} нельзя записывать (только чтение или вне досягаемости этого приложения) — развернуть в него ничего нельзя.",
+        ".sync5 check: {image} has a {path} that hdfmonkey could not read back — leaving it alone.":
+            "Проверка .sync5: в {image} есть {path}, который hdfmonkey не смог прочитать — оставлен как есть.",
+        ".sync5 check: {image} needs the dot ({state}) but the build cannot be obtained right now — {reason}":
+            "Проверка .sync5: {image} нуждается в команде ({state}), но сборку сейчас получить нельзя — {reason}",
+        "{image} is in use by an emulator — close it and load the image again to deploy the dot.":
+            "{image} используется эмулятором — закройте его и загрузите образ снова, чтобы развернуть команду.",
+        ".sync5 deploy: fetching v{new} and writing it to {image}{path}…":
+            "Развёртывание .sync5: получение v{new} и запись в {image}{path}…",
+        ".sync5 v{new} is now in {image}{path} — the emulated Next can run '.sync5 -listen' for the Remote Explorer.":
+            ".sync5 v{new} теперь в {image}{path} — эмулируемый Next может запустить '.sync5 -listen' для Удалённого проводника.",
+        ".sync5 deploy into {image} failed: {reason}":
+            "Развернуть .sync5 в {image} не удалось: {reason}",
         "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Когда Next подключается к удалённому проводнику со старым .sync5 или\nстарой сборкой ZX Next Remote, чем есть на этом ПК, показать 10-секундное\nпредложение сразу отправить новую версию.",
         "NextSync — Verify CRC of every file sent to the Next (Remote Explorer)": "NextSync — Проверять CRC каждого файла, отправленного на Next (удалённый проводник)",
         "After the Remote Explorer sends a file to a Next running '.sync5 -listen'\n(drag & drop, paste, a gallery's Send via NextSync), ask the Next for the\nCRC-32 of the copy that landed and compare it with what was sent. On a\ndefinite mismatch the corrupted copy is deleted from the Next and a red\nline + toast report it. Needs .sync5 v5.9.2+ or ZX Next Remote 1.0.8+ on\nthe Next: an older listener is not asked and the file is kept, unverified.\nClassic '.sync5' syncs cannot be verified. On by default.\nSaved to the configuration file.": "После того как удалённый проводник отправит файл на Next с запущенным '.sync5 -listen'\n(перетаскивание, вставка, «Отправить через NextSync» из галереи), запросить у Next\nCRC-32 записанной копии и сравнить её с отправленным. При явном несовпадении\nповреждённая копия удаляется с Next, а красная строка + уведомление сообщают об этом.\nТребуется .sync5 v5.9.2+ или ZX Next Remote 1.0.8+ на Next: более старый приёмник\nне опрашивается, и файл сохраняется без проверки.\nКлассическую синхронизацию '.sync5' проверить нельзя. Включено по умолчанию.\nСохраняется в файле конфигурации.",
@@ -6385,6 +6521,40 @@ CATALOGS = {
         "Check for ZX Next Unite updates at startup on Github":
             "Při startu hledat aktualizace ZX Next Unite na GitHubu",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Nabídnout aktualizaci staršího .sync5 / ZX Next Remote, když se Next připojí",
+        "Auto update and deploy .sync5 command in an .img file":
+            "Automaticky aktualizovat a nasadit příkaz .sync5 do souboru .img",
+        "When a disk image is loaded on the SD Card tab and its /dot folder has no\n.sync5 command, or an older one than this ZX Next Unite ships, offer to\ndownload the latest build from GitHub and deploy it into /dot — the\nNext-side half of NextSync the emulated Next needs for the Remote Explorer.":
+            "Když je na kartě SD Card načten obraz disku a jeho složka /dot neobsahuje\npříkaz .sync5, nebo obsahuje starší, než přináší tento ZX Next Unite, nabídnout\nstažení nejnovějšího sestavení z GitHubu a jeho nasazení do /dot — poloviny\nNextSyncu, kterou emulovaný Next potřebuje pro Vzdáleného průzkumníka.",
+        ".sync5 for this disk image":
+            ".sync5 pro tento obraz disku",
+        "Deploy now":
+            "Nasadit nyní",
+        ".sync5 deployed":
+            ".sync5 nasazen",
+        ".sync5 deploy failed":
+            "Nasazení .sync5 selhalo",
+        "This disk image has no .sync5 command in /dot. Download the latest (v{new}) from GitHub and put it there? The NextSync Remote Explorer needs it on the emulated Next. (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "Tento obraz disku nemá v /dot příkaz .sync5. Stáhnout nejnovější verzi (v{new}) z GitHubu a uložit ji tam? Vzdálený průzkumník NextSyncu ji na emulovaném Nextu potřebuje. (Nabídku vypnete v Nastavení → 'Automaticky aktualizovat a nasadit příkaz .sync5 do souboru .img'.)",
+        "The .sync5 in this disk image's /dot is v{old}; this ZX Next Unite ships v{new}. Download it and replace the old one? (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "Příkaz .sync5 v /dot tohoto obrazu disku má verzi v{old}; tento ZX Next Unite přináší v{new}. Stáhnout ji a vyměnit starou? (Nabídku vypnete v Nastavení → 'Automaticky aktualizovat a nasadit příkaz .sync5 do souboru .img'.)",
+        "The .sync5 in this disk image's /dot carries no version banner (an old build). Download v{new} and replace it? (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "Příkaz .sync5 v /dot tohoto obrazu disku nenese značku verze (staré sestavení). Stáhnout v{new} a vyměnit ho? (Nabídku vypnete v Nastavení → 'Automaticky aktualizovat a nasadit příkaz .sync5 do souboru .img'.)",
+        ".sync5 check skipped: {image} is in use by an emulator — close it and load the image again to deploy the dot.":
+            "Kontrola .sync5 přeskočena: {image} používá emulátor — zavřete ho a načtěte obraz znovu, aby se příkaz nasadil.",
+        ".sync5 check skipped: {image} cannot be written (read-only, or out of this app's reach) — nothing can be deployed into it.":
+            "Kontrola .sync5 přeskočena: do {image} nelze zapisovat (jen pro čtení, nebo mimo dosah této aplikace) — nic do něj nelze nasadit.",
+        ".sync5 check: {image} has a {path} that hdfmonkey could not read back — leaving it alone.":
+            "Kontrola .sync5: {image} obsahuje {path}, který hdfmonkey nedokázal přečíst — ponechán beze změny.",
+        ".sync5 check: {image} needs the dot ({state}) but the build cannot be obtained right now — {reason}":
+            "Kontrola .sync5: {image} příkaz potřebuje ({state}), ale sestavení teď nelze získat — {reason}",
+        "{image} is in use by an emulator — close it and load the image again to deploy the dot.":
+            "{image} používá emulátor — zavřete ho a načtěte obraz znovu, aby se příkaz nasadil.",
+        ".sync5 deploy: fetching v{new} and writing it to {image}{path}…":
+            "Nasazení .sync5: získávání v{new} a zápis do {image}{path}…",
+        ".sync5 v{new} is now in {image}{path} — the emulated Next can run '.sync5 -listen' for the Remote Explorer.":
+            ".sync5 v{new} je nyní v {image}{path} — emulovaný Next může spustit '.sync5 -listen' pro Vzdáleného průzkumníka.",
+        ".sync5 deploy into {image} failed: {reason}":
+            "Nasazení .sync5 do {image} selhalo: {reason}",
         "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Když se Next připojí ke Vzdálenému průzkumníku se starším .sync5 nebo\nstarší verzí ZX Next Remote, než má tento počítač, zobrazit 10sekundovou\nvýzvu s nabídkou hned odeslat novější verzi.",
         "NextSync — Verify CRC of every file sent to the Next (Remote Explorer)": "NextSync — Ověřovat CRC každého souboru odeslaného do Next (Vzdálený průzkumník)",
         "After the Remote Explorer sends a file to a Next running '.sync5 -listen'\n(drag & drop, paste, a gallery's Send via NextSync), ask the Next for the\nCRC-32 of the copy that landed and compare it with what was sent. On a\ndefinite mismatch the corrupted copy is deleted from the Next and a red\nline + toast report it. Needs .sync5 v5.9.2+ or ZX Next Remote 1.0.8+ on\nthe Next: an older listener is not asked and the file is kept, unverified.\nClassic '.sync5' syncs cannot be verified. On by default.\nSaved to the configuration file.": "Poté, co Vzdálený průzkumník odešle soubor do Next se spuštěným '.sync5 -listen'\n(přetažení, vložení, „Odeslat přes NextSync“ z galerie), vyžádat si od Next\nCRC-32 uložené kopie a porovnat jej s tím, co bylo odesláno. Při jednoznačné\nneshodě je poškozená kopie z Next smazána a ohlásí to červený řádek + oznámení.\nVyžaduje .sync5 v5.9.2+ nebo ZX Next Remote 1.0.8+ na Next: starší přijímač\nnení dotázán a soubor zůstane zachován bez ověření.\nKlasické synchronizace '.sync5' ověřit nelze. Ve výchozím nastavení zapnuto.\nUkládá se do konfiguračního souboru.",
@@ -7704,6 +7874,40 @@ CATALOGS = {
         "Check for ZX Next Unite updates at startup on Github":
             "Vérifier les mises à jour de ZX Next Unite sur GitHub au démarrage",
         "Offer to update an older .sync5 / ZX Next Remote when a Next connects": "Proposer de mettre à jour un .sync5 / ZX Next Remote ancien quand un Next se connecte",
+        "Auto update and deploy .sync5 command in an .img file":
+            "Mettre à jour et déployer automatiquement la commande .sync5 dans un fichier .img",
+        "When a disk image is loaded on the SD Card tab and its /dot folder has no\n.sync5 command, or an older one than this ZX Next Unite ships, offer to\ndownload the latest build from GitHub and deploy it into /dot — the\nNext-side half of NextSync the emulated Next needs for the Remote Explorer.":
+            "Quand une image disque est chargée dans l'onglet SD Card et que son dossier\n/dot n'a pas de commande .sync5, ou une plus ancienne que celle fournie par ce ZX\nNext Unite, proposer de télécharger la dernière compilation depuis GitHub et de\nla déployer dans /dot — la moitié de NextSync dont le Next émulé a besoin pour\nl'Explorateur distant.",
+        ".sync5 for this disk image":
+            ".sync5 pour cette image disque",
+        "Deploy now":
+            "Déployer maintenant",
+        ".sync5 deployed":
+            ".sync5 déployé",
+        ".sync5 deploy failed":
+            "Échec du déploiement de .sync5",
+        "This disk image has no .sync5 command in /dot. Download the latest (v{new}) from GitHub and put it there? The NextSync Remote Explorer needs it on the emulated Next. (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "Cette image disque n'a pas de commande .sync5 dans /dot. Télécharger la dernière (v{new}) depuis GitHub et l'y placer ? L'Explorateur distant NextSync en a besoin sur le Next émulé. (Désactivez cette proposition dans Réglages → 'Mettre à jour et déployer automatiquement la commande .sync5 dans un fichier .img'.)",
+        "The .sync5 in this disk image's /dot is v{old}; this ZX Next Unite ships v{new}. Download it and replace the old one? (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "Le .sync5 dans /dot de cette image disque est en v{old} ; ce ZX Next Unite fournit la v{new}. La télécharger et remplacer l'ancienne ? (Désactivez cette proposition dans Réglages → 'Mettre à jour et déployer automatiquement la commande .sync5 dans un fichier .img'.)",
+        "The .sync5 in this disk image's /dot carries no version banner (an old build). Download v{new} and replace it? (Switch this offer off in Settings → 'Auto update and deploy .sync5 command in an .img file'.)":
+            "Le .sync5 dans /dot de cette image disque ne porte aucune marque de version (vieille compilation). Télécharger la v{new} et le remplacer ? (Désactivez cette proposition dans Réglages → 'Mettre à jour et déployer automatiquement la commande .sync5 dans un fichier .img'.)",
+        ".sync5 check skipped: {image} is in use by an emulator — close it and load the image again to deploy the dot.":
+            "Vérification du .sync5 ignorée : {image} est utilisé par un émulateur — fermez-le et rechargez l'image pour déployer la commande.",
+        ".sync5 check skipped: {image} cannot be written (read-only, or out of this app's reach) — nothing can be deployed into it.":
+            "Vérification du .sync5 ignorée : impossible d'écrire dans {image} (lecture seule, ou hors de portée de cette application) — rien ne peut y être déployé.",
+        ".sync5 check: {image} has a {path} that hdfmonkey could not read back — leaving it alone.":
+            "Vérification du .sync5 : {image} contient un {path} que hdfmonkey n'a pas pu relire — laissé tel quel.",
+        ".sync5 check: {image} needs the dot ({state}) but the build cannot be obtained right now — {reason}":
+            "Vérification du .sync5 : {image} a besoin de la commande ({state}) mais la compilation ne peut pas être obtenue pour l'instant — {reason}",
+        "{image} is in use by an emulator — close it and load the image again to deploy the dot.":
+            "{image} est utilisé par un émulateur — fermez-le et rechargez l'image pour déployer la commande.",
+        ".sync5 deploy: fetching v{new} and writing it to {image}{path}…":
+            "Déploiement de .sync5 : récupération de la v{new} et écriture dans {image}{path}…",
+        ".sync5 v{new} is now in {image}{path} — the emulated Next can run '.sync5 -listen' for the Remote Explorer.":
+            ".sync5 v{new} est maintenant dans {image}{path} — le Next émulé peut lancer '.sync5 -listen' pour l'Explorateur distant.",
+        ".sync5 deploy into {image} failed: {reason}":
+            "Le déploiement de .sync5 dans {image} a échoué : {reason}",
         "When a Next connects to the Remote Explorer running an older .sync5 dot\nor ZX Next Remote build than this PC holds, show a 10-second prompt\noffering to push the newer version right away.": "Quand un Next se connecte à l'Explorateur distant avec un .sync5 ou une\nversion de ZX Next Remote plus ancienne que celle de ce PC, afficher une\ninvite de 10 secondes proposant d'envoyer la nouvelle version tout de suite.",
         "NextSync — Verify CRC of every file sent to the Next (Remote Explorer)": "NextSync — Vérifier le CRC de chaque fichier envoyé au Next (Explorateur distant)",
         "After the Remote Explorer sends a file to a Next running '.sync5 -listen'\n(drag & drop, paste, a gallery's Send via NextSync), ask the Next for the\nCRC-32 of the copy that landed and compare it with what was sent. On a\ndefinite mismatch the corrupted copy is deleted from the Next and a red\nline + toast report it. Needs .sync5 v5.9.2+ or ZX Next Remote 1.0.8+ on\nthe Next: an older listener is not asked and the file is kept, unverified.\nClassic '.sync5' syncs cannot be verified. On by default.\nSaved to the configuration file.": "Après que l'Explorateur distant a envoyé un fichier à un Next exécutant '.sync5 -listen'\n(glisser-déposer, coller, « Envoyer via NextSync » d'une galerie), demander au Next le\nCRC-32 de la copie arrivée et le comparer à ce qui a été envoyé. En cas d'écart avéré,\nla copie corrompue est supprimée du Next et une ligne rouge + une notification le signalent.\nNécessite .sync5 v5.9.2+ ou ZX Next Remote 1.0.8+ sur le Next : un récepteur plus\nancien n'est pas interrogé et le fichier est conservé, non vérifié.\nLes synchronisations classiques '.sync5' ne peuvent pas être vérifiées. Activé par défaut.\nEnregistré dans le fichier de configuration.",

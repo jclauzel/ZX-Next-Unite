@@ -426,6 +426,14 @@ def build_config_io(
                 host.settings_re_update_prompt_checkbox.blockSignals(True)
                 host.settings_re_update_prompt_checkbox.setChecked(_re_upd_on)
                 host.settings_re_update_prompt_checkbox.blockSignals(False)
+            # .sync5 auto-deploy into a loaded disk image (default on, 9.7.8).
+            if hasattr(host, "settings_sync5_img_autodeploy_checkbox"):
+                _s5 = (configuration_dictionary.get(
+                    SETTING_SYNC5_IMG_AUTODEPLOY, "") or "").strip().lower()
+                _s5_on = _s5 not in ("false", "0", "no")   # default on
+                host.settings_sync5_img_autodeploy_checkbox.blockSignals(True)
+                host.settings_sync5_img_autodeploy_checkbox.setChecked(_s5_on)
+                host.settings_sync5_img_autodeploy_checkbox.blockSignals(False)
             # Verify-after-put CRC-32 check of Remote Explorer uploads
             # (default on, 9.7.3). blockSignals: the checkbox handler
             # rewrites the dict value.

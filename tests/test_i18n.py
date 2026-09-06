@@ -212,7 +212,9 @@ def test_toast_tripwire():
                   "zxnu_retro_ui.py", "zxnu_unite_pane.py",
                   "zxnu_itchio_pane.py",
                   # NextSync console: the user-facing sync-server log lines:
-                  "zxnu_workers.py"):
+                  "zxnu_workers.py",
+                  # the .sync5 auto-deploy offer/toasts (9.7.8):
+                  "zxnu_sync5_img.py"):
         tree = ast.parse(open(os.path.join(repo, fname), encoding="utf-8").read())
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):

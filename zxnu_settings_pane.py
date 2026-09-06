@@ -48,6 +48,7 @@ SETTINGS_TAB_ROWS = (
     "zxnextremote_update_check",
     "zxnu_update_check",
     "re_update_prompt",
+    "sync5_img_autodeploy",
     "zxnextremote_itch_link",
     "ui_language",
     "wizard",
@@ -171,6 +172,29 @@ def build_settings_pane(
     host.settings_re_update_prompt_checkbox.stateChanged.connect(
         lambda _s: settings_re_update_prompt_changed())
     grid_tab_Settings.addWidget(host.settings_re_update_prompt_checkbox, settings_grid_row("re_update_prompt"), 0, 1, 2)
+
+    # -- .sync5 auto-deploy into a loaded disk image (9.7.8) ---------------
+    # Emulator users: when an .img/.hdf is loaded on the SD Card tab and its
+    # /dot has no .sync5 (or an older one than this build ships), offer to
+    # download the dot and put it there — via Wizzy or a 15 s toast. Read
+    # per image load (zxnu_sync5_img), so the toggle applies at once.
+    def settings_sync5_img_autodeploy_changed():
+        on = host.settings_sync5_img_autodeploy_checkbox.isChecked()
+        configuration_dictionary[SETTING_SYNC5_IMG_AUTODEPLOY] = (
+            "true" if on else "false")
+        save_configuration_file()
+
+    host.settings_sync5_img_autodeploy_checkbox = QCheckBox(
+        "Auto update and deploy .sync5 command in an .img file")
+    host.settings_sync5_img_autodeploy_checkbox.setChecked(True)  # default on
+    host.settings_sync5_img_autodeploy_checkbox.setToolTip(
+        "When a disk image is loaded on the SD Card tab and its /dot folder has no\n"
+        ".sync5 command, or an older one than this ZX Next Unite ships, offer to\n"
+        "download the latest build from GitHub and deploy it into /dot — the\n"
+        "Next-side half of NextSync the emulated Next needs for the Remote Explorer.")
+    host.settings_sync5_img_autodeploy_checkbox.stateChanged.connect(
+        lambda _s: settings_sync5_img_autodeploy_changed())
+    grid_tab_Settings.addWidget(host.settings_sync5_img_autodeploy_checkbox, settings_grid_row("sync5_img_autodeploy"), 0, 1, 2)
 
     # -- ZX Next Remote: check itch.io for a newer build at startup --------
     # The CSpect row's twin (see settings_cspect_update_check_changed below),

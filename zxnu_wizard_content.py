@@ -74,6 +74,130 @@ TEXTS = {
         "cs": "Teď ne",
         "fr": "Pas maintenant",
     },
+    # ── .sync5 auto-deploy into a loaded disk image (9.7.8) ──────────────
+    "sync5.missing": {
+        "en": "I had a look at {image}: there is no .sync5 command in its "
+              "/dot folder. That is the Next-side half of NextSync — the "
+              "emulated Next needs it before the Remote Explorer can talk to "
+              "it. Shall I download the latest build (v{new}) from GitHub "
+              "and put it in /dot for you? (You can switch this offer off in "
+              "Settings → 'Auto update and deploy .sync5 command in an .img "
+              "file'.)",
+        "es": "He echado un vistazo a {image}: no hay ningún comando .sync5 "
+              "en su carpeta /dot. Es la mitad de NextSync que corre en el "
+              "Next — el Next emulado la necesita para que el Explorador "
+              "remoto pueda hablar con él. ¿Descargo la última compilación "
+              "(v{new}) de GitHub y la pongo en /dot? (Puedes desactivar "
+              "este aviso en Ajustes → 'Actualizar y desplegar "
+              "automáticamente el comando .sync5 en un archivo .img'.)",
+        "pt": "Dei uma olhada a {image}: não há nenhum comando .sync5 na "
+              "pasta /dot. É a metade do NextSync que corre no Next — o Next "
+              "emulado precisa dele para o Explorador remoto conseguir falar "
+              "com ele. Queres que descarregue a compilação mais recente "
+              "(v{new}) do GitHub e a ponha em /dot? (Podes desligar esta "
+              "oferta em Definições → 'Atualizar e implementar "
+              "automaticamente o comando .sync5 num ficheiro .img'.)",
+        "pl": "Zajrzałem do {image}: w folderze /dot nie ma polecenia .sync5. "
+              "To połówka NextSync działająca na Nexcie — emulowany Next "
+              "potrzebuje jej, żeby Zdalny eksplorator mógł się z nim "
+              "porozumieć. Mam pobrać najnowszą kompilację (v{new}) z GitHuba "
+              "i wgrać ją do /dot? (Tę propozycję możesz wyłączyć w "
+              "Ustawieniach → 'Automatycznie aktualizuj i wdrażaj polecenie "
+              ".sync5 w pliku .img'.)",
+        "ru": "Я заглянул в {image}: в папке /dot нет команды .sync5. Это "
+              "половина NextSync, работающая на Next — эмулируемому Next она "
+              "нужна, чтобы Удалённый проводник мог с ним общаться. Скачать "
+              "последнюю сборку (v{new}) с GitHub и положить её в /dot? "
+              "(Это предложение можно отключить в Настройках → "
+              "'Автоматически обновлять и разворачивать команду .sync5 в "
+              "файле .img'.)",
+        "cs": "Nakoukl jsem do {image}: ve složce /dot chybí příkaz .sync5. "
+              "To je polovina NextSyncu běžící na Nextu — emulovaný Next ji "
+              "potřebuje, aby s ním Vzdálený průzkumník mohl mluvit. Mám "
+              "stáhnout nejnovější sestavení (v{new}) z GitHubu a uložit ho "
+              "do /dot? (Tuto nabídku lze vypnout v Nastavení → "
+              "'Automaticky aktualizovat a nasadit příkaz .sync5 do souboru "
+              ".img'.)",
+        "fr": "J'ai jeté un œil à {image} : pas de commande .sync5 dans son "
+              "dossier /dot. C'est la moitié de NextSync qui tourne sur le "
+              "Next — le Next émulé en a besoin pour que l'Explorateur "
+              "distant puisse lui parler. Je télécharge la dernière "
+              "compilation (v{new}) depuis GitHub et je la mets dans /dot ? "
+              "(Vous pouvez désactiver cette proposition dans Réglages → "
+              "'Mettre à jour et déployer automatiquement la commande .sync5 "
+              "dans un fichier .img'.)",
+    },
+    "sync5.older": {
+        "en": "The .sync5 in {image}'s /dot folder is v{old}, and this ZX "
+              "Next Unite ships v{new}. Shall I download the new build and "
+              "replace it? (You can switch this offer off in Settings → "
+              "'Auto update and deploy .sync5 command in an .img file'.)",
+        "es": "El .sync5 de la carpeta /dot de {image} es la v{old}, y este "
+              "ZX Next Unite trae la v{new}. ¿Descargo la nueva compilación "
+              "y la sustituyo? (Puedes desactivar este aviso en Ajustes → "
+              "'Actualizar y desplegar automáticamente el comando .sync5 en "
+              "un archivo .img'.)",
+        "pt": "O .sync5 na pasta /dot de {image} é a v{old}, e este ZX Next "
+              "Unite traz a v{new}. Queres que descarregue a nova compilação "
+              "e a substitua? (Podes desligar esta oferta em Definições → "
+              "'Atualizar e implementar automaticamente o comando .sync5 "
+              "num ficheiro .img'.)",
+        "pl": "Polecenie .sync5 w folderze /dot obrazu {image} ma wersję "
+              "v{old}, a ten ZX Next Unite dostarcza v{new}. Mam pobrać nową "
+              "kompilację i ją podmienić? (Tę propozycję możesz wyłączyć w "
+              "Ustawieniach → 'Automatycznie aktualizuj i wdrażaj polecenie "
+              ".sync5 w pliku .img'.)",
+        "ru": "Команда .sync5 в папке /dot образа {image} имеет версию "
+              "v{old}, а этот ZX Next Unite поставляется с v{new}. Скачать "
+              "новую сборку и заменить её? (Это предложение можно отключить "
+              "в Настройках → 'Автоматически обновлять и разворачивать "
+              "команду .sync5 в файле .img'.)",
+        "cs": "Příkaz .sync5 ve složce /dot obrazu {image} má verzi v{old} "
+              "a tento ZX Next Unite přináší v{new}. Mám stáhnout nové "
+              "sestavení a vyměnit ho? (Tuto nabídku lze vypnout v Nastavení "
+              "→ 'Automaticky aktualizovat a nasadit příkaz .sync5 do "
+              "souboru .img'.)",
+        "fr": "Le .sync5 du dossier /dot de {image} est en v{old}, et ce ZX "
+              "Next Unite fournit la v{new}. Je télécharge la nouvelle "
+              "compilation et je la remplace ? (Vous pouvez désactiver cette "
+              "proposition dans Réglages → 'Mettre à jour et déployer "
+              "automatiquement la commande .sync5 dans un fichier .img'.)",
+    },
+    "sync5.unknown": {
+        "en": "The .sync5 in {image}'s /dot folder carries no version banner "
+              "— an old build. Shall I download v{new} and replace it? (You "
+              "can switch this offer off in Settings → 'Auto update and "
+              "deploy .sync5 command in an .img file'.)",
+        "es": "El .sync5 de la carpeta /dot de {image} no lleva indicador de "
+              "versión — es una compilación antigua. ¿Descargo la v{new} y "
+              "la sustituyo? (Puedes desactivar este aviso en Ajustes → "
+              "'Actualizar y desplegar automáticamente el comando .sync5 en "
+              "un archivo .img'.)",
+        "pt": "O .sync5 na pasta /dot de {image} não tem indicador de versão "
+              "— é uma compilação antiga. Queres que descarregue a v{new} e "
+              "a substitua? (Podes desligar esta oferta em Definições → "
+              "'Atualizar e implementar automaticamente o comando .sync5 "
+              "num ficheiro .img'.)",
+        "pl": "Polecenie .sync5 w folderze /dot obrazu {image} nie ma "
+              "oznaczenia wersji — to stara kompilacja. Mam pobrać v{new} i "
+              "ją podmienić? (Tę propozycję możesz wyłączyć w Ustawieniach → "
+              "'Automatycznie aktualizuj i wdrażaj polecenie .sync5 w pliku "
+              ".img'.)",
+        "ru": "Команда .sync5 в папке /dot образа {image} не содержит метки "
+              "версии — это старая сборка. Скачать v{new} и заменить её? "
+              "(Это предложение можно отключить в Настройках → "
+              "'Автоматически обновлять и разворачивать команду .sync5 в "
+              "файле .img'.)",
+        "cs": "Příkaz .sync5 ve složce /dot obrazu {image} nenese značku "
+              "verze — je to staré sestavení. Mám stáhnout v{new} a vyměnit "
+              "ho? (Tuto nabídku lze vypnout v Nastavení → 'Automaticky "
+              "aktualizovat a nasadit příkaz .sync5 do souboru .img'.)",
+        "fr": "Le .sync5 du dossier /dot de {image} ne porte aucune marque de "
+              "version — une vieille compilation. Je télécharge la v{new} et "
+              "je la remplace ? (Vous pouvez désactiver cette proposition "
+              "dans Réglages → 'Mettre à jour et déployer automatiquement la "
+              "commande .sync5 dans un fichier .img'.)",
+    },
     "btn.takeme": {
         "en": "🪄 Take me there",
         "es": "🪄 Llévame allí",
