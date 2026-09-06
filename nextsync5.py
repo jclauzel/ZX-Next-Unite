@@ -554,11 +554,16 @@ LISTEN_HELP = """\
                                quit - marked for ZXNR, so the Next soft-
                                resets to NextZXOS (release first: an old
                                build fails there with nothing deleted).
-                               A deploypak.txt beside a ZXNR .nex names
-                               extra files/folders (one per line, relative)
-                               sent into [dir] FIRST, each crc-checked and
-                               re-sent up to 3 times; written in place (no
-                               .bak for them). ZXNR packages only.
+                               For a ZXNR .nex the package's OTHER flavor
+                               (zxnextremote-n2n.nex <-> -httpbridge.nex)
+                               is sent into [dir] FIRST, crc-checked, so
+                               both builds on the card stay in step (a
+                               package without it refuses; 'force' pushes
+                               the one build anyway). A deploypak.txt
+                               beside the .nex names extra files/folders
+                               (one per line, relative) sent the same way;
+                               all written in place (no .bak for them).
+                               ZXNR packages only.
                                Gated on the cached 'version' answer; 'force'
                                overrides the older-than-staged check
     rcpy <src> <dst>           copy a file/dir locally ON the Next, incl.
@@ -1185,24 +1190,30 @@ def _listen_session_inner(conn, stats, _test_commands=None):
         return sum(1 for s in upd_job.get('extras', ()) if s[0] == "put")
 
     def _upd_extras_note():
-        # The sentence every verdict AFTER the manifest landed must carry:
-        # the extras overwrite in place, so "nothing was swapped" is only
-        # true of the build itself. Empty when nothing was sent. Read
-        # BEFORE upd_job.clear() at every call site.
+        # The sentence every verdict AFTER the companions landed must carry:
+        # they overwrite in place, so "nothing was swapped" is only true of
+        # the build itself. Empty when nothing was sent. Read BEFORE
+        # upd_job.clear() at every call site.
+        note = ""
         sent = len(upd_job.get('ex_sent', ()))
-        if not sent:
-            return ""
-        return (f" {sent} of the {_upd_extra_total()} deploypak.txt file(s) "
-                "had already been replaced on the card - the previous build "
-                "now runs against the new data files; run the update again "
-                "to put them back in step.")
+        if sent:
+            note += (f" {sent} of the {_upd_extra_total()} deploypak.txt "
+                     "file(s) had already been replaced on the card - the "
+                     "previous build now runs against the new data files; "
+                     "run the update again to put them back in step.")
+        for rel in upd_job.get('sib_sent', ()):
+            note += (f" The other flavor's build {upd_job.get('dir', '')}/{rel} "
+                     "had already been replaced on the card too.")
+        return note
 
     def _upd_extra_index():
         return 1 + sum(1 for s in upd_job['extras'][:upd_job['ex_i']]
                        if s[0] == "put")
 
     def _upd_extra_landed():
-        upd_job['ex_sent'].append(upd_job['extras'][upd_job['ex_i']][-1])
+        step = upd_job['extras'][upd_job['ex_i']]
+        upd_job['sib_sent' if step[0] == "sibling" else 'ex_sent'].append(
+            step[-1])
         upd_job['ex_i'] += 1
         upd_job['ex_try'] = 0
         upd_steps.append(("updc_extra", "", ""))
@@ -1254,7 +1265,7 @@ def _listen_session_inner(conn, stats, _test_commands=None):
         global _in_transfer
         remote = upd_job['dir'] + "/" + upd_job['base'] + ".new"
         upd_job['staged'] = True
-        if upd_job.get('extras'):
+        if _upd_extra_total():
             print(f'{timestamp()} | update: all {_upd_extra_total()} '
                   'deploypak.txt file(s) are on the card - staging the build '
                   'itself')
@@ -1320,10 +1331,15 @@ def _listen_session_inner(conn, stats, _test_commands=None):
         upd_job['ex_crc'] = "%08X" % (zlib.crc32(blob) & 0xffffffff)
         upd_job['ex_size'] = len(blob)
         retry = upd_job['ex_try']
-        print(f'{timestamp()} | update: sending deploypak.txt file '
-              f'{_upd_extra_index()} of {_upd_extra_total()}: {remote} '
-              f'({len(blob)} bytes)'
-              + (f' - retry {retry} of {UPD_EXTRA_RETRIES}' if retry else ''))
+        if step[0] == "sibling":
+            print(f"{timestamp()} | update: sending the other flavor's build "
+                  f'{remote} ({len(blob)} bytes) alongside'
+                  + (f' - retry {retry} of {UPD_EXTRA_RETRIES}' if retry else ''))
+        else:
+            print(f'{timestamp()} | update: sending deploypak.txt file '
+                  f'{_upd_extra_index()} of {_upd_extra_total()}: {remote} '
+                  f'({len(blob)} bytes)'
+                  + (f' - retry {retry} of {UPD_EXTRA_RETRIES}' if retry else ''))
         put_data = blob
         put_ofs = 0
         put_pkt = 0
@@ -1682,6 +1698,50 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                               "build")
                 extras = []
                 if not refuse and ident[0] in ("httpbridge", "n2n"):
+                    # The OTHER flavor's build (9.7.7): a ZXNR package ships
+                    # both transports and the two .nex on the card are kept
+                    # in step - the sibling goes alongside FIRST, under its
+                    # canonical name, crc-checked like every companion. Its
+                    # name follows the STAGED file's (zxnextremote-n2n.nex
+                    # <-> zxnextremote-httpbridge.nex); a file named
+                    # otherwise has no known sibling. A package without it
+                    # refuses - 'force' pushes the one build anyway.
+                    sib = {"zxnextremote-n2n.nex": "zxnextremote-httpbridge.nex",
+                           "zxnextremote-httpbridge.nex": "zxnextremote-n2n.nex"
+                           }.get(base.lower())
+                    sib_path = (os.path.join(os.path.dirname(os.path.abspath(a1)),
+                                             sib) if sib else None)
+                    if sib and not os.path.isfile(sib_path):
+                        if op == "update":
+                            refuse = (f"the package has no {sib} to send "
+                                      "alongside (both flavors are kept in "
+                                      "step) - add 'force' to push this one "
+                                      "build anyway")
+                        else:
+                            print(f"  update: no {sib} beside {base} - the "
+                                  "other flavor is NOT updated (force)")
+                            sib = None
+                    elif sib:
+                        # Guarded like the staged blob's read: a sibling
+                        # that exists but cannot be opened (an extractor or
+                        # scanner still holding it) refuses, never unwinds
+                        # the server with the Next's Poll unanswered.
+                        try:
+                            with open(sib_path, 'rb') as fh:
+                                sblob = fh.read()
+                        except OSError as ex:
+                            sblob = None
+                            refuse = f"reading {sib_path} failed: {ex}"
+                        if sblob is not None and (
+                                b"ZXNextRemote" not in sblob or
+                                (bool(bver) and bver.encode() not in sblob)):
+                            refuse = (f"{sib_path} does not look like a "
+                                      f"ZXNextRemote{' ' + bver if bver else ''}"
+                                      " build - wrong or stale file")
+                    elif not refuse:
+                        print(f"  update: {base} is not a zxnextremote-<flavor>"
+                              ".nex name - no other flavor to send alongside")
+                if not refuse and ident[0] in ("httpbridge", "n2n"):
                     # deploypak.txt next to the staged .nex (9.7.6): the
                     # package's extra files, sent BEFORE the build is staged.
                     # ZX Next Remote packages ONLY - the dot is a single
@@ -1690,10 +1750,12 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                     # manifest refuses like a bad blob - before a byte moves.
                     extras, problems = _read_deploypak(
                         os.path.dirname(os.path.abspath(a1)),
-                        (base, base + ".new", base + ".bak"))
+                        (base, base + ".new", base + ".bak") + ((sib,) if sib else ()))
                     if problems:
                         refuse = ("the package's deploypak.txt is broken: "
                                   + "; ".join(problems))
+                    elif sib:
+                        extras = [("sibling", sib_path, sib)] + extras
                 if not refuse:
                     # The listener copies a path into a 254-byte buffer and
                     # TRUNCATES a longer one (a misplaced file the crc check
@@ -1728,12 +1790,14 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                                 'dir': (a2 or "c:/dot").rstrip("/"),
                                 'ver': bver, 'base': base, 'marked': marked,
                                 'extras': extras, 'ex_i': 0, 'ex_try': 0,
-                                'ex_sent': []})
+                                'ex_sent': [], 'sib_sent': []})
                 if extras:
                     n_files = sum(1 for s in extras if s[0] == "put")
-                    print(f'{timestamp()} | update: deploypak.txt lists '
-                          f'{n_files} file(s) and {len(extras) - n_files} '
-                          f'folder(s) to send to {upd_job["dir"]} first')
+                    n_dirs = sum(1 for s in extras if s[0] == "mkdir")
+                    if n_files or n_dirs:
+                        print(f'{timestamp()} | update: deploypak.txt lists '
+                              f'{n_files} file(s) and {n_dirs} folder(s) to '
+                              f'send to {upd_job["dir"]} first')
                     _upd_extra_step()             # answers this Poll
                 else:
                     _upd_stage()                  # answers this Poll
@@ -1878,19 +1942,30 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 # staged and the handle is not released (extras precede the
                 # staging put), so the session stays up.
                 _ex = upd_job.get('extras', ())
-                _rel = (_ex[upd_job['ex_i']][-1]
-                        if upd_job and upd_job.get('ex_i', 0) < len(_ex)
-                        else "")
+                _has = bool(upd_job) and upd_job.get('ex_i', 0) < len(_ex)
+                _rel = _ex[upd_job['ex_i']][-1] if _has else ""
+                _kind = _ex[upd_job['ex_i']][0] if _has else "put"
                 _landed = len(upd_job.get('ex_sent', ()))
                 _total = _upd_extra_total()
                 _dir = upd_job.get('dir', '')
+                _sib_note = "".join(
+                    f" The other flavor's build {_dir}/{r} had already been "
+                    "replaced on the card too."
+                    for r in upd_job.get('sib_sent', ()))
+                _note = _upd_extras_note()
                 upd_job.clear()
-                print(f'{timestamp()} | *** update failed while sending '
-                      f'{_dir}/{_rel} from deploypak.txt: {a1}. Nothing was '
-                      'swapped - the Next still runs its current build, but '
-                      f'{_landed} of the {_total} file(s) the manifest lists '
-                      'had already been replaced on the card (run the update '
-                      'again to send them all). ***')
+                if _kind == "sibling":
+                    print(f"{timestamp()} | *** update failed while sending the "
+                          f"other flavor's build {_dir}/{_rel}: {a1}. Nothing "
+                          'was swapped - the Next still runs its current '
+                          f'build.{_note} ***')
+                else:
+                    print(f'{timestamp()} | *** update failed while sending '
+                          f'{_dir}/{_rel} from deploypak.txt: {a1}. Nothing was '
+                          'swapped - the Next still runs its current build, but '
+                          f'{_landed} of the {_total} file(s) the manifest lists '
+                          'had already been replaced on the card (run the update '
+                          f'again to send them all).{_sib_note} ***')
                 sendpacket(conn, b"I", 0)
             elif op == "updc_verify":
                 # Update step 1: prove what LANDED - the wire checksums are
@@ -2351,7 +2426,19 @@ def _listen_session_inner(conn, stats, _test_commands=None):
         _cur = upd_job['dir'] + "/" + _b
         _ex = upd_job.get('extras', ())
         _note = _upd_extras_note()
-        if _ex and not upd_job.get('staged') and upd_job['ex_i'] < len(_ex):
+        _sib_note = "".join(
+            f" The other flavor's build {upd_job.get('dir', '')}/{r} had "
+            "already been replaced on the card too."
+            for r in upd_job.get('sib_sent', ()))
+        if (_ex and not upd_job.get('staged') and upd_job['ex_i'] < len(_ex)
+                and _ex[upd_job['ex_i']][0] == "sibling"):
+            # Died while the other flavor's build was in flight.
+            print(f'{timestamp()} | *** update failed: the session ended '
+                  f"while sending the other flavor's build "
+                  f'{upd_job["dir"]}/{_ex[upd_job["ex_i"]][-1]} - it may be '
+                  'missing or cut short on the card. Nothing was swapped - '
+                  f'run the update again.{_note} ***')
+        elif _ex and not upd_job.get('staged') and upd_job['ex_i'] < len(_ex):
             # Died among the deploypak.txt extras: the one in flight may be
             # missing or cut short (they overwrite in place), the ones
             # before it are already the new build's, the build itself was
@@ -2363,16 +2450,25 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                   f'{len(upd_job.get("ex_sent", ()))} of the '
                   f'{_upd_extra_total()} file(s) the manifest lists had '
                   'already been replaced. Nothing was swapped - run the '
-                  'update again to send them all. ***')
-        elif _ex and not upd_job.get('staged'):
-            # Died between the last extra landing and the Poll that would
-            # have staged the build: every manifest file is on the card,
+                  f'update again to send them all.{_sib_note} ***')
+        elif _ex and not upd_job.get('staged') and _upd_extra_total():
+            # Died between the last companion landing and the Poll that
+            # would have staged the build: every companion is on the card,
             # verified; nothing was in flight.
             print(f'{timestamp()} | *** update failed: the session ended '
                   f'after all {_upd_extra_total()} deploypak.txt file(s) had '
                   'been replaced on the card, before the build itself was '
                   'staged. Nothing was swapped - run the update again to '
-                  'send them all. ***')
+                  f'send them all.{_sib_note} ***')
+        elif _ex and not upd_job.get('staged'):
+            # The same gap, for a package with no manifest: only the other
+            # flavor's build landed - say that, not "all 0 files".
+            _last = (upd_job.get('sib_sent') or [_ex[-1][-1]])[-1]
+            print(f'{timestamp()} | *** update failed: the session ended '
+                  f"after the other flavor's build "
+                  f'{upd_job.get("dir", "")}/{_last} had been replaced on '
+                  'the card, before the build itself was staged. Nothing '
+                  'was swapped - run the update again. ***')
         elif upd_job.get('swap'):
             print(f'{timestamp()} | *** update FAILED mid-swap: the Next may '
                   f'be missing {_cur}. If {_b} no longer '

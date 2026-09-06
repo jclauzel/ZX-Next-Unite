@@ -1502,6 +1502,170 @@ def main():
     else:
         print("FAIL pak-empty: ops=", ops, "upd=", upd); ok = False
 
+    # ── the other flavor's build alongside (9.7.7) ──────────────────────
+    # A ("sibling", local, rel) step: the OTHER flavor's .nex, sent FIRST
+    # under its canonical name so both builds on the card stay in step —
+    # a put like any companion (crc-checked, retried, deleted when the
+    # retries run out), but held to the staged build's brand + version
+    # check before a byte moves, counted apart from the manifest's files,
+    # and named apart in every verdict.
+    sib_blob = (b"Next\x00" + bytes(range(256)) * 4
+                + b"ZXNextRemote\x00" + b"9.9.9\x00sib")
+    sib_file = os.path.join(pak_dir, "zxnextremote-httpbridge.nex")
+    open(sib_file, "wb").write(sib_blob)
+    sib = "c:/apps/zxnextremote-httpbridge.nex"
+    sib_step = ("sibling", sib_file, "zxnextremote-httpbridge.nex")
+    sib_cmd = pak_cmd[:7] + ([sib_step] + plan,)
+    sib_head = [('P', sib), ('Y', ""), ('K', sib)]
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 60, [sib_cmd], "ok", zx_blob, ident=zxnr108)
+    if (ops == sib_head + [('P', ext["menu"]), ('K', ext["menu"]),
+                           ('M', "c:/apps/data"), ('P', ext["a"]), ('K', ext["a"]),
+                           ('M', "c:/apps/data/sub"), ('P', ext["b"]), ('K', ext["b"])
+                           ] + swap_tail
+            and staged[0] == (sib, sib_blob) and staged[-1] == (zb + ".new", zx_blob)
+            and len(upd) == 1 and upd[0][0] and not puts
+            and any("sending the other flavor's build " + sib in l for l in logs)
+            and any("deploypak.txt lists 3 file(s) and 2 folder(s)" in l for l in logs)
+            and any("file 1 of 3: " + ext["menu"] in l for l in logs)):
+        print("PASS sib-ok: the other flavor's build goes first (P+K), then the manifest, then the swap")
+    else:
+        print("FAIL sib-ok: ops=", ops, "upd=", upd, "logs=", logs); ok = False
+
+    # A sibling alone (no manifest): no deploypak.txt lines in the log at
+    # all — not "lists 0 file(s)", not "all 0 ... are on the card".
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 61, [pak_cmd[:7] + ([sib_step],)], "ok", zx_blob, ident=zxnr108)
+    if (ops == sib_head + swap_tail and len(upd) == 1 and upd[0][0] and not puts
+            and not any("deploypak.txt" in l for l in logs)):
+        print("PASS sib-only: a sibling without a manifest — no deploypak.txt lines")
+    else:
+        print("FAIL sib-only: ops=", ops, "upd=", upd, "logs=", logs); ok = False
+
+    # A stale / wrong sibling (no brand+version in the blob) and a missing
+    # one both refuse before a byte moves.
+    stale_file = os.path.join(pak_dir, "stale.nex")
+    open(stale_file, "wb").write(b"not a zxnr build at all " * 20)
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 62, [pak_cmd[:7] + ([("sibling", stale_file, "zxnextremote-httpbridge.nex")],),
+                    ("quit",)], "ok", zx_blob, ident=zxnr108)
+    if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
+            and stale_file in upd[0][1] and "does not look like a ZXNextRemote 9.9.9 build" in upd[0][1]
+            and not puts):
+        print("PASS sib-stale: a sibling without the brand+version refuses, nothing sent")
+    else:
+        print("FAIL sib-stale: ops=", ops, "upd=", upd); ok = False
+    gone = os.path.join(pak_dir, "zxnextremote-gone.nex")
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 63, [pak_cmd[:7] + ([("sibling", gone, "zxnextremote-httpbridge.nex")],),
+                    ("quit",)], "ok", zx_blob, ident=zxnr108)
+    if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
+            and gone in upd[0][1] and "other flavor's build is not there" in upd[0][1]
+            and "nothing was sent" in upd[0][1] and not puts):
+        print("PASS sib-missing: a missing sibling refuses, nothing sent")
+    else:
+        print("FAIL sib-missing: ops=", ops, "upd=", upd); ok = False
+
+    # The sibling is crc-checked and re-sent like any companion...
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 64, [sib_cmd], "ok", zx_blob, ident=zxnr108,
+        pak={'k_bad': {sib: 1}})
+    if (ops[:5] == [('P', sib), ('Y', ""), ('K', sib), ('P', sib), ('K', sib)]
+            and ops[5:7] == [('P', ext["menu"]), ('K', ext["menu"])]
+            and len(upd) == 1 and upd[0][0] and not puts
+            and any(sib + " did not arrive intact" in l and "retry 1 of 3" in l for l in logs)):
+        print("PASS sib-retry: a bad digest on the sibling re-sends it")
+    else:
+        print("FAIL sib-retry: ops=", ops, "upd=", upd, "logs=", logs); ok = False
+    # ...a pre-crc listener reads it back...
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 65, [sib_cmd], "ok", zx_blob, ident=zxnr107)
+    if (ops[:3] == [('P', sib), ('Y', ""), ('G', sib)]
+            and ops[-7:] == [('P', zb + ".new"), ('G', zb + ".new"), ('U', ""),
+                             ('X', zb + ".bak"), ('V', zb + "\x00" + zb + ".bak"),
+                             ('V', zb + ".new\x00" + zb), ('Q', "X")]
+            and len(upd) == 1 and upd[0][0] and not puts):
+        print("PASS sib-readback: a pre-crc listener reads the sibling back")
+    else:
+        print("FAIL sib-readback: ops=", ops, "upd=", upd); ok = False
+    # ...and a refusal names it as the other flavor's build, not a manifest
+    # file, with nothing swapped and nothing else touched.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 66, [sib_cmd, ("quit",)], "ok", zx_blob, ident=zxnr108,
+        pak={'p_osp': {sib}})
+    if (ops == [('P', sib), ('Q', "")] and staged == []
+            and len(upd) == 1 and not upd[0][0]
+            and "other flavor's build " + sib in upd[0][1]
+            and "OS protection refused writing" in upd[0][1]
+            and "Nothing was swapped" in upd[0][1]
+            and "deploypak.txt" not in upd[0][1] and not puts):
+        print("PASS sib-fail: a refused sibling fails naming the other flavor's build")
+    else:
+        print("FAIL sib-fail: ops=", ops, "upd=", upd); ok = False
+
+    # Every verdict after the sibling landed says so: a refused swap...
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 67, [sib_cmd], "ren1_refuse", zx_blob, ident=zxnr108)
+    if (len(upd) == 1 and not upd[0][0]
+            and "3 of the 3 deploypak.txt file(s) had already been replaced" in upd[0][1]
+            and "The other flavor's build " + sib + " had already been replaced on the card too" in upd[0][1]
+            and not puts):
+        print("PASS sib-note: a refused swap after the sibling landed names it too")
+    else:
+        print("FAIL sib-note: upd=", upd); ok = False
+    # ...a manifest file refused after it...
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 68, [sib_cmd, ("quit",)], "ok", zx_blob, ident=zxnr108,
+        pak={'p_osp': {ext["menu"]}})
+    if (ops == sib_head + [('P', ext["menu"]), ('Q', "")]
+            and len(upd) == 1 and not upd[0][0]
+            and "0 of the 3 file(s)" in upd[0][1]
+            and "The other flavor's build " + sib + " had already been replaced on the card too" in upd[0][1]
+            and not puts):
+        print("PASS sib-note-pak: a refused manifest file after the sibling landed names it too")
+    else:
+        print("FAIL sib-note-pak: ops=", ops, "upd=", upd); ok = False
+    # ...and a link lost while the sibling itself is in flight.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 69, [sib_cmd], "ok", zx_blob, ident=zxnr108,
+        pak={'kill_at': sib})
+    if (ops == [('P', sib)] and len(upd) == 1 and not upd[0][0]
+            and "session ended while sending the other flavor's build " + sib in upd[0][1]
+            and "Nothing was swapped" in upd[0][1] and not puts):
+        print("PASS sib-death: link lost on the sibling -> its own verdict")
+    else:
+        print("FAIL sib-death: ops=", ops, "upd=", upd); ok = False
+
+    # A sibling-only package (no manifest) dying after the sibling landed,
+    # before the staging Poll: the verdict names the sibling, never "all 0
+    # deploypak.txt file(s)".
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 70, [pak_cmd[:7] + ([sib_step],)], "ok", zx_blob, ident=zxnr108,
+        pak={'kill_after_k': sib})
+    if (ops == sib_head and len(upd) == 1 and not upd[0][0]
+            and "after the other flavor's build " + sib + " had been replaced" in upd[0][1]
+            and "deploypak.txt" not in upd[0][1]
+            and "Nothing was swapped" in upd[0][1] and not puts):
+        print("PASS sib-death-all: link lost after the lone sibling landed -> its own verdict")
+    else:
+        print("FAIL sib-death-all: ops=", ops, "upd=", upd); ok = False
+
+    # A companion whose name IS the build being swapped (the other flavor's
+    # canonical name typed as the target): refused before a byte moves —
+    # the sibling would otherwise be put, renamed aside and overwritten by
+    # itself, and reported as a success.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 71, [("update_dot", zx_file, "c:/apps", "9.9.9",
+                     "zxnextremote-httpbridge.nex", "ZXNextRemote", True,
+                     [("sibling", sib_file, "zxnextremote-httpbridge.nex")]),
+                    ("quit",)], "ok", zx_blob, ident=zxnr108)
+    if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
+            and "both a file sent alongside and the build being swapped" in upd[0][1]
+            and "c:/apps/zxnextremote-httpbridge.nex" in upd[0][1] and not puts):
+        print("PASS sib-clash: a companion named like the swap target refuses, nothing sent")
+    else:
+        print("FAIL sib-clash: ops=", ops, "upd=", upd); ok = False
+
     # The existence check after a mkdir 'F' met with the marked 'F'+OSP on
     # the listing: the update fails naming the protection.
     ops, staged, upd, puts, logs = run_update_scenario(

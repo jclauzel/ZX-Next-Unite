@@ -504,6 +504,12 @@ CATALOGS = {
             "Actualización de ZX Next Remote: {path} supera los {limit} bytes que puede tener una ruta en el Next — elige una carpeta más corta; no se ha enviado nada.",
         "ZX Next Remote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
             "Actualización de ZX Next Remote: sustituir {path} exigiría un comando de renombrado más largo que los {limit} bytes que acepta un receptor — elige una carpeta más corta; no se ha enviado nada.",
+        "The package's {other} build ({file}) is sent into the same folder FIRST, checked against the CRC-32 the Next computes and re-sent up to {retries} times, so both flavors on the card stay in step — written in place, so the .bak revert does not cover it.":
+            "La compilación {other} del paquete ({file}) se envía PRIMERO a la misma carpeta, comprobada con el CRC-32 que calcula el Next y reenviada hasta {retries} veces, para que ambos sabores de la tarjeta vayan a la par — se escribe en su sitio, así que la recuperación con .bak no la cubre.",
+        "ZX Next Remote update: the {other} build {file} goes alongside into {dir} first.":
+            "Actualización de ZX Next Remote: la compilación {other} {file} va primero, junto a ella, a {dir}.",
+        "ZX Next Remote update: {path} is the name of a file sent alongside the build ({file}) — this session runs a {flavor} build, so its .nex cannot be that file; nothing was sent.":
+            "Actualización de ZX Next Remote: {path} es el nombre de un archivo enviado junto a la compilación ({file}) — esta sesión ejecuta una compilación {flavor}, así que su .nex no puede ser ese archivo; no se ha enviado nada.",
         "ZX Next Remote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
             "Actualización de ZX Next Remote: deploypak.txt indica {files} archivo(s) y {folders} carpeta(s) para {dir}: {items}",
         "Download File": "Descargar archivo",
@@ -1027,6 +1033,18 @@ CATALOGS = {
             "Actualización remota de {name} rechazada: {path} supera los {limit} bytes que puede tener una ruta en el Next — no se ha enviado nada.",
         "Remote {name} update refused: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
             "Actualización remota de {name} rechazada: sustituir {path} exigiría un comando de renombrado más largo que los {limit} bytes que acepta un receptor — elige una carpeta más corta; no se ha enviado nada.",
+        "Remote {name} update: sending the other flavor's build {path} ({size} bytes) alongside…":
+            "Actualización remota de {name}: enviando junto a ella la compilación del otro sabor, {path} ({size} bytes)…",
+        "Remote {name} update failed while sending the other flavor's build {path}: {reason}. Nothing was swapped — the Next still runs its current build.":
+            "Actualización remota de {name} fallida al enviar la compilación del otro sabor, {path}: {reason}. No se ha sustituido nada — el Next sigue ejecutando su compilación actual.",
+        "The other flavor's build {path} had already been replaced on the card too.":
+            "La compilación del otro sabor, {path}, ya se había reemplazado también en la tarjeta.",
+        "Remote {name} update failed: the session ended while sending the other flavor's build {path} — it may be missing or cut short on the card. Nothing was swapped — run the update again.":
+            "Actualización remota de {name} fallida: la sesión terminó mientras se enviaba la compilación del otro sabor, {path} — puede faltar o estar truncada en la tarjeta. No se ha sustituido nada — vuelve a ejecutar la actualización.",
+        "Remote {name} update failed: the session ended after the other flavor's build {path} had been replaced on the card, before the build itself was staged. Nothing was swapped — run the update again.":
+            "Actualización remota de {name} fallida: la sesión terminó después de reemplazar en la tarjeta la compilación del otro sabor, {path}, antes de preparar la compilación en sí. No se ha sustituido nada — vuelve a ejecutar la actualización.",
+        "Remote {name} update refused: {path} is both a file sent alongside and the build being swapped — check the path on the Next; nothing was sent.":
+            "Actualización remota de {name} rechazada: {path} es a la vez un archivo enviado junto a ella y la compilación que se sustituye — revisa la ruta en el Next; no se ha enviado nada.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
             "{landed} de los {total} archivo(s) de deploypak.txt ya se habían reemplazado en la tarjeta — la compilación anterior ahora se ejecuta con los archivos de datos nuevos; vuelve a ejecutar la actualización para ponerlos de nuevo al día.",
         "Remote {name} update: the Next refused {path} — sending it again (retry {retry} of {retries})…":
@@ -1802,6 +1820,12 @@ CATALOGS = {
             "Atualização de ZX Next Remote: {path} excede os {limit} bytes que um caminho no Next pode ter — escolha uma pasta mais curta; nada foi enviado.",
         "ZX Next Remote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
             "Atualização de ZX Next Remote: substituir {path} exigiria um comando de renomeação mais longo do que os {limit} bytes que um receptor aceita — escolha uma pasta mais curta; nada foi enviado.",
+        "The package's {other} build ({file}) is sent into the same folder FIRST, checked against the CRC-32 the Next computes and re-sent up to {retries} times, so both flavors on the card stay in step — written in place, so the .bak revert does not cover it.":
+            "A compilação {other} do pacote ({file}) é enviada PRIMEIRO para a mesma pasta, verificada com o CRC-32 calculado pelo Next e reenviada até {retries} vezes, para que as duas variantes no cartão fiquem alinhadas — escrita no lugar, pelo que a reversão por .bak não a cobre.",
+        "ZX Next Remote update: the {other} build {file} goes alongside into {dir} first.":
+            "Atualização de ZX Next Remote: a compilação {other} {file} segue primeiro, em paralelo, para {dir}.",
+        "ZX Next Remote update: {path} is the name of a file sent alongside the build ({file}) — this session runs a {flavor} build, so its .nex cannot be that file; nothing was sent.":
+            "Atualização de ZX Next Remote: {path} é o nome de um ficheiro enviado em paralelo com a compilação ({file}) — esta sessão executa uma compilação {flavor}, pelo que o seu .nex não pode ser esse ficheiro; nada foi enviado.",
         "ZX Next Remote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
             "Atualização de ZX Next Remote: deploypak.txt lista {files} ficheiro(s) e {folders} pasta(s) para {dir}: {items}",
         "Download File": "Transferir ficheiro",
@@ -2325,6 +2349,18 @@ CATALOGS = {
             "Atualização remota de {name} recusada: {path} excede os {limit} bytes que um caminho no Next pode ter — nada foi enviado.",
         "Remote {name} update refused: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
             "Atualização remota de {name} recusada: substituir {path} exigiria um comando de renomeação mais longo do que os {limit} bytes que um receptor aceita — escolha uma pasta mais curta; nada foi enviado.",
+        "Remote {name} update: sending the other flavor's build {path} ({size} bytes) alongside…":
+            "Atualização remota de {name}: a enviar em paralelo a compilação da outra variante, {path} ({size} bytes)…",
+        "Remote {name} update failed while sending the other flavor's build {path}: {reason}. Nothing was swapped — the Next still runs its current build.":
+            "Atualização remota de {name} falhou ao enviar a compilação da outra variante, {path}: {reason}. Nada foi substituído — o Next continua a executar a compilação atual.",
+        "The other flavor's build {path} had already been replaced on the card too.":
+            "A compilação da outra variante, {path}, também já tinha sido substituída no cartão.",
+        "Remote {name} update failed: the session ended while sending the other flavor's build {path} — it may be missing or cut short on the card. Nothing was swapped — run the update again.":
+            "Atualização remota de {name} falhou: a sessão terminou enquanto se enviava a compilação da outra variante, {path} — pode estar em falta ou truncada no cartão. Nada foi substituído — execute a atualização de novo.",
+        "Remote {name} update failed: the session ended after the other flavor's build {path} had been replaced on the card, before the build itself was staged. Nothing was swapped — run the update again.":
+            "Atualização remota de {name} falhou: a sessão terminou depois de a compilação da outra variante, {path}, ter sido substituída no cartão, antes de a própria compilação ser preparada. Nada foi substituído — execute a atualização de novo.",
+        "Remote {name} update refused: {path} is both a file sent alongside and the build being swapped — check the path on the Next; nothing was sent.":
+            "Atualização remota de {name} recusada: {path} é ao mesmo tempo um ficheiro enviado em paralelo e a compilação a substituir — verifique o caminho no Next; nada foi enviado.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
             "{landed} dos {total} ficheiro(s) do deploypak.txt já tinham sido substituídos no cartão — a compilação anterior corre agora com os novos ficheiros de dados; execute a atualização de novo para os voltar a alinhar.",
         "Remote {name} update: the Next refused {path} — sending it again (retry {retry} of {retries})…":
@@ -3097,6 +3133,12 @@ CATALOGS = {
             "Aktualizacja ZX Next Remote: {path} przekracza {limit} bajtów, jakie może mieć ścieżka na Nexcie — wybierz krótszy folder; niczego nie wysłano.",
         "ZX Next Remote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
             "Aktualizacja ZX Next Remote: podmiana {path} wymagałaby polecenia zmiany nazwy dłuższego niż {limit} bajtów, jakie przyjmuje odbiornik — wybierz krótszy folder; niczego nie wysłano.",
+        "The package's {other} build ({file}) is sent into the same folder FIRST, checked against the CRC-32 the Next computes and re-sent up to {retries} times, so both flavors on the card stay in step — written in place, so the .bak revert does not cover it.":
+            "Kompilacja {other} z pakietu ({file}) jest wysyłana NAJPIERW do tego samego folderu, sprawdzana sumą CRC-32 obliczaną przez Nexta i wysyłana ponownie do {retries} razy, aby oba warianty na karcie były zgodne — zapisywana w miejscu, więc przywracanie z .bak jej nie obejmuje.",
+        "ZX Next Remote update: the {other} build {file} goes alongside into {dir} first.":
+            "Aktualizacja ZX Next Remote: kompilacja {other} {file} trafia najpierw, obok, do {dir}.",
+        "ZX Next Remote update: {path} is the name of a file sent alongside the build ({file}) — this session runs a {flavor} build, so its .nex cannot be that file; nothing was sent.":
+            "Aktualizacja ZX Next Remote: {path} to nazwa pliku wysyłanego obok kompilacji ({file}) — ta sesja używa kompilacji {flavor}, więc jej .nex nie może być tym plikiem; niczego nie wysłano.",
         "ZX Next Remote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
             "Aktualizacja ZX Next Remote: deploypak.txt wymienia {files} plik(ów) i {folders} folder(ów) dla {dir}: {items}",
         "Download File": "Pobierz plik",
@@ -3620,6 +3662,18 @@ CATALOGS = {
             "Zdalna aktualizacja {name} odrzucona: {path} przekracza {limit} bajtów, jakie może mieć ścieżka na Nexcie — niczego nie wysłano.",
         "Remote {name} update refused: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
             "Zdalna aktualizacja {name} odrzucona: podmiana {path} wymagałaby polecenia zmiany nazwy dłuższego niż {limit} bajtów, jakie przyjmuje odbiornik — wybierz krótszy folder; niczego nie wysłano.",
+        "Remote {name} update: sending the other flavor's build {path} ({size} bytes) alongside…":
+            "Zdalna aktualizacja {name}: wysyłanie obok kompilacji drugiego wariantu, {path} ({size} bajtów)…",
+        "Remote {name} update failed while sending the other flavor's build {path}: {reason}. Nothing was swapped — the Next still runs its current build.":
+            "Zdalna aktualizacja {name} nie powiodła się podczas wysyłania kompilacji drugiego wariantu, {path}: {reason}. Niczego nie podmieniono — Next nadal używa bieżącej kompilacji.",
+        "The other flavor's build {path} had already been replaced on the card too.":
+            "Kompilacja drugiego wariantu, {path}, również została już zastąpiona na karcie.",
+        "Remote {name} update failed: the session ended while sending the other flavor's build {path} — it may be missing or cut short on the card. Nothing was swapped — run the update again.":
+            "Zdalna aktualizacja {name} nie powiodła się: sesja zakończyła się podczas wysyłania kompilacji drugiego wariantu, {path} — może jej brakować lub być ucięta na karcie. Niczego nie podmieniono — uruchom aktualizację ponownie.",
+        "Remote {name} update failed: the session ended after the other flavor's build {path} had been replaced on the card, before the build itself was staged. Nothing was swapped — run the update again.":
+            "Zdalna aktualizacja {name} nie powiodła się: sesja zakończyła się po zastąpieniu na karcie kompilacji drugiego wariantu, {path}, zanim przygotowano samą kompilację. Niczego nie podmieniono — uruchom aktualizację ponownie.",
+        "Remote {name} update refused: {path} is both a file sent alongside and the build being swapped — check the path on the Next; nothing was sent.":
+            "Zdalna aktualizacja {name} odrzucona: {path} jest zarazem plikiem wysyłanym obok i podmienianą kompilacją — sprawdź ścieżkę na Nexcie; niczego nie wysłano.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
             "{landed} z {total} plik(ów) z deploypak.txt zostało już zastąpionych na karcie — poprzednia kompilacja działa teraz z nowymi plikami danych; uruchom aktualizację ponownie, aby je z powrotem uzgodnić.",
         "Remote {name} update: the Next refused {path} — sending it again (retry {retry} of {retries})…":
@@ -4394,6 +4448,12 @@ CATALOGS = {
             "Обновление ZX Next Remote: {path} длиннее {limit} байт, допустимых для пути на Next — выберите более короткую папку; ничего не отправлено.",
         "ZX Next Remote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
             "Обновление ZX Next Remote: для замены {path} потребовалась бы команда переименования длиннее {limit} байт, которые принимает слушатель — выберите более короткую папку; ничего не отправлено.",
+        "The package's {other} build ({file}) is sent into the same folder FIRST, checked against the CRC-32 the Next computes and re-sent up to {retries} times, so both flavors on the card stay in step — written in place, so the .bak revert does not cover it.":
+            "Сборка {other} из пакета ({file}) СНАЧАЛА отправляется в ту же папку, сверяется с CRC-32, вычисленным Next, и пересылается до {retries} раз, чтобы оба варианта на карте совпадали — записывается на место, поэтому откат через .bak её не покрывает.",
+        "ZX Next Remote update: the {other} build {file} goes alongside into {dir} first.":
+            "Обновление ZX Next Remote: сборка {other} {file} сначала отправляется вместе с обновлением в {dir}.",
+        "ZX Next Remote update: {path} is the name of a file sent alongside the build ({file}) — this session runs a {flavor} build, so its .nex cannot be that file; nothing was sent.":
+            "Обновление ZX Next Remote: {path} — имя файла, отправляемого вместе со сборкой ({file}); в этом сеансе работает сборка {flavor}, поэтому её .nex не может быть этим файлом; ничего не отправлено.",
         "ZX Next Remote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
             "Обновление ZX Next Remote: deploypak.txt перечисляет {files} файл(ов) и {folders} папок(ки) для {dir}: {items}",
         "Download File": "Скачать файл",
@@ -4917,6 +4977,18 @@ CATALOGS = {
             "Удалённое обновление {name} отклонено: {path} длиннее {limit} байт, допустимых для пути на Next — ничего не отправлено.",
         "Remote {name} update refused: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
             "Удалённое обновление {name} отклонено: для замены {path} потребовалась бы команда переименования длиннее {limit} байт, которые принимает слушатель — выберите более короткую папку; ничего не отправлено.",
+        "Remote {name} update: sending the other flavor's build {path} ({size} bytes) alongside…":
+            "Удалённое обновление {name}: отправка сборки другого варианта {path} ({size} байт) вместе с обновлением…",
+        "Remote {name} update failed while sending the other flavor's build {path}: {reason}. Nothing was swapped — the Next still runs its current build.":
+            "Удалённое обновление {name} не удалось при отправке сборки другого варианта {path}: {reason}. Ничего не заменено — Next по-прежнему работает на текущей сборке.",
+        "The other flavor's build {path} had already been replaced on the card too.":
+            "Сборка другого варианта {path} тоже уже была заменена на карте.",
+        "Remote {name} update failed: the session ended while sending the other flavor's build {path} — it may be missing or cut short on the card. Nothing was swapped — run the update again.":
+            "Удалённое обновление {name} не удалось: сеанс завершился во время отправки сборки другого варианта {path} — файл может отсутствовать или быть обрезан на карте. Ничего не заменено — запустите обновление снова.",
+        "Remote {name} update failed: the session ended after the other flavor's build {path} had been replaced on the card, before the build itself was staged. Nothing was swapped — run the update again.":
+            "Удалённое обновление {name} не удалось: сеанс завершился после замены на карте сборки другого варианта {path}, до подготовки самой сборки. Ничего не заменено — запустите обновление снова.",
+        "Remote {name} update refused: {path} is both a file sent alongside and the build being swapped — check the path on the Next; nothing was sent.":
+            "Удалённое обновление {name} отклонено: {path} одновременно и файл, отправляемый вместе с обновлением, и заменяемая сборка — проверьте путь на Next; ничего не отправлено.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
             "{landed} из {total} файл(ов) из deploypak.txt уже были заменены на карте — прежняя сборка теперь работает с новыми файлами данных; запустите обновление снова, чтобы привести их в соответствие.",
         "Remote {name} update: the Next refused {path} — sending it again (retry {retry} of {retries})…":
@@ -5688,6 +5760,12 @@ CATALOGS = {
             "Aktualizace ZX Next Remote: {path} je delší než {limit} bajtů, které může mít cesta na Nextu — zvolte kratší složku; nic nebylo odesláno.",
         "ZX Next Remote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
             "Aktualizace ZX Next Remote: výměna {path} by vyžadovala příkaz přejmenování delší než {limit} bajtů, které posluchač přijme — zvolte kratší složku; nic nebylo odesláno.",
+        "The package's {other} build ({file}) is sent into the same folder FIRST, checked against the CRC-32 the Next computes and re-sent up to {retries} times, so both flavors on the card stay in step — written in place, so the .bak revert does not cover it.":
+            "Sestavení {other} z balíčku ({file}) se odešle NEJPRVE do téže složky, ověří proti CRC-32 spočítanému Nextem a znovu odešle až {retries}krát, aby obě varianty na kartě zůstaly sladěné — zapisuje se na místo, takže obnova z .bak je nepokrývá.",
+        "ZX Next Remote update: the {other} build {file} goes alongside into {dir} first.":
+            "Aktualizace ZX Next Remote: sestavení {other} {file} jde nejprve souběžně do {dir}.",
+        "ZX Next Remote update: {path} is the name of a file sent alongside the build ({file}) — this session runs a {flavor} build, so its .nex cannot be that file; nothing was sent.":
+            "Aktualizace ZX Next Remote: {path} je název souboru odesílaného souběžně se sestavením ({file}) — tato relace běží na sestavení {flavor}, takže její .nex tímto souborem být nemůže; nic nebylo odesláno.",
         "ZX Next Remote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
             "Aktualizace ZX Next Remote: deploypak.txt uvádí {files} soubor(ů) a {folders} složek(ky) pro {dir}: {items}",
         "Download File": "Stáhnout soubor",
@@ -6211,6 +6289,18 @@ CATALOGS = {
             "Vzdálená aktualizace {name} odmítnuta: {path} je delší než {limit} bajtů, které může mít cesta na Nextu — nic nebylo odesláno.",
         "Remote {name} update refused: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
             "Vzdálená aktualizace {name} odmítnuta: výměna {path} by vyžadovala příkaz přejmenování delší než {limit} bajtů, které posluchač přijme — zvolte kratší složku; nic nebylo odesláno.",
+        "Remote {name} update: sending the other flavor's build {path} ({size} bytes) alongside…":
+            "Vzdálená aktualizace {name}: souběžně se odesílá sestavení druhé varianty, {path} ({size} bajtů)…",
+        "Remote {name} update failed while sending the other flavor's build {path}: {reason}. Nothing was swapped — the Next still runs its current build.":
+            "Vzdálená aktualizace {name} selhala při odesílání sestavení druhé varianty, {path}: {reason}. Nic nebylo vyměněno — Next stále běží na aktuálním sestavení.",
+        "The other flavor's build {path} had already been replaced on the card too.":
+            "Sestavení druhé varianty, {path}, už bylo na kartě nahrazeno také.",
+        "Remote {name} update failed: the session ended while sending the other flavor's build {path} — it may be missing or cut short on the card. Nothing was swapped — run the update again.":
+            "Vzdálená aktualizace {name} selhala: relace skončila během odesílání sestavení druhé varianty, {path} — na kartě může chybět nebo být useknuté. Nic nebylo vyměněno — spusťte aktualizaci znovu.",
+        "Remote {name} update failed: the session ended after the other flavor's build {path} had been replaced on the card, before the build itself was staged. Nothing was swapped — run the update again.":
+            "Vzdálená aktualizace {name} selhala: relace skončila poté, co bylo na kartě nahrazeno sestavení druhé varianty, {path}, ještě před přípravou samotného sestavení. Nic nebylo vyměněno — spusťte aktualizaci znovu.",
+        "Remote {name} update refused: {path} is both a file sent alongside and the build being swapped — check the path on the Next; nothing was sent.":
+            "Vzdálená aktualizace {name} odmítnuta: {path} je zároveň souběžně odesílaný soubor i vyměňované sestavení — zkontrolujte cestu na Nextu; nic nebylo odesláno.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
             "{landed} z {total} soubor(ů) z deploypak.txt už bylo na kartě nahrazeno — předchozí sestavení teď běží s novými datovými soubory; spusťte aktualizaci znovu, aby se opět sladily.",
         "Remote {name} update: the Next refused {path} — sending it again (retry {retry} of {retries})…":
@@ -6988,6 +7078,12 @@ CATALOGS = {
             "Mise à jour de ZX Next Remote : {path} dépasse les {limit} octets qu'un chemin sur le Next peut avoir — choisissez un dossier plus court ; rien n'a été envoyé.",
         "ZX Next Remote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
             "Mise à jour de ZX Next Remote : remplacer {path} exigerait une commande de renommage plus longue que les {limit} octets qu'un récepteur accepte — choisissez un dossier plus court ; rien n'a été envoyé.",
+        "The package's {other} build ({file}) is sent into the same folder FIRST, checked against the CRC-32 the Next computes and re-sent up to {retries} times, so both flavors on the card stay in step — written in place, so the .bak revert does not cover it.":
+            "La compilation {other} du paquet ({file}) est envoyée D'ABORD dans le même dossier, vérifiée contre le CRC-32 calculé par le Next et renvoyée jusqu'à {retries} fois, pour que les deux variantes sur la carte restent en accord — écrite sur place, donc la restauration par .bak ne la couvre pas.",
+        "ZX Next Remote update: the {other} build {file} goes alongside into {dir} first.":
+            "Mise à jour de ZX Next Remote : la compilation {other} {file} part d'abord, en parallèle, vers {dir}.",
+        "ZX Next Remote update: {path} is the name of a file sent alongside the build ({file}) — this session runs a {flavor} build, so its .nex cannot be that file; nothing was sent.":
+            "Mise à jour de ZX Next Remote : {path} est le nom d'un fichier envoyé en parallèle de la compilation ({file}) — cette session exécute une compilation {flavor}, son .nex ne peut donc pas être ce fichier ; rien n'a été envoyé.",
         "ZX Next Remote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
             "Mise à jour de ZX Next Remote : deploypak.txt liste {files} fichier(s) et {folders} dossier(s) pour {dir} : {items}",
         "Download File": "Télécharger le fichier",
@@ -7512,6 +7608,18 @@ CATALOGS = {
             "Mise à jour distante de {name} refusée : {path} dépasse les {limit} octets qu'un chemin sur le Next peut avoir — rien n'a été envoyé.",
         "Remote {name} update refused: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
             "Mise à jour distante de {name} refusée : remplacer {path} exigerait une commande de renommage plus longue que les {limit} octets qu'un récepteur accepte — choisissez un dossier plus court ; rien n'a été envoyé.",
+        "Remote {name} update: sending the other flavor's build {path} ({size} bytes) alongside…":
+            "Mise à jour distante de {name} : envoi en parallèle de la compilation de l'autre variante, {path} ({size} octets)…",
+        "Remote {name} update failed while sending the other flavor's build {path}: {reason}. Nothing was swapped — the Next still runs its current build.":
+            "La mise à jour distante de {name} a échoué à l'envoi de la compilation de l'autre variante, {path} : {reason}. Rien n'a été remplacé — le Next exécute toujours sa compilation actuelle.",
+        "The other flavor's build {path} had already been replaced on the card too.":
+            "La compilation de l'autre variante, {path}, avait elle aussi déjà été remplacée sur la carte.",
+        "Remote {name} update failed: the session ended while sending the other flavor's build {path} — it may be missing or cut short on the card. Nothing was swapped — run the update again.":
+            "La mise à jour distante de {name} a échoué : la session s'est terminée pendant l'envoi de la compilation de l'autre variante, {path} — elle peut manquer ou être tronquée sur la carte. Rien n'a été remplacé — relancez la mise à jour.",
+        "Remote {name} update failed: the session ended after the other flavor's build {path} had been replaced on the card, before the build itself was staged. Nothing was swapped — run the update again.":
+            "La mise à jour distante de {name} a échoué : la session s'est terminée après le remplacement sur la carte de la compilation de l'autre variante, {path}, avant le dépôt de la compilation elle-même. Rien n'a été remplacé — relancez la mise à jour.",
+        "Remote {name} update refused: {path} is both a file sent alongside and the build being swapped — check the path on the Next; nothing was sent.":
+            "Mise à jour distante de {name} refusée : {path} est à la fois un fichier envoyé en parallèle et la compilation à remplacer — vérifiez le chemin sur le Next ; rien n'a été envoyé.",
         "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
             "{landed} des {total} fichier(s) de deploypak.txt avaient déjà été remplacés sur la carte — la compilation précédente tourne maintenant avec les nouveaux fichiers de données ; relancez la mise à jour pour les remettre en accord.",
         "Remote {name} update: the Next refused {path} — sending it again (retry {retry} of {retries})…":

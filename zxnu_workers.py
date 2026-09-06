@@ -1006,20 +1006,27 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         return sum(1 for s in (job or {}).get('extras', ()) if s[0] == "put")
 
     def _upd_extras_note(job):
-        # The sentence every verdict AFTER the manifest landed must carry:
-        # the extras overwrite in place, so "nothing was swapped" is only
-        # true of the build itself — a refused staging put, a bad staged
-        # copy, a refused release or rename, a session lost mid-swap all
-        # leave the previous build running against the NEW data files.
-        # Empty for a job whose manifest sent nothing (or has none).
-        sent = len((job or {}).get('ex_sent', ()))
-        if not sent:
-            return ""
-        return " " + ui_tr_now(
-            "{landed} of the {total} deploypak.txt file(s) had already been "
-            "replaced on the card — the previous build now runs against the "
-            "new data files; run the update again to put them back in "
-            "step.").format(landed=sent, total=_upd_extra_total(job))
+        # The sentence every verdict AFTER the companions landed must carry:
+        # they overwrite in place, so "nothing was swapped" is only true of
+        # the build itself — a refused staging put, a bad staged copy, a
+        # refused release or rename, a session lost mid-swap all leave the
+        # previous build running against the NEW data files (and, 9.7.7,
+        # beside the other flavor's NEW build). Empty when nothing landed.
+        job = job or {}
+        note = ""
+        sent = len(job.get('ex_sent', ()))
+        if sent:
+            note += " " + ui_tr_now(
+                "{landed} of the {total} deploypak.txt file(s) had already "
+                "been replaced on the card — the previous build now runs "
+                "against the new data files; run the update again to put "
+                "them back in step.").format(
+                    landed=sent, total=_upd_extra_total(job))
+        for rel in job.get('sib_sent', ()):
+            note += " " + ui_tr_now(
+                "The other flavor's build {path} had already been replaced "
+                "on the card too.").format(path=job.get('dir', '') + "/" + rel)
+        return note
     # Verify-after-put jobs (9.7.3): id -> {'remote', 'crc' (8 hex of the
     # bytes SENT), 'size', 'state', 'got'}. Pre-try like upd_jobs: the
     # finally settles the ONE put_done each still owes. vstate carries the
@@ -1292,9 +1299,12 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         retry=job['ex_try'], retries=RE_UPD_EXTRA_RETRIES))
 
             def _upd_extra_landed(jid, job):
-                # One extra done (verified, or knowingly unverified): on to
-                # the next on the following Poll.
-                job['ex_sent'].append(job['extras'][job['ex_i']][-1])
+                # One companion done (verified): on to the next on the
+                # following Poll. Manifest files and the other flavor's
+                # build are counted apart — the verdicts name them apart.
+                step = job['extras'][job['ex_i']]
+                job['sib_sent' if step[0] == "sibling" else 'ex_sent'].append(
+                    step[-1])
                 job['ex_i'] += 1
                 job['ex_try'] = 0
                 local_cmds.appendleft(("upd_extra", jid))
@@ -1306,7 +1316,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 nonlocal put_data, put_ofs, put_pkt, pending
                 _newp = job['dir'] + "/" + job['base'] + ".new"
                 job['staged'] = True
-                if job.get('extras'):
+                if _upd_extra_total(job):
                     sig.log.emit(ui_tr_now(
                         "Remote {name} update: all {count} deploypak.txt "
                         "file(s) are on the card — staging the build "
@@ -1379,7 +1389,12 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 job['ex_data'] = blob
                 job['ex_crc'] = "%08X" % (zlib.crc32(blob) & 0xffffffff)
                 job['ex_size'] = len(blob)
-                if job['ex_try'] == 0:
+                if job['ex_try'] == 0 and step[0] == "sibling":
+                    sig.log.emit(ui_tr_now(
+                        "Remote {name} update: sending the other flavor's "
+                        "build {path} ({size} bytes) alongside…").format(
+                            name=job['name'], path=remote, size=len(blob)))
+                elif job['ex_try'] == 0:
                     sig.log.emit(ui_tr_now(
                         "Remote {name} update: sending deploypak.txt file "
                         "{index} of {count}: {path} ({size} bytes)…").format(
@@ -2224,11 +2239,14 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # extras; the ZXNR flavor passes its .nex file name,
                         # "ZXNextRemote", marked_exit=True (the Q+'X' quit
                         # soft-resets the Next into NextZXOS so the swapped
-                        # .nex can relaunch) and, when its package carries a
-                        # deploypak.txt, the read_deploypak plan of extra
-                        # files/folders — sent BEFORE the staging put, each
-                        # crc-checked and re-sent up to RE_UPD_EXTRA_RETRIES
-                        # times (see _upd_extra_step).
+                        # .nex can relaunch) and the companions plan: the
+                        # OTHER flavor's build as a ("sibling", local, rel)
+                        # step (9.7.7 — both .nex on the card stay in step)
+                        # followed, when the package carries a deploypak.txt,
+                        # by the read_deploypak mkdir/put steps — all sent
+                        # BEFORE the staging put, each put crc-checked and
+                        # re-sent up to RE_UPD_EXTRA_RETRIES times (see
+                        # _upd_extra_step).
                         local, rdir, dver = cmd[1], cmd[2].rstrip("/"), cmd[3]
                         base = cmd[4] if len(cmd) > 4 and cmd[4] else "sync5"
                         brand = (cmd[5] if len(cmd) > 5 and cmd[5]
@@ -2272,32 +2290,83 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # put (see _upd_extra_step). Checked whole here so a
                         # broken plan refuses before a byte moves, like the
                         # blob above.
+                        # A ("sibling", local, rel) step (9.7.7) is the
+                        # OTHER flavor's build, sent alongside so both .nex
+                        # on the card stay in step: a put like any manifest
+                        # file, but its blob is held to the same brand +
+                        # version check as the staged build — a stale
+                        # sibling refuses before a byte moves.
                         extras = []
                         bad_extra = ""
+                        bad_why = "deploypak.txt names a file that is not there"
                         raw_extras = cmd[7] if len(cmd) > 7 and cmd[7] else ()
                         for step in raw_extras:
                             step = tuple(step)
                             if (step[:1] == ("mkdir",) and len(step) == 2
                                     and step[1] and isinstance(step[1], str)):
                                 extras.append(step)
-                            elif (step[:1] == ("put",) and len(step) == 3
+                            elif (step[:1] in (("put",), ("sibling",))
+                                    and len(step) == 3
                                     and step[1] and step[2]
                                     and isinstance(step[1], str)
                                     and isinstance(step[2], str)):
                                 if not os.path.isfile(step[1]):
                                     bad_extra = step[1]
+                                    if step[0] == "sibling":
+                                        bad_why = ("the other flavor's build "
+                                                   "is not there")
                                     break
+                                if step[0] == "sibling":
+                                    try:
+                                        with open(step[1], 'rb') as fh:
+                                            sblob = fh.read()
+                                    except OSError as ex:
+                                        bad_extra, bad_why = step[1], str(ex)
+                                        break
+                                    if (brand.encode() not in sblob
+                                            or (bool(dver)
+                                                and dver.encode() not in sblob)):
+                                        bad_extra = ""
+                                        sig.dot_update.emit(False, ui_tr_now(
+                                            "Remote {name} update refused: "
+                                            "{path} does not look like a "
+                                            "{brand} {version} build — wrong "
+                                            "or stale file.").format(
+                                                name=disp, path=step[1],
+                                                brand=brand, version=dver))
+                                        bad = True
+                                        break
                                 extras.append(step)
                             else:
                                 bad_extra = repr(step)
                                 break
+                        if bad:
+                            _re_sendpacket(conn, b"I", 0)
+                            continue
                         if bad_extra:
                             sig.dot_update.emit(False, ui_tr_now(
                                 "Remote {name} update failed while reading "
                                 "{path}: {error} — nothing was sent.").format(
-                                    name=disp, path=bad_extra,
-                                    error="deploypak.txt names a file that "
-                                          "is not there"))
+                                    name=disp, path=bad_extra, error=bad_why))
+                            _re_sendpacket(conn, b"I", 0)
+                            continue
+                        # A companion may not be the build being swapped,
+                        # nor its .new/.bak: the other flavor's canonical
+                        # name typed as the target (the UI derives the
+                        # sibling from the session's ident, the target from
+                        # what was typed) would be put, then renamed aside
+                        # and overwritten by itself — reported as success.
+                        _taken = {base.lower(), (base + ".new").lower(),
+                                  (base + ".bak").lower()}
+                        clash = next((s[-1] for s in extras
+                                      if s[-1].lower() in _taken), "")
+                        if clash:
+                            sig.dot_update.emit(False, ui_tr_now(
+                                "Remote {name} update refused: {path} is "
+                                "both a file sent alongside and the build "
+                                "being swapped — check the path on the "
+                                "Next; nothing was sent.").format(
+                                    name=disp, path=rdir + "/" + clash))
                             _re_sendpacket(conn, b"I", 0)
                             continue
                         # The listener copies a command's path into a
@@ -2345,16 +2414,18 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                              'ver': dver, 'base': base,
                                              'name': disp, 'marked': marked,
                                              'extras': extras, 'ex_i': 0,
-                                             'ex_try': 0, 'ex_sent': []}
+                                             'ex_try': 0, 'ex_sent': [],
+                                             'sib_sent': []}
                         if extras:
                             n_files = sum(1 for s in extras if s[0] == "put")
-                            n_dirs = len(extras) - n_files
-                            sig.log.emit(ui_tr_now(
-                                "Remote {name} update: deploypak.txt lists "
-                                "{files} file(s) and {folders} folder(s) to "
-                                "send to {dir} first…").format(
-                                    name=disp, files=n_files,
-                                    folders=n_dirs, dir=rdir))
+                            n_dirs = sum(1 for s in extras if s[0] == "mkdir")
+                            if n_files or n_dirs:
+                                sig.log.emit(ui_tr_now(
+                                    "Remote {name} update: deploypak.txt lists "
+                                    "{files} file(s) and {folders} folder(s) to "
+                                    "send to {dir} first…").format(
+                                        name=disp, files=n_files,
+                                        folders=n_dirs, dir=rdir))
                             _upd_extra_step(upd_seq, upd_jobs[upd_seq])
                         else:
                             _upd_stage(upd_seq, upd_jobs[upd_seq])
@@ -2531,18 +2602,38 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # precede the staging put), so the session stays up.
                         jid, _rel, why = cmd[1], cmd[2], cmd[3]
                         job = upd_jobs.pop(jid, None) or {}
-                        sig.dot_update.emit(False, ui_tr_now(
-                            "Remote {name} update failed while sending {path} "
-                            "from deploypak.txt: {reason}. Nothing was swapped "
-                            "— the Next still runs its current build, but "
-                            "{landed} of the {total} file(s) the manifest lists "
-                            "had already been replaced on the card (running "
-                            "the update again sends them all).").format(
-                                name=job.get('name', ''),
-                                path=(job.get('dir', '') + "/" + _rel),
-                                reason=why,
-                                landed=len(job.get('ex_sent', ())),
-                                total=_upd_extra_total(job)))
+                        _ex = job.get('extras', ())
+                        _kind = (_ex[job['ex_i']][0]
+                                 if _ex and job.get('ex_i', 0) < len(_ex)
+                                 else "put")
+                        if _kind == "sibling":
+                            sig.dot_update.emit(False, ui_tr_now(
+                                "Remote {name} update failed while sending the "
+                                "other flavor's build {path}: {reason}. Nothing "
+                                "was swapped — the Next still runs its current "
+                                "build.").format(
+                                    name=job.get('name', ''),
+                                    path=(job.get('dir', '') + "/" + _rel),
+                                    reason=why)
+                                + _upd_extras_note(job))
+                        else:
+                            sig.dot_update.emit(False, ui_tr_now(
+                                "Remote {name} update failed while sending {path} "
+                                "from deploypak.txt: {reason}. Nothing was swapped "
+                                "— the Next still runs its current build, but "
+                                "{landed} of the {total} file(s) the manifest lists "
+                                "had already been replaced on the card (running "
+                                "the update again sends them all).").format(
+                                    name=job.get('name', ''),
+                                    path=(job.get('dir', '') + "/" + _rel),
+                                    reason=why,
+                                    landed=len(job.get('ex_sent', ())),
+                                    total=_upd_extra_total(job))
+                                + "".join(" " + ui_tr_now(
+                                    "The other flavor's build {path} had already "
+                                    "been replaced on the card too.").format(
+                                        path=job.get('dir', '') + "/" + r)
+                                    for r in job.get('sib_sent', ())))
                         _re_sendpacket(conn, b"I", 0)
                     elif op == "upd_verify":
                         # Step 1: prove what LANDED on the SD card. The wire
@@ -2865,6 +2956,19 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         for _job in upd_jobs.values():
             _cur = _job['dir'] + "/" + _job.get('base', 'sync5')
             if (_job.get('extras') and not _job.get('staged')
+                    and _job['ex_i'] < len(_job['extras'])
+                    and _job['extras'][_job['ex_i']][0] == "sibling"):
+                # Died while the other flavor's build was in flight.
+                _ex = _job['extras']
+                sig.dot_update.emit(False, ui_tr_now(
+                    "Remote {name} update failed: the session ended while "
+                    "sending the other flavor's build {path} — it may be "
+                    "missing or cut short on the card. Nothing was swapped "
+                    "— run the update again.").format(
+                        name=_job.get('name', ''),
+                        path=_job['dir'] + "/" + _ex[_job['ex_i']][-1])
+                    + _upd_extras_note(_job))
+            elif (_job.get('extras') and not _job.get('staged')
                     and _job['ex_i'] < len(_job['extras'])):
                 # Died among the deploypak.txt extras: the one in flight
                 # may be missing or cut short on the card (they overwrite
@@ -2881,11 +2985,17 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         name=_job.get('name', ''),
                         path=_job['dir'] + "/" + _ex[_job['ex_i']][-1],
                         landed=len(_job.get('ex_sent', ())),
-                        total=_upd_extra_total(_job)))
-            elif _job.get('extras') and not _job.get('staged'):
-                # Died between the last extra landing and the Poll that
-                # would have staged the build: every manifest file is on
-                # the card, verified; nothing was in flight.
+                        total=_upd_extra_total(_job))
+                    + "".join(" " + ui_tr_now(
+                        "The other flavor's build {path} had already been "
+                        "replaced on the card too.").format(
+                            path=_job['dir'] + "/" + r)
+                        for r in _job.get('sib_sent', ())))
+            elif (_job.get('extras') and not _job.get('staged')
+                    and _upd_extra_total(_job)):
+                # Died between the last companion landing and the Poll that
+                # would have staged the build: every companion is on the
+                # card, verified; nothing was in flight.
                 sig.dot_update.emit(False, ui_tr_now(
                     "Remote {name} update failed: the session ended after "
                     "all {total} deploypak.txt file(s) had been replaced on "
@@ -2893,7 +3003,23 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     "was swapped — run the update again to send them "
                     "all.").format(
                         name=_job.get('name', ''),
-                        total=_upd_extra_total(_job)))
+                        total=_upd_extra_total(_job))
+                    + "".join(" " + ui_tr_now(
+                        "The other flavor's build {path} had already been "
+                        "replaced on the card too.").format(
+                            path=_job['dir'] + "/" + r)
+                        for r in _job.get('sib_sent', ())))
+            elif _job.get('extras') and not _job.get('staged'):
+                # The same gap, for a package with no manifest: only the
+                # other flavor's build landed — say that, not "all 0 files".
+                _last = (_job.get('sib_sent') or [_job['extras'][-1][-1]])[-1]
+                sig.dot_update.emit(False, ui_tr_now(
+                    "Remote {name} update failed: the session ended after "
+                    "the other flavor's build {path} had been replaced on "
+                    "the card, before the build itself was staged. Nothing "
+                    "was swapped — run the update again.").format(
+                        name=_job.get('name', ''),
+                        path=_job['dir'] + "/" + _last))
             elif _job.get('swap_started'):
                 sig.dot_update.emit(False, ui_tr_now(
                     "Remote {name} update FAILED mid-swap: the Next may be "

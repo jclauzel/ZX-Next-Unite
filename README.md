@@ -63,7 +63,11 @@ emulator launch buttons below:
   sent recursively) has those sent to the same folder on the Next
   **first**, each checked against the Next's CRC-32 and re-sent up to
   three times, before the build itself is swapped — they are written in
-  place, so the `.bak` revert does not cover them. Driven from the Remote
+  place, so the `.bak` revert does not cover them. The package's **other
+  flavour** (`n2n` ⇄ `httpbridge`) travels the same way ahead of the
+  swap, so both `.nex` files on the card stay in step (a package missing
+  the other flavour is refused; the console's `force` pushes the one build
+  without it). Driven from the Remote
   Explorer (an "Update to x.y.z" link appears when the connected build is
   older) or the `nextsync5` console — CLI examples and the manifest format
   in the
