@@ -136,6 +136,35 @@ def main():
               f"{_rel(plan)} / {problems}")
         _twin_agrees("skips + duplicates", pkg, skip)
 
+        # Letter case: an entry is matched to the package case-blind (the
+        # Next's FAT is; a Linux checkout is not) and sent under its
+        # ON-DISK spelling - the same plan on every PC. Two package names
+        # differing only by case (possible on a case-sensitive disk) make
+        # such an entry ambiguous: a problem.
+        _manifest(pkg, "ZXNRMONKEYS0.SPR\nDATA/Sub/DEEP.bin\n")
+        plan, problems = read_deploypak(pkg, skip)
+        check("case-blind match, sent under the on-disk spelling",
+              problems == [] and _rel(plan) == [
+                  ("put", "zxnrmonkeys0.spr"), ("put", "data/sub/deep.bin")],
+              f"{_rel(plan)} / {problems}")
+        _twin_agrees("case-blind", pkg, skip)
+        _write(os.path.join(pkg, "dup.bin"), b"1")
+        case_sensitive = not os.path.exists(os.path.join(pkg, "DUP.BIN"))
+        if case_sensitive:
+            _write(os.path.join(pkg, "Dup.bin"), b"2")
+            _manifest(pkg, "DUP.BIN\ndup.bin\n")
+            plan, problems = read_deploypak(pkg, skip)
+            check("two names differing only by case: the blind entry is a problem, "
+                  "the exact one resolves",
+                  len(problems) == 1 and "more than one name" in problems[0]
+                  and _rel(plan) == [("put", "dup.bin")],
+                  f"{_rel(plan)} / {problems}")
+            _twin_agrees("case ambiguity", pkg, skip)
+            os.remove(os.path.join(pkg, "Dup.bin"))
+        else:
+            print("SKIP  case-ambiguity case (case-insensitive disk)")
+        os.remove(os.path.join(pkg, "dup.bin"))
+
         # A '.' line means the whole package - minus the skips.
         _manifest(pkg, ".\n")
         plan, problems = read_deploypak(pkg, skip)

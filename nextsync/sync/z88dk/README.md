@@ -361,7 +361,10 @@ gfx/
 ```
 
 The rules: paths are relative to the folder holding the manifest; `/` and
-`\` both separate; a folder is sent recursively (sub-folders created with
+`\` both separate; letter case does not matter (an entry is matched to the
+package's files case-blind, as the Next's FAT would, and sent under its
+on-disk spelling — so a manifest means the same on a Linux PC as on
+Windows); a folder is sent recursively (sub-folders created with
 `mkdir`, files sent top-down with names sorted); the `.nex` being swapped
 and the manifest itself are skipped when listed; absolute paths,
 drive-anchored paths, `..` and anything that resolves outside the package
