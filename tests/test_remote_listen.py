@@ -297,7 +297,8 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
                 push(b'O', 2)
 
 def mock_update_next(sock, ops, staged, scenario, verify_bytes,
-                     ident=b'Osync' + bytes([0]) + b'9.9.9', k_mode="ok"):
+                     ident=b'Osync' + bytes([0]) + b'9.9.9', k_mode="ok",
+                     pak=None):
     """Play the dot's half of an ("update_dot", ...) macro session. Records
     every command the wire carries into ``ops`` as (op, arg) — 'I' idle
     answers excluded, they are the worker saying "nothing queued" — and each
@@ -313,12 +314,38 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes,
     'F' (a pre-5.9 dot), "ren1_refuse" answers the first rename's 'V' with
     'F', "ren1_osp" answers it with the marked 'F'+"OSP" (ZXNR's OS
     protection), and the two "kill_after_*" scenarios drop the link right
-    after acking the 'U' / the first 'V' (a session dying mid-macro)."""
+    after acking the 'U' / the first 'V' (a session dying mid-macro).
+
+    ``pak`` scripts the deploypak.txt extras (9.7.6) — every path NOT ending
+    in ".new" is an extra: {'mkdir': 'O'|'F'|'FOSP' (how 'M' is met),
+    'ls': 'E'|'F'|'FOSP' (how the 'L' existence check after a plain mkdir
+    'F' is met), 'k_bad': {remote: n} (the first n 'K' answers for that
+    extra are WRONG — -1: always; the 'G' read-back serves the same
+    corrupted bytes), 'k_silent': {remote,...} ('K' on those extras is
+    ignored, re-poll), 'p_refuse': {remote: n} (the first n 'P' for that
+    extra are refused with a plain 'F'), 'p_osp': {remote,...} ('P' refused
+    with the marked 'F'+OSP), 'kill_at': remote (drop the link when that
+    extra's 'P' arrives)}."""
+    pak = pak or {}
+    by_path = {}                 # remote -> bytes the Next holds for an EXTRA
+    k_bad = dict(pak.get('k_bad', {}))
+    p_refuse = dict(pak.get('p_refuse', {}))
     sock.sendall(b"Listen")
     assert rx_payload(sock) == b"Listening"
     def push(payload, pkt):
         settle(); sock.sendall(frame(payload, pkt))
         assert rx_payload(sock)[0:1] == b'O'
+    def held(path):
+        # What the Next holds for an extra, corrupted while its bad-count
+        # lasts (the 'K' digest and the 'G' read-back agree, like a real
+        # card would).
+        body = by_path.get(path, b'')
+        n = k_bad.get(path, 0)
+        if n and body:
+            if n > 0:
+                k_bad[path] = n - 1
+            return bytes([body[0] ^ 0xff]) + body[1:]
+        return body
     while True:
         settle(); sock.sendall(b"Poll")
         cmd = rx_payload(sock)
@@ -326,6 +353,7 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes,
         if op == b'I':
             continue
         ops.append((op.decode(), arg))
+        is_extra = not arg.endswith(".new") and op in (b'P', b'K', b'G', b'X')
         if op == b'Q':
             # Same goodbye dance as mock_next: answer with the <= 5.7.4
             # raw "Bye", swallow the "Later", close our end.
@@ -341,6 +369,16 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes,
                 pass
             break
         if op == b'P':
+            if arg == pak.get('kill_at'):
+                sock.close()                 # the link drops on this put
+                break
+            if is_extra and arg in pak.get('p_osp', ()):
+                push(b'FOSP', 0)             # the marked OS-protection refusal
+                continue
+            if is_extra and p_refuse.get(arg, 0) > 0:
+                p_refuse[arg] -= 1
+                push(b'F', 0)                # a plain refusal (transient)
+                continue
             buf = b''
             while True:
                 settle(); sock.sendall(b"Get")
@@ -348,6 +386,33 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes,
                 if not d: break
                 buf += d
             staged.append((arg, buf))
+            if is_extra:
+                by_path[arg] = buf
+        elif op == b'M':
+            push({'O': b'O', 'F': b'F', 'FOSP': b'FOSP'}[pak.get('mkdir', 'O')], 0)
+        elif op == b'L':
+            mode = pak.get('ls', 'E')
+            if mode == 'DE':
+                # A real listing of a non-empty folder: 'D' entry block(s)
+                # first (the dot's format), then the 'E' end.
+                push(b'D' + bytes([0]) + (12).to_bytes(4, "little")
+                     + bytes([5]) + b"x.bin", 0)
+                push(b'E', 1)
+            else:
+                push(b'E' if mode == 'E' else (b'FOSP' if mode == 'FOSP' else b'F'), 0)
+        elif op == b'K' and is_extra:
+            if arg in pak.get('k_silent', ()):
+                continue                     # ignored: re-poll
+            push(b'O' + ("%08X" % (zlib.crc32(held(arg)) & 0xffffffff)).encode(), 0)
+            if arg == pak.get('kill_after_k'):
+                sock.close()                 # the link drops right after the verdict
+                break
+        elif op == b'G' and is_extra:
+            body = held(arg)
+            pkt = 0
+            for i in range(0, len(body), 500):
+                push(b'D' + body[i:i + 500], pkt); pkt += 1
+            push(b'B', pkt)
         elif op == b'Y':
             # The ident the verify step gates its 'K' on (asked once, since
             # nobody else did in these scenarios).
@@ -397,11 +462,12 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes,
             push(b'F', 0)                # unexpected op: refuse loudly
 
 def run_update_scenario(port, cmds, scenario, verify_bytes,
-                        ident=b'Osync' + bytes([0]) + b'9.9.9', k_mode="ok"):
+                        ident=b'Osync' + bytes([0]) + b'9.9.9', k_mode="ok",
+                        pak=None):
     """Fresh worker + mock Next for one update_dot scenario. Returns
     (ops, staged, upd, puts, logs): the wire ops seen, the staged put(s),
     every dot_update emission, every (stray) put_done emission and the log
-    lines. ``ident``/``k_mode`` reach :func:`mock_update_next`."""
+    lines. ``ident``/``k_mode``/``pak`` reach :func:`mock_update_next`."""
     sig = RemoteExplorerSignals()
     upd, puts, logs = [], [], []
     sig.dot_update.connect(lambda okf, msg: upd.append((okf, msg)), Qt.DirectConnection)
@@ -422,7 +488,7 @@ def run_update_scenario(port, cmds, scenario, verify_bytes,
     s = socket.create_connection(("127.0.0.1", port), timeout=5)
     try:
         mock_update_next(s, ops, staged, scenario, verify_bytes,
-                         ident=ident, k_mode=k_mode)
+                         ident=ident, k_mode=k_mode, pak=pak)
     finally:
         stop.set(); t.join(timeout=5); s.close()
     return ops, staged, upd, puts, logs
@@ -1159,6 +1225,342 @@ def main():
     else:
         print("FAIL updot-osp: ops=", ops, "upd=", upd, "puts=", puts)
         ok = False
+
+    # ── deploypak.txt extras of a ZXNR package update (9.7.6) ─────────
+    # cmd[7] carries the read_deploypak plan: the extras go FIRST (the swap
+    # ends the session), each put is 'K'-checked against the bytes served
+    # (a listener predating the op, or a 'K' with no verdict, gets the 'G'
+    # read-back), a different digest re-sends the file up to
+    # RE_UPD_EXTRA_RETRIES times, then the corrupted copy is deleted and
+    # the update fails naming the file - with nothing staged and the
+    # session still up. The mock refuses any unexpected op ('F'), so the
+    # exact wire order below is the contract.
+    pak_dir = os.path.join(tmp, "pak")
+    os.makedirs(os.path.join(pak_dir, "data", "sub"), exist_ok=True)
+    menu_b = bytes(range(256)) * 3 + b"MENU"          # multi-packet (> 512)
+    a_b = b"A" * 300
+    b_b = b"B" * 40
+    menu_f = os.path.join(pak_dir, "menu.nxi"); open(menu_f, "wb").write(menu_b)
+    a_f = os.path.join(pak_dir, "data", "a.bin"); open(a_f, "wb").write(a_b)
+    b_f = os.path.join(pak_dir, "data", "sub", "b.bin"); open(b_f, "wb").write(b_b)
+    plan = [("put", menu_f, "menu.nxi"), ("mkdir", "data"),
+            ("put", a_f, "data/a.bin"), ("mkdir", "data/sub"),
+            ("put", b_f, "data/sub/b.bin")]
+    pak_cmd = ("update_dot", zx_file, "c:/apps", "9.9.9",
+               "zxnextremote-n2n.nex", "ZXNextRemote", True, plan)
+    zxnr108 = b'On2n' + bytes([0]) + b'1.0.8'
+    zxnr107 = b'Ohttpbridge' + bytes([0]) + b'1.0.7'
+    ext = {"menu": "c:/apps/menu.nxi", "a": "c:/apps/data/a.bin",
+           "b": "c:/apps/data/sub/b.bin"}
+    swap_tail = [('P', zb + ".new"), ('K', zb + ".new"), ('U', ""),
+                 ('X', zb + ".bak"), ('V', zb + "\x00" + zb + ".bak"),
+                 ('V', zb + ".new\x00" + zb), ('Q', "X")]
+
+    # Happy path: put+K per file (the 'Y' ident probe rides the FIRST
+    # verify), mkdir per folder, then the unchanged staging/swap tail. The
+    # extras' bytes land verbatim, dot_update(True) exactly once, no stray
+    # put_done, and the log tells the story (manifest line, per-file
+    # progress, the "all on the card" hand-over).
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 40, [pak_cmd], "ok", zx_blob, ident=zxnr108)
+    want_ops = [('P', ext["menu"]), ('Y', ""), ('K', ext["menu"]),
+                ('M', "c:/apps/data"), ('P', ext["a"]), ('K', ext["a"]),
+                ('M', "c:/apps/data/sub"), ('P', ext["b"]), ('K', ext["b"])
+                ] + swap_tail
+    if (ops == want_ops
+            and staged == [(ext["menu"], menu_b), (ext["a"], a_b),
+                           (ext["b"], b_b), (zb + ".new", zx_blob)]
+            and len(upd) == 1 and upd[0][0] and not puts
+            and any("deploypak.txt lists 3 file(s) and 2 folder(s)" in l for l in logs)
+            and any("file 1 of 3: " + ext["menu"] in l for l in logs)
+            and any("file 3 of 3: " + ext["b"] in l for l in logs)
+            and any("all 3 deploypak.txt file(s) are on the card" in l for l in logs)):
+        print("PASS pak-ok: extras first (P+K each, M per folder), then the swap; "
+              "bytes verbatim, dot_update(True) once, no put_done")
+    else:
+        print("FAIL pak-ok: ops=", ops, "staged=", [(p, len(b)) for p, b in staged],
+              "upd=", upd, "puts=", puts, "logs=", logs); ok = False
+
+    # A 'K' that disagrees ONCE: the file goes again (P, K), then on; the
+    # retry is logged, the outcome is the happy one.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 41, [pak_cmd], "ok", zx_blob, ident=zxnr108,
+        pak={'k_bad': {ext["a"]: 1}})
+    if (ops == [('P', ext["menu"]), ('Y', ""), ('K', ext["menu"]),
+                ('M', "c:/apps/data"), ('P', ext["a"]), ('K', ext["a"]),
+                ('P', ext["a"]), ('K', ext["a"]),
+                ('M', "c:/apps/data/sub"), ('P', ext["b"]), ('K', ext["b"])
+                ] + swap_tail
+            and len(upd) == 1 and upd[0][0] and not puts
+            and any("did not arrive intact" in l and "retry 1 of 3" in l for l in logs)
+            and not any("retry 2 of 3" in l for l in logs)):
+        print("PASS pak-retry: one bad digest -> the file is sent again, then the update goes on")
+    else:
+        print("FAIL pak-retry: ops=", ops, "upd=", upd, "logs=", logs); ok = False
+
+    # A 'K' that ALWAYS disagrees: 1 + RE_UPD_EXTRA_RETRIES sends, then the
+    # corrupted copy is deleted ('X') and the update fails NAMING the file,
+    # the attempts, and how many manifest files already landed. Nothing was
+    # staged (no .new on the wire), the handle was never released, so the
+    # session stays up: the queued "quit" is served next (plain 'Q').
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 42, [pak_cmd, ("quit",)], "ok", zx_blob, ident=zxnr108,
+        pak={'k_bad': {ext["a"]: -1}})
+    n_try = zxnu_workers.RE_UPD_EXTRA_RETRIES + 1
+    if (ops == [('P', ext["menu"]), ('Y', ""), ('K', ext["menu"]),
+                ('M', "c:/apps/data")]
+                + [('P', ext["a"]), ('K', ext["a"])] * n_try
+                + [('X', ext["a"]), ('Q', "")]
+            and all(p != zb + ".new" for p, _ in staged)
+            and len(upd) == 1 and not upd[0][0]
+            and ext["a"] in upd[0][1] and "deploypak.txt" in upd[0][1]
+            and f"{n_try} attempts" in upd[0][1]
+            and "copy left on the Next was deleted" in upd[0][1]
+            and "1 of the 3 file(s)" in upd[0][1]
+            and "Nothing was swapped" in upd[0][1] and not puts):
+        print(f"PASS pak-giveup: {n_try} bad digests -> X the extra, dot_update(False) "
+              "names file/attempts/landed count, session stays up")
+    else:
+        print("FAIL pak-giveup: ops=", ops, "upd=", upd, "puts=", puts); ok = False
+
+    # A plain mkdir 'F' cannot be told from "exists": the worker lists the
+    # folder - a listing (even empty) means it is there and the update goes
+    # on; a plain 'F' on the listing too fails the update naming the
+    # folder; the marked 'F'+OSP on the mkdir itself is fatal at once.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 43, [pak_cmd], "ok", zx_blob, ident=zxnr108,
+        pak={'mkdir': 'F', 'ls': 'DE'})
+    if (ops == [('P', ext["menu"]), ('Y', ""), ('K', ext["menu"]),
+                ('M', "c:/apps/data"), ('L', "c:/apps/data"),
+                ('P', ext["a"]), ('K', ext["a"]),
+                ('M', "c:/apps/data/sub"), ('L', "c:/apps/data/sub"),
+                ('P', ext["b"]), ('K', ext["b"])] + swap_tail
+            and len(upd) == 1 and upd[0][0] and not puts):
+        print("PASS pak-mkdir-exists: mkdir 'F' + a listing -> the folder exists, carry on")
+    else:
+        print("FAIL pak-mkdir-exists: ops=", ops, "upd=", upd); ok = False
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 44, [pak_cmd, ("quit",)], "ok", zx_blob, ident=zxnr108,
+        pak={'mkdir': 'F', 'ls': 'F'})
+    if (ops == [('P', ext["menu"]), ('Y', ""), ('K', ext["menu"]),
+                ('M', "c:/apps/data"), ('L', "c:/apps/data"), ('Q', "")]
+            and len(upd) == 1 and not upd[0][0]
+            and "could not create c:/apps/data" in upd[0][1]
+            and "1 of the 3 file(s)" in upd[0][1] and not puts):
+        print("PASS pak-mkdir-fail: mkdir 'F' + listing 'F' -> the update fails naming the folder")
+    else:
+        print("FAIL pak-mkdir-fail: ops=", ops, "upd=", upd); ok = False
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 45, [pak_cmd, ("quit",)], "ok", zx_blob, ident=zxnr108,
+        pak={'mkdir': 'FOSP'})
+    if (ops == [('P', ext["menu"]), ('Y', ""), ('K', ext["menu"]),
+                ('M', "c:/apps/data"), ('Q', "")]
+            and len(upd) == 1 and not upd[0][0]
+            and "OS protection" in upd[0][1] and "c:/apps/data" in upd[0][1]
+            and not puts):
+        print("PASS pak-mkdir-osp: the marked mkdir refusal fails at once, naming the protection")
+    else:
+        print("FAIL pak-mkdir-osp: ops=", ops, "upd=", upd); ok = False
+
+    # A put the Next refuses with a plain 'F' is sent again (transient);
+    # refused every time it fails after the retries; the marked 'F'+OSP
+    # refusal never retries.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 46, [pak_cmd], "ok", zx_blob, ident=zxnr108,
+        pak={'p_refuse': {ext["menu"]: 1}})
+    if (ops == [('P', ext["menu"]), ('P', ext["menu"]), ('Y', ""),
+                ('K', ext["menu"]), ('M', "c:/apps/data"), ('P', ext["a"]),
+                ('K', ext["a"]), ('M', "c:/apps/data/sub"), ('P', ext["b"]),
+                ('K', ext["b"])] + swap_tail
+            and len(upd) == 1 and upd[0][0] and not puts
+            and any("the Next refused " + ext["menu"] in l and "retry 1 of 3" in l
+                    for l in logs)
+            and not any("did not arrive intact" in l for l in logs)):
+        print("PASS pak-put-retry: a refused put is sent again (said so), then the update goes on")
+    else:
+        print("FAIL pak-put-retry: ops=", ops, "upd=", upd, "logs=", logs); ok = False
+    # ...refused every time: after the retries whatever the Next kept of it
+    # is deleted (the dot creates the target before pulling), then failure.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 47, [pak_cmd, ("quit",)], "ok", zx_blob, ident=zxnr108,
+        pak={'p_refuse': {ext["menu"]: 99}})
+    if (ops == [('P', ext["menu"])] * n_try + [('X', ext["menu"]), ('Q', "")]
+            and staged == [] and len(upd) == 1 and not upd[0][0]
+            and f"refused it {n_try} times" in upd[0][1]
+            and "copy left on the Next was deleted" in upd[0][1]
+            and "0 of the 3 file(s)" in upd[0][1] and not puts):
+        print("PASS pak-put-fail: a put refused every time -> X, failure after the retries, nothing staged")
+    else:
+        print("FAIL pak-put-fail: ops=", ops, "upd=", upd); ok = False
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 48, [pak_cmd, ("quit",)], "ok", zx_blob, ident=zxnr108,
+        pak={'p_osp': {ext["a"]}})
+    if (ops == [('P', ext["menu"]), ('Y', ""), ('K', ext["menu"]),
+                ('M', "c:/apps/data"), ('P', ext["a"]), ('Q', "")]
+            and len(upd) == 1 and not upd[0][0]
+            and "OS protection refused writing" in upd[0][1]
+            and ext["a"] in upd[0][1] and "1 of the 3 file(s)" in upd[0][1]
+            and not puts):
+        print("PASS pak-put-osp: the marked put refusal fails at once, no retry")
+    else:
+        print("FAIL pak-put-osp: ops=", ops, "upd=", upd); ok = False
+
+    # A ZXNR 1.0.7 listener predates the crc op: every extra is READ BACK
+    # ('G') and byte-compared instead - never shipped unverified - and the
+    # build's own verify is the read-back too.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 49, [pak_cmd], "ok", zx_blob, ident=zxnr107)
+    if (ops == [('P', ext["menu"]), ('Y', ""), ('G', ext["menu"]),
+                ('M', "c:/apps/data"), ('P', ext["a"]), ('G', ext["a"]),
+                ('M', "c:/apps/data/sub"), ('P', ext["b"]), ('G', ext["b"]),
+                ('P', zb + ".new"), ('G', zb + ".new"), ('U', ""),
+                ('X', zb + ".bak"), ('V', zb + "\x00" + zb + ".bak"),
+                ('V', zb + ".new\x00" + zb), ('Q', "X")]
+            and len(upd) == 1 and upd[0][0] and not puts):
+        print("PASS pak-readback: a pre-crc listener -> every extra read back and compared")
+    else:
+        print("FAIL pak-readback: ops=", ops, "upd=", upd); ok = False
+    # ...and a corrupted read-back is retried like a bad digest.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 50, [pak_cmd], "ok", zx_blob, ident=zxnr107,
+        pak={'k_bad': {ext["b"]: 1}})
+    if (ops[6:12] == [('M', "c:/apps/data/sub"), ('P', ext["b"]), ('G', ext["b"]),
+                      ('P', ext["b"]), ('G', ext["b"]), ('P', zb + ".new")]
+            and len(upd) == 1 and upd[0][0] and not puts
+            and any("retry 1 of 3" in l for l in logs)):
+        print("PASS pak-readback-retry: a read-back that differs re-sends the file")
+    else:
+        print("FAIL pak-readback-retry: ops=", ops, "upd=", upd, "logs=", logs); ok = False
+
+    # A crc-capable listener that stays SILENT on one extra's 'K' (no
+    # verdict): the read-back decides, the update goes on.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 51, [pak_cmd], "ok", zx_blob, ident=zxnr108,
+        pak={'k_silent': {ext["menu"]}})
+    if (ops[:4] == [('P', ext["menu"]), ('Y', ""), ('K', ext["menu"]),
+                    ('G', ext["menu"])]
+            and ops[4:] == [('M', "c:/apps/data"), ('P', ext["a"]), ('K', ext["a"]),
+                            ('M', "c:/apps/data/sub"), ('P', ext["b"]),
+                            ('K', ext["b"])] + swap_tail
+            and len(upd) == 1 and upd[0][0] and not puts):
+        print("PASS pak-k-silent: no crc verdict -> the read-back decides")
+    else:
+        print("FAIL pak-k-silent: ops=", ops, "upd=", upd); ok = False
+
+    # A plan naming a local file that is not there refuses BEFORE a byte
+    # moves - nothing on the wire but the queued quit.
+    bad_plan = [("put", os.path.join(pak_dir, "gone.nxi"), "gone.nxi")]
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 52, [pak_cmd[:7] + (bad_plan,), ("quit",)], "ok", zx_blob,
+        ident=zxnr108)
+    if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
+            and "gone.nxi" in upd[0][1] and "nothing was sent" in upd[0][1]
+            and not puts):
+        print("PASS pak-missing: a missing extra refuses with nothing sent")
+    else:
+        print("FAIL pak-missing: ops=", ops, "upd=", upd); ok = False
+
+    # A composed remote path over RE_MAX_REMOTE_PATH bytes (the dot's
+    # command buffer truncates longer ones) refuses with nothing sent.
+    long_plan = [("put", menu_f, "d/" * 130 + "menu.nxi")]
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 53, [pak_cmd[:7] + (long_plan,), ("quit",)], "ok", zx_blob,
+        ident=zxnr108)
+    if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
+            and "longer than the 254 bytes" in upd[0][1]
+            and "nothing was sent" in upd[0][1] and not puts):
+        print("PASS pak-longpath: a remote path over 254 bytes refuses with nothing sent")
+    else:
+        print("FAIL pak-longpath: ops=", ops, "upd=", upd); ok = False
+
+    # The link drops while an extra is in flight: the finally block owes the
+    # exactly-once verdict, in the extras wording (the file may be cut
+    # short, N already replaced, nothing swapped) - never the mid-swap one.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 54, [pak_cmd], "ok", zx_blob, ident=zxnr108,
+        pak={'kill_at': ext["a"]})
+    if (ops == [('P', ext["menu"]), ('Y', ""), ('K', ext["menu"]),
+                ('M', "c:/apps/data"), ('P', ext["a"])]
+            and len(upd) == 1 and not upd[0][0]
+            and "session ended while sending " + ext["a"] in upd[0][1]
+            and "1 of the 3 file(s)" in upd[0][1]
+            and "Nothing was swapped" in upd[0][1]
+            and "mid-swap" not in upd[0][1] and ".bak" not in upd[0][1]
+            and not puts):
+        print("PASS pak-death: link lost mid-extras -> one verdict in the extras wording")
+    else:
+        print("FAIL pak-death: ops=", ops, "upd=", upd, "puts=", puts); ok = False
+
+    # A dot-flavor job without cmd[7] (every pre-9.7.6 caller) is untouched:
+    # the exact sequences above already pin it; here the 7-tuple ZXNR shape
+    # with an EMPTY plan behaves like no plan at all.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 55, [pak_cmd[:7] + ([],)], "ok", zx_blob, ident=zxnr108)
+    if (ops == [('P', zb + ".new"), ('Y', "")] + swap_tail[1:]
+            and len(upd) == 1 and upd[0][0] and not puts):
+        print("PASS pak-empty: an empty plan is the plain update")
+    else:
+        print("FAIL pak-empty: ops=", ops, "upd=", upd); ok = False
+
+    # The existence check after a mkdir 'F' met with the marked 'F'+OSP on
+    # the listing: the update fails naming the protection.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 56, [pak_cmd, ("quit",)], "ok", zx_blob, ident=zxnr108,
+        pak={'mkdir': 'F', 'ls': 'FOSP'})
+    if (ops == [('P', ext["menu"]), ('Y', ""), ('K', ext["menu"]),
+                ('M', "c:/apps/data"), ('L', "c:/apps/data"), ('Q', "")]
+            and len(upd) == 1 and not upd[0][0]
+            and "OS protection refused creating c:/apps/data" in upd[0][1]
+            and not puts):
+        print("PASS pak-lscheck-osp: mkdir 'F' + listing 'F'+OSP -> fails naming the protection")
+    else:
+        print("FAIL pak-lscheck-osp: ops=", ops, "upd=", upd); ok = False
+
+    # A failure AFTER the manifest landed must say so: the extras overwrite
+    # in place, so "nothing was swapped" is only true of the build. Here
+    # the first rename is refused after every extra and the staged build
+    # are on the card.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 57, [pak_cmd], "ren1_refuse", zx_blob, ident=zxnr108)
+    if (ops[-2:] == [('V', zb + "\x00" + zb + ".bak"), ('Q', "")]
+            and len(upd) == 1 and not upd[0][0]
+            and "could not rename" in upd[0][1]
+            and "3 of the 3 deploypak.txt file(s) had already been replaced" in upd[0][1]
+            and not puts):
+        print("PASS pak-ren1-note: a refused swap after the extras landed names the replaced files")
+    else:
+        print("FAIL pak-ren1-note: ops=", ops, "upd=", upd); ok = False
+
+    # The swap's renames carry BOTH names in one 254-byte command: a .nex
+    # path that fits alone (134 bytes with .new) but not doubled (2*130+5)
+    # is refused before a byte moves.
+    long_dir = "c:/apps/" + "d" * 100
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 58, [("update_dot", zx_file, long_dir, "9.9.9",
+                     "zxnextremote-n2n.nex", "ZXNextRemote", True, plan),
+                    ("quit",)], "ok", zx_blob, ident=zxnr108)
+    if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
+            and "rename command longer than the 254 bytes" in upd[0][1]
+            and long_dir + "/zxnextremote-n2n.nex" in upd[0][1] and not puts):
+        print("PASS pak-rename-bound: a .nex path whose two-name rename would not fit refuses")
+    else:
+        print("FAIL pak-rename-bound: ops=", ops, "upd=", upd); ok = False
+
+    # The link drops right after the LAST extra's verdict, before the Poll
+    # that would stage the build: every manifest file is on the card,
+    # nothing was in flight — the verdict says exactly that.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 59, [pak_cmd], "ok", zx_blob, ident=zxnr108,
+        pak={'kill_after_k': ext["b"]})
+    if (ops == [('P', ext["menu"]), ('Y', ""), ('K', ext["menu"]),
+                ('M', "c:/apps/data"), ('P', ext["a"]), ('K', ext["a"]),
+                ('M', "c:/apps/data/sub"), ('P', ext["b"]), ('K', ext["b"])]
+            and len(upd) == 1 and not upd[0][0]
+            and "after all 3 deploypak.txt file(s) had been replaced" in upd[0][1]
+            and "cut short" not in upd[0][1] and not puts):
+        print("PASS pak-death-all: link lost after the last extra -> 'all replaced, build not staged'")
+    else:
+        print("FAIL pak-death-all: ops=", ops, "upd=", upd); ok = False
 
     # ── verify-after-put (Settings → Verify CRC, 9.7.3) ────────────────
     # A UI put is followed by the worker's own 'K' exchange as a local_cmds

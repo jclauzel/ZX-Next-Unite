@@ -220,13 +220,22 @@ def mock_next(sock, fake_entries, fake_file, captured):
 # of sync5.bak with 'F' (the macro must tolerate a missing .bak), and answers
 # 'U'/'V' per scenario (refuse_ren1 refuses the FIRST rename's 'V').
 def mock_update_next(sock, captured, corrupt_verify=False, refuse_release=False,
-                     refuse_ren1=False, k_mode="ok"):
+                     refuse_ren1=False, k_mode="ok", pak=None):
     # k_mode: how a 'K' (the 9.7.5 crc verify) is met - "ok" answers the
     # CRC-32 of what the 'G' arm would serve (corrupt_verify included, so a
     # corrupted copy is caught by the digest), "F" says the file did not
     # open, "osp" is ZXNR's marked read refusal, "short" a well-framed but
     # malformed digest, "silent" a listener that ignores the opcode and
     # re-polls (the raw "Poll" fails the server's block parse at once).
+    # pak scripts the deploypak.txt extras (9.7.6) - every 'P'/'K'/'G'/'X'
+    # path NOT ending in ".new": {'mkdir': 'O'|'F'|'FOSP', 'ls': 'E'|'F'|
+    # 'FOSP' (the existence check after a plain mkdir 'F'), 'k_bad':
+    # {remote: n} (the first n 'K'/'G' answers for that extra are corrupted;
+    # -1 = always), 'p_refuse': {remote: n} (the first n 'P' refused with a
+    # plain 'F'), 'p_osp': {remote, ...} ('P' refused with 'F'+OSP)}.
+    pak = pak or {}
+    k_bad = dict(pak.get('k_bad', {}))
+    p_refuse = dict(pak.get('p_refuse', {}))
     assert recv_payload(sock) == b"Listening"
     staged = {}                                     # remote path -> bytes from 'P'
 
@@ -234,6 +243,17 @@ def mock_update_next(sock, captured, corrupt_verify=False, refuse_release=False,
         _settle()
         sock.sendall(frame(payload, pkt))
         assert recv_payload(sock)[0:1] == b'O'      # server acks "Ok"
+
+    def held(path):
+        # What the Next holds for an EXTRA: corrupted while its bad-count
+        # lasts (the 'K' digest and the 'G' read-back agree, like a card).
+        body = staged.get(path, b'')
+        n = k_bad.get(path, 0)
+        if n and body:
+            if n > 0:
+                k_bad[path] = n - 1
+            return bytes([body[0] ^ 0xff]) + body[1:]
+        return body
 
     while True:
         _settle()
@@ -243,6 +263,8 @@ def mock_update_next(sock, captured, corrupt_verify=False, refuse_release=False,
         op, arg = cmd[0:1], cmd[1:].decode()
         if op != b'I':                              # idle poll answers are not commands
             captured.setdefault('wire', []).append((op.decode(), arg))
+        is_extra = (op in (b'P', b'K', b'G', b'X') and not arg.endswith(".new")
+                    and not arg.endswith(".bak"))
         if op == b'Q':
             _settle()
             sock.sendall(b"Bye")                    # <= 5.7.4 goodbye, answered "Later"
@@ -259,6 +281,16 @@ def mock_update_next(sock, captured, corrupt_verify=False, refuse_release=False,
         if op == b'I':
             continue
         if op == b'P':                              # staging put: pull the bytes
+            if arg == pak.get('kill_at'):
+                sock.close()                        # the link drops on this put
+                break
+            if is_extra and arg in pak.get('p_osp', ()):
+                push(b'FOSP', 0)
+                continue
+            if is_extra and p_refuse.get(arg, 0) > 0:
+                p_refuse[arg] -= 1
+                push(b'F', 0)
+                continue
             buf = b''
             while True:
                 _settle()
@@ -269,6 +301,25 @@ def mock_update_next(sock, captured, corrupt_verify=False, refuse_release=False,
                 buf += data
             staged[arg] = buf
             captured.setdefault('puts', []).append((arg, buf))
+        elif op == b'M':                            # an extra's mkdir
+            push({'O': b'O', 'F': b'F', 'FOSP': b'FOSP'}[pak.get('mkdir', 'O')], 0)
+        elif op == b'K' and is_extra:               # an extra's crc check
+            if arg in pak.get('k_silent', ()):
+                continue                            # ignored: re-poll
+            push(b'O' + ("%08X" % (zlib.crc32(held(arg)) & 0xffffffff)).encode(), 0)
+            if arg == pak.get('kill_after_k'):
+                sock.close()                        # the link drops after the verdict
+                break
+        elif op == b'G' and is_extra:               # an extra's read-back
+            body = held(arg)
+            pkt = 0
+            push(b'N' + len(body).to_bytes(4, "big")
+                 + bytes([len(arg)]) + arg.encode(), pkt); pkt += 1
+            push(b'D' + body, pkt); pkt += 1
+            push(b'E', pkt); pkt += 1
+            push(b'B', pkt)
+        elif op == b'X' and is_extra:               # rm of a corrupted extra
+            push(b'O', 0)
         elif op == b'K':                            # crc verify: the digest of what
             body = staged.get(arg, b'')             # the Next holds (corrupted or not)
             if corrupt_verify and body:
@@ -300,8 +351,14 @@ def mock_update_next(sock, captured, corrupt_verify=False, refuse_release=False,
         elif op == b'V':                            # the swap renames
             ren1 = "\x00" in arg and arg.split("\x00", 1)[1].endswith(".bak")
             push(b'F' if (refuse_ren1 and ren1) else b'O', 0)
-        elif op == b'L':                            # post-failure liveness ls
-            push(b'E', 0)
+        elif op == b'L':                            # post-failure liveness ls, or the
+            mode = pak.get('ls', 'E')               # existence check after a mkdir 'F'
+            if mode == 'DE':                        # a non-empty folder: 'D' block(s), 'E'
+                push(b'D' + bytes([0]) + (12).to_bytes(4, "little")
+                     + bytes([5]) + b"x.bin", 0)
+                push(b'E', 1)
+            else:
+                push(b'E' if mode == 'E' else (b'FOSP' if mode == 'FOSP' else b'F'), 0)
 
 
 def run_update_tests(tmp):
@@ -331,7 +388,7 @@ def run_update_tests(tmp):
         f.write(b"just bytes, no version banner at all " * 4)
 
     def run(cmds, ident, corrupt_verify=False, refuse_release=False,
-            refuse_ren1=False, k_mode="ok"):
+            refuse_ren1=False, k_mode="ok", pak=None):
         srv, nxt = socket.socketpair()
         for s in (srv, nxt):
             try:
@@ -352,7 +409,8 @@ def run_update_tests(tmp):
                 mock_update_next(nxt, captured,
                                  corrupt_verify=corrupt_verify,
                                  refuse_release=refuse_release,
-                                 refuse_ren1=refuse_ren1, k_mode=k_mode)
+                                 refuse_ren1=refuse_ren1, k_mode=k_mode,
+                                 pak=pak)
                 t.join(timeout=5)
         finally:
             ns._listen_state['ident'] = None        # module-global: never leak
@@ -651,6 +709,236 @@ def run_update_tests(tmp):
     check("verOlder: int-tuple compare (5.10 > 5.9) + unparseable = not older",
           not bad, f"{bad}")
 
+    # 8. deploypak.txt extras (9.7.6): the manifest next to the .nex names
+    # the files/folders sent FIRST (the swap ends the session), each
+    # crc-checked against the bytes sent - read back on a pre-crc listener
+    # - and re-sent up to UPD_EXTRA_RETRIES times; the corrupted copy is
+    # deleted when the retries run out and the failure names the file and
+    # how many manifest files already landed. ZX Next Remote packages only:
+    # the dot flavor ignores a stray manifest. The manifest lives in the
+    # scenario only - it is removed at the end so nothing above changes.
+    def _mk(rel, data):
+        p = os.path.join(zdir, *rel.split("/"))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(data)
+        return p
+    menu_b = bytes(range(256)) * 3 + b"MENU"          # multi-packet (> 512)
+    a_b, b_b = b"A" * 300, b"B" * 40
+    _mk("menu.nxi", menu_b)
+    _mk("data/a.bin", a_b)
+    _mk("data/sub/b.bin", b_b)
+    pakfile = _mk("deploypak.txt", b"# extras\nmenu.nxi\ndata\n"
+                                   b"zxnextremote-n2n.nex\n")   # (itself: skipped)
+    ext = {"menu": "c:/apps/menu.nxi", "a": "c:/apps/data/a.bin",
+           "b": "c:/apps/data/sub/b.bin"}
+    tail = [('P', zbase + ".new"), ('K', zbase + ".new"), ('U', ''),
+            ('X', zbase + ".bak"), ('V', zbase + "\x00" + zbase + ".bak"),
+            ('V', zbase + ".new\x00" + zbase), ('Q', 'X')]
+    n_try = ns.UPD_EXTRA_RETRIES + 1
+    try:
+        cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"))
+        want = [('P', ext["menu"]), ('K', ext["menu"]), ('M', "c:/apps/data"),
+                ('P', ext["a"]), ('K', ext["a"]), ('M', "c:/apps/data/sub"),
+                ('P', ext["b"]), ('K', ext["b"])] + tail
+        check("updPak   : extras first (P+K each, M per folder), then the swap",
+              cap.get('wire') == want
+              and cap.get('puts') == [(ext["menu"], menu_b), (ext["a"], a_b),
+                                      (ext["b"], b_b), (zbase + ".new", nex_bytes)]
+              and "deploypak.txt lists 3 file(s) and 2 folder(s)" in out
+              and "file 1 of 3: " + ext["menu"] in out
+              and "all 3 deploypak.txt file(s) are on the card" in out
+              and "update COMPLETE" in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
+                             pak={'k_bad': {ext["a"]: 1}})
+        check("updPakRt : one bad digest -> the file goes again, then on",
+              cap.get('wire') == want[:3] + [('P', ext["a"]), ('K', ext["a"])] + want[3:]
+              and "retry 1 of 3" in out and "retry 2 of 3" not in out
+              and "update COMPLETE" in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps"), ("ls", "/", "")],
+                             ("n2n", "1.0.8"), pak={'k_bad': {ext["a"]: -1}})
+        wire = cap.get('wire', [])
+        check(f"updPakGv : {n_try} bad digests -> X the extra, failure names it, "
+              "nothing staged, session alive",
+              wire[:3 + 2 * n_try + 1] == want[:3] + [('P', ext["a"]), ('K', ext["a"])] * n_try
+                                          + [('X', ext["a"])]
+              and not any(a.endswith(".new") for _o, a in wire)
+              and ('L', '/') in wire
+              and "update failed while sending " + ext["a"] + " from deploypak.txt" in out
+              and f"{n_try} attempts" in out and "copy left on the Next was deleted" in out
+              and "1 of the 3 file(s)" in out and "Nothing was swapped" in out
+              and "Listing (0 entries)" in out and done,
+              f"{wire} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
+                             pak={'mkdir': 'F', 'ls': 'DE'})
+        check("updPakMk : mkdir 'F' + a listing -> the folder exists, carry on",
+              cap.get('wire') == [('P', ext["menu"]), ('K', ext["menu"]),
+                                  ('M', "c:/apps/data"), ('L', "c:/apps/data"),
+                                  ('P', ext["a"]), ('K', ext["a"]),
+                                  ('M', "c:/apps/data/sub"), ('L', "c:/apps/data/sub"),
+                                  ('P', ext["b"]), ('K', ext["b"])] + tail
+              and "update COMPLETE" in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps"), ("ls", "/", "")],
+                             ("n2n", "1.0.8"), pak={'mkdir': 'F', 'ls': 'F'})
+        check("updPakMkF: mkdir 'F' + listing 'F' -> fails naming the folder",
+              cap.get('wire', [])[:5] == [('P', ext["menu"]), ('K', ext["menu"]),
+                                          ('M', "c:/apps/data"), ('L', "c:/apps/data"),
+                                          ('L', '/')]
+              and "could not create c:/apps/data" in out
+              and "1 of the 3 file(s)" in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps"), ("ls", "/", "")],
+                             ("n2n", "1.0.8"), pak={'mkdir': 'FOSP'})
+        check("updPakMkO: the marked mkdir refusal fails at once, naming the protection",
+              cap.get('wire', [])[:4] == [('P', ext["menu"]), ('K', ext["menu"]),
+                                          ('M', "c:/apps/data"), ('L', '/')]
+              and "OS protection refused creating c:/apps/data" in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
+                             pak={'p_refuse': {ext["menu"]: 1}})
+        check("updPakPr : a refused put is sent again (said so), then on",
+              cap.get('wire') == [('P', ext["menu"])] + want
+              and "the Next refused menu.nxi - sending it again (retry 1 of 3)" in out
+              and "update COMPLETE" in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps"), ("ls", "/", "")],
+                             ("n2n", "1.0.8"), pak={'p_refuse': {ext["menu"]: 99}})
+        check(f"updPakPF : a put refused every time -> X, failure after {n_try} sends, nothing staged",
+              cap.get('wire', [])[:n_try + 2] == [('P', ext["menu"])] * n_try
+                                                 + [('X', ext["menu"]), ('L', '/')]
+              and not cap.get('puts')
+              and f"the Next refused menu.nxi {n_try} times" in out
+              and "copy left on the Next was deleted" in out
+              and "0 of the 3 file(s)" in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
+                             pak={'k_silent': {ext["menu"]}})
+        check("updPakKs : a silent 'K' -> the read-back decides, then on",
+              cap.get('wire', [])[:3] == [('P', ext["menu"]), ('K', ext["menu"]),
+                                          ('G', ext["menu"])]
+              and cap.get('wire', [])[3:] == want[2:]
+              and "reading the copy back instead" in out
+              and "update COMPLETE" in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
+                             pak={'kill_at': ext["a"]})
+        check("updPakDie: link lost mid-extras -> the extras wording, nothing swapped",
+              cap.get('wire') == [('P', ext["menu"]), ('K', ext["menu"]),
+                                  ('M', "c:/apps/data"), ('P', ext["a"])]
+              and "session ended while sending " + ext["a"] + " from deploypak.txt" in out
+              and "1 of the 3 file(s)" in out and "Nothing was swapped" in out
+              and "mid-swap" not in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
+                             pak={'kill_after_k': ext["b"]})
+        check("updPakDiA: link lost after the last extra -> 'all replaced, build not staged'",
+              cap.get('wire') == want[:8]
+              and "after all 3 deploypak.txt file(s) had been replaced" in out
+              and "cut short" not in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps"), ("ls", "/", "")],
+                             ("n2n", "1.0.8"), pak={'mkdir': 'F', 'ls': 'FOSP'})
+        check("updPakLsO: mkdir 'F' + listing 'F'+OSP -> fails naming the protection",
+              cap.get('wire', [])[:4] == [('P', ext["menu"]), ('K', ext["menu"]),
+                                          ('M', "c:/apps/data"), ('L', "c:/apps/data")]
+              and "OS protection refused creating c:/apps/data" in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"),
+                             refuse_ren1=True)
+        check("updPakR1 : a refused swap after the extras landed names the replaced files",
+              cap.get('wire', [])[-2:] == [('V', zbase + "\x00" + zbase + ".bak"), ('Q', '')]
+              and "could not rename" in out
+              and "3 of the 3 deploypak.txt file(s) had already been replaced" in out
+              and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps/" + "d" * 100)],
+                             ("n2n", "1.0.8"))
+        check("updPakRen: a .nex path whose two-name rename would not fit refuses",
+              cap.get('wire') == [('Q', '')] and "rename command longer" in out
+              and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps"), ("ls", "/", "")],
+                             ("n2n", "1.0.8"), pak={'p_osp': {ext["a"]}})
+        check("updPakOsp: the marked put refusal fails at once, no retry",
+              cap.get('wire', [])[:5] == [('P', ext["menu"]), ('K', ext["menu"]),
+                                          ('M', "c:/apps/data"), ('P', ext["a"]),
+                                          ('L', '/')]
+              and "OS protection refused writing it" in out
+              and "1 of the 3 file(s)" in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.3"))
+        check("updPakRb : a pre-crc listener reads every extra back and compares",
+              cap.get('wire') == [('P', ext["menu"]), ('G', ext["menu"]),
+                                  ('M', "c:/apps/data"), ('P', ext["a"]), ('G', ext["a"]),
+                                  ('M', "c:/apps/data/sub"), ('P', ext["b"]), ('G', ext["b"]),
+                                  ('P', zbase + ".new"), ('G', zbase + ".new"), ('U', ''),
+                                  ('X', zbase + ".bak"),
+                                  ('V', zbase + "\x00" + zbase + ".bak"),
+                                  ('V', zbase + ".new\x00" + zbase), ('Q', 'X')]
+              and "read back and verified" in out
+              and "update COMPLETE" in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.3"),
+                             pak={'k_bad': {ext["b"]: 1}})
+        check("updPakRbR: a read-back that differs re-sends the file",
+              cap.get('wire', [])[5:10] == [('M', "c:/apps/data/sub"), ('P', ext["b"]),
+                                            ('G', ext["b"]), ('P', ext["b"]),
+                                            ('G', ext["b"])]
+              and "retry 1 of 3" in out and "update COMPLETE" in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        with open(pakfile, "wb") as f:
+            f.write(b"menu.nxi\ngone.nxi\n")
+        cap, out, done = run([("update", nexfile, "c:/apps")], ("n2n", "1.0.8"))
+        check("updPakBad: a broken manifest refuses before a byte moves",
+              cap.get('wire') == [('Q', '')] and "deploypak.txt is broken" in out
+              and "gone.nxi" in out and "not found" in out and done,
+              f"{cap.get('wire')} / {out}")
+
+        with open(pakfile, "wb") as f:
+            f.write(b"menu.nxi\n")
+        cap, out, done = run([("update", nexfile, "c:/" + "d" * 250)], ("n2n", "1.0.8"))
+        check("updPakLen: a remote path over 254 bytes refuses, nothing sent",
+              cap.get('wire') == [('Q', '')] and "longer than the 254 bytes" in out
+              and done,
+              f"{cap.get('wire')} / {out}")
+
+        dot_pak = os.path.join(os.path.dirname(dot593), "deploypak.txt")
+        with open(dot_pak, "wb") as f:
+            f.write(b"notadot.bin\n")
+        try:
+            cap, out, done = run([("update", dot593, "")], ("sync", "5.9.2"))
+            check("updPakDot: the dot flavor ignores a stray manifest beside its file",
+                  cap.get('wire', [])[:2] == [('P', 'c:/dot/sync5.new'), ('K', 'c:/dot/sync5.new')]
+                  and not any(o == 'M' for o, _a in cap.get('wire', []))
+                  and "deploypak" not in out and "update COMPLETE" in out and done,
+                  f"{cap.get('wire')} / {out}")
+        finally:
+            os.remove(dot_pak)
+    finally:
+        try:
+            os.remove(pakfile)
+        except OSError:
+            pass
     return ok
 
 

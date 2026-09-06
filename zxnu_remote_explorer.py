@@ -44,10 +44,12 @@ from zxnu_config import (
     DEFAULT_COLOR_UP_DIRECTORY, DEFAULT_COLOR_DIR_NAME, DEFAULT_COLOR_DIR_TYPE,
     DEFAULT_COLOR_FILE_NAME, DEFAULT_COLOR_FILE_EXT, DEFAULT_COLOR_FILE_SIZE,
     DEFAULT_COLOR_GENERAL_TEXT, SPLITTER_HANDLE_QSS_HORIZONTAL, ZX_NEXT_UNITE_DOTN_VERSION,
-    hex_to_qcolor,
-    open_path_with_system_shell, qcolor_to_hex, readable_text_color,
+    deploypak_counts, hex_to_qcolor,
+    open_path_with_system_shell, qcolor_to_hex, read_deploypak,
+    readable_text_color,
 )
 from zxnu_workers import (
+    RE_MAX_REMOTE_PATH, RE_UPD_EXTRA_RETRIES,
     CompactButton, DotDotFirstProxyModel, HdfProgressDialog,
     as_emulator_launch,
     bind_select_all_except_updir, zip_create_with_dialog,
@@ -2960,6 +2962,23 @@ class RemoteExplorerWidget(QWidget):
                           "send: {reason}").format(reason=reason))
             return
         base_default = f"zxnextremote-{flavor}.nex"
+        # deploypak.txt (9.7.6): the package's extra files (.nxi menus,
+        # .spr banks, whole folders), sent to the .nex's folder on the Next
+        # BEFORE the build is staged — the swap ends the session. A broken
+        # manifest refuses here, before a byte moves (the macro's rule for
+        # a wrong blob); the reason stays English like the resolver's.
+        extras, problems = read_deploypak(
+            os.path.dirname(path),
+            (base_default, base_default + ".new", base_default + ".bak"))
+        if problems:
+            QMessageBox.warning(
+                self, ui_tr_now("ZX Next Remote update"),
+                ui_tr_now("Could not obtain the ZX Next Remote build to "
+                          "send: {reason}").format(
+                              reason="its deploypak.txt is broken — "
+                                     + "; ".join(problems)))
+            return
+        n_files, n_dirs = deploypak_counts(extras)
         # The remembered path is ONE global string; pre-filling it for a
         # session of the OTHER flavor would swap the right build over the
         # WRONG file (both flavors embed the same brand+version bytes, so
@@ -2983,6 +3002,21 @@ class RemoteExplorerWidget(QWidget):
             "Full path of the .nex on the Next:").format(
                 machine=machine, old=old_version, new=version,
                 file=base_default)
+        if extras:
+            # Its own paragraph, slotted in before the closing prompt line
+            # (every catalog keeps that final "\n\n" paragraph): says what
+            # the manifest adds AND the consequence — the extras overwrite
+            # in place, so the .bak revert promised above does not cover
+            # them.
+            head, _sep, tail = body.rpartition("\n\n")
+            body = head + "\n\n" + ui_tr_now(
+                "Its deploypak.txt lists {files} file(s) and {folders} "
+                "folder(s): they are sent into the same folder FIRST, each "
+                "checked against the CRC-32 the Next computes and re-sent "
+                "up to {retries} times — and written in place, so the .bak "
+                "revert does not cover them.").format(
+                    files=n_files, folders=n_dirs,
+                    retries=RE_UPD_EXTRA_RETRIES) + "\n\n" + tail
         # QInputDialog's label does not wrap: one long paragraph made the
         # dialog wider than a laptop screen, its input box off the right
         # edge (9.7.2). Wrapped here, paragraph by paragraph, AFTER
@@ -3001,10 +3035,47 @@ class RemoteExplorerWidget(QWidget):
                 "on the Next (e.g. {example}).").format(
                     example=ZXNR_HOME_DIR + "/" + base_default))
             return
+        # The listener copies a command's path into a 254-byte buffer and
+        # TRUNCATES a longer one (the file then lands under a different
+        # name — and the crc check would "verify" it there): refuse every
+        # composed name that could not fit, before a byte moves. The worker
+        # checks again; this is the one that can point at the typed folder.
+        too_long = next(
+            (p for p in ([rdir + "/" + base + ".new",
+                          rdir + "/" + base + ".bak"]
+                         + [rdir + "/" + s[-1] for s in extras])
+             if len(p.encode("utf-8", "replace")) > RE_MAX_REMOTE_PATH), "")
+        if too_long:
+            self._log(ui_tr_now(
+                "ZX Next Remote update: {path} is longer than the {limit} "
+                "bytes a path on the Next may have — choose a shorter "
+                "folder; nothing was sent.").format(
+                    path=too_long, limit=RE_MAX_REMOTE_PATH))
+            return
+        # The swap's renames carry BOTH names in one command ("<cur>\0
+        # <cur>.bak" = 2·len + 5 bytes) through the same buffer: a .nex
+        # path that fits alone can still be swapped onto a chopped name.
+        if 2 * len((rdir + "/" + base).encode("utf-8", "replace")) + 5 > RE_MAX_REMOTE_PATH:
+            self._log(ui_tr_now(
+                "ZX Next Remote update: swapping {path} would need a rename "
+                "command longer than the {limit} bytes a listener accepts — "
+                "choose a shorter folder; nothing was sent.").format(
+                    path=rdir + "/" + base, limit=RE_MAX_REMOTE_PATH))
+            return
         self._zxnr_update_path = target
         self._on_zxnr_update_path_changed(target)
+        if extras:
+            self._log(ui_tr_now(
+                "ZX Next Remote update: deploypak.txt lists {files} file(s) "
+                "and {folders} folder(s) for {dir}: {items}").format(
+                    files=n_files, folders=n_dirs, dir=rdir,
+                    items=", ".join(s[-1] for s in extras)))
         cmd = ("update_dot", path, rdir, version, base,
                "ZXNextRemote", True)
+        if extras:
+            # cmd[7]: the plan (only when there is one — the historical
+            # 7-tuple stays the shape a package without a manifest sends).
+            cmd = cmd + (extras,)
         if self._enqueue_to_raw is None:
             if sid == self._peer_active:
                 # No targeted channel wired at all: the shared queue still

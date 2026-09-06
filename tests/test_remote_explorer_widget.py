@@ -122,6 +122,7 @@ class FakeMsg:
     answer = QMessageBox.Yes
     criticals = []
     infos = []
+    warnings = []      # every warning's text (9.7.6: the deploypak refusal)
 
     @classmethod
     def question(cls, *a, **k):
@@ -129,6 +130,8 @@ class FakeMsg:
 
     @classmethod
     def warning(cls, *a, **k):
+        if len(a) >= 3:
+            cls.warnings.append(a[2])
         return cls.answer
 
     @classmethod
@@ -2555,6 +2558,78 @@ def test_update_targets():
         os.unlink(_nex.name)
     except OSError:
         pass
+
+    # 9.7.6: a package whose folder carries a deploypak.txt sends its extras
+    # too. The confirm body says so - and that the .bak revert does not
+    # cover them - the log lists them, and the macro's cmd grows an 8th
+    # element: the read_deploypak plan (the .nex being swapped is skipped
+    # even when listed). A broken manifest refuses BEFORE the prompt; a
+    # remote path over 254 bytes refuses after it, nothing enqueued.
+    import shutil as _shutil
+    pkg = tempfile.mkdtemp(prefix="zxnr_pak_")
+    nex2 = os.path.join(pkg, "zxnextremote-n2n.nex")
+    menu = os.path.join(pkg, "menu.nxi")
+    spr = os.path.join(pkg, "spr", "m0.spr")
+    os.makedirs(os.path.dirname(spr))
+    for p, data in ((nex2, b"ZXNextRemote 1.0.9"), (menu, b"MENU"), (spr, b"SPR")):
+        with open(p, "wb") as fh:
+            fh.write(data)
+    pakfile = os.path.join(pkg, "deploypak.txt")
+    with open(pakfile, "w", encoding="utf-8") as fh:
+        fh.write("# extras\nmenu.nxi\nspr\nzxnextremote-n2n.nex\n")
+    w2, calls2 = make_widget(
+        sync5_update_source=lambda: ("C:/x/sync5", "5.9.1", ""),
+        zxnr_update_source=lambda flavor: (nex2, "1.0.9", ""))
+    connect_widget(w2, calls2)
+    w2.on_peers((1, [(1, "10.0.0.5")]))
+    FakeInput.queue = [("c:/home/zxnextremote-n2n.nex", True)]; FakeInput.seen = []
+    FakeMsg.warnings = []
+    w2._update_zxnr_on_session(1, "n2n", "1.0.5")
+    body = " ".join((FakeInput.seen[0][2] if FakeInput.seen else "").split())
+    check("a package with a deploypak.txt: the confirm body names the extras and the .bak caveat",
+          "deploypak.txt lists 2 file(s) and 1 folder(s)" in body
+          and ".bak revert does not cover them" in body
+          and body.endswith("Full path of the .nex on the Next:"), body)
+    plan = [("put", menu, "menu.nxi"), ("mkdir", "spr"), ("put", spr, "spr/m0.spr")]
+    check("...and the macro's cmd carries the plan as its 8th element",
+          calls2["q_to"] == [(1, ("update_dot", nex2, "c:/home", "1.0.9",
+                                  "zxnextremote-n2n.nex", "ZXNextRemote", True, plan))],
+          str(calls2["q_to"]))
+    check("...and the log lists what the manifest sends",
+          any("deploypak.txt lists 2 file(s) and 1 folder(s) for c:/home: "
+              "menu.nxi, spr, spr/m0.spr" in l for l in calls2["log"]),
+          str(calls2["log"][-2:]))
+    with open(pakfile, "w", encoding="utf-8") as fh:
+        fh.write("menu.nxi\ngone.nxi\n")
+    calls2["q_to"].clear(); FakeInput.seen = []; FakeMsg.warnings = []
+    FakeInput.queue = [("c:/home/zxnextremote-n2n.nex", True)]
+    w2._update_zxnr_on_session(1, "n2n", "1.0.5")
+    check("...a broken manifest refuses before the prompt, nothing enqueued",
+          calls2["q_to"] == [] and FakeInput.seen == []
+          and len(FakeMsg.warnings) == 1
+          and "deploypak.txt is broken" in FakeMsg.warnings[0]
+          and "gone.nxi" in FakeMsg.warnings[0],
+          str((calls2["q_to"], FakeInput.seen, FakeMsg.warnings)))
+    with open(pakfile, "w", encoding="utf-8") as fh:
+        fh.write("menu.nxi\n")
+    calls2["q_to"].clear(); FakeInput.seen = []; calls2["log"].clear()
+    FakeInput.queue = [("c:/" + "d" * 250 + "/zxnextremote-n2n.nex", True)]
+    w2._update_zxnr_on_session(1, "n2n", "1.0.5")
+    check("...a remote path over 254 bytes is refused after the prompt, nothing enqueued",
+          calls2["q_to"] == [] and len(FakeInput.seen) == 1
+          and any("longer than the 254 bytes" in l for l in calls2["log"]),
+          str((calls2["q_to"], calls2["log"][-1:])))
+    # ...and a .nex path that fits alone but whose swap rename (both names
+    # in one 254-byte command) would not: refused too.
+    calls2["q_to"].clear(); FakeInput.seen = []; calls2["log"].clear()
+    FakeInput.queue = [("c:/" + "d" * 110 + "/zxnextremote-n2n.nex", True)]
+    w2._update_zxnr_on_session(1, "n2n", "1.0.5")
+    check("...a .nex path whose two-name rename would not fit is refused, nothing enqueued",
+          calls2["q_to"] == [] and len(FakeInput.seen) == 1
+          and any("rename command longer than the 254 bytes" in l for l in calls2["log"]),
+          str((calls2["q_to"], calls2["log"][-1:])))
+    FakeInput.seen = []
+    _shutil.rmtree(pkg, ignore_errors=True)
 
 
 def test_update_prompt():
