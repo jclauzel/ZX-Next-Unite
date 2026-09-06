@@ -439,7 +439,8 @@ wiz._dismiss()
 # ── Health check (wizard menu links row) ─────────────────────────────────
 host._hdfmonkey_binary_found = lambda: False
 wiz._health_ip = "192.168.1.50"          # probe result already cached
-wiz.show_health()
+wiz._health_ip_pending = True            # ...and no probe thread: keeps the
+wiz.show_health()                        # test offline and its exit quiet
 txt = "\n".join(wiz.bubble._pages)
 check("health check lists all six items",
       all(wc.wizard_tr(k, "en") in txt
