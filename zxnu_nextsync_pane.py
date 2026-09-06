@@ -1031,15 +1031,19 @@ def build_nextsync_pane(
                 host._re_mini_retro.stop()
             stack.setCurrentWidget(host._re_mini_log)
 
-    def _nextsync_on_dot_update(ok, message):
+    def _nextsync_on_dot_update(ok, message, brand="NextSync"):
         # The ("update_dot", …) macro's one terminal outcome, success or
         # failure: into the NextSync log (the durable record — progress
         # lines already ride sig.log into the same window) AND a toast so
         # the verdict is seen from whichever tab is in front. The body is
         # already translated at its emit site in zxnu_workers; the static
-        # title goes through the _show_toast chokepoint like every other.
+        # title goes through the _show_toast chokepoint like every other —
+        # and follows the FLAVOR the signal carries (9.7.10): a ZX Next
+        # Remote verdict used to toast under the dot's title while its body
+        # named zxnextremote-*.nex.
         add_nextsync_log_window(str(message))
-        host._show_toast("Remote .sync5 update", str(message),
+        host._show_toast("ZX Next Remote update" if brand == "ZXNextRemote"
+                         else "Remote .sync5 update", str(message),
                          variant=("green" if ok else "red"),
                          duration_ms=12000)
 

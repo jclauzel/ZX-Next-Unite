@@ -592,7 +592,11 @@ class RemoteExplorerSignals(QObject):
     # exactly once per job; progress rides the log signal. The message is
     # emit-site translated (ui_tr_now), with the step's diagnostic reason
     # left English like every other protocol diagnostic.
-    dot_update   = Signal(bool, str)
+    # The third value (9.7.10) is the job's BRAND — "NextSync" for the
+    # .sync5 dot, "ZXNextRemote" for a ZX Next Remote .nex — so the pane can
+    # title the toast after the product the body names (every verdict used
+    # to toast as "Remote .sync5 update", the ZXNR ones included).
+    dot_update   = Signal(bool, str, str)
     # (message): the verify-after-put (Settings → Verify CRC, 9.7.3) found
     # the copy on the Next DIFFERENT from the bytes sent. Emit-site
     # translated (ui_tr_now, dot_update's shape); says whether the corrupted
@@ -2260,7 +2264,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             sig.dot_update.emit(False, ui_tr_now(
                                 "Remote {name} update failed while reading "
                                 "{path}: {error} — nothing was sent.").format(
-                                    name=disp, path=local, error=ex))
+                                    name=disp, path=local, error=ex),
+                                brand)
                             _re_sendpacket(conn, b"I", 0)
                             continue
                         # The brand + version are embedded verbatim in the
@@ -2282,7 +2287,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 "not look like a {brand} {version} build — "
                                 "wrong or stale file.").format(
                                     name=disp, path=local, brand=brand,
-                                    version=dver))
+                                    version=dver),
+                                brand)
                             _re_sendpacket(conn, b"I", 0)
                             continue
                         # cmd[7] (9.7.6): the deploypak.txt plan — the
@@ -2333,7 +2339,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                             "{brand} {version} build — wrong "
                                             "or stale file.").format(
                                                 name=disp, path=step[1],
-                                                brand=brand, version=dver))
+                                                brand=brand, version=dver),
+                                            brand)
                                         bad = True
                                         break
                                 extras.append(step)
@@ -2347,7 +2354,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             sig.dot_update.emit(False, ui_tr_now(
                                 "Remote {name} update failed while reading "
                                 "{path}: {error} — nothing was sent.").format(
-                                    name=disp, path=bad_extra, error=bad_why))
+                                    name=disp, path=bad_extra, error=bad_why),
+                                brand)
                             _re_sendpacket(conn, b"I", 0)
                             continue
                         # A companion may not be the build being swapped,
@@ -2366,7 +2374,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 "both a file sent alongside and the build "
                                 "being swapped — check the path on the "
                                 "Next; nothing was sent.").format(
-                                    name=disp, path=rdir + "/" + clash))
+                                    name=disp, path=rdir + "/" + clash),
+                                brand)
                             _re_sendpacket(conn, b"I", 0)
                             continue
                         # The listener copies a command's path into a
@@ -2387,7 +2396,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 "longer than the {limit} bytes a path on the "
                                 "Next may have — nothing was sent.").format(
                                     name=disp, path=too_long,
-                                    limit=RE_MAX_REMOTE_PATH))
+                                    limit=RE_MAX_REMOTE_PATH),
+                                brand)
                             _re_sendpacket(conn, b"I", 0)
                             continue
                         # The swap's two renames each carry BOTH names in
@@ -2406,13 +2416,15 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 "choose a shorter folder; nothing was "
                                 "sent.").format(
                                     name=disp, path=_cur,
-                                    limit=RE_MAX_REMOTE_PATH))
+                                    limit=RE_MAX_REMOTE_PATH),
+                                brand)
                             _re_sendpacket(conn, b"I", 0)
                             continue
                         upd_seq += 1
                         upd_jobs[upd_seq] = {'data': blob, 'dir': rdir,
                                              'ver': dver, 'base': base,
                                              'name': disp, 'marked': marked,
+                                             'brand': brand,
                                              'extras': extras, 'ex_i': 0,
                                              'ex_try': 0, 'ex_sent': [],
                                              'sib_sent': []}
@@ -2615,7 +2627,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                     name=job.get('name', ''),
                                     path=(job.get('dir', '') + "/" + _rel),
                                     reason=why)
-                                + _upd_extras_note(job))
+                                + _upd_extras_note(job),
+                                (job or {}).get('brand', 'NextSync'))
                         else:
                             sig.dot_update.emit(False, ui_tr_now(
                                 "Remote {name} update failed while sending {path} "
@@ -2633,7 +2646,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                     "The other flavor's build {path} had already "
                                     "been replaced on the card too.").format(
                                         path=job.get('dir', '') + "/" + r)
-                                    for r in job.get('sib_sent', ())))
+                                    for r in job.get('sib_sent', ())),
+                                (job or {}).get('brand', 'NextSync'))
                         _re_sendpacket(conn, b"I", 0)
                     elif op == "upd_verify":
                         # Step 1: prove what LANDED on the SD card. The wire
@@ -2827,7 +2841,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                            if res['osp'] else
                                            ("could not rename " + job['base']
                                             + " aside"))
-                                + _upd_extras_note(job))
+                                + _upd_extras_note(job),
+                                (job or {}).get('brand', 'NextSync'))
                         else:
                             # ren2 refused, or either rename's reply lost:
                             # the card is (or may be) mid-swap. Delete
@@ -2843,7 +2858,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                     backup=cur + ".bak",
                                     file=job['base'],
                                     staged=cur + ".new")
-                                + _upd_extras_note(job))
+                                + _upd_extras_note(job),
+                                (job or {}).get('brand', 'NextSync'))
                         _re_sendpacket(conn, b"Q", 0)
                         _re_goodbye_linger(conn)
                         break
@@ -2863,7 +2879,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 "new build.").format(
                                     name=job.get('name', ''),
                                     version=job.get('ver', ''),
-                                    file=job.get('base', '')))
+                                    file=job.get('base', '')),
+                                (job or {}).get('brand', 'NextSync'))
                             _re_sendpacket(conn, b"Q" + RE_QUIT_EXIT_MARK, 0)
                         else:
                             sig.dot_update.emit(True, ui_tr_now(
@@ -2873,7 +2890,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 "build.").format(
                                     name=job.get('name', ''),
                                     version=job.get('ver', ''),
-                                    command=".sync5 -listen"))
+                                    command=".sync5 -listen"),
+                                (job or {}).get('brand', 'NextSync'))
                             _re_sendpacket(conn, b"Q", 0)
                         _re_goodbye_linger(conn)
                         break
@@ -2903,7 +2921,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             "build.").format(
                                 name=(job or {}).get('name', ''),
                                 reason=why)
-                            + _upd_extras_note(job))
+                            + _upd_extras_note(job),
+                            (job or {}).get('brand', 'NextSync'))
                         if job is not None and job.get('released'):
                             # The dot's own handle is already closed: the
                             # post-'U' contract forbids any op that opens a
@@ -2967,7 +2986,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     "— run the update again.").format(
                         name=_job.get('name', ''),
                         path=_job['dir'] + "/" + _ex[_job['ex_i']][-1])
-                    + _upd_extras_note(_job))
+                    + _upd_extras_note(_job),
+                    _job.get('brand', 'NextSync'))
             elif (_job.get('extras') and not _job.get('staged')
                     and _job['ex_i'] < len(_job['extras'])):
                 # Died among the deploypak.txt extras: the one in flight
@@ -2990,7 +3010,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         "The other flavor's build {path} had already been "
                         "replaced on the card too.").format(
                             path=_job['dir'] + "/" + r)
-                        for r in _job.get('sib_sent', ())))
+                        for r in _job.get('sib_sent', ())),
+                    _job.get('brand', 'NextSync'))
             elif (_job.get('extras') and not _job.get('staged')
                     and _upd_extra_total(_job)):
                 # Died between the last companion landing and the Poll that
@@ -3008,7 +3029,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         "The other flavor's build {path} had already been "
                         "replaced on the card too.").format(
                             path=_job['dir'] + "/" + r)
-                        for r in _job.get('sib_sent', ())))
+                        for r in _job.get('sib_sent', ())),
+                    _job.get('brand', 'NextSync'))
             elif _job.get('extras') and not _job.get('staged'):
                 # The same gap, for a package with no manifest: only the
                 # other flavor's build landed — say that, not "all 0 files".
@@ -3019,7 +3041,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     "the card, before the build itself was staged. Nothing "
                     "was swapped — run the update again.").format(
                         name=_job.get('name', ''),
-                        path=_job['dir'] + "/" + _last))
+                        path=_job['dir'] + "/" + _last),
+                    _job.get('brand', 'NextSync'))
             elif _job.get('swap_started'):
                 sig.dot_update.emit(False, ui_tr_now(
                     "Remote {name} update FAILED mid-swap: the Next may be "
@@ -3031,7 +3054,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         backup=_cur + ".bak",
                         file=_job.get('base', ''),
                         staged=_cur + ".new")
-                    + _upd_extras_note(_job))
+                    + _upd_extras_note(_job),
+                    _job.get('brand', 'NextSync'))
             else:
                 sig.dot_update.emit(False, ui_tr_now(
                     "Remote {name} update failed: {reason}. Nothing was "
@@ -3040,7 +3064,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         name=_job.get('name', ''),
                         reason="the session ended before the update "
                                "finished")
-                    + _upd_extras_note(_job))
+                    + _upd_extras_note(_job),
+                    _job.get('brand', 'NextSync'))
         upd_jobs.clear()
         # 9.7.3: a verify still owed here = the session died between the put
         # and its verdict. Settle its ONE put_done - never silently: a copy
