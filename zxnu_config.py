@@ -2419,9 +2419,14 @@ def read_deploypak(folder, skip_names=()):
     symlink or junction planted in the package). Names in ``skip_names``
     (the .nex the macro swaps itself) and the manifest are silently left
     out at the top level — listing them is not an error, sending them
-    twice would be. A missing entry is a problem. Every path compare is
-    case-insensitive: the Next's FAT is, and so is the Windows disk the
-    package was extracted to. No manifest at all is ``([], [])``."""
+    twice would be. A missing entry is a problem. Every name compare is
+    case-insensitive and an entry is matched to the package's files
+    letter-case-blind, component by component, then sent under its ON-DISK
+    spelling: the Next's FAT is case-insensitive and so is the Windows disk
+    a package is usually authored on, but a Linux or macOS checkout is not,
+    and a manifest must mean the same thing on every PC (two package names
+    differing only by case are a problem — the Next could not tell them
+    apart either). No manifest at all is ``([], [])``."""
     manifest = os.path.join(folder, DEPLOYPAK_FILENAME)
     if not os.path.isfile(manifest):
         return [], []
@@ -2442,6 +2447,30 @@ def read_deploypak(folder, skip_names=()):
         real = os.path.normcase(os.path.realpath(path))
         top = os.path.normcase(root)
         return real == top or real.startswith(top + os.sep)
+
+    def _resolve(parts):
+        # Match the components against the package letter-case-blind: the
+        # exact name when it exists, else the ONE name that matches
+        # case-insensitively. Returns (on_disk_parts, None), (None, None)
+        # for a missing level, (None, "ambiguous") for two names that
+        # differ only by case.
+        cur = root
+        found = []
+        for p in parts:
+            try:
+                names = os.listdir(cur)
+            except OSError:
+                return None, None
+            if p in names:
+                hit = p
+            else:
+                cands = [n for n in names if n.lower() == p.lower()]
+                if len(cands) != 1:
+                    return None, ("ambiguous" if cands else None)
+                hit = cands[0]
+            found.append(hit)
+            cur = os.path.join(cur, hit)
+        return found, None
 
     plan, problems = [], []
     dirs_done, files_done = set(), set()
@@ -2470,6 +2499,13 @@ def read_deploypak(folder, skip_names=()):
             # would slip the swapped .nex past the skip below.
             problems.append(f"{where}: a name may not end in a dot or a "
                             "space")
+            continue
+        parts, ambiguity = _resolve(parts)
+        if parts is None:
+            problems.append(f"{where}: " + (
+                "matches more than one name in the package (they differ "
+                "only by letter case)" if ambiguity else
+                "not found in the package"))
             continue
         rel = "/".join(parts)
         local = os.path.join(root, *parts) if parts else root

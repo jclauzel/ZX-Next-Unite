@@ -684,6 +684,29 @@ def _read_deploypak(folder, skip_names=()):
         top = os.path.normcase(root)
         return real == top or real.startswith(top + os.sep)
 
+    def _resolve(parts):
+        # Match the components against the package letter-case-blind (the
+        # Next's FAT is; a Linux checkout is not): the exact name when it
+        # exists, else the ONE case-insensitive match. (on_disk_parts,
+        # None) / (None, None) missing / (None, "ambiguous").
+        cur = root
+        found = []
+        for p in parts:
+            try:
+                names = os.listdir(cur)
+            except OSError:
+                return None, None
+            if p in names:
+                hit = p
+            else:
+                cands = [n for n in names if n.lower() == p.lower()]
+                if len(cands) != 1:
+                    return None, ("ambiguous" if cands else None)
+                hit = cands[0]
+            found.append(hit)
+            cur = os.path.join(cur, hit)
+        return found, None
+
     plan, problems = [], []
     dirs_done, files_done = set(), set()
     n_files = 0
@@ -711,6 +734,13 @@ def _read_deploypak(folder, skip_names=()):
             # would slip the swapped .nex past the skip below.
             problems.append(f"{where}: a name may not end in a dot or a "
                             "space")
+            continue
+        parts, ambiguity = _resolve(parts)
+        if parts is None:
+            problems.append(f"{where}: " + (
+                "matches more than one name in the package (they differ "
+                "only by letter case)" if ambiguity else
+                "not found in the package"))
             continue
         rel = "/".join(parts)
         local = os.path.join(root, *parts) if parts else root
