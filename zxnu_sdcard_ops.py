@@ -428,6 +428,16 @@ def build_sdcard_utils(
                     # yellow "load an image" hint, its job is done.
                     _stop_load_image_hint_animation()
                     _start_transfer_idle_animation()
+                    # The .sync5 auto-deploy check (9.7.8): does /dot hold
+                    # the dot this build ships? Runs its hdfmonkey reads off
+                    # the UI thread and, when the image needs it, asks via
+                    # Wizzy or a toast. Scheduled a beat BEFORE Wizzy's own
+                    # starter-pack offer below, which steps aside when a
+                    # bubble is already up (its once-flags untouched).
+                    _s5 = getattr(host, "_sync5_img_check", None)
+                    if _s5 is not None:
+                        QTimer.singleShot(
+                            900, lambda p=host.right_disk_image_path: _s5(p))
                     # Wizzy's one-time starter-pack suggestion (deferred a
                     # beat so the load UI settles first; the wizard itself
                     # gates on enabled/visible/once flags).

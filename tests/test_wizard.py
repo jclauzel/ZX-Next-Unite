@@ -485,6 +485,38 @@ md = "# Title\n\n![badge](x.png)\n\nThe **SD Card** tab lets you [mount](u) imag
 check("teaser strips markdown to the first paragraph",
       zw._teaser_from_markdown(md) == "The SD Card tab lets you mount images.")
 
+# ── the .sync5 auto-deploy offer (9.7.8) ──────────────────────────────────
+# The real method: a Yes/No bubble in the wizard's language whose text
+# names the image and the versions, Yes/No dismissing the bubble and then
+# running the caller's callbacks; startup() stamps _started, the flag the
+# offer's caller waits on so the first-run intro can never clobber it.
+check("startup() stamps _started for the .sync5 offer's caller",
+      getattr(wiz, "_started", False) is True)
+answers = []
+wiz.offer_sync5_deploy("older", "5.9.1", "5.9.2", "C:/imgs/next.img",
+                       lambda: answers.append("yes"), lambda: answers.append("no"))
+body = wiz.bubble._text if hasattr(wiz.bubble, "_text") else ""
+labels = [a[0] for a in wiz.bubble._actions]
+check("the offer shows a Yes/No bubble",
+      wiz.bubble.isVisible() and labels == [wc.wizard_tr("btn.yes", "en"),
+                                             wc.wizard_tr("btn.no", "en")], str(labels))
+check("...whose text names the image and both versions",
+      all(s in wc.wizard_tr("sync5.older", "en").format(image="next.img", old="5.9.1", new="5.9.2")
+          for s in ("next.img", "v5.9.1", "v5.9.2", "Settings")))
+wiz.bubble._actions[1][1]()                                # No
+check("No dismisses the bubble and runs the No callback",
+      not wiz.bubble.isVisible() and answers == ["no"], str(answers))
+wiz.offer_sync5_deploy("missing", "", "5.9.2", "C:/imgs/next.img",
+                       lambda: answers.append("yes"), lambda: answers.append("no"))
+wiz.bubble._actions[0][1]()                                # Yes
+check("Yes dismisses the bubble and runs the Yes callback",
+      not wiz.bubble.isVisible() and answers == ["no", "yes"], str(answers))
+check("every sync5.* text carries {image} and {new} in every language",
+      all("{image}" in wc.TEXTS[k][lang] and "{new}" in wc.TEXTS[k][lang]
+          for k in ("sync5.missing", "sync5.older", "sync5.unknown")
+          for lang in wc.WIZARD_LANGS)
+      and all("{old}" in wc.TEXTS["sync5.older"][lang] for lang in wc.WIZARD_LANGS))
+
 print()
 if FAIL:
     print(f"RESULT: {len(FAIL)} FAILURE(S)")

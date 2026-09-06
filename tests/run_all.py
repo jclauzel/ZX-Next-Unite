@@ -33,6 +33,7 @@ SUITES = [
     ("test_api_parsers.py",     120, None),
     ("test_data_root.py",       240, None),
     ("test_deploypak.py",       120, None),
+    ("test_sync5_img_deploy.py", 120, None),
     ("test_hdfmonkey_discovery.py", 120, None),
     ("test_mame_install.py",     120, None),
     ("test_openal_install.py",   120, None),

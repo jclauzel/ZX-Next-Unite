@@ -1462,6 +1462,8 @@ def inspect_phase7():
           win.settings_zxnu_update_check_checkbox.isChecked())
     check("verify-CRC toggle defaults ON (no cfg key)",
           win.settings_nextsync_verify_crc_checkbox.isChecked())
+    check(".sync5 image auto-deploy toggle defaults ON (no cfg key)",
+          win.settings_sync5_img_autodeploy_checkbox.isChecked())
     if win.settings_delete_to_recycle_bin_checkbox.isEnabled():
         check("recycle toggle defaults ON (no cfg key)",
               win.settings_delete_to_recycle_bin_checkbox.isChecked())

@@ -719,6 +719,9 @@ class WizardManager(QObject):
     # ── startup / first run ──────────────────────────────────────────────
     def startup(self):
         """Deferred post-load entry point (config already restored)."""
+        # Readers that must not speak before the intro has had its say
+        # (the .sync5 auto-deploy offer, zxnu_sync5_img) wait on this.
+        self._started = True
         cb = getattr(self._host, "settings_wizard_checkbox", None)
         if cb is not None:
             cb.blockSignals(True)
@@ -1186,6 +1189,33 @@ class WizardManager(QObject):
             self.start_guide(key)
         else:
             self.show_tab_help(key, page)
+
+    def offer_sync5_deploy(self, verdict, old_ver, new_ver, image,
+                           on_yes, on_no):
+        """The .sync5 auto-deploy offer (9.7.8): the disk image just loaded
+        has no dot in /dot (``verdict`` "missing"), an older one ("older",
+        ``old_ver``) or one with no banner ("unknown"). Yes runs *on_yes*
+        (the download + deploy), No runs *on_no* (remembered for the
+        session). The text names the Settings switch that turns the offer
+        off. The caller only asks when the wizard is enabled and no bubble
+        is up; a language switch re-speaks it."""
+        key = {"missing": "sync5.missing", "older": "sync5.older"}.get(
+            verdict, "sync5.unknown")
+        text = self._tr(key).format(old=old_ver, new=new_ver,
+                                    image=os.path.basename(image or ""))
+
+        def _yes():
+            self._dismiss()
+            on_yes()
+
+        def _no():
+            self._dismiss()
+            on_no()
+        self._respeak = lambda: self.offer_sync5_deploy(
+            verdict, old_ver, new_ver, image, on_yes, on_no)
+        self._say(text, [(self._tr("btn.yes"), _yes),
+                         (self._tr("btn.no"), _no)],
+                  gesture="point", cycles=6)
 
     def offer_help(self, text_key, page):
         # "Yes" resolves the CURRENT tab at click time — see offer_guide.

@@ -52,6 +52,16 @@ emulator launch buttons below:
   `-start-remote-explorer-listener` switch to have the listen server running
   from startup with no clicks. See the
   [Wiki](https://github.com/jclauzel/ZX-Next-Unite/wiki#remote-file-explorer).
+- ⭐ **`.sync5` deployed into your disk image for you** — emulator users
+  need the Next-side half of NextSync, the `.sync5` dot command, in the
+  image's `/dot` folder before the Remote Explorer can talk to the emulated
+  Next. When an image is loaded on the SD Card tab and `/dot` has no
+  `.sync5` (or an older build than this version ships), the app offers to
+  download the latest from GitHub and put it there — Wizzy asks when the
+  wizard is on, a 15-second toast otherwise — reads it back to check its
+  version banner, and stays quiet for a current or newer dot, or an image
+  an emulator is holding. Settings → "Auto update and deploy .sync5
+  command in an .img file" (on by default) switches the offer off.
 - ⭐ **Remote self-update over the wire** — a running `.sync5` dot (v5.9+) or
   [ZX Next Remote](https://jclauzel.itch.io/zxnextremote) `.nex` (1.0.3+) is updated over its own live `-listen`
   session — no card pulling: the new build is staged, verified against the
