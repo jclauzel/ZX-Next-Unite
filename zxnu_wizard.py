@@ -1011,7 +1011,16 @@ class WizardManager(QObject):
                     ip = detect_local_ipv4()[3]
                 except Exception:
                     ip = None
-                sig.emit(ip or "")
+                # The emit can race application shutdown: the wizard (and
+                # the window that owns it) may be gone by the time a slow
+                # DNS resolve returns, and PySide then raises "Signal
+                # source has been deleted" out of this daemon thread —
+                # nothing is left to update, so swallow it (the same rule
+                # getit_run_in_thread applies to its own late emits).
+                try:
+                    sig.emit(ip or "")
+                except RuntimeError:
+                    pass
 
             threading.Thread(target=_probe, daemon=True).start()
 
