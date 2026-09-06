@@ -316,7 +316,9 @@ running `.nex` lives (`c:/dot` is the dot's default only) — the staged
 build's version is read from a containing `zxnextremote-X.Y.Z` folder name
 (without one, plain `update` refuses and `force` pushes anyway), and the
 flow ends with the marked quit — settings saved, soft reset into NextZXOS,
-relaunch the `.nex` there:
+relaunch the `.nex` there. A package that ships a `deploypak.txt` beside the
+`.nex` has its extra files sent first (see
+[deploypak.txt](#deploypaktxt-a-packages-extra-files) below):
 
 ```
 listen> version
@@ -339,6 +341,60 @@ marked quit — settings saved, soft reset. If the `.nex` lives under a
 protected root (`apps/`, `dot/`, `sys/`, …), the renames are refused by name
 — ZXNR's default-on OS protection; move it or toggle Settings → OS
 protection on the Next.
+
+### deploypak.txt: a package's extra files
+
+A ZX Next Remote build needs more than its `.nex` on the card — the `.nxi`
+menu screens and `.spr` sprite banks that ship beside it. Since Unite 9.7.6
+an itch.io package may carry a **`deploypak.txt`** next to the `.nex`, one
+path per line, and the remote update (the Remote Explorer's "Update ZX Next
+Remote" action and the console's `update` verb alike) sends every listed
+item to the folder the `.nex` lives in on the Next, keeping the relative
+path, **before** the build itself is staged and swapped — the swap ends the
+session (the marked quit soft-resets the Next), so nothing could follow it.
+
+```
+# lines starting with # are comments; blank lines are ignored
+zxnrmenu0b.nxi
+zxnrmonkeys0.spr
+gfx/
+```
+
+The rules: paths are relative to the folder holding the manifest; `/` and
+`\` both separate; a folder is sent recursively (sub-folders created with
+`mkdir`, files sent top-down with names sorted); the `.nex` being swapped
+and the manifest itself are skipped when listed; absolute paths,
+drive-anchored paths, `..` and anything that resolves outside the package
+(a symlink or junction) are refused, as is a missing entry — a broken
+manifest refuses the whole update before a byte moves. Each file is checked
+against the CRC-32 the Next computes of it (`K`; read back with `G` and
+byte-compared on a listener that predates the crc op, or when `K` gives no
+verdict) and sent again up to 3 times when it differs or the put is refused;
+when the retries run out whatever the Next kept of it is deleted and the
+update fails naming the file and how many of the manifest's files had
+already landed. A `mkdir` the Next refuses is checked with a listing (esxDOS
+answers the same error for "exists"); the marked OS-protection refusal fails
+at once. The extras are written **in place** — there is no `.bak` for them,
+so the one-step `.nex` revert restores the old build against the new data
+files; every failure verdict after they landed says how many were replaced,
+and running the update again sends them all. A remote path over 254 bytes
+(the dot's command buffer truncates longer ones) is refused — and so is a
+`.nex` path over 124 bytes, since the swap's rename command carries both
+names. ZX Next Remote packages only: the dot is a single release asset by
+contract and ignores a stray manifest beside it.
+
+The console shows the flow line by line:
+
+```
+listen> update zxnextremote-n2n.nex c:/mydir
+update: deploypak.txt lists 2 file(s) and 0 folder(s) to send to c:/mydir first
+update: sending deploypak.txt file 1 of 2: c:/mydir/zxnrmenu0b.nxi (49152 bytes)
+update: c:/mydir/zxnrmenu0b.nxi verified by CRC-32 1A2B3C4D (49152 bytes)
+update: sending deploypak.txt file 2 of 2: c:/mydir/zxnrmonkeys0.spr (8192 bytes)
+update: c:/mydir/zxnrmonkeys0.spr verified by CRC-32 5E6F7081 (8192 bytes)
+update: all 2 deploypak.txt file(s) are on the card - staging the build itself
+update: staging c:/mydir/zxnextremote-n2n.nex.new (115200 bytes)
+```
 
 ## Status / testing
 

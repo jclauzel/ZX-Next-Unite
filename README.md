@@ -57,9 +57,16 @@ emulator launch buttons below:
   session — no card pulling: the new build is staged, verified against the
   CRC-32 the Next computes of it (read back and byte-compared on builds
   that predate the crc op), then swapped in place, and the previous build always stays
-  on the card as `<name>.bak` for an instant revert. Driven from the Remote
+  on the card as `<name>.bak` for an instant revert. A ZX Next Remote
+  package that ships a **`deploypak.txt`** beside its `.nex` (one file or
+  folder per line — its `.nxi` menus, `.spr` sprite banks, whole folders
+  sent recursively) has those sent to the same folder on the Next
+  **first**, each checked against the Next's CRC-32 and re-sent up to
+  three times, before the build itself is swapped — they are written in
+  place, so the `.bak` revert does not cover them. Driven from the Remote
   Explorer (an "Update to x.y.z" link appears when the connected build is
-  older) or the `nextsync5` console — CLI examples in the
+  older) or the `nextsync5` console — CLI examples and the manifest format
+  in the
   [z88dk README](nextsync/sync/z88dk/README.md#updating-and-reverting-over-the-wire),
   full story on the
   [NextSync wiki page](https://github.com/jclauzel/ZX-Next-Unite/wiki/NextSync-tab).

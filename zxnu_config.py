@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.5"
+ZX_NEXT_UNITE_VERSION = "9.7.6"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -2379,6 +2379,155 @@ def find_installed_zxnextremote_version(base_dir):
         return (best_name, best_path)
     except OSError:
         return (None, None)
+
+
+# ── deploypak.txt: extra files an itch.io package ships alongside its build ──
+# A ZX Next Remote package (the zxnextremote-X.Y.Z extract folder the remote
+# self-update reads its .nex from) may carry a plain-text manifest naming the
+# OTHER files the build needs on the Next — its .nxi menu screens, .spr
+# sprite banks, a whole folder — one path per line, relative to the folder
+# the manifest sits in. The remote update sends every listed item to the
+# folder the .nex lives in on the Next (keeping the relative path) BEFORE
+# swapping the .nex in, so a build and its data files never go out of step.
+DEPLOYPAK_FILENAME = "deploypak.txt"
+# A listed folder is walked in full; this caps a runaway manifest (a line
+# naming the whole package root would otherwise be legal and unbounded).
+DEPLOYPAK_MAX_FILES = 2000
+
+
+def read_deploypak(folder, skip_names=()):
+    """Parse ``<folder>/deploypak.txt`` into a send plan.
+
+    Returns ``(plan, problems)``. ``plan`` is the ordered list of steps the
+    remote update macro runs for the extras: ``("mkdir", rel)`` and
+    ``("put", local_abs, rel)`` where ``rel`` is a forward-slash path
+    relative to the remote folder the .nex lives in (the caller prefixes
+    it). A listed FILE yields one put; a listed FOLDER yields its mkdir,
+    then — top-down, names sorted — a mkdir per sub-folder and a put per
+    file (symlinked folders are not followed). ``problems`` lists what the
+    manifest got wrong, one string per line; the caller REFUSES the update
+    when it is non-empty (a broken manifest is a broken package, and the
+    refusal has to land before a byte moves — the macro's own rule).
+
+    Manifest rules: UTF-8 (a BOM is fine); leading/trailing whitespace is
+    stripped; blank lines and lines starting with ``#`` are comments; a
+    forward slash and a backslash both separate; a trailing separator is allowed on a folder.
+    The package is UNTRUSTED input (it came off itch.io), so a line may
+    name nothing outside the manifest's own folder: absolute paths,
+    drive-anchored paths (``c:foo``), UNC paths and any ``..`` component
+    are problems, and so is an entry that RESOLVES outside the folder (a
+    symlink or junction planted in the package). Names in ``skip_names``
+    (the .nex the macro swaps itself) and the manifest are silently left
+    out at the top level — listing them is not an error, sending them
+    twice would be. A missing entry is a problem. Every path compare is
+    case-insensitive: the Next's FAT is, and so is the Windows disk the
+    package was extracted to. No manifest at all is ``([], [])``."""
+    manifest = os.path.join(folder, DEPLOYPAK_FILENAME)
+    if not os.path.isfile(manifest):
+        return [], []
+    try:
+        with open(manifest, "rb") as fh:
+            raw = fh.read()
+    except OSError as ex:
+        return [], [f"{DEPLOYPAK_FILENAME} could not be read: {ex}"]
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return [], [f"{DEPLOYPAK_FILENAME} is not UTF-8 text"]
+    root = os.path.realpath(folder)
+    skip = {str(s).lower() for s in skip_names if s}
+    skip.add(DEPLOYPAK_FILENAME.lower())
+
+    def _inside(path):
+        real = os.path.normcase(os.path.realpath(path))
+        top = os.path.normcase(root)
+        return real == top or real.startswith(top + os.sep)
+
+    plan, problems = [], []
+    dirs_done, files_done = set(), set()
+    n_files = 0
+    for lineno, line in enumerate(text.splitlines(), 1):
+        entry = line.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        where = f"{DEPLOYPAK_FILENAME} line {lineno} ({entry})"
+        if "\x00" in entry:
+            problems.append(f"{where}: contains a NUL byte")
+            continue
+        unix = entry.replace("\\", "/")
+        if unix.startswith("/") or ":" in unix or os.path.isabs(entry):
+            problems.append(f"{where}: must be relative to the package "
+                            "folder, not absolute")
+            continue
+        parts = [p for p in unix.split("/") if p not in ("", ".")]
+        if any(p == ".." for p in parts):
+            problems.append(f"{where}: may not reach outside the package "
+                            "folder ('..')")
+            continue
+        if any(p != p.rstrip(". ") for p in parts):
+            # Illegal on FAT and on Windows anyway — and on Windows a
+            # trailing dot is an ALIAS ("build.nex." opens build.nex), which
+            # would slip the swapped .nex past the skip below.
+            problems.append(f"{where}: a name may not end in a dot or a "
+                            "space")
+            continue
+        rel = "/".join(parts)
+        local = os.path.join(root, *parts) if parts else root
+        if not _inside(local):
+            problems.append(f"{where}: resolves outside the package folder")
+            continue
+        if os.path.isdir(local):
+            def _unlistable(err, _w=where):
+                # A folder the walk cannot read is a problem, not a
+                # silently empty one.
+                problems.append(f"{_w}: {getattr(err, 'filename', '')} "
+                                f"could not be listed ({err})")
+            for droot, dnames, fnames in os.walk(local, followlinks=False,
+                                                 onerror=_unlistable):
+                dnames.sort()
+                fnames.sort()
+                if not _inside(droot):
+                    dnames[:] = []
+                    continue
+                drel = os.path.relpath(droot, root).replace(os.sep, "/")
+                drel = "" if drel == "." else drel
+                if drel and drel.lower() not in dirs_done:
+                    dirs_done.add(drel.lower())
+                    plan.append(("mkdir", drel))
+                for name in fnames:
+                    frel = (drel + "/" + name) if drel else name
+                    if ((not drel and name.lower() in skip)
+                            or frel.lower() in files_done):
+                        continue
+                    fpath = os.path.join(droot, name)
+                    if not _inside(fpath):
+                        continue
+                    files_done.add(frel.lower())
+                    plan.append(("put", fpath, frel))
+                    n_files += 1
+        elif os.path.isfile(local):
+            if len(parts) == 1 and rel.lower() in skip:
+                continue
+            if rel.lower() in files_done:
+                continue
+            files_done.add(rel.lower())
+            plan.append(("put", local, rel))
+            n_files += 1
+        else:
+            problems.append(f"{where}: not found in the package")
+    if n_files > DEPLOYPAK_MAX_FILES:
+        problems.append(f"{DEPLOYPAK_FILENAME} lists {n_files} files - "
+                        f"more than the {DEPLOYPAK_MAX_FILES} an update "
+                        "sends")
+    return plan, problems
+
+
+def deploypak_counts(plan):
+    """``(files, folders)`` a read_deploypak plan sends — for confirm
+    dialogs and log lines."""
+    files = sum(1 for step in plan if step[0] == "put")
+    folders = sum(1 for step in plan if step[0] == "mkdir")
+    return files, folders
 
 
 def find_emulators_in_downloads(base_dir, scan_for_cspect=True, scan_for_hdfmonkey=True):

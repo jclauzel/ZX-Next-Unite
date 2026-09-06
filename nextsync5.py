@@ -554,6 +554,11 @@ LISTEN_HELP = """\
                                quit - marked for ZXNR, so the Next soft-
                                resets to NextZXOS (release first: an old
                                build fails there with nothing deleted).
+                               A deploypak.txt beside a ZXNR .nex names
+                               extra files/folders (one per line, relative)
+                               sent into [dir] FIRST, each crc-checked and
+                               re-sent up to 3 times; written in place (no
+                               .bak for them). ZXNR packages only.
                                Gated on the cached 'version' answer; 'force'
                                overrides the older-than-staged check
     rcpy <src> <dst>           copy a file/dir locally ON the Next, incl.
@@ -629,6 +634,134 @@ def _zxnr_staged_ver(path):
     if len(parts) == 3 and all(p.isdigit() for p in parts):
         return ver
     return ""
+
+# deploypak.txt: the extra files an itch.io package ships alongside its build
+# (a ZX Next Remote's .nxi menus, .spr sprite banks, a whole folder), one
+# path per line relative to the folder the manifest sits in. The 'update'
+# verb sends every listed item into the remote dir the .nex lives in BEFORE
+# the swap. Hand-kept twin of zxnu_config.read_deploypak (this script imports
+# no app module - see the OSP_MARK note); tests/test_deploypak.py pins the
+# two parsers to identical output.
+DEPLOYPAK_FILENAME = "deploypak.txt"
+DEPLOYPAK_MAX_FILES = 2000
+# How many times one extra is sent again after its crc check disagrees (or
+# its put fails) - the twin of zxnu_workers.RE_UPD_EXTRA_RETRIES.
+UPD_EXTRA_RETRIES = 3
+# The longest path a -listen command may carry: the dot copies it into a
+# 254-byte buffer and silently TRUNCATES a longer one - the twin of
+# zxnu_workers.RE_MAX_REMOTE_PATH; the update verb refuses over it.
+MAX_REMOTE_PATH = 254
+
+
+def _read_deploypak(folder, skip_names=()):
+    """(plan, problems) for <folder>/deploypak.txt - plan is the ordered
+    list of ("mkdir", rel) / ("put", local_abs, rel) steps, rel a
+    forward-slash path under the remote dir; problems the manifest lines
+    that are wrong (absolute / drive-anchored / '..' / resolving outside
+    the folder / missing), any of which refuses the update. Blank and '#'
+    lines are comments, both slashes separate, names in skip_names (the
+    file being swapped) and the manifest itself are left out at the top
+    level, folders are walked top-down with names sorted, symlinked folders
+    are not followed, compares are case-insensitive."""
+    manifest = os.path.join(folder, DEPLOYPAK_FILENAME)
+    if not os.path.isfile(manifest):
+        return [], []
+    try:
+        with open(manifest, "rb") as fh:
+            raw = fh.read()
+    except OSError as ex:
+        return [], [f"{DEPLOYPAK_FILENAME} could not be read: {ex}"]
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return [], [f"{DEPLOYPAK_FILENAME} is not UTF-8 text"]
+    root = os.path.realpath(folder)
+    skip = {str(s).lower() for s in skip_names if s}
+    skip.add(DEPLOYPAK_FILENAME.lower())
+
+    def _inside(path):
+        real = os.path.normcase(os.path.realpath(path))
+        top = os.path.normcase(root)
+        return real == top or real.startswith(top + os.sep)
+
+    plan, problems = [], []
+    dirs_done, files_done = set(), set()
+    n_files = 0
+    for lineno, line in enumerate(text.splitlines(), 1):
+        entry = line.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        where = f"{DEPLOYPAK_FILENAME} line {lineno} ({entry})"
+        if "\x00" in entry:
+            problems.append(f"{where}: contains a NUL byte")
+            continue
+        unix = entry.replace("\\", "/")
+        if unix.startswith("/") or ":" in unix or os.path.isabs(entry):
+            problems.append(f"{where}: must be relative to the package "
+                            "folder, not absolute")
+            continue
+        parts = [p for p in unix.split("/") if p not in ("", ".")]
+        if any(p == ".." for p in parts):
+            problems.append(f"{where}: may not reach outside the package "
+                            "folder ('..')")
+            continue
+        if any(p != p.rstrip(". ") for p in parts):
+            # Illegal on FAT and on Windows anyway - and on Windows a
+            # trailing dot is an ALIAS ("build.nex." opens build.nex), which
+            # would slip the swapped .nex past the skip below.
+            problems.append(f"{where}: a name may not end in a dot or a "
+                            "space")
+            continue
+        rel = "/".join(parts)
+        local = os.path.join(root, *parts) if parts else root
+        if not _inside(local):
+            problems.append(f"{where}: resolves outside the package folder")
+            continue
+        if os.path.isdir(local):
+            def _unlistable(err, _w=where):
+                # A folder the walk cannot read is a problem, not a
+                # silently empty one.
+                problems.append(f"{_w}: {getattr(err, 'filename', '')} "
+                                f"could not be listed ({err})")
+            for droot, dnames, fnames in os.walk(local, followlinks=False,
+                                                 onerror=_unlistable):
+                dnames.sort()
+                fnames.sort()
+                if not _inside(droot):
+                    dnames[:] = []
+                    continue
+                drel = os.path.relpath(droot, root).replace(os.sep, "/")
+                drel = "" if drel == "." else drel
+                if drel and drel.lower() not in dirs_done:
+                    dirs_done.add(drel.lower())
+                    plan.append(("mkdir", drel))
+                for name in fnames:
+                    frel = (drel + "/" + name) if drel else name
+                    if ((not drel and name.lower() in skip)
+                            or frel.lower() in files_done):
+                        continue
+                    fpath = os.path.join(droot, name)
+                    if not _inside(fpath):
+                        continue
+                    files_done.add(frel.lower())
+                    plan.append(("put", fpath, frel))
+                    n_files += 1
+        elif os.path.isfile(local):
+            if len(parts) == 1 and rel.lower() in skip:
+                continue
+            if rel.lower() in files_done:
+                continue
+            files_done.add(rel.lower())
+            plan.append(("put", local, rel))
+            n_files += 1
+        else:
+            problems.append(f"{where}: not found in the package")
+    if n_files > DEPLOYPAK_MAX_FILES:
+        problems.append(f"{DEPLOYPAK_FILENAME} lists {n_files} files - "
+                        f"more than the {DEPLOYPAK_MAX_FILES} an update "
+                        "sends")
+    return plan, problems
+
 
 def _listen_recv_reply(conn, handler):
     """Read the framed blocks the Next pushes in reply to a command, acking each
@@ -1005,6 +1138,186 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                               + ".new read back different from what "
                               "was sent", ""))
 
+    # deploypak.txt extras (9.7.6) - the twin of zxnu_workers' _upd_extra_*
+    # helpers: the files the package lists go FIRST (the swap ends the
+    # session, and a failure among them then leaves nothing staged); a mkdir
+    # answered with a plain 'F' is checked with a listing (esx_f_mkdir says
+    # 0xFF for "exists" too) and the marked OS-protection refusal is fatal
+    # at once; each put is followed by the 'K' crc check when the cached
+    # ident answers it - else, or when 'K' gives no verdict, by the 'G'
+    # read-back byte-compare, so an extra is never left unverified - and
+    # sent again up to UPD_EXTRA_RETRIES times on a different digest /
+    # read-back or a refused put, the corrupted copy deleted when the
+    # retries run out. The verdict (updc_extra_fail) names the file and how
+    # many of the manifest's files were already replaced (they overwrite in
+    # place - no .bak for them).
+    def _upd_extra_total():
+        return sum(1 for s in upd_job.get('extras', ()) if s[0] == "put")
+
+    def _upd_extras_note():
+        # The sentence every verdict AFTER the manifest landed must carry:
+        # the extras overwrite in place, so "nothing was swapped" is only
+        # true of the build itself. Empty when nothing was sent. Read
+        # BEFORE upd_job.clear() at every call site.
+        sent = len(upd_job.get('ex_sent', ()))
+        if not sent:
+            return ""
+        return (f" {sent} of the {_upd_extra_total()} deploypak.txt file(s) "
+                "had already been replaced on the card - the previous build "
+                "now runs against the new data files; run the update again "
+                "to put them back in step.")
+
+    def _upd_extra_index():
+        return 1 + sum(1 for s in upd_job['extras'][:upd_job['ex_i']]
+                       if s[0] == "put")
+
+    def _upd_extra_landed():
+        upd_job['ex_sent'].append(upd_job['extras'][upd_job['ex_i']][-1])
+        upd_job['ex_i'] += 1
+        upd_job['ex_try'] = 0
+        upd_steps.append(("updc_extra", "", ""))
+
+    def _upd_extra_mismatch(rel, diag, giveup_why):
+        # A DIFFERENT digest / read-back: the file goes again, up to the
+        # retry cap, then the corrupted copy is deleted and the update fails.
+        if upd_job['ex_try'] < UPD_EXTRA_RETRIES:
+            upd_job['ex_try'] += 1
+            print(f'{timestamp()} | update: {diag} - MISMATCH, sending it '
+                  f'again (retry {upd_job["ex_try"]} of {UPD_EXTRA_RETRIES})')
+            upd_steps.append(("updc_extra", "", ""))
+        else:
+            print(f'{timestamp()} | update: {diag} - MISMATCH, giving up')
+            upd_steps.append(("updc_extra_rm", giveup_why, ""))
+
+    def _upd_extra_readback():
+        # Pull the extra back with 'G' and byte-compare with what was sent
+        # (a listener that predates the crc op, or a 'K' with no verdict).
+        # One wire command - answers the Poll it is called from.
+        rel = upd_job['extras'][upd_job['ex_i']][-1]
+        remote = upd_job['dir'] + "/" + rel
+        got = bytearray()
+
+        def _hg(payload, _g=got):
+            o = payload[0:1]
+            if o == b'D':
+                _g.extend(payload[1:])
+            return o == b'B'
+        sendpacket(conn, b"G" + remote.encode(), 0)
+        if not _listen_recv_reply(conn, _hg):
+            upd_steps.append(("updc_extra_fail",
+                              "connection dropped while reading " + rel
+                              + " back", ""))
+        elif bytes(got) == upd_job['ex_data']:
+            print(f'{timestamp()} | update: {remote} read back and verified '
+                  f'({len(got)} bytes)')
+            _upd_extra_landed()
+        else:
+            _upd_extra_mismatch(rel, f"{remote}: {len(got)} bytes read back, "
+                                     f"{upd_job['ex_size']} sent",
+                                rel + " read back different from what was "
+                                "sent " + str(UPD_EXTRA_RETRIES + 1)
+                                + " times")
+
+    def _upd_stage():
+        # The staging put of the build itself - this Poll's answer.
+        nonlocal put_data, put_ofs, put_pkt, pending_put
+        global _in_transfer
+        remote = upd_job['dir'] + "/" + upd_job['base'] + ".new"
+        upd_job['staged'] = True
+        if upd_job.get('extras'):
+            print(f'{timestamp()} | update: all {_upd_extra_total()} '
+                  'deploypak.txt file(s) are on the card - staging the build '
+                  'itself')
+        print(f'{timestamp()} | update: staging {remote} '
+              f'({len(upd_job["data"])} bytes)')
+        put_data = upd_job['data']
+        put_ofs = 0
+        put_pkt = 0
+        pending_put = (remote, None, "update")   # 3rd slot = the staging put
+        _in_transfer = True
+        sendpacket(conn, b"P" + remote.encode(), 0)
+        # the Next pulls the bytes with "Get" (served below); the
+        # completion paths chain updc_verify / updc_fail.
+
+    def _upd_extra_step():
+        # Serve the extra at ex_i as this Poll's answer: the mkdir exchange,
+        # a put's 'P', or - plan exhausted - the staging put of the build.
+        nonlocal put_data, put_ofs, put_pkt, pending_put
+        global _in_transfer
+        i = upd_job['ex_i']
+        if i >= len(upd_job['extras']):
+            _upd_stage()
+            return
+        step = upd_job['extras'][i]
+        remote = upd_job['dir'] + "/" + step[-1]
+        if step[0] == "mkdir":
+            res = {'ok': False, 'osp': False}
+
+            def _hm(payload, _r=res):
+                _r['ok'] = (payload[0:1] == b'O')
+                _r['osp'] = _is_osp(payload)
+                return True
+            sendpacket(conn, b"M" + remote.encode(), 0)
+            if not _listen_recv_reply(conn, _hm):
+                upd_steps.append(("updc_extra_fail",
+                                  "connection dropped while creating "
+                                  + remote, ""))
+            elif res['osp']:
+                upd_steps.append(("updc_extra_fail",
+                                  "the far side's OS protection refused "
+                                  "creating " + remote
+                                  + " (Settings on the Next)", ""))
+            elif res['ok']:
+                upd_job['ex_i'] += 1
+                upd_job['ex_try'] = 0
+                upd_steps.append(("updc_extra", "", ""))
+            else:
+                # A plain 'F' cannot be told from "exists": ask the folder
+                # itself on the next Poll.
+                print(f'{timestamp()} | update: mkdir {remote} answered F - '
+                      'checking whether the folder exists')
+                upd_steps.append(("updc_extra_lscheck", "", ""))
+            return
+        try:
+            with open(step[1], 'rb') as fh:
+                blob = fh.read()
+        except OSError as ex:
+            upd_steps.append(("updc_extra_fail",
+                              f"reading {step[1]} failed: {ex}", ""))
+            sendpacket(conn, b"I", 0)
+            return
+        upd_job['ex_data'] = blob
+        upd_job['ex_crc'] = "%08X" % (zlib.crc32(blob) & 0xffffffff)
+        upd_job['ex_size'] = len(blob)
+        retry = upd_job['ex_try']
+        print(f'{timestamp()} | update: sending deploypak.txt file '
+              f'{_upd_extra_index()} of {_upd_extra_total()}: {remote} '
+              f'({len(blob)} bytes)'
+              + (f' - retry {retry} of {UPD_EXTRA_RETRIES}' if retry else ''))
+        put_data = blob
+        put_ofs = 0
+        put_pkt = 0
+        pending_put = (remote, None, "extra")    # 3rd slot = an extra
+        _in_transfer = True
+        sendpacket(conn, b"P" + remote.encode(), 0)
+
+    def _upd_extra_put_failed(why_plain):
+        # A refused / abandoned extra put: sent again up to the retry cap,
+        # OS-protection refusals excepted (the caller passes those as the
+        # final reason).
+        if upd_job['ex_try'] < UPD_EXTRA_RETRIES:
+            upd_job['ex_try'] += 1
+            print(f'{timestamp()} | update: {why_plain} - sending it again '
+                  f'(retry {upd_job["ex_try"]} of {UPD_EXTRA_RETRIES})')
+            upd_steps.append(("updc_extra", "", ""))
+        else:
+            # The dot opens (create + truncate) the target BEFORE pulling,
+            # so a transfer that gave up can leave a cut-short file: delete
+            # whatever is there, like a corrupted copy.
+            upd_steps.append(("updc_extra_rm",
+                              why_plain + f" {UPD_EXTRA_RETRIES + 1} times",
+                              ""))
+
     while True:
         try:
             data = conn.recv(1024)
@@ -1033,7 +1346,18 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                     print(f'{timestamp()} | *** put {pending_put[0]}: FAILED on the Next ***')
                     _reply_fill(pending_put[1], {'ok': False,
                                                  'error': 'put failed on the Next'})
-                if len(pending_put) > 2:           # the update's staging put
+                if len(pending_put) > 2 and pending_put[2] == "extra":
+                    # A deploypak.txt extra: OS protection is final, a plain
+                    # refusal earns a re-send (see _upd_extra_put_failed).
+                    _rel = upd_job['extras'][upd_job['ex_i']][-1]
+                    if fail_payload[1:1 + len(OSP_MARK)] == OSP_MARK:
+                        upd_steps.append(("updc_extra_fail",
+                                          "the far side's OS protection "
+                                          "refused writing it (Settings on "
+                                          "the Next)", ""))
+                    else:
+                        _upd_extra_put_failed("the Next refused " + _rel)
+                elif len(pending_put) > 2:         # the update's staging put
                     upd_steps.append(("updc_fail",
                                       "staging " + upd_job.get('base', 'sync5')
                                       + ".new failed on the Next", ""))
@@ -1049,7 +1373,11 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 print(f'{timestamp()} | *** put {pending_put[0]}: FAILED on the Next ***')
                 _reply_fill(pending_put[1], {'ok': False,
                                              'error': 'put abandoned by the Next'})
-                if len(pending_put) > 2:           # the update's staging put
+                if len(pending_put) > 2 and pending_put[2] == "extra":
+                    _upd_extra_put_failed(
+                        "the Next abandoned "
+                        + upd_job['extras'][upd_job['ex_i']][-1])
+                elif len(pending_put) > 2:         # the update's staging put
                     upd_steps.append(("updc_fail",
                                       "staging " + upd_job.get('base', 'sync5')
                                       + ".new was abandoned by the Next", ""))
@@ -1322,6 +1650,45 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                     refuse = (f"the listener is '{ident[0]}' - this flow "
                               "updates the .sync5 dot or a ZX Next Remote "
                               "build")
+                extras = []
+                if not refuse and ident[0] in ("httpbridge", "n2n"):
+                    # deploypak.txt next to the staged .nex (9.7.6): the
+                    # package's extra files, sent BEFORE the build is staged.
+                    # ZX Next Remote packages ONLY - the dot is a single
+                    # asset by contract, and a stray manifest beside it must
+                    # never turn c:/dot into a drop target. A broken
+                    # manifest refuses like a bad blob - before a byte moves.
+                    extras, problems = _read_deploypak(
+                        os.path.dirname(os.path.abspath(a1)),
+                        (base, base + ".new", base + ".bak"))
+                    if problems:
+                        refuse = ("the package's deploypak.txt is broken: "
+                                  + "; ".join(problems))
+                if not refuse:
+                    # The listener copies a path into a 254-byte buffer and
+                    # TRUNCATES a longer one (a misplaced file the crc check
+                    # would then "verify"): refuse every composed name that
+                    # could not fit, before a byte moves.
+                    _dir = (a2 or "c:/dot").rstrip("/")
+                    for _p in ([_dir + "/" + base + ".new",
+                                _dir + "/" + base + ".bak"]
+                               + [_dir + "/" + s[-1] for s in extras]):
+                        if len(_p.encode("utf-8", "replace")) > MAX_REMOTE_PATH:
+                            refuse = (f"{_p} is longer than the "
+                                      f"{MAX_REMOTE_PATH} bytes a path on the "
+                                      "Next may have")
+                            break
+                if not refuse:
+                    # The swap's renames carry BOTH names in one command
+                    # ("<cur>\0<cur>.bak" = 2*len + 5 bytes) through the
+                    # same buffer: a path that fits alone can still be
+                    # swapped onto a chopped name - after 'U', mid-swap.
+                    _cur = (a2 or "c:/dot").rstrip("/") + "/" + base
+                    if 2 * len(_cur.encode("utf-8", "replace")) + 5 > MAX_REMOTE_PATH:
+                        refuse = (f"swapping {_cur} would need a rename "
+                                  f"command longer than the {MAX_REMOTE_PATH} "
+                                  "bytes a listener accepts - choose a "
+                                  "shorter dir")
                 if refuse:
                     print(f"  update: {refuse}")
                     sendpacket(conn, b"I", 0)
@@ -1329,18 +1696,172 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                     continue
                 upd_job.update({'data': blob,
                                 'dir': (a2 or "c:/dot").rstrip("/"),
-                                'ver': bver, 'base': base, 'marked': marked})
-                remote = upd_job['dir'] + "/" + base + ".new"
-                print(f'{timestamp()} | update: staging {remote} '
-                      f'({len(blob)} bytes)')
-                put_data = blob
-                put_ofs = 0
-                put_pkt = 0
-                pending_put = (remote, None, "update")   # 3rd slot = update
-                _in_transfer = True
-                sendpacket(conn, b"P" + remote.encode(), 0)
-                # the Next pulls the bytes with "Get" (served below); the
-                # completion paths chain updc_verify / updc_fail.
+                                'ver': bver, 'base': base, 'marked': marked,
+                                'extras': extras, 'ex_i': 0, 'ex_try': 0,
+                                'ex_sent': []})
+                if extras:
+                    n_files = sum(1 for s in extras if s[0] == "put")
+                    print(f'{timestamp()} | update: deploypak.txt lists '
+                          f'{n_files} file(s) and {len(extras) - n_files} '
+                          f'folder(s) to send to {upd_job["dir"]} first')
+                    _upd_extra_step()             # answers this Poll
+                else:
+                    _upd_stage()                  # answers this Poll
+            elif op == "updc_extra":
+                # deploypak.txt extras, one per Poll (see _upd_extra_step);
+                # the plan exhausted stages the build itself.
+                if not upd_job:
+                    sendpacket(conn, b"I", 0)
+                    continue
+                _upd_extra_step()
+            elif op == "updc_extra_lscheck":
+                # A mkdir the Next answered with a plain 'F': list the
+                # folder - a listing (even empty) means it exists, a plain
+                # 'F' that it could neither be created nor found, the
+                # marked 'F'+OSP names the protection.
+                if not upd_job:
+                    sendpacket(conn, b"I", 0)
+                    continue
+                remote = (upd_job['dir'] + "/"
+                          + upd_job['extras'][upd_job['ex_i']][-1])
+                st = {'failed': False, 'osp': False}
+
+                def _hl(payload, _st=st):
+                    o = payload[0:1]
+                    if o == b'F':
+                        _st['failed'] = True
+                        _st['osp'] = _is_osp(payload)
+                        return True
+                    return o == b'E'
+                sendpacket(conn, b"L" + remote.encode(), 0)
+                if not _listen_recv_reply(conn, _hl):
+                    upd_steps.append(("updc_extra_fail",
+                                      "connection dropped while checking "
+                                      + remote, ""))
+                elif st['osp']:
+                    upd_steps.append(("updc_extra_fail",
+                                      "the far side's OS protection refused "
+                                      "creating " + remote
+                                      + " (Settings on the Next)", ""))
+                elif st['failed']:
+                    upd_steps.append(("updc_extra_fail",
+                                      "the Next could not create " + remote
+                                      + " (the mkdir failed and no such "
+                                      "folder exists)", ""))
+                else:
+                    print(f'{timestamp()} | update: {remote} exists - '
+                          'carrying on')
+                    upd_job['ex_i'] += 1
+                    upd_job['ex_try'] = 0
+                    upd_steps.append(("updc_extra", "", ""))
+            elif op == "updc_extra_verify":
+                # An extra's every byte served: the 'K' crc check against
+                # the bytes sent - updc_verify's exchange and rules: only a
+                # DEFINITE answer decides (equal lands the file, different
+                # sends it again up to UPD_EXTRA_RETRIES times, then the
+                # corrupted copy is deleted and the update fails; an
+                # OS-protected read fails naming the protection); silence,
+                # a plain 'F' or a malformed digest drop to the read-back
+                # byte-compare, which a listener that predates 'K' takes
+                # directly - an extra is never left unverified.
+                if not upd_job:
+                    sendpacket(conn, b"I", 0)
+                    continue
+                _rel = upd_job['extras'][upd_job['ex_i']][-1]
+                remote = upd_job['dir'] + "/" + _rel
+                if not _peer_answers_crc(_listen_state.get('ident')):
+                    _upd_extra_readback()             # answers this Poll
+                    continue
+                want = upd_job['ex_crc']
+                res = {'crc32': '', 'fail': False, 'osp': False}
+
+                def _hk(payload, _r=res):
+                    o = payload[0:1]
+                    if o == b'O' and len(payload) >= 9:
+                        _r['crc32'] = payload[1:9].decode(errors='replace').upper()
+                    elif o == b'F':
+                        _r['fail'] = True
+                        _r['osp'] = _is_osp(payload)
+                    return True
+                sendpacket(conn, b"K" + remote.encode(), 0)
+                got_k = _listen_recv_reply(conn, _hk)
+                digest = res['crc32']
+                if (got_k and len(digest) == 8
+                        and all(c in "0123456789ABCDEF" for c in digest)):
+                    if digest == want:
+                        print(f'{timestamp()} | update: {remote} verified by '
+                              f'CRC-32 {digest} ({upd_job["ex_size"]} bytes)')
+                        _upd_extra_landed()
+                    else:
+                        _upd_extra_mismatch(
+                            _rel, f"{remote} CRC-32 {digest} on the Next, "
+                                  f"{want} sent",
+                            "the CRC-32 of " + _rel + " on the Next ("
+                            + digest + ") still differed from what was sent ("
+                            + want + ") after " + str(UPD_EXTRA_RETRIES + 1)
+                            + " attempts")
+                elif res['osp']:
+                    upd_steps.append(("updc_extra_fail",
+                                      "the far side's OS protection refused "
+                                      "reading it back (Settings on the "
+                                      "Next)", ""))
+                else:
+                    if res['fail']:
+                        why = "the file did not open for the crc op"
+                    elif got_k:
+                        why = "malformed digest from the Next"
+                    else:
+                        why = "no answer to the crc op"
+                    print(f'{timestamp()} | update: {remote}: {why} - reading '
+                          'the copy back instead')
+                    upd_steps.append(("updc_extra_getback", "", ""))
+            elif op == "updc_extra_getback":
+                # The read-back way (see updc_extra_verify).
+                if not upd_job:
+                    sendpacket(conn, b"I", 0)
+                    continue
+                _upd_extra_readback()
+            elif op == "updc_extra_rm":
+                # The retries ran out: delete the corrupted extra ('X'), then
+                # report.
+                if not upd_job:
+                    sendpacket(conn, b"I", 0)
+                    continue
+                remote = (upd_job['dir'] + "/"
+                          + upd_job['extras'][upd_job['ex_i']][-1])
+                resx = {'ok': False}
+
+                def _hx(payload, _r=resx):
+                    _r['ok'] = (payload[0:1] == b'O')
+                    return True
+                sendpacket(conn, b"X" + remote.encode(), 0)
+                got_x = _listen_recv_reply(conn, _hx)
+                why = a1 + (" - the copy left on the Next was deleted"
+                            if got_x and resx['ok'] else
+                            " - no copy could be deleted from the Next "
+                            "(check " + remote + " by hand)")
+                upd_steps.append(("updc_extra_fail", why, ""))
+            elif op == "updc_extra_fail":
+                # An extra failed for good: name the file AND what the
+                # manifest already replaced (extras overwrite in place - no
+                # .bak), and say the build itself is untouched. Nothing is
+                # staged and the handle is not released (extras precede the
+                # staging put), so the session stays up.
+                _ex = upd_job.get('extras', ())
+                _rel = (_ex[upd_job['ex_i']][-1]
+                        if upd_job and upd_job.get('ex_i', 0) < len(_ex)
+                        else "")
+                _landed = len(upd_job.get('ex_sent', ()))
+                _total = _upd_extra_total()
+                _dir = upd_job.get('dir', '')
+                upd_job.clear()
+                print(f'{timestamp()} | *** update failed while sending '
+                      f'{_dir}/{_rel} from deploypak.txt: {a1}. Nothing was '
+                      'swapped - the Next still runs its current build, but '
+                      f'{_landed} of the {_total} file(s) the manifest lists '
+                      'had already been replaced on the card (run the update '
+                      'again to send them all). ***')
+                sendpacket(conn, b"I", 0)
             elif op == "updc_verify":
                 # Update step 1: prove what LANDED - the wire checksums are
                 # per-block and in-flight only, and the next steps make this
@@ -1476,6 +1997,7 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                                      if op == "updc_ren1" else
                                      ("updc_done", "", ""))
                     continue
+                note = _upd_extras_note()
                 upd_job.clear()
                 if got_reply and op == "updc_ren1":
                     # The far side REFUSED the first rename: nothing moved,
@@ -1490,7 +2012,7 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                            f"could not rename {old} aside")
                     print(f'{timestamp()} | *** update failed: {why}. '
                           'Nothing was swapped - the Next still runs its '
-                          'current build. ***')
+                          f'current build.{note} ***')
                 else:
                     # ren2 refused, or either rename's reply lost: the card
                     # is (or may be) mid-swap. Delete NOTHING - .bak is the
@@ -1498,7 +2020,7 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                     print(f'{timestamp()} | *** update FAILED mid-swap: the '
                           f'Next may be missing {cur}. If {base} no '
                           f'longer starts, rename {cur}.bak back to '
-                          f'{base} in the NextZXOS Browser. ***')
+                          f'{base} in the NextZXOS Browser.{note} ***')
                 sendpacket(conn, b"Q", 0)
                 _goodbye_linger(conn)
                 break
@@ -1538,9 +2060,10 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 upd_steps.append(("updc_fail", a1, ""))
             elif op == "updc_fail":
                 was_released = upd_job.get('released', False)
+                note = _upd_extras_note()
                 upd_job.clear()
                 print(f'{timestamp()} | *** update failed: {a1}. Nothing was '
-                      'swapped - the Next still runs its current build. ***')
+                      f'swapped - the Next still runs its current build.{note} ***')
                 if was_released:
                     # The far side's own handle is already closed: after 'U'
                     # only path-based commands are legal, so the console
@@ -1767,8 +2290,10 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 if pending_put is not None:        # every byte served -> success
                     print(f'{timestamp()} | put {pending_put[0]}: OK')
                     _reply_fill(pending_put[1], {'ok': True})
-                    if len(pending_put) > 2:       # the update's staging put:
-                        upd_steps.append(("updc_verify", "", ""))
+                    if len(pending_put) > 2:       # the update's own puts:
+                        upd_steps.append(("updc_extra_verify", "", "")
+                                         if pending_put[2] == "extra" else
+                                         ("updc_verify", "", ""))
                     pending_put = None
 
         elif data == b"Retry":
@@ -1794,15 +2319,39 @@ def _listen_session_inner(conn, stats, _test_commands=None):
     if upd_job:
         _b = upd_job.get('base', 'sync5')
         _cur = upd_job['dir'] + "/" + _b
-        if upd_job.get('swap'):
+        _ex = upd_job.get('extras', ())
+        _note = _upd_extras_note()
+        if _ex and not upd_job.get('staged') and upd_job['ex_i'] < len(_ex):
+            # Died among the deploypak.txt extras: the one in flight may be
+            # missing or cut short (they overwrite in place), the ones
+            # before it are already the new build's, the build itself was
+            # never staged.
+            _rel = _ex[upd_job['ex_i']][-1]
+            print(f'{timestamp()} | *** update failed: the session ended '
+                  f'while sending {upd_job["dir"]}/{_rel} from deploypak.txt '
+                  '- it may be missing or cut short on the card, and '
+                  f'{len(upd_job.get("ex_sent", ()))} of the '
+                  f'{_upd_extra_total()} file(s) the manifest lists had '
+                  'already been replaced. Nothing was swapped - run the '
+                  'update again to send them all. ***')
+        elif _ex and not upd_job.get('staged'):
+            # Died between the last extra landing and the Poll that would
+            # have staged the build: every manifest file is on the card,
+            # verified; nothing was in flight.
+            print(f'{timestamp()} | *** update failed: the session ended '
+                  f'after all {_upd_extra_total()} deploypak.txt file(s) had '
+                  'been replaced on the card, before the build itself was '
+                  'staged. Nothing was swapped - run the update again to '
+                  'send them all. ***')
+        elif upd_job.get('swap'):
             print(f'{timestamp()} | *** update FAILED mid-swap: the Next may '
                   f'be missing {_cur}. If {_b} no longer '
                   f'starts, rename {_cur}.bak back to {_b} '
-                  'in the NextZXOS Browser. ***')
+                  f'in the NextZXOS Browser.{_note} ***')
         else:
             print(f'{timestamp()} | *** update failed: the session ended '
                   'before the update finished. Nothing was swapped - the '
-                  'Next still runs its current build. ***')
+                  f'Next still runs its current build.{_note} ***')
         upd_job.clear()
     # The Next hung up: it pressed BREAK, sent "Bye", or the link dropped (or we
     # sent it "Q"). The main loop closes this connection and goes back to

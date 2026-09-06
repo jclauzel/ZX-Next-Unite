@@ -498,6 +498,14 @@ CATALOGS = {
              "después.\n\nRuta completa del .nex en el Next:"),
         "ZX Next Remote update: enter the FULL path of the .nex on the Next (e.g. {example}).":
             "Actualización de ZX Next Remote: introduce la ruta COMPLETA del .nex en el Next (p. ej. {example}).",
+        "Its deploypak.txt lists {files} file(s) and {folders} folder(s): they are sent into the same folder FIRST, each checked against the CRC-32 the Next computes and re-sent up to {retries} times — and written in place, so the .bak revert does not cover them.":
+            "Su deploypak.txt indica {files} archivo(s) y {folders} carpeta(s): se envían PRIMERO a la misma carpeta, cada uno comprobado con el CRC-32 que calcula el Next y reenviado hasta {retries} veces — y se escriben en su sitio, así que la recuperación con .bak no los cubre.",
+        "ZX Next Remote update: {path} is longer than the {limit} bytes a path on the Next may have — choose a shorter folder; nothing was sent.":
+            "Actualización de ZX Next Remote: {path} supera los {limit} bytes que puede tener una ruta en el Next — elige una carpeta más corta; no se ha enviado nada.",
+        "ZX Next Remote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Actualización de ZX Next Remote: sustituir {path} exigiría un comando de renombrado más largo que los {limit} bytes que acepta un receptor — elige una carpeta más corta; no se ha enviado nada.",
+        "ZX Next Remote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
+            "Actualización de ZX Next Remote: deploypak.txt indica {files} archivo(s) y {folders} carpeta(s) para {dir}: {items}",
         "Download File": "Descargar archivo",
         "Download NextZXOS Image": "Descargar imagen NextZXOS",
         "Download and install HDF Monkey": "Descargar e instalar HDF Monkey",
@@ -1003,6 +1011,28 @@ CATALOGS = {
             "Actualización remota de {name} completada: {version} ya está en la tarjeta. El Next hará ahora un reinicio suave a NextZXOS — vuelve a lanzar {file} para ejecutar la nueva compilación.",
         "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
             "Actualización remota de {name} fallida: {reason}. No se ha cambiado nada — el Next sigue ejecutando su compilación actual.",
+        "Remote {name} update: deploypak.txt lists {files} file(s) and {folders} folder(s) to send to {dir} first…":
+            "Actualización remota de {name}: deploypak.txt indica {files} archivo(s) y {folders} carpeta(s) que enviar primero a {dir}…",
+        "Remote {name} update: sending deploypak.txt file {index} of {count}: {path} ({size} bytes)…":
+            "Actualización remota de {name}: enviando el archivo {index} de {count} de deploypak.txt: {path} ({size} bytes)…",
+        "Remote {name} update: {path} did not arrive intact — sending it again (retry {retry} of {retries})…":
+            "Actualización remota de {name}: {path} no llegó intacto — se envía de nuevo (reintento {retry} de {retries})…",
+        "Remote {name} update: all {count} deploypak.txt file(s) are on the card — staging the build itself…":
+            "Actualización remota de {name}: los {count} archivo(s) de deploypak.txt están en la tarjeta — preparando la compilación en sí…",
+        "Remote {name} update failed while sending {path} from deploypak.txt: {reason}. Nothing was swapped — the Next still runs its current build, but {landed} of the {total} file(s) the manifest lists had already been replaced on the card (running the update again sends them all).":
+            "Actualización remota de {name} fallida al enviar {path} de deploypak.txt: {reason}. No se ha sustituido nada — el Next sigue ejecutando su compilación actual, pero {landed} de los {total} archivo(s) que indica el manifiesto ya se habían reemplazado en la tarjeta (volver a ejecutar la actualización los envía todos).",
+        "Remote {name} update failed: the session ended while sending {path} from deploypak.txt — it may be missing or cut short on the card, and {landed} of the {total} file(s) the manifest lists had already been replaced. Nothing was swapped — run the update again to send them all.":
+            "Actualización remota de {name} fallida: la sesión terminó mientras se enviaba {path} de deploypak.txt — puede faltar o estar truncado en la tarjeta, y {landed} de los {total} archivo(s) que indica el manifiesto ya se habían reemplazado. No se ha sustituido nada — vuelve a ejecutar la actualización para enviarlos todos.",
+        "Remote {name} update refused: {path} is longer than the {limit} bytes a path on the Next may have — nothing was sent.":
+            "Actualización remota de {name} rechazada: {path} supera los {limit} bytes que puede tener una ruta en el Next — no se ha enviado nada.",
+        "Remote {name} update refused: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Actualización remota de {name} rechazada: sustituir {path} exigiría un comando de renombrado más largo que los {limit} bytes que acepta un receptor — elige una carpeta más corta; no se ha enviado nada.",
+        "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
+            "{landed} de los {total} archivo(s) de deploypak.txt ya se habían reemplazado en la tarjeta — la compilación anterior ahora se ejecuta con los archivos de datos nuevos; vuelve a ejecutar la actualización para ponerlos de nuevo al día.",
+        "Remote {name} update: the Next refused {path} — sending it again (retry {retry} of {retries})…":
+            "Actualización remota de {name}: el Next rechazó {path} — se envía de nuevo (reintento {retry} de {retries})…",
+        "Remote {name} update failed: the session ended after all {total} deploypak.txt file(s) had been replaced on the card, before the build itself was staged. Nothing was swapped — run the update again to send them all.":
+            "Actualización remota de {name} fallida: la sesión terminó después de reemplazar en la tarjeta los {total} archivo(s) de deploypak.txt, antes de preparar la compilación en sí. No se ha sustituido nada — vuelve a ejecutar la actualización para enviarlos todos.",
         "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy has been deleted from the Next — send the file again.":
             "La verificación CRC-32 ha FALLADO para {path}: se envió {sent} pero el Next tiene {got}. La copia dañada se ha borrado del Next — envía el archivo de nuevo.",
         "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy could NOT be deleted from the Next ({reason}) — remove it by hand and send the file again.":
@@ -1766,6 +1796,14 @@ CATALOGS = {
              "Next:"),
         "ZX Next Remote update: enter the FULL path of the .nex on the Next (e.g. {example}).":
             "Atualização do ZX Next Remote: introduz o caminho COMPLETO do .nex no Next (p. ex. {example}).",
+        "Its deploypak.txt lists {files} file(s) and {folders} folder(s): they are sent into the same folder FIRST, each checked against the CRC-32 the Next computes and re-sent up to {retries} times — and written in place, so the .bak revert does not cover them.":
+            "O seu deploypak.txt lista {files} ficheiro(s) e {folders} pasta(s): são enviados PRIMEIRO para a mesma pasta, cada um verificado com o CRC-32 calculado pelo Next e reenviado até {retries} vezes — e escritos no lugar, pelo que a reversão por .bak não os cobre.",
+        "ZX Next Remote update: {path} is longer than the {limit} bytes a path on the Next may have — choose a shorter folder; nothing was sent.":
+            "Atualização de ZX Next Remote: {path} excede os {limit} bytes que um caminho no Next pode ter — escolha uma pasta mais curta; nada foi enviado.",
+        "ZX Next Remote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Atualização de ZX Next Remote: substituir {path} exigiria um comando de renomeação mais longo do que os {limit} bytes que um receptor aceita — escolha uma pasta mais curta; nada foi enviado.",
+        "ZX Next Remote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
+            "Atualização de ZX Next Remote: deploypak.txt lista {files} ficheiro(s) e {folders} pasta(s) para {dir}: {items}",
         "Download File": "Transferir ficheiro",
         "Download NextZXOS Image": "Transferir imagem NextZXOS",
         "Download and install HDF Monkey": "Transferir e instalar o HDF Monkey",
@@ -2271,6 +2309,28 @@ CATALOGS = {
             "Atualização remota de {name} concluída: {version} já está no cartão. O Next vai agora fazer um reinício suave para o NextZXOS — volta a lançar {file} para executar a nova compilação.",
         "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
             "A atualização remota de {name} falhou: {reason}. Nada foi trocado — o Next continua a executar a sua compilação atual.",
+        "Remote {name} update: deploypak.txt lists {files} file(s) and {folders} folder(s) to send to {dir} first…":
+            "Atualização remota de {name}: deploypak.txt lista {files} ficheiro(s) e {folders} pasta(s) a enviar primeiro para {dir}…",
+        "Remote {name} update: sending deploypak.txt file {index} of {count}: {path} ({size} bytes)…":
+            "Atualização remota de {name}: a enviar o ficheiro {index} de {count} do deploypak.txt: {path} ({size} bytes)…",
+        "Remote {name} update: {path} did not arrive intact — sending it again (retry {retry} of {retries})…":
+            "Atualização remota de {name}: {path} não chegou intacto — a enviar de novo (tentativa {retry} de {retries})…",
+        "Remote {name} update: all {count} deploypak.txt file(s) are on the card — staging the build itself…":
+            "Atualização remota de {name}: os {count} ficheiro(s) do deploypak.txt estão no cartão — a preparar a própria compilação…",
+        "Remote {name} update failed while sending {path} from deploypak.txt: {reason}. Nothing was swapped — the Next still runs its current build, but {landed} of the {total} file(s) the manifest lists had already been replaced on the card (running the update again sends them all).":
+            "Atualização remota de {name} falhou ao enviar {path} do deploypak.txt: {reason}. Nada foi substituído — o Next continua a executar a compilação atual, mas {landed} dos {total} ficheiro(s) listados no manifesto já tinham sido substituídos no cartão (executar a atualização de novo envia-os todos).",
+        "Remote {name} update failed: the session ended while sending {path} from deploypak.txt — it may be missing or cut short on the card, and {landed} of the {total} file(s) the manifest lists had already been replaced. Nothing was swapped — run the update again to send them all.":
+            "Atualização remota de {name} falhou: a sessão terminou enquanto se enviava {path} do deploypak.txt — pode estar em falta ou truncado no cartão, e {landed} dos {total} ficheiro(s) listados no manifesto já tinham sido substituídos. Nada foi substituído — execute a atualização de novo para os enviar todos.",
+        "Remote {name} update refused: {path} is longer than the {limit} bytes a path on the Next may have — nothing was sent.":
+            "Atualização remota de {name} recusada: {path} excede os {limit} bytes que um caminho no Next pode ter — nada foi enviado.",
+        "Remote {name} update refused: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Atualização remota de {name} recusada: substituir {path} exigiria um comando de renomeação mais longo do que os {limit} bytes que um receptor aceita — escolha uma pasta mais curta; nada foi enviado.",
+        "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
+            "{landed} dos {total} ficheiro(s) do deploypak.txt já tinham sido substituídos no cartão — a compilação anterior corre agora com os novos ficheiros de dados; execute a atualização de novo para os voltar a alinhar.",
+        "Remote {name} update: the Next refused {path} — sending it again (retry {retry} of {retries})…":
+            "Atualização remota de {name}: o Next recusou {path} — a enviar de novo (tentativa {retry} de {retries})…",
+        "Remote {name} update failed: the session ended after all {total} deploypak.txt file(s) had been replaced on the card, before the build itself was staged. Nothing was swapped — run the update again to send them all.":
+            "Atualização remota de {name} falhou: a sessão terminou depois de todos os {total} ficheiro(s) do deploypak.txt terem sido substituídos no cartão, antes de a própria compilação ser preparada. Nada foi substituído — execute a atualização de novo para os enviar todos.",
         "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy has been deleted from the Next — send the file again.":
             "A verificação CRC-32 FALHOU para {path}: foi enviado {sent} mas o Next tem {got}. A cópia corrompida foi apagada do Next — envia o ficheiro de novo.",
         "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy could NOT be deleted from the Next ({reason}) — remove it by hand and send the file again.":
@@ -3031,6 +3091,14 @@ CATALOGS = {
              "ponownie.\n\nPełna ścieżka pliku .nex na Nexcie:"),
         "ZX Next Remote update: enter the FULL path of the .nex on the Next (e.g. {example}).":
             "Aktualizacja ZX Next Remote: podaj PEŁNĄ ścieżkę pliku .nex na Nexcie (np. {example}).",
+        "Its deploypak.txt lists {files} file(s) and {folders} folder(s): they are sent into the same folder FIRST, each checked against the CRC-32 the Next computes and re-sent up to {retries} times — and written in place, so the .bak revert does not cover them.":
+            "Jego deploypak.txt wymienia {files} plik(ów) i {folders} folder(ów): są wysyłane NAJPIERW do tego samego folderu, każdy sprawdzany sumą CRC-32 obliczaną przez Nexta i wysyłany ponownie do {retries} razy — i zapisywane w miejscu, więc przywracanie z .bak ich nie obejmuje.",
+        "ZX Next Remote update: {path} is longer than the {limit} bytes a path on the Next may have — choose a shorter folder; nothing was sent.":
+            "Aktualizacja ZX Next Remote: {path} przekracza {limit} bajtów, jakie może mieć ścieżka na Nexcie — wybierz krótszy folder; niczego nie wysłano.",
+        "ZX Next Remote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Aktualizacja ZX Next Remote: podmiana {path} wymagałaby polecenia zmiany nazwy dłuższego niż {limit} bajtów, jakie przyjmuje odbiornik — wybierz krótszy folder; niczego nie wysłano.",
+        "ZX Next Remote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
+            "Aktualizacja ZX Next Remote: deploypak.txt wymienia {files} plik(ów) i {folders} folder(ów) dla {dir}: {items}",
         "Download File": "Pobierz plik",
         "Download NextZXOS Image": "Pobierz obraz NextZXOS",
         "Download and install HDF Monkey": "Pobierz i zainstaluj HDF Monkey",
@@ -3536,6 +3604,28 @@ CATALOGS = {
             "Zdalna aktualizacja {name} zakończona: {version} jest już na karcie. Next wykona teraz miękki reset do NextZXOS — uruchom ponownie {file}, aby korzystać z nowej kompilacji.",
         "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
             "Zdalna aktualizacja {name} nie powiodła się: {reason}. Nic nie zostało podmienione — Next nadal używa dotychczasowej kompilacji.",
+        "Remote {name} update: deploypak.txt lists {files} file(s) and {folders} folder(s) to send to {dir} first…":
+            "Zdalna aktualizacja {name}: deploypak.txt wymienia {files} plik(ów) i {folders} folder(ów) do wysłania najpierw do {dir}…",
+        "Remote {name} update: sending deploypak.txt file {index} of {count}: {path} ({size} bytes)…":
+            "Zdalna aktualizacja {name}: wysyłanie pliku {index} z {count} z deploypak.txt: {path} ({size} bajtów)…",
+        "Remote {name} update: {path} did not arrive intact — sending it again (retry {retry} of {retries})…":
+            "Zdalna aktualizacja {name}: {path} nie dotarł w całości — wysyłanie ponownie (próba {retry} z {retries})…",
+        "Remote {name} update: all {count} deploypak.txt file(s) are on the card — staging the build itself…":
+            "Zdalna aktualizacja {name}: wszystkie {count} plik(ów) z deploypak.txt są na karcie — przygotowywanie samej kompilacji…",
+        "Remote {name} update failed while sending {path} from deploypak.txt: {reason}. Nothing was swapped — the Next still runs its current build, but {landed} of the {total} file(s) the manifest lists had already been replaced on the card (running the update again sends them all).":
+            "Zdalna aktualizacja {name} nie powiodła się podczas wysyłania {path} z deploypak.txt: {reason}. Niczego nie podmieniono — Next nadal używa bieżącej kompilacji, ale {landed} z {total} plik(ów) wymienionych w manifeście zostało już zastąpionych na karcie (ponowne uruchomienie aktualizacji wyśle je wszystkie).",
+        "Remote {name} update failed: the session ended while sending {path} from deploypak.txt — it may be missing or cut short on the card, and {landed} of the {total} file(s) the manifest lists had already been replaced. Nothing was swapped — run the update again to send them all.":
+            "Zdalna aktualizacja {name} nie powiodła się: sesja zakończyła się podczas wysyłania {path} z deploypak.txt — może go brakować lub być ucięty na karcie, a {landed} z {total} plik(ów) wymienionych w manifeście zostało już zastąpionych. Niczego nie podmieniono — uruchom aktualizację ponownie, aby wysłać je wszystkie.",
+        "Remote {name} update refused: {path} is longer than the {limit} bytes a path on the Next may have — nothing was sent.":
+            "Zdalna aktualizacja {name} odrzucona: {path} przekracza {limit} bajtów, jakie może mieć ścieżka na Nexcie — niczego nie wysłano.",
+        "Remote {name} update refused: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Zdalna aktualizacja {name} odrzucona: podmiana {path} wymagałaby polecenia zmiany nazwy dłuższego niż {limit} bajtów, jakie przyjmuje odbiornik — wybierz krótszy folder; niczego nie wysłano.",
+        "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
+            "{landed} z {total} plik(ów) z deploypak.txt zostało już zastąpionych na karcie — poprzednia kompilacja działa teraz z nowymi plikami danych; uruchom aktualizację ponownie, aby je z powrotem uzgodnić.",
+        "Remote {name} update: the Next refused {path} — sending it again (retry {retry} of {retries})…":
+            "Zdalna aktualizacja {name}: Next odrzucił {path} — wysyłanie ponownie (próba {retry} z {retries})…",
+        "Remote {name} update failed: the session ended after all {total} deploypak.txt file(s) had been replaced on the card, before the build itself was staged. Nothing was swapped — run the update again to send them all.":
+            "Zdalna aktualizacja {name} nie powiodła się: sesja zakończyła się po zastąpieniu na karcie wszystkich {total} plik(ów) z deploypak.txt, zanim przygotowano samą kompilację. Niczego nie podmieniono — uruchom aktualizację ponownie, aby wysłać je wszystkie.",
         "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy has been deleted from the Next — send the file again.":
             "Weryfikacja CRC-32 NIE POWIODŁA SIĘ dla {path}: wysłano {sent}, ale Next ma {got}. Uszkodzona kopia została usunięta z Next — wyślij plik ponownie.",
         "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy could NOT be deleted from the Next ({reason}) — remove it by hand and send the file again.":
@@ -4298,6 +4388,14 @@ CATALOGS = {
              "{file} оттуда.\n\nПолный путь к .nex на Next:"),
         "ZX Next Remote update: enter the FULL path of the .nex on the Next (e.g. {example}).":
             "Обновление ZX Next Remote: введите ПОЛНЫЙ путь к .nex на Next (например, {example}).",
+        "Its deploypak.txt lists {files} file(s) and {folders} folder(s): they are sent into the same folder FIRST, each checked against the CRC-32 the Next computes and re-sent up to {retries} times — and written in place, so the .bak revert does not cover them.":
+            "Его deploypak.txt перечисляет {files} файл(ов) и {folders} папок(ки): они СНАЧАЛА отправляются в ту же папку, каждый сверяется с CRC-32, вычисленным Next, и пересылается до {retries} раз — и записываются на место, поэтому откат через .bak их не покрывает.",
+        "ZX Next Remote update: {path} is longer than the {limit} bytes a path on the Next may have — choose a shorter folder; nothing was sent.":
+            "Обновление ZX Next Remote: {path} длиннее {limit} байт, допустимых для пути на Next — выберите более короткую папку; ничего не отправлено.",
+        "ZX Next Remote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Обновление ZX Next Remote: для замены {path} потребовалась бы команда переименования длиннее {limit} байт, которые принимает слушатель — выберите более короткую папку; ничего не отправлено.",
+        "ZX Next Remote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
+            "Обновление ZX Next Remote: deploypak.txt перечисляет {files} файл(ов) и {folders} папок(ки) для {dir}: {items}",
         "Download File": "Скачать файл",
         "Download NextZXOS Image": "Скачать образ NextZXOS",
         "Download and install HDF Monkey": "Скачать и установить HDF Monkey",
@@ -4803,6 +4901,28 @@ CATALOGS = {
             "Удалённое обновление {name} завершено: {version} уже на карте. Next сейчас выполнит мягкий сброс в NextZXOS — запустите {file} заново, чтобы работать с новой сборкой.",
         "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
             "Удалённое обновление {name} не удалось: {reason}. Ничего не заменено — Next по-прежнему использует текущую сборку.",
+        "Remote {name} update: deploypak.txt lists {files} file(s) and {folders} folder(s) to send to {dir} first…":
+            "Удалённое обновление {name}: deploypak.txt перечисляет {files} файл(ов) и {folders} папок(ки), которые сначала будут отправлены в {dir}…",
+        "Remote {name} update: sending deploypak.txt file {index} of {count}: {path} ({size} bytes)…":
+            "Удалённое обновление {name}: отправка файла {index} из {count} по deploypak.txt: {path} ({size} байт)…",
+        "Remote {name} update: {path} did not arrive intact — sending it again (retry {retry} of {retries})…":
+            "Удалённое обновление {name}: {path} пришёл повреждённым — отправляется заново (попытка {retry} из {retries})…",
+        "Remote {name} update: all {count} deploypak.txt file(s) are on the card — staging the build itself…":
+            "Удалённое обновление {name}: все {count} файл(ов) из deploypak.txt на карте — подготовка самой сборки…",
+        "Remote {name} update failed while sending {path} from deploypak.txt: {reason}. Nothing was swapped — the Next still runs its current build, but {landed} of the {total} file(s) the manifest lists had already been replaced on the card (running the update again sends them all).":
+            "Удалённое обновление {name} не удалось при отправке {path} из deploypak.txt: {reason}. Ничего не заменено — Next по-прежнему работает на текущей сборке, но {landed} из {total} файл(ов), перечисленных в манифесте, уже были заменены на карте (повторный запуск обновления отправит их все).",
+        "Remote {name} update failed: the session ended while sending {path} from deploypak.txt — it may be missing or cut short on the card, and {landed} of the {total} file(s) the manifest lists had already been replaced. Nothing was swapped — run the update again to send them all.":
+            "Удалённое обновление {name} не удалось: сеанс завершился во время отправки {path} из deploypak.txt — файл может отсутствовать или быть обрезан на карте, а {landed} из {total} файл(ов), перечисленных в манифесте, уже были заменены. Ничего не заменено — запустите обновление снова, чтобы отправить их все.",
+        "Remote {name} update refused: {path} is longer than the {limit} bytes a path on the Next may have — nothing was sent.":
+            "Удалённое обновление {name} отклонено: {path} длиннее {limit} байт, допустимых для пути на Next — ничего не отправлено.",
+        "Remote {name} update refused: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Удалённое обновление {name} отклонено: для замены {path} потребовалась бы команда переименования длиннее {limit} байт, которые принимает слушатель — выберите более короткую папку; ничего не отправлено.",
+        "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
+            "{landed} из {total} файл(ов) из deploypak.txt уже были заменены на карте — прежняя сборка теперь работает с новыми файлами данных; запустите обновление снова, чтобы привести их в соответствие.",
+        "Remote {name} update: the Next refused {path} — sending it again (retry {retry} of {retries})…":
+            "Удалённое обновление {name}: Next отклонил {path} — отправляется заново (попытка {retry} из {retries})…",
+        "Remote {name} update failed: the session ended after all {total} deploypak.txt file(s) had been replaced on the card, before the build itself was staged. Nothing was swapped — run the update again to send them all.":
+            "Удалённое обновление {name} не удалось: сеанс завершился после замены на карте всех {total} файл(ов) из deploypak.txt, до подготовки самой сборки. Ничего не заменено — запустите обновление снова, чтобы отправить их все.",
         "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy has been deleted from the Next — send the file again.":
             "Проверка CRC-32 НЕ ПРОЙДЕНА для {path}: отправлено {sent}, но на Next записано {got}. Повреждённая копия удалена с Next — отправьте файл заново.",
         "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy could NOT be deleted from the Next ({reason}) — remove it by hand and send the file again.":
@@ -5562,6 +5682,14 @@ CATALOGS = {
              "{file}.\n\nÚplná cesta k .nex na Nextu:"),
         "ZX Next Remote update: enter the FULL path of the .nex on the Next (e.g. {example}).":
             "Aktualizace ZX Next Remote: zadejte ÚPLNOU cestu k .nex na Nextu (např. {example}).",
+        "Its deploypak.txt lists {files} file(s) and {folders} folder(s): they are sent into the same folder FIRST, each checked against the CRC-32 the Next computes and re-sent up to {retries} times — and written in place, so the .bak revert does not cover them.":
+            "Jeho deploypak.txt uvádí {files} soubor(ů) a {folders} složek(ky): odesílají se NEJPRVE do téže složky, každý se ověří proti CRC-32 spočítanému Nextem a znovu odešle až {retries}krát — a zapisují se na místo, takže obnova z .bak je nepokrývá.",
+        "ZX Next Remote update: {path} is longer than the {limit} bytes a path on the Next may have — choose a shorter folder; nothing was sent.":
+            "Aktualizace ZX Next Remote: {path} je delší než {limit} bajtů, které může mít cesta na Nextu — zvolte kratší složku; nic nebylo odesláno.",
+        "ZX Next Remote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Aktualizace ZX Next Remote: výměna {path} by vyžadovala příkaz přejmenování delší než {limit} bajtů, které posluchač přijme — zvolte kratší složku; nic nebylo odesláno.",
+        "ZX Next Remote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
+            "Aktualizace ZX Next Remote: deploypak.txt uvádí {files} soubor(ů) a {folders} složek(ky) pro {dir}: {items}",
         "Download File": "Stáhnout soubor",
         "Download NextZXOS Image": "Stáhnout obraz NextZXOS",
         "Download and install HDF Monkey": "Stáhnout a nainstalovat HDF Monkey",
@@ -6067,6 +6195,28 @@ CATALOGS = {
             "Vzdálená aktualizace {name} dokončena: {version} je na kartě. Next nyní provede měkký reset do NextZXOS — znovu spusťte {file}, aby se rozběhlo nové sestavení.",
         "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
             "Vzdálená aktualizace {name} selhala: {reason}. Nic nebylo vyměněno — Next stále používá své současné sestavení.",
+        "Remote {name} update: deploypak.txt lists {files} file(s) and {folders} folder(s) to send to {dir} first…":
+            "Vzdálená aktualizace {name}: deploypak.txt uvádí {files} soubor(ů) a {folders} složek(ky), které se nejprve odešlou do {dir}…",
+        "Remote {name} update: sending deploypak.txt file {index} of {count}: {path} ({size} bytes)…":
+            "Vzdálená aktualizace {name}: odesílání souboru {index} z {count} z deploypak.txt: {path} ({size} bajtů)…",
+        "Remote {name} update: {path} did not arrive intact — sending it again (retry {retry} of {retries})…":
+            "Vzdálená aktualizace {name}: {path} nedorazil neporušený — odesílá se znovu (pokus {retry} z {retries})…",
+        "Remote {name} update: all {count} deploypak.txt file(s) are on the card — staging the build itself…":
+            "Vzdálená aktualizace {name}: všech {count} soubor(ů) z deploypak.txt je na kartě — příprava samotného sestavení…",
+        "Remote {name} update failed while sending {path} from deploypak.txt: {reason}. Nothing was swapped — the Next still runs its current build, but {landed} of the {total} file(s) the manifest lists had already been replaced on the card (running the update again sends them all).":
+            "Vzdálená aktualizace {name} selhala při odesílání {path} z deploypak.txt: {reason}. Nic nebylo vyměněno — Next stále běží na aktuálním sestavení, ale {landed} z {total} soubor(ů) uvedených v manifestu už bylo na kartě nahrazeno (opětovné spuštění aktualizace je odešle všechny).",
+        "Remote {name} update failed: the session ended while sending {path} from deploypak.txt — it may be missing or cut short on the card, and {landed} of the {total} file(s) the manifest lists had already been replaced. Nothing was swapped — run the update again to send them all.":
+            "Vzdálená aktualizace {name} selhala: relace skončila během odesílání {path} z deploypak.txt — na kartě může chybět nebo být useknutý a {landed} z {total} soubor(ů) uvedených v manifestu už bylo nahrazeno. Nic nebylo vyměněno — spusťte aktualizaci znovu, aby se odeslaly všechny.",
+        "Remote {name} update refused: {path} is longer than the {limit} bytes a path on the Next may have — nothing was sent.":
+            "Vzdálená aktualizace {name} odmítnuta: {path} je delší než {limit} bajtů, které může mít cesta na Nextu — nic nebylo odesláno.",
+        "Remote {name} update refused: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Vzdálená aktualizace {name} odmítnuta: výměna {path} by vyžadovala příkaz přejmenování delší než {limit} bajtů, které posluchač přijme — zvolte kratší složku; nic nebylo odesláno.",
+        "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
+            "{landed} z {total} soubor(ů) z deploypak.txt už bylo na kartě nahrazeno — předchozí sestavení teď běží s novými datovými soubory; spusťte aktualizaci znovu, aby se opět sladily.",
+        "Remote {name} update: the Next refused {path} — sending it again (retry {retry} of {retries})…":
+            "Vzdálená aktualizace {name}: Next odmítl {path} — odesílá se znovu (pokus {retry} z {retries})…",
+        "Remote {name} update failed: the session ended after all {total} deploypak.txt file(s) had been replaced on the card, before the build itself was staged. Nothing was swapped — run the update again to send them all.":
+            "Vzdálená aktualizace {name} selhala: relace skončila poté, co bylo na kartě nahrazeno všech {total} soubor(ů) z deploypak.txt, ještě před přípravou samotného sestavení. Nic nebylo vyměněno — spusťte aktualizaci znovu, aby se odeslaly všechny.",
         "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy has been deleted from the Next — send the file again.":
             "Ověření CRC-32 SELHALO pro {path}: odesláno {sent}, ale Next má {got}. Poškozená kopie byla z Next smazána — odešlete soubor znovu.",
         "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy could NOT be deleted from the Next ({reason}) — remove it by hand and send the file again.":
@@ -6832,6 +6982,14 @@ CATALOGS = {
              "là.\n\nChemin complet du .nex sur le Next :"),
         "ZX Next Remote update: enter the FULL path of the .nex on the Next (e.g. {example}).":
             "Mise à jour de ZX Next Remote : saisissez le chemin COMPLET du .nex sur le Next (p. ex. {example}).",
+        "Its deploypak.txt lists {files} file(s) and {folders} folder(s): they are sent into the same folder FIRST, each checked against the CRC-32 the Next computes and re-sent up to {retries} times — and written in place, so the .bak revert does not cover them.":
+            "Son deploypak.txt liste {files} fichier(s) et {folders} dossier(s) : ils sont envoyés D'ABORD dans le même dossier, chacun vérifié contre le CRC-32 calculé par le Next et renvoyé jusqu'à {retries} fois — et écrits sur place, donc la restauration par .bak ne les couvre pas.",
+        "ZX Next Remote update: {path} is longer than the {limit} bytes a path on the Next may have — choose a shorter folder; nothing was sent.":
+            "Mise à jour de ZX Next Remote : {path} dépasse les {limit} octets qu'un chemin sur le Next peut avoir — choisissez un dossier plus court ; rien n'a été envoyé.",
+        "ZX Next Remote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Mise à jour de ZX Next Remote : remplacer {path} exigerait une commande de renommage plus longue que les {limit} octets qu'un récepteur accepte — choisissez un dossier plus court ; rien n'a été envoyé.",
+        "ZX Next Remote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
+            "Mise à jour de ZX Next Remote : deploypak.txt liste {files} fichier(s) et {folders} dossier(s) pour {dir} : {items}",
         "Download File": "Télécharger le fichier",
         "Download NextZXOS Image": "Télécharger l'image NextZXOS",
         "Download and install HDF Monkey": "Télécharger et installer HDF Monkey",
@@ -7338,6 +7496,28 @@ CATALOGS = {
             "Mise à jour distante de {name} terminée : {version} est sur la carte. Le Next va maintenant faire un redémarrage à chaud vers NextZXOS — relancez {file} pour exécuter la nouvelle compilation.",
         "Remote {name} update failed: {reason}. Nothing was swapped — the Next still runs its current build.":
             "Mise à jour distante de {name} échouée : {reason}. Rien n'a été remplacé — le Next exécute toujours sa compilation actuelle.",
+        "Remote {name} update: deploypak.txt lists {files} file(s) and {folders} folder(s) to send to {dir} first…":
+            "Mise à jour distante de {name} : deploypak.txt liste {files} fichier(s) et {folders} dossier(s) à envoyer d'abord vers {dir}…",
+        "Remote {name} update: sending deploypak.txt file {index} of {count}: {path} ({size} bytes)…":
+            "Mise à jour distante de {name} : envoi du fichier {index} sur {count} de deploypak.txt : {path} ({size} octets)…",
+        "Remote {name} update: {path} did not arrive intact — sending it again (retry {retry} of {retries})…":
+            "Mise à jour distante de {name} : {path} n'est pas arrivé intact — nouvel envoi (essai {retry} sur {retries})…",
+        "Remote {name} update: all {count} deploypak.txt file(s) are on the card — staging the build itself…":
+            "Mise à jour distante de {name} : les {count} fichier(s) de deploypak.txt sont sur la carte — dépôt de la compilation elle-même…",
+        "Remote {name} update failed while sending {path} from deploypak.txt: {reason}. Nothing was swapped — the Next still runs its current build, but {landed} of the {total} file(s) the manifest lists had already been replaced on the card (running the update again sends them all).":
+            "La mise à jour distante de {name} a échoué à l'envoi de {path} depuis deploypak.txt : {reason}. Rien n'a été remplacé — le Next exécute toujours sa compilation actuelle, mais {landed} des {total} fichier(s) listés par le manifeste avaient déjà été remplacés sur la carte (relancer la mise à jour les renvoie tous).",
+        "Remote {name} update failed: the session ended while sending {path} from deploypak.txt — it may be missing or cut short on the card, and {landed} of the {total} file(s) the manifest lists had already been replaced. Nothing was swapped — run the update again to send them all.":
+            "La mise à jour distante de {name} a échoué : la session s'est terminée pendant l'envoi de {path} depuis deploypak.txt — il peut manquer ou être tronqué sur la carte, et {landed} des {total} fichier(s) listés par le manifeste avaient déjà été remplacés. Rien n'a été remplacé — relancez la mise à jour pour les renvoyer tous.",
+        "Remote {name} update refused: {path} is longer than the {limit} bytes a path on the Next may have — nothing was sent.":
+            "Mise à jour distante de {name} refusée : {path} dépasse les {limit} octets qu'un chemin sur le Next peut avoir — rien n'a été envoyé.",
+        "Remote {name} update refused: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Mise à jour distante de {name} refusée : remplacer {path} exigerait une commande de renommage plus longue que les {limit} octets qu'un récepteur accepte — choisissez un dossier plus court ; rien n'a été envoyé.",
+        "{landed} of the {total} deploypak.txt file(s) had already been replaced on the card — the previous build now runs against the new data files; run the update again to put them back in step.":
+            "{landed} des {total} fichier(s) de deploypak.txt avaient déjà été remplacés sur la carte — la compilation précédente tourne maintenant avec les nouveaux fichiers de données ; relancez la mise à jour pour les remettre en accord.",
+        "Remote {name} update: the Next refused {path} — sending it again (retry {retry} of {retries})…":
+            "Mise à jour distante de {name} : le Next a refusé {path} — nouvel envoi (essai {retry} sur {retries})…",
+        "Remote {name} update failed: the session ended after all {total} deploypak.txt file(s) had been replaced on the card, before the build itself was staged. Nothing was swapped — run the update again to send them all.":
+            "La mise à jour distante de {name} a échoué : la session s'est terminée après le remplacement sur la carte des {total} fichier(s) de deploypak.txt, avant le dépôt de la compilation elle-même. Rien n'a été remplacé — relancez la mise à jour pour les renvoyer tous.",
         "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy has been deleted from the Next — send the file again.":
             "La vérification CRC-32 a ÉCHOUÉ pour {path} : {sent} a été envoyé mais le Next contient {got}. La copie corrompue a été supprimée du Next — renvoyez le fichier.",
         "CRC-32 verification FAILED for {path}: {sent} was sent but the Next holds {got}. The corrupted copy could NOT be deleted from the Next ({reason}) — remove it by hand and send the file again.":
