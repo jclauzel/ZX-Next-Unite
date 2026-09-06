@@ -198,6 +198,213 @@ TEXTS = {
               "dans Réglages → 'Mettre à jour et déployer automatiquement la "
               "commande .sync5 dans un fichier .img'.)",
     },
+    # ── ZX Next Remote: the "did you know" pitch and its deep dive (9.7.9) ──
+    "zxnr.didyouknow": {
+        "en": "Did you know? 🎮 ZX Next Remote — the companion app for the "
+              "Next itself — moves files between your PC and your Next in "
+              "BOTH directions over Wi-Fi, and even straight from one Next "
+              "to another, with no SD card swapping at all. Care to hear "
+              "what else it can do?",
+        "es": "¿Sabías que…? 🎮 ZX Next Remote — la aplicación compañera "
+              "que corre en el propio Next — mueve archivos entre tu PC y "
+              "tu Next en AMBOS sentidos por Wi-Fi, e incluso directamente "
+              "de un Next a otro, sin cambiar de tarjeta SD para nada. "
+              "¿Quieres saber qué más puede hacer?",
+        "pt": "Sabias que…? 🎮 O ZX Next Remote — a app companheira que "
+              "corre no próprio Next — move ficheiros entre o teu PC e o "
+              "teu Next em AMBOS os sentidos por Wi-Fi, e até diretamente "
+              "de um Next para outro, sem trocar de cartão SD. Queres saber "
+              "o que mais consegue fazer?",
+        "pl": "Czy wiesz, że…? 🎮 ZX Next Remote — aplikacja towarzysząca "
+              "działająca na samym Nexcie — przenosi pliki między PC a "
+              "Nextem w OBIE strony przez Wi-Fi, a nawet prosto z jednego "
+              "Nexta na drugi, bez żadnego przekładania karty SD. Chcesz "
+              "usłyszeć, co jeszcze potrafi?",
+        "ru": "А вы знали? 🎮 ZX Next Remote — приложение-компаньон, "
+              "работающее на самом Next, — передаёт файлы между ПК и Next в "
+              "ОБЕ стороны по Wi-Fi и даже напрямую с одного Next на другой, "
+              "без всякой перестановки SD-карты. Рассказать, что ещё он "
+              "умеет?",
+        "cs": "Věděl jsi…? 🎮 ZX Next Remote — doprovodná aplikace běžící "
+              "přímo na Nextu — přenáší soubory mezi PC a Nextem OBĚMA "
+              "směry přes Wi-Fi, a dokonce rovnou z jednoho Nextu na druhý, "
+              "bez jakéhokoli přendávání SD karty. Chceš slyšet, co dalšího "
+              "umí?",
+        "fr": "Le saviez-vous ? 🎮 ZX Next Remote — l'application compagne "
+              "qui tourne sur le Next lui-même — déplace des fichiers entre "
+              "votre PC et votre Next dans les DEUX sens par Wi-Fi, et même "
+              "directement d'un Next à un autre, sans jamais changer de "
+              "carte SD. Envie d'en savoir plus ?",
+    },
+    "zxnr.more1": {
+        "en": "Its Listener runs on the Next and answers this app's Remote "
+              "Explorer and NextSync. And its OS protection is on by "
+              "default: NextZXOS's own folders — apps/, dot/, sys/ — are off "
+              "limits to a PC, reads included at the default level, so the "
+              "rest of the card is yours to browse and push to while the "
+              "system stays whole. Lower it in its Settings only when you "
+              "mean to.",
+        "es": "Su Escuchador corre en el Next y atiende al Explorador remoto "
+              "y a NextSync de esta aplicación. Y su protección del sistema "
+              "viene activada por defecto: las carpetas propias de NextZXOS "
+              "— apps/, dot/, sys/ — quedan vedadas para un PC, lectura "
+              "incluida en el nivel por defecto, así que el resto de la "
+              "tarjeta es tuyo para explorar y enviar mientras el sistema "
+              "sigue intacto. Rebájala en sus Ajustes solo cuando lo "
+              "pretendas.",
+        "pt": "O seu Ouvinte corre no Next e responde ao Explorador remoto e "
+              "ao NextSync desta app. E a sua proteção do sistema vem ligada "
+              "por defeito: as pastas do próprio NextZXOS — apps/, dot/, "
+              "sys/ — ficam vedadas a um PC, leitura incluída no nível por "
+              "defeito, por isso o resto do cartão é teu para navegar e "
+              "enviar enquanto o sistema se mantém inteiro. Baixa-a nas "
+              "suas Definições só quando for mesmo essa a intenção.",
+        "pl": "Jego Nasłuch działa na Nexcie i odpowiada Zdalnemu "
+              "eksploratorowi oraz NextSync z tej aplikacji. A ochrona "
+              "systemu jest domyślnie włączona: własne foldery NextZXOS — "
+              "apps/, dot/, sys/ — są dla PC niedostępne, na domyślnym "
+              "poziomie także do odczytu, więc reszta karty jest twoja do "
+              "przeglądania i wysyłania, a system pozostaje nienaruszony. "
+              "Obniż ją w jego Ustawieniach tylko wtedy, gdy naprawdę tego "
+              "chcesz.",
+        "ru": "Его Слушатель работает на Next и отвечает Удалённому "
+              "проводнику и NextSync этого приложения. А защита системы "
+              "включена по умолчанию: собственные папки NextZXOS — apps/, "
+              "dot/, sys/ — закрыты для ПК, на уровне по умолчанию даже для "
+              "чтения, так что остальная карта ваша для просмотра и "
+              "отправки, а система остаётся целой. Понижайте её в его "
+              "Настройках только намеренно.",
+        "cs": "Jeho Posluchač běží na Nextu a odpovídá Vzdálenému "
+              "průzkumníkovi a NextSyncu této aplikace. A ochrana systému je "
+              "zapnutá už z výroby: vlastní složky NextZXOS — apps/, dot/, "
+              "sys/ — jsou pro PC nepřístupné, na výchozí úrovni i pro "
+              "čtení, takže zbytek karty je tvůj k procházení a posílání a "
+              "systém zůstane celý. V jeho Nastavení ji snižuj jen tehdy, "
+              "když to opravdu chceš.",
+        "fr": "Son Écouteur tourne sur le Next et répond à l'Explorateur "
+              "distant et à NextSync de cette application. Et sa protection "
+              "du système est active par défaut : les dossiers propres à "
+              "NextZXOS — apps/, dot/, sys/ — sont interdits à un PC, "
+              "lecture comprise au niveau par défaut, le reste de la carte "
+              "est donc à vous pour parcourir et envoyer tandis que le "
+              "système reste entier. Ne l'abaissez dans ses Réglages que si "
+              "c'est voulu.",
+    },
+    "zxnr.more2": {
+        "en": "On the Next itself it is a real file manager: full mouse "
+              "support, a two-pane explorer right on the machine to copy, "
+              "move, rename and delete on the card — and Next-to-Next "
+              "transfers over the network, one machine driving the other.",
+        "es": "En el propio Next es un gestor de archivos de verdad: soporte "
+              "completo de ratón, un explorador de dos paneles en la propia "
+              "máquina para copiar, mover, renombrar y borrar en la tarjeta "
+              "— y transferencias de Next a Next por la red, una máquina "
+              "manejando a la otra.",
+        "pt": "No próprio Next é um verdadeiro gestor de ficheiros: suporte "
+              "completo de rato, um explorador de dois painéis na própria "
+              "máquina para copiar, mover, renomear e apagar no cartão — e "
+              "transferências de Next para Next pela rede, uma máquina a "
+              "comandar a outra.",
+        "pl": "Na samym Nexcie to prawdziwy menedżer plików: pełna obsługa "
+              "myszy, dwupanelowy eksplorator bezpośrednio na maszynie do "
+              "kopiowania, przenoszenia, zmiany nazw i usuwania na karcie — "
+              "oraz transfery z Nexta na Nexta przez sieć, jedna maszyna "
+              "steruje drugą.",
+        "ru": "На самом Next это настоящий файловый менеджер: полная "
+              "поддержка мыши, двухпанельный проводник прямо на машине для "
+              "копирования, перемещения, переименования и удаления на "
+              "карте — и передача с Next на Next по сети, одна машина "
+              "управляет другой.",
+        "cs": "Na samotném Nextu je to opravdový správce souborů: plná "
+              "podpora myši, dvoupanelový průzkumník přímo na stroji pro "
+              "kopírování, přesouvání, přejmenování a mazání na kartě — a "
+              "přenosy z Nextu na Next po síti, jeden stroj řídí druhý.",
+        "fr": "Sur le Next lui-même, c'est un vrai gestionnaire de "
+              "fichiers : prise en charge complète de la souris, un "
+              "explorateur à deux volets directement sur la machine pour "
+              "copier, déplacer, renommer et supprimer sur la carte — et des "
+              "transferts de Next à Next par le réseau, une machine pilotant "
+              "l'autre.",
+    },
+    "zxnr.more3": {
+        "en": "With Verify CRC on in this app's Settings, every upload is "
+              "checked end to end: the Next computes a CRC-32 of what "
+              "landed and the PC compares it with what it sent — a mismatch "
+              "is deleted and reported, so what stays is what left. It is "
+              "friendly, fun, and made by the same hands as this app — grab "
+              "it on itch.io below, it lives right next to the Remote "
+              "Explorer.",
+        "es": "Con Verificar CRC activado en los Ajustes de esta aplicación, "
+              "cada envío se comprueba de extremo a extremo: el Next calcula "
+              "un CRC-32 de lo recibido y el PC lo compara con lo enviado — "
+              "una discrepancia se borra y se avisa, así que lo que queda es "
+              "lo que salió. Es amable, divertido y está hecho por las "
+              "mismas manos que esta aplicación — consíguelo en itch.io "
+              "aquí abajo, vive justo al lado del Explorador remoto.",
+        "pt": "Com Verificar CRC ligado nas Definições desta app, cada envio "
+              "é verificado de ponta a ponta: o Next calcula um CRC-32 do "
+              "que chegou e o PC compara-o com o que enviou — uma "
+              "discrepância é apagada e comunicada, por isso o que fica é o "
+              "que partiu. É simpático, divertido e feito pelas mesmas mãos "
+              "desta app — vai buscá-lo ao itch.io aqui em baixo, mora "
+              "mesmo ao lado do Explorador remoto.",
+        "pl": "Przy włączonym Weryfikuj CRC w Ustawieniach tej aplikacji "
+              "każde wysłanie jest sprawdzane od końca do końca: Next liczy "
+              "CRC-32 tego, co dotarło, a PC porównuje je z tym, co wysłał — "
+              "niezgodność jest usuwana i zgłaszana, więc zostaje dokładnie "
+              "to, co wyszło. Jest przyjazny, zabawny i zrobiony tymi samymi "
+              "rękami, co ta aplikacja — weź go z itch.io poniżej, mieszka "
+              "tuż obok Zdalnego eksploratora.",
+        "ru": "При включённой проверке CRC в Настройках этого приложения "
+              "каждая отправка проверяется от начала до конца: Next "
+              "вычисляет CRC-32 того, что пришло, а ПК сравнивает его с "
+              "тем, что отправил, — несовпадение удаляется и сообщается, так "
+              "что остаётся ровно то, что ушло. Он дружелюбный, весёлый и "
+              "сделан теми же руками, что и это приложение — забирайте на "
+              "itch.io ниже, он живёт прямо рядом с Удалённым проводником.",
+        "cs": "Se zapnutou kontrolou CRC v Nastavení této aplikace se každé "
+              "odeslání kontroluje od začátku do konce: Next spočítá CRC-32 "
+              "toho, co dorazilo, a PC ho porovná s tím, co odeslal — "
+              "neshoda se smaže a nahlásí, takže zůstane přesně to, co "
+              "odešlo. Je přátelský, zábavný a vyrobený stejnýma rukama "
+              "jako tahle aplikace — vezmi si ho na itch.io níže, bydlí "
+              "hned vedle Vzdáleného průzkumníka.",
+        "fr": "Avec Vérifier le CRC activé dans les Réglages de cette "
+              "application, chaque envoi est vérifié de bout en bout : le "
+              "Next calcule un CRC-32 de ce qui est arrivé et le PC le "
+              "compare à ce qu'il a envoyé — un écart est supprimé et "
+              "signalé, ainsi ce qui reste est ce qui est parti. Il est "
+              "convivial, amusant et fait des mêmes mains que cette "
+              "application — récupérez-le sur itch.io ci-dessous, il habite "
+              "juste à côté de l'Explorateur distant.",
+    },
+    "btn.moreinfo": {
+        "en": "Give me more information",
+        "es": "Dame más información",
+        "pt": "Dá-me mais informação",
+        "pl": "Powiedz mi więcej",
+        "ru": "Расскажи подробнее",
+        "cs": "Řekni mi víc",
+        "fr": "Donne-moi plus d'informations",
+    },
+    "btn.itch": {
+        "en": "🕹 ZX Next Remote on itch.io",
+        "es": "🕹 ZX Next Remote en itch.io",
+        "pt": "🕹 ZX Next Remote no itch.io",
+        "pl": "🕹 ZX Next Remote na itch.io",
+        "ru": "🕹 ZX Next Remote на itch.io",
+        "cs": "🕹 ZX Next Remote na itch.io",
+        "fr": "🕹 ZX Next Remote sur itch.io",
+    },
+    "btn.zxnr": {
+        "en": "🎮 About ZX Next Remote",
+        "es": "🎮 Sobre ZX Next Remote",
+        "pt": "🎮 Sobre o ZX Next Remote",
+        "pl": "🎮 O ZX Next Remote",
+        "ru": "🎮 О ZX Next Remote",
+        "cs": "🎮 O ZX Next Remote",
+        "fr": "🎮 À propos de ZX Next Remote",
+    },
     "btn.takeme": {
         "en": "🪄 Take me there",
         "es": "🪄 Llévame allí",
@@ -2201,6 +2408,9 @@ USER_MANUAL_PAGE = "User-Manual"
 
 # The project repository (every guide bubble links to it).
 GITHUB_URL = "https://github.com/jclauzel/ZX-Next-Unite"
+#: ZX Next Remote — the companion app on the Next itself; the wizard's
+#: "did you know" pitch and the Remote Explorer guide nodes link to it.
+ZXNR_ITCH_URL = "https://jclauzel.itch.io/zxnextremote"
 
 # ── In-depth guides ──────────────────────────────────────────────────────
 # Branching, step-by-step help per tab, driven by zxnu_wizard.py's guide
@@ -2250,10 +2460,13 @@ GUIDES = {
             "ns.options": {"buttons": [("btn.close", "close")],
                            "gesture": "cast"},
             # Branch 2: the Remote Explorer — setup, then capabilities
-            # (incl. the graceful BREAK exit).
-            "ns.remote": {"buttons": [("btn.next", "ns.remote2")]},
+            # (incl. the graceful BREAK exit). ZX Next Remote is the
+            # Next-side counterpart, so its itch.io link rides the row.
+            "ns.remote": {"buttons": [("btn.next", "ns.remote2")],
+                          "extra_links": [("btn.itch", "ZXNR_ITCH_URL")]},
             "ns.remote2": {"buttons": [("btn.close", "close")],
-                           "gesture": "cast"},
+                           "gesture": "cast",
+                           "extra_links": [("btn.itch", "ZXNR_ITCH_URL")]},
             # Branch 3: Classic Sync -> sync root -> server.
             "ns.classic": {"buttons": [("btn.next", "ns.root")]},
             "ns.root":   {"buttons": [("btn.next", "ns.server")]},

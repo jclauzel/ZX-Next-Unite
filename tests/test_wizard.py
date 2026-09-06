@@ -517,6 +517,80 @@ check("every sync5.* text carries {image} and {new} in every language",
           for lang in wc.WIZARD_LANGS)
       and all("{old}" in wc.TEXTS["sync5.older"][lang] for lang in wc.WIZARD_LANGS))
 
+# ── the ZX Next Remote "did you know" pitch (9.7.9) ──────────────────────
+# A friendly word about the companion app: the pitch bubble carries a
+# "Give me more information" button and the itch.io link in its reference
+# row; the deep dive walks three pages, the link on every one; the idle
+# tick brings the pitch up once a session; the click menu always can; the
+# NextSync guide's Remote Explorer nodes link to itch.io as well.
+opened = []
+wiz._open_url = opened.append
+wiz._dismiss()
+wiz.pitch_zxnr()
+labels = [a[0] for a in wiz.bubble._actions]
+link_labels = [b.text() for b in wiz.bubble._link_buttons]
+check("the pitch shows with 'Give me more information' and 'Not now'",
+      wiz.bubble.isVisible() and labels == [wc.wizard_tr("btn.moreinfo", "en"),
+                                             wc.wizard_tr("btn.later", "en")], str(labels))
+check("...and the itch.io link leads the reference row",
+      link_labels and link_labels[0] == wc.wizard_tr("btn.itch", "en"), str(link_labels))
+wiz.bubble._link_buttons[0].click()
+check("...clicking it opens the ZX Next Remote itch.io page",
+      opened == [wc.ZXNR_ITCH_URL], str(opened))
+wiz.bubble._actions[0][1]()                                # Give me more information
+check("the deep dive opens on page 1 with Next/Close and the itch.io link",
+      wc.wizard_tr("zxnr.more1", "en")[:40] in "".join(wiz.bubble._pages)
+      and [a[0] for a in wiz.bubble._actions] == [wc.wizard_tr("btn.next", "en"),
+                                                   wc.wizard_tr("btn.close", "en")]
+      and wiz.bubble._link_buttons[0].text() == wc.wizard_tr("btn.itch", "en"))
+wiz.bubble._actions[0][1]()                                # Next -> page 2
+wiz.bubble._actions[0][1]()                                # Next -> page 3
+check("...page 3 is the last: Close only, itch.io link still there",
+      wc.wizard_tr("zxnr.more3", "en")[:40] in "".join(wiz.bubble._pages)
+      and [a[0] for a in wiz.bubble._actions] == [wc.wizard_tr("btn.close", "en")]
+      and wiz.bubble._link_buttons[0].text() == wc.wizard_tr("btn.itch", "en"))
+wiz.bubble._actions[0][1]()                                # Close
+check("Close dismisses the deep dive", not wiz.bubble.isVisible())
+wiz.show_menu()
+entry = next((a for a in wiz.bubble._actions
+              if a[0] == wc.wizard_tr("btn.zxnr", "en")), None)
+check("the click menu offers the pitch", entry is not None,
+      str([a[0] for a in wiz.bubble._actions]))
+if entry is not None:
+    entry[1]()                                             # About ZX Next Remote
+    check("...and choosing it opens the pitch bubble",
+          wiz.bubble.isVisible()
+          and [a[0] for a in wiz.bubble._actions][0] == wc.wizard_tr("btn.moreinfo", "en")
+          and wiz.bubble._link_buttons[0].text() == wc.wizard_tr("btn.itch", "en"))
+wiz._dismiss()
+# The idle tick: with the pitch not yet given this session and a low roll,
+# the wizard speaks it; once given, the same roll idles as before.
+import random as _random
+_saved_random = _random.random
+wiz._zxnr_pitched = False
+_random.random = lambda: 0.0
+wiz._idle_act()
+check("a quiet idle tick brings up the pitch once a session",
+      wiz.bubble.isVisible() and wiz._zxnr_pitched
+      and [a[0] for a in wiz.bubble._actions][0] == wc.wizard_tr("btn.moreinfo", "en"))
+wiz._dismiss()
+wiz._idle_act()
+check("...and never twice in one session", not wiz.bubble.isVisible())
+_random.random = _saved_random
+check("every zxnr.* text exists in every language and names the product",
+      all("ZX Next Remote" in wc.TEXTS["zxnr.didyouknow"][lang] for lang in wc.WIZARD_LANGS)
+      and all((wc.TEXTS[f"zxnr.more{i}"].get(lang) or "").strip()
+              for i in (1, 2, 3) for lang in wc.WIZARD_LANGS))
+# The NextSync guide's Remote Explorer nodes carry the itch.io link.
+opened.clear()
+wiz._show_guide_node("nextsync", "ns.remote")
+labels = [b.text() for b in wiz.bubble._link_buttons]
+check("the Remote Explorer guide node links to ZX Next Remote on itch.io",
+      wc.wizard_tr("btn.itch", "en") in labels, str(labels))
+wiz.bubble._link_buttons[labels.index(wc.wizard_tr("btn.itch", "en"))].click()
+check("...and the link opens the itch.io page", opened == [wc.ZXNR_ITCH_URL], str(opened))
+wiz._dismiss()
+
 print()
 if FAIL:
     print(f"RESULT: {len(FAIL)} FAILURE(S)")
