@@ -18,6 +18,12 @@
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
+// Hard ceiling on ONE flush_uart_hard() call, never reset by arriving bytes
+// (5.9.3). Six times the quiet window, so a legitimate burst is still drained
+// to silence, but a peer that streams without pause can no longer keep the
+// dot in there for ever - which is what wedged a put until the Next was power
+// cycled. Bounded by unsigned short: keep it under 65535.
+#define TIMEOUT_FLUSHUART_CAP 60000
 
 // UART speed is chosen at runtime from the .sync command line, so one binary
 // covers every case (no more separate SYNCSLOW/SYNCFAST builds):
@@ -241,19 +247,32 @@ void flush_uart(void)
 // cycled - the field report behind 9.7.12: six "open ok" lines and then
 // nothing, the hang landing between the 6th mismatch and failcount++.
 //
-// A fixed window is stronger than it looks, not weaker: one iteration eats at
-// most one byte, so TIMEOUT_FLUSHUART iterations drain far more than the 2 KB
-// a frame can hold before the loop can expire. Anything still arriving after
-// that is a peer that will not stop - precisely the case we must escape - and
-// the caller's own failcount/Retry machinery handles whatever residue is left.
-// All NINE call sites get the bound from this one edit.
+// The countdown still RESETS on every byte, because "drain until the line is
+// quiet" is the semantic every caller needs - the poll loop flushes a bad
+// frame and immediately re-polls, so returning with bytes still in the fifo
+// corrupts the NEXT reply, and eight of those in a row is "Connection lost -
+// stopping". A first cut at this bound dropped the reset for a plain fixed
+// window and did exactly that on hardware: an idle listen session came back
+// to the NextZXOS menu on its own.
+//
+// What makes it terminate is the SECOND counter, which nothing resets. The
+// drain therefore ends either when the line falls quiet (normal) or when the
+// cap runs out (a peer that will not stop talking - the case we must escape),
+// and never later than that. All NINE call sites get the bound from this one
+// edit.
 void flush_uart_hard(void)
 {
     unsigned short timeout = TIMEOUT_FLUSHUART;
-    while (timeout)
+    unsigned short cap = TIMEOUT_FLUSHUART_CAP;
+    while (timeout && cap)
     {
-        if (UART_TX & 1) UART_RX;
+        if (UART_TX & 1)
+        {
+            UART_RX;
+            timeout = TIMEOUT_FLUSHUART;
+        }
         timeout--;
+        cap--;
     }
 }
 

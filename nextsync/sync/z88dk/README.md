@@ -64,8 +64,8 @@ $C000–$FFFF   (mmu6/7)              : NextZXOS (saved/restored by the crt)
 very top of mmu5; v5.2's `0xBF00` wasted the last 256 bytes, which nothing in
 the dotn crt or clib touches). The large buffers (`inbuf`,
 `scratch`, …) are file-scope statics so they land in the main bank and keep the
-stack small. Current layout (v5.9.3): main-bank content ends at `0xBEA8`
-(`__BSS_END_head` in `syncdev.map`), leaving 344 bytes of stack below `0xC000`
+stack small. Current layout (v5.9.3): main-bank content ends at `0xBEB3`
+(`__BSS_END_head` in `syncdev.map`), leaving 333 bytes of stack below `0xC000`
 (`build_dotn.ps1` refuses a build under 150; 5.7.1's proven floor is 156);
 the primary dot page ends at `0x3EF5` (`__CODE_END_tail`), 26 bytes below the
 hard `0x3F0F` line the build enforces — content past it triggers appmake's
@@ -75,7 +75,7 @@ startup/exit stack (SP = `0x4000`) and its 128-byte exit-message buffer
 **Both pools are tight — check those two numbers after any change, and treat
 that appmake warning as an error.**
 
-The 344 bytes are recent and were bought, not found: v5.9.2 ran on 160, and
+The 333 bytes are recent and were bought, not found: v5.9.2 ran on 160, and
 5.9.3's hang fixes cost 8 more (a `break_pressed()` poll and a length guard
 inside `transfer()`), which put the build at 152 — under 5.7.1's proven floor
 even though `build_dotn.ps1`'s hard guard at 150 let it through. The 192 bytes
