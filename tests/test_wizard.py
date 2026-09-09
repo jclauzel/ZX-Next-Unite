@@ -592,6 +592,99 @@ wiz.bubble._link_buttons[labels.index(wc.wizard_tr("btn.itch", "en"))].click()
 check("...and the link opens the itch.io page", opened == [wc.ZXNR_ITCH_URL], str(opened))
 wiz._dismiss()
 
+# ── corner: bottom-RIGHT since 9.7.11 ────────────────────────────────────
+# Wizzy used to live bottom-LEFT, on top of the SD Card / NextSync tabs'
+# vertical emulator strips and their Launch CSpect / Launch Mame buttons.
+# Moving it right traded that for two new neighbours, both pinned here: the
+# vertical scrollbar of every scrollable tab (the sprite is opaque to hit
+# testing over its whole rect and ATE the down-arrow's clicks), and the
+# bottom-right toast corner.
+from PySide6.QtWidgets import (QScrollArea, QVBoxLayout,             # noqa: E402
+                               QLabel, QWidget, QStyle)
+
+_cw = QWidget()
+_cl = QVBoxLayout(_cw)
+_cl.setContentsMargins(9, 9, 9, 9)
+_area = QScrollArea()
+_in = QWidget()
+_il = QVBoxLayout(_in)
+for _i in range(200):
+    _il.addWidget(QLabel("row %d" % _i))
+_area.setWidget(_in)
+_area.setWidgetResizable(True)
+_cl.addWidget(_area)
+
+_mgr = zw.WizardManager.__new__(zw.WizardManager)
+_mgr._host = _cw
+_mgr.sprite = zw.WizardSprite(_cw)
+_mgr.bubble = zw.WizardBubble(_cw)
+_mgr.bubble.show_message("Corner check.", [("Yes", lambda: None),
+                                           ("No", lambda: None)])
+
+_bad_bar, _bad_edge, _bad_bubble = [], [], []
+for _w, _h in ((1400, 900), (1000, 700), (900, 650), (420, 500)):
+    _cw.resize(_w, _h)
+    _cw.show()
+    _mgr.bubble.show()
+    _mgr.sprite.show()
+    app.processEvents()
+    _mgr._reposition()
+    app.processEvents()
+    _sp, _bb = _mgr.sprite.geometry(), _mgr.bubble.geometry()
+    if _sp.x() + _sp.width() > _w or _sp.y() + _sp.height() > _h:
+        _bad_edge.append((_w, _h))
+    if _bb.x() < 0 or _bb.y() < 0:
+        _bad_bubble.append(("offscreen", _w, _h, _bb.x(), _bb.y()))
+    elif (_sp.x() >= _bb.width() + 6
+            and _bb.x() + _bb.width() > _sp.x() + 1):
+        # Only assert "left of the sprite" where there is ROOM for it: below
+        # the app's 900 px minimum width the clamp deliberately wins, and a
+        # bubble sliding under the sprite beats one sliding off-screen.
+        _bad_bubble.append(("overlap", _w, _h, _bb.x(), _bb.width(), _sp.x()))
+    _vsb = _area.verticalScrollBar()
+    if _vsb.isVisible():
+        _bar = _vsb.rect().translated(_vsb.mapTo(_cw, _vsb.rect().topLeft()))
+        if _sp.intersects(_bar):
+            _bad_bar.append((_w, _h, str(_sp), str(_bar)))
+
+check("wizard corner: the sprite stays inside the window at every size",
+      not _bad_edge, str(_bad_edge))
+check("wizard corner: the bubble opens to the LEFT of the sprite and never "
+      "off-screen (a wide bubble on a narrow window slides into view)",
+      not _bad_bubble, str(_bad_bubble))
+check("wizard corner: the sprite never covers a scrollable tab's vertical "
+      "scrollbar (its whole rect eats clicks, not just its artwork)",
+      not _bad_bar, str(_bad_bar))
+check("wizard corner: the right margin clears a scrollbar by the STYLE's "
+      "metric, not a guess",
+      _mgr._right_margin() > QApplication.style().pixelMetric(
+          QStyle.PixelMetric.PM_ScrollBarExtent),
+      str(_mgr._right_margin()))
+
+# The promenade mirrors: it roams LEFT from the right-hand home and never
+# leaves the window.
+import random as _rnd                                                # noqa: E402
+_rnd.seed(11)
+_cw.resize(1400, 900)
+_mgr._reposition()
+_mgr._stroll_timer = type("T", (), {"start": lambda s: None,
+                                    "stop": lambda s: None,
+                                    "isActive": lambda s: False})()
+_home = _mgr._stroll_home()
+_bad_stroll = []
+for _ in range(300):
+    _mgr._start_stroll()
+    _t = _mgr._stroll_target
+    if _t < 0 or _t + _mgr.sprite.width() > 1400 or _t > _home:
+        _bad_stroll.append(_t)
+        break
+check("wizard corner: strolls roam LEFT of home and stay in the window",
+      not _bad_stroll, str(_bad_stroll))
+check("wizard corner: _reposition and _stroll_home use the SAME right "
+      "margin (they drift apart if one hardcodes it)",
+      _mgr.sprite.x() == _home, "%d vs %d" % (_mgr.sprite.x(), _home))
+
+
 print()
 if FAIL:
     print(f"RESULT: {len(FAIL)} FAILURE(S)")

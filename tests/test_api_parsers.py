@@ -691,6 +691,107 @@ with tempfile.TemporaryDirectory() as _td:
           "first listed and not the .zip", _name == "zxnextremote-1.0.10",
           str(_name))
 
+# ---- ZX Next Remote: every installed build, the picker's list (9.7.11) ------
+from zxnu_config import (ZXNEXTREMOTE_ITCH_URL,                  # noqa: E402
+                         ZXNR_NEX_FLAVORS,
+                         find_installed_zxnextremote_versions,
+                         zxnextremote_package_binary,
+                         zxnextremote_package_flavors)
+import zxnu_itchio as _zxi                                       # noqa: E402
+
+
+def _mkpkg(root, name, flavors=ZXNR_NEX_FLAVORS, extra=()):
+    """Build a fake extracted package folder holding one .nex per flavor."""
+    d = os.path.join(root, name)
+    os.makedirs(d, exist_ok=True)
+    for f in flavors:
+        with open(os.path.join(d, "zxnextremote-%s.nex" % f), "wb") as fh:
+            fh.write(b"NEX")
+    for n in extra:
+        with open(os.path.join(d, n), "wb") as fh:
+            fh.write(b"x")
+    return d
+
+
+with tempfile.TemporaryDirectory() as _td:
+    _files = os.path.join(_td, "downloads", "itchio", "jclauzel",
+                          "zxnextremote", "files")
+    os.makedirs(_files)
+    _mkpkg(_files, "zxnextremote-1.0.3")
+    _mkpkg(_files, "zxnextremote-1.0.10")
+    _mkpkg(_files, "zxnextremote-1.0.7", flavors=("n2n",))
+    os.makedirs(os.path.join(_files, "zxnextremote-1.0.9-partial"))
+    open(os.path.join(_files, "zxnextremote-1.0.10.zip"), "wb").close()
+
+    _rows = find_installed_zxnextremote_versions(_td)
+    check("ZXNR versions: newest first, NUMERIC (1.0.10 above 1.0.7)",
+          [r[0] for r in _rows] == ["zxnextremote-1.0.10",
+                                    "zxnextremote-1.0.7",
+                                    "zxnextremote-1.0.3"],
+          str([r[0] for r in _rows]))
+    check("ZXNR versions: the .zip and the .nex-less folder are not listed",
+          all("zip" not in r[0] and "partial" not in r[0] for r in _rows))
+    check("ZXNR versions: row carries the bare version string",
+          [r[2] for r in _rows] == ["1.0.10", "1.0.7", "1.0.3"],
+          str([r[2] for r in _rows]))
+    check("ZXNR versions: row carries the flavors it holds",
+          _rows[0][3] == ("httpbridge", "n2n") and _rows[1][3] == ("n2n",),
+          str([r[3] for r in _rows]))
+    check("ZXNR versions: the singular finder is NOT narrowed by the plural "
+          "one (it still answers on a .nex-less tree)",
+          find_installed_zxnextremote_version(_td)[0] is not None)
+
+    _both = os.path.join(_files, "zxnextremote-1.0.10")
+    check("ZXNR flavors: both builds, in ZXNR_NEX_FLAVORS order",
+          zxnextremote_package_flavors(_both) == ("httpbridge", "n2n"))
+    check("ZXNR flavors: a folder with no .nex is not a package",
+          zxnextremote_package_flavors(
+              os.path.join(_files, "zxnextremote-1.0.9-partial")) == ())
+    check("ZXNR flavors: an absent folder is not a package (OSError "
+          "swallowed)",
+          zxnextremote_package_flavors(os.path.join(_td, "nope")) == ())
+
+    _case = _mkpkg(_td, "zxnextremote-9.9.9", flavors=())
+    with open(os.path.join(_case, "ZXNEXTREMOTE-N2N.NEX"), "wb") as _fh:
+        _fh.write(b"NEX")
+    check("ZXNR flavors: the name compare is case-insensitive (FAT)",
+          zxnextremote_package_flavors(_case) == ("n2n",),
+          str(zxnextremote_package_flavors(_case)))
+
+    _p, _v, _r = zxnextremote_package_binary(_both, "n2n")
+    check("ZXNR binary: resolves the flavor's .nex and the folder's version",
+          _p and os.path.basename(_p) == "zxnextremote-n2n.nex"
+          and _v == "1.0.10" and _r == "", "%s %s %s" % (_p, _v, _r))
+    _p, _v, _r = zxnextremote_package_binary(
+        os.path.join(_files, "zxnextremote-1.0.7"), "httpbridge")
+    check("ZXNR binary: a missing flavor is refused, and says which",
+          _p is None and "has no zxnextremote-httpbridge.nex" in _r, _r)
+    _p, _v, _r = zxnextremote_package_binary(_mkpkg(_td, "mybuild"), "n2n")
+    check("ZXNR binary: an unversioned folder name is refused (the staged "
+          "blob check needs the version)",
+          _p is None and "does not carry a zxnextremote-<version> name" in _r,
+          _r)
+
+check("ZXNR entry: the canonical itch.io item matches",
+      _zxi.is_zxnextremote_entry({"url": ZXNEXTREMOTE_ITCH_URL}))
+check("ZXNR entry: a trailing slash and plain http still match",
+      _zxi.is_zxnextremote_entry(
+          {"url": ZXNEXTREMOTE_ITCH_URL.rstrip("/") + "/"})
+      and _zxi.is_zxnextremote_entry(
+          {"url": ZXNEXTREMOTE_ITCH_URL.replace("https://", "http://")}))
+check("ZXNR entry: another author's fork does NOT match (the hole a "
+      "substring test would reopen)",
+      not _zxi.is_zxnextremote_entry(
+          {"url": "https://someone.itch.io/zxnextremote"}))
+check("ZXNR entry: a different slug by the same author does not match",
+      not _zxi.is_zxnextremote_entry(
+          {"url": "https://jclauzel.itch.io/zxnextremote-tools"}))
+check("ZXNR entry: a title alone is not enough, and no entry is False",
+      not _zxi.is_zxnextremote_entry({"title": "ZX Next Remote"})
+      and not _zxi.is_zxnextremote_entry({})
+      and not _zxi.is_zxnextremote_entry(None))
+
+
 print()
 if FAIL:
     print(f"RESULT: {len(FAIL)} FAILURE(S)")

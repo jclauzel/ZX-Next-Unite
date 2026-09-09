@@ -44,9 +44,9 @@ from zxnu_config import (
     DEFAULT_COLOR_UP_DIRECTORY, DEFAULT_COLOR_DIR_NAME, DEFAULT_COLOR_DIR_TYPE,
     DEFAULT_COLOR_FILE_NAME, DEFAULT_COLOR_FILE_EXT, DEFAULT_COLOR_FILE_SIZE,
     DEFAULT_COLOR_GENERAL_TEXT, SPLITTER_HANDLE_QSS_HORIZONTAL, ZX_NEXT_UNITE_DOTN_VERSION,
-    deploypak_counts, hex_to_qcolor,
+    ZXNR_NEX_FLAVORS, deploypak_counts, hex_to_qcolor,
     open_path_with_system_shell, qcolor_to_hex, read_deploypak,
-    readable_text_color,
+    readable_text_color, zxnextremote_package_binary,
 )
 from zxnu_workers import (
     RE_MAX_REMOTE_PATH, RE_UPD_EXTRA_RETRIES,
@@ -141,7 +141,7 @@ def _parse_dot_version(s):
 # spelling rule — and the version floor for the self-update: the swap runs
 # through the far side's 'U' release op, which ZXNR grew in 1.0.3 (older
 # builds answer 'U' with silence).
-ZXNR_IDENT_TYPES = ("httpbridge", "n2n")
+ZXNR_IDENT_TYPES = ZXNR_NEX_FLAVORS
 ZXNR_SELF_UPDATE_FLOOR = (1, 0, 3)
 # Where a .sync5 dot lives on every Next: NextZXOS's dot-command folder,
 # the only place ".sync5" resolves from the command line. The remote
@@ -1035,6 +1035,7 @@ class RemoteExplorerWidget(QWidget):
                  on_emulator_color_changed=None, local_drives=None,
                  sync5_update_source=None, zxnr_update_source=None,
                  zxnr_update_path=None, on_zxnr_update_path_changed=None,
+                 zxnr_choose_package=None,
                  splitter_sizes=None, on_splitter_moved=None,
                  on_emulator_recheck=None, update_prompt_enabled=None,
                  on_update_prompt=None):
@@ -1115,6 +1116,15 @@ class RemoteExplorerWidget(QWidget):
         self._zxnr_update_path = str(zxnr_update_path or "").strip()
         self._on_zxnr_update_path_changed = (on_zxnr_update_path_changed
                                              or (lambda p: None))
+        # host closure choose(flavor, running_version) -> (folder, version):
+        # the ZX Next Remote BUILD PICKER (9.7.11). Every version installed on
+        # this PC is offered, an older one included — a bad build is rolled
+        # back over the wire the same way it was pushed. It lives on the host
+        # because it raises a QInputDialog and this widget must stay dialog-
+        # light enough for the offscreen suite; absent (or answering None) it
+        # falls back to the newest complete install, which is what this macro
+        # did before the picker existed.
+        self._zxnr_choose_package = zxnr_choose_package
         self._on_sync_root_changed = on_sync_root_changed or (lambda p: None)
         # Surface Next-side failures ('F' replies / abandoned transfers) to the
         # user: on_toast(title, message, variant) pops a host toast.
@@ -2766,15 +2776,21 @@ class RemoteExplorerWidget(QWidget):
                             "— fetch one via the itch.io tab or the "
                             "Settings update check first"))
                         act_none.setEnabled(False)
-                    elif (new_parsed is not None
-                            and new_parsed > remote_ver):
+                    elif new_parsed is not None:
+                        # NOT gated on "strictly newer" since 9.7.11: the
+                        # action opens a BUILD PICKER offering every version
+                        # installed here, so a same-version re-flash and a
+                        # deliberate downgrade (rolling a bad build back over
+                        # the wire) are both reachable. The label still names
+                        # the newest install as the destination because that
+                        # is what the picker preselects; the macro's own
+                        # confirm then states the version actually chosen.
                         zxnr_flavor = ident[0]
                         zxnr_old = rver
                         act_zxnr = menu.addAction(ui_tr_now(
                             "Update ZX Next Remote on this Next "
                             "({old} → {new})…").format(
                                 old=rver, new=new_ver))
-                    # same or newer installed: nothing to update.
             elif (not ident[0] and not ident[1]
                     and self._sync5_update_source is not None):
                 act_update = menu.addAction(ui_tr_now(
@@ -2789,7 +2805,18 @@ class RemoteExplorerWidget(QWidget):
         elif act_update is not None and chosen == act_update:
             self._update_dot_on_session(sid, known_old)
         elif act_zxnr is not None and chosen == act_zxnr:
-            self._update_zxnr_on_session(sid, zxnr_flavor, zxnr_old)
+            # The picker first (9.7.11), so this door and the itch.io tab's
+            # "Send via NextSync" offer the same builds under the same
+            # downgrade warning. No hook wired -> the newest install, which
+            # is what this action always sent.
+            pkg = ""
+            if self._zxnr_choose_package is not None:
+                pkg, _ver = (self._zxnr_choose_package(zxnr_flavor, zxnr_old)
+                             or ("", ""))
+                if not pkg:
+                    return
+            self._update_zxnr_on_session(sid, zxnr_flavor, zxnr_old,
+                                         package=pkg or None)
         elif chosen == act_disc:
             self._disconnect_session(sid)
 
@@ -2936,7 +2963,8 @@ class RemoteExplorerWidget(QWidget):
         self._zxnr_resolve_cache[flavor] = res
         return res
 
-    def _update_zxnr_on_session(self, sid, flavor, old_version):
+    def _update_zxnr_on_session(self, sid, flavor, old_version, *,
+                                package=None):
         """Confirm + enqueue the ("update_dot", …) macro in its ZX Next
         Remote flavor for ONE session: the staged/verified/swapped file is
         ``zxnextremote-<flavor>.nex`` and the success step's marked quit
@@ -2947,10 +2975,33 @@ class RemoteExplorerWidget(QWidget):
         source is LOCAL FILESYSTEM ONLY, so it runs right here on the UI
         thread. Delivery follows _on_sync5_resolved's rule to the letter —
         the TARGET session's OWN queue, and a wired targeted channel's
-        refusal is final (never the shared-queue fallback)."""
-        if self._zxnr_update_source is None:
-            return
-        path, version, reason = self._zxnr_resolve(flavor, fresh=True)
+        refusal is final (never the shared-queue fallback).
+
+        Returns True only when the macro was ENQUEUED — every refusal and the
+        user's own Cancel answer False (9.7.11). The session-tab callers
+        discard it; the itch.io tab's send needs it, because this method is
+        the one arm of that send with no operation tracker behind it: without
+        a verdict its status line would sit on "Sending…" forever after a
+        refusal that only wrote to this widget's log.
+
+        *package* (an extracted ``zxnextremote-X.Y.Z`` folder) pins the build
+        to one the CALLER chose — both doors into this macro offer every
+        version installed on this PC, an older one included (9.7.11).
+        Everything downstream is derived from the resolved path's DIRECTORY
+        (the sibling, deploypak.txt, the path bounds), so pinning the file
+        pins the whole package. It deliberately does NOT go through
+        _zxnr_resolve: that helper CACHES its answer per flavor and the cache
+        is the sole input to _zxnr_update_offer(), which drives the top-bar
+        "Update to X" link, its click re-check and the connect-time toast — a
+        deliberately older pick filed there would have the app offer a
+        downgrade as an upgrade until the next ident cleared it."""
+        if self._zxnr_update_source is None and package is None:
+            return False
+        if package:
+            path, version, reason = zxnextremote_package_binary(package,
+                                                                flavor)
+        else:
+            path, version, reason = self._zxnr_resolve(flavor, fresh=True)
         machine = self._machine_text_for(sid)
         if not path:
             # The reason string stays English on purpose (self-update
@@ -2960,7 +3011,7 @@ class RemoteExplorerWidget(QWidget):
                 self, ui_tr_now("ZX Next Remote update"),
                 ui_tr_now("Could not obtain the ZX Next Remote build to "
                           "send: {reason}").format(reason=reason))
-            return
+            return False
         base_default = f"zxnextremote-{flavor}.nex"
         # The OTHER flavor's build (9.7.7): a ZXNR package ships both
         # transports, and a card whose two .nex disagree on version is a
@@ -2981,7 +3032,7 @@ class RemoteExplorerWidget(QWidget):
                                      "step) — re-fetch it via the Settings "
                                      "tab's ZX Next Remote update check or "
                                      "the itch.io tab"))
-            return
+            return False
         # deploypak.txt (9.7.6): the package's extra files (.nxi menus,
         # .spr banks, whole folders), sent to the .nex's folder on the Next
         # BEFORE the build is staged — the swap ends the session. A broken
@@ -3000,7 +3051,7 @@ class RemoteExplorerWidget(QWidget):
                           "send: {reason}").format(
                               reason="its deploypak.txt is broken — "
                                      + "; ".join(problems)))
-            return
+            return False
         n_files, n_dirs = deploypak_counts(extras)
         extras = [("sibling", sib_path, sib_name)] + extras
         # The remembered path is ONE global string; pre-filling it for a
@@ -3058,7 +3109,7 @@ class RemoteExplorerWidget(QWidget):
             self, ui_tr_now("ZX Next Remote update"), body,
             QLineEdit.EchoMode.Normal, default_path)
         if not okd:
-            return
+            return False
         target = str(target).strip().replace("\\", "/")
         rdir, _, base = target.rpartition("/")
         if not rdir or not base:
@@ -3066,7 +3117,7 @@ class RemoteExplorerWidget(QWidget):
                 "ZX Next Remote update: enter the FULL path of the .nex "
                 "on the Next (e.g. {example}).").format(
                     example=ZXNR_HOME_DIR + "/" + base_default))
-            return
+            return False
         # The sibling follows the session's IDENT flavor, the target is what
         # was TYPED: the other flavor's name typed here would have its
         # build sent, then renamed aside and overwritten by itself. A
@@ -3081,7 +3132,7 @@ class RemoteExplorerWidget(QWidget):
                 "alongside the build ({file}) — this session runs a {flavor} "
                 "build, so its .nex cannot be that file; nothing was "
                 "sent.").format(path=target, file=clash, flavor=flavor))
-            return
+            return False
         # The listener copies a command's path into a 254-byte buffer and
         # TRUNCATES a longer one (the file then lands under a different
         # name — and the crc check would "verify" it there): refuse every
@@ -3098,7 +3149,7 @@ class RemoteExplorerWidget(QWidget):
                 "bytes a path on the Next may have — choose a shorter "
                 "folder; nothing was sent.").format(
                     path=too_long, limit=RE_MAX_REMOTE_PATH))
-            return
+            return False
         # The swap's renames carry BOTH names in one command ("<cur>\0
         # <cur>.bak" = 2·len + 5 bytes) through the same buffer: a .nex
         # path that fits alone can still be swapped onto a chopped name.
@@ -3108,7 +3159,7 @@ class RemoteExplorerWidget(QWidget):
                 "command longer than the {limit} bytes a listener accepts — "
                 "choose a shorter folder; nothing was sent.").format(
                     path=rdir + "/" + base, limit=RE_MAX_REMOTE_PATH))
-            return
+            return False
         self._zxnr_update_path = target
         self._on_zxnr_update_path_changed(target)
         self._log(ui_tr_now(
@@ -3131,15 +3182,16 @@ class RemoteExplorerWidget(QWidget):
                 # No targeted channel wired at all: the shared queue still
                 # reaches the DRIVEN session (it is the one draining it).
                 self._enqueue_raw(cmd)
-                return
+                return True
             self._log(ui_tr_now("That Next is no longer on the line."))
-            return
+            return False
         if self._enqueue_to(sid, cmd):
-            return
+            return True
         # The wired targeted channel refused the sid: the worker reaped
         # that session — never fall back to the shared queue (see
         # _on_sync5_resolved).
         self._log(ui_tr_now("That Next is no longer on the line."))
+        return False
 
     def _on_machine_name_edit(self):
         """The ✎ button: name/colour the machine the combo currently shows."""
@@ -4615,6 +4667,124 @@ class RemoteExplorerWidget(QWidget):
             return "empty"
         self._run_op(title, lambda: self._put_paths(paths), on_done=on_done)
         return "queued"
+
+    def send_package_plan(self, plan, remote_dir,
+                          title="Sending to the Next…", on_done=None):
+        """Public: upload a read_deploypak-shaped PLAN into ONE Next folder,
+        FLAT (9.7.11).
+
+        *plan* is the step list ``zxnu_config.zxnextremote_package_plan``
+        builds — ``("mkdir", rel)`` / ``("put", local_abs, rel)``, *rel*
+        relative to *remote_dir* — so what lands on the card is the package's
+        own layout and NOTHING else. Unlike :meth:`send_local_paths`, which
+        recreates a folder as a directory named after it (``top = basename``,
+        see _enqueue_dir_upload), this lands the files directly in
+        *remote_dir*. That method is deliberately left alone: its callers
+        (paste, cut/paste move, drag-and-drop, remote unzip, the gallery
+        sends) all depend on that nesting.
+
+        Returns "queued", "busy", "offline", "empty", or "too-long" when a
+        composed path exceeds the RE_MAX_REMOTE_PATH bytes a listener's
+        command buffer holds (it TRUNCATES a longer one, so the file would
+        land under a different name — and the 9.7.3 put verify would then
+        "verify" it there). *on_done* fires as ``on_done(ok, failures)``
+        exactly like :meth:`send_local_paths`."""
+        if not self._connected:
+            return "offline"
+        if self._op_active:
+            return "busy"
+        steps = [st for st in (plan or [])
+                 if st and st[0] in ("mkdir", "put") and st[-1]]
+        if not any(st[0] == "put" for st in steps):
+            return "empty"
+        base = _norm_remote_dir(remote_dir)
+        base = base if base.endswith("/") else base + "/"
+        for st in steps:
+            rem = base + str(st[-1]).replace("\\", "/").strip("/")
+            if len(rem.encode("utf-8", "replace")) > RE_MAX_REMOTE_PATH:
+                self._log("{} is longer than the {} bytes a path on the Next "
+                          "may have — nothing sent.".format(
+                              rem, RE_MAX_REMOTE_PATH))
+                return "too-long"
+        self._run_op(title, lambda: self._put_plan(steps, base),
+                     on_done=on_done)
+        return "queued"
+
+    def _put_plan(self, steps, base):
+        """Enqueue one send_package_plan batch: the target folder, then the
+        plan's steps, each put carrying its FULL remote path."""
+        # The target folder first: ONE esx_f_mkdir (the dot cannot create a
+        # nested path in one command), and silent when it already exists — a
+        # failed mkdir is not recorded as an operation failure (on_op_done,
+        # unless _op_toast_mkdir) — so naming a folder one level deeper than
+        # an existing one works, and anything deeper fails loudly on the puts,
+        # which is the honest outcome.
+        target = base.rstrip("/")
+        if target and not target.endswith(":"):
+            self._enqueue(("mkdir", target))
+        n = 0
+        for st in steps:
+            remote = base + str(st[-1]).replace("\\", "/").strip("/")
+            if st[0] == "mkdir":
+                self._enqueue(("mkdir", remote))
+                continue
+            # The FULL remote path, never "<dir>/": the worker appends
+            # basename(local) only to a trailing-slash target, and a plan's
+            # rel is the authority on the name.
+            self._enqueue(("put", st[1], remote))
+            n += 1
+        self._log("Uploading {} file(s) to {} …".format(
+            n, base.rstrip("/") or "/"))
+
+    def zxnr_send_route(self):
+        """How a ZX Next Remote package should reach the Next on the line
+        RIGHT NOW — ONE classifier (9.7.11), so the itch.io tab's "Send via
+        NextSync" and this widget's own update action can never grow different
+        ideas about when a running build may be swapped.
+
+        Returns ``(kind, sid, flavor, detail, default_dir)`` for the DRIVEN
+        session (the baton holder; a benched machine is never sent to):
+          "offline"  nothing on the line; sid None.
+          "upgrade"  a ZX Next Remote listener at or above
+                     ZXNR_SELF_UPDATE_FLOOR — the package goes through
+                     _update_zxnr_on_session, which sends the OTHER flavor's
+                     build and deploypak.txt's files FIRST, then stages,
+                     verifies and swaps the .nex and ends with the marked quit
+                     that soft-resets the Next. *detail* is the running
+                     version, for the confirm dialog.
+          "blocked"  a ZX Next Remote listener that cannot do that (below the
+                     floor, or a version that does not parse): *detail* is an
+                     English reason. A plain send is NOT the fallback — it
+                     would overwrite the .nex the Next is running, which is
+                     exactly what the 'U' release op exists to make safe.
+          "flat"     anything else on the line (a .sync5 dot, or an ident that
+                     never arrived): a plain flat send into a folder the
+                     caller chooses. *detail* is the reported version.
+
+        The ident comes from _peer_idents under the ACTIVE sid, never from
+        _next_ident (the top bar's DISPLAY tuple): with two Nexts on the line
+        those two diverge. *default_dir* pre-fills a destination prompt."""
+        if not self._connected or self._peer_active is None:
+            return ("offline", None, "", "", ZXNR_HOME_DIR)
+        sid = self._peer_active
+        ident = self._peer_idents.get(sid) or ("", "")
+        if ident[0] not in ZXNR_IDENT_TYPES:
+            return ("flat", sid, "", ident[1] or "", ZXNR_HOME_DIR)
+        floor = ".".join(str(x) for x in ZXNR_SELF_UPDATE_FLOOR)
+        ver = _parse_dot_version(ident[1])
+        if ver is None:
+            return ("blocked", sid, ident[0],
+                    "the version it reports ({}) cannot be read, so this app "
+                    "cannot tell whether it can swap its own .nex — copy a "
+                    "build over by hand once".format(ident[1] or "none"),
+                    ZXNR_HOME_DIR)
+        if ver < ZXNR_SELF_UPDATE_FLOOR:
+            return ("blocked", sid, ident[0],
+                    "ZX Next Remote {} on the Next predates self-update ({}), "
+                    "so it cannot swap its own .nex — copy a new build to the "
+                    "Next by hand once and it updates itself from then "
+                    "on".format(ident[1], floor), ZXNR_HOME_DIR)
+        return ("upgrade", sid, ident[0], ident[1], ZXNR_HOME_DIR)
 
     def remote_cwd(self):
         """The Next directory currently shown ("/" until a listing arrived).
