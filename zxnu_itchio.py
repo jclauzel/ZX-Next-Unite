@@ -528,6 +528,28 @@ def _author_slug_from_url(url):
     return "itchio", (_game_slug({"url": url}) or "item")
 
 
+def is_zxnextremote_entry(entry):
+    """True only for the canonical ZX Next Remote itch.io item (9.7.11).
+
+    Compares the entry's URL as an ``(author, slug)`` pair against
+    :data:`ZXNEXTREMOTE_ITCH_URL`'s — the same pair that names the on-disk
+    download folder — rather than looking for "zxnextremote" in url+title the
+    way the CSpect branches in the itch.io pane do: that substring also matches
+    a fork, a mirror or a fan re-upload, and the branch behind this predicate
+    sends OUR package with OUR deploypak semantics and, on a live ZX Next
+    Remote listener, runs its self-update macro over a file the user names.
+    The fallback branch of :func:`_author_slug_from_url` returns the author
+    ``"itchio"``, which can never match a real subdomain, so a URL that does
+    not parse is simply False; an entry with no URL is False too and takes the
+    generic send."""
+    url = ((entry or {}).get("url") or "").strip()
+    if not url:
+        return False
+    want = tuple(t.lower() for t in _author_slug_from_url(ZXNEXTREMOTE_ITCH_URL))
+    return tuple(t.lower() for t in _author_slug_from_url(url)) == want
+
+
+
 def _owned_key_for_game(game, api_key):
     """Locate *game* among the user's owned itch.io download keys and return
     ``(game_id, download_key_id)``, or ``(None, None)`` when it isn't owned.

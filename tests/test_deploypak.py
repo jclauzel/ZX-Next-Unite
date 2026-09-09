@@ -27,6 +27,7 @@ sys.path.insert(0, REPO)
 import zxnu_config                                   # noqa: E402
 import nextsync5                                     # noqa: E402
 from zxnu_config import read_deploypak, deploypak_counts, DEPLOYPAK_FILENAME  # noqa: E402
+from zxnu_config import zxnextremote_package_plan  # noqa: E402
 
 FAIL = []
 
@@ -330,6 +331,99 @@ def main():
         check("skip names compare case-insensitively",
               plan == [] and problems == [], f"{plan} / {problems}")
         _twin_agrees("skip case", pkg, ("ZXNRMENU0B.NXI",))
+
+
+        # ---- zxnextremote_package_plan: the FLAT copy a plain listener
+        # gets (9.7.11). Not the update macro's companions plan: this one
+        # INCLUDES both .nex builds and never leads with a "sibling" step.
+        def _pkg(name, flavors=("httpbridge", "n2n"), files=(),
+                 manifest=None):
+            d = os.path.join(tmp, name)
+            os.makedirs(d, exist_ok=True)
+            for f in flavors:
+                with open(os.path.join(d, "zxnextremote-%s.nex" % f),
+                          "wb") as fh:
+                    fh.write(b"NEX")
+            for n in files:
+                fp = os.path.join(d, n)
+                os.makedirs(os.path.dirname(fp), exist_ok=True)
+                with open(fp, "wb") as fh:
+                    fh.write(b"x")
+            if manifest is not None:
+                with open(os.path.join(d, DEPLOYPAK_FILENAME), "w",
+                          encoding="utf-8") as fh:
+                    fh.write(manifest)
+            return d
+
+        pk = _pkg("pk-manifest",
+                  files=("THIRD-PARTY-NOTICES.md", "ZXNextRemote-Manual.pdf",
+                         "zxnrmenu0b.nxi", "zxnrmenu0n.nxi"),
+                  manifest="THIRD-PARTY-NOTICES.md\nZXNextRemote-Manual.pdf\n"
+                           "zxnrmenu0b.nxi\nzxnrmenu0n.nxi\n")
+        plan, probs = zxnextremote_package_plan(pk)
+        rels = [st[-1] for st in plan]
+        check("pkg plan: both builds lead, then the manifest's files",
+              probs == [] and rels == ["zxnextremote-httpbridge.nex",
+                                       "zxnextremote-n2n.nex",
+                                       "THIRD-PARTY-NOTICES.md",
+                                       "ZXNextRemote-Manual.pdf",
+                                       "zxnrmenu0b.nxi", "zxnrmenu0n.nxi"],
+              str(rels))
+        check("pkg plan: the manifest itself is never sent",
+              DEPLOYPAK_FILENAME not in rels)
+        check("pkg plan: every step carries a real local file",
+              all(st[0] != "put" or os.path.isfile(st[1]) for st in plan))
+
+        pk2 = _pkg("pk-nomanifest",
+                   files=("THIRD-PARTY-NOTICES.md",
+                          "ZXNextRemote-Manual.pdf", "archive.zip"))
+        plan2, probs2 = zxnextremote_package_plan(pk2)
+        rels2 = [st[-1] for st in plan2]
+        check("pkg plan: no manifest falls back to the package's root files",
+              probs2 == [] and rels2 == ["zxnextremote-httpbridge.nex",
+                                         "zxnextremote-n2n.nex",
+                                         "THIRD-PARTY-NOTICES.md",
+                                         "ZXNextRemote-Manual.pdf"],
+              str(rels2))
+        check("pkg plan: the fallback never sends an archive",
+              not any(r.endswith(".zip") for r in rels2))
+        check("pkg plan: the fallback does not duplicate the builds",
+              rels2.count("zxnextremote-n2n.nex") == 1)
+
+        pk3 = _pkg("pk-nonex", flavors=(), files=("readme.txt",))
+        plan3, probs3 = zxnextremote_package_plan(pk3)
+        check("pkg plan: a folder with no .nex is refused as not a package",
+              plan3 == [] and probs3
+              and "is not a ZX Next Remote package" in probs3[0],
+              str(probs3))
+
+        pk4 = _pkg("pk-broken", manifest="..\n")
+        plan4, probs4 = zxnextremote_package_plan(pk4)
+        check("pkg plan: a broken manifest refuses and passes its problems "
+              "through", plan4 == [] and probs4 != [], str(probs4))
+
+        # Both named files EXIST here on purpose: a manifest naming a missing
+        # one is a broken manifest (refused), so this isolates the skip rule.
+        pk5 = _pkg("pk-selfnamed",
+                   files=("zxnrmenu0b.nxi",
+                          "zxnextremote-httpbridge.nex.bak"),
+                   manifest="zxnextremote-n2n.nex\n"
+                            "zxnextremote-httpbridge.nex.bak\n"
+                            "zxnrmenu0b.nxi\n")
+        plan5, _p5 = zxnextremote_package_plan(pk5)
+        rels5 = [st[-1] for st in plan5]
+        check("pkg plan: a manifest naming a build or a .bak sends nothing "
+              "twice (the 9.7.7 skip rule)",
+              rels5 == ["zxnextremote-httpbridge.nex", "zxnextremote-n2n.nex",
+                        "zxnrmenu0b.nxi"], str(rels5))
+
+        pk6 = _pkg("pk-subdir", files=(os.path.join("gfx", "a.spr"),),
+                   manifest="gfx\n")
+        plan6, _p6 = zxnextremote_package_plan(pk6)
+        check("pkg plan: a listed folder keeps its mkdir and its nested rel",
+              ("mkdir", "gfx") in [(st[0], st[-1]) for st in plan6]
+              and "gfx/a.spr" in [st[-1] for st in plan6],
+              str([(st[0], st[-1]) for st in plan6]))
 
         # The two constants are hand-kept twins too.
         check("DEPLOYPAK_FILENAME / DEPLOYPAK_MAX_FILES twins agree",

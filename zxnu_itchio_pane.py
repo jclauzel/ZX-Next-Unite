@@ -567,10 +567,111 @@ def build_itchio_pane(
                 # uploads files/folders recursively.
                 image_upload_external_paths([path], target_dir, on_complete=_done)
 
+            _ZXNR_DLG = "Send ZX Next Remote"
+
+            def _itchio_send_zxnr():
+                """The ZX Next Remote branch of "Send via NextSync" (9.7.11):
+                pick a build, then either run the Next's own update or copy
+                the package flat into a folder the user names.
+
+                Everything goes through the ONE pair of host chokepoints that
+                know which Next is on the line — host._re_zxnr_route classifies
+                it, host._re_zxnr_choose_package offers the builds (the same
+                closure the session tab's update action asks) and
+                host._re_zxnr_send_package does the send. Nothing here decides
+                for itself whether a running build may be swapped.
+
+                English on purpose throughout — an itch.io picker dialog and a
+                self-update advisory, both documented untranslated (CLAUDE.md's
+                zxnu_i18n row) — so no catalog entry is owed."""
+                _route = getattr(host, "_re_zxnr_route", None)
+                _choose = getattr(host, "_re_zxnr_choose_package", None)
+                _send = getattr(host, "_re_zxnr_send_package", None)
+                if _route is None or _choose is None or _send is None:
+                    _itchio_set_status(
+                        "The NextSync tab has not been built yet — open it "
+                        "once, then try again.")
+                    return
+                kind, _sid, flavor, detail, default_dir = _route()
+                if kind == "no-server":
+                    QMessageBox.information(
+                        host, _ZXNR_DLG,
+                        "ZX Next Remote is sent through a live Remote Explorer "
+                        "session, so its files land exactly where you "
+                        "choose.\n\n"
+                        "On the Next run  .sync5 -listen  (or start ZX Next "
+                        "Remote itself), then in the NextSync tab switch to "
+                        "Remote Explorer and press the start-server "
+                        "button.\n\n"
+                        "Then press “Send via NextSync” again.")
+                    return
+                if kind == "offline":
+                    QMessageBox.information(
+                        host, _ZXNR_DLG,
+                        "The Remote Explorer server is running, but no Next "
+                        "has connected to it yet.\n\n"
+                        "On the Next run  .sync5 -listen  (or start ZX Next "
+                        "Remote itself), then press “Send via "
+                        "NextSync” again.")
+                    return
+                if kind == "blocked":
+                    QMessageBox.warning(
+                        host, _ZXNR_DLG,
+                        "The Next on the line is running ZX Next Remote, but "
+                        "this app cannot update it: " + detail + ".")
+                    return
+                folder, version = _choose(flavor, detail) or ("", "")
+                if not folder:
+                    return
+                remote_dir = ""
+                if kind == "flat":
+                    # Only the plain-copy route asks: the update route's own
+                    # confirm already asks for the full path of the .nex on
+                    # the Next, and that dialog is translated.
+                    remote_dir, okd = QInputDialog.getText(
+                        host, _ZXNR_DLG,
+                        "Folder on the Next to install ZX Next Remote "
+                        "{} into.\n"
+                        "Its files land directly in this folder: both .nex "
+                        "builds and every\nfile deploypak.txt lists (menu "
+                        "screens, sprite banks, the manual).\n"
+                        "Files of the same name already there are "
+                        "overwritten.\n\n"
+                        "Folder on the Next:".format(version),
+                        QLineEdit.EchoMode.Normal, default_dir)
+                    if not okd:
+                        return
+                    remote_dir = str(remote_dir).strip().replace("\\", "/")
+                    if not remote_dir:
+                        return
+                _itchio_set_status(
+                    "Sending ZX Next Remote {} to the Next…".format(
+                        version))
+                # expect=kind: the route was classified BEFORE the
+                # modal picker, and a Next that changed under it must
+                # refuse, not silently take the other route.
+                ok, msg = _send(folder, version, remote_dir,
+                                expect=kind)
+                if not ok:
+                    _itchio_set_status(
+                        "ZX Next Remote {} was not sent.".format(version))
+                    if msg:
+                        QMessageBox.warning(host, _ZXNR_DLG, msg)
+
             def _itchio_send_via_nextsync(_=False, _e=entry):
                 """Send an installed itch.io item to a real Spectrum Next via
                 NextSync: start the NextSync server serving the item's install
-                folder. Mirrors the GetIt/ZXDB 'Send via NextSync' action."""
+                folder. Mirrors the GetIt/ZXDB 'Send via NextSync' action.
+
+                ZX Next Remote is the one special case (9.7.11): it is not
+                content, it is the program that may be RUNNING on the Next
+                receiving it, and its package is a set of files that must land
+                together in ONE folder — so it gets a build picker, a folder
+                prompt, and, when the listener answering is ZX Next Remote
+                itself, that app's own self-update rather than a plain copy."""
+                if zxnu_itchio.is_zxnextremote_entry(_e):
+                    _itchio_send_zxnr()
+                    return
                 path = zxnu_itchio.installed_path(_e, dest)
                 if not path or not os.path.isdir(path):
                     _itchio_set_status("Install this item before sending via NextSync.")
@@ -657,12 +758,21 @@ def build_itchio_pane(
                              else ("Load a disk image first (SD Card tab)"
                                    if not _img_ready
                                    else f"Send {os.path.basename(_inst_path)} → image")))
-                # Send via NextSync: needs an install.
+                # Send via NextSync: needs an install. ZX Next Remote goes its
+                # own way (a build picker, a folder on the Next, and its own
+                # self-update when the Next is running it), so say that rather
+                # than promising to "serve" the install folder. The tooltip
+                # belongs HERE and not at wire time: this runs again from the
+                # async installed-status check and would clobber it.
+                _zxnr = zxnu_itchio.is_zxnextremote_entry(entry)
                 _itchio_btn_set(
                     _v, "send_ns",
                     enabled=bool(installed_flag),
                     tooltip=("Install this item first" if not installed_flag
-                             else f"Serve {_inst_path} via NextSync"))
+                             else ("Send a ZX Next Remote build to the Next "
+                                   "(choose the version and the folder)"
+                                   if _zxnr
+                                   else f"Serve {_inst_path} via NextSync")))
                 # Uninstall: shown only when a local copy exists.
                 _itchio_btn_set(
                     _v, "uninstall",

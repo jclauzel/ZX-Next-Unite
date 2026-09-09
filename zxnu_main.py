@@ -1367,7 +1367,15 @@ class MainWindow(QMainWindow):
 
     def _position_toast(self, toast):
         """Anchor *toast* to its corner of the main window (the
-        "zxnu_toast_corner" widget property: bottom-right unless set)."""
+        "zxnu_toast_corner" widget property: bottom-right unless set).
+
+        A bottom-right toast is lifted clear of Wizzy when the wizard has
+        something on screen (9.7.11). The wizard moved to that corner in
+        9.7.11 and a toast is a top-level Qt.Tool window while the sprite and
+        its bubble are CHILD widgets, so no amount of raise_() can put them
+        above one: the toast would sit on the bubble's button row — the Yes/No
+        of the .sync5 auto-deploy offer, the first-run intro's own buttons —
+        and swallow the clicks. Stacking above it keeps both usable."""
         try:
             geo = self.frameGeometry()
             if (toast.property("zxnu_toast_corner") or "") == "bottom-left":
@@ -1375,9 +1383,33 @@ class MainWindow(QMainWindow):
             else:
                 x = max(geo.left() + 8, geo.right() - toast.width() - 24)
             y = max(geo.top() + 8, geo.bottom() - toast.height() - 24)
+            lift = self._wizard_corner_height()
+            if lift and (toast.property("zxnu_toast_corner") or "") != "bottom-left":
+                y = max(geo.top() + 8, y - lift)
             toast.move(x, y)
         except Exception:
             pass
+
+    def _wizard_corner_height(self):
+        """How many pixels of the window's bottom-RIGHT corner Wizzy is using
+        right now, 0 when it is off or hidden (9.7.11).
+
+        Read by _position_toast so a toast stacks above the wizard instead of
+        over its bubble's buttons. Best-effort by design: any failure here is
+        a cosmetic overlap, never a reason to lose a toast."""
+        try:
+            wiz = getattr(self, "_wizard", None)
+            if wiz is None or not wiz.enabled():
+                return 0
+            tall = 0
+            for w in (getattr(wiz, "sprite", None), getattr(wiz, "bubble", None)):
+                if w is not None and w.isVisible():
+                    # Both are bottom-anchored with the same 10 px margin, so
+                    # the taller one's height is the whole block's reach.
+                    tall = max(tall, w.height())
+            return (tall + 10) if tall else 0
+        except Exception:
+            return 0
 
     def _reposition_toasts(self):
         """Re-anchor every live toast after the main window moved or resized.

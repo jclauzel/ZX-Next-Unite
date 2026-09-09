@@ -36,11 +36,12 @@ from PySide6.QtGui import (QKeySequence)
 from PySide6.QtWidgets import (QWidget, QLabel, QPushButton, QCheckBox,
     QComboBox, QLineEdit, QHBoxLayout, QVBoxLayout, QProgressBar, QTreeView,
     QFileSystemModel, QGroupBox, QRadioButton, QButtonGroup, QListWidget,
-    QTabBar, QStackedWidget, QAbstractItemView, QMenu, QApplication)
+    QTabBar, QStackedWidget, QAbstractItemView, QMenu, QApplication,
+    QInputDialog, QMessageBox)
 
 from zxnu_http_bridge import NextSyncHttpBridge, QueueBridgeHost
 from zxnu_network import detect_local_ipv4
-from zxnu_remote_explorer import RemoteExplorerWidget
+from zxnu_remote_explorer import RemoteExplorerWidget, _norm_remote_dir
 from zxnu_config import *
 from zxnu_api import *
 from zxnu_gallery import *
@@ -983,6 +984,104 @@ def build_nextsync_pane(
         except Exception:
             pass
 
+    # ── ZX Next Remote: the build picker, one for both doors (9.7.11) ──
+    # Asked by the session tab's "Update ZX Next Remote on this Next…" (via
+    # the widget's zxnr_choose_package hook) AND by the itch.io tab's "Send
+    # via NextSync" (via host._re_zxnr_choose_package), so the two can never
+    # offer different builds or warn differently about a downgrade. English
+    # throughout: an itch.io picker dialog and a self-update advisory are both
+    # documented untranslated (CLAUDE.md's zxnu_i18n row), which is also why
+    # nothing here goes through ui_tr_now.
+    _RE_ZXNR_DLG = "Send ZX Next Remote"
+
+    def _re_zxnr_ver_key(text):
+        """A comparable tuple for a dotted version, ``()`` when it cannot be
+        read (the picker then simply asks nothing extra)."""
+        try:
+            return tuple(int(part) for part
+                         in str(text or "").strip().split(".") if part != "")
+        except ValueError:
+            return ()
+
+    def _re_zxnr_choose_package(flavor="", running_version=""):
+        """Ask which installed ZX Next Remote build to send.
+
+        *flavor* non-empty means the Next on the line is RUNNING ZX Next
+        Remote and the send will be its self-update: only packages holding
+        BOTH transports are offered (a card whose two .nex disagree on version
+        is a support call — the 9.7.7 rule the macro enforces anyway), and a
+        pick that is not newer than *running_version* asks for confirmation
+        first. An empty *flavor* is a plain copy to some other listener, where
+        neither applies.
+
+        Returns ``(folder, version)``, or ``("", "")`` when the user cancels
+        or nothing suitable is installed (having said so). The newest build is
+        preselected; with exactly one installed nothing is asked, matching the
+        itch.io tab's other two pickers."""
+        rows = find_installed_zxnextremote_versions(ZXNU_DATA_ROOT)
+        if flavor:
+            rows = [r for r in rows if len(r[3]) == len(ZXNR_NEX_FLAVORS)]
+        if not rows:
+            QMessageBox.warning(
+                host, _RE_ZXNR_DLG,
+                "No complete ZX Next Remote package is installed on this PC "
+                "— an update needs one holding both the httpbridge and the "
+                "n2n .nex. Fetch one from the itch.io tab first."
+                if flavor else
+                "No ZX Next Remote build is installed on this PC yet — "
+                "install it from the itch.io tab first.")
+            return ("", "")
+        if len(rows) == 1:
+            row = rows[0]
+        else:
+            names = ["{}   ({})".format(r[0], " + ".join(r[3])) for r in rows]
+            picked, okd = QInputDialog.getItem(
+                host, _RE_ZXNR_DLG,
+                "Several ZX Next Remote builds are installed on this PC.\n"
+                "Choose which one to send to the Next\n"
+                "(the newest is selected by default):",
+                names, 0, False)
+            if not okd:
+                return ("", "")
+            row = rows[names.index(picked)]
+        _name, folder, version, _flavors = row
+        if flavor:
+            # The macro's confirm reads "v{old} → v{new}" and calls the file
+            # "the new build". The picker can choose one that is NOT newer, so
+            # say what this actually is BEFORE that dialog — here, in English,
+            # rather than by prepending a paragraph into an already-translated
+            # body the suite pins line by line.
+            new_key = _re_zxnr_ver_key(version)
+            old_key = _re_zxnr_ver_key(running_version)
+            warn = ""
+            if new_key and old_key and new_key < old_key:
+                warn = (
+                    "ZX Next Remote {} is OLDER than the {} now running on "
+                    "the Next.\n\n"
+                    "Sending it is a downgrade: the running build is renamed "
+                    "aside as a .bak and this older one takes its place, "
+                    "together with the other transport's build and the files "
+                    "its deploypak.txt lists.\n\n"
+                    "Send {} anyway?".format(version, running_version,
+                                             version))
+            elif new_key and old_key and new_key == old_key:
+                warn = (
+                    "The Next is already running ZX Next Remote {}.\n\n"
+                    "Sending it again re-writes the same build over itself "
+                    "(the current one is kept as a .bak), which is worth "
+                    "doing to repair a bad copy but changes nothing "
+                    "otherwise.\n\n"
+                    "Send {} anyway?".format(version, version))
+            if warn and QMessageBox.question(
+                    host, _RE_ZXNR_DLG, warn,
+                    QMessageBox.StandardButton.Yes
+                    | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                    ) != QMessageBox.StandardButton.Yes:
+                return ("", "")
+        return (folder, version)
+    host._re_zxnr_choose_package = _re_zxnr_choose_package
+
     def _re_on_extra_drives_changed(letters):
         # The widget reports the user-declared extra Next drives (e.g. "DE"
         # for additional SD readers); persist so they reappear next session.
@@ -1130,6 +1229,10 @@ def build_nextsync_pane(
             zxnr_update_path=configuration_dictionary.get(
                 SETTING_ZXNR_UPDATE_PATH) or "",
             on_zxnr_update_path_changed=_re_on_zxnr_update_path_changed,
+            # The build picker (9.7.11): the session tab's update action
+            # and the itch.io tab's "Send via NextSync" ask the SAME
+            # closure, so they can never disagree about what is on offer.
+            zxnr_choose_package=_re_zxnr_choose_package,
             # The local ⇄ Next split (9.7.2): restored from the cfg here -
             # this widget is built lazily, after load_configuration_file's
             # splitter restore has run - and persisted by the move callback.
@@ -1679,6 +1782,123 @@ def build_nextsync_pane(
             "Sending {folder} via Remote Explorer (-listen) → {target} …"
         ).format(folder=folder, target=cwd))
         return True
+
+
+    def _re_zxnr_route():
+        """How a ZX Next Remote package can reach the Next right now: the
+        widget's own classifier, plus the state that exists BEFORE the widget
+        does (9.7.11). Kinds: "no-server", "offline", "blocked", "upgrade",
+        "flat" — see RemoteExplorerWidget.zxnr_send_route. The tuple is
+        (kind, sid, flavor, detail, default_dir)."""
+        if not getattr(host, "_re_running", False):
+            return ("no-server", None, "", "", "")
+        widget = getattr(host, "_re_widget", None)
+        if widget is None:
+            return ("no-server", None, "", "", "")
+        return widget.zxnr_send_route()
+    host._re_zxnr_route = _re_zxnr_route
+
+    def _re_zxnr_send_package(folder, version, remote_dir="",
+                              expect=""):
+        """Send ONE chosen ZX Next Remote package folder to the Next on the
+        line (9.7.11): through the self-update macro when the Next is RUNNING
+        ZX Next Remote — the other flavor's build and deploypak.txt's files
+        first, then stage/verify/swap and the marked quit that soft-resets it
+        — otherwise as a plain FLAT send into *remote_dir*.
+
+        The route is classified AGAIN here: the caller's pickers are modal and
+        the baton can move — or the Next go away — while one is open (the rule
+        _accept_update_offer follows, 9.7.2). *expect* is the kind the caller
+        classified BEFORE those dialogs, and a route that changed is REFUSED,
+        never silently swapped for the other one — the two are not
+        interchangeable in either direction. An upgrade that degraded to a
+        flat send would arrive with no destination (the caller only prompts
+        for one on the flat route) and drop the whole package in the drive
+        root; a flat send that became an upgrade would swap the .nex a Next is
+        running, having skipped the both-flavors filter and the downgrade
+        confirmation that only the upgrade picker applies.
+
+        Returns ``(ok, message)``; *message* is an English reason the caller
+        shows (a self-update advisory, documented untranslated), empty on
+        success. On the upgrade route ok=True only means the macro was handed
+        to the session: it never runs under the operation tracker, so there is
+        no on_done — its verdict arrives later as the worker's
+        dot_update(ok, message, brand) toast, titled after the brand
+        (9.7.10)."""
+        widget = getattr(host, "_re_widget", None)
+        kind, sid, flavor, detail, _dflt = _re_zxnr_route()
+        if widget is None or kind in ("no-server", "offline"):
+            return (False, "No Next is on the line any more — press "
+                           "“Send via NextSync” again.")
+        if kind == "blocked":
+            return (False, "The Next on the line is running ZX Next Remote, "
+                           "but this app cannot update it: " + detail + ".")
+        if expect and kind != expect:
+            return (False, "The Next on the line changed while you were "
+                           "choosing — press “Send via NextSync” again.")
+        if kind == "upgrade":
+            # False = a refusal or the user's Cancel inside the macro's own
+            # confirm. Those all speak for themselves (a QMessageBox, or a
+            # line in this widget's log), so the message is empty: the caller
+            # only needs to stop saying "Sending…".
+            started = widget._update_zxnr_on_session(sid, flavor, detail,
+                                                    package=folder)
+            return (True, "") if started else (False, "")
+        plan, problems = zxnextremote_package_plan(folder)
+        if problems:
+            return (False, "Could not send the ZX Next Remote package: "
+                           + "; ".join(problems) + ".")
+        if not (remote_dir or "").strip():
+            # An UNSET destination must never quietly become "/" (which is
+            # what _norm_remote_dir makes of it) — that would drop the whole
+            # package in the root of the Next's drive. A "/" the user typed
+            # on purpose is honoured; only a missing one is refused.
+            return (False, "No folder on the Next was chosen — press "
+                           "“Send via NextSync” again.")
+        # ONE composition of the destination, so the toast and the log name
+        # exactly where the files went: send_package_plan normalises through
+        # _norm_remote_dir (a missing leading slash, "..", a drive-relative
+        # path, the drive letter's case), and a raw echo of what was typed
+        # would name a path that does not exist on the card.
+        remote_dir = _norm_remote_dir(remote_dir)
+        base = remote_dir.rstrip("/")
+        sent = [base + "/" + step[-1] for step in plan if step[0] == "put"]
+
+        def _done(ok, fails):
+            if not ok:
+                # Failures were already red-toasted per file by the widget's
+                # operation tracker; a user cancel needs no banner either way.
+                return
+            if len(sent) == 1:
+                body = ui_tr_now("file {path}").format(path=sent[0])
+            else:
+                body = (ui_tr_now("{n} files:").format(n=len(sent))
+                        + "\n" + "\n".join(sent[:5]))
+                if len(sent) > 5:
+                    body += "\n" + ui_tr_now("…and {n} more").format(
+                        n=len(sent) - 5)
+            host._show_toast("✅  Sent via Remote Explorer", body,
+                             variant="green", duration_ms=8000)
+
+        state = widget.send_package_plan(
+            plan, remote_dir, title="Sending via Remote Explorer…",
+            on_done=_done)
+        if state == "queued":
+            add_nextsync_log_window(ui_tr_now(
+                "Sending {folder} via Remote Explorer (-listen) → {target} …"
+            ).format(folder=folder, target=remote_dir))
+            return (True, "")
+        if state == "busy":
+            return (False, "The Remote Explorer is still running another "
+                           "transfer — wait for it to finish and try again.")
+        if state == "too-long":
+            return (False, "That folder makes at least one path on the Next "
+                           "longer than the {} bytes a listener accepts (the "
+                           "NextSync console names it) — choose a shorter "
+                           "folder. Nothing was sent.".format(
+                               RE_MAX_REMOTE_PATH))
+        return (False, "Nothing in that package could be sent.")
+    host._re_zxnr_send_package = _re_zxnr_send_package
 
     def _nextsync_re_toggle_server():
         if host._re_running:

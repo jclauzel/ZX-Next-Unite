@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.10"
+ZX_NEXT_UNITE_VERSION = "9.7.11"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -2382,6 +2382,110 @@ def find_installed_zxnextremote_version(base_dir):
         return (None, None)
 
 
+# The two transports a ZX Next Remote release ships, spelled exactly like the
+# artifact names (zxnextremote-<flavor>.nex) and like the listener's 'Y' ident
+# type — one string has served both since ZXNR 1.0.2. It lives here rather than
+# beside zxnu_remote_explorer's ZXNR_IDENT_TYPES (which is now an alias of it)
+# because this module may not import the widget layer, and the itch.io tab
+# needs the spelling to find a package's builds on disk (9.7.11).
+ZXNR_NEX_FLAVORS = ("httpbridge", "n2n")
+
+
+def zxnextremote_package_flavors(folder):
+    """The builds a ZX Next Remote package folder actually holds, as a subset
+    of :data:`ZXNR_NEX_FLAVORS` in that order — ``()`` when it holds no
+    ``.nex`` at all, i.e. it is not a package.
+
+    One ``os.listdir`` and a case-insensitive name compare: the Next's FAT and
+    the Windows disk a package is usually authored on are case-blind while a
+    Linux checkout is not, the same rule :func:`read_deploypak` resolves its
+    manifest entries under."""
+    try:
+        names = {n.lower() for n in os.listdir(folder)}
+    except OSError:
+        return ()
+    return tuple(f for f in ZXNR_NEX_FLAVORS
+                 if "zxnextremote-{}.nex".format(f) in names)
+
+
+def find_installed_zxnextremote_versions(base_dir):
+    """EVERY ZX Next Remote build extracted under ``<base_dir>/downloads/
+    itchio/jclauzel/zxnextremote/files``, newest first (9.7.11).
+
+    Returns a list of ``(folder_name, folder_path, version, flavors)``: the
+    extract folder's name (``zxnextremote-1.1.4``), its absolute path, the
+    name's suffix after ``zxnextremote-`` (``"1.1.4"``, or ``""`` when the
+    folder does not carry that name) and the builds it holds
+    (:func:`zxnextremote_package_flavors`). Folders holding no ``.nex`` are
+    NOT listed — a half-extracted directory is not a build a user could send —
+    and the ``.zip`` the extract step leaves beside each folder drops out on
+    ``isdir``.
+
+    :func:`find_installed_zxnextremote_version` answers with the newest ONE
+    and is deliberately left as it is (it does not check for a ``.nex``, and
+    the startup update check resolves through it). This is the same layout,
+    the same walk and the same natural-order key (:func:`cspect_version_key`),
+    so a version picker built on it can never disagree with that check about
+    which build is the newest COMPLETE one."""
+    try:
+        author, slug = "jclauzel", "zxnextremote"
+        files_dir = os.path.join(base_dir, DOWNLOADS_CSPECT_DIRNAME,
+                                 author, slug, "files")
+        names = os.listdir(files_dir)
+    except OSError:
+        return []
+    prefix = "zxnextremote-"
+    found = []
+    for name in names:
+        full = os.path.join(files_dir, name)
+        if not os.path.isdir(full):
+            continue
+        flavors = zxnextremote_package_flavors(full)
+        if not flavors:
+            continue
+        version = (name[len(prefix):].strip()
+                   if name.lower().startswith(prefix) else "")
+        found.append((name, full, version, flavors))
+    try:
+        found.sort(key=lambda row: cspect_version_key(row[0]), reverse=True)
+    except TypeError:
+        # Heterogeneous names can leave an int token opposite a str one at the
+        # same position; cspect_version_newer documents the same fallback
+        # rather than letting a picker crash on a stray folder.
+        found.sort(key=lambda row: _version_stem(row[0]).lower(), reverse=True)
+    return found
+
+
+def zxnextremote_package_binary(folder, flavor):
+    """The ``zxnextremote-<flavor>.nex`` inside ONE chosen package folder, as
+    ``(path, version, reason)`` — the per-package twin of
+    ``zxnu_emulator_ops._resolve_zxnr_update_binary``, which always answers
+    with the NEWEST install (9.7.11).
+
+    The version is the folder name's suffix after ``zxnextremote-``, the same
+    rule that resolver uses, so a chosen package and an automatic one are
+    versioned identically — and an unnamed folder is refused rather than sent
+    with an empty version, because the remote update's step-0 blob check
+    degrades to a brand-only check without one and both flavors carry the same
+    brand bytes. The reasons stay English (self-update advisories are
+    documented untranslated); the caller frames them."""
+    name = os.path.basename(os.path.normpath(folder)) if folder else ""
+    prefix = "zxnextremote-"
+    version = (name[len(prefix):].strip()
+               if name.lower().startswith(prefix) else "")
+    if not version:
+        return None, None, (
+            "the chosen folder ({}) does not carry a zxnextremote-<version> "
+            "name, so its version is unknown".format(name or folder))
+    nex = os.path.join(folder, "zxnextremote-{}.nex".format(flavor))
+    if not os.path.isfile(nex):
+        return None, None, (
+            "the chosen build ({}) has no zxnextremote-{}.nex — this Next "
+            "runs the {} transport, so that is the file the swap "
+            "needs".format(name, flavor, flavor))
+    return nex, version, ""
+
+
 # ── deploypak.txt: extra files an itch.io package ships alongside its build ──
 # A ZX Next Remote package (the zxnextremote-X.Y.Z extract folder the remote
 # self-update reads its .nex from) may carry a plain-text manifest naming the
@@ -2565,6 +2669,64 @@ def deploypak_counts(plan):
     files = sum(1 for step in plan if step[0] == "put")
     folders = sum(1 for step in plan if step[0] == "mkdir")
     return files, folders
+
+
+def zxnextremote_package_plan(folder):
+    """What ONE ZX Next Remote package folder sends to a Next as a PLAIN copy
+    (9.7.11).
+
+    Returns ``(plan, problems)`` in :func:`read_deploypak`'s own step shape —
+    ``("mkdir", rel)`` / ``("put", local_abs, rel)``, *rel* relative to the
+    folder the package is installed into — so the itch.io tab's send puts
+    exactly the files the package says it needs, with no PC-side directory
+    level recreated on the card. The caller REFUSES on any problem, before a
+    byte moves (the remote update's rule for a broken manifest).
+
+    Order: both ``.nex`` builds first (a card whose two flavors disagree on
+    version is a support call), then deploypak.txt's items. A package
+    predating the manifest (0.9.x) falls back to its ROOT files,
+    non-recursively: it carries a manual and a notices file the newer packages
+    list explicitly, and dropping them only for the older build would be a
+    difference nobody could explain. Never included: ``deploypak.txt`` itself
+    (PC-side metadata), a ``.new``/``.bak`` staging leftover, and archives (the
+    ``zxnextremote-X.Y.Z.zip`` the extract step leaves BESIDE the folder is not
+    in it at all).
+
+    This is NOT the remote self-update's companions plan: that one is built in
+    ``RemoteExplorerWidget._update_zxnr_on_session``, leaves out the .nex it
+    stages and leads with the other flavor as a ``("sibling", …)`` step. The
+    two stay apart ON PURPOSE — converging them would give a manifest-less
+    package's UPDATE the fallback set above, a wire behaviour change on the one
+    path this feature must not touch."""
+    flavors = zxnextremote_package_flavors(folder)
+    if not flavors:
+        return [], ["{} holds no zxnextremote-<flavor>.nex, so it is not a "
+                    "ZX Next Remote package".format(
+                        os.path.basename(os.path.normpath(folder or "")))]
+    skip = [DEPLOYPAK_FILENAME]
+    for f in ZXNR_NEX_FLAVORS:
+        n = "zxnextremote-{}.nex".format(f)
+        skip += [n, n + ".new", n + ".bak"]
+    extras, problems = read_deploypak(folder, skip)
+    if problems:
+        return [], problems
+    if not os.path.isfile(os.path.join(folder, DEPLOYPAK_FILENAME)):
+        # No manifest (a 0.9.x package): its root files, non-recursively. The
+        # gate is the manifest FILE, not an empty plan — a manifest holding
+        # only "." is legal and means "everything but the skip names", which
+        # must not be confused with having no manifest at all.
+        low = {t.lower() for t in skip}
+        try:
+            names = sorted(os.listdir(folder))
+        except OSError as ex:
+            return [], ["{} could not be listed: {}".format(folder, ex)]
+        extras = [("put", os.path.join(folder, n), n) for n in names
+                  if n.lower() not in low
+                  and not n.lower().endswith((".zip", ".7z"))
+                  and os.path.isfile(os.path.join(folder, n))]
+    builds = [("put", os.path.join(folder, "zxnextremote-{}.nex".format(f)),
+               "zxnextremote-{}.nex".format(f)) for f in flavors]
+    return builds + extras, []
 
 
 def find_emulators_in_downloads(base_dir, scan_for_cspect=True, scan_for_hdfmonkey=True):

@@ -1,7 +1,10 @@
 """zxnu_wizard.py — Wizzy, the animated onboarding wizard.
 
 A pure-Qt (no pygame required) pixel-art assistant that lives in the
-bottom-left corner of the main window and teaches newcomers the tabs:
+bottom-RIGHT corner of the main window and teaches newcomers the tabs
+(it sat bottom-LEFT until 9.7.11, on top of the SD Card and NextSync tabs'
+vertical emulator strips and their Launch CSpect / Launch Mame buttons —
+see WizardManager._reposition):
 
 * The sprite follows the Alien Floyd / Sir Clive convention — chunky
   string-encoded pixel maps + palette (see zxnu_pygame._make_palette_sprite)
@@ -646,15 +649,55 @@ class WizardManager(QObject):
         return False
 
     def _reposition(self):
+        """Anchor sprite + bubble to the bottom-RIGHT corner.
+
+        It used to be the bottom LEFT, which is where the SD Card and
+        NextSync tabs carry their vertical emulator strips and the Launch
+        CSpect / Launch Mame buttons: a bubble sitting there covered exactly
+        the controls a tour step was talking about (9.7.11). The sprite keeps
+        the corner and the bubble opens to its LEFT, growing away from the
+        edge — and it is clamped to the window so a wide bubble on a narrow
+        window slides into view instead of off it."""
         host = self._host
         margin = 10
+        sx = host.width() - self.sprite.width() - self._right_margin()
         sy = host.height() - self.sprite.height() - margin
-        self.sprite.move(margin, max(0, sy))
-        bx = margin + self.sprite.width() + 6
+        self.sprite.move(max(0, sx), max(0, sy))
+        bx = self.sprite.x() - self.bubble.width() - 6
         by = host.height() - self.bubble.height() - margin
-        self.bubble.move(bx, max(0, by))
+        self.bubble.move(max(0, bx), max(0, by))
         self.sprite.raise_()
         self.bubble.raise_()
+        # A toast owns this corner too, and it is a top-level Qt.Tool window
+        # that no raise_() here can get under: ask the host to re-stack its
+        # live toasts above whatever the wizard is now showing.
+        try:
+            self._host._reposition_toasts()
+        except Exception:
+            pass
+
+    def _right_margin(self):
+        """Gap kept between the sprite and the window's right edge.
+
+        A scrollbar's width plus the usual margin, because the sprite is
+        opaque to hit-testing over its whole rectangle while its artwork stops
+        well short of it: parked flush right it sat on the vertical scrollbar
+        of every scrollable tab (Settings, Help, the galleries) and ATE the
+        clicks on the down-arrow and the bottom of the thumb. Measured from
+        the style so it is right on every platform and DPI."""
+        try:
+            from PySide6.QtWidgets import QApplication, QStyle
+            style = QApplication.style()
+            bar = style.pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
+        except Exception:
+            bar = 16
+        return 10 + max(0, int(bar)) + 4
+
+    def _stroll_home(self):
+        """The sprite's resting x: the bottom-right corner (see
+        _reposition). Strolls roam LEFT from here and return to it."""
+        return max(0, self._host.width() - self.sprite.width()
+                   - self._right_margin())
 
     # ── idle liveliness ──────────────────────────────────────────────────
     def _idle_act(self):
@@ -678,12 +721,18 @@ class WizardManager(QObject):
             self._start_stroll()
 
     def _start_stroll(self):
-        """Stroll to a random spot along the bottom edge, Egyptian style."""
+        """Stroll to a random spot along the bottom edge, Egyptian style.
+
+        The promenade runs LEFT from the bottom-right home corner since
+        9.7.11 — the mirror of the original, which roamed right from the
+        left corner."""
+        home = self._stroll_home()
         span = max(80, int(self._host.width() * 0.35))
+        low = max(0, home - span)
         cur = self.sprite.x()
-        target = 10 + random.randint(0, span)
+        target = random.randint(low, home)
         if abs(target - cur) < 40:
-            target = 10 if cur > 10 + span // 2 else 10 + span
+            target = home if cur < (low + home) // 2 else low
         self._stroll_target = target
         self.sprite.set_gesture("walk" if target > cur else "walk_left")
         self._stroll_timer.start()
@@ -719,6 +768,12 @@ class WizardManager(QObject):
         self._qs_pred = self._qs_then = None
         self._qs_timer.stop()
         self.sprite.set_gesture("idle")
+        # The bubble no longer needs the corner: let a live toast drop back
+        # down to it (the counterpart of the lift in _reposition).
+        try:
+            self._host._reposition_toasts()
+        except Exception:
+            pass
 
     def _on_network_changed(self, online):
         if online and self._tour_active_page and self.bubble.isVisible():

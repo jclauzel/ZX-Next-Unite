@@ -194,6 +194,7 @@ def make_widget(**kw):
         local_drives=kw.get("local_drives"),
         sync5_update_source=kw.get("sync5_update_source"),
         zxnr_update_source=kw.get("zxnr_update_source"),
+        zxnr_choose_package=kw.get("zxnr_choose_package"),
         update_prompt_enabled=kw.get("update_prompt_enabled"),
         on_update_prompt=kw.get("on_update_prompt"))
     return w, calls
@@ -2508,6 +2509,285 @@ def test_sync5_resolve_task_survives_teardown():
             check(what, False, str(exc))
 
 
+
+def _zxnr_pkg(tag, version, flavors=("httpbridge", "n2n"), extras=()):
+    """A fake extracted ZX Next Remote package folder."""
+    d = tempfile.mkdtemp(prefix="zxnr_%s_" % tag)
+    d2 = os.path.join(d, "zxnextremote-" + version)
+    os.makedirs(d2)
+    for f in flavors:
+        with open(os.path.join(d2, "zxnextremote-%s.nex" % f), "wb") as fh:
+            fh.write(b"ZXNextRemote " + version.encode())
+    for n in extras:
+        with open(os.path.join(d2, n), "wb") as fh:
+            fh.write(b"x")
+    return d2
+
+
+def test_zxnr_send_route():
+    """zxnr_send_route (9.7.11): the ONE classifier both doors ask before a
+    ZX Next Remote package moves. It follows the ACTIVE session's ident, and
+    a listener that cannot swap its own .nex is blocked, never downgraded to
+    a plain overwrite of the file it is running."""
+    w, calls = make_widget()
+    check("route: nothing on the line is offline",
+          w.zxnr_send_route()[0] == "offline", str(w.zxnr_send_route()))
+    connect_widget(w, calls)
+    w.on_peers((1, [(1, "10.0.0.5")]))
+    check("route: connected with no ident yet is a plain flat send",
+          w.zxnr_send_route()[0] == "flat", str(w.zxnr_send_route()))
+    w._peer_idents[1] = ("sync", "5.9.2")
+    kind, sid, flavor, detail, dflt = w.zxnr_send_route()
+    check("route: a .sync5 dot is a plain flat send, defaulting to c:/home",
+          (kind, sid, detail, dflt) == ("flat", 1, "5.9.2", "c:/home"),
+          str(w.zxnr_send_route()))
+    w._peer_idents[1] = ("n2n", "1.0.9")
+    check("route: a ZX Next Remote 1.0.9 listener takes the update macro",
+          w.zxnr_send_route()[:4] == ("upgrade", 1, "n2n", "1.0.9"),
+          str(w.zxnr_send_route()))
+    w._peer_idents[1] = ("n2n", "1.0.1")
+    kind, _s, _f, detail, _d = w.zxnr_send_route()
+    check("route: below the self-update floor is BLOCKED, and says why",
+          kind == "blocked" and "predates self-update (1.0.3)" in detail,
+          detail)
+    w._peer_idents[1] = ("httpbridge", "dev")
+    kind, _s, _f, detail, _d = w.zxnr_send_route()
+    check("route: an unreadable ZXNR version is blocked, never 'older'",
+          kind == "blocked" and "cannot be read" in detail, detail)
+    # Two Nexts: the route must follow the DRIVEN session, not the top bar's
+    # display tuple.
+    w.on_peers((1, [(1, "10.0.0.5"), (2, "10.0.0.6")]))
+    w._peer_idents[1] = ("sync", "5.9.2")
+    w._peer_idents[2] = ("n2n", "1.0.9")
+    w._peer_active = 1
+    check("route: with two Nexts on the line it follows the ACTIVE sid",
+          w.zxnr_send_route()[0] == "flat", str(w.zxnr_send_route()))
+
+
+def test_send_package_plan():
+    """send_package_plan (9.7.11): a package lands FLAT in the folder the
+    user names — the screenshot bug was the whole local tree recreated on
+    the card — and send_local_paths keeps nesting for everyone else."""
+    pkg = _zxnr_pkg("flat", "1.1.4", extras=("notes.md",))
+    a = os.path.join(pkg, "zxnextremote-httpbridge.nex")
+    b = os.path.join(pkg, "zxnextremote-n2n.nex")
+    c = os.path.join(pkg, "notes.md")
+    plan = [("put", a, "zxnextremote-httpbridge.nex"),
+            ("put", b, "zxnextremote-n2n.nex"),
+            ("mkdir", "sub"), ("put", c, "sub/notes.md")]
+
+    w, calls = make_widget()
+    check("flat send: offline before a Next connects",
+          w.send_package_plan(plan, "c:/home") == "offline")
+    connect_widget(w, calls)
+    w._op_active = True
+    check("flat send: busy while another operation runs",
+          w.send_package_plan(plan, "c:/home") == "busy")
+    w._op_active = False
+    check("flat send: a plan with no puts is empty",
+          w.send_package_plan([("mkdir", "x")], "c:/home") == "empty")
+
+    check("flat send: a real plan is queued",
+          w.send_package_plan(plan, "c:/home") == "queued")
+    q = drain(calls)
+    # The drive letter comes back upper-cased: _norm_remote_dir runs every
+    # remote path through _re_drive_of, which upper-cases it on purpose (the
+    # widget's own convention — esxDOS resolves either case).
+    check("flat send: the target folder is made first, then every step in "
+          "order, each put carrying its FULL remote path",
+          q == [("mkdir", "C:/home"),
+                ("put", a, "C:/home/zxnextremote-httpbridge.nex"),
+                ("put", b, "C:/home/zxnextremote-n2n.nex"),
+                ("mkdir", "C:/home/sub"),
+                ("put", c, "C:/home/sub/notes.md")], str(q))
+    base = os.path.basename(pkg)
+    check("flat send: NO enqueued path repeats the local folder name (the "
+          "nesting the screenshot showed)",
+          not any(base in str(step[-1]) for step in q), base)
+
+    w._op_active = False
+    long_rel = "x" * 300
+    check("flat send: a composed path over the listener's buffer is refused",
+          w.send_package_plan([("put", a, long_rel)], "c:/home")
+          == "too-long")
+    check("...and nothing at all was enqueued for it", drain(calls) == [])
+
+    # The shared uploader is untouched: still nests under basename(dir).
+    import inspect as _inspect
+    sig = list(_inspect.signature(
+        RemoteExplorerWidget.send_local_paths).parameters)
+    check("flat send: send_local_paths keeps its exact signature (the flat "
+          "path is a NEW method, not a widened shared one)",
+          sig == ["self", "paths", "title", "on_done"], str(sig))
+
+
+def test_zxnr_update_chosen_package():
+    """_update_zxnr_on_session(package=…) (9.7.11): the whole payload —
+    the .nex, its sibling, its deploypak items — comes from the package the
+    CALLER chose, and that choice never reaches the resolve cache the top
+    bar's "Update to X" offer reads."""
+    newest = _zxnr_pkg("new", "1.0.9")
+    older = _zxnr_pkg("old", "1.0.7", extras=("deploypak.txt", "menu.nxi"))
+    with open(os.path.join(older, "deploypak.txt"), "w",
+              encoding="utf-8") as fh:
+        fh.write("menu.nxi\n")
+
+    w, calls = make_widget(
+        zxnr_update_source=lambda flavor: (
+            os.path.join(newest, "zxnextremote-%s.nex" % flavor),
+            "1.0.9", ""))
+    connect_widget(w, calls)
+    w.on_peers((1, [(1, "10.0.0.5")]))
+
+    FakeInput.queue = [("c:/home/zxnextremote-n2n.nex", True)]
+    FakeInput.seen = []
+    calls["q_to"].clear()
+    w._update_zxnr_on_session(1, "n2n", "1.1.0", package=older)
+    sent = calls["q_to"]
+    check("chosen package: exactly one macro is enqueued, on that session",
+          len(sent) == 1 and sent[0][0] == 1, str(sent))
+    cmd = sent[0][1] if sent else ()
+    check("chosen package: the 8-tuple shape is unchanged",
+          len(cmd) == 8 and cmd[0] == "update_dot"
+          and cmd[5] == "ZXNextRemote" and cmd[6] is True, str(cmd))
+    check("chosen package: the .nex, its version and its dir come from the "
+          "CHOSEN build, not the newest one",
+          cmd[1] == os.path.join(older, "zxnextremote-n2n.nex")
+          and cmd[3] == "1.0.7" and cmd[2] == "c:/home"
+          and cmd[4] == "zxnextremote-n2n.nex", str(cmd[1:5]))
+    check("chosen package: the OPPOSITE flavor leads the companions plan, "
+          "out of the same folder",
+          cmd[7][0] == ("sibling",
+                        os.path.join(older, "zxnextremote-httpbridge.nex"),
+                        "zxnextremote-httpbridge.nex"), str(cmd[7][:1]))
+    check("chosen package: its own deploypak.txt items follow",
+          ("put", os.path.join(older, "menu.nxi"), "menu.nxi") in cmd[7],
+          str(cmd[7]))
+    check("chosen package: the resolve CACHE is untouched, so the top bar "
+          "can never offer the older build as an upgrade",
+          w._zxnr_resolve_cache == {}, str(w._zxnr_resolve_cache))
+
+    # No package -> the session-tab path, unchanged: the newest install.
+    FakeInput.queue = [("c:/home/zxnextremote-n2n.nex", True)]
+    calls["q_to"].clear()
+    w._update_zxnr_on_session(1, "n2n", "1.0.5")
+    check("no package: the default path still sends the newest install",
+          calls["q_to"] and calls["q_to"][0][1][1]
+          == os.path.join(newest, "zxnextremote-n2n.nex"),
+          str(calls["q_to"]))
+
+    # A package that cannot serve this flavor is refused before any prompt.
+    one = _zxnr_pkg("one", "1.0.8", flavors=("n2n",))
+    FakeInput.queue = []; FakeInput.seen = []
+    FakeMsg.warnings.clear(); calls["q_to"].clear()
+    w._update_zxnr_on_session(1, "httpbridge", "1.0.5", package=one)
+    check("chosen package: a build missing this Next's flavor is refused, "
+          "with nothing prompted and nothing sent",
+          calls["q_to"] == [] and FakeInput.seen == []
+          and any("has no zxnextremote-httpbridge.nex" in t
+                  for t in FakeMsg.warnings), str(FakeMsg.warnings))
+
+    unnamed = tempfile.mkdtemp(prefix="zxnr_unnamed_")
+    for f in ("httpbridge", "n2n"):
+        with open(os.path.join(unnamed, "zxnextremote-%s.nex" % f),
+                  "wb") as fh:
+            fh.write(b"NEX")
+    FakeMsg.warnings.clear(); calls["q_to"].clear()
+    w._update_zxnr_on_session(1, "n2n", "1.0.5", package=unnamed)
+    check("chosen package: a folder with no zxnextremote-<version> name is "
+          "refused (the staged blob check needs the version)",
+          calls["q_to"] == []
+          and any("does not carry a zxnextremote-<version> name" in t
+                  for t in FakeMsg.warnings), str(FakeMsg.warnings))
+
+
+
+def test_zxnr_update_reports_whether_it_started():
+    """_update_zxnr_on_session returns True ONLY when the macro was actually
+    enqueued (9.7.11). The itch.io tab's send is the one caller with no
+    operation tracker behind it: without this its status line would sit on
+    "Sending…" forever after a refusal or the user's own Cancel."""
+    pkg = _zxnr_pkg("ret", "1.0.9")
+    w, calls = make_widget(
+        zxnr_update_source=lambda flavor: (
+            os.path.join(pkg, "zxnextremote-%s.nex" % flavor), "1.0.9", ""))
+    connect_widget(w, calls)
+    w.on_peers((1, [(1, "10.0.0.5")]))
+
+    FakeInput.queue = [("c:/home/zxnextremote-n2n.nex", True)]
+    calls["q_to"].clear()
+    started = w._update_zxnr_on_session(1, "n2n", "1.0.5", package=pkg)
+    check("update reports True when the macro was enqueued",
+          started is True and len(calls["q_to"]) == 1, str(started))
+
+    # The user cancels the "Full path of the .nex on the Next" prompt.
+    FakeInput.queue = []          # empty script == a cancel
+    calls["q_to"].clear()
+    started = w._update_zxnr_on_session(1, "n2n", "1.0.5", package=pkg)
+    check("update reports False when the user cancels the path prompt, and "
+          "nothing is enqueued",
+          started is False and calls["q_to"] == [], str(started))
+
+    # A package that cannot serve the flavor: refused before any prompt.
+    one = _zxnr_pkg("ret1", "1.0.8", flavors=("n2n",))
+    FakeMsg.warnings.clear(); calls["q_to"].clear()
+    started = w._update_zxnr_on_session(1, "httpbridge", "1.0.5", package=one)
+    check("update reports False on a refusal", started is False, str(started))
+
+    # A typed path with no folder part is refused (logged, not dialogged).
+    FakeInput.queue = [("zxnextremote-n2n.nex", True)]
+    calls["q_to"].clear()
+    started = w._update_zxnr_on_session(1, "n2n", "1.0.5", package=pkg)
+    check("update reports False when the typed path names no folder",
+          started is False and calls["q_to"] == [], str(started))
+
+    # A targeted channel that refuses the sid (the worker reaped it).
+    w2, calls2 = make_widget(
+        zxnr_update_source=lambda flavor: (
+            os.path.join(pkg, "zxnextremote-%s.nex" % flavor), "1.0.9", ""),
+        enqueue_to=lambda sid, cmd: False)
+    connect_widget(w2, calls2)
+    w2.on_peers((1, [(1, "10.0.0.5")]))
+    FakeInput.queue = [("c:/home/zxnextremote-n2n.nex", True)]
+    started = w2._update_zxnr_on_session(1, "n2n", "1.0.5", package=pkg)
+    check("update reports False when the session was already reaped",
+          started is False, str(started))
+
+
+def test_zxnr_menu_picker_hook():
+    """The session tab's update action asks the host's build picker first
+    (9.7.11), so it and the itch.io tab offer the same builds; a cancel
+    sends nothing, and no hook at all keeps the pre-picker behaviour."""
+    chosen = _zxnr_pkg("pick", "1.0.7")
+    newest = _zxnr_pkg("auto", "1.0.9")
+    asked = []
+
+    def picker(flavor, running):
+        asked.append((flavor, running))
+        return (chosen, "1.0.7")
+
+    w, calls = make_widget(
+        zxnr_update_source=lambda flavor: (
+            os.path.join(newest, "zxnextremote-%s.nex" % flavor),
+            "1.0.9", ""),
+        zxnr_choose_package=picker)
+    connect_widget(w, calls)
+    w.on_peers((1, [(1, "10.0.0.5")]))
+    check("picker hook: the widget stores it",
+          w._zxnr_choose_package is picker)
+
+    # Drive the menu's chosen-action branch the way the menu does.
+    FakeInput.queue = [("c:/home/zxnextremote-n2n.nex", True)]
+    calls["q_to"].clear()
+    pkg, _v = w._zxnr_choose_package("n2n", "1.1.0")
+    w._update_zxnr_on_session(1, "n2n", "1.1.0", package=pkg)
+    check("picker hook: it is asked with the session's flavor and version",
+          asked == [("n2n", "1.1.0")], str(asked))
+    check("picker hook: the build it returns is the one sent",
+          calls["q_to"]
+          and calls["q_to"][0][1][1] == os.path.join(
+              chosen, "zxnextremote-n2n.nex"), str(calls["q_to"]))
+
 def test_update_targets():
     """Where the remote updates go (9.7.2): the .sync5 dot always to
     c:/dot with no prompt at all for a known, older dot, and a yes/no
@@ -2818,6 +3098,11 @@ def main():
         test_font_zoom()
         test_disconnect_button()
         test_session_strip()
+        test_zxnr_send_route()
+        test_send_package_plan()
+        test_zxnr_update_chosen_package()
+        test_zxnr_menu_picker_hook()
+        test_zxnr_update_reports_whether_it_started()
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")

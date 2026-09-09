@@ -82,8 +82,15 @@ emulator launch buttons below:
   the other flavour is refused; the console's `force` pushes the one build
   without it). Driven from the Remote
   Explorer (an "Update to x.y.z" link appears when the connected build is
-  older) or the `nextsync5` console — CLI examples and the manifest format
-  in the
+  older), from the itch.io tab's **Send via NextSync** on the ZX Next
+  Remote item, or from the `nextsync5` console. Both in-app doors now open
+  a **build picker** listing every version installed on this PC, newest
+  selected: you can re-flash the running build to repair a bad copy, or
+  deliberately roll back to an older one (each asks first). From the
+  itch.io tab, a Next that is *not* running ZX Next Remote instead gets a
+  plain copy of the package — both `.nex` and every `deploypak.txt` file —
+  landing **directly** in a folder you name, no sub-folders. CLI examples
+  and the manifest format in the
   [z88dk README](nextsync/sync/z88dk/README.md#updating-and-reverting-over-the-wire),
   full story on the
   [NextSync wiki page](https://github.com/jclauzel/ZX-Next-Unite/wiki/NextSync-tab).
