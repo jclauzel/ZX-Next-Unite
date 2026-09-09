@@ -174,6 +174,21 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
                 assert rx_payload(sock)[0:1] == b'O'   # server acks the 'F' block
                 cap['put_fail'] = arg
                 continue
+            # 9.7.13: replay the packet-mismatch storm that hung the 5.9.2 dot
+            # so the PC-side trace can be asserted. cap['storm'] is
+            # (restarts, retries), consumed once.
+            if cap.get('storm'):
+                _rst, _rty = cap.pop('storm')
+                for _ in range(_rst):
+                    settle(); sock.sendall(b"Restart")
+                    assert rx_payload(sock) == b"Back"
+                for _ in range(_rty):
+                    settle(); sock.sendall(b"Get")
+                    rx_payload(sock)
+                    settle(); sock.sendall(b"Retry")
+                    rx_payload(sock)
+                settle(); sock.sendall(b"Restart")
+                assert rx_payload(sock) == b"Back"
             buf = b''
             while True:
                 settle(); sock.sendall(b"Get")
@@ -1849,6 +1864,40 @@ def main():
     else:
         print("FAIL vcrc-malformed: ops=", vcap.get('ops'), "puts=", puts,
               "reds=", reds, "logs=", logs); ok = False
+
+    # 9.7.13: the PC-side protocol trace. The Next's packet-mismatch storm -
+    # what hung the 5.9.2 dot - reaches the server as "Restart"/"Retry", so it
+    # is diagnosable from here with no bytes spent in the dot. Always on, so a
+    # bug nobody can predict is already being recorded when it strikes.
+    vcap, ev = run_verify_scenario(PORT + 39, [("put", putfile, "/storm/up.bin"), ("quit",)],
+                                   cap={'storm': (2, 3)})
+    puts, reds, logs = _split(ev)
+    _rst = [ln for ln in logs if "restarted the transfer" in ln]
+    _rty = [ln for ln in logs if "asked to retry packet" in ln]
+    _sum = [ln for ln in logs if "the link is corrupting data" in ln]
+    if (puts == [(True, '/storm/up.bin')]
+            and len(_rst) == 3          # 2 up front + 1 after the retries
+            and len(_rty) == 3
+            and any("3 of the 6 it allows" in ln for ln in _rst)
+            and len(_sum) == 1
+            and "3 retry/retries and 3 restart(s)" in _sum[0]):
+        print("PASS trace-storm: Retry/Restart traced with counts, one summary, "
+              "put still completes")
+    else:
+        print("FAIL trace-storm: puts=", puts, "restarts=", _rst, "retries=", _rty,
+              "summary=", _sum); ok = False
+
+    # ...and a CLEAN put says nothing at all - the trace has to be silent in
+    # normal use or it is just noise that hides the one time it matters.
+    vcap, ev = run_verify_scenario(PORT + 40, [("put", putfile, "/quiet/up.bin"), ("quit",)])
+    puts, reds, logs = _split(ev)
+    if (puts == [(True, '/quiet/up.bin')]
+            and not [ln for ln in logs
+                     if "restarted the transfer" in ln or "asked to retry" in ln
+                     or "the link is corrupting data" in ln]):
+        print("PASS trace-quiet: a healthy put emits no protocol-health lines")
+    else:
+        print("FAIL trace-quiet: logs=", logs); ok = False
 
     # F: 'F'+OSP on 'K' (read-side OS protection) - same shape, named.
     vcap, ev = run_verify_scenario(PORT + 17, [("put", putfile, "/ospread/up.bin"), ("quit",)])
