@@ -979,6 +979,22 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
     def log(msg):
         sig.log.emit(msg)
 
+    def _re_trace(msg):
+        """A protocol-health line for the NextSync console (9.7.13).
+
+        DELIBERATELY NOT gated behind a switch: these events are rare in a
+        healthy session (a clean transfer emits none at all), and the failure
+        they diagnose is one nobody can predict - the 5.9.2 put hang appeared
+        once, after hours of idle, and an opt-in trace would have been off.
+        The cost of being always-on is a handful of lines in the one case
+        where they are the whole story.
+
+        DELIBERATELY NOT TRANSLATED, like every other packet/checksum/sequence
+        line here: a pasted log has to match the .dot source and the protocol
+        docs word for word (CLAUDE.md's zxnu_i18n row)."""
+        log(msg)
+        logging.info("nextsync protocol: %s", msg)
+
     # Bridge sinks THIS session still owes an answer to (BridgeReply.put
     # is idempotent; the list is pruned as it goes).
     owed = []
@@ -1057,6 +1073,13 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
             put_ofs = 0
             put_pkt = 0
             last_packet = b''
+            # Protocol-health counters for the CURRENT put (9.7.13). The Next
+            # asks for a "Retry" when a packet fails its checksum and a
+            # "Restart" when the packet NUMBER did not match - the mismatch
+            # storm that used to end in a hang is a burst of Restarts, and it
+            # is entirely visible from this side. See _re_trace.
+            put_retry = 0
+            put_restart = 0
             pending = None   # ("put", remote, bridge_reply|None) awaiting completion
 
             def _query_ident():
@@ -1341,6 +1364,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 put_data = job['data']
                 put_ofs = 0
                 put_pkt = 0
+                put_retry = put_restart = 0
                 pending = ("put", _newp, None, jid)
                 _re_sendpacket(conn, b"P" + _newp.encode(), 0)
                 # the Next pulls the bytes via "Get" (served below);
@@ -1416,6 +1440,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 put_data = blob
                 put_ofs = 0
                 put_pkt = 0
+                put_retry = put_restart = 0
                 pending = ("put", remote, None, jid, "extra")
                 _re_sendpacket(conn, b"P" + remote.encode(), 0)
                 # the Next pulls the bytes via "Get"; _put_finish chains
@@ -1726,6 +1751,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             continue
                         put_ofs = 0
                         put_pkt = 0
+                        put_retry = put_restart = 0
                         if remote.endswith('/') or remote.endswith('\\'):
                             remote = remote + os.path.basename(local)
                         pending = ("put", remote, reply)
@@ -2948,11 +2974,38 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     put_ofs += n
                     put_pkt += 1
                     if put_ofs >= len(put_data) and pending and pending[0] == "put":
+                        # Report the round trip only when it was NOT clean, so
+                        # a healthy transfer stays silent and a troubled one
+                        # says so in one line.
+                        if put_retry or put_restart:
+                            _re_trace(
+                                "put finished with %d retry/retries and %d "
+                                "restart(s) over %d packet(s) - the link is "
+                                "corrupting data, not losing it"
+                                % (put_retry, put_restart, put_pkt))
+                        put_retry = 0
+                        put_restart = 0
                         _put_finish(True)
                         pending = None
                 elif data == b"Retry":
+                    # Checksum failure on the Next: it wants the SAME packet
+                    # again. Rare when the wire is healthy.
+                    put_retry += 1
+                    if put_retry <= 3 or put_retry % 10 == 0:
+                        _re_trace("Next asked to retry packet %d (%d so far)"
+                                  % ((put_pkt - 1) & 0xff, put_retry))
                     _re_sendpacket(conn, last_packet, (put_pkt - 1) & 0xff)
                 elif data == b"Restart":
+                    # PACKET-NUMBER mismatch on the Next: the two sides'
+                    # counters have drifted and it is starting the file over.
+                    # This is the storm that hung the 5.9.2 dot - it gives up
+                    # after 6 in a row, so a burst approaching that is the
+                    # whole diagnosis, and it is visible from here without a
+                    # single byte spent in the dot.
+                    put_restart += 1
+                    _re_trace(
+                        "Next restarted the transfer at packet %d (%d of the "
+                        "6 it allows before giving up)" % (put_pkt, put_restart))
                     put_ofs = 0
                     put_pkt = 0
                     _re_sendpacket(conn, b"Back", 0)
