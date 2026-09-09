@@ -16,6 +16,21 @@ name: test
 # branch runs the suite TWICE, once for the push and once for the pull
 # request. This pairing gates every PR and re-gates main after each merge,
 # for half the runs.
+# `test (3.10)` and `test (3.13)` are REQUIRED status checks on main, and a
+# required check that never reports leaves the PR on "Expected - Waiting for
+# status to be reported" for good. So the pull_request trigger carries NO
+# paths-ignore: the job must always run and always report. The saving that
+# filter used to make is kept anyway - the `scope` step below decides whether
+# the EXPENSIVE steps run, so a docs-only PR still costs a runner spin-up
+# rather than two full suites.
+#
+# Do NOT re-add paths-ignore here, and do NOT move the filter into a second
+# "skip guard" workflow declaring the same job names: `paths` and
+# `paths-ignore` both match a PR that touches a .md AND a .py, so both
+# workflows would run and post two check runs called `test (3.10)`.
+#
+# push keeps its filter: nothing gates a push, so a docs-only merge re-running
+# the suite on main would be pure cost.
 on:
   push:
     branches: [main]
@@ -23,9 +38,6 @@ on:
       - "**/*.md"
       - "flatpak/**"
   pull_request:
-    paths-ignore:
-      - "**/*.md"
-      - "flatpak/**"
   workflow_dispatch:
 
 # A new push to the same branch supersedes an in-flight run: the suite
@@ -46,10 +58,59 @@ jobs:
         python-version: ["3.10", "3.13"]
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Full history so the scope step below can diff base..head.
+          fetch-depth: 0
+      - name: Does this change touch anything the suite covers?
+        id: scope
+        # The old pull_request paths-ignore, moved inside the job so the check
+        # still REPORTS on a docs-only PR (see the note on the triggers). Only
+        # a pull_request can be narrowed: a push or a manual run always runs.
+        # Fails OPEN - anything unexpected (a missing base sha, a diff that
+        # errors) runs the suite, because a false "skip" would report a green
+        # required check for code nobody tested.
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Not a pull request - running the suite."
+            exit 0
+          fi
+          base='${{ github.event.pull_request.base.sha }}'
+          head='${{ github.event.pull_request.head.sha }}'
+          if [ -z "$base" ] || [ -z "$head" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "No base/head sha - running the suite."
+            exit 0
+          fi
+          if ! changed=$(git diff --name-only "$base" "$head"); then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Could not diff - running the suite."
+            exit 0
+          fi
+          if [ -z "$changed" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Empty diff - running the suite rather than guessing."
+            exit 0
+          fi
+          echo "Changed files:"
+          echo "$changed"
+          # Anything that is NOT a .md and NOT under flatpak/ means code.
+          code=$(printf '%s\n' "$changed" \
+                 | grep -v -E '(\.md$|^flatpak/)' || true)
+          if [ -n "$code" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Code changed - running the suite."
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Only **/*.md and flatpak/** changed - skipping the suite,"
+            echo "reporting success so the required check does not hang."
+          fi
       - uses: actions/setup-python@v7
+        if: steps.scope.outputs.run == 'true'
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install Qt runtime libraries and Xvfb (headless test display)
+        if: steps.scope.outputs.run == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -58,14 +119,17 @@ jobs:
             libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 \
             libxkbcommon-x11-0 libxcb-cursor0
       - name: Install dependencies
+        if: steps.scope.outputs.run == 'true'
         run: python -m pip install -r REQUIREMENTS.txt
       - name: Lint (ruff)
+        if: steps.scope.outputs.run == 'true'
         # pyproject.toml keeps this deliberately permissive so the legacy
         # monolith is not churned; it must nevertheless stay green.
         run: |
           python -m pip install ruff
           ruff check .
       - name: Run the test suite
+        if: steps.scope.outputs.run == 'true'
         # Under Xvfb, NOT QT_QPA_PLATFORM=offscreen: the suite manages Qt
         # platforms itself (test_ui_offscreen.py opts into offscreen), and
         # test_retro_log_widget.py NEEDS the real platform — pygame crashes
