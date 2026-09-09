@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.2"
+#define SYNC_VERSION "5.9.3"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -115,22 +115,30 @@ void live_tick(void)
 }
 
 // See calc_prescalar.c for the prescalar calculation code
+// Baud prescalars, one row per rate, 8 columns indexed by the machine's
+// clock (nextreg 0x11 & 7).
+//
+// 5.9.3: TRIMMED FROM 15 ROWS TO THE 3 THAT ARE REACHABLE, reclaiming 192
+// bytes of main-bank rodata - which is stack headroom, the dot's tightest
+// budget (build_dotn.ps1 checks it every build; 5.7.1's hardware-proven
+// floor is 156 bytes and 5.7.2 corrupted the -anim state at 46). The 12
+// rows removed were never selectable: setupuart() is called exactly twice,
+// as setupuart(0) and setupuart(g_fast_uart_mode), and g_fast_uart_mode is
+// assigned one of two constants. Nothing else indexes this table.
+//
+// The mode number is therefore a PRIVATE index, not a wire or config value -
+// it is a static, set once from g_syncmode and never persisted, sent or
+// parsed - so renumbering it breaks no compatibility with anything, on the
+// card or on the PC. Keep it that way: if a mode number ever has to leave
+// this program, map it to a stable name first.
+//
+// ADDING A RATE means adding its row here AND its index in the
+// g_fast_uart_mode assignment; the old 15-row table is in the 5.9.2 source
+// if a rate needs to come back.
 static const unsigned short prescalar_values[] = {
   243,   248,   255,   260,   269,   277,   286,   234, // (0) 115200
-  486,   496,   511,   520,   538,   555,   572,   468, // (1) 57600
-  729,   744,   767,   781,   807,   833,   859,   703, // (2) 38400
-  896,   914,   942,   960,   992,  1024,  1056,   864, // (3) 31250
- 1458,  1488,  1534,  1562,  1614,  1666,  1718,  1406, // (4) 19200
- 2916,  2976,  3069,  3125,  3229,  3333,  3437,  2812, // (5) 9600
- 5833,  5952,  6138,  6250,  6458,  6666,  6875,  5625, // (6) 4800
-11666, 11904, 12276, 12500, 12916, 13333, 13750, 11250, // (7) 2400
-  121,   124,   127,   130,   134,   138,   143,   117, // (8) 230400
-   60,    62,    63,    65,    67,    69,    71,    58, // (9) 460800
-   48,    49,    51,    52,    53,    55,    57,    46, // (10) 576000
-   30,    31,    31,    32,    33,    34,    35,    29, // (11) 921600
-   24,    24,    25,    26,    26,    27,    28,    23, // (12) 1152000
-   18,    19,    19,    20,    20,    21,    22,    18, // (13) 1500000
-   14,    14,    14,    15,    15,    16,    16,    13  // (14) 2000000    
+   24,    24,    25,    26,    26,    27,    28,    23, // (1) 1152000
+   14,    14,    14,    15,    15,    16,    16,    13  // (2) 2000000
 };
 
 // Uart setup based on code by D. ‘Xalior’ Rimron-Soutter
@@ -221,17 +229,30 @@ void flush_uart(void)
     }
 } 
 
-// Do the maximum effort to empty the uart.
+// Drain the uart for a FIXED window, then leave.
+//
+// 5.9.3: the countdown used to be RESET by every byte that arrived
+// ("timeout = TIMEOUT_FLUSHUART" inside the if), so while ANYTHING kept
+// coming this never returned - the only unbounded wait left in the transfer
+// path (cipxfer/atcmd/bufinput/send all run on TIMEOUT; receive() is walled
+// at inbuf+2048 in uart.asm). transfer()'s mismatch arm calls it once per
+// failed round, so a Next whose packet stream had desynced entered it and
+// stopped polling, stopped animating and ignored BREAK until it was power
+// cycled - the field report behind 9.7.12: six "open ok" lines and then
+// nothing, the hang landing between the 6th mismatch and failcount++.
+//
+// A fixed window is stronger than it looks, not weaker: one iteration eats at
+// most one byte, so TIMEOUT_FLUSHUART iterations drain far more than the 2 KB
+// a frame can hold before the loop can expire. Anything still arriving after
+// that is a peer that will not stop - precisely the case we must escape - and
+// the caller's own failcount/Retry machinery handles whatever residue is left.
+// All NINE call sites get the bound from this one edit.
 void flush_uart_hard(void)
 {
     unsigned short timeout = TIMEOUT_FLUSHUART;
     while (timeout)
     {
-        if (UART_TX & 1)
-        {
-            UART_RX;
-            timeout = TIMEOUT_FLUSHUART;
-        }
+        if (UART_TX & 1) UART_RX;
         timeout--;
     }
 }
@@ -366,6 +387,13 @@ void cipxfer(char *cmd, unsigned char cmdlen, unsigned char *output, unsigned sh
     unsigned short timeout = 5; // relatively small timeout needed because bufinput has timeout
     cipsendcmd[13] = '0' + cmdlen;
     *len = 0;
+    // 5.9.3: assign *dataptr HERE, not only on the success path. Both early
+    // returns below used to leave it untouched, so transfer()'s caller-side
+    // local stayed uninitialised and "dp[len - 1]" read through a garbage
+    // pointer - a wild read that can itself MANUFACTURE the packetno mismatch
+    // that starts a retry storm. Hoisted, not added: the success path's own
+    // assignment goes away, so this costs nothing.
+    *dataptr = output + 2;
     if (atcmd(cipsendcmd, ">", 1, output)) // cipsend prompt
     {
         return;
@@ -389,7 +417,8 @@ void cipxfer(char *cmd, unsigned char cmdlen, unsigned char *output, unsigned sh
         timeout--;
     }
     while (timeout && received < expected);
-    *dataptr = output + 2; // skip size bytes
+    // *dataptr was set at the top of the function (5.9.3) so the early
+    // returns above cannot leave the caller's pointer uninitialised.
     *len = received - 2; // reduce size bytes    
 }
 
@@ -448,6 +477,10 @@ unsigned char createfilewithpath(char * fn)
     return filehandle;
 }
 
+// Defined further down (with the -listen machinery it was written for);
+// transfer() has polled it since 5.9.3, so it needs the prototype here.
+unsigned char break_pressed(void);
+
 char transfer(char *fn, unsigned char *inbuf)
 {
     unsigned char *dp;
@@ -468,7 +501,27 @@ restart:
     {
         cipxfer("Get", 3, inbuf, &len, &dp);
 retry:
-        if (dp[len - 1] != packetno)
+        // 5.9.3: the link is idle here (the next command has not been sent),
+        // which makes this the one point EVERY round passes through - good
+        // packet, bad checksum or packetno mismatch alike. Three things
+        // therefore live here rather than in the good-packet arm below:
+        //
+        //  * anim_tick()/spin(1). They used to run only on a GOOD packet, so
+        //    a retry storm froze the display and the machine looked dead
+        //    while it was in fact still working (the 9.7.12 report). A frozen
+        //    spinner now means STOPPED, not "retrying".
+        //  * break_pressed(). transfer() had no BREAK check at all: the poll
+        //    loop's own comment notes it is sampled strictly BETWEEN
+        //    commands, and one put is one command, so BREAK was dead for a
+        //    whole file. A user watching a storm can now stop it.
+        //  * a len guard. len == 0 (both cipxfer early returns) made this
+        //    read dp[-1]; *dataptr is always assigned now, but comparing a
+        //    length byte against packetno is still meaningless - treat a
+        //    short frame as the mismatch it is.
+        anim_tick();
+        spin(1);
+        if (break_pressed()) goto failure;
+        if (len < 3 || dp[len - 1] != packetno)
         {
             if (len == 5+3 && checksum(dp, len - 3) == 0 && memcmp(dp, "Error", 5) == 0)
             {
@@ -490,12 +543,9 @@ retry:
             fwrite(filehandle, dp, len);
             packetno++;
             failcount = 0;
-            // Between packets the link is idle (the next "Get" has not been
-            // sent), so a sprite step + a spinner pose cost nothing and keep
-            // a multi-MB download visibly alive. Both self-limit to one step
-            // per frame.
-            anim_tick();
-            spin(1);
+            // (the sprite step + spinner pose moved up to retry:, 5.9.3, so
+            // a retry storm animates too - both still self-limit to one step
+            // per frame)
         }
         else
         {
@@ -1229,7 +1279,10 @@ int main(int arglen, char *rawcmd)
     g_syncmode = MODE_FAST; // default when no -slow/-default/-fast is given
     parse_speed_switches(cleancmd);
     cmdline = cleancmd;
-    g_fast_uart_mode = (g_syncmode == MODE_FAST) ? 14 : 12;
+    // Row indices into the trimmed prescalar_values (5.9.3): 2 = 2000000,
+    // 1 = 1152000. They were 14 and 12 against the old 15-row table - change
+    // both together or the dot sets a wild baud rate and goes deaf.
+    g_fast_uart_mode = (g_syncmode == MODE_FAST) ? 2 : 1;
 
     // Optional retro look (-dark/-d), restored at terminate: green ink (4) on
     // black paper (0). We poke the ZX attribute sysvars (ATTR_P permanent 23693,

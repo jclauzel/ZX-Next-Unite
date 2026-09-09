@@ -8357,6 +8357,8 @@ _TOAST_CATALOGS = {
             "Le Next s'est déconnecté du Remote Explorer NextSync.",
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Annulation — s'arrêtera une fois le transfert du fichier en cours terminé, afin d'éviter toute corruption de fichier…",
+        "Cancelled: the Next stopped answering, so the transfer was let go after {seconds}s. The file that was in flight may be incomplete on the Next.":
+            "Annulé : le Next a cessé de répondre, le transfert a donc été abandonné après {seconds} s. Le fichier en cours de transfert est peut-être incomplet sur le Next.",
         "NextSync server started": "Serveur NextSync démarré",
         "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "L'offre de mise à jour ne s'applique plus : le Next s'est déconnecté, ou un autre Next est piloté maintenant.",
         "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Mise à jour de .sync5 sur {machine} : v{old} → v{new}, dans {target} (l'ancien dot est conservé sous sync5.bak). La session se termine à la fin de la mise à jour — relancez ensuite {command} sur le Next.",
@@ -8479,6 +8481,8 @@ _TOAST_CATALOGS = {
             "El Next se ha desconectado del Remote Explorer de NextSync.",
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Cancelando — se detendrá cuando el archivo actual termine de transferirse, para evitar la corrupción de archivos…",
+        "Cancelled: the Next stopped answering, so the transfer was let go after {seconds}s. The file that was in flight may be incomplete on the Next.":
+            "Cancelado: el Next dejó de responder, así que la transferencia se abandonó tras {seconds} s. El archivo que estaba en curso puede estar incompleto en el Next.",
         "NextSync server started": "Servidor NextSync iniciado",
         "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "La oferta de actualización ya no se aplica: el Next se desconectó, o ahora se controla otro Next.",
         "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Actualizando .sync5 en {machine}: v{old} → v{new}, en {target} (el dot anterior se conserva como sync5.bak). La sesión termina cuando la actualización se completa — vuelve a ejecutar {command} en el Next después.",
@@ -8601,6 +8605,8 @@ _TOAST_CATALOGS = {
             "O Next desligou-se do Remote Explorer do NextSync.",
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "A cancelar — vai parar quando o ficheiro atual acabar de ser transferido, para evitar a corrupção de ficheiros…",
+        "Cancelled: the Next stopped answering, so the transfer was let go after {seconds}s. The file that was in flight may be incomplete on the Next.":
+            "Cancelado: o Next deixou de responder, por isso a transferência foi abandonada ao fim de {seconds} s. O ficheiro que estava a ser enviado pode estar incompleto no Next.",
         "NextSync server started": "Servidor NextSync iniciado",
         "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "A oferta de atualização já não se aplica: o Next desligou-se, ou agora é outro Next que está a ser controlado.",
         "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "A atualizar o .sync5 em {machine}: v{old} → v{new}, em {target} (o dot anterior fica guardado como sync5.bak). A sessão termina quando a atualização concluir — volte a executar {command} no Next depois.",
@@ -8723,6 +8729,8 @@ _TOAST_CATALOGS = {
             "Next rozłączył się z Remote Explorerem NextSync.",
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Anulowanie — zatrzyma się, gdy bieżący plik zakończy przesyłanie, aby uniknąć uszkodzenia plików…",
+        "Cancelled: the Next stopped answering, so the transfer was let go after {seconds}s. The file that was in flight may be incomplete on the Next.":
+            "Anulowano: Next przestał odpowiadać, więc transfer został porzucony po {seconds} s. Plik, który był przesyłany, może być niekompletny na Nexcie.",
         "NextSync server started": "Serwer NextSync uruchomiony",
         "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "Oferta aktualizacji już nie obowiązuje: Next się rozłączył lub sterowany jest teraz inny Next.",
         "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Aktualizacja .sync5 na {machine}: v{old} → v{new}, w {target} (poprzedni dot zostaje zachowany jako sync5.bak). Sesja kończy się po zakończeniu aktualizacji — uruchom potem ponownie {command} na Next.",
@@ -8845,6 +8853,8 @@ _TOAST_CATALOGS = {
             "Next отключился от Remote Explorer NextSync.",
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Отмена — остановится, когда завершится передача текущего файла, чтобы избежать повреждения файлов…",
+        "Cancelled: the Next stopped answering, so the transfer was let go after {seconds}s. The file that was in flight may be incomplete on the Next.":
+            "Отменено: Next перестал отвечать, поэтому передача была прервана через {seconds} с. Файл, который передавался, может оказаться неполным на Next.",
         "NextSync server started": "Сервер NextSync запущен",
         "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "Предложение обновления больше не действует: Next отключился или теперь управляется другой Next.",
         "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Обновление .sync5 на {machine}: v{old} → v{new}, в {target} (прежний dot сохранён как sync5.bak). Сессия завершится после обновления — затем снова запустите {command} на Next.",
@@ -8967,6 +8977,8 @@ _TOAST_CATALOGS = {
             "Next se odpojil od Remote Exploreru NextSync.",
         "Cancelling — will stop once the current file has finished transferring, to avoid file corruption…":
             "Rušení — zastaví se, jakmile se dokončí přenos aktuálního souboru, aby nedošlo k poškození souborů…",
+        "Cancelled: the Next stopped answering, so the transfer was let go after {seconds}s. The file that was in flight may be incomplete on the Next.":
+            "Zrušeno: Next přestal odpovídat, a tak byl přenos po {seconds} s opuštěn. Soubor, který se právě přenášel, může být na Nextu neúplný.",
         "NextSync server started": "Server NextSync spuštěn",
         "The update offer no longer applies: the Next disconnected, or another Next is driven now.": "Nabídka aktualizace už neplatí: Next se odpojil, nebo je nyní řízen jiný Next.",
         "Updating .sync5 on {machine}: v{old} → v{new}, in {target} (the previous dot is kept as sync5.bak). The session ends when the update completes — run {command} on the Next again afterwards.": "Aktualizace .sync5 na {machine}: v{old} → v{new}, v {target} (předchozí dot zůstává jako sync5.bak). Relace skončí po dokončení aktualizace — poté na Next znovu spusťte {command}.",
