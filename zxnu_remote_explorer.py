@@ -2039,25 +2039,33 @@ class RemoteExplorerWidget(QWidget):
         QTimer.singleShot(RE_CANCEL_GRACE_MS, self._op_cancel_timeout)
 
     def _op_cancel_timeout(self):
-        """The cancel grace period expired (9.7.12).
+        """The cancel grace period expired: stop WAITING (9.7.12).
 
-        Only force the end when NOTHING completed since the cancel: a batch
-        still making progress is finishing normally and must be left alone to
-        land its current file whole. A stuck one is released, and says so —
-        the bytes already on the Next are not rolled back, and the file that
-        was in flight may be short."""
+        What this measures is deliberately modest, and the wording has to
+        match it. ``_op_completed`` counts finished COMMANDS, not bytes
+        (_op_step_done is the only thing that raises it), so a single large
+        file is one command and shows no progress until it lands. This timer
+        therefore cannot tell "the Next died" from "this file is just big" —
+        and it does not need to, because it does not abort anything:
+        _end_operation only releases the UI (dialog, overlay, panes). A put
+        already in flight keeps running in the worker and normally still
+        lands; a genuinely dead peer is caught separately by the worker's
+        PEER_SILENCE_LIMIT, which ends the session and the operation with it.
+
+        So: no claim about WHY, and no claim that the file was lost."""
         if not self._op_active or not self._op_cancelled:
             return
         if self._op_completed > getattr(self, "_op_cancel_mark", 0):
-            # Progress since the cancel: still alive, give it another slice.
+            # Something finished since the cancel: the batch is still landing
+            # files, so leave it alone and look again later.
             self._op_cancel_mark = self._op_completed
             QTimer.singleShot(RE_CANCEL_GRACE_MS, self._op_cancel_timeout)
             return
         self._log(ui_tr_now(
-            "Cancelled: the Next stopped answering, so the transfer was let "
-            "go after {seconds}s. The file that was in flight may be "
-            "incomplete on the Next.").format(
-                seconds=int(RE_CANCEL_GRACE_MS / 1000)))
+            "Cancelled: stopped waiting for the transfer in flight after "
+            "{seconds}s. It was not aborted — if the Next is still "
+            "answering it will finish on its own. Refresh the Next pane to "
+            "check.").format(seconds=int(RE_CANCEL_GRACE_MS / 1000)))
         self._end_operation()
 
     # ---- background mode: dialog closed, only the Next pane blocked ----
