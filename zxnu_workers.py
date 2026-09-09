@@ -814,6 +814,14 @@ RE_UPD_EXTRA_RETRIES = 3
 #: 254-byte buffer and silently TRUNCATES a longer one (nextsync.c, the
 #: command parse) — a put would then land under a different name. The update
 #: macro refuses every composed name over this before a byte moves.
+# How long a user cancel waits for an in-flight transfer before letting go
+# (9.7.12). Cancel deliberately waits for the current file so nothing is
+# left half-written, but a Next that has stopped answering never reports
+# that file done, which used to wedge the operation for good. Comfortably
+# past PEER_SILENCE_LIMIT (45 s), so the worker's own dead-peer detector
+# gets first refusal and this only fires when even that did not arrive.
+RE_CANCEL_GRACE_MS = 60000
+
 RE_MAX_REMOTE_PATH = 254
 
 

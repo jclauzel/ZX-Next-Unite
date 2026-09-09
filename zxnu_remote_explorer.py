@@ -49,7 +49,7 @@ from zxnu_config import (
     readable_text_color, zxnextremote_package_binary,
 )
 from zxnu_workers import (
-    RE_MAX_REMOTE_PATH, RE_UPD_EXTRA_RETRIES,
+    RE_CANCEL_GRACE_MS, RE_MAX_REMOTE_PATH, RE_UPD_EXTRA_RETRIES,
     CompactButton, DotDotFirstProxyModel, HdfProgressDialog,
     as_emulator_launch,
     bind_select_all_except_updir, zip_create_with_dialog,
@@ -2022,6 +2022,43 @@ class RemoteExplorerWidget(QWidget):
         # If nothing was in flight, we're already finished.
         if self._op_completed >= self._op_total:
             self._end_operation()
+            return
+        # 9.7.12: "waits for the in-flight transfer" USED TO MEAN FOREVER.
+        # Waiting is right — a half-written file on the card is worse than a
+        # slow cancel — but only while the Next is still answering. A Next
+        # that has stopped talking mid-put (the 5.9.2 flush_uart_hard hang:
+        # the machine sat draining its UART, polled nothing and ignored
+        # BREAK) never reports that put done, so _op_completed never reached
+        # _op_total and the operation, the Next pane's overlay and the
+        # progress dialog were all wedged until the app was killed. The
+        # worker gives up on a silent peer after PEER_SILENCE_LIMIT and ends
+        # the session, which does end the op — so this is the backstop for
+        # the case where even that does not arrive. Cancel is now bounded:
+        # ask, wait, and if nothing has moved, let go.
+        self._op_cancel_mark = self._op_completed
+        QTimer.singleShot(RE_CANCEL_GRACE_MS, self._op_cancel_timeout)
+
+    def _op_cancel_timeout(self):
+        """The cancel grace period expired (9.7.12).
+
+        Only force the end when NOTHING completed since the cancel: a batch
+        still making progress is finishing normally and must be left alone to
+        land its current file whole. A stuck one is released, and says so —
+        the bytes already on the Next are not rolled back, and the file that
+        was in flight may be short."""
+        if not self._op_active or not self._op_cancelled:
+            return
+        if self._op_completed > getattr(self, "_op_cancel_mark", 0):
+            # Progress since the cancel: still alive, give it another slice.
+            self._op_cancel_mark = self._op_completed
+            QTimer.singleShot(RE_CANCEL_GRACE_MS, self._op_cancel_timeout)
+            return
+        self._log(ui_tr_now(
+            "Cancelled: the Next stopped answering, so the transfer was let "
+            "go after {seconds}s. The file that was in flight may be "
+            "incomplete on the Next.").format(
+                seconds=int(RE_CANCEL_GRACE_MS / 1000)))
+        self._end_operation()
 
     # ---- background mode: dialog closed, only the Next pane blocked ----
     def _op_background_now(self):
