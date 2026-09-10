@@ -11,6 +11,8 @@ from zxnu_http_bridge import BridgeReply
 import zxnu_workers
 from zxnu_workers import (RemoteExplorerSignals, run_remote_listen_server,
                           re_peer_answers_crc, re_verify_wait)
+import nextsync5                       # the console twin, for the parity check
+import zxnu_http_bridge                # the bridge's own copy (9.7.17)
 
 PORT = 2049
 
@@ -2039,6 +2041,44 @@ def main():
         print("PASS vcrc-signal: put_verify_failed(str)")
     else:
         print("FAIL vcrc-signal:", seen_v); ok = False
+
+    # ── the crc-floor twins agree (9.7.17) ───────────────────────────────
+    # THREE hand-kept copies of one table now: this worker's, the console
+    # server's (nextsync5.py imports no app module on purpose) and the HTTP
+    # bridge's (it must host under BOTH, so it imports neither). Discipline
+    # has not been enough - the predicates around these constants already
+    # diverged in shape - and drift here is not cosmetic: the bridge would
+    # tell a far client "this peer cannot verify" about a peer the worker
+    # is happily verifying against, which silently disables an integrity
+    # check. A tripwire costs one comparison. Precedent: test_deploypak's
+    # _twin_agrees.
+    _floors = (("zxnu_workers.RE_CRC_FLOORS", zxnu_workers.RE_CRC_FLOORS),
+               ("nextsync5.CRC_FLOORS", nextsync5.CRC_FLOORS),
+               ("zxnu_http_bridge.BR_CRC_FLOORS",
+                zxnu_http_bridge.BR_CRC_FLOORS))
+    if all(t[1] == _floors[0][1] for t in _floors):
+        print("PASS twin: all three crc-floor tables agree")
+    else:
+        print("FAIL twin: crc-floor tables have DRIFTED:",
+              [(n, t) for n, t in _floors]); ok = False
+
+    # And the bridge's strict verdict must never contradict the worker's
+    # gate: anything the bridge is willing to call PROVABLY old, the worker
+    # must also decline to ask. (The reverse is allowed and expected - the
+    # worker is conservative about four kinds of "unknown"; the bridge is
+    # only ever sure about one kind of "old".)
+    _idents = [("sync", "5.9.1"), ("sync", "5.9.2"), ("sync", "5.10.0"),
+               ("n2n", "1.0.7"), ("n2n", "1.0.8"), ("httpbridge", "1.1.9"),
+               ("httpbridge", "1.0.7"), ("weird", "9.9.9"),
+               ("sync", "banana"), ("sync", ""), ("", "1.0.8")]
+    _bad = [i for i in _idents
+            if zxnu_http_bridge.peer_lacks_crc(
+                {"ok": True, "type": i[0], "number": i[1]})
+            and re_peer_answers_crc(*i)]
+    if not _bad:
+        print("PASS twin: the bridge never calls a verifiable peer too old")
+    else:
+        print("FAIL twin: bridge/worker disagree on", _bad); ok = False
 
     shutil.rmtree(tmp, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")

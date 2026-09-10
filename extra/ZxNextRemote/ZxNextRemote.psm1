@@ -301,7 +301,17 @@ class ZxNextBridgeHttp {
             $advice = 'the bridge rejected the arguments.'
         } elseif ($status -eq 501) {
             $reason = [ZxNextRemoteError]::Unsupported
-            $advice = 'this bridge host does not implement that verb.'
+            # Two subjects since Unite 9.7.17, and the body says which: the
+            # HOST not implementing the verb, or - on /crc - the far
+            # LISTENER's build not implementing the op (it is refused up
+            # front from its own version ident, so no 'K' is sent). Both
+            # demand the same thing of a caller: stop asking, fall back.
+            $advice = if ($detail -match 'no-crc-op') {
+                "the Next's listener predates the crc op (.sync v5.9.2 / " +
+                'ZX Next Remote 1.0.8); use /sum, or update the listener.'
+            } else {
+                'this bridge host does not implement that verb.'
+            }
         } elseif ($status -eq 502) {
             $reason = [ZxNextRemoteError]::NextRefused
             $advice = 'the Next reported a failure.'
