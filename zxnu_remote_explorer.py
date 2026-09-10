@@ -2032,8 +2032,10 @@ class RemoteExplorerWidget(QWidget):
         # _op_total and the operation, the Next pane's overlay and the
         # progress dialog were all wedged until the app was killed. The
         # worker gives up on a silent peer after PEER_SILENCE_LIMIT and ends
-        # the session, which does end the op — so this is the backstop for
-        # the case where even that does not arrive. Cancel is now bounded:
+        # the session, which does end the op — 45 s when this was written,
+        # 400 s since 9.7.18 (paired with ZX Next Remote 1.2.0's guard), so
+        # this grace now fires FIRST and is what releases the UI; the
+        # worker's verdict follows later. Cancel is bounded either way:
         # ask, wait, and if nothing has moved, let go.
         self._op_cancel_mark = self._op_completed
         QTimer.singleShot(RE_CANCEL_GRACE_MS, self._op_cancel_timeout)
@@ -2050,7 +2052,8 @@ class RemoteExplorerWidget(QWidget):
         _end_operation only releases the UI (dialog, overlay, panes). A put
         already in flight keeps running in the worker and normally still
         lands; a genuinely dead peer is caught separately by the worker's
-        PEER_SILENCE_LIMIT, which ends the session and the operation with it.
+        PEER_SILENCE_LIMIT (400 s since 9.7.18 — later than this timer, by
+        design), which ends the session and the operation with it.
 
         So: no claim about WHY, and no claim that the file was lost."""
         if not self._op_active or not self._op_cancelled:

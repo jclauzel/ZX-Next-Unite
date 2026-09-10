@@ -231,6 +231,7 @@ def test_silent_peer_is_reaped():
     claiming a Next was attached (reported after a machine had been off for
     hours). The peer drives the session and polls continuously when idle,
     so silence is the signal; no probe is needed."""
+    saved_limit = zxnu_workers.PEER_SILENCE_LIMIT   # restore THIS, not a literal
     zxnu_workers.PEER_SILENCE_LIMIT = 2.0
     zxnu_workers.RE_REPLY_TIMEOUT = 5.0
     cmd_q, stop = queue.Queue(), threading.Event()
@@ -267,8 +268,25 @@ def test_silent_peer_is_reaped():
         except OSError:
             pass
         th.join(timeout=10)
-        zxnu_workers.PEER_SILENCE_LIMIT = 45.0
+        zxnu_workers.PEER_SILENCE_LIMIT = saved_limit
         zxnu_workers.RE_REPLY_TIMEOUT = 60.0
+
+
+def test_silence_limit_outlasts_the_next_verdict():
+    """The seat reaper is PAIRED with ZX Next Remote 1.2.0's dead-link guard
+    (fsrv.c): the Next concludes a silent server within ~330 s in every
+    regime — 56 polls or a 300 s clock, whichever first, plus one poll that a
+    slow CIPSEND prompt can stretch to ~29 s. This side must sit ABOVE that,
+    so a dead link is called by the Next's own verdict first and reaped here
+    second (the ordering the old 45 s gave the old 6-poll guard), and above
+    the bridge's LONG_TIMEOUT, the longest single relayed op it waits out."""
+    from zxnu_http_bridge import LONG_TIMEOUT
+    check("silence: reaper outlasts the Next's ~330 s worst-case verdict",
+          zxnu_workers.PEER_SILENCE_LIMIT > 330.0,
+          zxnu_workers.PEER_SILENCE_LIMIT)
+    check("silence: reaper outlasts one relayed bridge op",
+          zxnu_workers.PEER_SILENCE_LIMIT > LONG_TIMEOUT,
+          (zxnu_workers.PEER_SILENCE_LIMIT, LONG_TIMEOUT))
 
 
 def test_long_timeout_under_client_patience():
@@ -285,6 +303,7 @@ def test_long_timeout_under_client_patience():
 if __name__ == "__main__":
     test_reply_idempotent()
     test_long_timeout_under_client_patience()
+    test_silence_limit_outlasts_the_next_verdict()
     test_stall_resolves_and_session_survives()
     test_dropped_link_resolves_caller()
     test_silent_peer_is_reaped()

@@ -2080,6 +2080,103 @@ def main():
     else:
         print("FAIL twin: bridge/worker disagree on", _bad); ok = False
 
+    # ── a benched seat stays warm through its neighbour's long put (9.7.18) ──
+    # The 2026-09-10 field case: a controller pasted a folder from one seat
+    # to another over the HTTP bridge and the idle SOURCE seat died of
+    # unanswered polls during the upload leg. Measured here before anything
+    # was changed: this server answers a benched seat's EVERY Poll with 'I'
+    # while a session-TARGETED put to its neighbour runs (one thread per
+    # seat; enqueue_to never moves the baton) — so the polls that stopped
+    # arriving were lost on the wire, and the fix was patience on BOTH sides
+    # (PEER_SILENCE_LIMIT 45 -> 400 s here, the Next's guard ~35 -> ~300 s).
+    # This pins the half that lives here: seat B keeps its seat and never
+    # waits more than a beat for an answer while seat A pulls a put slowly.
+    _wsig = RemoteExplorerSignals()
+    _wq, _wstop, _wctl = queue.Queue(), threading.Event(), {}
+    _wt = threading.Thread(target=run_remote_listen_server,
+                           args=(_wsig, _wq, _wstop, PORT + 28),
+                           kwargs={"control": _wctl}, daemon=True)
+    _wt.start()
+    time.sleep(0.3)
+    _wbig = os.path.join(tmp, "warm.bin")
+    open(_wbig, "wb").write(bytes(range(256)) * 256)     # 64 KB = 128 x 512
+    _wstats, _wgaps, _wbad = {}, [], []
+    _wput, _wres, _wafter = BridgeReply(), None, []
+    _sa = _sb = None
+    try:
+        _sa = socket.create_connection(("127.0.0.1", PORT + 28), timeout=5)
+        _sa.sendall(b"Listen")
+        assert rx_payload(_sa) == b"Listening"
+        time.sleep(0.1)
+        _sb = socket.create_connection(("127.0.0.1", PORT + 28), timeout=5)
+        _sb.sendall(b"Listen")
+        assert rx_payload(_sb) == b"Listening"
+        time.sleep(0.3)
+        _sida = min(s for s, _ in _wctl['roster']()[1])   # A joined first
+        _wputdone = threading.Event()
+
+        def _drive_a():
+            # Seat A pulls the put by hand, one packet per "Get" with a pause
+            # between pulls so the file takes seconds: the controller's
+            # ~10 KB/s relay in miniature, and the window B must survive.
+            pkts = 0
+            while True:
+                _sa.sendall(b"Poll")
+                rep = rx_payload(_sa)
+                if rep is None:
+                    _wstats['err'] = "A closed"
+                    break
+                if rep[:1] == b'P':
+                    t0 = time.monotonic()
+                    while not _wput.resolved:
+                        time.sleep(0.02)
+                        _sa.sendall(b"Get")
+                        if rx_payload(_sa) is None:
+                            _wstats['err'] = "A closed mid-put"
+                            break
+                        pkts += 1
+                    _wstats['pkts'] = pkts
+                    _wstats['secs'] = time.monotonic() - t0
+                    break
+                time.sleep(0.05)
+            _wputdone.set()
+
+        threading.Thread(target=_drive_a, daemon=True).start()
+        time.sleep(0.2)
+        _wctl['enqueue_to'](_sida, ("put", _wbig, "/x/warm.bin", _wput))
+        _last = _t0 = time.monotonic()
+        while not _wputdone.is_set() and time.monotonic() - _t0 < 60:
+            _sb.sendall(b"Poll")
+            rep = rx_payload(_sb)
+            now = time.monotonic()
+            _wgaps.append(now - _last)
+            _last = now
+            if rep != b'I':
+                _wbad.append(rep)
+                break
+            time.sleep(0.1)
+        _wres = _wput.wait(10)
+        _wafter = _wctl['roster']()[1]
+    finally:
+        _wstop.set()
+        for _s in (_sa, _sb):
+            if _s is not None:
+                try:
+                    _s.close()
+                except OSError:
+                    pass
+        _wt.join(timeout=10)
+    _wmax = max(_wgaps) if _wgaps else 99.0
+    if (_wres and _wres.get('ok') and not _wbad and _wgaps
+            and _wmax < 2.5 and (_wstats.get('secs') or 0) >= 1.0
+            and len(_wafter) == 2):
+        print("PASS warm: benched seat answered on every poll (max gap %.3fs) "
+              "through a %.1fs targeted put to its neighbour, and kept its seat"
+              % (_wmax, _wstats['secs']))
+    else:
+        print("FAIL warm: res=", _wres, "bad=", _wbad, "maxgap=", _wmax,
+              "stats=", _wstats, "roster_after=", _wafter); ok = False
+
     shutil.rmtree(tmp, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
     sys.exit(0 if ok else 1)
