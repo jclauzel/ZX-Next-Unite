@@ -541,6 +541,12 @@ class WizardManager(QObject):
         # offers may be retargeted on a tab switch, real content never is.
         self._offer_shown = False
         self._teaser_cache = {}
+        # Wiki pages with a fetch running (one thread per page, ever) and
+        # the page whose teaser is already appended to the OPEN bubble —
+        # the two halves of one guard against a duplicated "From the
+        # manual" paragraph. See _request_teaser / _on_teaser.
+        self._teaser_inflight = set()
+        self._teaser_added = None
         self._fetch_signals = _WikiFetchSignals()
         self._fetch_signals.done.connect(self._on_teaser)
         self._joke_bag = []
@@ -754,6 +760,9 @@ class WizardManager(QObject):
 
     def _say(self, text, buttons, gesture="talk", cycles=8, links=None):
         self._offer_shown = False      # offer_guide/offer_help re-set it
+        # A fresh bubble: show_message rebuilds _pages from scratch, so
+        # whatever teaser was appended to the previous one is gone.
+        self._teaser_added = None
         self._stop_stroll()
         self.sprite.show()
         self.sprite.set_gesture(gesture, cycles=cycles)
@@ -1350,6 +1359,17 @@ class WizardManager(QObject):
         if cached is not None:
             self._on_teaser(page, cached)
             return
+        # ONE fetch per page at a time. Every caller asks unconditionally
+        # (_show_tour_step, show_tab_help, _on_network_changed) and the
+        # bubble is two clicks from a re-entry: open a tab, accept the
+        # help offer, then click Wizzy and pick "About this tab" again
+        # before the 6 s fetch answers. Each entry used to start its own
+        # daemon thread, EVERY landing appends, and the bubble grew the
+        # "From the manual" paragraph twice, as two separate pages. The
+        # thread already running targets whatever bubble is open when it
+        # lands, so a later caller has nothing to do but wait for it.
+        if page in self._teaser_inflight:
+            return
         # Confirmed offline (zxnu_network watcher): don't burn a thread on
         # a fetch that can only time out — and don't cache the failure, so
         # the teaser is retried once the network is back.
@@ -1370,15 +1390,31 @@ class WizardManager(QObject):
                 teaser = ""     # offline / page missing: silently skip
             sig.done.emit(p, teaser)
 
-        threading.Thread(target=_fetch, daemon=True).start()
+        self._teaser_inflight.add(page)
+        try:
+            threading.Thread(target=_fetch, daemon=True).start()
+        except Exception:
+            # A thread that never ran will never emit done: clear the
+            # slot here or this page can never be retried this session.
+            self._teaser_inflight.discard(page)
+            logging.exception("wizard: could not start the teaser fetch")
 
     def _on_teaser(self, page, teaser):
+        # _fetch emits done on every path (it swallows its own errors),
+        # so this is the one place the in-flight slot is released.
+        self._teaser_inflight.discard(page)
         if teaser:
             # Only successes are cached: a transient failure (or an
             # offline spell) must not blank the teaser for the session.
             self._teaser_cache[page] = teaser
+        # Idempotent per bubble: a CACHED teaser lands synchronously from
+        # _request_teaser, which the callers run unconditionally and which
+        # _on_network_changed re-runs on a flap — appending again would
+        # duplicate the paragraph on a bubble that already carries it.
+        # _say clears the flag, so the next bubble gets its own copy.
         if teaser and page == self._tour_active_page and \
-                self.bubble.isVisible():
+                self.bubble.isVisible() and self._teaser_added != page:
+            self._teaser_added = page
             self.bubble.append_text(
                 f"{self._tr('manual.teaser')} {teaser}")
             self._reposition()
