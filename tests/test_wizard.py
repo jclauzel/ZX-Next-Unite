@@ -481,6 +481,75 @@ check("successful teaser is cached",
       wiz._teaser_cache.get("Some-Page") == "hello")
 del host._network_online
 
+# ── teaser re-entry while a fetch is in flight (9.7.16) ──────────────────
+# The bubble is two clicks from a re-entry: open a tab, accept the help
+# offer, then click Wizzy and pick "About this tab" again before the 6 s
+# wiki fetch answers. Every caller asks _request_teaser unconditionally, so
+# that used to start a daemon thread each — and EVERY landing appends, so
+# the bubble grew the "From the manual" paragraph twice as two separate
+# pages. Stubbed at the Thread boundary: no network, no timing.
+class _StubThread:
+    started = []
+
+    def __init__(self, target=None, daemon=None, **kw):
+        self._target = target       # deliberately never run (it fetches)
+
+    def start(self):
+        _StubThread.started.append(self._target)
+
+
+class _StubThreading:
+    Thread = _StubThread
+
+
+TEASE = "Mount it and go."
+_real_threading = zw.threading
+zw.threading = _StubThreading
+del wiz._request_teaser              # drop the no-op stub: use the real one
+try:
+    tabs.setCurrentIndex(2)                     # 🌍 GetIt — a "help" tab
+    wiz.about_current_tab()                     # first click
+    check("tab help opens on the GetIt page",
+          wiz._tour_active_page == "GetIt-tab" and wiz.bubble.isVisible())
+    check("the first ask starts exactly one fetch, marked in flight",
+          len(_StubThread.started) == 1
+          and "GetIt-tab" in wiz._teaser_inflight)
+
+    wiz.about_current_tab()                     # re-entry, fetch still out
+    check("re-entry while a fetch is in flight starts no second thread",
+          len(_StubThread.started) == 1, str(len(_StubThread.started)))
+
+    wiz._on_teaser("GetIt-tab", TEASE)          # the one thread lands
+    joined = "\n".join(wiz.bubble._pages)
+    check("the landing appends the teaser exactly once",
+          joined.count(TEASE) == 1, str(joined.count(TEASE)))
+    check("the landing releases the in-flight slot",
+          "GetIt-tab" not in wiz._teaser_inflight)
+
+    # Belt and braces: even a stray second landing (what the second thread
+    # used to deliver) must not append to a bubble that already has it.
+    wiz._on_teaser("GetIt-tab", TEASE)
+    check("a second landing does not append the teaser again",
+          "\n".join(wiz.bubble._pages).count(TEASE) == 1)
+
+    # Same guard from the other entrance: a network flap re-asks, and the
+    # teaser is cached by now, so _on_teaser runs synchronously.
+    host._network_online = lambda: True
+    wiz._on_network_changed(True)
+    check("a network flap does not re-append the cached teaser",
+          "\n".join(wiz.bubble._pages).count(TEASE) == 1)
+    del host._network_online
+
+    # ...but a FRESH bubble does get its own copy of the cached teaser.
+    wiz.about_current_tab()
+    check("a fresh bubble still gets the cached teaser, once",
+          "\n".join(wiz.bubble._pages).count(TEASE) == 1)
+finally:
+    zw.threading = _real_threading
+    wiz._request_teaser = lambda page: None      # no network for what follows
+    wiz._teaser_cache.pop("GetIt-tab", None)
+    wiz._dismiss()
+
 # Markdown teaser extraction (pure function, no network).
 md = "# Title\n\n![badge](x.png)\n\nThe **SD Card** tab lets you [mount](u) images.\n\nMore text."
 check("teaser strips markdown to the first paragraph",
