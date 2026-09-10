@@ -53,7 +53,8 @@ from zxnu_wizard_content import (DISCLAIMER_STEPS, GITHUB_URL, GUIDES,
                                  JOKES, KUDOS_NAMES, STORIES, TEXTS,
                                  TOUR_STEPS, USER_MANUAL_PAGE,
                                  WIKI_PAGE_BASE, WIKI_RAW_BASE,
-                                 ZXNR_ITCH_URL, wizard_lines, wizard_tr)
+                                 ZXNR_ITCH_URL, ZXNR_STEPS, wizard_lines,
+                                 wizard_tr)
 
 #: The ZX Next Remote "did you know" (9.7.9): the chance one 9 s idle tick
 #: brings it up (once a session — roughly once every three quiet minutes),
@@ -883,7 +884,10 @@ class WizardManager(QObject):
                    (self._tr("btn.more"), lambda _=False, p=page:
                        self.open_manual(p)),
                    (self._tr("btn.stop"), self._dismiss)],
-                  gesture="point", cycles=6)
+                  gesture="point", cycles=6,
+                  links=(self._zxnr_step_links(self._show_tour_step,
+                                               "btn.backtour")
+                         if text_key in ZXNR_STEPS else None))
         self._request_teaser(page)
 
     def finish_tour(self):
@@ -1320,10 +1324,17 @@ class WizardManager(QObject):
             text += "\n\n" + self._tr("tour.disclaimer")
         self._respeak = lambda: self.show_tab_help(text_key, page)
         self._tour_active_page = page       # lets the wiki teaser append
+        links = self._guide_links(page)
+        if text_key in ZXNR_STEPS:
+            # No tour is running on this route (the tab's own help bubble,
+            # _tour_index == -1), so the way back must not promise one.
+            links = self._zxnr_step_links(
+                lambda: self.show_tab_help(text_key, page),
+                "btn.back") + links
         self._say(text,
                   [(self._tr("btn.close"), self._dismiss)],
                   gesture="point", cycles=6,
-                  links=self._guide_links(page))
+                  links=links)
         self._request_teaser(page)
 
     # ── wiki content ─────────────────────────────────────────────────────
@@ -1400,28 +1411,64 @@ class WizardManager(QObject):
                   lambda _=False: self._open_url(ZXNR_ITCH_URL))]
                 + self._guide_links("NextSync-tab"))
 
-    def pitch_zxnr(self):
+    def _zxnr_step_links(self, resume, back_key):
+        """The ZX Next Remote row of the itch.io step (9.7.15) — its shop
+        neighbour deserves the introduction: the deep dive first, then the
+        itch.io page itself. *resume* re-speaks the bubble the reader came
+        from, so "About ZX Next Remote" is a DETOUR and not the end of it,
+        and *back_key* is what that way back is HONESTLY called: the tour
+        step goes back to the tour, the tab's own help bubble just goes
+        back (there is no tour running on that route)."""
+        return [(self._tr("btn.zxnr"),
+                 lambda _=False, r=resume, b=back_key:
+                     self.pitch_zxnr(resume=r, back_key=b)),
+                (self._tr("btn.itch"),
+                 lambda _=False: self._open_url(ZXNR_ITCH_URL))]
+
+    def _zxnr_exit(self, resume, back_key):
+        """The way back out of a detour, or nothing at all when the bubble
+        stands on its own. It is only ever ADDED to the row: the plain
+        dismissal stays, or a reader who wandered in from a tab would have
+        no way to simply close the wizard up again."""
+        if not resume:
+            return []
+        return [(self._tr(back_key), lambda _=False, r=resume: r())]
+
+    def pitch_zxnr(self, resume=None, back_key="btn.backtour"):
         """"Did you know?" — a friendly word about ZX Next Remote, the
         companion app on the Next itself: files both ways over Wi-Fi, even
-        Next to Next, no SD card swapping. Two buttons: the deep dive, or
-        Not now. Counts as this session's one idle pitch; the click menu
-        can bring it back any time."""
+        Next to Next, no SD card swapping. The deep dive, then the way out.
+        Counts as this session's one idle pitch; the click menu can bring
+        it back any time. *resume* (the itch.io bubble the reader came
+        from) adds a way back ahead of it, labelled *back_key*."""
         self._zxnr_pitched = True
-        self._respeak = self.pitch_zxnr
+        # Not a tour step: an in-flight wiki teaser must not land in this
+        # bubble. The step we came from re-arms the page when it resumes.
+        self._tour_active_page = None
+        self._respeak = lambda: self.pitch_zxnr(resume=resume,
+                                                back_key=back_key)
         self._say(self._tr("zxnr.didyouknow"),
-                  [(self._tr("btn.moreinfo"), lambda _=False: self._zxnr_node(1)),
-                   (self._tr("btn.later"), self._dismiss)],
+                  [(self._tr("btn.moreinfo"),
+                    lambda _=False, r=resume, b=back_key:
+                        self._zxnr_node(1, resume=r, back_key=b))]
+                  + self._zxnr_exit(resume, back_key)
+                  + [(self._tr("btn.later"), self._dismiss)],
                   gesture="wave", cycles=4, links=self._zxnr_links())
 
-    def _zxnr_node(self, index):
+    def _zxnr_node(self, index, resume=None, back_key="btn.backtour"):
         """The deep dive, three pages: OS protection; mouse, the on-Next
         explorer and Next-to-Next; end-to-end CRC checks and the fun of it
         — the itch.io link on every one."""
         last = index >= ZXNR_PITCH_PAGES
-        buttons = ([(self._tr("btn.close"), self._dismiss)] if last else
-                   [(self._tr("btn.next"), lambda _=False, i=index + 1: self._zxnr_node(i)),
-                    (self._tr("btn.close"), self._dismiss)])
-        self._respeak = lambda: self._zxnr_node(index)
+        buttons = [] if last else [
+            (self._tr("btn.next"),
+             lambda _=False, i=index + 1, r=resume, b=back_key:
+                 self._zxnr_node(i, resume=r, back_key=b))]
+        buttons += self._zxnr_exit(resume, back_key)
+        buttons.append((self._tr("btn.close"), self._dismiss))
+        self._tour_active_page = None
+        self._respeak = lambda: self._zxnr_node(index, resume=resume,
+                                                back_key=back_key)
         self._say(self._tr(f"zxnr.more{index}"), buttons,
                   gesture="cast" if last else "point", cycles=6,
                   links=self._zxnr_links())
@@ -1443,7 +1490,8 @@ class WizardManager(QObject):
                    (self._tr("btn.tour"), self.start_tour),
                    (self._tr("btn.joke"), self.tell_joke),
                    (self._tr("btn.story"), self.tell_story),
-                   (self._tr("btn.zxnr"), self.pitch_zxnr),
+                   (self._tr("btn.zxnr"),
+                    lambda _=False: self.pitch_zxnr()),
                    (self._tr("btn.off"), self.turn_off)],
                   gesture="wave", cycles=3,
                   links=self._guide_links(None)

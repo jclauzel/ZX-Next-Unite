@@ -152,6 +152,129 @@ check("kudos template carries {names} in every language",
       all("{names}" in wc.TEXTS["tour.kudos"][lang]
           for lang in wc.WIZARD_LANGS))
 
+# -- the ZX Next Remote row on the itch.io step (9.7.15) -----------------
+check("ZXNR_STEPS name real tour steps",
+      bool(wc.ZXNR_STEPS) and all(k in wc.TEXTS for k in wc.ZXNR_STEPS)
+      and wc.ZXNR_STEPS <= {s[1] for s in wc.TOUR_STEPS}, str(wc.ZXNR_STEPS))
+check("the itch.io step names ZX Next Remote in every language",
+      all("ZX Next Remote" in wc.TEXTS["tour.itchio"][lang]
+          for lang in wc.WIZARD_LANGS))
+check("the itch.io step still tips its hat to CSpect in every language",
+      all("CSpect" in wc.TEXTS["tour.itchio"][lang]
+          for lang in wc.WIZARD_LANGS))
+
+opened = []
+wiz._open_url = lambda url: opened.append(url)
+_ZXNR = wc.wizard_tr("btn.zxnr", "en")
+_ITCH = wc.wizard_tr("btn.itch", "en")
+_MORE = wc.wizard_tr("btn.more", "en")
+_INFO = wc.wizard_tr("btn.moreinfo", "en")
+_NEXT = wc.wizard_tr("btn.next", "en")
+_CLOSE = wc.wizard_tr("btn.close", "en")
+_LATER = wc.wizard_tr("btn.later", "en")
+_BACKTOUR = wc.wizard_tr("btn.backtour", "en")
+_BACK = wc.wizard_tr("btn.back", "en")
+
+
+def _acts():
+    return [lbl for lbl, _cb in wiz.bubble._actions]
+
+
+def _links():
+    return [lbl for lbl, _cb in wiz.bubble._links]
+
+
+def _click_link(label):
+    dict(wiz.bubble._links)[label]()
+
+
+# The stub had no itch.io tab until now -- the tour-skip checks above rely
+# on its absence -- so add one and drive the REAL tour step, not just the
+# tab-help bubble that happens to speak the same key.
+import zxnu_config as _zc
+from PySide6.QtWidgets import QWidget as _QWidget
+tabs.addTab(_QWidget(), _zc.ZX_NEXT_UNITE_TAB_TITLE_ITCHIO)
+_itch_tab = tabs.count() - 1
+
+wiz.start_tour()
+for _ in range(len(wc.TOUR_STEPS)):
+    if wc.TOUR_STEPS[wiz._tour_index][1] == "tour.itchio":
+        break
+    wiz.next_tour_step()
+check("the tour reaches the itch.io step",
+      wc.TOUR_STEPS[wiz._tour_index][1] == "tour.itchio"
+      and tabs.currentIndex() == _itch_tab)
+check("the tour step keeps its own three actions",
+      _acts() == [_NEXT, _MORE, wc.wizard_tr("btn.stop", "en")], str(_acts()))
+check("...and gains the ZX Next Remote row", _links() == [_ZXNR, _ITCH],
+      str(_links()))
+_click_link(_ITCH)
+check("the itch.io link opens the ZX Next Remote page",
+      opened == [wc.ZXNR_ITCH_URL], str(opened))
+
+# Route 1: the detour off the TOUR comes back to the tour.
+_tour_at = wiz._tour_index
+_click_link(_ZXNR)
+check("the row opens the pitch",
+      wiz.bubble.label.text().startswith(
+          wc.wizard_tr("zxnr.didyouknow", "en")[:40]))
+check("a late wiki teaser can no longer land in the pitch",
+      wiz._tour_active_page is None)
+check("on the tour the way back says so -- and Not now survives beside it",
+      _acts() == [_INFO, _BACKTOUR, _LATER], str(_acts()))
+wiz.bubble._actions[0][1]()                      # into the deep dive
+for _page in range(zw.ZXNR_PITCH_PAGES - 1):
+    check(f"deep-dive page {_page + 1} keeps the way back AND Close",
+          _acts() == [_NEXT, _BACKTOUR, _CLOSE], str(_acts()))
+    wiz.bubble._actions[0][1]()                  # Next
+check("the last deep-dive page is the way back and Close",
+      _acts() == [_BACKTOUR, _CLOSE], str(_acts()))
+wiz.bubble._actions[0][1]()
+check("the way back lands on the itch.io TOUR step again",
+      wiz._tour_index == _tour_at
+      and wiz._tour_active_page == "itch-io-tab"
+      and wiz.bubble.label.text().startswith(
+          wc.wizard_tr("tour.itchio", "en")[:40]))
+wiz._dismiss()
+
+# Route 2: the tab's OWN help bubble. No tour is running here, so the way
+# back must not promise one -- and Close must still be there.
+wiz.show_tab_help("tour.itchio", "itch-io-tab")
+check("the tab's help bubble leads with the same row",
+      _links() == [_ZXNR, _ITCH, _MORE, "GitHub"], str(_links()))
+_click_link(_ZXNR)
+check("no tour is running on this route", wiz._tour_index == -1)
+check("...so the way back is not called 'back to the tour'",
+      _acts() == [_INFO, _BACK, _LATER], str(_acts()))
+wiz.bubble._actions[0][1]()
+for _page in range(zw.ZXNR_PITCH_PAGES - 1):
+    check(f"tab-help deep-dive page {_page + 1} keeps Close",
+          _acts() == [_NEXT, _BACK, _CLOSE], str(_acts()))
+    wiz.bubble._actions[0][1]()
+check("the last page still offers a plain Close on this route",
+      _acts() == [_BACK, _CLOSE], str(_acts()))
+wiz.bubble._actions[0][1]()
+check("the way back re-speaks the tab's help bubble",
+      _acts() == [_CLOSE] and wiz._tour_active_page == "itch-io-tab"
+      and wiz.bubble.label.text().startswith(
+          wc.wizard_tr("tour.itchio", "en")[:40]))
+
+# Standing on its own (the click menu / the idle tick) it is unchanged.
+wiz._dismiss()
+wiz.pitch_zxnr()
+check("a stand-alone pitch is unchanged: more info, then Not now",
+      _acts() == [_INFO, _LATER], str(_acts()))
+wiz._zxnr_node(zw.ZXNR_PITCH_PAGES)
+check("a stand-alone deep dive still ends on Close alone",
+      _acts() == [_CLOSE], str(_acts()))
+
+# Every other tab keeps the plain reference row.
+wiz._dismiss()
+wiz.show_tab_help("tour.settings", "Settings-tab")
+check("other tabs keep their plain manual/GitHub row",
+      _links() == [_MORE, "GitHub"], str(_links()))
+wiz._dismiss()
+
 # Jokes rotate through the whole bag without repeats.
 seen = set()
 for _ in range(len(wc.JOKES["en"])):

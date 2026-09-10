@@ -1702,6 +1702,24 @@ TEXTS = {
         "cs": "Ukončit prohlídku",
         "fr": "Arrêter la visite",
     },
+    "btn.back": {
+        "en": "↩ Go back",
+        "es": "↩ Volver",
+        "pt": "↩ Voltar",
+        "pl": "↩ Wróć",
+        "ru": "↩ Назад",
+        "cs": "↩ Zpět",
+        "fr": "↩ Retour",
+    },
+    "btn.backtour": {
+        "en": "↩ Back to the tour",
+        "es": "↩ Volver al recorrido",
+        "pt": "↩ Voltar à visita",
+        "pl": "↩ Wróć do wycieczki",
+        "ru": "↩ Назад к экскурсии",
+        "cs": "↩ Zpět k prohlídce",
+        "fr": "↩ Retour à la visite",
+    },
     "btn.more": {
         "en": "📖 Read the manual",
         "es": "📖 Leer el manual",
@@ -2127,26 +2145,55 @@ TEXTS = {
     },
     "tour.itchio": {
         "en": "The itch.io tab connects your itch.io account: browse your "
-              "collections and purchases, and install Next goodies — "
-              "including CSpect itself, hat-tip included.",
+               "collections and purchases, and install Next goodies — "
+               "including CSpect itself, hat-tip included.\n\nZX Next "
+               "Remote lives there too, and it is the best tool for the "
+               "job: files across the network in every direction — PC to "
+               "Next, Next to PC, even Next to Next — with no SD card "
+               "swapping at all.",
         "es": "La pestaña itch.io conecta tu cuenta de itch.io: explora "
-              "tus colecciones y compras e instala maravillas para el "
-              "Next, incluido el propio CSpect.",
+               "tus colecciones y compras e instala maravillas para el "
+               "Next — incluido el propio CSpect, ante el que me quito el "
+               "sombrero.\n\nZX Next Remote también vive ahí, y es la "
+               "mejor herramienta para esto: archivos por la red en todas "
+               "las direcciones — del PC al Next, del Next al PC, e "
+               "incluso de Next a Next — sin cambiar de tarjeta SD para "
+               "nada.",
         "pt": "O separador itch.io liga a tua conta itch.io: explora as "
-              "tuas coleções e compras e instala maravilhas para o Next "
-              "— incluindo o próprio CSpect.",
+               "tuas coleções e compras e instala maravilhas para o Next — "
+               "incluindo o próprio CSpect, com direito a chapéu "
+               "tirado.\n\nO ZX Next Remote também mora lá, e é a melhor "
+               "ferramenta para o serviço: ficheiros pela rede em todos os "
+               "sentidos — do PC para o Next, do Next para o PC, até de "
+               "Next para Next — sem nunca trocar de cartão SD.",
         "pl": "Karta itch.io łączy się z twoim kontem itch.io: przeglądaj "
-              "kolekcje i zakupy oraz instaluj smakołyki na Nexta — w "
-              "tym samego CSpecta.",
+               "kolekcje i zakupy oraz instaluj smakołyki na Nexta — w tym "
+               "samego CSpecta, czapki z głów!\n\nZX Next Remote też tam "
+               "mieszka i jest do tego najlepszym narzędziem: pliki przez "
+               "sieć w każdą stronę — z PC na Nexta, z Nexta na PC, a "
+               "nawet z Nexta na Nexta — bez żadnego przekładania karty "
+               "SD.",
         "ru": "Вкладка itch.io подключает ваш аккаунт itch.io: "
-              "просматривайте коллекции и покупки и устанавливайте "
-              "вкусности для Next — включая сам CSpect.",
-        "cs": "Záložka itch.io propojí tvůj účet na itch.io: procházej "
-              "své sbírky a nákupy a instaluj dobroty pro Next — včetně "
-              "samotného CSpectu.",
+               "просматривайте коллекции и покупки и устанавливайте "
+               "вкусности для Next — включая сам CSpect, перед которым "
+               "снимаю шляпу.\n\nZX Next Remote живёт там же, и это лучший "
+               "инструмент для такой работы: файлы по сети во всех "
+               "направлениях — с ПК на Next, с Next на ПК и даже с одного "
+               "Next на другой — без всякой перестановки SD-карты.",
+        "cs": "Záložka itch.io propojí tvůj účet na itch.io: procházej své "
+               "sbírky a nákupy a instaluj dobroty pro Next — včetně "
+               "samotného CSpectu, klobouk dolů.\n\nBydlí tam i ZX Next "
+               "Remote a je to na tuhle práci ten nejlepší nástroj: "
+               "soubory po síti všemi směry — z PC na Next, z Nextu na PC, "
+               "dokonce z Nextu na Next — bez jakéhokoli přendávání SD "
+               "karty.",
         "fr": "L'onglet itch.io connecte votre compte itch.io : parcourez "
-              "vos collections et achats et installez des merveilles "
-              "pour le Next — y compris CSpect lui-même.",
+               "vos collections et achats et installez des merveilles pour "
+               "le Next — y compris CSpect lui-même, coup de chapeau "
+               "inclus.\n\nZX Next Remote y habite aussi, et c'est l'outil "
+               "idéal : des fichiers qui traversent le réseau dans tous "
+               "les sens — du PC au Next, du Next au PC, et même de Next à "
+               "Next — sans jamais changer de carte SD.",
     },
     "tour.settings": {
         "en": "Settings! Themes, colors, gallery sizes, update checks, "
@@ -2395,6 +2442,13 @@ TOUR_STEPS = (
 # Tour steps that browse third-party online catalogues: the wizard softly
 # appends the "tour.disclaimer" rights reminder to these.
 DISCLAIMER_STEPS = {"tour.getit", "tour.zxdb", "tour.zxart", "tour.unite"}
+
+# Tour steps that carry the ZX Next Remote row (9.7.15): the "About ZX Next
+# Remote" detour into pitch_zxnr, then the itch.io page itself. The itch.io
+# tab is where ZX Next Remote is sold, right beside CSpect, so that is where
+# the wizard introduces it -- on the tour step AND on the tab's own help
+# bubble, which speaks the same key.
+ZXNR_STEPS = {"tour.itchio"}
 
 # The heroes the wizard thanks at the end of the tour (fills the {names}
 # placeholder of "tour.kudos"; proper names, shared by every language).
