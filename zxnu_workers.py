@@ -788,10 +788,30 @@ RE_REPLY_TIMEOUT = 60.0
 
 #: Seconds of TOTAL silence from a connected Next before we conclude it is
 #: gone. The peer drives the session and polls continuously when idle (every
-#: second or two), so silence is unambiguous — but keep this well clear of
-#: that cadence: a spurious disconnect drops a session that was merely busy.
-#: Only counted between commands; a command's reply has its own timeout.
-PEER_SILENCE_LIMIT = 45.0
+#: second or two), so silence is unambiguous. Only counted between commands;
+#: a command's reply has its own timeout.
+#:
+#: 400 s since 9.7.18 (it was 45 s), PAIRED with ZX Next Remote 1.2.0's own
+#: dead-link guard and to be moved only in step with it. The field case: a
+#: cross-machine folder paste driven over the HTTP bridge leaves the SOURCE
+#: seat idle for the whole upload leg to the other seat — minutes for one
+#: big file — and on a shared Wi-Fi the controller's sustained upload can
+#: starve that idle seat's tiny Poll/'I' round-trips. This server keeps a
+#: benched seat answered throughout (one thread per seat; the ``warm`` case
+#: in tests/test_remote_listen.py measures a worst gap of ~0.2 s across a
+#: long targeted put), so the polls that stopped ARRIVING were lost on the
+#: air, not unanswered here. The Next's guard went from ~35 s to a 56-poll
+#: count AND a 300 s clock, whichever first, so its verdict lands within
+#: ~330 s in every regime (one bad poll can cost ~29 s on a slow CIPSEND
+#: prompt). This limit must sit ABOVE that: a dead link is then still
+#: called by the Next's own honest "Connection lost" first and reaped here
+#: second — the ordering the old 45 s gave the old 6-poll guard (ZX Next
+#: Remote 0.9.42). The price: a Next that vanishes without a FIN (power, a
+#: Wi-Fi fade its module never reports) holds its seat, and the pane shows
+#: it connected, for up to ~7 min instead of 45 s. RE_CANCEL_GRACE_MS below
+#: now fires BEFORE this — see its note. tests/test_bridge_stall.py pins
+#: the ordering.
+PEER_SILENCE_LIMIT = 400.0
 
 #: How many Nexts may sit on the listen server at once (option B). One
 #: past the cap gets the framed "Busy" turn-away -- the option-A reply,
@@ -817,9 +837,13 @@ RE_UPD_EXTRA_RETRIES = 3
 # How long a user cancel waits for an in-flight transfer before letting go
 # (9.7.12). Cancel deliberately waits for the current file so nothing is
 # left half-written, but a Next that has stopped answering never reports
-# that file done, which used to wedge the operation for good. Comfortably
-# past PEER_SILENCE_LIMIT (45 s), so the worker's own dead-peer detector
-# gets first refusal and this only fires when even that did not arrive.
+# that file done, which used to wedge the operation for good. It sat past
+# PEER_SILENCE_LIMIT (then 45 s) so the worker's dead-peer detector got
+# first refusal; since 9.7.18 that limit is 400 s and THIS fires first.
+# That is fine because of what 9.7.14 made it: it only stops WAITING and
+# releases the UI, claims nothing about the Next, and the put keeps running
+# in the worker — the dead-peer verdict still arrives, later, and ends the
+# session and the operation with it.
 RE_CANCEL_GRACE_MS = 60000
 
 RE_MAX_REMOTE_PATH = 254
