@@ -64,8 +64,9 @@ console error. Stop the other program or pick another port.
 Every route answers **plain text** (easy to show or parse on a Next); append
 `&json=1` (or send `Accept: application/json`) for JSON. Failures use real
 HTTP status codes: `400` bad arguments, `410` the selected session is gone
-(see `/sessions`), `501` unsupported, `502` the Next said no, `503` no Next
-connected, `504` timed out.
+(see `/sessions`), `501` unsupported — *this host does not implement the
+verb*, or on `/crc` *this listener's build does not implement the op* —
+`502` the Next said no, `503` no Next connected, `504` timed out.
 
 Remote paths accept an optional drive prefix (`m:/backup`) exactly like every
 other NextSync command. URL-encode special characters (space = `%20`).
@@ -458,11 +459,26 @@ Next. To compare with the PC's copy:
 python -c "import sys,zlib;print('%08X'%(zlib.crc32(open(sys.argv[1],'rb').read())&0xffffffff))" sample-4k.txt
 ```
 
-Needs `.sync5` v5.9.2+ or ZX Next Remote 1.0.8+ on the Next; an older
-listener does not know the op and the route answers 502. This is the check
-the `ZxNextRemote` PowerShell module's `Crc()`/`VerifyCrc()` ride (strict:
-that 502 surfaces as reason `NextRefused`), the proof its `Verify()` and
-`PS-Send-ToNext.ps1` try first (falling back to `/sum` on that 502), and the
+Needs `.sync5` v5.9.2+ or ZX Next Remote 1.0.8+ on the Next.
+
+**`501` and `502` mean different things here, and the difference matters
+(9.7.17).** `501` is a property of the **peer**: its own version ident proves
+its build has no `crc` op, so the route refuses up front — no `'K'` is sent
+and no `rfsize` sizing is paid — and the body carries a `no-crc-op:` marker.
+`502` is a property of the **file**: this one did not open, or did not
+answer. A caller may therefore stop asking a `501` peer for the rest of a
+session, and must **not** draw that conclusion from a `502`.
+Before 9.7.17 both cases answered `502`, and a client that latched on the
+first one disabled verification for every later file after a single
+unreadable one. Only a *proof* refuses: an unknown flavour, an unparseable
+build, or a version query that failed all stay on `502`, because "unknown"
+is not "old" — claiming otherwise would switch off an integrity check
+against a peer that can verify.
+
+This is the check the `ZxNextRemote` PowerShell module's `Crc()`/`VerifyCrc()`
+ride (a proven-old listener now surfaces as reason `Unsupported` rather than
+`NextRefused`), the proof its `Verify()` and
+`PS-Send-ToNext.ps1` try first (falling back to `/sum` on either), and the
 same `'K'` op the remote self-update macro uses to prove its staged copy
 before swapping it in (Unite 9.7.5 / `nextsync5.py`'s `update` verb). Both listeners
 also print the digits on the Next's own screen as they answer - the dot on

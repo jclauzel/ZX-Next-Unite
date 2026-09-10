@@ -120,6 +120,68 @@ DEFAULT_TIMEOUT = 45.0     # quick verbs: one poll round-trip + margin
 LONG_TIMEOUT = 270.0
 _LONG_OPS = ("get", "put", "rcpy", "rfsize", "rmtree", "crc")
 
+# ---- "that listener has no crc op" as a STATUS, not as prose (9.7.17) ----
+# /crc used to answer 502 for two unrelated things: a listener whose build
+# predates the 'K' op - a permanent property of the peer - and one far file
+# that would not open. A caller cannot tell them apart, and ZX Next Remote
+# latched the first meaning on the first 502: one unreadable file early in a
+# folder paste turned CRC verification off for every file after it, silently,
+# while the paste kept reporting green.
+#
+# 501 now carries the peer-wide case ALONE, and only when the far side's own
+# version ident PROVES it. Why 501 and not a new code: this bridge already
+# says 501 for "this host does not implement that verb" (_run below), the two
+# demand the identical client action - stop asking - and both shipped
+# PowerShell consumers already route it (ZxNextRemote.psm1 -> Unsupported,
+# which PS-Send-ToNext.ps1 tolerates and falls back to /sum on). 404 and 401
+# were both rejected: 404 already means "a bridge older than /crc itself" and
+# 401 already means the far OS-protection refusal.
+#
+# The STATUS is the contract - ZX Next Remote reads only that, and a status
+# cannot be truncated the way a body can. The marker is for humans, curl and
+# the .http dot.
+CRC_NO_OP_HTTP = 501
+CRC_NO_OP_ERROR = (
+    "no-crc-op: this listener predates the crc op (.sync v5.9.2 / "
+    "ZX Next Remote 1.0.8) - its own version ident says so, so no 'K' "
+    "was sent")
+
+# Listener builds that answer 'K', by ident type. A THIRD hand-kept twin of
+# nextsync5.CRC_FLOORS and zxnu_workers.RE_CRC_FLOORS: this module imports NO
+# app module on purpose, because nextsync5.py hosts the bridge standalone.
+# tests/test_remote_listen.py asserts all three agree - discipline alone has
+# not kept this repo's twins honest.
+BR_CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8)}
+
+
+def peer_lacks_crc(res):
+    """True ONLY when a /version answer PROVES the far listener has no 'K'
+    op: a flavor BR_CRC_FLOORS knows, a build number that parses, and it is
+    below that flavor's floor.
+
+    EVERYTHING ELSE IS FALSE, and that asymmetry is the whole design. Never
+    asked, could not ask, an unknown flavor, an unparseable number - those
+    are UNKNOWN, not old, and they keep the old 502. This answer is relayed
+    to a far client as "stop verifying against this peer", so a wrong YES
+    silently disables an integrity check while the paste still reports green
+    - which is the exact bug being fixed here, one layer up. A wrong NO only
+    costs one pointless question.
+
+    Deliberately NOT the negation of the listeners' own _peer_answers_crc /
+    re_peer_answers_crc: those are False for four different reasons and three
+    of them are "unknown". They gate whether WE ask blind, where being
+    conservative is free; this gates what we TELL somebody else."""
+    if not res or not res.get("ok"):
+        return False                   # never asked, or could not ask
+    floor = BR_CRC_FLOORS.get(str(res.get("type") or "").strip().lower())
+    if floor is None:
+        return False                   # a flavor we do not know
+    try:
+        v = tuple(int(p) for p in str(res.get("number") or "").strip().split("."))
+    except ValueError:
+        return False                   # a number we cannot read
+    return v < floor
+
 
 def fmt_size(nbytes):
     """Human-readable size: 512 -> '512 bytes', 1536000 -> '1.5 MB'."""
@@ -352,7 +414,8 @@ class NextSyncHttpBridge:
         "  GET  /sum?path=/f                16-bit additive checksum + size\n"
         "       of one file (&bare=1: just the checksum digits)\n"
         "  GET  /crc?path=/f                CRC-32 of one file, computed ON the\n"
-        "       Next (8 hex digits; &bare=1: just the digits)\n"
+        "       Next (8 hex digits; &bare=1: just the digits).\n"
+        "       501 = this listener has no crc op; 502 = this file failed\n"
         "  GET  /forceexit                  make the Next leave -listen and exit\n")
 
     def __init__(self, host_adapter, listen_host="0.0.0.0", port=DEFAULT_PORT,
@@ -1114,10 +1177,27 @@ class NextSyncHttpBridge:
             polynomial - zlib.crc32's value - so a caller checks a transfer
             against its own copy from 8 characters instead of pulling the
             file back (which /sum does). &bare=1 answers just the digits. A
-            listener that predates the op does not answer: 502."""
+            listener that predates the op is refused up front: 501 with a
+            "no-crc-op" body, decided from its own version ident and
+            without sending 'K' (9.7.17). 502 now means only that THIS
+            attempt failed - a file that would not open, or one that did
+            not answer - so a caller may treat 501 as a property of the
+            peer and 502 as a property of the file."""
             v = need(("path", "file"))
             if not v:
                 return bad("missing ?path=")
+            # SAY WHICH IT IS (9.7.17). Ahead of the rfsize sizing below, so
+            # a listener that provably has no 'K' costs ZERO relay round
+            # trips instead of one sizing plus a wait for an answer that can
+            # never come. _ident_run is the same cached 'Y' exchange
+            # /version-type and /version-number ride: cached per seat, and
+            # the listeners serve it from their own session cache without
+            # putting anything on the wire, so this is an in-process hop.
+            # Only a PROOF refuses - see peer_lacks_crc; anything short of
+            # one falls through to the 502 path exactly as before.
+            if peer_lacks_crc(_ident_run()):
+                return fail({"ok": False, "http": CRC_NO_OP_HTTP,
+                             "error": CRC_NO_OP_ERROR}, f"crc {v[0]}")
             # The Next answers nothing while it streams the file, and the
             # dot manages ~30 KB/s, so the flat LONG_TIMEOUT (270 s) would
             # 504 a big file with the Next still busy. Size the wait from

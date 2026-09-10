@@ -31,6 +31,7 @@ HTTP_B = 18081
 HTTP_TOK1 = 18082
 HTTP_TOK2 = 18083
 HTTP_OSP = 18084
+HTTP_NOCRC = 18087
 
 ok = True
 
@@ -664,6 +665,124 @@ def phase_osprot():
         bridge.stop()
 
 
+def phase_crc_no_op():
+    """/crc says WHICH failure it is (9.7.17). One 502 used to cover both
+    "this listener's build has no 'K' op" - a permanent property of the peer -
+    and "that one file would not open". ZX Next Remote latched the first
+    meaning on the first 502, so a single unreadable file early in a folder
+    paste turned CRC verification off for every file after it while the paste
+    kept reporting green.
+
+    Now a PROVEN-old listener is refused with 501 + a "no-crc-op" body, decided
+    from its own version ident and WITHOUT sending 'K' at all, and 502 keeps
+    every other failure. The asymmetry is the point and is asserted here: only
+    proof refuses. An unknown flavor, an unparseable build and a version query
+    that failed are UNKNOWN, not old, and must all stay on 502 - a wrong 501
+    would tell a client to stop verifying against a peer that can."""
+    print("=== phase CRCNOOP: /crc 501 vs 502 (9.7.17) ===")
+    from zxnu_http_bridge import peer_lacks_crc
+
+    # The predicate first, in isolation: it is the whole safety argument.
+    check("proof refuses: an old dot",
+          peer_lacks_crc({"ok": True, "type": "sync", "number": "5.9.1"}))
+    check("proof refuses: an old ZX Next Remote",
+          peer_lacks_crc({"ok": True, "type": "n2n", "number": "1.0.7"}))
+    check("a peer AT the floor is not old",
+          not peer_lacks_crc({"ok": True, "type": "sync", "number": "5.9.2"}))
+    check("a newer peer is not old",
+          not peer_lacks_crc({"ok": True, "type": "httpbridge",
+                              "number": "1.1.9"}))
+    for label, res in (
+            ("a failed version query", {"ok": False, "error": "no answer"}),
+            ("no answer at all", None),
+            ("an unknown flavor", {"ok": True, "type": "beige",
+                                   "number": "0.1"}),
+            ("an unparseable build", {"ok": True, "type": "sync",
+                                      "number": "banana"}),
+            ("an empty build", {"ok": True, "type": "sync", "number": ""})):
+        check(f"UNKNOWN is not old: {label}", not peer_lacks_crc(res))
+
+    # Then end to end, and prove no 'K' is sent to a peer that cannot answer.
+    class _IdentAdapter:
+        def __init__(self, vtype, vnum, crc_ok=True):
+            self.vtype, self.vnum, self.crc_ok = vtype, vnum, crc_ok
+            self.asked = []
+
+        def state(self):
+            return {"listening": True, "connected": True,
+                    "current": "C", "drives": ["C"]}
+
+        def run(self, op, a1="", a2="", body=None, timeout=None):
+            self.asked.append(op)
+            if op == "version":
+                return {"ok": True, "type": self.vtype, "number": self.vnum}
+            if op == "rfsize":
+                return {"ok": True, "bytes": 1024}
+            if op == "crc":
+                if self.crc_ok:
+                    return {"ok": True, "path": a1, "crc32": "DEADBEEF"}
+                return {"ok": False, "error": "crc failed: "
+                                              "the file did not open"}
+            return {"ok": True}
+
+    # (a) a proven-old listener: 501, the marker, and 'K' never sent.
+    old = _IdentAdapter("sync", "5.9.1")
+    bridge = NextSyncHttpBridge(old, port=HTTP_NOCRC)
+    okd, err = bridge.start()
+    check("CRCNOOP bridge started", okd, err)
+    try:
+        st, body = http(HTTP_NOCRC, "/crc?path=/games/a.tap&bare=1")
+        check("a proven-old listener -> 501", st == 501, (st, body[:60]))
+        check("501 body carries the no-crc-op marker",
+              b"no-crc-op" in body, body[:80])
+        check("no 'K' was sent to a peer that cannot answer it",
+              "crc" not in old.asked, old.asked)
+        check("and no rfsize sizing was paid either",
+              "rfsize" not in old.asked, old.asked)
+    finally:
+        bridge.stop()
+
+    # (b) a capable listener is untouched - the gate must not cost a digest.
+    new = _IdentAdapter("sync", "5.9.2")
+    bridge = NextSyncHttpBridge(new, port=HTTP_NOCRC + 1)
+    okd, err = bridge.start()
+    check("CRCNOOP capable bridge started", okd, err)
+    try:
+        st, body = http(HTTP_NOCRC + 1, "/crc?path=/games/a.tap&bare=1")
+        check("a capable listener still answers 200", st == 200,
+              (st, body[:60]))
+        check("with its digest", b"DEADBEEF" in body, body[:40])
+    finally:
+        bridge.stop()
+
+    # (c) a capable listener whose FILE fails keeps 502 - the case that must
+    # never be read as a property of the peer.
+    badfile = _IdentAdapter("sync", "5.9.2", crc_ok=False)
+    bridge = NextSyncHttpBridge(badfile, port=HTTP_NOCRC + 2)
+    okd, err = bridge.start()
+    check("CRCNOOP per-file bridge started", okd, err)
+    try:
+        st, body = http(HTTP_NOCRC + 2, "/crc?path=/gone&bare=1")
+        check("one unreadable file is still 502, not 501", st == 502,
+              (st, body[:60]))
+        check("and it does NOT claim the peer lacks the op",
+              b"no-crc-op" not in body, body[:80])
+    finally:
+        bridge.stop()
+
+    # (d) an unidentifiable listener stays on 502: unknown is not old.
+    unknown = _IdentAdapter("beige", "0.1", crc_ok=False)
+    bridge = NextSyncHttpBridge(unknown, port=HTTP_NOCRC + 3)
+    okd, err = bridge.start()
+    check("CRCNOOP unknown-flavor bridge started", okd, err)
+    try:
+        st, body = http(HTTP_NOCRC + 3, "/crc?path=/x&bare=1")
+        check("an unknown flavor is never refused as old", st == 502,
+              (st, body[:60]))
+    finally:
+        bridge.stop()
+
+
 def main():
     phase_a()
     print()
@@ -674,6 +793,8 @@ def main():
     phase_token()
     print()
     phase_osprot()
+    print()
+    phase_crc_no_op()
     print()
     phase_trace()
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
