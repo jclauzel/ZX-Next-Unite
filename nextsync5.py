@@ -634,7 +634,19 @@ def _zxnr_staged_ver(path):
     folder = os.path.basename(os.path.dirname(os.path.abspath(path)))
     if not folder.lower().startswith("zxnextremote-"):
         return ""
-    ver = folder[len("zxnextremote-"):]
+    # The prefix is stripped REPEATEDLY - an itch.io upload named
+    # zxnextremote-zxnextremote-1.1.8.zip extracts to a folder of that
+    # same name, and one strip left "zxnextremote-1.1.8", which fails the
+    # validation below and made this refuse a perfectly good build
+    # (9.7.19). Hand-kept twin of zxnu_config.zxnextremote_name_version
+    # (this script imports no app module); the strict three-integer
+    # validation stays, because the value is greped as a literal
+    # SUBSTRING of the .nex at the wrong-file check, so a looser shape
+    # would verify against the wrong bytes.
+    prefix = "zxnextremote-"
+    ver = folder
+    while ver.lower().startswith(prefix):
+        ver = ver[len(prefix):]
     parts = ver.split(".")
     if len(parts) == 3 and all(p.isdigit() for p in parts):
         return ver

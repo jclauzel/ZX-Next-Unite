@@ -528,6 +528,23 @@ def run_update_tests(tmp):
     # the .nex has no parseable banner); and the macro ends with the
     # MARKED quit ('Q'+'X') - the .nex saves its settings and soft-resets
     # the Next into NextZXOS, where the swapped build relaunches.
+    # 9.7.19 twin pin: a DOUBLED extract-folder prefix must yield the bare
+    # 3-part version, like zxnu_config.zxnextremote_name_version - an
+    # itch.io upload named zxnextremote-zxnextremote-1.1.8.zip extracts to
+    # a folder of that name. A single-prefix fixture can never catch this,
+    # which is how the two twins diverged; _zxnr_staged_ver had no
+    # coverage at all before this.
+    check("updZXNRv: doubled prefix -> bare version; a non-version name "
+          "is still UNKNOWN",
+          ns._zxnr_staged_ver(os.path.join(
+              tmp, "zxnextremote-zxnextremote-1.1.8",
+              "zxnextremote-n2n.nex")) == "1.1.8"
+          and ns._zxnr_staged_ver(os.path.join(
+              tmp, "zxnextremote-beta", "zxnextremote-n2n.nex")) == "",
+          ns._zxnr_staged_ver(os.path.join(
+              tmp, "zxnextremote-zxnextremote-1.1.8",
+              "zxnextremote-n2n.nex")))
+
     zdir = os.path.join(tmp, "zxnextremote-9.9.9")
     os.makedirs(zdir, exist_ok=True)
     nexfile = os.path.join(zdir, "zxnextremote-n2n.nex")

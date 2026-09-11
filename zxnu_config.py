@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.18"
+ZX_NEXT_UNITE_VERSION = "9.7.19"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -2308,22 +2308,142 @@ def _version_stem(name):
     return root if ext and not ext[1:].isdigit() else base
 
 
+def build_version_key(name):
+    """Ordering key for an emulator/companion BUILD name that compares the
+    version DIGITS first and only falls back to the surrounding text.
+
+    :func:`cspect_version_key` splits the whole name into text/number runs, so
+    the LEADING TEXT RUN decides a comparison before a single digit is looked
+    at. That is right while every candidate carries the same prefix - and
+    wrong the moment one does not. A ZX Next Remote release uploaded to
+    itch.io as ``zxnextremote-zxnextremote-1.1.8.zip`` (the prefix typed
+    twice) therefore beat ``zxnextremote-1.2.0`` on BOTH sides of the update
+    check at once: ``zxnextremote-zxnextremote-`` > ``zxnextremote-``, so the
+    doubled folder was picked as the newest INSTALL and the doubled upload as
+    the newest RELEASE. The check compared 1.1.8 with itself and said "up to
+    date", and because the version suffix then read ``zxnextremote-1.1.8``
+    the remote self-update offer was suppressed outright (9.7.19).
+
+    The digit runs in order are the primary key - ``(1, 2, 0)`` beats
+    ``(1, 1, 8)`` whatever sits around them - and the lower-cased stem breaks
+    the tie, so builds of the SAME version keep a stable order. Every
+    same-prefix family compares exactly as it did before (CSpect's
+    ``CSpect3_1_10_0`` > ``CSpect3_1_4_0``, the dotted
+    ``zxnextremote-1.0.10`` > ``zxnextremote-1.0.7``), and an archive
+    extension still keys equal to its extracted folder because
+    :func:`_version_stem` strips it. Unlike ``cspect_version_key`` this key
+    can never raise ``TypeError``: both halves are totally ordered.
+
+    The tie-break is length-DESCENDING on purpose: every consumer sorts
+    with ``reverse=True`` or compares with ``>``, so the SHORTER,
+    canonical spelling has to come first - ``zxnextremote-1.1.7`` above
+    the malformed ``zxnextremote-zxnextremote-1.1.7`` sitting beside it
+    on disk. It orders a LIST and nothing else; the "is this newer?"
+    comparators deliberately read the version half alone."""
+    stem = _version_stem(name or "")
+    digits = tuple(int(tok) for tok in re.findall(r"\d+", stem))
+    return (digits, -len(stem), stem.lower())
+
+
+def zxnextremote_name_version(name):
+    """The bare version a ZX Next Remote package name carries - ``"1.2.0"``
+    for ``zxnextremote-1.2.0`` - or ``""`` when it carries none.
+
+    The prefix is stripped REPEATEDLY. A release uploaded to itch.io as
+    ``zxnextremote-zxnextremote-1.1.8.zip`` extracts to a folder of that same
+    name, and taking the suffix after ONE prefix left the version string
+    ``"zxnextremote-1.1.8"`` - which ``_parse_dot_version`` rejects, so the
+    remote self-update offer went silent instead of showing a wrong number
+    (9.7.19). A name that does not start with the prefix at all still answers
+    ``""``, exactly as the hand-rolled suffix slice this replaces did: the
+    callers refuse an unknown version rather than send a build under one, and
+    that refusal must not become unreachable for an arbitrary folder name. An
+    archive extension is stripped too, so an upload filename and its
+    extracted folder answer identically.
+
+    What is left is then VALIDATED as three dotted integers, the same
+    shape ``nextsync5._zxnr_staged_ver`` demands of a staged build;
+    anything else is UNKNOWN and answers ``""``. Stripping alone is not
+    enough: ``zxnextremote-beta`` would answer ``"beta"``, which is
+    non-empty (so the callers' explicit refusal never fires) and
+    unparseable (so the offer goes silent with no reason given) - the
+    same silent shape as the bug above. A two-part ``"1.2"`` is worse
+    than silent: the macro's step-0 check greps the version as a bare
+    SUBSTRING of the .nex, and ``1.2`` matches inside a 1.2.0 build,
+    staging a file under a version that is not its own.
+
+    If ZX Next Remote ever ships a version that is not three dotted
+    integers, this and its ``nextsync5`` twin must be relaxed together."""
+    prefix = "zxnextremote-"
+    stem = os.path.basename(_version_stem(name or ""))
+    if not stem.lower().startswith(prefix):
+        return ""
+    while stem.lower().startswith(prefix):
+        stem = stem[len(prefix):]
+    stem = stem.strip()
+    parts = stem.split(".")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        return ""
+    return stem
+
+
 def cspect_version_newer(candidate_name, installed_name):
     """True when the CSpect build *candidate_name* is a newer version than
-    *installed_name* (both compared with :func:`cspect_version_key`).
+    *installed_name* (both compared with :func:`build_version_key`).
 
-    Heterogeneous names can leave an int token opposite a str token at the same
-    position, which raises ``TypeError`` on comparison; that falls back to a
-    plain case-insensitive string comparison of the stems so the check never
-    crashes the startup flow."""
-    ck = cspect_version_key(candidate_name)
-    ik = cspect_version_key(installed_name)
-    try:
-        return ck > ik
-    except TypeError:
-        a = _version_stem(candidate_name).lower()
-        b = _version_stem(installed_name).lower()
-        return a > b
+    The key is version-digits-first (see that function): comparing the raw
+    :func:`cspect_version_key` here let a longer TEXT prefix outrank a higher
+    version number, which is how a ``zxnextremote-zxnextremote-1.1.8`` upload
+    hid ``zxnextremote-1.2.0`` from both halves of the update check (9.7.19).
+    ``build_version_key`` is totally ordered, so the old ``TypeError``
+    fallback for heterogeneous names is no longer reachable.
+
+    Only the VERSION half of the key is compared - a spelling is not a
+    version. Letting the tie-break decide made the same build read as an
+    upgrade over itself whenever the two sides spelled it differently (a
+    canonical 1.1.8 install against the doubled 1.1.8 upload still listed
+    on itch.io), and the startup check then offers that "update" on every
+    single run, forever."""
+    return (build_version_key(candidate_name)[0]
+            > build_version_key(installed_name)[0])
+
+
+def zxnextremote_sort_key(name):
+    """Ordering key for a ZX Next Remote package/upload NAME (sort with
+    ``reverse=True`` for newest first).
+
+    :func:`build_version_key` is brand-agnostic and harvests every digit
+    run in whatever text surrounds the version. That is right for CSpect,
+    where every candidate is a ``CSpect<digits>`` folder, and wrong here:
+    the ZXNR finder deliberately does NOT require a ``.nex``, so any
+    directory a user parks in ``files/`` is a candidate, and a dated copy
+    such as ``2026-backup-zxnextremote-1.0.0`` keys as ``(2026, 1, 0, 0)``
+    and outranks 1.2.0 outright - which silences the update offer exactly
+    as the doubled prefix did. This key asks
+    :func:`zxnextremote_name_version` instead: a name that does not reduce
+    to a real version is UNKNOWN and sorts BELOW every name that does, in
+    both directions - never "newer", never the picker's top row (9.7.19).
+
+    Ties on the version fall back to the shorter (canonical) spelling, so
+    ``zxnextremote-1.1.7`` heads ``zxnextremote-zxnextremote-1.1.7``. Like
+    build_version_key's, that tie-break orders a LIST and must never
+    decide an update verdict - see :func:`zxnextremote_version_newer`."""
+    version = zxnextremote_name_version(name)
+    parts = tuple(int(p) for p in version.split(".")) if version else ()
+    stem = _version_stem(name or "")
+    return (1 if parts else 0, parts, -len(stem), stem.lower())
+
+
+def zxnextremote_version_newer(candidate_name, installed_name):
+    """True when ZX Next Remote build *candidate_name* is a newer VERSION
+    than *installed_name* - the ZXNR twin of :func:`cspect_version_newer`.
+
+    Only the known-flag and the version tuple of
+    :func:`zxnextremote_sort_key` are compared, so an unknown name is
+    never newer than a known one in either direction and a redundant
+    spelling is never an upgrade over the same version."""
+    return (zxnextremote_sort_key(candidate_name)[:2]
+            > zxnextremote_sort_key(installed_name)[:2])
 
 
 def find_installed_cspect_version(base_dir):
@@ -2348,7 +2468,10 @@ def find_installed_cspect_version(base_dir):
             if filename.lower() != target:
                 continue
             folder = os.path.basename(dirpath)
-            if best_name is None or cspect_version_newer(folder, best_name):
+            # The full key, not the digits-only comparator: a same-version
+            # tie must be settled by the key rather than by os.walk order.
+            if best_name is None or (build_version_key(folder)
+                                     > build_version_key(best_name)):
                 best_name = folder
                 best_path = os.path.join(dirpath, filename)
     return (best_name, best_path)
@@ -2363,7 +2486,11 @@ def find_installed_zxnextremote_version(base_dir):
     so the version is simply the newest EXTRACTED folder name (the archive
     stem, e.g. ``zxnextremote-1.0.2``) - exactly how the shared extract step
     lays versions out side by side, one folder per fetched build. Compared
-    with the same natural-order key the CSpect updater uses."""
+    Ordered by :func:`zxnextremote_sort_key` - version digits first, and a
+    folder whose name carries no readable version can never win - so a
+    doubled ``zxnextremote-zxnextremote-1.1.8`` cannot hide 1.2.0 from the
+    startup check that resolves through here (9.7.19). The unfiltered
+    semantics are unchanged: no ``.nex`` is required, on purpose."""
     try:
         author, slug = "jclauzel", "zxnextremote"
         files_dir = os.path.join(base_dir, DOWNLOADS_CSPECT_DIRNAME,
@@ -2375,7 +2502,8 @@ def find_installed_zxnextremote_version(base_dir):
             full = os.path.join(files_dir, name)
             if not os.path.isdir(full):
                 continue
-            if best_name is None or cspect_version_newer(name, best_name):
+            if best_name is None or (zxnextremote_sort_key(name)
+                                     > zxnextremote_sort_key(best_name)):
                 best_name, best_path = name, full
         return (best_name, best_path)
     except OSError:
@@ -2414,8 +2542,9 @@ def find_installed_zxnextremote_versions(base_dir):
 
     Returns a list of ``(folder_name, folder_path, version, flavors)``: the
     extract folder's name (``zxnextremote-1.1.4``), its absolute path, the
-    name's suffix after ``zxnextremote-`` (``"1.1.4"``, or ``""`` when the
-    folder does not carry that name) and the builds it holds
+    bare version the name carries (``"1.1.4"``, or ``""`` when the folder
+    carries none - :func:`zxnextremote_name_version`, which strips a
+    REPEATED prefix) and the builds it holds
     (:func:`zxnextremote_package_flavors`). Folders holding no ``.nex`` are
     NOT listed — a half-extracted directory is not a build a user could send —
     and the ``.zip`` the extract step leaves beside each folder drops out on
@@ -2424,7 +2553,7 @@ def find_installed_zxnextremote_versions(base_dir):
     :func:`find_installed_zxnextremote_version` answers with the newest ONE
     and is deliberately left as it is (it does not check for a ``.nex``, and
     the startup update check resolves through it). This is the same layout,
-    the same walk and the same natural-order key (:func:`cspect_version_key`),
+    the same walk and the same key (:func:`zxnextremote_sort_key`),
     so a version picker built on it can never disagree with that check about
     which build is the newest COMPLETE one."""
     try:
@@ -2434,7 +2563,6 @@ def find_installed_zxnextremote_versions(base_dir):
         names = os.listdir(files_dir)
     except OSError:
         return []
-    prefix = "zxnextremote-"
     found = []
     for name in names:
         full = os.path.join(files_dir, name)
@@ -2443,16 +2571,16 @@ def find_installed_zxnextremote_versions(base_dir):
         flavors = zxnextremote_package_flavors(full)
         if not flavors:
             continue
-        version = (name[len(prefix):].strip()
-                   if name.lower().startswith(prefix) else "")
+        version = zxnextremote_name_version(name)
         found.append((name, full, version, flavors))
-    try:
-        found.sort(key=lambda row: cspect_version_key(row[0]), reverse=True)
-    except TypeError:
-        # Heterogeneous names can leave an int token opposite a str one at the
-        # same position; cspect_version_newer documents the same fallback
-        # rather than letting a picker crash on a stray folder.
-        found.sort(key=lambda row: _version_stem(row[0]).lower(), reverse=True)
+    # zxnextremote_sort_key, not cspect_version_key: the latter ranks by
+    # the text prefix first, which floated a doubled zxnextremote-
+    # zxnextremote-1.1.8 folder above zxnextremote-1.2.0 in this very
+    # picker (9.7.19). It is totally ordered, so the old TypeError
+    # fallback goes with it - and it is the SAME key
+    # find_installed_zxnextremote_version uses, so the two can never
+    # disagree about which build is the newest.
+    found.sort(key=lambda row: zxnextremote_sort_key(row[0]), reverse=True)
     return found
 
 
@@ -2462,17 +2590,16 @@ def zxnextremote_package_binary(folder, flavor):
     ``zxnu_emulator_ops._resolve_zxnr_update_binary``, which always answers
     with the NEWEST install (9.7.11).
 
-    The version is the folder name's suffix after ``zxnextremote-``, the same
-    rule that resolver uses, so a chosen package and an automatic one are
+    The version is read with :func:`zxnextremote_name_version` (the prefix
+    stripped repeatedly, then validated as three dotted integers), the
+    same rule that resolver uses, so a chosen package and an automatic one are
     versioned identically — and an unnamed folder is refused rather than sent
     with an empty version, because the remote update's step-0 blob check
     degrades to a brand-only check without one and both flavors carry the same
     brand bytes. The reasons stay English (self-update advisories are
     documented untranslated); the caller frames them."""
     name = os.path.basename(os.path.normpath(folder)) if folder else ""
-    prefix = "zxnextremote-"
-    version = (name[len(prefix):].strip()
-               if name.lower().startswith(prefix) else "")
+    version = zxnextremote_name_version(name)
     if not version:
         return None, None, (
             "the chosen folder ({}) does not carry a zxnextremote-<version> "
@@ -2786,7 +2913,8 @@ def find_emulators_in_downloads(base_dir, scan_for_cspect=True, scan_for_hdfmonk
                 # CSpect3_1_3_0, regardless of os.walk() visit order.
                 folder = os.path.basename(dirpath)
                 if cspect_best_name is None or \
-                   cspect_version_newer(folder, cspect_best_name):
+                   (build_version_key(folder)
+                        > build_version_key(cspect_best_name)):
                     cspect_path = os.path.join(dirpath, filename)
                     cspect_best_name = folder
                 continue

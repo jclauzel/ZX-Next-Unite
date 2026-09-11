@@ -661,8 +661,13 @@ check(f"dotN binary: carries the 'NextSync {ZX_NEXT_UNITE_DOTN_VERSION}' "
 # compared an upload name that kept its digit against a folder that had lost
 # it. CSpect's underscore names never hit it. Pins for both shapes.
 import tempfile  # noqa: E402
-from zxnu_config import (cspect_version_key, cspect_version_newer,  # noqa: E402
-                         find_installed_zxnextremote_version)
+from zxnu_config import (build_version_key,                        # noqa: E402
+                         cspect_version_key, cspect_version_newer,
+                         find_installed_zxnextremote_version,
+                         zxnextremote_name_version,
+                         zxnextremote_sort_key,
+                         zxnextremote_version_newer)
+import zxnu_itchio as _zxi                                       # noqa: E402
 
 check("build order: zxnextremote-1.0.7 is newer than 1.0.3",
       cspect_version_newer("zxnextremote-1.0.7", "zxnextremote-1.0.3"))
@@ -677,6 +682,90 @@ check("build order: an identical version is not 'newer' (no spurious update)",
       not cspect_version_newer("zxnextremote-1.0.7.zip", "zxnextremote-1.0.7"))
 check("build order: CSpect underscore names unchanged (3_1_10 > 3_1_4)",
       cspect_version_newer("CSpect3_1_10_0", "CSpect3_1_4_0"))
+
+# 9.7.19: a ZX Next Remote release was uploaded to itch.io as
+# "zxnextremote-zxnextremote-1.1.8.zip" (the prefix typed twice). The old key
+# tokenised the WHOLE name, so the leading text run decided the comparison
+# before a digit was read: "zxnextremote-zxnextremote-" > "zxnextremote-" made
+# the doubled 1.1.8 outrank 1.2.0 on BOTH sides of the update check at once -
+# the newest INSTALL on disk and the newest UPLOAD on itch.io - so the check
+# compared 1.1.8 with itself, said "up to date", and the derived version
+# string "zxnextremote-1.1.8" (one prefix stripped) failed _parse_dot_version,
+# silencing the remote self-update offer too. Digits now outrank the prefix.
+check("build order: a DOUBLED prefix does not outrank a higher version",
+      cspect_version_newer("zxnextremote-1.2.0",
+                           "zxnextremote-zxnextremote-1.1.8"))
+check("build order: the doubled older build is not 'newer' than 1.2.0",
+      not cspect_version_newer("zxnextremote-zxnextremote-1.1.8",
+                               "zxnextremote-1.2.0"))
+check("build order: doubled-vs-doubled still compares numerically",
+      cspect_version_newer("zxnextremote-zxnextremote-1.1.8",
+                           "zxnextremote-zxnextremote-1.1.7"))
+check("build order: the itch.io upload sort agrees with the installed sort "
+      "(one key, both sides)",
+      _zxi._version_sort_key("zxnextremote-1.2.0.zip")
+      > _zxi._version_sort_key("zxnextremote-zxnextremote-1.1.8.zip"))
+check("build version: a doubled prefix still yields a PARSEABLE version",
+      zxnextremote_name_version("zxnextremote-zxnextremote-1.1.8") == "1.1.8")
+check("build version: a doubled .zip upload and its folder agree",
+      zxnextremote_name_version("zxnextremote-zxnextremote-1.1.8.zip")
+      == zxnextremote_name_version("zxnextremote-zxnextremote-1.1.8"))
+check("build version: the ordinary single-prefix name is unchanged",
+      zxnextremote_name_version("zxnextremote-1.2.0") == "1.2.0")
+check("build version: a name carrying no prefix is still UNKNOWN (the "
+      "callers refuse rather than send a build under a made-up version)",
+      zxnextremote_name_version("CSpect3_3_1_0") == ""
+      and zxnextremote_name_version("randomfolder") == ""
+      and zxnextremote_name_version("zxnextremote-") == "")
+check("build key: version digits outrank the surrounding text",
+      build_version_key("zxnextremote-1.2.0")[0] == (1, 2, 0)
+      and build_version_key("zxnextremote-zxnextremote-1.1.8")[0] == (1, 1, 8))
+# A spelling is not a version. The doubled and the canonical 1.1.7 are BOTH
+# on disk, so whichever way the sides happen to be spelled, the same build
+# must never read as an upgrade over itself - or the startup check offers
+# it on every run, forever.
+check("build order: two spellings of ONE version are never 'newer', "
+      "either way round",
+      not cspect_version_newer("zxnextremote-zxnextremote-1.1.7",
+                               "zxnextremote-1.1.7")
+      and not cspect_version_newer("zxnextremote-1.1.7",
+                                   "zxnextremote-zxnextremote-1.1.7"))
+check("build order: a same-version CSpect beta is not an upgrade either",
+      not cspect_version_newer("CSpect3_2_0_beta", "CSpect3_2_0"))
+# ...but a LIST must still be deterministic, canonical spelling first.
+check("build key: the canonical spelling heads a same-version tie",
+      build_version_key("zxnextremote-1.1.7")
+      > build_version_key("zxnextremote-zxnextremote-1.1.7"))
+# build_version_key harvests every digit run, so a dated copy parked in
+# files/ keys as (2026, ...) and outranks 1.2.0 - and the ZXNR finder has
+# no .nex filter, so such a folder would win and silence the offer.
+check("ZXNR order: a name carrying no readable version never outranks "
+      "one that does, in either direction",
+      not zxnextremote_version_newer("2026-backup-zxnextremote-1.0.0",
+                                     "zxnextremote-1.2.0")
+      and zxnextremote_version_newer("zxnextremote-1.2.0",
+                                     "2026-backup-zxnextremote-1.0.0"))
+check("ZXNR order: the doubled 1.1.8 is still not newer than 1.2.0",
+      not zxnextremote_version_newer("zxnextremote-zxnextremote-1.1.8.zip",
+                                     "zxnextremote-1.2.0"))
+check("ZXNR version: a name that does not reduce to three dotted "
+      "integers is UNKNOWN, so the callers refuse instead of going "
+      "silent - and a two-part '1.2' can never be greped inside a "
+      "1.2.0 blob",
+      all(zxnextremote_name_version(n) == "" for n in
+          ("zxnextremote-beta", "zxnextremote-v1.2.0", "zxnextremote-1.2",
+           "zxnextremote-1.2.0 (1)", "zxnextremote-1.2.0.tar.gz",
+           "zxnextremote-1.0.9-partial")))
+check("ZXNR order key: an unknown name sorts BELOW every known one",
+      zxnextremote_sort_key("zxnextremote-0.0.1")
+      > zxnextremote_sort_key("2026-backup-zxnextremote-9.9.9"))
+# The whole silenced chain, in two pure functions: the doubled install
+# must parse for the update offer (zxnu_remote_explorer.py:3550).
+import zxnu_remote_explorer as _zxre                              # noqa: E402
+check("ZXNR offer: a doubled-prefix install parses for the update offer",
+      _zxre._parse_dot_version(
+          zxnextremote_name_version("zxnextremote-zxnextremote-1.1.8"))
+      == (1, 1, 8))
 check("build order: a CSpect .zip vs its folder still tie",
       not cspect_version_newer("CSpect3_1_4_0.zip", "CSpect3_1_4_0"))
 with tempfile.TemporaryDirectory() as _td:
@@ -697,7 +786,6 @@ from zxnu_config import (ZXNEXTREMOTE_ITCH_URL,                  # noqa: E402
                          find_installed_zxnextremote_versions,
                          zxnextremote_package_binary,
                          zxnextremote_package_flavors)
-import zxnu_itchio as _zxi                                       # noqa: E402
 
 
 def _mkpkg(root, name, flavors=ZXNR_NEX_FLAVORS, extra=()):
@@ -720,26 +808,39 @@ with tempfile.TemporaryDirectory() as _td:
     _mkpkg(_files, "zxnextremote-1.0.3")
     _mkpkg(_files, "zxnextremote-1.0.10")
     _mkpkg(_files, "zxnextremote-1.0.7", flavors=("n2n",))
+    _mkpkg(_files, "zxnextremote-zxnextremote-1.0.5")
+    _mkpkg(_files, "zxnextremote-1.0.5")
+    # Both .nex present, so ONLY the name can keep it off the top row.
+    _mkpkg(_files, "2026-backup-zxnextremote-1.9.9")
     os.makedirs(os.path.join(_files, "zxnextremote-1.0.9-partial"))
     open(os.path.join(_files, "zxnextremote-1.0.10.zip"), "wb").close()
 
     _rows = find_installed_zxnextremote_versions(_td)
-    check("ZXNR versions: newest first, NUMERIC (1.0.10 above 1.0.7)",
+    check("ZXNR versions: newest first, NUMERIC (1.0.10 above 1.0.7), and a "
+          "DOUBLED-prefix folder sorts by its version, not its prefix (9.7.19)",
           [r[0] for r in _rows] == ["zxnextremote-1.0.10",
                                     "zxnextremote-1.0.7",
-                                    "zxnextremote-1.0.3"],
+                                    "zxnextremote-1.0.5",
+                                    "zxnextremote-zxnextremote-1.0.5",
+                                    "zxnextremote-1.0.3",
+                                    "2026-backup-zxnextremote-1.9.9"],
           str([r[0] for r in _rows]))
     check("ZXNR versions: the .zip and the .nex-less folder are not listed",
           all("zip" not in r[0] and "partial" not in r[0] for r in _rows))
-    check("ZXNR versions: row carries the bare version string",
-          [r[2] for r in _rows] == ["1.0.10", "1.0.7", "1.0.3"],
+    check("ZXNR versions: row carries the bare version string, a doubled "
+          "prefix fully stripped (9.7.19)",
+          [r[2] for r in _rows] == ["1.0.10", "1.0.7", "1.0.5", "1.0.5",
+                                    "1.0.3", ""],
           str([r[2] for r in _rows]))
     check("ZXNR versions: row carries the flavors it holds",
           _rows[0][3] == ("httpbridge", "n2n") and _rows[1][3] == ("n2n",),
           str([r[3] for r in _rows]))
     check("ZXNR versions: the singular finder is NOT narrowed by the plural "
-          "one (it still answers on a .nex-less tree)",
-          find_installed_zxnextremote_version(_td)[0] is not None)
+          "one (it still answers on a .nex-less tree), and agrees with it "
+          "on the winner - 'is not None' passed under the broken key too",
+          find_installed_zxnextremote_version(_td)[0]
+          == "zxnextremote-1.0.10",
+          str(find_installed_zxnextremote_version(_td)[0]))
 
     _both = os.path.join(_files, "zxnextremote-1.0.10")
     check("ZXNR flavors: both builds, in ZXNR_NEX_FLAVORS order",
@@ -750,6 +851,14 @@ with tempfile.TemporaryDirectory() as _td:
     check("ZXNR flavors: an absent folder is not a package (OSError "
           "swallowed)",
           zxnextremote_package_flavors(os.path.join(_td, "nope")) == ())
+
+    # zxnu_workers.py:2339-2341 greps this string as a bare substring of
+    # the .nex, and b"zxnextremote-1.0.5" is not in one while b"1.0.5" is.
+    check("ZXNR binary: a doubled folder name still yields the BARE "
+          "version",
+          zxnextremote_package_binary(
+              os.path.join(_files, "zxnextremote-zxnextremote-1.0.5"),
+              "n2n")[1] == "1.0.5")
 
     _case = _mkpkg(_td, "zxnextremote-9.9.9", flavors=())
     with open(os.path.join(_case, "ZXNEXTREMOTE-N2N.NEX"), "wb") as _fh:
