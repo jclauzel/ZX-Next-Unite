@@ -32,7 +32,9 @@ import zipfile
 
 from zxnu_config import (ITCH_API_BASE, ITCH_USER_AGENT, ITCH_PAGE_SIZE,
                          ITCH_MAX_PAGES, CSPECT_ITCH_URL,
-                         ZXNEXTREMOTE_ITCH_URL, cspect_version_key)
+                         ZXNEXTREMOTE_ITCH_URL, _version_stem,
+                         build_version_key, cspect_version_key,
+                         zxnextremote_sort_key)
 
 
 # ── optional-dependency detection ──────────────────────────────────────────
@@ -700,7 +702,12 @@ def list_owned_uploads(game, api_key):
             "id": u["id"],
             "filename": filename,
             "size": u.get("size"),
-            "version_name": os.path.splitext(os.path.basename(filename))[0],
+            # _version_stem, not splitext: on a DOTTED version splitext
+            # takes the last component for an extension, so an
+            # extension-less "zxnextremote-1.2.5" became
+            # "zxnextremote-1.2" and its patch digit was lost - the
+            # very trap _version_stem exists for (9.7.19).
+            "version_name": _version_stem(filename),
             "version_key": cspect_version_key(filename),
         })
     return game_id, key_id, uploads
@@ -752,7 +759,12 @@ def list_creator_uploads(game, api_key):
             "id": u["id"],
             "filename": filename,
             "size": u.get("size"),
-            "version_name": os.path.splitext(os.path.basename(filename))[0],
+            # _version_stem, not splitext: on a DOTTED version splitext
+            # takes the last component for an extension, so an
+            # extension-less "zxnextremote-1.2.5" became
+            # "zxnextremote-1.2" and its patch digit was lost - the
+            # very trap _version_stem exists for (9.7.19).
+            "version_name": _version_stem(filename),
             "version_key": cspect_version_key(filename),
         })
     return game_id, None, uploads
@@ -951,6 +963,15 @@ def latest_zxnextremote_upload(api_key, game=None):
                and "beta" not in (u.get("version_name") or "").lower()]
     if not uploads:
         return None
+    # The listing sort (_version_sort_key -> build_version_key) is shared
+    # with CSpect and keys off whatever digits a name carries. This list
+    # is KNOWN to be ZX Next Remote, so order it by the validated version:
+    # uploads[0] is what every "is there a newer one?" check reads as the
+    # newest and what the version picker preselects, and an upload named
+    # zxnextremote-zxnextremote-1.1.8.zip pinned that slot - hiding 1.2.0
+    # from the check for good (9.7.19).
+    uploads = sorted(uploads, key=lambda u: zxnextremote_sort_key(
+        u.get("filename") or ""), reverse=True)
     newest = uploads[0]
     return {
         "game": game,
@@ -1205,10 +1226,18 @@ def _zip_target_dir(zip_path):
 def _version_sort_key(zip_path):
     """Natural-order key for a zip path so versioned names sort numerically
     (``CSpect3_1_4_0`` > ``CSpect3_1_3_0`` > ``CSpect3_0_15_2``) rather than
-    lexically. Digit runs compare as ints, other runs as lower-case text."""
-    name = os.path.basename(zip_path)
-    return [int(tok) if tok.isdigit() else tok.lower()
-            for tok in re.split(r"(\d+)", name)]
+    lexically.
+
+    Delegates to :func:`zxnu_config.build_version_key`, which ranks the
+    version DIGITS ahead of the surrounding text. This used to be a private
+    third copy of the plain token split, and it decided which UPLOAD itch.io
+    listed as the newest: a release uploaded as
+    ``zxnextremote-zxnextremote-1.1.8.zip`` sorted above
+    ``zxnextremote-1.2.0.zip`` purely on its longer text prefix, so
+    ``uploads[0]`` — the build every "is there a newer one?" check compares
+    against — was the older one, and 1.2.0 was invisible on the remote side
+    exactly as it was on the installed side (9.7.19). One key, both sides."""
+    return build_version_key(os.path.basename(zip_path))
 
 
 def find_extractable_zips(install_dir, include_extracted=False):

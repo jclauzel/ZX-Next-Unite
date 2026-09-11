@@ -1852,6 +1852,24 @@ def build_emulator_ops(
                 "MAME update ▸ user chose to pick a release manually."))
             _choose_and_install_mame("Choose a MAME release")
 
+    # ── Update-check logging ──────────────────────────────────────────
+    # The four startup update checks (MAME, CSpect, ZX Next Remote and this
+    # app's own release) used to speak ONLY to the SD Card tab's log
+    # console. That console is a QListWidget nobody can grep, on a tab the
+    # user may never be looking at - so "did the check even run?" had no
+    # answer anywhere on disk, and the rotating diagnostic log, which is
+    # the first thing anyone reaches for, showed an unbroken silence that
+    # read exactly like a check that never fired (9.7.19). Every line these
+    # checks emit now goes to BOTH: the console for the user, the rotating
+    # log for the bug report. Deliberately logging.info and not .debug -
+    # four lines a session is not noise, and their absence was the bug.
+    def _log_update(line):
+        add_main_log_window(line)
+        try:
+            logging.info("update check: %s", line)
+        except Exception:       # noqa: BLE001 - logging must never break a check
+            pass
+
     def _check_mame_update_async():
         """At startup, if MAME is installed and the check is enabled, look up
         the latest MAME release on GitHub (off the UI thread) and, when it is
@@ -1905,23 +1923,23 @@ def build_emulator_ops(
                 installed_num = info.get("installed_num")
                 latest_num = info.get("latest_num")
                 if latest_num is None:
-                    add_main_log_window(ui_tr_now(
+                    _log_update(ui_tr_now(
                         "MAME update check: could not determine the "
                         "latest release; skipping."))
                     return
                 if installed_num is None:
-                    add_main_log_window(ui_tr_now(
+                    _log_update(ui_tr_now(
                         "MAME update check: could not determine the installed "
                         "MAME version; skipping."))
                     return
                 if latest_num <= installed_num:
                     if info.get("patched"):
-                        add_main_log_window(ui_tr_now(
+                        _log_update(ui_tr_now(
                             "MAME is up-to-date with a patched version "
                             "(installed 0.{installed}, latest 0.{latest})."
                         ).format(installed=installed_num, latest=latest_num))
                     else:
-                        add_main_log_window(ui_tr_now(
+                        _log_update(ui_tr_now(
                             "MAME is up-to-date (installed 0.{installed}, "
                             "latest 0.{latest})."
                         ).format(installed=installed_num, latest=latest_num))
@@ -1933,11 +1951,11 @@ def build_emulator_ops(
         def _on_error(err):
             detail = err[1] if isinstance(err, (tuple, list)) and len(err) > 1 else err
             logging.info(f"MAME update check skipped: {detail}")
-            add_main_log_window(ui_tr_now(
+            _log_update(ui_tr_now(
                 "MAME update check: could not reach the release site; "
                 "skipping."))
 
-        add_main_log_window(ui_tr_now("Checking for a newer MAME release…"))
+        _log_update(ui_tr_now("Checking for a newer MAME release…"))
         getit_run_in_thread(_job, _on_result, _on_error)
 
     # Expose so the startup sequence can kick the check once the config
@@ -2237,7 +2255,7 @@ def build_emulator_ops(
             # Sandboxed install: /app is read-only and updates arrive via
             # the Flatpak remote, so the in-app self-updater must stay out
             # of the way.
-            add_main_log_window(ui_tr_now(
+            _log_update(ui_tr_now(
                 "ZX Next Unite update check: running as a Flatpak — "
                 "updates come from your software center, skipping."))
             return
@@ -2255,18 +2273,18 @@ def build_emulator_ops(
                 remote = _parse_zxnu_version(tag)
                 local = _parse_zxnu_version(ZX_NEXT_UNITE_VERSION)
                 if not remote or not local:
-                    add_main_log_window(ui_tr_now(
+                    _log_update(ui_tr_now(
                         "ZX Next Unite update check: could not parse the "
                         "versions (latest tag {tag}); skipping.").format(
                             tag=repr(tag)))
                     return
                 if remote <= local:
-                    add_main_log_window(ui_tr_now(
+                    _log_update(ui_tr_now(
                         "ZX Next Unite is up to date (installed {installed}, "
                         "latest {latest})."
                     ).format(installed=ZX_NEXT_UNITE_VERSION, latest=tag))
                     return
-                add_main_log_window(
+                _log_update(
                     ui_tr_now("ZX Next Unite update available: {latest} "
                               "(installed {installed}).").format(
                                   latest=tag,
@@ -2278,11 +2296,11 @@ def build_emulator_ops(
         def _on_error(err):
             detail = err[1] if isinstance(err, (tuple, list)) and len(err) > 1 else err
             logging.info(f"ZXNU update check skipped: {detail}")
-            add_main_log_window(ui_tr_now(
+            _log_update(ui_tr_now(
                 "ZX Next Unite update check: could not reach GitHub "
                 "(offline, or no release published yet); skipping."))
 
-        add_main_log_window(ui_tr_now(
+        _log_update(ui_tr_now(
             "Checking for a newer ZX Next Unite release on GitHub…"))
         getit_run_in_thread(_job, _on_result, _on_error)
 
@@ -2466,7 +2484,11 @@ def build_emulator_ops(
         the newest extracted itch.io folder
         (find_installed_zxnextremote_version); the version is that
         folder's name suffix after "zxnextremote-" (e.g.
-        ``…/files/zxnextremote-1.0.3`` → "1.0.3").
+        ``…/files/zxnextremote-1.0.3`` → "1.0.3"), read through
+        zxnextremote_name_version so a doubled prefix (an upload named
+        ``zxnextremote-zxnextremote-1.1.8.zip``) still yields "1.1.8"
+        instead of the unparseable "zxnextremote-1.1.8" that silenced the
+        update offer outright (9.7.19).
 
         Returns ``(path, version, "")`` on success or ``(None, None,
         reason)``. LOCAL FILESYSTEM ONLY — no network — so unlike
@@ -2482,9 +2504,7 @@ def build_emulator_ops(
                 "no itch.io ZX Next Remote install was found on this PC — "
                 "fetch one first via the Settings tab's ZX Next Remote "
                 "update check or the itch.io tab")
-        prefix = "zxnextremote-"
-        version = (folder_name[len(prefix):].strip()
-                   if folder_name.lower().startswith(prefix) else "")
+        version = zxnextremote_name_version(folder_name)
         if not version:
             return None, None, (
                 f"the newest install folder ({folder_name}) does not carry "
@@ -2708,17 +2728,17 @@ def build_emulator_ops(
             try:
                 skip = info.get("skip")
                 if skip:
-                    add_main_log_window(ui_tr_now("CSpect update check: {reason}.").format(reason=skip))
+                    _log_update(ui_tr_now("CSpect update check: {reason}.").format(reason=skip))
                     return
                 installed_name = info.get("installed_name")
                 latest_name = info.get("version_name")
                 if not info.get("newer"):
-                    add_main_log_window(ui_tr_now(
+                    _log_update(ui_tr_now(
                         "CSpect is up to date (installed {installed}, "
                         "latest {latest})."
                     ).format(installed=installed_name, latest=latest_name))
                     return
-                add_main_log_window(
+                _log_update(
                     ui_tr_now("CSpect update ▸ newer build available: "
                               "installed {installed}, latest {latest}."
                               ).format(installed=installed_name,
@@ -2741,11 +2761,11 @@ def build_emulator_ops(
         def _on_error(err):
             detail = (err[1] if isinstance(err, (tuple, list)) and len(err) > 1
                       else err)
-            add_main_log_window(ui_tr_now(
+            _log_update(ui_tr_now(
                 "CSpect update check skipped: {reason}").format(reason=detail))
             logging.info(f"CSpect update check skipped: {detail}")
 
-        add_main_log_window(ui_tr_now(
+        _log_update(ui_tr_now(
             "Checking itch.io for a newer CSpect release…"))
         getit_run_in_thread(_job, _on_result, _on_error)
 
@@ -2937,27 +2957,33 @@ def build_emulator_ops(
             info = dict(info)
             info["installed_name"] = installed_name
             info["installed_dir"] = installed_dir
-            info["newer"] = cspect_version_newer(
-                info.get("version_name") or "", installed_name)
+            # The ZXNR key, not the shared one: an install folder whose
+            # name carries no readable version must never read as newer
+            # (9.7.19). Compare the raw upload FILENAME - version_name is
+            # a display stem, and an extension-less dotted name loses its
+            # patch digit to os.path.splitext.
+            info["newer"] = zxnextremote_version_newer(
+                info.get("filename") or info.get("version_name") or "",
+                installed_name)
             return info
 
         def _on_result(info):
             try:
                 skip = info.get("skip")
                 if skip:
-                    add_main_log_window(ui_tr_now(
+                    _log_update(ui_tr_now(
                         "ZXNextRemote update check: {reason}."
                     ).format(reason=skip))
                     return
                 installed_name = info.get("installed_name")
                 latest_name = info.get("version_name")
                 if not info.get("newer"):
-                    add_main_log_window(ui_tr_now(
+                    _log_update(ui_tr_now(
                         "ZX Next Remote is up to date (installed "
                         "{installed}, latest {latest})."
                     ).format(installed=installed_name, latest=latest_name))
                     return
-                add_main_log_window(ui_tr_now(
+                _log_update(ui_tr_now(
                     "ZXNextRemote update \u25b8 newer build available: "
                     "installed {installed}, latest {latest}."
                 ).format(installed=installed_name, latest=latest_name))
@@ -2975,12 +3001,12 @@ def build_emulator_ops(
         def _on_error(err):
             detail = (err[1] if isinstance(err, (tuple, list)) and len(err) > 1
                       else err)
-            add_main_log_window(ui_tr_now(
+            _log_update(ui_tr_now(
                 "ZXNextRemote update check skipped: {reason}"
             ).format(reason=detail))
             logging.info(f"ZXNextRemote update check skipped: {detail}")
 
-        add_main_log_window(ui_tr_now(
+        _log_update(ui_tr_now(
             "Checking itch.io for a newer ZX Next Remote release\u2026"))
         getit_run_in_thread(_job, _on_result, _on_error)
 
