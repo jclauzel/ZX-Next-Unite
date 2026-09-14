@@ -822,9 +822,15 @@ def build_config_io(
                 if _split_pref and _split_widget is not None:
                     try:
                         _top, _bottom = (int(_v) for _v in _split_pref.split(",")[:2])
-                        if _top > 0 and _bottom > 0:
+                        # Bounded, and OverflowError caught: a corrupt
+                        # "99999999999,110" clears the positive test and
+                        # then raises out of Qt (an ArithmeticError, which
+                        # TypeError/ValueError does not cover), which used
+                        # to abandon every restore below this loop.
+                        if 0 < _top < SPLITTER_MAX_PANE_PX and \
+                                0 < _bottom < SPLITTER_MAX_PANE_PX:
                             _split_widget.setSizes([_top, _bottom])
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError, OverflowError):
                         pass
 
             # Restore the SD Card retro 8-bit log mode the same way.

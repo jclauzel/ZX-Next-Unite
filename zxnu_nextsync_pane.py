@@ -36,7 +36,7 @@ from PySide6.QtGui import (QKeySequence)
 from PySide6.QtWidgets import (QWidget, QLabel, QPushButton, QCheckBox,
     QComboBox, QLineEdit, QHBoxLayout, QVBoxLayout, QProgressBar, QTreeView,
     QFileSystemModel, QGroupBox, QRadioButton, QButtonGroup, QListWidget,
-    QTabBar, QStackedWidget, QAbstractItemView, QMenu, QApplication,
+    QTabBar, QStackedWidget, QAbstractItemView, QMenu, QApplication, QSplitter,
     QInputDialog, QMessageBox)
 
 from zxnu_http_bridge import NextSyncHttpBridge, QueueBridgeHost
@@ -1323,7 +1323,6 @@ def build_nextsync_pane(
         _lay = QVBoxLayout(container)
         _lay.setContentsMargins(0, 0, 0, 0)
         _lay.setSpacing(4)
-        _lay.addWidget(widget, 1)
         mini = QListWidget(container)
         mini.setContextMenuPolicy(Qt.CustomContextMenu)
 
@@ -1345,11 +1344,80 @@ def build_nextsync_pane(
         for i in range(min(host.nextsync_log.count(), 200)):
             mini.addItem(host.nextsync_log.item(i).text())
         mini_stack = QStackedWidget(container)
-        mini_stack.setFixedHeight(110)
+        # Was setFixedHeight(110) - three lines, and nothing the user could
+        # do about it while a transfer filled the console. It is the bottom
+        # half of a splitter now (9.7.21), so it needs a floor rather than a
+        # ceiling: small enough to tuck the log away, never zero (with
+        # setChildrenCollapsible(False) the handle always has something to
+        # grab on both sides).
+        mini_stack.setMinimumHeight(44)
         mini_stack.addWidget(mini)
-        _lay.addWidget(mini_stack)
+        # The explorers ⇄ log split, the twin of the SD Card tab's. Qt.Vertical
+        # so the HANDLE is horizontal: the user drags it up and down to trade
+        # height between the file panes and the console.
+        re_log_splitter = QSplitter(Qt.Vertical, container)
+        re_log_splitter.addWidget(widget)
+        re_log_splitter.addWidget(mini_stack)
+        re_log_splitter.setChildrenCollapsible(False)
+        re_log_splitter.setStretchFactor(0, 1)   # the panes take new height
+        re_log_splitter.setStretchFactor(1, 0)   # the log keeps its own
+        re_log_splitter.setHandleWidth(10)
+        # The shared grab-pill style. Safe over the widget's own horizontal
+        # local ⇄ Next splitter nested below: that one carries
+        # SPLITTER_HANDLE_QSS_HORIZONTAL, whose trailing ':vertical' override
+        # wins the cascade (see the constant's note in zxnu_config).
+        re_log_splitter.setStyleSheet(SPLITTER_HANDLE_QSS)
+        re_log_splitter.setSizes([500, 110])     # today's look, until dragged
+        # The same sentence the SD Card tab's handle carries - one string,
+        # already in all six catalogs, describing the same gesture.
+        #
+        # Set in ENGLISH and translated by the walk below, NOT through
+        # ui_tr_now: translate_widget_tree caches whatever text a widget
+        # already has as its English SOURCE the first time it visits. This
+        # container is built lazily, so on a Spanish session an ui_tr_now
+        # tooltip would be cached as Spanish-is-the-source and could never
+        # match a catalog key again - frozen in that language for the rest
+        # of the session while every tooltip around it switched. The local
+        # keeps tests/test_i18n.py's runtime sweep happy, which flags a
+        # catalogued literal handed straight to setToolTip in a closure.
+        _re_log_tip = "Drag to resize the file explorers / log window split."
+        re_log_splitter.handle(1).setToolTip(_re_log_tip)
+        # Restored HERE, not in load_configuration_file's splitter loop: this
+        # whole container is built lazily, the first time the Remote Explorer
+        # view is shown, which is long after that loop has run (the same
+        # reason the widget's own local ⇄ Next split is passed in).
+        _re_log_pref = str(configuration_dictionary.get(
+            SETTING_NEXTSYNC_RE_LOG_SPLITTER, "")).strip()
+        if _re_log_pref:
+            try:
+                _top, _bot = (int(_v) for _v in _re_log_pref.split(",")[:2])
+                # BOUNDED, not merely positive: a pane size past a few
+                # thousand pixels can only be corruption, and Qt answers a
+                # value over a C int with OverflowError - an
+                # ArithmeticError, which the clause below would NOT catch.
+                # Escaping here would abandon the rest of this lazy build
+                # and leave the Remote Explorer view half-made for the
+                # session. (OverflowError is in the clause too, for a
+                # number that clears the bound on some future Qt.)
+                if 0 < _top < SPLITTER_MAX_PANE_PX and \
+                        0 < _bot < SPLITTER_MAX_PANE_PX:
+                    re_log_splitter.setSizes([_top, _bot])
+            except (TypeError, ValueError, OverflowError):
+                pass
+
+        def _re_on_log_splitter_moved(_pos, _index):
+            # splitterMoved fires only for real drags, never for the setSizes
+            # above, so a restore can never echo back into the file. The
+            # dictionary is updated per move and the FILE once the drag pauses
+            # (the 300 ms flush the local ⇄ Next split already shares).
+            configuration_dictionary[SETTING_NEXTSYNC_RE_LOG_SPLITTER] = ",".join(
+                str(_s) for _s in re_log_splitter.sizes())
+            _re_splitter_flush.start()
+        re_log_splitter.splitterMoved.connect(_re_on_log_splitter_moved)
+        _lay.addWidget(re_log_splitter, 1)
         host._re_mini_log = mini
         host._re_mini_stack = mini_stack
+        host._re_log_splitter = re_log_splitter
         host._re_container = container
         host.nextsync_log_stack.addWidget(container)
         _re_mini_sync_mode()
@@ -1365,7 +1433,14 @@ def build_nextsync_pane(
         # English sources cached for the next language switch (the same
         # step the gallery takes for its lazily built pages).
         try:
-            translate_widget_tree(widget, current_ui_language())
+            # The whole CONTAINER, not just the widget: the splitter, its
+            # handle's tooltip and the mini log's stack are lazily built
+            # too, and this is the walk that both translates them now and
+            # caches their English sources for the next language switch.
+            # (The walk swaps label/button/placeholder/tooltip texts; it
+            # never touches QListWidget item text, so the mini log's lines
+            # are left exactly as the console wrote them.)
+            translate_widget_tree(container, current_ui_language())
         except Exception:                       # noqa: BLE001
             logging.exception("Remote explorer: initial translation failed")
         return widget
