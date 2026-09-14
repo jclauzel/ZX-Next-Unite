@@ -59,6 +59,7 @@ SETTINGS_TAB_ROWS = (
     "re_autostart",
     "nextsync_send_conflict",
     "nextsync_verify_crc",
+    "nextsync_sessions",
     "avail_check",
     "multi_search",
     "search_autocomplete",
@@ -2152,6 +2153,52 @@ def build_settings_pane(
         lambda _s: _settings_nextsync_verify_crc_changed())
     grid_tab_Settings.addWidget(host.settings_nextsync_verify_crc_checkbox,
                                 settings_grid_row("nextsync_verify_crc"), 0, 1, 2)
+
+    # ── NextSync: Sessions — the Remote Explorer server's seat count (9.7.20) ──
+    # On (default): the multi-Next roster — up to RE_MAX_PEERS '.sync5 -L'
+    # sessions at once, the machine combo / session tabs switch which one the
+    # pane drives, a fifth is turned away Busy. Off: ONE seat, and a Next
+    # that dials in while one is seated is taken for the SAME machine coming
+    # back over a dead link: the held link is dropped and the newcomer takes
+    # its seat — same id, same pane, no reset — at once, instead of sitting
+    # benched behind the zombie for PEER_SILENCE_LIMIT. This is the pairing
+    # for ZX Next Remote 1.2.5 (its Listener re-dials up to six times after a
+    # lost link; its own n2n "Sessions" row makes the identical one-seat
+    # assertion). The worker reads it PER DIAL through a 0-arg hook handed
+    # over by zxnu_nextsync_pane, so a flip applies to the next connection
+    # without restarting the server. Classic '.sync5' syncs are untouched.
+    def _settings_nextsync_sessions_changed():
+        on = host.settings_nextsync_sessions_checkbox.isChecked()
+        configuration_dictionary[SETTING_NEXTSYNC_SESSIONS] = (
+            "true" if on else "false")
+        save_configuration_file()
+
+    host.settings_nextsync_sessions_checkbox = QCheckBox(
+        "NextSync — Sessions: seat several Nexts at once (Remote Explorer)")
+    host.settings_nextsync_sessions_checkbox.setChecked(True)   # default on
+    host.settings_nextsync_sessions_checkbox.setToolTip(
+        "On (default): the Remote Explorer NextSync server seats up to four Nexts\n"
+        "running '.sync5 -listen' at once — the machine list and the session tabs\n"
+        "switch which one the pane drives, and a fifth is turned away as Busy.\n"
+        "Off: exactly ONE seat. A Next that dials in while one is seated is taken\n"
+        "for the SAME machine coming back over a dead link (its ESP module reset,\n"
+        "its Wi-Fi blinked): the old link is dropped and the newcomer takes its\n"
+        "place at once — same session, same pane, no reset — instead of waiting\n"
+        "behind the dead link until it times out. A command cut by the drop is\n"
+        "retried up to three times, three seconds apart, once the Next is back (the\n"
+        "log shows retry1, retry2…); the rest of a queued copy carries on over the\n"
+        "new one. Pair it with ZX Next Remote 1.2.5 or newer, whose Listener\n"
+        "re-dials by itself after a lost link, and whose own n2n 'Sessions' row\n"
+        "means the same thing. Off asserts that ONE Next targets this PC: two Nexts\n"
+        "pointed here would evict each other, and a different Next dialing in is\n"
+        "treated as the same one — leave it On whenever more than one may connect.\n"
+        "Turned Off while several are seated, the next Next to dial in replaces them all.\n"
+        "Read when a Next dials in, so a change applies to the next connection.\n"
+        "Classic '.sync5' syncs are not affected. Saved to the configuration file.")
+    host.settings_nextsync_sessions_checkbox.stateChanged.connect(
+        lambda _s: _settings_nextsync_sessions_changed())
+    grid_tab_Settings.addWidget(host.settings_nextsync_sessions_checkbox,
+                                settings_grid_row("nextsync_sessions"), 0, 1, 2)
 
     # ── Unite! search result sort / render preference ──────────────────
     def _settings_search_sort_changed():

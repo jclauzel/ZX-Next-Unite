@@ -581,6 +581,46 @@ def test_multi_next_folders_follow_the_baton():
           and w.next_machine_combo.itemData(0) == 1)
 
 
+def test_single_seat_redial_keeps_the_pane():
+    """Sessions Off (9.7.20): the worker seats a Next dialing back in under
+    the SAME sid, so the roster it emits does not change - and an unchanged
+    roster must not reset the pane: no departure-save, no drives/version
+    re-query, the listing stays. A new address under that sid (the Next's
+    module came back on a fresh DHCP lease) updates the combo and nothing
+    else. The widget knows nothing of the setting; this pins the contract
+    the worker relies on."""
+    saved = {}
+    w, calls = make_widget(
+        local_start_dir=tdir("sseat_root"),
+        remote_cwd_for=saved.get,
+        on_remote_cwd_changed=lambda p, a=None: (
+            saved.__setitem__(a, p) if a else None))
+    w.on_peers((1, [(1, "10.0.0.5")]))
+    connect_widget(w, calls)
+    w.on_listing("/games", [(False, 10, "a.nex")])
+    rows = w.next_model.rowCount()
+    saved.clear()
+    # The Next dialed back in: the same seat, the same address.
+    w.on_peers((1, [(1, "10.0.0.5")]))
+    check("same-seat re-dial: nothing is re-queried", drain(calls) == [],
+          str(calls["q"]))
+    check("same-seat re-dial: still connected, listing and folder kept",
+          w._connected and w.next_model.rowCount() == rows and w._cwd == "/games",
+          (w._connected, w.next_model.rowCount(), w._cwd))
+    check("same-seat re-dial: no departure-save (nobody left)", saved == {},
+          str(saved))
+    # The module came back on a new lease: the same seat, a new address.
+    w.on_peers((1, [(1, "10.0.0.9")]))
+    check("new address under the seat: still no reset",
+          drain(calls) == [] and w._connected and w._cwd == "/games")
+    check("...but the combo names the new address",
+          w.next_machine_combo.count() == 1
+          and w.next_machine_combo.itemText(0) == "10.0.0.9 #1",
+          w.next_machine_combo.itemText(0))
+    check("...and the strip stays hidden for a lone seat",
+          not w.next_session_strip.isVisibleTo(w))
+
+
 def test_machine_names_follow_the_address():
     """The machine combo's friendly names (9.5.18): the round ✎ button
     names the machine the combo shows, the host persists addr -> name, and
@@ -3062,6 +3102,7 @@ def main():
         test_listing_and_rendering()
         test_navigation()
         test_multi_next_folders_follow_the_baton()
+        test_single_seat_redial_keeps_the_pane()
         test_machine_names_follow_the_address()
         test_session_tab_menu()
         test_update_prompt()

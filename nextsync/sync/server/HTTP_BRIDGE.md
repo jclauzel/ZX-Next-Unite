@@ -193,7 +193,7 @@ OK active: 1 count: 2 max: 4
 2	10.0.0.42 #2 - N-Go
 ```
 One line per seat: the **sid** (a number, never reused for the whole app
-run), a TAB, then the exact label the app's combo shows. With `&json=1`
+run — with the one exception *Sessions Off* makes, below), a TAB, then the exact label the app's combo shows. With `&json=1`
 each entry is `{sid, addr, name, label, active}`.
 
 **Every op route** (`/ls`, `/get`, `/put`, `/mkdir`, `/rmdir`, `/rmtree`,
@@ -216,6 +216,22 @@ drive a different machine — sids are minted once per app run. `/forceexit`
 takes no selector: it ends **every** seated session (the stop is a
 broadcast). The standalone `nextsync5.py` host is single-session: its
 `/sessions` reports one synthetic seat (sid 1) while a Next is connected.
+
+**Settings → NextSync — Sessions** (9.7.20). Off turns the app's server
+into a single-seat host: `max:` reads `1`, and a Next dialing in while one
+is seated is taken for the **same** machine coming back over a dead link
+(the rule ZX Next Remote 1.2.5's n2n *Sessions Off* row makes on the Next
+side — the wire carries no machine identity, so this is the operator's
+assertion that one Next targets this PC). The newcomer **takes the seat
+over under the same sid** — the one exception to "never reused": that sid
+still names the same seat, so a cached `&session=N` keeps driving the
+machine that came back instead of answering 410. A targeted request that
+was still queued on the replaced link answers 410 like any command the old
+session could not finish — re-send it. On (the default) is the four-seat
+table above. The standalone `nextsync5.py` host has no such setting: it is
+single-session by design and serves one link at a time, so a Next that
+re-dials it while its earlier link is still up waits in the backlog until
+that session ends.
 
 > Note: with token protection on, `/sessions` needs the token header too —
 > the roster (LAN addresses + your machine names) is worth protecting.

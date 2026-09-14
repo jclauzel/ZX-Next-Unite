@@ -42,6 +42,9 @@ SUITES = [
     ("test_mame_autostart.py",   120, None),
     ("test_nextsync_autostart.py", 120, None),
     ("test_nextsync_verify_crc.py", 120, None),
+    ("test_nextsync_sessions.py", 120, None),
+    ("test_listen_single_seat.py", 180, None),
+    ("test_listen_busy.py",     120, None),   # the multi-Next roster (Sessions On)
     ("test_image_lock.py",      120, None),
     ("test_pane_imports.py",    120, None),
     ("test_hdf_workers.py",     120, None),

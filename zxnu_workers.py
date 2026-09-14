@@ -580,7 +580,10 @@ class RemoteExplorerSignals(QObject):
     # (active_sid, [(sid, address), ...]): the connected-Nexts roster,
     # emitted on every join, leave and baton switch (multi-Next, option
     # B). active_sid is the session the shared command queue currently
-    # feeds; None only while no Next is connected.
+    # feeds; None only while no Next is connected. With Settings →
+    # "NextSync — Sessions" Off (9.7.20) a Next dialing in again keeps the
+    # seat's sid, so the roster it carries may not change at all — that is
+    # the point: the widget keeps the pane it was driving.
     peers        = Signal(object)
     # (path, entries) where entries is a list of (is_dir: bool, size: int, name: str)
     listing      = Signal(str, object)    # result of an "ls"
@@ -763,16 +766,77 @@ def _re_recv_exact(conn, n):
     return buf
 
 
+class _ReLinkDead(OSError):
+    """The link died under a UI command that WILL BE RETRIED (9.7.20).
+
+    Raised by the session's reply wrapper on EOF when a link-loss retry is
+    eligible, so the arm's own failure report is skipped and the
+    session-level arm holds the command for the seat that comes back. An
+    OSError subclass on purpose: the arms' existing handlers stay valid."""
+
+
+def _re_retry_give_up(sig, r, why):
+    """The ONE failure report a held command gets when its retries are over
+    (9.7.20): put_done(False) for a put, error for the rest - the widget
+    counts either as that command's step, exactly as the arm would have."""
+    cmd = r['cmd']
+    line = "retry%d of %s abandoned: %s" % (r['attempt'], r['label'], why)
+    sig.log.emit(line)
+    logging.warning("Remote explorer: %s", line)
+    if cmd[0] == "put":
+        remote = str(cmd[2])
+        if remote.endswith('/') or remote.endswith('\\'):
+            remote = remote + os.path.basename(str(cmd[1]))
+        sig.put_done.emit(False, remote)
+    else:
+        sig.error.emit("%s: %s" % (r['label'], why))
+
+
+class _ReLinkGone(Exception):
+    """The link failed under a reply that owed no report (9.7.20 review).
+
+    Raised by _re_session's ``_idle`` for the idle 'I', an ack, 'Later',
+    'Back': whatever that loop turn reported has already gone out, and the
+    command the Next will ask for next is still in the queue for whoever
+    serves it. Caught ahead of OSError so it never reaches the arm that
+    reports a COMMAND lost - that report is one widget step, and a step for
+    a command that was never taken ended a multi-file paste one file early
+    (measured: the old seat's 'I' hitting the socket the accept thread had
+    just shut down, with Sessions Off)."""
+
+
+def _re_drop_link(conn):
+    """Shut an evicted seat's socket down from the accept thread (9.7.20,
+    the single-seat mode of run_remote_listen_server).
+
+    shutdown() is what wakes a recv blocked on ANOTHER thread on every
+    platform — on POSIX a bare close() leaves that recv sleeping until it
+    returns on its own; the close that follows is for Windows, where a
+    shutdown alone leaves it sleeping until its 1 s timeout. The session's
+    own ``with conn:`` closes once more on its way out — the C-level close
+    is a no-op on an already-invalid descriptor, so that is harmless."""
+    if conn is None:
+        return
+    try:
+        conn.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    try:
+        conn.close()
+    except OSError:
+        pass
+
+
 def _re_recv_block(conn):
     hdr = _re_recv_exact(conn, 2)
     if hdr is None:
-        return None
+        return 'EOF'          # the link died (9.7.20: told apart from garbage)
     total = (hdr[0] << 8) | hdr[1]
     if total < 5 or total > 4096:
         return None
     rest = _re_recv_exact(conn, total - 2)
     if rest is None:
-        return None
+        return 'EOF'
     payload, (cs0, cs1) = rest[:-3], (rest[-3], rest[-2])
     c0, c1 = _re_checksums(payload)
     if c0 != cs0 or c1 != cs1:
@@ -817,6 +881,30 @@ PEER_SILENCE_LIMIT = 400.0
 #: past the cap gets the framed "Busy" turn-away -- the option-A reply,
 #: kept as the over-capacity answer.
 RE_MAX_PEERS = 4
+
+#: Link-loss retries (9.7.20, Sessions Off only). A UI command the link died
+#: under - the seat's own drop, or the eviction that seats the Next dialing
+#: back in - is not reported failed at once: it is held in control['retry']
+#: and re-run by the seat that comes back after a RE_LINK_RETRY_PAUSE_S
+#: settle, up to RE_LINK_RETRIES times ("retry1: get /x" in the NextSync
+#: log - ZX Next Remote's console wording, so the two logs read alike).
+#: While one is held and no seat is up, the worker keeps LISTENING for the
+#: Next instead of returning (which would end the widget's operation), for
+#: up to RE_LINK_RETRY_WAIT_S from the failure - ZX Next Remote 1.2.5's
+#: Listener dials again at once and then ten seconds apart, so three of
+#: its dials fit. Field case: an N-Go's folder copy to the PC died with its
+#: ESP link, the Listener re-dialed within a second, and the copy simply
+#: reported failed. Only ops whose re-run is idempotent are retried: a put
+#: truncates on open, a get overwrites, the rest answer 'F' if already
+#: done - never rmtree (a half-walked tree would count its own deletions as
+#: failures), never a bridge command (its caller retries), never a macro
+#: step, never the raw drives/version/free queries (they degrade on their
+#: own and count no widget step).
+RE_LINK_RETRIES = 3
+RE_LINK_RETRY_PAUSE_S = 3.0
+RE_LINK_RETRY_WAIT_S = 30.0
+RE_LINK_RETRY_OPS = frozenset(("ls", "get", "put", "mkdir", "rmdir", "rm",
+                               "rename", "rcpy", "fsize"))
 
 #: Listener builds that answer the 'K' (crc) op, by 'Y' ident type:
 #: the .sync5 dot from v5.9.2, ZX Next Remote (httpbridge/n2n) from 1.0.8.
@@ -903,13 +991,17 @@ def _re_reply_call(conn, handler, timeout=None):
 def _re_recv_reply(conn, handler):
     """Read the framed blocks the Next pushes in reply to a command, acking each
     with "Ok". handler(payload) returns True to stop. Returns True on clean
-    completion, False on drop.
+    completion, False on drop - or None when the link DIED under the reply
+    (EOF; 9.7.20), falsy like False for every caller but told apart by the
+    session's own reply wrapper, which turns it into a link-loss retry.
 
     Call it through :func:`_re_reply_call`, never directly: on its own it
     inherits whatever socket timeout the session loop last set (1 s)."""
     expected = 0
     while True:
         blk = _re_recv_block(conn)
+        if blk == 'EOF':
+            return None
         if blk is None:
             return False
         if blk == 'BADCS':
@@ -977,7 +1069,7 @@ def _re_relname_under(remote, name):
 
 
 def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
-                max_payload):
+                max_payload, seat=None):
     """One connected Next's ``-listen`` session (multi-Next, option B).
 
     The body is run_remote_listen_server's original single session, moved
@@ -994,11 +1086,46 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
     and is answered with an idle. Each session owns its owed bridge
     sinks, its put/rmtree state and its silence timer, exactly as the
     single session always did.
+
+    ``seat`` is this session's roster entry (9.7.20). Its ``evicted`` flag
+    is raised by the accept loop when, with Settings → Sessions Off, a
+    newcomer takes the seat over as the same Next coming back: from that
+    moment this session must not pop another shared command — the
+    newcomer holds the SAME sid, so the active-sid check alone would not
+    stop it — and its next recv ends it (the accept loop shuts the socket
+    down, so that is at once). None = a bare call (the tests').
     """
     peers = shared['peers']
     plock = shared['lock']
     state = shared['state']
     _emit_peers = shared['emit_peers']
+    seat = seat if seat is not None else {}
+
+    def _evicted():
+        return bool(seat.get('evicted'))
+
+    def _bye_evicted():
+        # The accept loop already told the console who replaced whom; the
+        # file log alone records that THIS is how the session ended, so a
+        # link dropped on purpose is never read as a silent peer or a
+        # connection error.
+        logging.info("Remote explorer: seat #%s's old link from %s ended "
+                     "(replaced by the Next dialing in again, Sessions Off)",
+                     sid, addr[0])
+
+    def _idle(payload=b"I"):
+        # THE way to answer a Poll that took no command, ack a block, or say
+        # 'Later'/'Back' (9.7.20 review): a reply that owes no report. If the
+        # link is gone under it, the session simply ends - _ReLinkGone is
+        # caught ahead of OSError below - because whatever this turn reported
+        # already went out, and a raw OSError here would reach the arm that
+        # reports a COMMAND lost: one phantom widget step, a paste ending a
+        # file early, a queued move's source kept (measured with the old
+        # seat's 'I' landing on a socket the accept thread had just shut).
+        try:
+            _re_sendpacket(conn, payload, 0)
+        except OSError as ex:
+            raise _ReLinkGone(ex) from ex
 
     def log(msg):
         sig.log.emit(msg)
@@ -1035,10 +1162,43 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
 
     def _pop_shared():
         # Atomic "am I active? then take one": two sessions polling at
-        # once must never race the roster check against the pop.
+        # once must never race the roster check against the pop. An
+        # evicted seat (Sessions Off, its Next dialed in again under the
+        # same sid) is never active again whatever the sid says. A held
+        # link-loss retry (9.7.20) comes FIRST and holds the queue behind
+        # it: idle answers until its pause is over, then the command
+        # itself, its attempt count riding retry_ctx to the Poll branch.
         with plock:
-            if state['active'] != sid:
+            if _evicted() or state['active'] != sid:
                 return None
+            r = control.get('retry')
+            if r is not None and r.get('gen') != shared.get('gen'):
+                # Another worker run stashed it (a session that outlived its
+                # worker's finally). Its operation died with that worker -
+                # the widget got `disconnected` - so drop it silently: no
+                # report is owed here, and RUNNING it could write to a
+                # different machine.
+                control.pop('retry', None)
+                logging.info("Remote explorer: dropped a link-loss retry "
+                             "left by an earlier server run (%s)",
+                             r.get('label'))
+                r = None
+            if r is not None:
+                if not _single_seat():
+                    # Flipped to On under a held retry: no seat may run it
+                    # (the machine that comes back might be another one).
+                    control.pop('retry', None)
+                    _re_retry_give_up(sig, r, "Sessions was switched On")
+                elif time.monotonic() < r['due']:
+                    return None
+                else:
+                    control.pop('retry', None)
+                    retry_ctx['attempt'] = r['attempt']
+                    line = "retry%d: %s" % (r['attempt'], r['label'])
+                    log(line)
+                    logging.info("Remote explorer: %s", line)
+                    return r['cmd']
+            retry_ctx['attempt'] = 0
             try:
                 return cmd_queue.get_nowait()
             except queue.Empty:
@@ -1090,6 +1250,127 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
     # = asked, unsupported. The verify gate reads it so an old listener is
     # never sent a 'K'.
     sess_ident = None
+    # The put the Next is pulling right now — ("put", remote, bridge_reply
+    # | None[, jid[, "extra"]]) — or None. Declared OUTSIDE the try (9.7.20)
+    # because the finally settles a UI put the session died under: the pull
+    # is served from the idle recv, so a link that goes mid-file ends the
+    # session without ever reaching _put_finish, and the widget's operation
+    # was left one step short for ever unless the whole worker ended too.
+    pending = None
+
+    def _ui_put_pending():
+        # A plain UI put still being pulled: no bridge sink (those are
+        # answered by _fail_owed) and no update_dot job id (the macro has
+        # its own exactly-once verdict in the finally).
+        return (pending is not None and pending[0] == "put"
+                and len(pending) <= 3 and pending[2] is None)
+
+    # rmtree walks still open: job id -> {'root', 'fails', 'reply', ...}.
+    # Pre-try like pending/vjobs/upd_jobs (9.7.20 review): the walk's steps
+    # ride local_cmds one per Poll, so a link that dies BETWEEN two steps
+    # ends the session from the idle recv with the job's ONE op_done never
+    # sent - and with a survivor seated (or the Off mode's re-seat) no
+    # disconnected ever came to end the widget's delete operation.
+    rmtree_jobs = {}
+    rmtree_seq = 0
+
+    def _report_owed_elsewhere():
+        # True when this death is reported by someone other than the error
+        # signal - the finally (a UI put being pulled, a verify or update
+        # job open, an rmtree walk open) or a bridge sink _fail_owed answers
+        # (bridge traffic is silent to the Remote Explorer UI). An error
+        # signal on top would be a SECOND widget step for one command, so
+        # the except arms log their line instead in every such case.
+        return (_ui_put_pending() or bool(vjobs) or bool(upd_jobs)
+                or bool(rmtree_jobs)
+                or any(not r.resolved for r in owed))
+
+    # Link-loss retry state (9.7.20). `inflight` is the shared-queue UI
+    # command this session is serving whose report is still owed and whose
+    # op is in RE_LINK_RETRY_OPS (a put keeps it until its pull ends);
+    # `inflight_attempt` its retry count so far (0 for a fresh command);
+    # `stashed` set once it has been handed to control['retry'] so no arm
+    # and not the finally report it. control survives worker restarts, so
+    # a held retry outlives this session AND this worker.
+    control = shared.get('control') or {}
+    inflight = None
+    inflight_attempt = 0
+    stashed = False
+    retry_ctx = {'attempt': 0}
+
+    def _single_seat():
+        fn = shared.get('sessions_on')
+        if fn is None:
+            return False
+        try:
+            return not fn()
+        except Exception:                                    # noqa: BLE001
+            return False
+
+    def _inflight_label():
+        c = inflight
+        if c is None:
+            return "?"
+        if c[0] == "put":
+            return "put " + str(c[2])
+        return "%s %s" % (c[0], c[1] if len(c) > 1 else "")
+
+    def _retry_eligible():
+        return (inflight is not None and not stashed
+                and inflight_attempt < RE_LINK_RETRIES and _single_seat())
+
+    def _stash_retry(why):
+        # Hold the command for the seat that comes back: no report now, the
+        # retry's own outcome is the report. The pause gives the returning
+        # link a moment to settle; the deadline bounds how long the worker
+        # keeps listening with no seat at all.
+        nonlocal stashed
+        k = inflight_attempt + 1
+        now = time.monotonic()
+        control['retry'] = {'cmd': inflight, 'attempt': k,
+                            'due': now + RE_LINK_RETRY_PAUSE_S,
+                            'deadline': now + RE_LINK_RETRY_WAIT_S,
+                            'label': _inflight_label(),
+                            'gen': shared.get('gen')}
+        stashed = True
+        line = "retry%d in %ds: %s (%s)" % (
+            k, int(RE_LINK_RETRY_PAUSE_S), _inflight_label(), why)
+        log(line)
+        logging.info("Remote explorer: %s", line)
+
+    def _retry_spent(why):
+        # A retried command the link cut AGAIN with no retry left: say so
+        # beside the failure report the normal arm now emits.
+        if inflight is not None and inflight_attempt > 0 and not stashed:
+            line = "retry%d failed: %s — giving up (%s)" % (
+                inflight_attempt, _inflight_label(), why)
+            log(line)
+            logging.warning("Remote explorer: %s", line)
+
+    def _re_reply_call(conn_, handler, timeout=None):
+        # Shadows the module function for every arm of THIS session
+        # (9.7.20): the same contract, plus - when the reply ends in EOF and
+        # a link-loss retry is eligible - _ReLinkDead instead of False, so
+        # the arm's own failure report is skipped and the session-level arm
+        # holds the command for the seat that comes back. Windows raises
+        # its own OSError out of the recv instead; both land in the same
+        # arm below.
+        try:
+            conn_.settimeout(RE_REPLY_TIMEOUT if timeout is None else timeout)
+            r = _re_recv_reply(conn_, handler)
+        except socket.timeout:
+            return False
+        finally:
+            try:
+                conn_.settimeout(1.0)
+            except OSError:
+                pass
+        if r is None:
+            if _retry_eligible():
+                raise _ReLinkDead("the link died under " + _inflight_label())
+            _retry_spent("the link went down again")
+            return False
+        return bool(r)
 
     try:
         with conn:
@@ -1444,7 +1725,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     local_cmds.appendleft(
                         ("upd_extra_fail", jid, step[-1],
                          "reading " + local + " failed: " + str(ex)))
-                    _re_sendpacket(conn, b"I", 0)
+                    _idle()
                     return
                 job['ex_data'] = blob
                 job['ex_crc'] = "%08X" % (zlib.crc32(blob) & 0xffffffff)
@@ -1473,8 +1754,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
             # (rmtree_ls/rmtree_rm/rmtree_rmdir) are served before the host
             # queue, so a recursive delete runs as one contiguous batch.
             local_cmds = deque()
-            rmtree_jobs = {}   # job id -> {'root': path, 'fails': 0}
-            rmtree_seq = 0
+            # rmtree_jobs / rmtree_seq: declared pre-try (the finally settles
+            # a walk the session died under).
             upd_seq = 0        # update_dot job ids (the dict lives pre-try)
 
             # Dead-peer detection. A Next that is switched off (or unplugged,
@@ -1491,10 +1772,18 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
             # slow operation can never be mistaken for a dead peer.
             last_rx = time.monotonic()
             while not stop_event.is_set():
+                if pending is None:
+                    # The previous turn's command has reported (a put reports
+                    # when its pull ends and keeps its inflight until then).
+                    inflight = None
+                    inflight_attempt = 0
                 try:
                     conn.settimeout(1.0)
                     data = conn.recv(1024)
                 except socket.timeout:
+                    if _evicted():
+                        _bye_evicted()
+                        break
                     if time.monotonic() - last_rx >= PEER_SILENCE_LIMIT:
                         log(ui_tr_now(
                             "Remote explorer: no word from the Next for "
@@ -1513,6 +1802,9 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 # reconnect and the user was left guessing WHO hung up.
                 # Name the reason, in the console AND the file log.
                 except OSError as ex:
+                    if _evicted():
+                        _bye_evicted()
+                        break
                     log(ui_tr_now(
                         "Remote explorer: connection error from the Next "
                         "({error}) — session over.").format(error=ex))
@@ -1521,6 +1813,9 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         ex)
                     break
                 if not data:
+                    if _evicted():
+                        _bye_evicted()
+                        break
                     log(ui_tr_now(
                         "Remote explorer: the Next closed the connection."))
                     logging.info(
@@ -1539,7 +1834,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 # counted) so the dot isn't left retrying.
                 fail_payload = _re_fail_block_payload(data)
                 if fail_payload is not None:
-                    _re_sendpacket(conn, b"Ok", 0)
+                    _idle(b"Ok")
                     if pending and pending[0] == "put":
                         _put_finish(False, osp=_re_is_osp(fail_payload))
                         pending = None
@@ -1560,6 +1855,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     put_pkt = 0
 
                 if data == b"Poll":
+                    from_shared = False
                     if local_cmds:
                         cmd = local_cmds.popleft()
                     else:
@@ -1570,8 +1866,9 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             cmd = my_q.get_nowait()
                         except queue.Empty:
                             cmd = _pop_shared()
+                            from_shared = cmd is not None
                         if cmd is None:
-                            _re_sendpacket(conn, b"I", 0)   # idle
+                            _idle()   # idle
                             continue
                         if cmd[0] == "select_next":
                             # The baton moves; this Next idles on.
@@ -1579,7 +1876,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 if cmd[1] in peers:
                                     state['active'] = cmd[1]
                             _emit_peers()
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                     op = cmd[0]
                     # A command from the HTTP bridge carries its result sink as
@@ -1587,6 +1884,16 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     # (bridge traffic must be silent to the Remote Explorer UI).
                     reply = cmd[-1] if isinstance(cmd[-1], BridgeReply) else None
                     _owe(reply)          # an HTTP thread is blocked on this
+                    # Link-loss retry bookkeeping (9.7.20): only a shared-
+                    # queue UI command in RE_LINK_RETRY_OPS is ever held for
+                    # the seat that comes back; retry_ctx carries the attempt
+                    # count _pop_shared read off a held command.
+                    if from_shared and reply is None and op in RE_LINK_RETRY_OPS:
+                        inflight = cmd
+                        inflight_attempt = retry_ctx['attempt']
+                    else:
+                        inflight = None
+                        inflight_attempt = 0
                     if op == "rmtree":
                         # Recursive folder delete: open a walk job and start with
                         # the root's listing (handled below, on this same poll).
@@ -1627,7 +1934,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # report that the queue reached this point, then idle so
                         # the Next keeps polling.
                         sig.marked.emit(str(cmd[1]))
-                        _re_sendpacket(conn, b"I", 0)
+                        _idle()
                     elif op == "ls":
                         path = cmd[1] or "."
                         entries = []
@@ -1742,9 +2049,15 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 return True
                             return False
                         _re_sendpacket(conn, b"G" + remote.encode(), 0)
-                        ok = _re_reply_call(conn, _h)
-                        if st['f']:
-                            st['f'].close()
+                        try:
+                            ok = _re_reply_call(conn, _h)
+                        finally:
+                            # Closed on the retry path too (_ReLinkDead): a
+                            # half-written file left open here would refuse
+                            # the retried get's own open on Windows.
+                            if st['f']:
+                                st['f'].close()
+                                st['f'] = None
                         if st['osp']:
                             # Read-protected source: the same 401 relay and
                             # os_protected toast a blocked write draws, not a
@@ -1988,7 +2301,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         vid = cmd[1]
                         job = vjobs.get(vid)
                         if job is None:
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         if sess_ident is None:
                             sess_ident = _query_ident()    # answers this Poll
@@ -1998,7 +2311,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             vjobs.pop(vid, None)
                             _verify_skip_advisory()
                             sig.put_done.emit(True, job['remote'])
-                            _re_sendpacket(conn, b"I", 0)  # this Poll needs an answer
+                            _idle()  # this Poll needs an answer
                             continue
                         wait = re_verify_wait(job['size'])
                         log(f"crc32 {job['remote']}: verifying {job['size']} "
@@ -2054,7 +2367,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         vid = cmd[1]
                         job = vjobs.get(vid)
                         if job is None:
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         resx = {'ok': None, 'osp': False}
 
@@ -2324,7 +2637,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 "{path}: {error} — nothing was sent.").format(
                                     name=disp, path=local, error=ex),
                                 brand)
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         # The brand + version are embedded verbatim in the
                         # binary (the dot's banner is contiguous; ZXNR's title
@@ -2347,7 +2660,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                     name=disp, path=local, brand=brand,
                                     version=dver),
                                 brand)
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         # cmd[7] (9.7.6): the deploypak.txt plan — the
                         # extras the package lists, sent BEFORE the staging
@@ -2406,7 +2719,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 bad_extra = repr(step)
                                 break
                         if bad:
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         if bad_extra:
                             sig.dot_update.emit(False, ui_tr_now(
@@ -2414,7 +2727,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 "{path}: {error} — nothing was sent.").format(
                                     name=disp, path=bad_extra, error=bad_why),
                                 brand)
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         # A companion may not be the build being swapped,
                         # nor its .new/.bak: the other flavor's canonical
@@ -2434,7 +2747,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 "Next; nothing was sent.").format(
                                     name=disp, path=rdir + "/" + clash),
                                 brand)
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         # The listener copies a command's path into a
                         # 254-byte buffer and TRUNCATES a longer one (a
@@ -2456,7 +2769,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                     name=disp, path=too_long,
                                     limit=RE_MAX_REMOTE_PATH),
                                 brand)
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         # The swap's two renames each carry BOTH names in
                         # one command ("<cur>\0<cur>.bak", "<cur>.new\0<cur>"
@@ -2476,7 +2789,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                     name=disp, path=_cur,
                                     limit=RE_MAX_REMOTE_PATH),
                                 brand)
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         upd_seq += 1
                         upd_jobs[upd_seq] = {'data': blob, 'dir': rdir,
@@ -2506,7 +2819,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         jid = cmd[1]
                         job = upd_jobs.get(jid)
                         if job is None:
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         _upd_extra_step(jid, job)
                     elif op == "upd_extra_lscheck":
@@ -2518,7 +2831,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         jid = cmd[1]
                         job = upd_jobs.get(jid)
                         if job is None:
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         _rel = job['extras'][job['ex_i']][-1]
                         remote = job['dir'] + "/" + _rel
@@ -2573,7 +2886,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         jid = cmd[1]
                         job = upd_jobs.get(jid)
                         if job is None:
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         if sess_ident is None:
                             sess_ident = _query_ident()    # answers this Poll
@@ -2637,7 +2950,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         jid = cmd[1]
                         job = upd_jobs.get(jid)
                         if job is None:
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         _upd_extra_readback(jid, job)
                     elif op == "upd_extra_rm":
@@ -2647,7 +2960,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         jid, why = cmd[1], cmd[2]
                         job = upd_jobs.get(jid)
                         if job is None:
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         _rel = job['extras'][job['ex_i']][-1]
                         remote = job['dir'] + "/" + _rel
@@ -2706,7 +3019,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                         path=job.get('dir', '') + "/" + r)
                                     for r in job.get('sib_sent', ())),
                                 (job or {}).get('brand', 'NextSync'))
-                        _re_sendpacket(conn, b"I", 0)
+                        _idle()
                     elif op == "upd_verify":
                         # Step 1: prove what LANDED on the SD card. The wire
                         # checksums are per-block and in-flight only, and the
@@ -2727,7 +3040,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         jid = cmd[1]
                         job = upd_jobs.get(jid)
                         if job is None:
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         if sess_ident is None:
                             sess_ident = _query_ident()    # answers this Poll
@@ -2794,7 +3107,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         jid = cmd[1]
                         job = upd_jobs.get(jid)
                         if job is None:
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         _upd_read_back(jid, job)
                     elif op == "upd_release":
@@ -2806,7 +3119,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         jid = cmd[1]
                         job = upd_jobs.get(jid)
                         if job is None:
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         res = {'ok': None}
 
@@ -2831,7 +3144,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         jid = cmd[1]
                         job = upd_jobs.get(jid)
                         if job is None:
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
 
                         def _h(payload):
@@ -2859,7 +3172,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         jid = cmd[1]
                         job = upd_jobs.get(jid)
                         if job is None:
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                             continue
                         cur = job['dir'] + "/" + job['base']
                         job['swap_started'] = True
@@ -2969,7 +3282,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             _re_reply_call(conn, _h)
                             local_cmds.appendleft(("upd_fail", jid, why))
                         else:
-                            _re_sendpacket(conn, b"I", 0)
+                            _idle()
                     elif op == "upd_fail":
                         jid, why = cmd[1], cmd[2]
                         job = upd_jobs.pop(jid, None)
@@ -2989,7 +3302,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             _re_sendpacket(conn, b"Q", 0)
                             _re_goodbye_linger(conn)
                             break
-                        _re_sendpacket(conn, b"I", 0)
+                        _idle()
 
                 elif data == b"Get" or data == b"Gee":
                     n = min(max_payload, len(put_data) - put_ofs)
@@ -3032,26 +3345,108 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         "6 it allows before giving up)" % (put_pkt, put_restart))
                     put_ofs = 0
                     put_pkt = 0
-                    _re_sendpacket(conn, b"Back", 0)
+                    _idle(b"Back")
                 elif data == b"Bye":
-                    _re_sendpacket(conn, b"Later", 0)
+                    _idle(b"Later")
                     break
                 else:
-                    _re_sendpacket(conn, b"I", 0)   # keep the Next polling
+                    _idle()   # keep the Next polling
+    except _ReLinkDead as ex:
+        # EOF under a retryable UI command (the session's reply wrapper):
+        # hold it for the seat that comes back - no report now, the retry's
+        # own outcome is the report (9.7.20).
+        _stash_retry("the Next dialed in again" if _evicted()
+                     else "the link went down")
+        _fail_owed(f"the -listen session ended: {ex}")
+    except _ReLinkGone as ex:
+        # The link went under a reply that owed no report (see _idle): no
+        # command was lost, so no error signal - the widget would count it
+        # as a step for a command that is still queued for the newcomer.
+        if _evicted():
+            _bye_evicted()
+        else:
+            log(ui_tr_now(
+                "Remote explorer: connection error from the Next "
+                "({error}) — session over.").format(error=ex))
+            logging.warning(
+                "Remote explorer: connection error from the Next: %s", ex)
+        _fail_owed(f"the -listen session ended: {ex}")
     except OSError as ex:
-        sig.error.emit(f"Remote explorer server error: {ex}")
+        # A command WAS in flight (the no-report replies raise _ReLinkGone
+        # above). The widget counts ONE step per command that reports back,
+        # and an error signal is one such report - so it is emitted only
+        # when nobody else reports this death: a UI put being pulled, a
+        # verify or update job, an rmtree walk all get their one report
+        # from the finally, and a bridge command's sink from _fail_owed
+        # (bridge traffic is silent to the UI). Otherwise the operation
+        # would end a step early (9.7.20).
+        if _retry_eligible() and not _ui_put_pending():
+            # Held for the seat that comes back (a put pending is held by
+            # the finally instead, which owns its report).
+            _stash_retry("the Next dialed in again" if _evicted()
+                         else "the link went down (%s)" % ex)
+        elif _evicted():
+            _retry_spent("the Next dialed in again")
+            # Sessions Off: the link was shut down under a command because
+            # the Next dialed in again. Say so, in the words the widget's
+            # failure toast will repeat.
+            _msg = ui_tr_now(
+                "the Next dialed in again while a command was in flight — "
+                "Sessions is Off, so the old link was dropped and that "
+                "command was lost")
+            if _report_owed_elsewhere():
+                log("Remote explorer: " + _msg)
+            else:
+                sig.error.emit(_msg)
+        elif _report_owed_elsewhere():
+            log(ui_tr_now(
+                "Remote explorer: connection error from the Next "
+                "({error}) — session over.").format(error=ex))
+            logging.warning(
+                "Remote explorer: connection error from the Next: %s", ex)
+        else:
+            _retry_spent("the link went down (%s)" % ex)
+            sig.error.emit(f"Remote explorer server error: {ex}")
         _fail_owed(f"the -listen session ended: {ex}")
     except Exception as ex:                                   # noqa: BLE001
         # Never let an unforeseen error strand a blocked HTTP caller in
         # silence: report it, answer whoever is waiting. (No re-raise --
         # one session dying must not take the whole server down.)
         logging.exception("Remote explorer session: unhandled error")
-        sig.error.emit(f"Remote explorer server error: {ex}")
+        if _report_owed_elsewhere():
+            log(f"Remote explorer server error: {ex}")   # the finally reports
+        else:
+            sig.error.emit(f"Remote explorer server error: {ex}")
         _fail_owed(f"the -listen session failed: {ex}")
     finally:
         # Clean exits owe answers too -- a "quit" mid-transfer, the Next
         # dropping the link, or the user stopping the server.
         _fail_owed("the -listen session ended before the command finished")
+        # A UI put the Next was still pulling when the session ended
+        # (9.7.20): settle its ONE put_done. The widget's operation counts
+        # it, logs "Upload failed: <file>" and names it in the end-of-op
+        # toast, instead of hanging one step short — a link that dies
+        # mid-pull ends the session from the idle recv, never through
+        # _put_finish. The except arms above keep their console line out
+        # of the error signal in this case, so this is the step's only
+        # report; with Sessions Off the rest of the queued copy carries on
+        # over the link the Next dialed back in on.
+        if _ui_put_pending():
+            if _retry_eligible():
+                _stash_retry("the Next dialed in again" if _evicted()
+                             else "the link went down mid-file")
+            else:
+                _retry_spent("the link went down mid-file")
+                sig.put_done.emit(False, pending[1])
+        # An rmtree walk still open (9.7.20 review): the widget enqueued ONE
+        # ('rmtree', root) and waits for its one op_done; the walk's steps
+        # are served one per Poll, so a link that died between two of them
+        # never reached a reporting arm. A bridge job's sink was _owe'd at
+        # pop time and _fail_owed answered it above.
+        for _job in rmtree_jobs.values():
+            if not _job.get('reply'):
+                sig.op_done.emit(False, "delete", _job['root'])
+        rmtree_jobs.clear()
         # An update job still open here means the session died mid-macro and
         # the loop never reached a terminal arm: emit the exactly-once
         # dot_update verdict now. A job whose swap had started gets the
@@ -3194,7 +3589,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
 
 
 def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
-                             max_payload=512, control=None, verify_crc=None):
+                             max_payload=512, control=None, verify_crc=None,
+                             sessions=None):
     # max_payload is 512, not the protocol's 1024 cap: ZXNextRemote's bench
     # testing found Next CLONES (N-Go) corrupt >512-byte continuous UART
     # bursts at the Medium/Fast rates — deterministically, close checksums —
@@ -3325,9 +3721,62 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
     a malformed digest keep the file and report put_done(True). One put_done
     per put, always; bridge puts keep /put + /crc as the caller's own
     two-step.
+
+    ``sessions`` (9.7.20) is an optional 0-arg callable read at each DIAL
+    (Settings → "NextSync — Sessions"; None = on). On is the multi-Next
+    roster above: up to RE_MAX_PEERS seats, a further dialer turned away
+    Busy. Off is ONE seat: a Next dialing in while one is seated is taken
+    for the SAME machine coming back over a dead link (its ESP module
+    reset, its Wi-Fi blinked — the wire carries no machine identity, so
+    this is the operator's assertion, the very one ZX Next Remote 1.2.5's
+    n2n "Sessions" row makes, and the pairing for its Listener's re-dial
+    ladder). The held link is shut down, its session ends without popping
+    another command (the seat's ``evicted`` flag gates _pop_shared), and
+    the newcomer takes the seat under the SAME sid with the baton at once,
+    instead of sitting benched behind the zombie until PEER_SILENCE_LIMIT
+    reaps it. The roster the widget sees may therefore not change at all,
+    which is the point: the pane keeps its listing and its cached ident,
+    and a bridge client's cached ``?session=N`` keeps driving the machine
+    it named. A command in flight on the old link is lost and reported
+    (its arm's own failure path, or put_done(False) for a put the Next was
+    still pulling); the rest of the shared queue is served by the
+    newcomer; the newcomer is asked its build again ("version" on its own
+    queue, so the widget's and the bridge's sid-keyed ident caches refresh)
+    and inherits every targeted command still parked on the old seat's
+    queue. ``connected`` is not re-emitted (the roster never emptied).
+    control['max_peers'] tracks the mode for GET /sessions. Off asserts
+    that ONE Next targets this PC: two would evict each other for ever,
+    and a different Next dialing in is treated as the same one.
+
+    Off also RETRIES (9.7.20): a UI command the link died under (a get,
+    put, ls, mkdir, rmdir, rm, rename, rcpy or fsize from the shared queue
+    - RE_LINK_RETRY_OPS) is held in ``control['retry']`` instead of being
+    reported, and the seat that comes back re-runs it after
+    RE_LINK_RETRY_PAUSE_S, up to RE_LINK_RETRIES times ("retry1 in 3s: get
+    /x (the link went down)" then "retry1: get /x" in the log); while it is
+    held and no seat is up this loop keeps listening for up to
+    RE_LINK_RETRY_WAIT_S instead of returning, so the widget's operation
+    stays open across the Next's re-dial. The held command's ONE report is
+    the retry's own outcome, or - retries spent, the deadline passed, the
+    mode flipped to On - put_done(False) / error from _re_retry_give_up.
     """
     def log(msg):
         sig.log.emit(msg)
+
+    # The caller's dict, defaulted HERE and not further down (9.7.20 review):
+    # the bind-failure path below returns from inside the try, and the
+    # finally's control.pop() then ran on the None default - AttributeError,
+    # so `disconnected` was never emitted, the pane never relistened and a
+    # widget operation never ended. A port already in use is a real path
+    # (a second Unite, a leftover server), and the suite hits it too.
+    control = control if control is not None else {}
+    # This worker RUN's generation. control survives worker restarts, so a
+    # link-loss retry must say which run stashed it: a session dying after
+    # its worker's finally had popped could otherwise leave one behind for
+    # the NEXT worker to run against whatever Next dials in - the
+    # wrong-machine hazard this file refuses everywhere else.
+    re_gen = int(control.get('gen', 0)) + 1
+    control['gen'] = re_gen
 
     srv = None
     try:
@@ -3370,9 +3819,23 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         # "session=1" silently drive a DIFFERENT machine. Sids are therefore
         # unique for the whole app run, and a stale sid can only mean "that
         # Next left" (the bridge answers 410), never "someone else".
-        control = control if control is not None else {}
+        # (``control`` itself is defaulted at the top of the function, above
+        # the bind, so every exit path finds a dict.)
         state = {'active': None, 'seq': int(control.get('seq', 0)),
                  'had_any': False}
+
+        def _sessions_on():
+            # Settings → "NextSync — Sessions" (9.7.20), read PER DIAL the
+            # way verify_crc is read per put: a flip applies to the next
+            # Next that connects, no restart. None (nextsync5-style bare
+            # calls, the tests) = the multi-Next roster.
+            if sessions is None:
+                return True
+            try:
+                return bool(sessions())
+            except Exception:                                 # noqa: BLE001
+                logging.exception("Remote explorer: sessions hook failed")
+                return True
 
         def _emit_peers():
             with plock:
@@ -3381,7 +3844,9 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             sig.peers.emit(payload)
 
         shared = {'peers': peers, 'lock': plock, 'state': state,
-                  'emit_peers': _emit_peers, 'verify_crc': verify_crc}
+                  'emit_peers': _emit_peers, 'verify_crc': verify_crc,
+                  'control': control, 'sessions_on': _sessions_on,
+                  'gen': re_gen}
 
         # ---- the control surface (HTTP bridge -> this worker) ----------
         # Both closures take plock themselves, so a bridge thread's check
@@ -3403,7 +3868,7 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
 
         control['roster'] = _roster
         control['enqueue_to'] = _enqueue_to
-        control['max_peers'] = RE_MAX_PEERS
+        control['max_peers'] = RE_MAX_PEERS if _sessions_on() else 1
 
         while not stop_event.is_set():
             # Reap ended sessions; hand the baton on if the active died —
@@ -3421,7 +3886,27 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             if dead:
                 _emit_peers()
             if state['had_any'] and not peers:
-                return                 # last Next gone -> disconnected
+                # Last Next gone -> return (the pane relistens) - unless a
+                # link-loss retry is held (9.7.20): then keep LISTENING for
+                # the Next to dial back in, up to the retry's deadline, so
+                # the widget's operation stays open and the command runs on
+                # the returning seat's first Poll after the pause. Sessions
+                # On (a flip under a held retry) means nobody may run it.
+                r = control.get('retry')
+                if r is not None and r.get('gen') != re_gen:
+                    control.pop('retry', None)      # an earlier run's
+                    r = None
+                waiting = (r is not None and not _sessions_on()
+                           and time.monotonic() < r['deadline'])
+                if not waiting:
+                    if r is not None:
+                        control.pop('retry', None)
+                        _re_retry_give_up(
+                            sig, r,
+                            "Sessions is On" if _sessions_on() else
+                            "the Next did not come back within %ds"
+                            % int(RE_LINK_RETRY_WAIT_S))
+                    return             # last Next gone -> disconnected
 
             try:
                 conn, addr = srv.accept()
@@ -3483,8 +3968,12 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                 except OSError:
                     pass
                 continue
+            single = not _sessions_on()
             with plock:
-                full = len(peers) >= RE_MAX_PEERS
+                control['max_peers'] = 1 if single else RE_MAX_PEERS
+                # Sessions Off never turns a dialer away: the newcomer
+                # EVICTS the held seat below (the same Next, coming back).
+                full = (not single) and len(peers) >= RE_MAX_PEERS
             if full:
                 # Over capacity: the option-A turn-away. Busy-aware dots
                 # (5.7.2+) print "Server busy"; older ones fail fast.
@@ -3516,22 +4005,90 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             log(ui_tr_now("Remote explorer: connected to {address}").format(
                 address=addr[0]))
             with plock:
-                state['seq'] += 1
-                sid = state['seq']
-                control['seq'] = sid   # persists across worker restarts
-                my_q = queue.Queue()
+                # `first` BEFORE any eviction: with Sessions Off the roster
+                # never empties between the old seat and the new, and a
+                # second `connected` would make the widget reset the very
+                # pane this mode exists to keep.
                 first = not peers
-                peers[sid] = {'addr': addr[0], 'q': my_q, 'thread': None}
-                if state['active'] is None:
+                evicted = []
+                sid = None
+                my_q = queue.Queue()
+                if single and peers:
+                    # Sessions Off (9.7.20): ONE seat. The newcomer is the
+                    # same Next coming back over a dead link, so it takes
+                    # the DRIVEN seat's id — the machine the pane drives;
+                    # several seats can only be held here if the setting
+                    # was flipped while they were up, and then every one
+                    # of them goes. The evicted flag stops each old
+                    # session from popping the shared queue from this
+                    # moment (it holds the same sid, so the active check
+                    # alone would not); the shutdown below wakes its recv
+                    # so it ends now, not at PEER_SILENCE_LIMIT.
+                    sid = (state['active'] if state['active'] in peers
+                           else max(peers))
+                    evicted = sorted(peers.items())
+                    # Ask the returning Next its build again, at its first
+                    # Poll (9.7.20 review): the widget's ident cache, the
+                    # top bar's update offer and the bridge's /version-*
+                    # are all keyed by the sid, which does not change here,
+                    # so nothing else would re-ask - and a Next that came
+                    # back running a DIFFERENT build (the hand-copied dot of
+                    # a hang recovery, ZXNR instead of the dot) would be
+                    # offered the wrong update. A targeted command a bridge
+                    # client parked on the old seat's queue while the link
+                    # was dead moves over too: the sid it named is THIS
+                    # seat, and its caller was promised continuity, not a
+                    # 410 for a session that is on the roster.
+                    #
+                    # The ('version',) FIRST is also load-bearing for
+                    # the link-loss retry (9.7.20): it costs the
+                    # newcomer a whole 'Y' round trip with the Next
+                    # before it can reach _pop_shared, which is what
+                    # guarantees the evicted session (woken by the
+                    # _re_drop_link below, before this thread even
+                    # starts) has stashed its retry by then. Serve the
+                    # shared queue ahead of this and a newcomer could
+                    # pop the NEXT command before the cut one is held,
+                    # running the batch out of order.
+                    my_q.put(("version",))
+                    for _s, _p in evicted:
+                        _p['evicted'] = True
+                        while True:
+                            try:
+                                my_q.put(_p['q'].get_nowait())
+                            except queue.Empty:
+                                break
+                    peers.clear()
+                if sid is None:
+                    state['seq'] += 1
+                    sid = state['seq']
+                    control['seq'] = sid   # persists across worker restarts
+                seat = {'addr': addr[0], 'q': my_q, 'thread': None,
+                        'conn': conn, 'evicted': False}
+                peers[sid] = seat
+                if state['active'] is None or single:
                     state['active'] = sid
                 state['had_any'] = True
+            for _s, _p in evicted:
+                log(ui_tr_now(
+                    "Remote explorer: {address} dialed in while {old} was "
+                    "seated — Sessions is Off, so it is taken for the same "
+                    "Next coming back: the old link is dropped and the "
+                    "newcomer takes its place.").format(
+                        address=addr[0], old=_p['addr']))
+                logging.info(
+                    "Remote explorer: single-seat mode — %s takes seat #%s "
+                    "over from %s; the old link is shut down",
+                    addr[0], _s, _p['addr'])
+                _re_drop_link(_p.get('conn'))
             th = threading.Thread(
                 target=_re_session,
                 args=(sid, conn, addr, my_q, sig, cmd_queue, stop_event,
                       shared, max_payload),
+                kwargs={'seat': seat},
                 daemon=True)
             with plock:
-                peers[sid]['thread'] = th
+                seat['thread'] = th
             th.start()
             # Roster BEFORE connected (9.5.14): the widget's on_connected
             # consults the active peer's ADDRESS for its per-machine
@@ -3553,7 +4110,14 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             except OSError:
                 pass
         # Sessions notice stop_event/socket death on their own 1 s
-        # cadence; the port above is already free for a relisten.
+        # cadence; the port above is already free for a relisten. A retry
+        # still held here (a stop, an error) dies with the worker: the
+        # widget's on_disconnected ends the operation it belonged to. Only
+        # THIS run's own (a later worker's must survive our late finally;
+        # one stashed later still by our own dying session carries our dead
+        # generation and the next worker drops it).
+        if (control.get('retry') or {}).get('gen') == re_gen:
+            control.pop('retry', None)
         sig.disconnected.emit()
 
 

@@ -529,6 +529,16 @@ class NextSyncHttpBridge:
                     self._inflight[rid][3] = elapsed
                 self._log(f"HTTP .. still waiting {elapsed:.0f}s: {method} {path}")
 
+    def forget_idents(self):
+        """Drop the per-seat cache behind ``/version-type`` and
+        ``/version-number`` (9.7.20). The app calls it on every roster
+        event: with Settings → NextSync — Sessions Off a Next dialing back
+        in keeps its sid, so the cache key alone cannot tell the build that
+        came back from the one that left (a hand-copied newer dot, ZX Next
+        Remote in place of the dot). One 'Y' round trip per roster change
+        is the whole price."""
+        self._ident_cache.clear()
+
     @property
     def running(self):
         return self._server is not None
