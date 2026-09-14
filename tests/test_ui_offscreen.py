@@ -217,6 +217,7 @@ elif PHASE in (2, 3):
                 + "general_font_size=8\n"            # the application font (9.7.2)
                 + "re_update_prompt=false\n"         # the connect-time update offer, off
                 + "nextsync_verify_crc=false\n"   # the verify-after-put check, off (9.7.3)
+                + "nextsync_sessions=false\n"     # the single-seat -listen mode (9.7.20)
                 # A hand-picked ground, with the Custom mode that picking one
                 # leaves behind - the only mode in which a pick SURVIVES a
                 # restart (every other mode recomputes the palette on load).
@@ -924,6 +925,8 @@ def inspect_phase2():
           not win.settings_re_update_prompt_checkbox.isChecked())
     check("verify-CRC toggle restored unchecked from cfg",
           not win.settings_nextsync_verify_crc_checkbox.isChecked())
+    check("NextSync Sessions toggle restored unchecked from cfg",
+          not win.settings_nextsync_sessions_checkbox.isChecked())
     check("retro color restored from cfg",
           win.img_color_retro_log.name().lower() == "#112233", win.img_color_retro_log.name())
     check("retro swatch shows restored color",
@@ -1391,6 +1394,28 @@ def inspect_phase6():
     vc.setChecked(True)
     QApplication.processEvents()
     check("verify-CRC toggle persists on to cfg", "nextsync_verify_crc=true" in cfg_lines())
+    # NextSync Sessions (9.7.20): the row right under Verify CRC, persisted
+    # both ways, and the worker hook that reads it per dial.
+    ss = win.settings_nextsync_sessions_checkbox
+    check("Sessions toggle directly under the verify-CRC row",
+          spos(ss) == (settings_row("nextsync_sessions"), 0)
+          and settings_row("nextsync_verify_crc") + 1 == settings_row("nextsync_sessions"),
+          str(spos(ss)))
+    ss.setChecked(False)
+    QApplication.processEvents()
+    check("Sessions toggle persists off to cfg", "nextsync_sessions=false" in cfg_lines(),
+          str([l for l in cfg_lines() if l.startswith("nextsync_sessions")]))
+    # Through the cfg file, the way the worker's hook will read it on the next
+    # launch (zxnu_main is a runpy copy here - its globals are not reachable).
+    _ss_val = next((l.split("=", 1)[1] for l in cfg_lines()
+                    if l.startswith("nextsync_sessions=")), None)
+    check("Sessions toggle off reads as single-seat through the shared decoder",
+          _ss_val is not None and not sys.modules["zxnu_config"]
+          .nextsync_sessions_enabled({"nextsync_sessions": _ss_val}),
+          repr(_ss_val))
+    ss.setChecked(True)
+    QApplication.processEvents()
+    check("Sessions toggle persists on to cfg", "nextsync_sessions=true" in cfg_lines())
     _red = sys.modules["zxnu_config"].FONT_RED
     win.add_nextsync_log_window("crc pin", color=_red)
     _it = win.nextsync_log.item(0)
@@ -1462,6 +1487,8 @@ def inspect_phase7():
           win.settings_zxnu_update_check_checkbox.isChecked())
     check("verify-CRC toggle defaults ON (no cfg key)",
           win.settings_nextsync_verify_crc_checkbox.isChecked())
+    check("NextSync Sessions toggle defaults ON (no cfg key)",
+          win.settings_nextsync_sessions_checkbox.isChecked())
     check(".sync5 image auto-deploy toggle defaults ON (no cfg key)",
           win.settings_sync5_img_autodeploy_checkbox.isChecked())
     if win.settings_delete_to_recycle_bin_checkbox.isEnabled():
@@ -1552,6 +1579,10 @@ def inspect_phase9():
           win.settings_nextsync_verify_crc_checkbox.text()
           == CATALOGS["es"]["NextSync — Verify CRC of every file sent to the Next (Remote Explorer)"],
           win.settings_nextsync_verify_crc_checkbox.text())
+    check("NextSync Sessions checkbox translated at startup",
+          win.settings_nextsync_sessions_checkbox.text()
+          == CATALOGS["es"]["NextSync — Sessions: seat several Nexts at once (Remote Explorer)"],
+          win.settings_nextsync_sessions_checkbox.text())
     check("placeholder translated at startup",
           win.filtertext.placeholderText() == "Filtrar por nombre…",
           win.filtertext.placeholderText())

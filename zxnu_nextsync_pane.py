@@ -575,10 +575,16 @@ def build_nextsync_pane(
         active, plist = roster() if roster is not None else (None, [])
         if not host._re_running:
             active, plist = None, []
+        # max_peers straight from the setting (9.7.20): the worker reads
+        # the same toggle per dial, so this is what the NEXT dialer meets —
+        # control['max_peers'] would lag a Settings flip until that dial,
+        # and /sessions must never promise four seats a single-seat server
+        # is about to refuse (or one seat a four-seat server will exceed).
         return (active,
                 [(sid, addr, _re_machine_name_for(addr) or "")
                  for sid, addr in plist],
-                int(host._re_control.get('max_peers', 4)))
+                RE_MAX_PEERS if nextsync_sessions_enabled(
+                    configuration_dictionary) else 1)
 
     def _re_emulator_launchers():
         # The Remote Explorer's left-hand strip. The rule itself lives in
@@ -601,6 +607,20 @@ def build_nextsync_pane(
         except RuntimeError:
             pass                      # widget torn down mid-shutdown
     host._re_refresh_emulators = _re_refresh_emulators
+
+    def _re_bridge_forget_idents():
+        # Every roster event drops the bridge's per-seat ident cache
+        # (9.7.20): a Next dialing back in under Sessions Off keeps its sid,
+        # so the key alone cannot tell the returning build from the one
+        # that left. Safe before the bridge exists or after it stopped.
+        b = host._re_bridge
+        if b is None:
+            return
+        try:
+            b.forget_idents()
+        except Exception:                                    # noqa: BLE001
+            logging.exception("HTTP bridge: forget_idents failed")
+    host._re_bridge_forget_idents = _re_bridge_forget_idents
 
     def _re_bridge_enqueue_to(sid, cmd):
         # Targeted delivery for ?session=N — the session's own queue, the
@@ -1610,6 +1630,10 @@ def build_nextsync_pane(
         host._re_sig.marked.connect(widget.on_marked)
         # Multi-Next roster (option B): the machine combo + switch refresh.
         host._re_sig.peers.connect(widget.on_peers)
+        # 9.7.20: the roster changed (or a Next re-seated under its old sid
+        # with Sessions Off): the bridge's cached /version-* answer for that
+        # sid may now name a build that left.
+        host._re_sig.peers.connect(lambda _p: _re_bridge_forget_idents())
         host._re_sig.log.connect(lambda s: add_nextsync_log_window(str(s)))
         host._re_sig.error.connect(widget.on_error)
         host._re_sig.error.connect(lambda s: add_nextsync_log_window("Remote explorer: " + str(s)))
@@ -1621,8 +1645,13 @@ def build_nextsync_pane(
             # PER PUT — a flip applies to the next file, no restart (the
             # update_prompt_enabled shape above; the lambda runs on the
             # worker thread: a GIL-atomic dict.get of a whole string).
+            # sessions (9.7.20): Settings → "NextSync — Sessions", read by
+            # the worker PER DIAL — a flip applies to the next Next that
+            # connects, no restart. Off = ONE seat, a newcomer replaces the
+            # held link as the same machine coming back.
             kwargs={"control": host._re_control,
-                    "verify_crc": lambda: nextsync_verify_crc_enabled(configuration_dictionary)},
+                    "verify_crc": lambda: nextsync_verify_crc_enabled(configuration_dictionary),
+                    "sessions": lambda: nextsync_sessions_enabled(configuration_dictionary)},
             daemon=True)
         host._re_thread.start()
         host._re_running = True

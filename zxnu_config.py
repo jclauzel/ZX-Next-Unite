@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.19"
+ZX_NEXT_UNITE_VERSION = "9.7.20"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -422,6 +422,7 @@ SETTING_NEXTSYNC_PYGAME_ANIM   = "nextsync_pygame_anim"    # "false" => freeze t
 SETTING_NEXTSYNC_REMOTE_EXPLORER = "nextsync_remote_explorer"  # "true" => reopen the NextSync tab in Remote Explorer view (default off = classic sync)
 SETTING_NEXTSYNC_RE_AUTOSTART  = "nextsync_re_autostart"   # "true" => start the Remote Explorer '.sync5 -listen' server on startup (default off; needs a sync root)
 SETTING_NEXTSYNC_VERIFY_CRC    = "nextsync_verify_crc"     # "false" => skip the post-upload CRC-32 read-back (+ delete-on-mismatch) of Remote Explorer '-listen' puts (default on, 9.7.3)
+SETTING_NEXTSYNC_SESSIONS      = "nextsync_sessions"       # "false" => the Remote Explorer '-listen' server seats ONE Next: a newcomer is the same machine dialing back in and replaces the held link (default on = up to RE_MAX_PEERS seats, 9.7.20)
 SETTING_RE_MACHINE_NAMES       = "nextsync_re_machine_names"  # JSON {address: friendly name} for the Remote Explorer's machine combo ("10.0.0.185 #1 - N-Go")
 SETTING_RE_MACHINE_COLORS      = "nextsync_re_machine_colors"  # JSON {address: "#rrggbb"} tint for the Remote Explorer's machine combo and session tabs (empty = untinted)
 SETTING_NEXTSYNC_REMOTE_CWD    = "nextsync_remote_cwd"     # last Next-side folder browsed in the Remote Explorer, restored on reconnect (falls back to "/" if gone)
@@ -1026,7 +1027,7 @@ SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, S
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_MAME_RS232_ESP, SETTING_MAME_RS232_ESP_PORT, SETTING_MAME_RS232_ESP_VERBOSE, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
-SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_VERIFY_CRC, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_SDCARD_HSPLITTER, SETTING_NEXTSYNC_RE_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE, SETTING_GENERAL_FONT_SIZE, SETTING_RE_UPDATE_PROMPT, SETTING_SYNC5_IMG_AUTODEPLOY,
+SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_VERIFY_CRC, SETTING_NEXTSYNC_SESSIONS, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_SDCARD_HSPLITTER, SETTING_NEXTSYNC_RE_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE, SETTING_GENERAL_FONT_SIZE, SETTING_RE_UPDATE_PROMPT, SETTING_SYNC5_IMG_AUTODEPLOY,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNEXTREMOTE_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_ZXNR_UPDATE_PATH, SETTING_DELETE_TO_RECYCLE_BIN,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
 SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
@@ -1041,6 +1042,22 @@ def nextsync_verify_crc_enabled(cfg):
     upgraded cfg carries `nextsync_verify_crc=` empty after its first save -
     both mean ON. Only an explicit false/0/no turns the check off."""
     v = cfg.get(SETTING_NEXTSYNC_VERIFY_CRC, "") if cfg else ""
+    return str(v or "").strip().lower() not in ("false", "0", "no")
+
+
+def nextsync_sessions_enabled(cfg):
+    """Settings 'NextSync — Sessions' (9.7.20), decoded the default-ON way
+    nextsync_verify_crc_enabled uses: "" (never saved / an upgraded cfg) and
+    anything but an explicit false/0/no mean ON — the multi-Next roster of
+    up to RE_MAX_PEERS seats every release since 9.5.x has had. OFF is the
+    single-seat mode: the '-listen' server treats a Next dialing in while
+    one is seated as the SAME machine coming back over a dead link (ESP
+    reset, Wi-Fi blink), drops the held link and seats the newcomer in its
+    place at once, keeping the seat's id and the pane it drives. That is
+    the pairing for ZX Next Remote 1.2.5's Listener, which re-dials up to
+    six times after a lost link, and for its own n2n "Sessions" row, whose
+    Off means the same one-seat assertion."""
+    v = cfg.get(SETTING_NEXTSYNC_SESSIONS, "") if cfg else ""
     return str(v or "").strip().lower() not in ("false", "0", "no")
 
 
