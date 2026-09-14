@@ -766,6 +766,32 @@ def _re_recv_exact(conn, n):
     return buf
 
 
+class _ReLinkDead(OSError):
+    """The link died under a UI command that WILL BE RETRIED (9.7.20).
+
+    Raised by the session's reply wrapper on EOF when a link-loss retry is
+    eligible, so the arm's own failure report is skipped and the
+    session-level arm holds the command for the seat that comes back. An
+    OSError subclass on purpose: the arms' existing handlers stay valid."""
+
+
+def _re_retry_give_up(sig, r, why):
+    """The ONE failure report a held command gets when its retries are over
+    (9.7.20): put_done(False) for a put, error for the rest - the widget
+    counts either as that command's step, exactly as the arm would have."""
+    cmd = r['cmd']
+    line = "retry%d of %s abandoned: %s" % (r['attempt'], r['label'], why)
+    sig.log.emit(line)
+    logging.warning("Remote explorer: %s", line)
+    if cmd[0] == "put":
+        remote = str(cmd[2])
+        if remote.endswith('/') or remote.endswith('\\'):
+            remote = remote + os.path.basename(str(cmd[1]))
+        sig.put_done.emit(False, remote)
+    else:
+        sig.error.emit("%s: %s" % (r['label'], why))
+
+
 class _ReLinkGone(Exception):
     """The link failed under a reply that owed no report (9.7.20 review).
 
@@ -804,13 +830,13 @@ def _re_drop_link(conn):
 def _re_recv_block(conn):
     hdr = _re_recv_exact(conn, 2)
     if hdr is None:
-        return None
+        return 'EOF'          # the link died (9.7.20: told apart from garbage)
     total = (hdr[0] << 8) | hdr[1]
     if total < 5 or total > 4096:
         return None
     rest = _re_recv_exact(conn, total - 2)
     if rest is None:
-        return None
+        return 'EOF'
     payload, (cs0, cs1) = rest[:-3], (rest[-3], rest[-2])
     c0, c1 = _re_checksums(payload)
     if c0 != cs0 or c1 != cs1:
@@ -855,6 +881,30 @@ PEER_SILENCE_LIMIT = 400.0
 #: past the cap gets the framed "Busy" turn-away -- the option-A reply,
 #: kept as the over-capacity answer.
 RE_MAX_PEERS = 4
+
+#: Link-loss retries (9.7.20, Sessions Off only). A UI command the link died
+#: under - the seat's own drop, or the eviction that seats the Next dialing
+#: back in - is not reported failed at once: it is held in control['retry']
+#: and re-run by the seat that comes back after a RE_LINK_RETRY_PAUSE_S
+#: settle, up to RE_LINK_RETRIES times ("retry1: get /x" in the NextSync
+#: log - ZX Next Remote's console wording, so the two logs read alike).
+#: While one is held and no seat is up, the worker keeps LISTENING for the
+#: Next instead of returning (which would end the widget's operation), for
+#: up to RE_LINK_RETRY_WAIT_S from the failure - ZX Next Remote 1.2.5's
+#: Listener dials again at once and then ten seconds apart, so three of
+#: its dials fit. Field case: an N-Go's folder copy to the PC died with its
+#: ESP link, the Listener re-dialed within a second, and the copy simply
+#: reported failed. Only ops whose re-run is idempotent are retried: a put
+#: truncates on open, a get overwrites, the rest answer 'F' if already
+#: done - never rmtree (a half-walked tree would count its own deletions as
+#: failures), never a bridge command (its caller retries), never a macro
+#: step, never the raw drives/version/free queries (they degrade on their
+#: own and count no widget step).
+RE_LINK_RETRIES = 3
+RE_LINK_RETRY_PAUSE_S = 3.0
+RE_LINK_RETRY_WAIT_S = 30.0
+RE_LINK_RETRY_OPS = frozenset(("ls", "get", "put", "mkdir", "rmdir", "rm",
+                               "rename", "rcpy", "fsize"))
 
 #: Listener builds that answer the 'K' (crc) op, by 'Y' ident type:
 #: the .sync5 dot from v5.9.2, ZX Next Remote (httpbridge/n2n) from 1.0.8.
@@ -941,13 +991,17 @@ def _re_reply_call(conn, handler, timeout=None):
 def _re_recv_reply(conn, handler):
     """Read the framed blocks the Next pushes in reply to a command, acking each
     with "Ok". handler(payload) returns True to stop. Returns True on clean
-    completion, False on drop.
+    completion, False on drop - or None when the link DIED under the reply
+    (EOF; 9.7.20), falsy like False for every caller but told apart by the
+    session's own reply wrapper, which turns it into a link-loss retry.
 
     Call it through :func:`_re_reply_call`, never directly: on its own it
     inherits whatever socket timeout the session loop last set (1 s)."""
     expected = 0
     while True:
         blk = _re_recv_block(conn)
+        if blk == 'EOF':
+            return None
         if blk is None:
             return False
         if blk == 'BADCS':
@@ -1110,10 +1164,41 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         # Atomic "am I active? then take one": two sessions polling at
         # once must never race the roster check against the pop. An
         # evicted seat (Sessions Off, its Next dialed in again under the
-        # same sid) is never active again whatever the sid says.
+        # same sid) is never active again whatever the sid says. A held
+        # link-loss retry (9.7.20) comes FIRST and holds the queue behind
+        # it: idle answers until its pause is over, then the command
+        # itself, its attempt count riding retry_ctx to the Poll branch.
         with plock:
             if _evicted() or state['active'] != sid:
                 return None
+            r = control.get('retry')
+            if r is not None and r.get('gen') != shared.get('gen'):
+                # Another worker run stashed it (a session that outlived its
+                # worker's finally). Its operation died with that worker -
+                # the widget got `disconnected` - so drop it silently: no
+                # report is owed here, and RUNNING it could write to a
+                # different machine.
+                control.pop('retry', None)
+                logging.info("Remote explorer: dropped a link-loss retry "
+                             "left by an earlier server run (%s)",
+                             r.get('label'))
+                r = None
+            if r is not None:
+                if not _single_seat():
+                    # Flipped to On under a held retry: no seat may run it
+                    # (the machine that comes back might be another one).
+                    control.pop('retry', None)
+                    _re_retry_give_up(sig, r, "Sessions was switched On")
+                elif time.monotonic() < r['due']:
+                    return None
+                else:
+                    control.pop('retry', None)
+                    retry_ctx['attempt'] = r['attempt']
+                    line = "retry%d: %s" % (r['attempt'], r['label'])
+                    log(line)
+                    logging.info("Remote explorer: %s", line)
+                    return r['cmd']
+            retry_ctx['attempt'] = 0
             try:
                 return cmd_queue.get_nowait()
             except queue.Empty:
@@ -1199,6 +1284,93 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         return (_ui_put_pending() or bool(vjobs) or bool(upd_jobs)
                 or bool(rmtree_jobs)
                 or any(not r.resolved for r in owed))
+
+    # Link-loss retry state (9.7.20). `inflight` is the shared-queue UI
+    # command this session is serving whose report is still owed and whose
+    # op is in RE_LINK_RETRY_OPS (a put keeps it until its pull ends);
+    # `inflight_attempt` its retry count so far (0 for a fresh command);
+    # `stashed` set once it has been handed to control['retry'] so no arm
+    # and not the finally report it. control survives worker restarts, so
+    # a held retry outlives this session AND this worker.
+    control = shared.get('control') or {}
+    inflight = None
+    inflight_attempt = 0
+    stashed = False
+    retry_ctx = {'attempt': 0}
+
+    def _single_seat():
+        fn = shared.get('sessions_on')
+        if fn is None:
+            return False
+        try:
+            return not fn()
+        except Exception:                                    # noqa: BLE001
+            return False
+
+    def _inflight_label():
+        c = inflight
+        if c is None:
+            return "?"
+        if c[0] == "put":
+            return "put " + str(c[2])
+        return "%s %s" % (c[0], c[1] if len(c) > 1 else "")
+
+    def _retry_eligible():
+        return (inflight is not None and not stashed
+                and inflight_attempt < RE_LINK_RETRIES and _single_seat())
+
+    def _stash_retry(why):
+        # Hold the command for the seat that comes back: no report now, the
+        # retry's own outcome is the report. The pause gives the returning
+        # link a moment to settle; the deadline bounds how long the worker
+        # keeps listening with no seat at all.
+        nonlocal stashed
+        k = inflight_attempt + 1
+        now = time.monotonic()
+        control['retry'] = {'cmd': inflight, 'attempt': k,
+                            'due': now + RE_LINK_RETRY_PAUSE_S,
+                            'deadline': now + RE_LINK_RETRY_WAIT_S,
+                            'label': _inflight_label(),
+                            'gen': shared.get('gen')}
+        stashed = True
+        line = "retry%d in %ds: %s (%s)" % (
+            k, int(RE_LINK_RETRY_PAUSE_S), _inflight_label(), why)
+        log(line)
+        logging.info("Remote explorer: %s", line)
+
+    def _retry_spent(why):
+        # A retried command the link cut AGAIN with no retry left: say so
+        # beside the failure report the normal arm now emits.
+        if inflight is not None and inflight_attempt > 0 and not stashed:
+            line = "retry%d failed: %s — giving up (%s)" % (
+                inflight_attempt, _inflight_label(), why)
+            log(line)
+            logging.warning("Remote explorer: %s", line)
+
+    def _re_reply_call(conn_, handler, timeout=None):
+        # Shadows the module function for every arm of THIS session
+        # (9.7.20): the same contract, plus - when the reply ends in EOF and
+        # a link-loss retry is eligible - _ReLinkDead instead of False, so
+        # the arm's own failure report is skipped and the session-level arm
+        # holds the command for the seat that comes back. Windows raises
+        # its own OSError out of the recv instead; both land in the same
+        # arm below.
+        try:
+            conn_.settimeout(RE_REPLY_TIMEOUT if timeout is None else timeout)
+            r = _re_recv_reply(conn_, handler)
+        except socket.timeout:
+            return False
+        finally:
+            try:
+                conn_.settimeout(1.0)
+            except OSError:
+                pass
+        if r is None:
+            if _retry_eligible():
+                raise _ReLinkDead("the link died under " + _inflight_label())
+            _retry_spent("the link went down again")
+            return False
+        return bool(r)
 
     try:
         with conn:
@@ -1600,6 +1772,11 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
             # slow operation can never be mistaken for a dead peer.
             last_rx = time.monotonic()
             while not stop_event.is_set():
+                if pending is None:
+                    # The previous turn's command has reported (a put reports
+                    # when its pull ends and keeps its inflight until then).
+                    inflight = None
+                    inflight_attempt = 0
                 try:
                     conn.settimeout(1.0)
                     data = conn.recv(1024)
@@ -1678,6 +1855,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     put_pkt = 0
 
                 if data == b"Poll":
+                    from_shared = False
                     if local_cmds:
                         cmd = local_cmds.popleft()
                     else:
@@ -1688,6 +1866,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             cmd = my_q.get_nowait()
                         except queue.Empty:
                             cmd = _pop_shared()
+                            from_shared = cmd is not None
                         if cmd is None:
                             _idle()   # idle
                             continue
@@ -1705,6 +1884,16 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     # (bridge traffic must be silent to the Remote Explorer UI).
                     reply = cmd[-1] if isinstance(cmd[-1], BridgeReply) else None
                     _owe(reply)          # an HTTP thread is blocked on this
+                    # Link-loss retry bookkeeping (9.7.20): only a shared-
+                    # queue UI command in RE_LINK_RETRY_OPS is ever held for
+                    # the seat that comes back; retry_ctx carries the attempt
+                    # count _pop_shared read off a held command.
+                    if from_shared and reply is None and op in RE_LINK_RETRY_OPS:
+                        inflight = cmd
+                        inflight_attempt = retry_ctx['attempt']
+                    else:
+                        inflight = None
+                        inflight_attempt = 0
                     if op == "rmtree":
                         # Recursive folder delete: open a walk job and start with
                         # the root's listing (handled below, on this same poll).
@@ -1860,9 +2049,15 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 return True
                             return False
                         _re_sendpacket(conn, b"G" + remote.encode(), 0)
-                        ok = _re_reply_call(conn, _h)
-                        if st['f']:
-                            st['f'].close()
+                        try:
+                            ok = _re_reply_call(conn, _h)
+                        finally:
+                            # Closed on the retry path too (_ReLinkDead): a
+                            # half-written file left open here would refuse
+                            # the retried get's own open on Windows.
+                            if st['f']:
+                                st['f'].close()
+                                st['f'] = None
                         if st['osp']:
                             # Read-protected source: the same 401 relay and
                             # os_protected toast a blocked write draws, not a
@@ -3156,6 +3351,13 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     break
                 else:
                     _idle()   # keep the Next polling
+    except _ReLinkDead as ex:
+        # EOF under a retryable UI command (the session's reply wrapper):
+        # hold it for the seat that comes back - no report now, the retry's
+        # own outcome is the report (9.7.20).
+        _stash_retry("the Next dialed in again" if _evicted()
+                     else "the link went down")
+        _fail_owed(f"the -listen session ended: {ex}")
     except _ReLinkGone as ex:
         # The link went under a reply that owed no report (see _idle): no
         # command was lost, so no error signal - the widget would count it
@@ -3178,7 +3380,13 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         # from the finally, and a bridge command's sink from _fail_owed
         # (bridge traffic is silent to the UI). Otherwise the operation
         # would end a step early (9.7.20).
-        if _evicted():
+        if _retry_eligible() and not _ui_put_pending():
+            # Held for the seat that comes back (a put pending is held by
+            # the finally instead, which owns its report).
+            _stash_retry("the Next dialed in again" if _evicted()
+                         else "the link went down (%s)" % ex)
+        elif _evicted():
+            _retry_spent("the Next dialed in again")
             # Sessions Off: the link was shut down under a command because
             # the Next dialed in again. Say so, in the words the widget's
             # failure toast will repeat.
@@ -3197,6 +3405,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
             logging.warning(
                 "Remote explorer: connection error from the Next: %s", ex)
         else:
+            _retry_spent("the link went down (%s)" % ex)
             sig.error.emit(f"Remote explorer server error: {ex}")
         _fail_owed(f"the -listen session ended: {ex}")
     except Exception as ex:                                   # noqa: BLE001
@@ -3223,7 +3432,12 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         # report; with Sessions Off the rest of the queued copy carries on
         # over the link the Next dialed back in on.
         if _ui_put_pending():
-            sig.put_done.emit(False, pending[1])
+            if _retry_eligible():
+                _stash_retry("the Next dialed in again" if _evicted()
+                             else "the link went down mid-file")
+            else:
+                _retry_spent("the link went down mid-file")
+                sig.put_done.emit(False, pending[1])
         # An rmtree walk still open (9.7.20 review): the widget enqueued ONE
         # ('rmtree', root) and waits for its one op_done; the walk's steps
         # are served one per Poll, so a link that died between two of them
@@ -3533,9 +3747,36 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
     control['max_peers'] tracks the mode for GET /sessions. Off asserts
     that ONE Next targets this PC: two would evict each other for ever,
     and a different Next dialing in is treated as the same one.
+
+    Off also RETRIES (9.7.20): a UI command the link died under (a get,
+    put, ls, mkdir, rmdir, rm, rename, rcpy or fsize from the shared queue
+    - RE_LINK_RETRY_OPS) is held in ``control['retry']`` instead of being
+    reported, and the seat that comes back re-runs it after
+    RE_LINK_RETRY_PAUSE_S, up to RE_LINK_RETRIES times ("retry1 in 3s: get
+    /x (the link went down)" then "retry1: get /x" in the log); while it is
+    held and no seat is up this loop keeps listening for up to
+    RE_LINK_RETRY_WAIT_S instead of returning, so the widget's operation
+    stays open across the Next's re-dial. The held command's ONE report is
+    the retry's own outcome, or - retries spent, the deadline passed, the
+    mode flipped to On - put_done(False) / error from _re_retry_give_up.
     """
     def log(msg):
         sig.log.emit(msg)
+
+    # The caller's dict, defaulted HERE and not further down (9.7.20 review):
+    # the bind-failure path below returns from inside the try, and the
+    # finally's control.pop() then ran on the None default - AttributeError,
+    # so `disconnected` was never emitted, the pane never relistened and a
+    # widget operation never ended. A port already in use is a real path
+    # (a second Unite, a leftover server), and the suite hits it too.
+    control = control if control is not None else {}
+    # This worker RUN's generation. control survives worker restarts, so a
+    # link-loss retry must say which run stashed it: a session dying after
+    # its worker's finally had popped could otherwise leave one behind for
+    # the NEXT worker to run against whatever Next dials in - the
+    # wrong-machine hazard this file refuses everywhere else.
+    re_gen = int(control.get('gen', 0)) + 1
+    control['gen'] = re_gen
 
     srv = None
     try:
@@ -3578,7 +3819,8 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
         # "session=1" silently drive a DIFFERENT machine. Sids are therefore
         # unique for the whole app run, and a stale sid can only mean "that
         # Next left" (the bridge answers 410), never "someone else".
-        control = control if control is not None else {}
+        # (``control`` itself is defaulted at the top of the function, above
+        # the bind, so every exit path finds a dict.)
         state = {'active': None, 'seq': int(control.get('seq', 0)),
                  'had_any': False}
 
@@ -3602,7 +3844,9 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             sig.peers.emit(payload)
 
         shared = {'peers': peers, 'lock': plock, 'state': state,
-                  'emit_peers': _emit_peers, 'verify_crc': verify_crc}
+                  'emit_peers': _emit_peers, 'verify_crc': verify_crc,
+                  'control': control, 'sessions_on': _sessions_on,
+                  'gen': re_gen}
 
         # ---- the control surface (HTTP bridge -> this worker) ----------
         # Both closures take plock themselves, so a bridge thread's check
@@ -3642,7 +3886,27 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             if dead:
                 _emit_peers()
             if state['had_any'] and not peers:
-                return                 # last Next gone -> disconnected
+                # Last Next gone -> return (the pane relistens) - unless a
+                # link-loss retry is held (9.7.20): then keep LISTENING for
+                # the Next to dial back in, up to the retry's deadline, so
+                # the widget's operation stays open and the command runs on
+                # the returning seat's first Poll after the pause. Sessions
+                # On (a flip under a held retry) means nobody may run it.
+                r = control.get('retry')
+                if r is not None and r.get('gen') != re_gen:
+                    control.pop('retry', None)      # an earlier run's
+                    r = None
+                waiting = (r is not None and not _sessions_on()
+                           and time.monotonic() < r['deadline'])
+                if not waiting:
+                    if r is not None:
+                        control.pop('retry', None)
+                        _re_retry_give_up(
+                            sig, r,
+                            "Sessions is On" if _sessions_on() else
+                            "the Next did not come back within %ds"
+                            % int(RE_LINK_RETRY_WAIT_S))
+                    return             # last Next gone -> disconnected
 
             try:
                 conn, addr = srv.accept()
@@ -3775,6 +4039,17 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                     # was dead moves over too: the sid it named is THIS
                     # seat, and its caller was promised continuity, not a
                     # 410 for a session that is on the roster.
+                    #
+                    # The ('version',) FIRST is also load-bearing for
+                    # the link-loss retry (9.7.20): it costs the
+                    # newcomer a whole 'Y' round trip with the Next
+                    # before it can reach _pop_shared, which is what
+                    # guarantees the evicted session (woken by the
+                    # _re_drop_link below, before this thread even
+                    # starts) has stashed its retry by then. Serve the
+                    # shared queue ahead of this and a newcomer could
+                    # pop the NEXT command before the cut one is held,
+                    # running the batch out of order.
                     my_q.put(("version",))
                     for _s, _p in evicted:
                         _p['evicted'] = True
@@ -3835,7 +4110,14 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             except OSError:
                 pass
         # Sessions notice stop_event/socket death on their own 1 s
-        # cadence; the port above is already free for a relisten.
+        # cadence; the port above is already free for a relisten. A retry
+        # still held here (a stop, an error) dies with the worker: the
+        # widget's on_disconnected ends the operation it belonged to. Only
+        # THIS run's own (a later worker's must survive our late finally;
+        # one stashed later still by our own dying session carries our dead
+        # generation and the next worker drops it).
+        if (control.get('retry') or {}).get('gen') == re_gen:
+            control.pop('retry', None)
         sig.disconnected.emit()
 
 

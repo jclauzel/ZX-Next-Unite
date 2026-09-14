@@ -15,18 +15,22 @@ What this locks down, against a real listen socket and fake Nexts:
 * The evicted session pops nothing more from the shared queue even though
   it holds the same sid (the seat's evicted flag), and the queued commands
   are served by the newcomer.
-* Exactly ONE report per command the eviction cuts — the widget counts
-  each as a step: a put mid-pull settles put_done(False); a verify-after-
-  put owed settles its put_done(True) with no error beside it; an rmtree
-  walk parked between steps settles op_done(False, "delete", root); a
-  get mid-stream reports one error; and a Poll that raced the eviction
-  (the old seat's idle 'I' landing on the shut socket) reports NOTHING —
-  that was a phantom "command lost" step before the review round.
+* LINK-LOSS RETRIES: a UI command the link died under (a get mid-stream,
+  a put mid-pull) is not reported — it is held and re-run by the seat that
+  comes back after the pause, with "retry1 in Ns: …" then "retry1: …" in
+  the log, up to three times; the fourth loss reports ONE failure. A Next
+  that hangs up mid-command (FIN, no eviction) leaves the worker LISTENING
+  for it: the re-dial is a fresh seat and the retry runs there; with no
+  re-dial the deadline passes, one failure is reported and the worker
+  ends. With Sessions On nothing is retried (a survivor might be another
+  machine). An rmtree walk is never retried: cut between steps it settles
+  one op_done(False, "delete", root). A verify-after-put owed settles its
+  put_done(True) with no error beside it. A Poll that raced the eviction
+  (the old seat's idle 'I' landing on the shut socket) reports NOTHING.
 * The hook is read PER DIAL: flipped On, a newcomer gets a second seat;
   flipped Off again, the next dialer evicts every seat and inherits the
   DRIVEN one's sid. control['max_peers'] follows the mode. A hook that
   raises reads as On.
-* The last Next leaving still ends the worker exactly once.
 
 Run with: python tests/test_listen_single_seat.py
 """
@@ -48,9 +52,29 @@ from zxnu_workers import (RemoteExplorerSignals,                 # noqa: E402
                           run_remote_listen_server)
 from zxnu_http_bridge import BridgeReply                         # noqa: E402
 
-PORT = 2059
+# A port PER SCENARIO: six servers sharing one meant a socket still in
+# TIME_WAIT (or a worker thread a beat from dying) could fail the next
+# scenario's bind - measured flaky under load, and a bind failure is
+# exactly the path review round 2 found broken.
+_PORTS = iter(range(2059, 2099))
+PORT = next(_PORTS)
 ok = True
+
+
 ADDR = "127.0.0.1"
+
+
+def next_port():
+    global PORT
+    PORT = next(_PORTS)
+    return PORT
+
+# The retry pause and the no-seat deadline, shortened for the suite (read
+# at use time from the module, so a rebinding here is what the worker sees).
+PAUSE = 0.4
+WAIT = 3.0
+zxnu_workers.RE_LINK_RETRY_PAUSE_S = PAUSE
+zxnu_workers.RE_LINK_RETRY_WAIT_S = WAIT
 
 
 def check(name, cond, detail=""):
@@ -92,9 +116,11 @@ def poll(sock, timeout=10.0):
     return rx_payload(sock, timeout)
 
 
-def reply(sock, payload):
-    """Push one framed block and read the server's 'Ok' ack."""
-    sock.sendall(frame(payload))
+def reply(sock, payload, pkt=0):
+    """Push one framed block (packet number ``pkt`` — a multi-block reply
+    must count up, or the server reads a repeat as a retransmission) and
+    read the server's 'Ok' ack."""
+    sock.sendall(frame(payload, pkt))
     return rx_payload(sock)
 
 
@@ -186,7 +212,41 @@ def close_all(socks):
             pass
 
 
+def logged(state, text, since=0):
+    return any(text in m for m in state["logs"][since:])
+
+
+def start_get(sock, remote=b"/big.bin"):
+    """Drive a get up to its first data block, so the link can be cut
+    mid-stream: the server's 'G', then N (pkt 0) and D (pkt 1) from us."""
+    got = poll(sock)
+    check("the get is sent", got == b"G" + remote, got)
+    reply(sock, b"N" + b"\0\0\0\0" + bytes([7]) + b"big.bin", 0)
+    reply(sock, b"D" + b"x" * 100, 1)
+
+
+def finish_get(sock):
+    """The retried get from the top: N, D, E, B — then the file is 'got'."""
+    reply(sock, b"N" + b"\0\0\0\0" + bytes([7]) + b"big.bin", 0)
+    reply(sock, b"D" + b"y" * 100, 1)
+    reply(sock, b"E", 2)
+    reply(sock, b"B", 3)
+
+
+def evict(state, socks, old, label):
+    """Dial a newcomer, expect the old link dropped, the seat unchanged."""
+    n_peers = len(state["peers"])
+    new = connect_next()
+    socks.append(new)
+    check(f"{label}: seated", rx_payload(new) == b"Listening")
+    check(f"{label}: old link dropped", dropped(old))
+    check(f"{label}: roster unchanged (seat #1)",
+          seat_after(state, n_peers, (1, [(1, ADDR)])), roster(state))
+    return new
+
+
 def test_single_seat():
+    next_port()
     cmd_q, stop = queue.Queue(), threading.Event()
     mode = {"on": False}                       # the Settings toggle, live
     control = {"seq": 0}
@@ -223,8 +283,7 @@ def test_single_seat():
               state["connected"] == 1, state["connected"])
         check("no disconnected", state["disconnected"] == 0)
         check("the console names the eviction",
-              any("dialed in while" in m and "Sessions is Off" in m
-                  for m in state["logs"]),
+              logged(state, "dialed in while") and logged(state, "Sessions is Off"),
               [m for m in state["logs"] if "Remote explorer" in m][-2:])
         check("the sid counter was NOT spent on the re-dial",
               control.get("seq") == 1, control.get("seq"))
@@ -242,7 +301,7 @@ def test_single_seat():
               got == b"M/from-b", got)
         reply(b, b"O")
 
-        # ---- a put mid-pull when the link is replaced -----------------
+        # ---- a put mid-pull when the link is replaced: RETRIED ----------
         fd, tmp = tempfile.mkstemp(suffix=".bin")
         os.write(fd, bytes(range(256)) * 12)                 # 3072 B = 6 frames
         os.close(fd)
@@ -252,21 +311,25 @@ def test_single_seat():
         b.sendall(b"Get")
         first = rx_payload(b)
         check("the Next pulled the first frame", len(first) == 512, len(first))
-        n_peers = len(state["peers"])
-        c = connect_next()
-        socks.append(c)
-        check("the third dialer is seated (evicting the put's link)",
-              rx_payload(c) == b"Listening")
-        check("the pulling link is dropped", dropped(b))
-        check("the abandoned put settles exactly one put_done(False)",
-              wait_until(lambda: state["put_done"] == [(False, "/dest.bin")]),
-              state["put_done"])
-        time.sleep(0.5)
-        check("...and no error signal for the same death (one step, not two)",
-              state["errors"] == [], state["errors"])
-        check("roster: still seat #1, alone",
-              seat_after(state, n_peers, (1, [(1, ADDR)])), roster(state))
+        n_log = len(state["logs"])
+        c = evict(state, socks, b, "put cut")
+        check("the cut put is HELD, not reported",
+              wait_until(lambda: logged(state, "retry1 in", n_log))
+              and state["put_done"] == [], (state["put_done"],
+                                            state["logs"][n_log:]))
+        check("...and no error either", state["errors"] == [], state["errors"])
         answer_version(c)
+        time.sleep(PAUSE + 0.3)
+        got = poll(c)
+        check("retry1: the put is sent again from the top",
+              got == b"P/dest.bin" and logged(state, "retry1: put /dest.bin", n_log),
+              (got, state["logs"][n_log:]))
+        for _ in range(6):
+            c.sendall(b"Get")
+            rx_payload(c)
+        check("the retried put lands (one put_done(True))",
+              wait_until(lambda: state["put_done"] == [(True, "/dest.bin")]),
+              state["put_done"])
         check("the newcomer's session then idles", poll(c) == b"I")
 
         # ---- the hook is read per dial: flipped On, a second seat -----
@@ -307,12 +370,7 @@ def test_single_seat():
         br = BridgeReply()
         check("the bridge can target seat #1",
               control["enqueue_to"](1, ("mkdir", "/parked", br)))
-        n_peers = len(state["peers"])
-        f = connect_next()
-        socks.append(f)
-        check("seated", rx_payload(f) == b"Listening")
-        check("old link dropped", dropped(e))
-        check("roster unchanged", seat_after(state, n_peers, (1, [(1, ADDR)])))
+        f = evict(state, socks, e, "parked")
         answer_version(f)
         got = poll(f)
         check("the parked targeted command is served by the newcomer",
@@ -322,53 +380,77 @@ def test_single_seat():
         check("...and its bridge caller gets a real answer, not a 410",
               res == {"ok": True}, res)
 
-        # ---- an rmtree walk parked between steps ------------------------
+        # ---- an rmtree walk parked between steps: never retried ---------
         n_ops = len(state["ops"])
         cmd_q.put(("rmtree", "/tree"))
         got = poll(f)
         check("the walk starts with the root listing", got == b"L/tree", got)
         entry = bytes([0]) + (10).to_bytes(4, "little") + bytes([5]) + b"a.tap"
-        reply(f, b"D" + entry)
-        reply(f, b"E")
+        reply(f, b"D" + entry, 0)
+        reply(f, b"E", 1)
         # The walk queued rm + rmdir on local_cmds and now waits for a Poll.
-        n_peers = len(state["peers"])
         n_err = len(state["errors"])
-        g = connect_next()
-        socks.append(g)
-        check("seated", rx_payload(g) == b"Listening")
-        check("old link dropped", dropped(f))
+        g = evict(state, socks, f, "rmtree cut")
         check("the cut walk settles exactly one op_done(False, delete, root)",
               wait_until(lambda: state["ops"][n_ops:] == [(False, "delete", "/tree")]),
               state["ops"][n_ops:])
         time.sleep(0.5)
         check("...with no error beside it", len(state["errors"]) == n_err,
               state["errors"][n_err:])
-        check("roster unchanged", seat_after(state, n_peers, (1, [(1, ADDR)])))
+        check("...and nothing held for retry", control.get("retry") is None)
         answer_version(g)
         check("the newcomer does not inherit the dead walk's steps",
               poll(g) == b"I")
 
-        # ---- a get cut mid-stream -----------------------------------------
+        # ---- a get cut mid-stream: retried on the returning seat -------
+        n_log = len(state["logs"])
+        n_err = len(state["errors"])
         cmd_q.put(("get", "/big.bin", tdir))
-        got = poll(g)
-        check("the get is sent", got == b"G/big.bin", got)
-        reply(g, b"N" + b"\0\0\0\0" + bytes([7]) + b"big.bin")
-        reply(g, b"D" + b"x" * 100)
-        n_peers = len(state["peers"])
+        start_get(g)
+        h = evict(state, socks, g, "get cut")
+        check("the cut get is held (retry1 announced), no error",
+              wait_until(lambda: logged(state, "retry1 in", n_log))
+              and len(state["errors"]) == n_err, state["errors"][n_err:])
+        answer_version(h)
+        time.sleep(PAUSE + 0.3)
+        got = poll(h)
+        check("retry1: the get is sent again", got == b"G/big.bin", got)
+        check("...and logged as retry1", logged(state, "retry1: get /big.bin", n_log))
+        finish_get(h)
+        check("the retried get lands (got)",
+              wait_until(lambda: len(state["got"]) == 1
+                         and state["got"][0][0] == "/big.bin"), state["got"])
+        check("no error for the whole episode", len(state["errors"]) == n_err,
+              state["errors"][n_err:])
+
+        # ---- three retries spent: the fourth loss reports ONE failure --
+        n_log = len(state["logs"])
         n_err = len(state["errors"])
         n_got = len(state["got"])
-        h = connect_next()
-        socks.append(h)
-        check("seated", rx_payload(h) == b"Listening")
-        check("old link dropped", dropped(g))
-        check("the cut get reports exactly one error",
+        cmd_q.put(("get", "/big.bin", tdir))
+        start_get(h)
+        cur = h
+        for k in (1, 2, 3):
+            cur = evict(state, socks, cur, f"loss {k}")
+            check(f"retry{k} announced", wait_until(lambda: logged(
+                state, f"retry{k} in", n_log)))
+            answer_version(cur)
+            time.sleep(PAUSE + 0.3)
+            got = poll(cur)
+            check(f"retry{k}: the get is sent again", got == b"G/big.bin", got)
+            reply(cur, b"N" + b"\0\0\0\0" + bytes([7]) + b"big.bin", 0)
+        last = evict(state, socks, cur, "loss 4")
+        check("the fourth loss reports exactly one failure",
               wait_until(lambda: len(state["errors"]) == n_err + 1),
               state["errors"][n_err:])
         time.sleep(0.5)
         check("...only one", len(state["errors"]) == n_err + 1, state["errors"][n_err:])
-        check("...and no got", len(state["got"]) == n_got, state["got"][n_got:])
-        check("roster unchanged", seat_after(state, n_peers, (1, [(1, ADDR)])))
-        answer_version(h)
+        check("...logged as giving up after retry3",
+              logged(state, "retry3 failed", n_log), state["logs"][n_log:][-3:])
+        check("...nothing held any more", control.get("retry") is None)
+        check("...and no got", len(state["got"]) == n_got)
+        answer_version(last)
+        check("the seat idles after that", poll(last) == b"I")
 
         # ---- a Poll racing the eviction: no phantom "command lost" -------
         gate = {"armed": True, "ev": threading.Event()}
@@ -382,7 +464,7 @@ def test_single_seat():
         n_err = len(state["errors"])
         n_peers = len(state["peers"])
         try:
-            h.sendall(b"Poll")            # nothing queued: an 'I' is coming...
+            last.sendall(b"Poll")         # nothing queued: an 'I' is coming...
             time.sleep(0.3)               # ...and is parked inside the gate
             i = connect_next()
             socks.append(i)
@@ -391,7 +473,7 @@ def test_single_seat():
             gate["ev"].set()              # the 'I' now lands on the shut socket
         finally:
             zxnu_workers._re_sendpacket = orig_send
-        check("old link dropped", dropped(h))
+        check("old link dropped", dropped(last))
         time.sleep(0.6)
         check("an idle reply that met the eviction reports NOTHING",
               len(state["errors"]) == n_err, state["errors"][n_err:])
@@ -420,10 +502,134 @@ def test_single_seat():
         shutil.rmtree(tdir, ignore_errors=True)
 
 
+def test_hangup_then_redial_is_retried():
+    """The field case: the Next's link dies mid-get and it HANGS UP (a FIN,
+    no eviction). The worker must keep listening for it instead of ending,
+    seat the re-dial as a fresh session, and run the held get there."""
+    next_port()
+    cmd_q, stop = queue.Queue(), threading.Event()
+    control = {"seq": 0}
+    th, state = start_server(cmd_q, stop, lambda: False, control)
+    socks = []
+    tdir = tempfile.mkdtemp(prefix="zxnu-redial-")
+    try:
+        m = connect_next()
+        socks.append(m)
+        check("redial: seated", rx_payload(m) == b"Listening")
+        wait_until(lambda: state["connected"] == 1)
+        cmd_q.put(("get", "/big.bin", tdir))
+        start_get(m)
+        n_log = len(state["logs"])
+        m.close()                                  # the Next hangs up mid-get
+        socks.remove(m)
+        check("redial: the cut get is held (retry1 announced)",
+              wait_until(lambda: logged(state, "retry1 in", n_log)),
+              state["logs"][n_log:])
+        check("redial: the roster emptied without a disconnected",
+              wait_until(lambda: roster(state) == (None, []))
+              and state["disconnected"] == 0, (roster(state), state["disconnected"]))
+        time.sleep(1.2)
+        check("redial: the worker keeps listening for the Next", th.is_alive())
+        check("redial: nothing reported meanwhile",
+              state["errors"] == [] and state["got"] == [])
+        n = connect_next()                         # the Listener dials again
+        socks.append(n)
+        check("redial: the re-dial is seated", rx_payload(n) == b"Listening")
+        check("redial: ...as a fresh connection (connected fired again)",
+              wait_until(lambda: state["connected"] == 2), state["connected"])
+        time.sleep(PAUSE + 0.3)
+        got = poll(n)
+        check("redial: retry1 runs on the returning seat", got == b"G/big.bin", got)
+        finish_get(n)
+        check("redial: the retried get lands",
+              wait_until(lambda: len(state["got"]) == 1), state["got"])
+        check("redial: no error at all", state["errors"] == [], state["errors"])
+        n.close()
+        socks.remove(n)
+        check("redial: worker exits when the last Next leaves (nothing held)",
+              wait_until(lambda: not th.is_alive(), timeout=10.0))
+        check("redial: disconnected fired exactly once", state["disconnected"] == 1)
+    finally:
+        stop.set()
+        close_all(socks)
+        th.join(timeout=10)
+        shutil.rmtree(tdir, ignore_errors=True)
+
+
+def test_no_redial_gives_up():
+    """No Next comes back: the deadline passes, the held command gets its
+    one failure report, the worker ends."""
+    next_port()
+    cmd_q, stop = queue.Queue(), threading.Event()
+    control = {"seq": 0}
+    th, state = start_server(cmd_q, stop, lambda: False, control)
+    socks = []
+    tdir = tempfile.mkdtemp(prefix="zxnu-noredial-")
+    try:
+        o = connect_next()
+        socks.append(o)
+        check("give-up: seated", rx_payload(o) == b"Listening")
+        wait_until(lambda: state["connected"] == 1)
+        cmd_q.put(("get", "/big.bin", tdir))
+        start_get(o)
+        o.close()
+        socks.remove(o)
+        check("give-up: the get is held first",
+              wait_until(lambda: logged(state, "retry1 in")))
+        check("give-up: one failure once the deadline passes",
+              wait_until(lambda: len(state["errors"]) == 1, timeout=WAIT + 6.0),
+              state["errors"])
+        check("give-up: ...naming the abandoned retry",
+              logged(state, "abandoned") and "did not come back" in state["errors"][0],
+              state["errors"])
+        check("give-up: the worker then ends",
+              wait_until(lambda: not th.is_alive(), timeout=10.0))
+        check("give-up: disconnected fired exactly once", state["disconnected"] == 1)
+        check("give-up: nothing held", control.get("retry") is None)
+    finally:
+        stop.set()
+        close_all(socks)
+        th.join(timeout=10)
+        shutil.rmtree(tdir, ignore_errors=True)
+
+
+def test_sessions_on_never_retries():
+    """Sessions On: a survivor might be another machine, so a cut command
+    is reported at once and the worker ends with the last seat, as before."""
+    next_port()
+    cmd_q, stop = queue.Queue(), threading.Event()
+    control = {"seq": 0}
+    th, state = start_server(cmd_q, stop, lambda: True, control)
+    socks = []
+    tdir = tempfile.mkdtemp(prefix="zxnu-multi-")
+    try:
+        p = connect_next()
+        socks.append(p)
+        check("multi: seated", rx_payload(p) == b"Listening")
+        wait_until(lambda: state["connected"] == 1)
+        cmd_q.put(("get", "/big.bin", tdir))
+        start_get(p)
+        p.close()
+        socks.remove(p)
+        check("multi: the cut get reports one failure at once",
+              wait_until(lambda: len(state["errors"]) == 1), state["errors"])
+        check("multi: nothing held", control.get("retry") is None)
+        check("multi: the worker ends with its last seat",
+              wait_until(lambda: not th.is_alive(), timeout=10.0))
+        check("multi: no retry line in the log",
+              not logged(state, "retry1"), [m for m in state["logs"] if "retry" in m])
+    finally:
+        stop.set()
+        close_all(socks)
+        th.join(timeout=10)
+        shutil.rmtree(tdir, ignore_errors=True)
+
+
 def test_verify_owed_at_eviction():
     """Verify CRC on: the 'K' wait is the longest window in a verified copy.
     A re-dial that lands inside it must settle the put's ONE put_done
-    (kept, unverified) and nothing else."""
+    (kept, unverified) and nothing else - never re-send the file."""
+    next_port()
     cmd_q, stop = queue.Queue(), threading.Event()
     control = {"seq": 0}
     th, state = start_server(cmd_q, stop, lambda: False, control,
@@ -451,20 +657,17 @@ def test_verify_owed_at_eviction():
         reply(j, b"O" + b"sync\x005.9.3")
         got = poll(j)
         check("verify: then the 'K' goes out", got == b"K/v.bin", got)
-        n_peers = len(state["peers"])
-        k = connect_next()                    # the re-dial lands in the wait
-        socks.append(k)
-        check("verify: seated", rx_payload(k) == b"Listening")
-        check("verify: old link dropped", dropped(j))
+        k = evict(state, socks, j, "verify cut")   # the re-dial lands in the wait
         check("verify: the owed put settles exactly one put_done(True) (kept, unverified)",
               wait_until(lambda: state["put_done"] == [(True, "/v.bin")]),
               state["put_done"])
         time.sleep(0.5)
         check("verify: ...and no error beside it", state["errors"] == [],
               state["errors"])
-        check("verify: roster unchanged",
-              seat_after(state, n_peers, (1, [(1, ADDR)])), roster(state))
+        check("verify: ...and nothing held for retry (the file landed)",
+              control.get("retry") is None)
         answer_version(k)
+        check("verify: the seat idles (no re-send)", poll(k) == b"I")
         k.close()
         socks.remove(k)
         check("verify: worker exits when the last Next leaves",
@@ -481,6 +684,7 @@ def test_verify_owed_at_eviction():
 
 
 def test_hook_that_raises_reads_as_on():
+    next_port()
     cmd_q, stop = queue.Queue(), threading.Event()
     control = {"seq": 0}
 
@@ -510,9 +714,84 @@ def test_hook_that_raises_reads_as_on():
         th.join(timeout=10)
 
 
+def test_bind_failure_still_reports():
+    """Review round 2: the port is already taken. The worker must say so AND
+    emit `disconnected` - its finally used to run control.pop() on the None
+    DEFAULT (an AttributeError), so the pane never relistened and a widget
+    operation never ended."""
+    port = next_port()
+    blocker = socket.socket()
+    blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    blocker.bind(("0.0.0.0", port))
+    blocker.listen(1)
+    cmd_q, stop = queue.Queue(), threading.Event()
+    app = QCoreApplication.instance() or QCoreApplication(sys.argv)  # noqa: F841
+    sig = RemoteExplorerSignals()
+    seen = {"busy": [], "disc": 0, "err": []}
+    sig.port_in_use.connect(lambda p: seen["busy"].append(p), Qt.DirectConnection)
+    sig.disconnected.connect(lambda: seen.update(disc=seen["disc"] + 1),
+                             Qt.DirectConnection)
+    sig.error.connect(lambda m: seen["err"].append(m), Qt.DirectConnection)
+    # NO control= : the parameter's None default is the whole point.
+    th = threading.Thread(target=run_remote_listen_server,
+                          args=(sig, cmd_q, stop), kwargs={"port": port},
+                          daemon=True)
+    th.start()
+    check("bind failure: the worker ends", wait_until(lambda: not th.is_alive()))
+    check("bind failure: the port is reported in use", seen["busy"] == [port],
+          seen["busy"])
+    check("bind failure: disconnected still fires (the pane can relisten)",
+          seen["disc"] == 1, seen["disc"])
+    check("bind failure: no server error beside it", seen["err"] == [], seen["err"])
+    stop.set()
+    th.join(timeout=5)
+    blocker.close()
+
+
+def test_stale_retry_is_never_run():
+    """Review round 2: a session that outlives its worker's finally can leave
+    a retry behind. The NEXT worker must drop it - running it could write to
+    a different machine - and never report it (its operation died with that
+    worker's `disconnected`)."""
+    port = next_port()
+    cmd_q, stop = queue.Queue(), threading.Event()
+    # A retry from an earlier run (generation 0; the worker starts at 1).
+    control = {"seq": 0, "gen": 0,
+               "retry": {"cmd": ("get", "/stale.bin", "."), "attempt": 1,
+                         "due": 0.0, "deadline": time.monotonic() + 999,
+                         "label": "get /stale.bin", "gen": 0}}
+    th, state = start_server(cmd_q, stop, lambda: False, control)
+    socks = []
+    try:
+        s = connect_next()
+        socks.append(s)
+        check("stale: seated", rx_payload(s) == b"Listening")
+        wait_until(lambda: state["connected"] == 1)
+        cmd_q.put(("mkdir", "/fresh"))
+        got = poll(s)
+        check("stale: the stale retry is NOT sent - the fresh command is",
+              got == b"M/fresh", got)
+        reply(s, b"O")
+        check("stale: it was dropped from control", control.get("retry") is None)
+        check("stale: and nothing was reported for it",
+              state["errors"] == [] and state["put_done"] == [],
+              (state["errors"], state["put_done"]))
+        check("stale: the generation moved on", control.get("gen") == 1,
+              control.get("gen"))
+    finally:
+        stop.set()
+        close_all(socks)
+        th.join(timeout=10)
+
+
 if __name__ == "__main__":
     test_single_seat()
+    test_hangup_then_redial_is_retried()
+    test_no_redial_gives_up()
+    test_sessions_on_never_retries()
     test_verify_owed_at_eviction()
     test_hook_that_raises_reads_as_on()
+    test_bind_failure_still_reports()
+    test_stale_retry_is_never_run()
     print("\nRESULT: " + ("ALL PASS" if ok else "FAILURES"))
     sys.exit(0 if ok else 1)

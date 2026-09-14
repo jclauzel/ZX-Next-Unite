@@ -118,8 +118,8 @@ check("the evicted seat's socket is shut down from the accept thread",
 check("`first` is taken BEFORE the eviction (no second `connected`)",
       wk.find("first = not peers") < wk.find("if single and peers:")
       and wk.find("first = not peers") != -1)
-check("a UI put the session died under settles its one put_done",
-      "if _ui_put_pending():\n            sig.put_done.emit(False, pending[1])" in wk)
+check("a UI put the session died under settles its one put_done (once its retries are spent)",
+      "_retry_spent(\"the link went down mid-file\")\n                sig.put_done.emit(False, pending[1])" in wk)
 check("...and its error line then stays out of the error signal (one step, not two)",
       wk.count("_ui_put_pending()") >= 3 and "_ui_put_pending() or bool(vjobs)" in wk)
 check("control['max_peers'] tracks the mode",
@@ -143,6 +143,50 @@ check("a re-seat asks the returning Next its build again",
       'my_q.put(("version",))' in wk)
 check("a re-seat inherits the commands parked on the old seat's queue",
       "my_q.put(_p['q'].get_nowait())" in wk)
+# ---- link-loss retries (9.7.20) -------------------------------------------
+import zxnu_workers  # noqa: E402
+check("three retries, three seconds apart, a 30 s wait for the Next",
+      zxnu_workers.RE_LINK_RETRIES == 3 and zxnu_workers.RE_LINK_RETRY_PAUSE_S == 3.0
+      and zxnu_workers.RE_LINK_RETRY_WAIT_S == 30.0)
+check("retried ops are the idempotent UI ones - never rmtree, never a raw query",
+      set(zxnu_workers.RE_LINK_RETRY_OPS) == {"ls", "get", "put", "mkdir", "rmdir", "rm",
+                                              "rename", "rcpy", "fsize"})
+check("EOF is told apart from garbage by the block reader",
+      "return 'EOF'" in wk and "if blk == 'EOF':" in wk)
+check("the session shadows _re_reply_call and raises _ReLinkDead when eligible",
+      "def _re_reply_call(conn_, handler, timeout=None):" in sess
+      and 'raise _ReLinkDead("the link died under "' in sess)
+check("_ReLinkDead is an OSError caught ahead of the OSError arm",
+      "class _ReLinkDead(OSError):" in wk
+      and sess.find("except _ReLinkDead as ex:") != -1
+      and sess.find("except _ReLinkDead as ex:") < sess.find("\n    except OSError as ex:"))
+check("a held retry is served first and holds the queue behind its pause",
+      "r = control.get('retry')" in sess and "elif time.monotonic() < r['due']:" in sess)
+check("only a shared-queue pop can be held (never my_q / local_cmds)",
+      "from_shared = cmd is not None" in sess
+      and "if from_shared and reply is None and op in RE_LINK_RETRY_OPS:" in sess)
+check("a pending put is held by the finally, not reported",
+      "if _ui_put_pending():\n            if _retry_eligible():" in sess)
+check("the accept loop keeps listening while a retry is held",
+      "waiting = (r is not None and not _sessions_on()" in wk
+      and "time.monotonic() < r['deadline'])" in wk)
+check("the worker's finally drops a held retry (stop / error)",
+      "control.pop('retry', None)\n        sig.disconnected.emit()" in wk)
+check("the pane's cancel drops a held retry AND counts it (the op must not hang)",
+      "n = 1 if host._re_control.pop('retry', None) is not None else 0" in npane)
+check("the control dict is defaulted above the bind (the finally always has one)",
+      wk.find("control = control if control is not None else {}")
+      < wk.find("srv = bind_listen_socket(port)"))
+check("each worker run stamps a retry generation",
+      "re_gen = int(control.get('gen', 0)) + 1" in wk
+      and "'gen': shared.get('gen')" in wk)
+check("...and a retry from another run is never served",
+      "if r is not None and r.get('gen') != shared.get('gen'):" in wk
+      and "if r is not None and r.get('gen') != re_gen:" in wk)
+check("...while the finally pops only its own",
+      "if (control.get('retry') or {}).get('gen') == re_gen:" in wk)
+check("the retry log lines are untranslated protocol-style lines (retry1: ...)",
+      '"retry%d in %ds: %s (%s)"' in sess and '"retry%d: %s"' in sess)
 check("the classic Sync3/Sync4 loop is untouched",
       "sessions" not in wk[wk.find("def run_classic_sync_server("):
                            wk.find("def run_classic_sync_server(") + 2000])
@@ -170,7 +214,10 @@ for node in ast.walk(pane_ast):
 check("the pane's label literal found",
       label == "NextSync — Sessions: seat several Nexts at once (Remote Explorer)", repr(label))
 check("the pane's tooltip literal found (one folded constant)",
-      isinstance(tooltip, str) and tooltip.count("\n") == 16, repr(tooltip)[:80])
+      isinstance(tooltip, str) and tooltip.count("\n") == 17, repr(tooltip)[:80])
+check("...and it says a cut command is retried, three times, three seconds apart",
+      isinstance(tooltip, str) and "retried up to three times, three seconds apart" in tooltip
+      and "retry1, retry2" in tooltip)
 check("...and it says what a flip to Off with several seats held does",
       isinstance(tooltip, str) and "replaces them all" in tooltip)
 

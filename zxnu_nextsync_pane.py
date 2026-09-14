@@ -488,8 +488,16 @@ def build_nextsync_pane(
 
     def _re_drain():
         # Remove every still-queued command (used by the explorer's Cancel to
-        # stop after the in-flight transfer). Returns how many were dropped.
-        n = 0
+        # stop after the in-flight transfer). Returns how many were dropped —
+        # the widget COUNTS them as reported, so anything dropped here must be
+        # in the number or its operation ends one step short.
+        # A link-loss retry the worker holds (9.7.20) goes with them: it is
+        # part of the operation being cancelled, and left in place it would
+        # resurrect that transfer when the Next dials back in. It counts too:
+        # it was popped from the queue long ago and its ONE report is still
+        # owed, so dropping it uncounted left the cancel waiting out the full
+        # 60 s grace (RE_CANCEL_GRACE_MS) instead of ending at once.
+        n = 1 if host._re_control.pop('retry', None) is not None else 0
         q = host._re_queue
         if q is not None:
             while True:
