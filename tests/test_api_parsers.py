@@ -56,6 +56,33 @@ check("getit detail: URL", detail.get("URL") == "http://example.com/x.tap",
 
 # ---- GetIt curated starter pack ---------------------------------------------
 from zxnu_config import GETIT_STARTER_PACK, GETIT_STARTER_PACK_IMAGE_DIR  # noqa: E402
+from zxnu_config import log_size  # noqa: E402
+
+# ---- log_size: the NextSync console's byte wording (9.7.21) ---------------
+# Kilobytes, and megabytes beside them once it passes a megabyte. A decimal
+# only below 10 KB, where one matters. Deliberately NOT the panes' terse
+# "6.8 K" (_human_size in zxnu_remote_explorer) - a log line has the room.
+check("log_size: nothing for None", log_size(None) == "")
+# Under a kilobyte: BYTES. "0.0 KB" for the 40 bytes a dying transfer
+# managed would say nothing at all, which is the one thing this line
+# must never do.
+check("log_size: zero", log_size(0) == "0 B", log_size(0))
+check("log_size: a few bytes stay bytes", log_size(40) == "40 B", log_size(40))
+check("log_size: sub-KB stays bytes", log_size(512) == "512 B", log_size(512))
+check("log_size: a kilobyte exactly", log_size(1024) == "1.0 KB", log_size(1024))
+check("log_size: single KB keeps a decimal", log_size(7000) == "6.8 KB", log_size(7000))
+check("log_size: whole KB above ten", log_size(102400) == "100 KB", log_size(102400))
+check("log_size: a megabyte carries both units",
+      log_size(4 * 1024 * 1024) == "4096 KB (4.0 MB)", log_size(4 * 1024 * 1024))
+check("log_size: and just over one too",
+      log_size(1536 * 1024) == "1536 KB (1.5 MB)", log_size(1536 * 1024))
+check("log_size: just UNDER a megabyte stays kilobytes only",
+      log_size(1023 * 1024) == "1023 KB", log_size(1023 * 1024))
+# The suffix follows the figure SHOWN: one byte under a megabyte already
+# rounds to "1024 KB", so it must carry the megabytes too.
+check("log_size: one byte under a megabyte agrees with itself",
+      log_size(1024 * 1024 - 1) == "1024 KB (1.0 MB)",
+      log_size(1024 * 1024 - 1))
 
 check("starter pack: 20 curated titles", len(GETIT_STARTER_PACK) == 20,
       str(len(GETIT_STARTER_PACK)))

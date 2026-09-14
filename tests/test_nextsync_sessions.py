@@ -119,7 +119,8 @@ check("`first` is taken BEFORE the eviction (no second `connected`)",
       wk.find("first = not peers") < wk.find("if single and peers:")
       and wk.find("first = not peers") != -1)
 check("a UI put the session died under settles its one put_done (once its retries are spent)",
-      "_retry_spent(\"the link went down mid-file\")\n                sig.put_done.emit(False, pending[1])" in wk)
+      "_retry_spent(\"the link went down mid-file\")" in wk
+      and "sig.put_done.emit(False, pending[1])" in wk)
 check("...and its error line then stays out of the error signal (one step, not two)",
       wk.count("_ui_put_pending()") >= 3 and "_ui_put_pending() or bool(vjobs)" in wk)
 check("control['max_peers'] tracks the mode",
@@ -186,7 +187,20 @@ check("...and a retry from another run is never served",
 check("...while the finally pops only its own",
       "if (control.get('retry') or {}).get('gen') == re_gen:" in wk)
 check("the retry log lines are untranslated protocol-style lines (retry1: ...)",
-      '"retry%d in %ds: %s (%s)"' in sess and '"retry%d: %s"' in sess)
+      '"retry%d in %ds: %s (%s%s)"' in sess and '"retry%d: %s"' in sess)
+# 9.7.21: that stash line carries how far the transfer got, from the same
+# session-level record every failure site reads.
+check("...and the stash line carries the transfer's progress",
+      "_xfer_note()" in sess and "def _xfer_note():" in sess)
+check("the transfer record is command-scoped, not session-scoped",
+      "'live': False}" in wk and "xfer['live'] = False" in wk
+      and "xfer['kind'] == 'get' and xfer['live'] and not stashed" in wk)
+check("the stopped-transfer line is emitted once, by whoever gets there first",
+      "xfer['said'] = True" in sess
+      and "not xfer['live']" in sess and "or xfer['said']" in sess
+      and "not xfer['done']" in sess)
+check("...and it reads the console's own KB/MB wording",
+      "log_size(xfer['done'])" in sess and "log_size," in wk)
 check("the classic Sync3/Sync4 loop is untouched",
       "sessions" not in wk[wk.find("def run_classic_sync_server("):
                            wk.find("def run_classic_sync_server(") + 2000])

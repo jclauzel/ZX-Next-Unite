@@ -26,6 +26,7 @@ from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
                          TREE_FONT_MAX_PT, TREE_FONT_MIN_PT,
                          UP_DIRECTORY, VERSION3, VERSION4,
                          cspect_can_autostart, emulator_offers_autostart,
+                         log_size,
                          is_filetype_a_directory, mame_autostart_staging_dir,
                          mame_can_autostart)
 from PySide6.QtCore import (
@@ -1265,6 +1266,74 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         return (pending is not None and pending[0] == "put"
                 and len(pending) <= 3 and pending[2] is None)
 
+    # Bytes moved by the transfer in flight (9.7.21), so a failure can say
+    # how far it got instead of just "failed" - the question a folder copy
+    # that died mid-way always raises. The put pull and the get handler keep
+    # it current; _put_finish's failure arm, the get arm's failure tail, the
+    # finally's session-death settle and the link-loss retry's stash line all
+    # read it. Pre-try like `pending` for the finally's sake. 'total' is the
+    # command's own total when it HAS one (a put's file size, a single-file
+    # get's declared size) and 0 when it does not (a directory get).
+    # 'path' is the command's own remote path, so a site that reports the
+    # stop does not have to guess it; 'said' marks that one of them already
+    # has - the get arm's failure tail and the finally would otherwise BOTH
+    # speak for the same dead get (the tail runs when the reply call returns
+    # False, the finally when a raw OSError skipped it); and 'live' says a
+    # transfer is IN FLIGHT and owns these numbers.
+    #
+    # 'live' is what makes the record COMMAND-scoped rather than
+    # session-scoped, and both bugs it fixes were real. A get that SUCCEEDED
+    # left the record armed, so the finally's get branch fired at every
+    # clean session end after a download and called a whole file "stopped".
+    # And the update macro's staging and extras puts set put_data/pending
+    # directly without coming through the put arm, so a failure there
+    # reported the PREVIOUS put's byte counts against the macro's file name
+    # - they arm nothing, so with 'live' they now say nothing, which is
+    # right: the macro has its own progress and verdict lines.
+    xfer = {'kind': '', 'done': 0, 'total': 0, 'files': 0, 'path': '',
+            'said': False, 'live': False}
+
+    def _xfer_note():
+        """The progress phrase for the untranslated protocol-style lines
+        (the retry stash): " after 1536 KB (1.5 MB) of 4096 KB (4.0 MB)",
+        or "" when nothing has moved yet."""
+        if not xfer['live'] or not xfer['done']:
+            return ""
+        if xfer['total']:
+            return " after %s of %s" % (log_size(xfer['done']),
+                                        log_size(xfer['total']))
+        return " after %s" % log_size(xfer['done'])
+
+    def _log_xfer_stopped(kind, path):
+        """Say how much of a FAILED transfer moved (9.7.21). Translated: the
+        NextSync console's transfer-progress half is user-facing (the
+        zxnu_i18n row), unlike the packet/checksum diagnostics."""
+        if (not xfer['live'] or kind != xfer['kind'] or not xfer['done']
+                or xfer['said']):
+            # No transfer owns these numbers any more (a finished one, or
+            # a macro put that armed nothing), not this command's kind, not
+            # a byte moved (the plain failure the caller emits beside this
+            # already says that, and "0.0 KB" on every refused put would be
+            # noise), or another site already said it for this transfer.
+            return
+        xfer['said'] = True
+        path = path or xfer['path']
+        if kind == 'put':
+            log(ui_tr_now(
+                "Upload stopped: {sent} of {total} sent to {path}").format(
+                    sent=log_size(xfer['done']),
+                    total=log_size(xfer['total']), path=path))
+        elif xfer['files'] > 1:
+            log(ui_tr_now(
+                "Download stopped: {received} received from {path} across "
+                "{files} files").format(
+                    received=log_size(xfer['done']), path=path,
+                    files=xfer['files']))
+        else:
+            log(ui_tr_now(
+                "Download stopped: {received} received from {path}").format(
+                    received=log_size(xfer['done']), path=path))
+
     # rmtree walks still open: job id -> {'root', 'fails', 'reply', ...}.
     # Pre-try like pending/vjobs/upd_jobs (9.7.20 review): the walk's steps
     # ride local_cmds one per Poll, so a link that dies BETWEEN two steps
@@ -1333,8 +1402,9 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             'label': _inflight_label(),
                             'gen': shared.get('gen')}
         stashed = True
-        line = "retry%d in %ds: %s (%s)" % (
-            k, int(RE_LINK_RETRY_PAUSE_S), _inflight_label(), why)
+        line = "retry%d in %ds: %s (%s%s)" % (
+            k, int(RE_LINK_RETRY_PAUSE_S), _inflight_label(), why,
+            _xfer_note())
         log(line)
         logging.info("Remote explorer: %s", line)
 
@@ -1443,6 +1513,15 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 local_cmds.appendleft(("put_verify", vid))
 
             def _put_finish(ok, osp=False):
+                # A put that did NOT land says how much of it had been served
+                # when it stopped (9.7.21) - "Upload stopped: 1.5 M of 4.0 M
+                # sent to /games/x.tap". Before the arm below, so the staging
+                # put of an update_dot job and a bridge put are covered too.
+                if not ok and pending and len(pending) > 1:
+                    _log_xfer_stopped('put', pending[1])
+                # Resolved either way: the record stops owning this put (see
+                # the 'live' note where xfer is declared).
+                xfer['live'] = False
                 # Resolve the pending put: to its bridge reply when it has
                 # one, to the UI signal otherwise (reads `pending` live).
                 # ``osp`` marks ZXNextRemote's OS-protection refusal (the
@@ -2007,6 +2086,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         os.makedirs(dest_dir, exist_ok=True)
                         st = {'f': None, 'name': None, 'bytes': 0, 'last': None,
                               'count': 0, 'osp': False}
+                        xfer.update(kind='get', done=0, total=0, files=0,
+                                    path=remote, said=False, live=True)
 
                         def _h(payload, _st=st, _dd=dest_dir, _remote=remote):
                             o = payload[0:1]
@@ -2019,8 +2100,18 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 _st['osp'] = True
                                 return False
                             if o == b'N':
+                                # 'N' + [4B filelen][1B namelen][name] - and
+                                # those four length bytes are ALWAYS ZERO on
+                                # this wire: the dot writes them as "length
+                                # unknown" (nextsync.c) and ZX Next Remote
+                                # as "size unknown, like the dot" (fsrv.c).
+                                # So a stopped download never claims a total
+                                # (9.7.21); it counts what arrived and how
+                                # many files it was spread over, which is
+                                # everything the wire actually tells us.
                                 namelen = payload[5] if len(payload) > 5 else 0
                                 name = payload[6:6+namelen].decode(errors='replace')
+                                xfer['files'] += 1
                                 rel = (_re_relname_under(_remote, name) or
                                        os.path.basename(name.replace('\\', '/').rstrip('/')))
                                 path = _re_sanitize_incoming_path(_dd, rel)
@@ -2038,6 +2129,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 if _st['f']:
                                     _st['f'].write(payload[1:])
                                     _st['bytes'] += len(payload) - 1
+                                    xfer['done'] += len(payload) - 1
                             elif o == b'E':
                                 if _st['f']:
                                     _st['f'].close()
@@ -2074,7 +2166,16 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         elif ok:
                             sig.got.emit(remote, st['last'] or dest_dir)
                         else:
+                            _log_xfer_stopped('get', remote)
                             sig.error.emit(f"get {remote}: failed")
+                        # This get is over, whatever the outcome: retire the
+                        # record so the session's finally cannot report a
+                        # COMPLETED download as stopped, and so a later
+                        # command's retry note cannot borrow its bytes. The
+                        # finally's branch survives for the one case it is
+                        # for - a raw OSError out of recv, which never
+                        # reaches this line.
+                        xfer['live'] = False
                     elif op == "put":
                         local, remote = cmd[1], cmd[2]
                         try:
@@ -2089,6 +2190,9 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         put_ofs = 0
                         put_pkt = 0
                         put_retry = put_restart = 0
+                        xfer.update(kind='put', done=0, total=len(put_data),
+                                    files=1, path=remote, said=False,
+                                    live=True)
                         if remote.endswith('/') or remote.endswith('\\'):
                             remote = remote + os.path.basename(local)
                         pending = ("put", remote, reply)
@@ -3310,6 +3414,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     _re_sendpacket(conn, last_packet, put_pkt)
                     put_ofs += n
                     put_pkt += 1
+                    xfer['done'] = put_ofs
                     if put_ofs >= len(put_data) and pending and pending[0] == "put":
                         # Report the round trip only when it was NOT clean, so
                         # a healthy transfer stays silent and a troubled one
@@ -3345,6 +3450,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         "6 it allows before giving up)" % (put_pkt, put_restart))
                     put_ofs = 0
                     put_pkt = 0
+                    xfer['done'] = 0          # the Next is starting over
                     _idle(b"Back")
                 elif data == b"Bye":
                     _idle(b"Later")
@@ -3437,7 +3543,14 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                              else "the link went down mid-file")
             else:
                 _retry_spent("the link went down mid-file")
+                _log_xfer_stopped('put', pending[1])
                 sig.put_done.emit(False, pending[1])
+        # A get the session died under (9.7.21): its arm never reached the
+        # failure tail, so the "how far did it get" line is owed here. The
+        # command's own report is the retry (held) or the except arm's
+        # error, so this adds the number and nothing else.
+        if xfer['kind'] == 'get' and xfer['live'] and not stashed:
+            _log_xfer_stopped('get', '')      # '' -> the record's own path
         # An rmtree walk still open (9.7.20 review): the widget enqueued ONE
         # ('rmtree', root) and waits for its one op_done; the walk's steps
         # are served one per Poll, so a link that died between two of them

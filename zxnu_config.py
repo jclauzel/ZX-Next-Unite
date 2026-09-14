@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.20"
+ZX_NEXT_UNITE_VERSION = "9.7.21"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -1043,6 +1043,39 @@ def nextsync_verify_crc_enabled(cfg):
     both mean ON. Only an explicit false/0/no turns the check off."""
     v = cfg.get(SETTING_NEXTSYNC_VERIFY_CRC, "") if cfg else ""
     return str(v or "").strip().lower() not in ("false", "0", "no")
+
+
+def log_size(n):
+    """A byte count as the NextSync console spells it (9.7.21): KILOBYTES,
+    and megabytes beside them once it passes a megabyte —
+
+        40 B · 512 B · 1.5 KB · 6.8 KB · 100 KB · 4096 KB (4.0 MB)
+
+    A decimal only below 10 KB, where one matters; whole kilobytes above,
+    where it is noise. Deliberately its own function and not the panes'
+    ``_human_size`` ("6.8 K"): a Size column wants every row one width,
+    a log line has room to say what the unit is and to carry both.
+
+    Under a kilobyte the count is spelled in BYTES. Kilobytes all the way
+    down would print "0.0 KB" for the 40 bytes a transfer managed before
+    it died — a line whose whole job is to say how far it got, saying
+    nothing. The megabyte suffix is decided by the kilobyte figure that is
+    actually SHOWN, so 1048575 bytes cannot print "1024 KB" bare while one
+    byte more prints "1024 KB (1.0 MB)".
+
+    Lives in this module because the -listen WORKER writes those lines and
+    the dependency runs config -> workers -> explorer."""
+    if n is None:
+        return ""
+    n = float(n)
+    if n < 1024:
+        return f"{int(n)} B"
+    kb = n / 1024.0
+    shown = round(kb)
+    text = f"{kb:.1f} KB" if kb < 10 else f"{shown:.0f} KB"
+    if shown >= 1024:
+        text += f" ({kb / 1024.0:.1f} MB)"
+    return text
 
 
 def nextsync_sessions_enabled(cfg):

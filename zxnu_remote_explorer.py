@@ -256,6 +256,11 @@ def _human_size(n):
 
     n is scaled down by 1024 each loop iteration, so once we stop the value is
     already in the current unit - format it as-is.
+
+    Deliberately NOT what the NextSync console uses for its transfer lines
+    (zxnu_config.log_size, 9.7.21): a column has room for "6.8 K" and wants
+    every row the same width, a log line has room to spell out kilobytes and
+    add megabytes beside them.
     """
     if n is None:
         return ""

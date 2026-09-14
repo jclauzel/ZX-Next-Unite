@@ -1059,6 +1059,12 @@ CATALOGS = {
             "Explorador remoto: conectado a {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
             "Explorador remoto: error de conexión con el Next ({error}); sesión terminada.",
+        'Upload stopped: {sent} of {total} sent to {path}':
+            'Subida detenida: {sent} de {total} enviados a {path}',
+        'Download stopped: {received} received from {path} across {files} files':
+            'Descarga detenida: {received} recibidos de {path} en {files} archivos',
+        'Download stopped: {received} received from {path}':
+            'Descarga detenida: {received} recibidos de {path}',
         "Remote explorer: the Next closed the connection.":
             "Explorador remoto: el Next cerró la conexión.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
@@ -2413,6 +2419,12 @@ CATALOGS = {
             "Explorador remoto: ligado a {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
             "Explorador remoto: erro de ligação com o Next ({error}); sessão terminada.",
+        'Upload stopped: {sent} of {total} sent to {path}':
+            'Envio interrompido: {sent} de {total} enviados para {path}',
+        'Download stopped: {received} received from {path} across {files} files':
+            'Transferência interrompida: {received} recebidos de {path} em {files} ficheiros',
+        'Download stopped: {received} received from {path}':
+            'Transferência interrompida: {received} recebidos de {path}',
         "Remote explorer: the Next closed the connection.":
             "Explorador remoto: o Next fechou a ligação.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
@@ -3764,6 +3776,12 @@ CATALOGS = {
             "Eksplorator zdalny: połączono z {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
             "Eksplorator zdalny: błąd połączenia z Nextem ({error}) — sesja zakończona.",
+        'Upload stopped: {sent} of {total} sent to {path}':
+            'Wysyłanie przerwane: wysłano {sent} z {total} do {path}',
+        'Download stopped: {received} received from {path} across {files} files':
+            'Pobieranie przerwane: odebrano {received} z {path} w {files} plikach',
+        'Download stopped: {received} received from {path}':
+            'Pobieranie przerwane: odebrano {received} z {path}',
         "Remote explorer: the Next closed the connection.":
             "Eksplorator zdalny: Next zamknął połączenie.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
@@ -5117,6 +5135,12 @@ CATALOGS = {
             "Удалённый проводник: подключено к {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
             "Удалённый проводник: ошибка соединения с Next ({error}) — сеанс завершён.",
+        'Upload stopped: {sent} of {total} sent to {path}':
+            'Отправка прервана: отправлено {sent} из {total} в {path}',
+        'Download stopped: {received} received from {path} across {files} files':
+            'Загрузка прервана: получено {received} из {path} в {files} файлах',
+        'Download stopped: {received} received from {path}':
+            'Загрузка прервана: получено {received} из {path}',
         "Remote explorer: the Next closed the connection.":
             "Удалённый проводник: Next закрыл соединение.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
@@ -6467,6 +6491,12 @@ CATALOGS = {
             "Vzdálený průzkumník: připojeno k {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
             "Vzdálený průzkumník: chyba spojení s Nextem ({error}) — relace ukončena.",
+        'Upload stopped: {sent} of {total} sent to {path}':
+            'Odesílání zastaveno: odesláno {sent} z {total} do {path}',
+        'Download stopped: {received} received from {path} across {files} files':
+            'Stahování zastaveno: přijato {received} z {path} v {files} souborech',
+        'Download stopped: {received} received from {path}':
+            'Stahování zastaveno: přijato {received} z {path}',
         "Remote explorer: the Next closed the connection.":
             "Vzdálený průzkumník: Next ukončil spojení.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
@@ -7824,6 +7854,12 @@ CATALOGS = {
             "Explorateur distant : connecté à {address}",
         "Remote explorer: connection error from the Next ({error}) — session over.":
             "Explorateur distant : erreur de connexion avec le Next ({error}) — session terminée.",
+        'Upload stopped: {sent} of {total} sent to {path}':
+            'Envoi interrompu : {sent} sur {total} envoyés vers {path}',
+        'Download stopped: {received} received from {path} across {files} files':
+            'Téléchargement interrompu : {received} reçus depuis {path}, répartis sur {files} fichiers',
+        'Download stopped: {received} received from {path}':
+            'Téléchargement interrompu : {received} reçus depuis {path}',
         "Remote explorer: the Next closed the connection.":
             "Explorateur distant : le Next a fermé la connexion.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":

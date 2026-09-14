@@ -52,12 +52,7 @@ from zxnu_workers import (RemoteExplorerSignals,                 # noqa: E402
                           run_remote_listen_server)
 from zxnu_http_bridge import BridgeReply                         # noqa: E402
 
-# A port PER SCENARIO: six servers sharing one meant a socket still in
-# TIME_WAIT (or a worker thread a beat from dying) could fail the next
-# scenario's bind - measured flaky under load, and a bind failure is
-# exactly the path review round 2 found broken.
-_PORTS = iter(range(2059, 2099))
-PORT = next(_PORTS)
+PORT = 0
 ok = True
 
 
@@ -65,9 +60,34 @@ ADDR = "127.0.0.1"
 
 
 def next_port():
+    """A fresh port for the next scenario, chosen BY THE OS.
+
+    Not a fixed range, and this is not fussiness. With one, a SECOND test
+    process on the same machine - a leftover run, a parallel one, another
+    suite deriving its own port from the same neighbourhood - dialled into
+    THIS run's server, and single-seat mode did exactly what it exists to
+    do: a foreign "Listen" evicts the seat. The victim's next recv then
+    failed mid-scenario (WinError 10053), about one run in eight. Proven
+    with netstat: the stray connection's client half belonged to another
+    PID. An ephemeral port the OS hands out is never given to two callers
+    at once, so the collision cannot happen again.
+
+    Probing with a bind-then-close leaves no TIME_WAIT (the socket never
+    connected) and the server binds the same port a moment later with
+    SO_EXCLUSIVEADDRUSE, which fails loudly rather than stealing - and
+    test_bind_failure_still_reports pins what that failure must do.
+    """
     global PORT
-    PORT = next(_PORTS)
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind(("", 0))
+        PORT = probe.getsockname()[1]
+    finally:
+        probe.close()
     return PORT
+
+
+next_port()
 
 # The retry pause and the no-seat deadline, shortened for the suite (read
 # at use time from the module, so a rebinding here is what the worker sees).
@@ -218,16 +238,21 @@ def logged(state, text, since=0):
 
 def start_get(sock, remote=b"/big.bin"):
     """Drive a get up to its first data block, so the link can be cut
-    mid-stream: the server's 'G', then N (pkt 0) and D (pkt 1) from us."""
+    mid-stream: the server's 'G', then N (pkt 0) and D (pkt 1) from us.
+
+    The 'N' block is 'N' + [4B filelen][1B namelen][name], and those length
+    bytes are ZERO here because they are zero on the real wire - the dot
+    and ZX Next Remote both send "size unknown". A test that invented a
+    length would be testing a protocol nobody speaks."""
     got = poll(sock)
     check("the get is sent", got == b"G" + remote, got)
-    reply(sock, b"N" + b"\0\0\0\0" + bytes([7]) + b"big.bin", 0)
+    reply(sock, b"N" + bytes(4) + bytes([7]) + b"big.bin", 0)
     reply(sock, b"D" + b"x" * 100, 1)
 
 
 def finish_get(sock):
     """The retried get from the top: N, D, E, B — then the file is 'got'."""
-    reply(sock, b"N" + b"\0\0\0\0" + bytes([7]) + b"big.bin", 0)
+    reply(sock, b"N" + bytes(4) + bytes([7]) + b"big.bin", 0)
     reply(sock, b"D" + b"y" * 100, 1)
     reply(sock, b"E", 2)
     reply(sock, b"B", 3)
@@ -317,6 +342,11 @@ def test_single_seat():
               wait_until(lambda: logged(state, "retry1 in", n_log))
               and state["put_done"] == [], (state["put_done"],
                                             state["logs"][n_log:]))
+        # 9.7.21: the held line says how far the file got - one 512-byte
+        # frame of a 3072-byte file, in the console's kilobytes.
+        check("...and the retry line says how much had been sent",
+              logged(state, "after 512 B of 3.0 KB", n_log),
+              [m for m in state["logs"][n_log:] if "retry1 in" in m])
         check("...and no error either", state["errors"] == [], state["errors"])
         answer_version(c)
         time.sleep(PAUSE + 0.3)
@@ -411,6 +441,9 @@ def test_single_seat():
         check("the cut get is held (retry1 announced), no error",
               wait_until(lambda: logged(state, "retry1 in", n_log))
               and len(state["errors"]) == n_err, state["errors"][n_err:])
+        check("...and the retry line says how much had arrived (9.7.21)",
+              logged(state, "after 100 B", n_log),
+              [m for m in state["logs"][n_log:] if "retry1 in" in m])
         answer_version(h)
         time.sleep(PAUSE + 0.3)
         got = poll(h)
@@ -613,6 +646,17 @@ def test_sessions_on_never_retries():
         socks.remove(p)
         check("multi: the cut get reports one failure at once",
               wait_until(lambda: len(state["errors"]) == 1), state["errors"])
+        # 9.7.21: 100 bytes arrived before the link went. No total -
+        # the wire never carries one (the 'N' length is always zero).
+        stops = [m for m in state["logs"] if "stopped" in m]
+        check("multi: ...and the log says how much arrived",
+              logged(state, "Download stopped: 100 B received from /big.bin"),
+              stops)
+        # 9.7.21: the arm's failure tail and the session's finally both
+        # reach for this line - exactly one of them may say it, and never
+        # with a guessed path.
+        check("multi: ...exactly once, naming the file",
+              len(stops) == 1 and "?" not in stops[0], stops)
         check("multi: nothing held", control.get("retry") is None)
         check("multi: the worker ends with its last seat",
               wait_until(lambda: not th.is_alive(), timeout=10.0))
@@ -623,6 +667,190 @@ def test_sessions_on_never_retries():
         close_all(socks)
         th.join(timeout=10)
         shutil.rmtree(tdir, ignore_errors=True)
+
+
+def test_refused_put_says_how_far_it_got():
+    """9.7.21: the Next takes some of a put and then refuses it with an 'F'
+    status block. The console must say how much had been served - and say
+    nothing at all when the refusal came before a single byte."""
+    next_port()
+    cmd_q, stop = queue.Queue(), threading.Event()
+    control = {"seq": 0}
+    th, state = start_server(cmd_q, stop, lambda: False, control)
+    socks = []
+    tmp = None
+    try:
+        s = connect_next()
+        socks.append(s)
+        check("refused put: seated", rx_payload(s) == b"Listening")
+        wait_until(lambda: state["connected"] == 1)
+        fd, tmp = tempfile.mkstemp(suffix=".bin")
+        os.write(fd, bytes(range(256)) * 12)              # 3072 B = 3.0 KB
+        os.close(fd)
+        cmd_q.put(("put", tmp, "/refused.bin"))
+        check("refused put: header", poll(s) == b"P/refused.bin")
+        for _ in range(2):                                # 1024 B served
+            s.sendall(b"Get")
+            rx_payload(s)
+        s.sendall(frame(b"F"))                            # the Next gives up
+        rx_payload(s)                                     # our 'Ok' ack
+        check("refused put: one put_done(False)",
+              wait_until(lambda: state["put_done"] == [(False, "/refused.bin")]),
+              state["put_done"])
+        check("refused put: the log says how much had been sent",
+              logged(state, "Upload stopped: 1.0 KB of 3.0 KB sent to "
+                            "/refused.bin"),          # 1024 B served = 1.0 KB
+              [m for m in state["logs"] if "stopped" in m])
+
+        # A refusal before any byte moved says nothing: the failure itself
+        # is the whole story and "0.0 KB" would be noise.
+        n_log = len(state["logs"])
+        cmd_q.put(("put", tmp, "/refused2.bin"))
+        check("refused put: second header", poll(s) == b"P/refused2.bin")
+        s.sendall(frame(b"F"))
+        rx_payload(s)
+        check("refused put: it reports",
+              wait_until(lambda: (False, "/refused2.bin") in state["put_done"]),
+              state["put_done"])
+        check("refused put: ...but logs no size line when nothing moved",
+              not logged(state, "Upload stopped", n_log),
+              state["logs"][n_log:])
+    finally:
+        stop.set()
+        close_all(socks)
+        th.join(timeout=10)
+        if tmp:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+
+def test_a_finished_transfer_leaves_nothing_behind():
+    """Review round 3, two confirmed bugs with one root: the byte-count
+    record was session-scoped, so it outlived the transfer that filled it.
+
+    A get that SUCCEEDED left it armed, and the session's finally - whose
+    get branch exists for the Windows path where a raw OSError skips the
+    arm's tail - then reported a whole file as "stopped" at every clean
+    session end after a download. And a later command could borrow those
+    bytes: the update macro's staging put arms nothing, so its failure line
+    quoted the previous put's numbers under the macro's file name.
+
+    So: finish a get, finish a put, then end the session three ways - the
+    Next says Bye, the Next hangs up, the user stops the server - and
+    require silence each time."""
+    for ending in ("bye", "fin", "stop"):
+        next_port()
+        cmd_q, stop = queue.Queue(), threading.Event()
+        control = {"seq": 0}
+        th, state = start_server(cmd_q, stop, lambda: False, control)
+        socks = []
+        tmp = None
+        tdir = tempfile.mkdtemp(prefix="zxnu-done-")
+        try:
+            s = connect_next()
+            socks.append(s)
+            check(f"{ending}: seated", rx_payload(s) == b"Listening")
+            wait_until(lambda: state["connected"] == 1)
+
+            # A get that lands whole.
+            cmd_q.put(("get", "/big.bin", tdir))
+            start_get(s)
+            reply(s, b"E", 2)
+            reply(s, b"B", 3)
+            check(f"{ending}: the get landed",
+                  wait_until(lambda: len(state["got"]) == 1), state["got"])
+
+            # A put that lands whole.
+            fd, tmp = tempfile.mkstemp(suffix=".bin")
+            os.write(fd, bytes(range(256)) * 12)
+            os.close(fd)
+            cmd_q.put(("put", tmp, "/done.bin"))
+            check(f"{ending}: put header", poll(s) == b"P/done.bin")
+            for _ in range(6):
+                s.sendall(b"Get")
+                rx_payload(s)
+            check(f"{ending}: the put landed",
+                  wait_until(lambda: state["put_done"] == [(True, "/done.bin")]),
+                  state["put_done"])
+
+            n_log = len(state["logs"])
+            if ending == "bye":
+                # RAW, like Poll/Get - the dot does not frame its Bye.
+                s.sendall(b"Bye")
+                rx_payload(s)                      # our 'Later'
+            elif ending == "fin":
+                s.close()
+                socks.remove(s)
+            else:
+                stop.set()
+            check(f"{ending}: the session ends",
+                  wait_until(lambda: not th.is_alive(), timeout=10.0))
+            stops = [m for m in state["logs"][n_log:] if "stopped" in m]
+            check(f"{ending}: a finished transfer logs NO stopped line", not stops,
+                  stops)
+        finally:
+            stop.set()
+            close_all(socks)
+            th.join(timeout=10)
+            if tmp:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+            shutil.rmtree(tdir, ignore_errors=True)
+
+
+def test_a_finished_put_lends_no_bytes_to_the_next_failure():
+    """The other half of the same root: after a put lands, a DIFFERENT
+    command cut by a link loss must not quote that put's byte counts in its
+    retry line."""
+    next_port()
+    cmd_q, stop = queue.Queue(), threading.Event()
+    control = {"seq": 0}
+    th, state = start_server(cmd_q, stop, lambda: False, control)
+    socks = []
+    tmp = None
+    try:
+        s = connect_next()
+        socks.append(s)
+        check("lend: seated", rx_payload(s) == b"Listening")
+        wait_until(lambda: state["connected"] == 1)
+        fd, tmp = tempfile.mkstemp(suffix=".bin")
+        os.write(fd, bytes(range(256)) * 12)               # 3.0 KB
+        os.close(fd)
+        cmd_q.put(("put", tmp, "/landed.bin"))
+        check("lend: put header", poll(s) == b"P/landed.bin")
+        for _ in range(6):
+            s.sendall(b"Get")
+            rx_payload(s)
+        check("lend: the put landed",
+              wait_until(lambda: state["put_done"] == [(True, "/landed.bin")]),
+              state["put_done"])
+
+        # Now an ls, cut by the link going down. Its retry line must carry
+        # no size at all - the put's 3.0 KB belong to the put.
+        n_log = len(state["logs"])
+        cmd_q.put(("ls", "/somewhere"))
+        check("lend: the ls is sent", poll(s) == b"L/somewhere")
+        s.close()
+        socks.remove(s)
+        check("lend: the cut ls is held",
+              wait_until(lambda: logged(state, "retry1 in", n_log)),
+              state["logs"][n_log:])
+        held = [m for m in state["logs"][n_log:] if "retry1 in" in m]
+        check("lend: ...with no borrowed byte count",
+              held and " after " not in held[0], held)
+    finally:
+        stop.set()
+        close_all(socks)
+        th.join(timeout=10)
+        if tmp:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def test_verify_owed_at_eviction():
@@ -789,6 +1017,9 @@ if __name__ == "__main__":
     test_hangup_then_redial_is_retried()
     test_no_redial_gives_up()
     test_sessions_on_never_retries()
+    test_refused_put_says_how_far_it_got()
+    test_a_finished_transfer_leaves_nothing_behind()
+    test_a_finished_put_lends_no_bytes_to_the_next_failure()
     test_verify_owed_at_eviction()
     test_hook_that_raises_reads_as_on()
     test_bind_failure_still_reports()
