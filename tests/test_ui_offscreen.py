@@ -337,7 +337,8 @@ elif PHASE == 11:
     ensure_scratch(fresh=False)
     with open(CFG, "w") as f:
         f.write(BASE_CFG + "nextsync_remote_explorer=true\n"
-                + "nextsync_re_splitter_sizes=520,680\n")   # a saved local | Next split (9.7.2)
+                + "nextsync_re_splitter_sizes=520,680\n"    # a saved local | Next split (9.7.2)
+                + "nextsync_re_log_splitter_sizes=430,250\n")  # explorers | log (9.7.21)
 elif PHASE in (6, 7):
     # Phase 6: dotn_last_version older than the bundled dotN -> the ".sync5
     # needs updating on your Next" advisory popup must fire, and the Settings
@@ -1698,6 +1699,94 @@ def inspect_phase11():
                     "Remote Explorer widget built")
     check("Remote Explorer widget is built without pygame", ok)
     re_widget = getattr(win, "_re_widget", None)
+
+    # The explorers | log splitter (9.7.21). The mini log used to be pinned
+    # at setFixedHeight(110) with no way to make it bigger; it is the bottom
+    # half of a Qt.Vertical splitter now, restored from the cfg on build
+    # (this container is created lazily, long after load_configuration_file's
+    # own splitter loop has run) and saved on every drag.
+    from PySide6.QtWidgets import QSplitter as _QSplitter
+    from PySide6.QtCore import Qt as _Qt
+    _log_split = getattr(win, "_re_log_splitter", None)
+    check("the Remote Explorer has an explorers/log splitter",
+          isinstance(_log_split, _QSplitter))
+    if isinstance(_log_split, _QSplitter):
+        check("...running top/bottom, so its handle is horizontal",
+              _log_split.orientation() == _Qt.Vertical,
+              str(_log_split.orientation()))
+        check("...holding the dual-pane widget over the log stack",
+              _log_split.count() == 2
+              and _log_split.widget(0) is re_widget
+              and _log_split.widget(1) is getattr(win, "_re_mini_stack", None))
+        # Qt SCALES restored sizes to the widget's real height, so the
+        # exact pair is not the contract: what the saved value buys is the
+        # LOG keeping the height it was saved with (stretchFactor(1, 0)
+        # gives new height to the panes above instead).
+        check("...with the saved log height restored from the cfg",
+              _log_split.sizes()[1] == 250 and _log_split.sizes()[0] > 0,
+              str(_log_split.sizes()))
+        check("...and neither half collapsible to nothing",
+              not _log_split.childrenCollapsible())
+        # The log must be RESIZABLE now: a fixed height would pin it whatever
+        # the splitter says. (Qt reports no maximum as QWIDGETSIZE_MAX.)
+        _stack = getattr(win, "_re_mini_stack", None)
+        check("...and the log stack is no longer a fixed height",
+              _stack is not None
+              and _stack.minimumHeight() != _stack.maximumHeight(),
+              f"{_stack.minimumHeight()}..{_stack.maximumHeight()}"
+              if _stack is not None else "no stack")
+        # The handle's tooltip must be able to FOLLOW a language switch,
+        # in both directions. It only can if its English source was cached,
+        # which means it must have been set in English and translated by a
+        # walk - set through ui_tr_now on this lazily built container it
+        # would be cached as its own source and frozen for the session
+        # (found in review, 9.7.21). Drive the real walk to prove it.
+        from zxnu_i18n import CATALOGS as _CATS, translate_widget_tree as _tw
+        _tip_en = "Drag to resize the file explorers / log window split."
+        _handle = _log_split.handle(1)
+        check("the splitter handle carries the shared drag tooltip",
+              _handle is not None and _handle.toolTip() == _tip_en,
+              _handle.toolTip() if _handle is not None else "no handle")
+        _tw(win._re_container, "es")
+        check("...which follows a switch to Spanish",
+              _handle.toolTip() == _CATS["es"][_tip_en], _handle.toolTip())
+        _tw(win._re_container, "en")
+        check("...and comes back to English",
+              _handle.toolTip() == _tip_en, _handle.toolTip())
+        # That round trip runs in an ENGLISH session, where ui_tr_now is the
+        # identity - so it would pass even with the bug it guards against.
+        # What makes the freeze impossible is the tooltip being set from a
+        # bare literal and translated by a walk over the whole lazily built
+        # CONTAINER, so pin both at the source.
+        _pane_src = open(os.path.join(REPO, "zxnu_nextsync_pane.py"),
+                         encoding="utf-8").read()
+        check("the handle tooltip is set in English, never pre-translated",
+              'setToolTip(_re_log_tip)' in _pane_src
+              and 'setToolTip(ui_tr_now(' not in _pane_src)
+        check("...and the lazily built container is what gets walked",
+              "translate_widget_tree(container, current_ui_language())"
+              in _pane_src)
+        # A corrupt saved size must not break the view: past a C int Qt's
+        # setSizes raises OverflowError, an ArithmeticError that the
+        # TypeError/ValueError clause would let escape the lazy build.
+        check("a corrupt saved size is bounded before Qt sees it",
+              "SPLITTER_MAX_PANE_PX" in _pane_src
+              and "except (TypeError, ValueError, OverflowError):" in _pane_src)
+
+        # A drag must reach the cfg. splitterMoved only fires for real
+        # drags, so emit it the way a drag does after moving the panes -
+        # and read back the sizes Qt actually settled on, not the ones
+        # asked for. The write itself is behind the shared 300 ms flush.
+        _log_split.setSizes([360, 320])
+        QApplication.processEvents()
+        _want = "nextsync_re_log_splitter_sizes=" + ",".join(
+            str(_s) for _s in _log_split.sizes())
+        _log_split.splitterMoved.emit(360, 1)
+        check("a drag persists the new split to hdfg.cfg",
+              wait_until(lambda: _want in cfg_lines(), 5,
+                         "the splitter flush to reach the cfg"),
+              _want + " | " + str([ln for ln in cfg_lines()
+                                   if ln.startswith("nextsync_re_log_splitter")]))
     if re_widget is None:
         app.quit()
         return
@@ -1783,10 +1872,18 @@ def inspect_phase11():
     check("clicking it runs the accept callback", _hits == [1], str(_hits))
 
     # The stack page is the CONTAINER (explorer + mini log) since the RE
-    # view grew its own log strip; the explorer widget lives inside it.
+    # view grew its own log strip; the explorer widget lives inside it -
+    # one level deeper since 9.7.21, which put the two on either side of a
+    # splitter, so the test walks the ancestry rather than naming a parent.
+    def _inside(child, ancestor):
+        while child is not None:
+            if child is ancestor:
+                return True
+            child = child.parent()
+        return False
     check("the Remote Explorer container is the visible page of the log stack",
           win.nextsync_log_stack.currentWidget() is win._re_container
-          and re_widget.parent() is win._re_container,
+          and _inside(re_widget, win._re_container),
           str(win.nextsync_log_stack.currentWidget()))
     check("the Remote Explorer is actually visible", re_widget.isVisible())
     check("the mini log is built and visible below the panes",
