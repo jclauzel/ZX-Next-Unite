@@ -320,6 +320,16 @@ def test_combo_activation():
           picked == [], str(picked))
     c.activated.emit(1)
     check("a real pick emits the path", picked == ["C:/two"], str(picked))
+
+    # ...but OUTSIDE that window, deliberately picking where you already
+    # are is a real gesture and must be passed on (9.7.22): on the Remote
+    # Explorer it is how you get BACK to the sync root after browsing
+    # elsewhere, which swallowing every such pick made impossible.
+    picked.clear()
+    c._popup_shown_at = 0.0
+    c.activated.emit(0)
+    check("a deliberate re-pick of the mirrored path IS passed on",
+          picked == ["C:/one"], str(picked))
     # The two panes offer this entry differently: the SD box follows the tree
     # so nothing would ever enter its list by hand, while the sync-root box
     # already shows a deliberate choice.

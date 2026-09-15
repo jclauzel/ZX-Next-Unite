@@ -1175,10 +1175,24 @@ def test_sync_root_and_local_pane():
     w._on_path_edit()
     check("typing a bogus path restores the box",
           w.local_path_edit.text() == sub.replace("\\", "/"))
+    # 9.7.22: typing BROWSES there and raises the offer - it no longer
+    # commits on its own. Reported: the offer "showed the first time and
+    # then never again" for anyone who navigates by typing, because after
+    # a typed commit the browsed folder IS the sync root, so there was
+    # nothing left to offer. The box keeps showing the committed root.
     w.local_path_edit.setText(root)
     w._on_path_edit()
-    check("typing a real path commits it",
-          w.sync_root() == root.replace("\\", "/"))
+    check("typing a real path browses there without committing",
+          w._browse_dir() == root.replace("\\", "/")
+          and w.sync_root() == sub.replace("\\", "/"),
+          f"{w._browse_dir()} / {w.sync_root()}")
+    check("...and raises the sync-root offer",
+          w.local_set_syncroot_button.isVisibleTo(w))
+    QApplication.instance().processEvents()   # box restore is deferred
+    check("...and the box still shows the SYNC ROOT, not the typed path",
+          w.local_path_edit.text() == sub.replace("\\", "/"),
+          w.local_path_edit.text())
+    w._commit_sync_root(root)     # back to a known state for what follows
 
     w.set_local_dir(sub)
     check("public set_local_dir browses without committing",
@@ -1297,6 +1311,90 @@ def test_sync_root_history():
           f"{row.indexOf(w.local_set_syncroot_button)}")
     check("this box never offers 'Remember this folder'",
           w.local_path_edit.offer_remember is False)
+    w.deleteLater()
+
+
+def test_sync_root_offer_repeats():
+    """The offer comes back EVERY time, however you moved (9.7.22).
+
+    Reported: "it showed the first time, after that it didn't show anymore" -
+    from a user who navigates by typing paths into the box rather than
+    double-clicking the tree. Two causes, both fixed here and both pinned:
+
+    * typing used to COMMIT the path on the spot, so the browsed folder was
+      the sync root and there was nothing left to offer;
+    * once the sync root was in the remembered list, restoring the box inside
+      the editingFinished handler left QComboBox's own Return handling to
+      match that text against a row and emit `activated` - a phantom dropdown
+      pick that navigated straight back. That is why the FIRST typed path
+      worked (the list was still empty) and later ones did not.
+    """
+    root = tdir("offer_root")
+    alpha = tdir("offer_alpha")
+    beta = tdir("offer_beta")
+    fwd = {p: p.replace("\\", "/") for p in (root, alpha, beta)}
+    w, calls = make_widget(local_start_dir=root)
+    app = QApplication.instance()
+    btn = w.local_set_syncroot_button
+    FakeMsg.answer = QMessageBox.Yes
+
+    def typed(path):
+        """What pressing Enter in the box does."""
+        w.local_path_edit.setText(path)
+        w._on_path_edit()
+        app.processEvents()          # the box restore is deferred one turn
+
+    # ---- typing offers, every time ------------------------------------
+    typed(alpha)
+    check("1st typed path browses and offers",
+          w._browse_dir() == fwd[alpha] and w.sync_root() == fwd[root]
+          and btn.isVisibleTo(w), f"{w._browse_dir()} / {w.sync_root()}")
+    w._on_set_syncroot_clicked()
+    check("accepting it commits and takes the offer away",
+          w.sync_root() == fwd[alpha] and not btn.isVisibleTo(w))
+
+    # THE regression: with alpha now in the remembered list, this used to be
+    # swallowed by the phantom pick and the offer never came back.
+    typed(beta)
+    check("2nd typed path offers too, with the root now in the list",
+          w._browse_dir() == fwd[beta] and w.sync_root() == fwd[alpha]
+          and btn.isVisibleTo(w), f"{w._browse_dir()} / {w.sync_root()}")
+    typed(root)
+    check("3rd typed path offers as well",
+          w._browse_dir() == fwd[root] and w.sync_root() == fwd[alpha]
+          and btn.isVisibleTo(w), f"{w._browse_dir()} / {w.sync_root()}")
+
+    # ---- a remembered pick behaves exactly like typing -----------------
+    w._on_set_syncroot_clicked()          # root is the sync root now
+    app.processEvents()
+    idx = w.local_path_edit.history_index(fwd[alpha])
+    check("the earlier sync root is remembered", idx >= 0, str(idx))
+    if idx >= 0:
+        w.local_path_edit._popup_shown_at = 0.0     # a deliberate pick
+        w.local_path_edit.activated.emit(idx)
+        app.processEvents()
+        check("picking a remembered folder browses and offers, not commits",
+              w._browse_dir() == fwd[alpha] and w.sync_root() == fwd[root]
+              and btn.isVisibleTo(w), f"{w._browse_dir()} / {w.sync_root()}")
+
+    # Picking where you already ARE is how you get back after browsing off.
+    w._set_local_dir(beta, commit=False)
+    app.processEvents()
+    idx = w.local_path_edit.history_index(fwd[root])
+    if idx >= 0:
+        w.local_path_edit._popup_shown_at = 0.0
+        w.local_path_edit.activated.emit(idx)
+        app.processEvents()
+        check("picking the CURRENT sync root browses back to it",
+              w._browse_dir() == fwd[root] and not btn.isVisibleTo(w),
+              f"{w._browse_dir()} / {w.sync_root()}")
+
+    # ---- and a path that has gone changes nothing ----------------------
+    before = (w._browse_dir(), w.sync_root())
+    typed(os.path.join(TMP, "offer-no-such-dir"))
+    check("a bogus typed path moves nothing",
+          (w._browse_dir(), w.sync_root()) == before,
+          f"{before} -> {(w._browse_dir(), w.sync_root())}")
     w.deleteLater()
 
 
@@ -3244,6 +3342,7 @@ def main():
         test_cancel_and_disconnect_mid_op()
         test_sync_root_and_local_pane()
         test_sync_root_history()
+        test_sync_root_offer_repeats()
         test_modified_column_local_time()
         test_local_file_operations()
         test_local_open_with_shell()

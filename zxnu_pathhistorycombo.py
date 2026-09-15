@@ -408,6 +408,11 @@ class FolderHistoryCombo(PathHistoryCombo):
         if clear_button:
             # CompactButton, not QPushButton: it sizes from its own glyph, so
             # the retro font setting cannot squeeze it out of the row.
+            # CompactButton caps the MAXIMUM width from the glyph, which also
+            # caps what the row demands as a minimum (qSmartMinSize bounds the
+            # style's ~80px button minimum by maximumSize). So the '✕' costs
+            # the row ~36px, measured - worth knowing on the Remote Explorer,
+            # where it shares the row with the widest button in the pane.
             self.clear_button = CompactButton("✕", None, floor=30, padding=14)
             # Plain English on purpose, NOT ui_tr_now: a construction-time
             # tooltip put through ui_tr_now is cached as its own English
@@ -627,9 +632,13 @@ class FolderHistoryCombo(PathHistoryCombo):
         and the list is put straight back up, so the user gets the list their
         click asked for instead of a silent re-navigation."""
         picked = self.itemText(index)
-        if self.canonicalize(picked) == self.canonicalize(
-                self._current_path() or ""):
-            if time.monotonic() - self._popup_shown_at < 0.5:
-                QTimer.singleShot(0, self.showPopup)
+        if (self.canonicalize(picked) == self.canonicalize(
+                self._current_path() or "")
+                and time.monotonic() - self._popup_shown_at < 0.5):
+            QTimer.singleShot(0, self.showPopup)
             return
+        # Outside that window, deliberately picking where we already are is a
+        # real gesture and is passed on - on the Remote Explorer's box it is
+        # how you get BACK to the sync root after browsing elsewhere, which
+        # swallowing it made impossible.
         self.pathActivated.emit(picked)

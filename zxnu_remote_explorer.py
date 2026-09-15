@@ -1421,10 +1421,11 @@ class RemoteExplorerWidget(QWidget):
         self.local_path_edit.setPlaceholderText("Sync root folder...")
         self.local_path_edit.setToolTip(
             "Sync root: the local folder the Remote Explorer works in.\n"
-            "Type a folder path here, or navigate the explorer above and press\n"
-            "'Set current folder as new sync root folder'.\n"
-            "Sync roots you have used are remembered: pick one from the arrow,\n"
-            "right-click for list options, or press Delete on a dropdown entry.")
+            "Type a folder path here, or pick a remembered one from the arrow,\n"
+            "to browse there - then press 'Set current folder as new sync root\n"
+            "folder' to make it the sync root. Navigating the explorer above\n"
+            "works the same way.\n"
+            "Right-click for list options, or press Delete on a dropdown entry.")
         self.local_path_edit.editingFinished.connect(self._on_path_edit)
         # activated, NEVER currentIndexChanged: _commit_sync_root writes
         # this box on every commit, and through currentIndexChanged each of
@@ -5343,23 +5344,64 @@ class RemoteExplorerWidget(QWidget):
         self.local_proxy.setFilterFixedString((text or "").strip())
 
     def _on_local_history_picked(self, path):
-        """A sync root picked from the path box's dropdown (9.7.22):
-        committed exactly as a typed path would be. One that has since been
-        deleted or unplugged leaves the sync root alone and puts the box
-        back, so the pane never ends up rooted on nothing."""
+        """A folder picked from the path box's dropdown: BROWSE there and
+        offer it, exactly as a typed path does (see :meth:`_on_path_edit`).
+
+        One that has since been deleted or unplugged leaves the pane where it
+        is, so it never ends up rooted on nothing - the row stays for the user
+        to forget with the '✕'."""
         clean = normalize_history_folder(path)
         if clean and os.path.isdir(clean):
-            self._set_local_dir(clean, commit=True)
+            self._browse_and_offer(clean)
         else:
             self._log(ui_tr_now(
                 "Remembered folder is no longer there: {path}").format(
                     path=path))
             self.local_path_edit.setText(self._sync_root)
 
+    def _browse_and_offer(self, folder):
+        """Point the local pane at *folder* WITHOUT committing it, and put the
+        box back to the sync root so the 'Set current folder as new sync root
+        folder' offer is what changes it (9.7.22).
+
+        Typing a path here used to commit it on the spot. That made the box
+        the one route by which the sync root could change with no
+        confirmation and no visible offer - and, reported, it meant the offer
+        button "showed the first time and then never again" for anyone who
+        navigates by typing rather than through the tree, because after a
+        typed commit the browsed folder IS the sync root and there is nothing
+        left to offer. Typing now does what a double-click in the tree does.
+
+        The box is restored deliberately: it is the SYNC ROOT display (its
+        tooltip says so, and the host reads it as such), so leaving the typed
+        path sitting in it while the sync root is elsewhere would be a lie.
+
+        That restore is DEFERRED by one event-loop turn, and it has to be.
+        This runs from the line edit's editingFinished, which Return emits
+        BEFORE QComboBox's own Return handling; rewriting the text here left
+        that handling to match the new text against a remembered row and emit
+        `activated`, i.e. a phantom dropdown pick, which navigated straight
+        back to the sync root. Measured as: the second typed path appeared to
+        do nothing at all (the first worked, because the sync root was not in
+        the list yet)."""
+        self._set_local_dir(folder, commit=False)
+        QTimer.singleShot(0, self._show_sync_root_in_box)
+
+    def _show_sync_root_in_box(self):
+        """Put the committed sync root back in the path box (see
+        :meth:`_browse_and_offer`)."""
+        try:
+            self.local_path_edit.setText(self._sync_root)
+        except RuntimeError:
+            pass                    # widget gone mid-teardown
+
     def _on_path_edit(self):
+        """A typed or pasted path BROWSES there and raises the sync-root
+        offer (9.7.22) - it no longer commits on its own. See
+        :meth:`_browse_and_offer` for why."""
         new = self.local_path_edit.text().strip()
         if new and os.path.isdir(new):
-            self._set_local_dir(new, commit=True)
+            self._browse_and_offer(new)
         else:
             # Restore the last valid sync root (empty falls back to placeholder).
             self.local_path_edit.setText(self._sync_root)
