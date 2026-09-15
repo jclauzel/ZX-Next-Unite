@@ -1420,11 +1420,12 @@ class RemoteExplorerWidget(QWidget):
             log=lambda msg: self._log(msg))
         self.local_path_edit.setPlaceholderText("Sync root folder...")
         self.local_path_edit.setToolTip(
-            "Sync root: the local folder the Remote Explorer works in.\n"
-            "Type a folder path here, or pick a remembered one from the arrow,\n"
-            "to browse there - then press 'Set current folder as new sync root\n"
-            "folder' to make it the sync root. Navigating the explorer above\n"
-            "works the same way.\n"
+            "The local folder this pane is showing.\n"
+            "Type a path here, or pick a remembered one from the arrow, to go\n"
+            "there; navigating the explorer above updates it too.\n"
+            "While it is not the sync root, 'Set current folder as new sync\n"
+            "root folder' appears beside it - that button is what moves the\n"
+            "sync root, so browsing never changes it by accident.\n"
             "Right-click for list options, or press Delete on a dropdown entry.")
         self.local_path_edit.editingFinished.connect(self._on_path_edit)
         # activated, NEVER currentIndexChanged: _commit_sync_root writes
@@ -5256,6 +5257,10 @@ class RemoteExplorerWidget(QWidget):
         self._sync_local_drive_combo(path)
         if commit:
             self._commit_sync_root(path)
+        else:
+            # The box follows the folder being browsed (9.7.23) - see
+            # _show_browse_in_box for why, and why it is deferred.
+            QTimer.singleShot(0, self._show_browse_in_box)
         self._update_set_syncroot_button()
 
     def _commit_sync_root(self, path):
@@ -5357,12 +5362,12 @@ class RemoteExplorerWidget(QWidget):
             self._log(ui_tr_now(
                 "Remembered folder is no longer there: {path}").format(
                     path=path))
-            self.local_path_edit.setText(self._sync_root)
+            self._show_browse_in_box()      # put back where we ARE
 
     def _browse_and_offer(self, folder):
-        """Point the local pane at *folder* WITHOUT committing it, and put the
-        box back to the sync root so the 'Set current folder as new sync root
-        folder' offer is what changes it (9.7.22).
+        """Point the local pane at *folder* WITHOUT committing it, so the 'Set
+        current folder as new sync root folder' offer is what changes the sync
+        root (9.7.22).
 
         Typing a path here used to commit it on the spot. That made the box
         the one route by which the sync root could change with no
@@ -5370,28 +5375,30 @@ class RemoteExplorerWidget(QWidget):
         button "showed the first time and then never again" for anyone who
         navigates by typing rather than through the tree, because after a
         typed commit the browsed folder IS the sync root and there is nothing
-        left to offer. Typing now does what a double-click in the tree does.
-
-        The box is restored deliberately: it is the SYNC ROOT display (its
-        tooltip says so, and the host reads it as such), so leaving the typed
-        path sitting in it while the sync root is elsewhere would be a lie.
-
-        That restore is DEFERRED by one event-loop turn, and it has to be.
-        This runs from the line edit's editingFinished, which Return emits
-        BEFORE QComboBox's own Return handling; rewriting the text here left
-        that handling to match the new text against a remembered row and emit
-        `activated`, i.e. a phantom dropdown pick, which navigated straight
-        back to the sync root. Measured as: the second typed path appeared to
-        do nothing at all (the first worked, because the sync root was not in
-        the list yet)."""
+        left to offer. Typing now does what a double-click in the tree does."""
         self._set_local_dir(folder, commit=False)
-        QTimer.singleShot(0, self._show_sync_root_in_box)
 
-    def _show_sync_root_in_box(self):
-        """Put the committed sync root back in the path box (see
-        :meth:`_browse_and_offer`)."""
+    def _show_browse_in_box(self):
+        """Keep the path box showing the folder the pane is BROWSING (9.7.23).
+
+        It used to be put back to the committed sync root after every
+        uncommitted move, on the reasoning that the box is the sync-root
+        display. Reported twice: you pick a folder from the dropdown, the pane
+        goes there, and a beat later the box flips back to the previous path -
+        which reads as the app undoing your choice. The box is a path box, and
+        the SD Card tab's twin has always shown the folder it is in; what the
+        sync root is now shows in the offer button instead, which appears
+        exactly while the browsed folder is not it.
+
+        DEFERRED by one event-loop turn by its callers, and that matters: this
+        can run from the line edit's editingFinished, which Return emits
+        BEFORE QComboBox's own Return handling, and rewriting the text inline
+        left that handling to match it against a remembered row and emit a
+        phantom `activated`."""
         try:
-            self.local_path_edit.setText(self._sync_root)
+            shown = (self._browse_root or "").rstrip("/") or self._browse_root
+            if shown and self.local_path_edit.text() != shown:
+                self.local_path_edit.setText(shown)
         except RuntimeError:
             pass                    # widget gone mid-teardown
 
@@ -5403,8 +5410,9 @@ class RemoteExplorerWidget(QWidget):
         if new and os.path.isdir(new):
             self._browse_and_offer(new)
         else:
-            # Restore the last valid sync root (empty falls back to placeholder).
-            self.local_path_edit.setText(self._sync_root)
+            # Nothing there: put back the folder the pane is showing
+            # (empty falls back to the placeholder).
+            self._show_browse_in_box()
 
     def _local_up(self):
         cur = self._browse_dir()

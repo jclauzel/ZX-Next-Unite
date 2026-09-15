@@ -318,6 +318,7 @@ def test_combo_activation():
     c.activated.emit(0)
     check("re-picking the path the box already mirrors emits nothing",
           picked == [], str(picked))
+    c._pick_armed = True      # what a real left release on the row does
     c.activated.emit(1)
     check("a real pick emits the path", picked == ["C:/two"], str(picked))
 
@@ -327,9 +328,33 @@ def test_combo_activation():
     # elsewhere, which swallowing every such pick made impossible.
     picked.clear()
     c._popup_shown_at = 0.0
+    c._pick_armed = True
     c.activated.emit(0)
     check("a deliberate re-pick of the mirrored path IS passed on",
           picked == ["C:/one"], str(picked))
+
+    # THE 9.7.23 regression. `activated` is not a "the user chose this"
+    # signal: measured on Windows it ALSO fires when the popup is
+    # dismissed with Escape, and whenever the box merely loses focus
+    # while its text matches a remembered row. Reported on both folder
+    # boxes as "I browse somewhere else, then click in the window and it
+    # jumps back" - the click moved the focus, and that fired a pick for
+    # the row the box was showing. Only a real gesture in the popup arms
+    # it, so an UNARMED activated must do nothing at all.
+    picked.clear()
+    c._popup_shown_at = 0.0
+    c.activated.emit(1)                  # no arm: a focus-out echo
+    check("an UNARMED activated is ignored (focus-out / Escape echo)",
+          picked == [], str(picked))
+    check("...and the arm is one-shot",
+          c._pick_armed is False)
+    c._pick_armed = True
+    c.activated.emit(1)
+    check("...while the next armed one is honoured",
+          picked == ["C:/two"], str(picked))
+    c.activated.emit(1)
+    check("...and does not stay armed for the echo behind it",
+          picked == ["C:/two"], str(picked))
     # The two panes offer this entry differently: the SD box follows the tree
     # so nothing would ever enter its list by hand, while the sync-root box
     # already shows a deliberate choice.
@@ -435,6 +460,76 @@ def test_commit_gate():
     img.deleteLater()
 
 
+def test_pick_gesture():
+    """A pick is recognised from the GESTURE, with real events (9.7.23).
+
+    The signal-level checks above cannot see this bug: `activated` is emitted
+    by Qt itself on a focus change and on an Escape dismissal, so a test that
+    drives the pick by emitting it proves only that the handler runs. The arm
+    is set in the popup's own event filter, so this drives that filter with
+    synthesised mouse and key events instead.
+    """
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QKeyEvent, QMouseEvent
+    print("\n== FolderHistoryCombo: arming from the real gesture ==")
+    app = QApplication.instance()
+    picked = []
+    c = FolderHistoryCombo(cap=5)
+    c.pathActivated.connect(picked.append)
+    c.set_history_from_cfg("C:/one|C:/two|C:/three")
+    c.show()
+
+    def release_on_row(row, button=Qt.MouseButton.LeftButton):
+        c.showPopup()
+        app.processEvents()
+        view = c.view()
+        rect = view.visualRect(c.model().index(row, 0))
+        spot = QPointF(min(rect.center().x(), view.viewport().width() - 5),
+                       rect.center().y())
+        glob = view.viewport().mapToGlobal(spot.toPoint()).toPointF()
+        for etype in (QEvent.Type.MouseButtonPress,
+                      QEvent.Type.MouseButtonRelease):
+            app.sendEvent(view.viewport(), QMouseEvent(
+                etype, spot, glob, button, button,
+                Qt.KeyboardModifier.NoModifier))
+        app.processEvents()
+
+    # A LEFT release over a real row is the gesture that arms a pick.
+    c._pick_armed = False
+    release_on_row(1)
+    check("a left release over a row arms the pick", c._pick_armed is True
+          or picked == ["C:/two"], f"armed={c._pick_armed} picked={picked}")
+
+    # A RIGHT release must NOT - it opens the forget menu instead, and the
+    # filter swallows the whole gesture.
+    c._pick_armed = False
+    picked.clear()
+    c._popup_shown_at = 0.0
+    release_on_row(2, Qt.MouseButton.RightButton)
+    check("a right release arms nothing", c._pick_armed is False,
+          f"armed={c._pick_armed}")
+
+    # Return on the highlighted row is the keyboard equivalent.
+    c._pick_armed = False
+    c.showPopup()
+    app.processEvents()
+    app.sendEvent(c.view(), QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return,
+                                      Qt.KeyboardModifier.NoModifier))
+    check("Return on the highlighted row arms the pick", c._pick_armed is True,
+          f"armed={c._pick_armed}")
+    c.hidePopup()
+
+    # Escape must not - dismissing the list is not choosing from it.
+    c._pick_armed = False
+    c.showPopup()
+    app.processEvents()
+    app.sendEvent(c.view(), QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+                                      Qt.KeyboardModifier.NoModifier))
+    check("Escape arms nothing", c._pick_armed is False, f"armed={c._pick_armed}")
+    c.hidePopup()
+    c.deleteLater()
+
+
 if __name__ == "__main__":
     app = QApplication.instance() or QApplication([])
     test_canonicaliser()
@@ -445,6 +540,7 @@ if __name__ == "__main__":
     test_combo_removal()
     test_combo_activation()
     test_commit_gate()
+    test_pick_gesture()
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILURE(S): " + "; ".join(FAILURES))
