@@ -879,10 +879,18 @@ RE_REPLY_TIMEOUT = 60.0
 #: second — the ordering the old 45 s gave the old 6-poll guard (ZX Next
 #: Remote 0.9.42). The price: a Next that vanishes without a FIN (power, a
 #: Wi-Fi fade its module never reports) holds its seat, and the pane shows
-#: it connected, for up to ~7 min instead of 45 s. RE_CANCEL_GRACE_MS below
-#: now fires BEFORE this — see its note. tests/test_bridge_stall.py pins
-#: the ordering.
-PEER_SILENCE_LIMIT = 400.0
+#: it connected, for up to ~10 min instead of 45 s. RE_CANCEL_GRACE_MS
+#: below now fires BEFORE this — see its note. tests/test_bridge_stall.py
+#: pins the ordering.
+#:
+#: 400 -> 620 AT 9.7.24, and NOT for a reason of its own: this limit must
+#: outlast one whole relayed bridge op, and that op's budget
+#: (zxnu_http_bridge.LONG_TIMEOUT) went 270 -> 570 to follow ZXNextRemote
+#: 1.3.4's raised client patience. The ~330 s floor above is untouched and
+#: still satisfied — the Next's own verdict lands first, which is the
+#: ordering that matters. Three more minutes of a zombie seat is the cost
+#: of letting a multi-megabyte file cross the bridge.
+PEER_SILENCE_LIMIT = 620.0
 
 #: How many Nexts may sit on the listen server at once (option B). One
 #: past the cap gets the framed "Busy" turn-away -- the option-A reply,
