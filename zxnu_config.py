@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.21"
+ZX_NEXT_UNITE_VERSION = "9.7.22"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -268,6 +268,11 @@ OPENAL_INSTALLER_EXE_FILENAME = "oalinst.exe"
 
 SETTING_HDDFILE = "hddffile"
 SETTING_EXPLORERPATH = "explorerpath"
+# Remembered folders of the SD Card tab's local path box (9.7.22):
+# '|'-delimited, most-recent-first, each canonical (forward slashes, no
+# trailing '/'), capped at MAX_PATH_HISTORY. The image box's twin is
+# SETTING_IMAGE_HISTORY; the Remote Explorer's is the key below.
+SETTING_EXPLORERPATH_HISTORY = "explorerpath_history"
 # Last target folder inside the loaded SD-card image (the disk image explorer's
 # path box); restored after the startup image load when it still exists.
 SETTING_IMAGE_EXPLORERPATH = "image_explorerpath"
@@ -296,6 +301,11 @@ SETTING_MAME_FLATPAK_ROMPATH         = "mame_flatpak_rompath"      # rom directo
 SETTING_EMULATOR_COLORS              = "emulator_colors"            # JSON {"mame"|"cspect": "#rrggbb"} background tint for BOTH emulator strips and the SD Card tab's Launch buttons (empty = the theme's own look)
 SETTING_DISABLE_NO_EMULATOR_TOAST  = "disable_no_emulator_toast"   # bool (default False)
 SETTING_NEXTSYNC_EXPLORERPATH = "nextsync_explorerpath"
+# Remembered sync roots of the Remote Explorer's local path box (9.7.22),
+# same '|'-delimited canonical form as SETTING_EXPLORERPATH_HISTORY. Kept
+# DISTINCT from it on purpose: the two panes browse for different reasons,
+# and one shared list would drop a sync root into the SD Card tab's box.
+SETTING_NEXTSYNC_EXPLORERPATH_HISTORY = "nextsync_explorerpath_history"
 SETTING_NEXTSYNC_SYNCONCE = "nextsync_synconce"
 SETTING_NEXTSYNC_ALWAYSSYNC = "nextsync_alwayssync"
 SETTING_NEXTSYNC_SLOWTRANSFER = "nextsync_slowtransfer"
@@ -665,6 +675,9 @@ GALLERY_MIN_ROWS               = 1
 GALLERY_MAX_ROWS               = 10
 MAX_ALT_TEXT_LINES             = 5
 MAX_IMAGE_HISTORY         = 10
+# Folders are reached far more often than disk images are loaded, so the two
+# path boxes get their own, roomier cap (9.7.22). MAX_IMAGE_HISTORY stays 10.
+MAX_PATH_HISTORY          = 15
 
 # Explorer/window background. The value the app has always rendered its views
 # with (views_background_qss below); used for the light column too, because the
@@ -1028,7 +1041,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("Enjoy!"),
              ("")
             )
-CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_IMAGE_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_MOUSE, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_SYNCONCE,
+CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_EXPLORERPATH_HISTORY, SETTING_IMAGE_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_MOUSE, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_EXPLORERPATH_HISTORY, SETTING_NEXTSYNC_SYNCONCE,
 SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME,
 SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_COLOR_GENERAL_TEXT, SETTING_COLOR_RETRO_LOG, SETTING_COLOR_BACKGROUND, SETTING_DESKTOP_THEME, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_SEARCH_SORT_MODE, SETTING_GALLERY_ANIM_MODE,
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GALLERY_SLIDESHOW_SECS, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
@@ -2085,6 +2098,45 @@ def normalize_sd_image_path(raw) -> str:
     if platform.system() == "Windows":
         s = s.replace("/", "\\")
     return s
+
+
+def normalize_history_folder(raw) -> str:
+    """Tidy a FOLDER path for the two path boxes' remembered lists (9.7.22).
+
+    The folder twin of :func:`normalize_sd_image_path`, and deliberately NOT
+    the same function: this one writes FORWARD slashes on every platform,
+    because both panes already speak forward slashes internally (the Remote
+    Explorer's ``_sync_root`` / ``_browse_root``, the SD pane's ``dest``) and
+    one canonical spelling is what lets ``history_index`` match a remembered
+    row against a path the tree has just handed us.
+
+    Strips surrounding quotes and whitespace, rewrites ``\\`` to ``/`` and drops
+    a trailing ``/`` so ``C:/temp`` and ``C:/temp/`` are one entry - EXCEPT on a
+    drive root, where the slash is put back: a bare ``C:`` is a PER-DRIVE
+    relative path on Windows that ``os.path.isdir`` still answers True for, so
+    a remembered drive root would quietly navigate somewhere else entirely.
+
+    Returns ``""`` for blank input, and for any path carrying a character
+    that hdfg.cfg cannot round-trip: ``|``, the separator the lists are
+    stored under, or a newline, which would end the key's line. Both are
+    illegal in a Windows path but legal in a POSIX folder name, and a value
+    that cannot be read back must never be written - so such a folder is
+    simply never remembered."""
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    # Peel off one or more layers of matched surrounding quotes ("..." or '...').
+    while len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+        s = s[1:-1].strip()
+    if not s:
+        return ""         # BEFORE the rstrip below, or "   " would answer "/"
+    s = s.replace("\\", "/")
+    trimmed = s.rstrip("/")
+    # Put the slash back on a root: a bare "C:" is a per-drive relative path,
+    # and "/" rstrips to nothing at all.
+    s = trimmed + "/" if (not trimmed or trimmed.endswith(":")) else trimmed
+    return "" if any(ch in s for ch in ("|", "\n", "\r")) else s
+
 
 # ---------------------------------------------------------------------------
 # "Can an emulator still open this disk image?"  (9.6.2)

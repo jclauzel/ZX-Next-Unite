@@ -155,7 +155,8 @@ rex.MachineIdentityDialog = FakeIdentity
 def make_widget(**kw):
     """A RemoteExplorerWidget wired to recorders for every host callback."""
     calls = {"q": [], "log": [], "toasts": [], "sync_root": [],
-             "remote_cwd": [], "sorts": [], "extra_drives": [], "q_to": []}
+             "remote_cwd": [], "sorts": [], "extra_drives": [], "q_to": [],
+             "local_history": []}
     w = RemoteExplorerWidget(
         enqueue=calls["q"].append,
         local_start_dir=kw.get("local_start_dir"),
@@ -196,7 +197,11 @@ def make_widget(**kw):
         zxnr_update_source=kw.get("zxnr_update_source"),
         zxnr_choose_package=kw.get("zxnr_choose_package"),
         update_prompt_enabled=kw.get("update_prompt_enabled"),
-        on_update_prompt=kw.get("on_update_prompt"))
+        on_update_prompt=kw.get("on_update_prompt"),
+        # The sync-root box's remembered folders (9.7.22): handed in and
+        # reported back, never read from the cfg by the widget itself.
+        local_history=kw.get("local_history"),
+        on_local_history_changed=calls["local_history"].append)
     return w, calls
 
 
@@ -1170,10 +1175,24 @@ def test_sync_root_and_local_pane():
     w._on_path_edit()
     check("typing a bogus path restores the box",
           w.local_path_edit.text() == sub.replace("\\", "/"))
+    # 9.7.22: typing BROWSES there and raises the offer - it no longer
+    # commits on its own. Reported: the offer "showed the first time and
+    # then never again" for anyone who navigates by typing, because after
+    # a typed commit the browsed folder IS the sync root, so there was
+    # nothing left to offer. The box keeps showing the committed root.
     w.local_path_edit.setText(root)
     w._on_path_edit()
-    check("typing a real path commits it",
-          w.sync_root() == root.replace("\\", "/"))
+    check("typing a real path browses there without committing",
+          w._browse_dir() == root.replace("\\", "/")
+          and w.sync_root() == sub.replace("\\", "/"),
+          f"{w._browse_dir()} / {w.sync_root()}")
+    check("...and raises the sync-root offer",
+          w.local_set_syncroot_button.isVisibleTo(w))
+    QApplication.instance().processEvents()   # box restore is deferred
+    check("...and the box still shows the SYNC ROOT, not the typed path",
+          w.local_path_edit.text() == sub.replace("\\", "/"),
+          w.local_path_edit.text())
+    w._commit_sync_root(root)     # back to a known state for what follows
 
     w.set_local_dir(sub)
     check("public set_local_dir browses without committing",
@@ -1188,6 +1207,195 @@ def test_sync_root_and_local_pane():
     w._local_refresh()
     check("local refresh keeps the folder",
           w._browse_dir() == root.replace("\\", "/"))
+
+
+def test_sync_root_history():
+    """The sync-root box remembers where it has been (9.7.22).
+
+    Same widget as the SD Card tab's local path box, but wired the other way:
+    this one never offers 'Remember this folder' (the box already shows a
+    deliberate choice, and a second remember verb beside the pulsing 'Set
+    current folder as new sync root folder' button would be ambiguous), and
+    its list is handed in and reported back rather than read from the cfg -
+    this widget is built lazily, long after load_configuration_file has run.
+
+    The load-bearing half is what must stay SILENT: plain navigation, and a
+    startup commit of a root that is already at the top of the list. Without
+    that, the widget would rewrite hdfg.cfg at build time on every launch.
+    """
+    root = tdir("hist_root")
+    sub = os.path.join(root, "deeper")
+    other = tdir("hist_other")
+    os.makedirs(sub, exist_ok=True)
+    fwd = root.replace("\\", "/")
+
+    # ---- a saved list is restored, and the startup commit stays quiet -----
+    w, calls = make_widget(local_start_dir=root, local_history=fwd + "|C:/gone")
+    check("the saved list was restored",
+          [w.local_path_edit.itemText(i)
+           for i in range(w.local_path_edit.count())] == [fwd, "C:/gone"],
+          [w.local_path_edit.itemText(i)
+           for i in range(w.local_path_edit.count())])
+    check("the box still shows the committed sync root",
+          w.local_path_edit.text() == fwd, w.local_path_edit.text())
+    check("a startup commit of an already-remembered root writes nothing",
+          calls["local_history"] == [], calls["local_history"])
+
+    # ---- browsing is not committing, and never remembers ------------------
+    before = w.local_path_edit.count()
+    w._set_local_dir(sub, commit=False)
+    w._local_up()
+    w.set_local_dir(other)
+    check("navigation adds no history entry",
+          w.local_path_edit.count() == before and calls["local_history"] == [],
+          f"{before} -> {w.local_path_edit.count()} {calls['local_history']}")
+
+    # ---- the 'Set current folder' button DOES remember --------------------
+    FakeMsg.answer = QMessageBox.Yes
+    w._set_local_dir(sub, commit=False)
+    w._on_set_syncroot_clicked()
+    check("committing a new folder remembers it at the top",
+          w.local_path_edit.itemText(0) == sub.replace("\\", "/"),
+          w.local_path_edit.itemText(0))
+    check("...and reported the whole list for the cfg",
+          calls["local_history"]
+          and calls["local_history"][-1].startswith(sub.replace("\\", "/") + "|"),
+          calls["local_history"][-1:])
+    n = len(calls["local_history"])
+    w._commit_sync_root(sub)
+    check("re-committing the same root reports nothing",
+          len(calls["local_history"]) == n, calls["local_history"][n:])
+
+    # ---- a typed path that does not exist is never remembered ------------
+    before = w.local_path_edit.count()
+    w.local_path_edit.setText(os.path.join(TMP, "no-such-dir-at-all"))
+    w._on_path_edit()
+    check("a bogus typed path adds no entry",
+          w.local_path_edit.count() == before, w.local_path_edit.count())
+
+    # ---- picking a dead entry leaves the sync root alone ------------------
+    dead = w.local_path_edit.history_index("C:/gone")
+    if dead >= 0:
+        root_before, browse_before = w.sync_root(), w._browse_dir()
+        w.local_path_edit.activated.emit(dead)
+        check("picking a folder that has gone does not move the sync root",
+              w.sync_root() == root_before and w._browse_dir() == browse_before,
+              f"{w.sync_root()!r} vs {root_before!r}")
+
+    # ---- the X forgets a row and moves nothing ---------------------------
+    w._commit_sync_root(root)
+    root_before, browse_before = w.sync_root(), w._browse_dir()
+    w.local_path_edit.setText(fwd)
+    check("the clear button is live while the box names a remembered root",
+          w.local_path_clear.isEnabled(), w.local_path_edit.text())
+    n_before = w.local_path_edit.count()
+    w.local_path_clear.click()
+    check("the clear button forgot exactly that row",
+          w.local_path_edit.count() == n_before - 1
+          and w.local_path_edit.history_index(fwd) < 0,
+          w.local_path_edit.count())
+    check("...and left the sync root and the browsed folder untouched",
+          w.sync_root() == root_before and w._browse_dir() == browse_before,
+          f"{w.sync_root()!r} vs {root_before!r}")
+    check("...and left the box showing it",
+          w.local_path_edit.text() == fwd, w.local_path_edit.text())
+
+    # ---- the row layout ---------------------------------------------------
+    row = w.local_path_row_container.layout()
+    check("path row = box | clear | set-sync-root",
+          row.indexOf(w.local_path_edit) == 0
+          and row.indexOf(w.local_path_clear) == 1
+          and row.indexOf(w.local_set_syncroot_button) == 2,
+          f"{row.indexOf(w.local_path_edit)}/"
+          f"{row.indexOf(w.local_path_clear)}/"
+          f"{row.indexOf(w.local_set_syncroot_button)}")
+    check("this box never offers 'Remember this folder'",
+          w.local_path_edit.offer_remember is False)
+    w.deleteLater()
+
+
+def test_sync_root_offer_repeats():
+    """The offer comes back EVERY time, however you moved (9.7.22).
+
+    Reported: "it showed the first time, after that it didn't show anymore" -
+    from a user who navigates by typing paths into the box rather than
+    double-clicking the tree. Two causes, both fixed here and both pinned:
+
+    * typing used to COMMIT the path on the spot, so the browsed folder was
+      the sync root and there was nothing left to offer;
+    * once the sync root was in the remembered list, restoring the box inside
+      the editingFinished handler left QComboBox's own Return handling to
+      match that text against a row and emit `activated` - a phantom dropdown
+      pick that navigated straight back. That is why the FIRST typed path
+      worked (the list was still empty) and later ones did not.
+    """
+    root = tdir("offer_root")
+    alpha = tdir("offer_alpha")
+    beta = tdir("offer_beta")
+    fwd = {p: p.replace("\\", "/") for p in (root, alpha, beta)}
+    w, calls = make_widget(local_start_dir=root)
+    app = QApplication.instance()
+    btn = w.local_set_syncroot_button
+    FakeMsg.answer = QMessageBox.Yes
+
+    def typed(path):
+        """What pressing Enter in the box does."""
+        w.local_path_edit.setText(path)
+        w._on_path_edit()
+        app.processEvents()          # the box restore is deferred one turn
+
+    # ---- typing offers, every time ------------------------------------
+    typed(alpha)
+    check("1st typed path browses and offers",
+          w._browse_dir() == fwd[alpha] and w.sync_root() == fwd[root]
+          and btn.isVisibleTo(w), f"{w._browse_dir()} / {w.sync_root()}")
+    w._on_set_syncroot_clicked()
+    check("accepting it commits and takes the offer away",
+          w.sync_root() == fwd[alpha] and not btn.isVisibleTo(w))
+
+    # THE regression: with alpha now in the remembered list, this used to be
+    # swallowed by the phantom pick and the offer never came back.
+    typed(beta)
+    check("2nd typed path offers too, with the root now in the list",
+          w._browse_dir() == fwd[beta] and w.sync_root() == fwd[alpha]
+          and btn.isVisibleTo(w), f"{w._browse_dir()} / {w.sync_root()}")
+    typed(root)
+    check("3rd typed path offers as well",
+          w._browse_dir() == fwd[root] and w.sync_root() == fwd[alpha]
+          and btn.isVisibleTo(w), f"{w._browse_dir()} / {w.sync_root()}")
+
+    # ---- a remembered pick behaves exactly like typing -----------------
+    w._on_set_syncroot_clicked()          # root is the sync root now
+    app.processEvents()
+    idx = w.local_path_edit.history_index(fwd[alpha])
+    check("the earlier sync root is remembered", idx >= 0, str(idx))
+    if idx >= 0:
+        w.local_path_edit._popup_shown_at = 0.0     # a deliberate pick
+        w.local_path_edit.activated.emit(idx)
+        app.processEvents()
+        check("picking a remembered folder browses and offers, not commits",
+              w._browse_dir() == fwd[alpha] and w.sync_root() == fwd[root]
+              and btn.isVisibleTo(w), f"{w._browse_dir()} / {w.sync_root()}")
+
+    # Picking where you already ARE is how you get back after browsing off.
+    w._set_local_dir(beta, commit=False)
+    app.processEvents()
+    idx = w.local_path_edit.history_index(fwd[root])
+    if idx >= 0:
+        w.local_path_edit._popup_shown_at = 0.0
+        w.local_path_edit.activated.emit(idx)
+        app.processEvents()
+        check("picking the CURRENT sync root browses back to it",
+              w._browse_dir() == fwd[root] and not btn.isVisibleTo(w),
+              f"{w._browse_dir()} / {w.sync_root()}")
+
+    # ---- and a path that has gone changes nothing ----------------------
+    before = (w._browse_dir(), w.sync_root())
+    typed(os.path.join(TMP, "offer-no-such-dir"))
+    check("a bogus typed path moves nothing",
+          (w._browse_dir(), w.sync_root()) == before,
+          f"{before} -> {(w._browse_dir(), w.sync_root())}")
+    w.deleteLater()
 
 
 def test_modified_column_local_time():
@@ -1791,6 +1999,12 @@ def test_compact_buttons_fit_translated_labels():
                     and isinstance(node.args[0], ast.Constant)
                     and node.args[0].value in ("Up", "Refresh", "+ Drive")):
                 hard_capped.append(node.args[0].value)
+        # Deliberately NOT scanning for the path boxes' clear glyph
+        # (9.7.22): the machine-colour dialog has carried a FIXED-SIZE
+        # QPushButton with that glyph for ages, and that is a legitimately
+        # different case. The live-widget list below is the path button's
+        # guard instead - a relapse to a plain QPushButton simply drops
+        # out of findChildren(CompactButton) and fails it.
         check(f"{fname} builds its Up/Refresh buttons as CompactButton",
               not hard_capped, f"still plain QPushButton: {hard_capped}")
 
@@ -1801,9 +2015,13 @@ def test_compact_buttons_fit_translated_labels():
     # Disconnect (9.5.24) joined the Next bar as a CompactButton for the
     # same reason the others are: its label is translated, and a hard
     # setMaximumWidth truncates the longer languages.
-    check("both bars' Up/Refresh (+ Drive) are CompactButtons",
+    # The sync-root box's '\u2715' (9.7.22) is a CompactButton for exactly
+    # the same reason - it is built inside FolderHistoryCombo, which this
+    # file's AST scan does not reach, so the live list is its only net.
+    check("both bars' Up/Refresh (+ Drive) and the path box '\u2715' are "
+          "CompactButtons",
           labels == ["+ Drive", "Disconnect", "Refresh", "Refresh",
-                     "Up", "Up"], str(labels))
+                     "Up", "Up", "\u2715"], str(labels))
     for button in compact:
         if button.text() != "Up":
             continue
@@ -3123,6 +3341,8 @@ def main():
         test_rcpy_precheck_and_background()
         test_cancel_and_disconnect_mid_op()
         test_sync_root_and_local_pane()
+        test_sync_root_history()
+        test_sync_root_offer_repeats()
         test_modified_column_local_time()
         test_local_file_operations()
         test_local_open_with_shell()

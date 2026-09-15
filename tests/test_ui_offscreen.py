@@ -85,7 +85,7 @@ DROPSRC = os.path.join(SCRATCH, "dropsrc.txt")
 DELZONE = os.path.join(SCRATCH, "delzone")
 
 PHASE = int(sys.argv[1]) if len(sys.argv) > 1 else None
-ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
 
 # Base cfg for the isolated app copy: update checks off (MAME/CSpect AND the
 # app's own GitHub release check) so no phase ever hits the network, and the
@@ -328,6 +328,22 @@ elif PHASE == 15:
     with open(CFG, "w") as f:
         f.write(BASE_CFG
                 + "image_history=C:/imgs/one.img|C:/imgs/two.img|C:/imgs/three.img\n")
+elif PHASE == 16:
+    # 9.7.22: the SD Card tab's local path box remembers its folders, the
+    # way the image box above it has since 9.6.0 (reported: "do the same
+    # for the Local Path"). Needs phase 1's scratch for a real folder to
+    # navigate to; NO hddffile, so nothing can reach the modal
+    # missing-hdfmonkey prompt (the phase 14/15 lesson).
+    if not os.path.isdir(PASTE_SUB):
+        skip("no scratch folders (phase 1 did not run or was skipped)")
+    ensure_scratch(fresh=False)
+    with open(CFG, "w") as f:
+        f.write(BASE_CFG
+                + "explorerpath_history=C:/hist/one|C:/hist/two|C:/hist/three\n"
+                # The Remote Explorer's own, separate key - the explicit
+                # ask was two distinct values, so one must survive the
+                # other being emptied.
+                + "nextsync_explorerpath_history=C:/re/root\n")
 elif PHASE == 11:
     # NextSync Remote Explorer with pygame absent (every phase blocks pygame —
     # see _NoPygame). The retro log needs pygame; the Remote Explorer's dual
@@ -371,7 +387,8 @@ sys.meta_path.insert(0, _NoPygame())
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, REPO)
 
-from PySide6.QtWidgets import QApplication, QLabel, QLineEdit
+from PySide6.QtWidgets import (QApplication, QComboBox, QLabel,
+                               QLineEdit)
 from PySide6.QtCore import QTimer, QCoreApplication
 
 def settings_row(name):
@@ -432,7 +449,18 @@ def inspect_phase1():
                what="emulator scan settled")
 
     # ---- layout ---------------------------------------------------------
-    check("local box is QLineEdit", isinstance(win.local_file_explorer_path, QLineEdit))
+    from zxnu_pathhistorycombo import FolderHistoryCombo
+    # 9.7.22: a history combo, not a plain line edit. Both construction
+    # properties are load-bearing and neither is visible on screen, so they
+    # are pinned here: NoInsert is what stops QComboBox appending the typed
+    # text as a row of its own every time Enter commits a path.
+    check("local box is a FolderHistoryCombo",
+          isinstance(win.local_file_explorer_path, FolderHistoryCombo))
+    check("local box is editable and never self-inserts",
+          win.local_file_explorer_path.isEditable()
+          and win.local_file_explorer_path.insertPolicy()
+          == QComboBox.InsertPolicy.NoInsert,
+          str(win.local_file_explorer_path.insertPolicy()))
     check("image box is QLineEdit", isinstance(win.diskimageexplorerpathinput, QLineEdit))
     check("image label text", win.diskimageexplorerlabel.text() == "Disk Image Explorer: ",
           win.diskimageexplorerlabel.text())
@@ -502,9 +530,19 @@ def inspect_phase1():
     check("local path row bottoms the left column", _lcol.indexOf(win.local_path_row_container) == 2, str(_lcol.indexOf(win.local_path_row_container)))
     check("image path row at image-side grid (2,1)", pos(win.image_path_row_container) == (2, 1), str(pos(win.image_path_row_container)))
     _lrow = win.local_path_row_container.layout()
-    check("local path row = label|path box",
+    # The index check alone PASSES with the button appended, which would
+    # ship it untested - so it is named, and the stretch pair with it
+    # (mirroring the image row's own check below).
+    check("local path row = label|path box|clear button",
           _lrow.indexOf(win.localexplorerlabel) == 0
-          and _lrow.indexOf(win.local_file_explorer_path) == 1)
+          and _lrow.indexOf(win.local_file_explorer_path) == 1
+          and _lrow.indexOf(win.local_path_clear) == 2,
+          f"{_lrow.indexOf(win.localexplorerlabel)}/"
+          f"{_lrow.indexOf(win.local_file_explorer_path)}/"
+          f"{_lrow.indexOf(win.local_path_clear)}")
+    check("local path box owns the row's slack (stretch 1, clear 0)",
+          _lrow.stretch(1) == 1 and _lrow.stretch(2) == 0,
+          f"{_lrow.stretch(1)}/{_lrow.stretch(2)}")
     check("local label text", win.localexplorerlabel.text() == "Local path: ",
           win.localexplorerlabel.text())
     _irow = win.image_path_row_container.layout()
@@ -696,8 +734,14 @@ def inspect_phase1():
     QCoreApplication.processEvents()
     check("paste file lands on parent folder", view_dir() == want, view_dir())
 
+    _before = win.local_file_explorer_path.count()
     win.local_file_explorer_path.setText(r"Q:\definitely_not_there_xyz")
     win.local_file_explorer_path.editingFinished.emit()
+    # A path that does not exist is never remembered - and NoInsert is what
+    # stops QComboBox remembering it behind our back on the Enter key.
+    check("a bogus path adds no history entry",
+          win.local_file_explorer_path.count() == _before,
+          f"{_before} -> {win.local_file_explorer_path.count()}")
     QCoreApplication.processEvents()
     check("invalid path restores box", win.local_file_explorer_path.text() == want,
           win.local_file_explorer_path.text())
@@ -1896,11 +1940,14 @@ def inspect_phase11():
           all(t.isVisible() and t.width() > 0 for t in trees),
           str([(t.isVisible(), t.width()) for t in trees]))
 
-    # The navigation buttons (Up / Refresh / + Drive) and the transfer arrows.
+    # The navigation buttons (Up / Refresh / + Drive) and the transfer arrows,
+    # plus the sync-root box's history clear button (9.7.22) - a
+    # CompactButton for the same reason as the rest, and this exhaustive
+    # list is its guard here: a relapse to a plain QPushButton drops it.
     labels = sorted(b.text() for b in re_widget.findChildren(CompactButton))
     check("both navigation bars' buttons rendered",
           labels == ["+ Drive", "Disconnect", "Refresh", "Refresh",
-                     "Up", "Up"], str(labels))
+                     "Up", "Up", "✕"], str(labels))
     # Disconnect (9.5.24) sits in the Next bar between the machine's name
     # and its drive, and is dead until a Next is actually connected.
     check("Disconnect is present but disabled while offline",
@@ -2603,11 +2650,196 @@ def inspect_phase15():
     app.quit()
 
 
+def inspect_phase16():
+    """Remembering local FOLDERS in the SD Card tab's path box (9.7.22).
+
+    The reported ask: the image box above has remembered its paths since
+    9.6.0 - "do the same for the Local path". This is the folder twin, and
+    the interesting half is what must NOT happen: the box MIRRORS the tree,
+    so if plain navigation fed the list, a 15-entry history would fill with
+    folders merely passed through. Only a deliberate choice counts.
+
+    The two dropdown affordances get real synthesised events for the same
+    reason phase 15 does - both were shipped broken first on the image box
+    (a combo popup view is made in C++, so assigning keyPressEvent is dead
+    code, and QComboBoxPrivateContainer selects a row on ANY button
+    release). The base class is now shared, so this proves the folder box
+    inherited the working versions rather than a second broken copy.
+    """
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QKeyEvent, QMouseEvent
+    from PySide6.QtWidgets import QMessageBox
+    app = QApplication.instance()
+    win = find_win()
+    check("MainWindow found", win is not None)
+    if win is None:
+        app.quit(); return
+    wait_until(lambda: not getattr(win, "_emulator_scan_pending", False),
+               what="emulator scan settled")
+    win._hdfmonkey_prompt_shown = True          # nothing modal (phase 14's lesson)
+
+    def view_dir():
+        return win.model.filePath(
+            win.proxy_model.mapToSource(win.treeview.rootIndex()))
+
+    combo = win.local_file_explorer_path
+    check("the cfg's three folder entries were restored", combo.count() == 3,
+          [combo.itemText(i) for i in range(combo.count())])
+    # The restore must not have stolen the box from the tree: addItem into an
+    # empty editable combo overwrites the line edit, so without the capture in
+    # set_history_from_cfg row 0 would sit here masquerading as the real
+    # folder (and this box is the one MAME reads its start folder from).
+    check("the restore left the box showing the folder the tree is in",
+          combo.text() == view_dir() and len(combo.text()) >= 2,
+          f"{combo.text()!r} vs {view_dir()!r}")
+
+    # ---- the '=' is in the row and gated on the LIST ----------------------
+    clear = win.local_path_clear
+    check("the clear button is dead while the box shows an unlisted folder",
+          not clear.isEnabled(), combo.text())
+
+    # ---- walking never remembers -----------------------------------------
+    before = combo.count()
+    win.local_explorer_up_button.click()
+    check("'Up' adds no history entry", combo.count() == before,
+          f"{before} -> {combo.count()}")
+    before = combo.count()
+    win.local_explorer_refresh_button.click()
+    check("'Refresh' adds no history entry", combo.count() == before,
+          f"{before} -> {combo.count()}")
+
+    # ---- typing a path DOES remember -------------------------------------
+    want = PASTE_SUB.replace("\\", "/")
+    combo.setText(PASTE_SUB)
+    combo.editingFinished.emit()
+    check("a typed path navigates there", view_dir().rstrip("/") == want,
+          f"{view_dir()!r} vs {want!r}")
+    check("...and is remembered, at the top",
+          combo.itemText(0).rstrip("/") == want,
+          [combo.itemText(i) for i in range(combo.count())])
+    check("...and the clear button woke up for it", clear.isEnabled())
+    check("...and it reached hdfg.cfg",
+          "pastedir" in next((ln for ln in cfg_lines()
+                              if ln.startswith("explorerpath_history=")), ""),
+          next((ln for ln in cfg_lines()
+                if ln.startswith("explorerpath_history=")), ""))
+
+    # Re-committing the same folder must not duplicate it or grow the list.
+    before = combo.count()
+    combo.setText(PASTE_SUB)
+    combo.editingFinished.emit()
+    check("re-committing the same folder does not duplicate it",
+          combo.count() == before, f"{before} -> {combo.count()}")
+
+    # ---- 'Remember this folder' - the only way in for a walked-to folder --
+    win.local_explorer_up_button.click()
+    walked = view_dir().rstrip("/")
+    before = combo.count()
+    combo.rememberRequested.emit()
+    check("'Remember this folder' adds exactly one entry",
+          combo.count() == before + 1 and combo.itemText(0).rstrip("/") == walked,
+          [combo.itemText(i) for i in range(combo.count())])
+
+    # ---- DELETE on the highlighted dropdown row ---------------------------
+    combo.showPopup()
+    view = combo.view()
+    view.setCurrentIndex(combo.model().index(1, combo.modelColumn()))
+    doomed = combo.itemText(1)
+    was_showing, was_rooted = combo.text(), view_dir()
+    app.sendEvent(view, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete,
+                                  Qt.KeyboardModifier.NoModifier))
+    check("Delete on a dropdown row forgets that row",
+          all(combo.itemText(i) != doomed for i in range(combo.count())),
+          [combo.itemText(i) for i in range(combo.count())])
+    combo.hidePopup()
+
+    # ---- a RIGHT-click on a dropdown row must not be read as a pick -------
+    combo.showPopup()
+    view = combo.view()
+    picks = []
+    combo.pathActivated.connect(picks.append)
+    combo._popup_shown_at = time.monotonic()      # inside the settle window
+    spot = QPointF(view.viewport().rect().center())
+    for etype in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+        app.sendEvent(view.viewport(), QMouseEvent(
+            etype, spot, view.viewport().mapToGlobal(spot.toPoint()).toPointF(),
+            Qt.MouseButton.RightButton, Qt.MouseButton.RightButton,
+            Qt.KeyboardModifier.NoModifier))
+    combo.pathActivated.disconnect(picks.append)
+    check("a right-click on a dropdown row does not navigate", not picks, picks)
+    combo.hidePopup()
+
+    # ---- the '=' forgets the row, and moves NOTHING ------------------------
+    # The opposite of the image box, whose '=' also has to unload the disk:
+    # forgetting a folder must leave the tree and the box exactly as they are.
+    combo.setText(was_showing)
+    if combo.history_index(was_showing) < 0:      # make sure there IS a row
+        combo.remember(was_showing)
+        combo.setText(was_showing)
+    check("the clear button is live while the box names a remembered folder",
+          clear.isEnabled(), combo.text())
+    victim = combo.text()
+    n_before = combo.count()
+    rooted_before = view_dir()
+    clear.click()
+    check("the '=' forgot exactly that entry",
+          combo.count() == n_before - 1
+          and combo.history_index(victim) < 0, combo.count())
+    check("...and left the box showing it", combo.text() == victim, combo.text())
+    check("...and did not move the tree", view_dir() == rooted_before,
+          f"{view_dir()!r} vs {rooted_before!r}")
+    check("...and greyed itself out again", not clear.isEnabled())
+    check("...and the removal was announced in the log",
+          recent_log(win, "from the list"))
+
+    # ---- picking a remembered folder navigates there ----------------------
+    combo.remember(want)
+    idx = combo.history_index(want)
+    check("the typed folder is back in the list", idx >= 0, idx)
+    if idx >= 0 and view_dir().rstrip("/") != want:
+        combo.activated.emit(idx)
+        check("picking it from the dropdown navigates there",
+              view_dir().rstrip("/") == want,
+              f"{view_dir()!r} vs {want!r}")
+
+    # ---- 'Clear the whole list' keeps the folder the tree is in -----------
+    QMessageBox.question = staticmethod(
+        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    shown_before = combo.text()
+    rooted_before = view_dir()
+    combo.clearHistoryRequested.emit()
+    check("clearHistoryRequested empties the list", combo.count() == 0,
+          combo.count())
+    check("...and leaves the box and the tree alone",
+          combo.text() == shown_before and view_dir() == rooted_before,
+          f"{combo.text()!r} vs {shown_before!r}")
+    line = next((ln for ln in cfg_lines()
+                 if ln.startswith("explorerpath_history=")), "")
+    check("hdfg.cfg's folder history is empty too",
+          line == "explorerpath_history=", line)
+
+    # ---- the Remote Explorer's box is the same widget, its own list -------
+    # Two DISTINCT cfg keys was the explicit ask; the widget is built lazily,
+    # so this only checks the key exists and stayed independent of the one
+    # just emptied (phase 11 drives the Remote Explorer itself).
+    check("the Remote Explorer keeps its own, separate history key",
+          any(ln.startswith("nextsync_explorerpath_history=")
+              for ln in cfg_lines()),
+          [ln for ln in cfg_lines() if "explorerpath_history" in ln])
+
+    settle_end = time.monotonic() + 0.5
+    while time.monotonic() < settle_end:
+        QCoreApplication.processEvents()
+        time.sleep(0.02)
+    app.quit()
+
+
 INSPECTORS = {1: inspect_phase1, 2: inspect_phase2, 3: inspect_phase3,
               4: inspect_phase4, 5: inspect_phase5, 6: inspect_phase6,
               7: inspect_phase7, 8: inspect_phase8, 9: inspect_phase9,
               10: inspect_phase10, 11: inspect_phase11, 12: inspect_phase12,
-              13: inspect_phase13, 14: inspect_phase14, 15: inspect_phase15}
+              13: inspect_phase13, 14: inspect_phase14, 15: inspect_phase15,
+              16: inspect_phase16}
 
 _orig_exec = QApplication.exec
 def _patched_exec(*_a):

@@ -223,6 +223,21 @@ CATALOGS = {
             "Establecer el color de {emulator}…",
         "Reset the {emulator} color":
             "Restablecer el color de {emulator}",
+        # ---- 9.7.22: the two local FOLDER path boxes' history ----
+        "Remember this folder":
+            "Recordar esta carpeta",
+        "Removed {path} from the list — the folder itself was not deleted.":
+            "Se quitó {path} de la lista — la carpeta en sí no se ha eliminado.",
+        "Clear the folder list?":
+            "¿Vaciar la lista de carpetas?",
+        "Forget all {count} remembered folder paths? The folders themselves are not deleted.":
+            "¿Olvidar las {count} rutas de carpeta recordadas? Las carpetas en sí no se eliminan.",
+        "Cleared the folder list — no folders were deleted.":
+            "Lista de carpetas vaciada — no se ha eliminado ninguna carpeta.",
+        "Remembered folder is no longer there: {path}":
+            "La carpeta recordada ya no existe: {path}",
+        "Remove the folder path shown on the left from the list.\nThe folder itself is not deleted.":
+            "Quitar de la lista la ruta de carpeta mostrada a la izquierda.\nLa carpeta en sí no se elimina.",
         # ---- 9.6.0: forgetting a remembered SD image path ----
         "Remove \"{path}\" from the list":
             "Quitar \"{path}\" de la lista",
@@ -1582,6 +1597,21 @@ CATALOGS = {
             "Definir a cor do {emulator}…",
         "Reset the {emulator} color":
             "Repor a cor do {emulator}",
+        # ---- 9.7.22: the two local FOLDER path boxes' history ----
+        "Remember this folder":
+            "Memorizar esta pasta",
+        "Removed {path} from the list — the folder itself was not deleted.":
+            "Removido {path} da lista — a própria pasta não foi eliminada.",
+        "Clear the folder list?":
+            "Limpar a lista de pastas?",
+        "Forget all {count} remembered folder paths? The folders themselves are not deleted.":
+            "Esquecer todos os {count} caminhos de pasta memorizados? As próprias pastas não são eliminadas.",
+        "Cleared the folder list — no folders were deleted.":
+            "Lista de pastas limpa — nenhuma pasta foi eliminada.",
+        "Remembered folder is no longer there: {path}":
+            "A pasta memorizada já não existe: {path}",
+        "Remove the folder path shown on the left from the list.\nThe folder itself is not deleted.":
+            "Remover da lista o caminho de pasta mostrado à esquerda.\nA própria pasta não é eliminada.",
         # ---- 9.6.0: forgetting a remembered SD image path ----
         "Remove \"{path}\" from the list":
             "Remover \"{path}\" da lista",
@@ -2942,6 +2972,21 @@ CATALOGS = {
             "Ustaw kolor {emulator}…",
         "Reset the {emulator} color":
             "Przywróć domyślny kolor {emulator}",
+        # ---- 9.7.22: the two local FOLDER path boxes' history ----
+        "Remember this folder":
+            "Zapamiętaj ten folder",
+        "Removed {path} from the list — the folder itself was not deleted.":
+            "Usunięto {path} z listy — sam folder nie został usunięty z dysku.",
+        "Clear the folder list?":
+            "Wyczyścić listę folderów?",
+        "Forget all {count} remembered folder paths? The folders themselves are not deleted.":
+            "Zapomnieć wszystkie zapamiętane ścieżki folderów ({count})? Same foldery nie zostaną usunięte.",
+        "Cleared the folder list — no folders were deleted.":
+            "Wyczyszczono listę folderów — nie usunięto żadnych folderów.",
+        "Remembered folder is no longer there: {path}":
+            "Zapamiętany folder już nie istnieje: {path}",
+        "Remove the folder path shown on the left from the list.\nThe folder itself is not deleted.":
+            "Usuń z listy ścieżkę folderu pokazaną po lewej.\nSam folder nie zostanie usunięty.",
         # ---- 9.6.0: forgetting a remembered SD image path ----
         "Remove \"{path}\" from the list":
             "Usuń \"{path}\" z listy",
@@ -4300,6 +4345,21 @@ CATALOGS = {
             "Задать цвет {emulator}…",
         "Reset the {emulator} color":
             "Сбросить цвет {emulator}",
+        # ---- 9.7.22: the two local FOLDER path boxes' history ----
+        "Remember this folder":
+            "Запомнить эту папку",
+        "Removed {path} from the list — the folder itself was not deleted.":
+            "Убрано из списка: {path} — сама папка не удалена.",
+        "Clear the folder list?":
+            "Очистить список папок?",
+        "Forget all {count} remembered folder paths? The folders themselves are not deleted.":
+            "Забыть все запомненные пути к папкам ({count})? Сами папки не удаляются.",
+        "Cleared the folder list — no folders were deleted.":
+            "Список папок очищен — ни одна папка не удалена.",
+        "Remembered folder is no longer there: {path}":
+            "Запомненной папки больше нет: {path}",
+        "Remove the folder path shown on the left from the list.\nThe folder itself is not deleted.":
+            "Убрать показанный слева путь к папке из списка.\nСама папка не удаляется.",
         # ---- 9.6.0: forgetting a remembered SD image path ----
         "Remove \"{path}\" from the list":
             "Убрать \"{path}\" из списка",
@@ -5659,6 +5719,21 @@ CATALOGS = {
             "Nastavit barvu {emulator}…",
         "Reset the {emulator} color":
             "Obnovit výchozí barvu {emulator}",
+        # ---- 9.7.22: the two local FOLDER path boxes' history ----
+        "Remember this folder":
+            "Zapamatovat tuto složku",
+        "Removed {path} from the list — the folder itself was not deleted.":
+            "Odebráno {path} ze seznamu — samotná složka nebyla smazána.",
+        "Clear the folder list?":
+            "Vymazat seznam složek?",
+        "Forget all {count} remembered folder paths? The folders themselves are not deleted.":
+            "Zapomenout všech {count} zapamatovaných cest ke složkám? Samotné složky se nemažou.",
+        "Cleared the folder list — no folders were deleted.":
+            "Seznam složek vymazán — žádné složky nebyly smazány.",
+        "Remembered folder is no longer there: {path}":
+            "Zapamatovaná složka již neexistuje: {path}",
+        "Remove the folder path shown on the left from the list.\nThe folder itself is not deleted.":
+            "Odebrat ze seznamu cestu ke složce zobrazenou vlevo.\nSamotná složka se nesmaže.",
         # ---- 9.6.0: forgetting a remembered SD image path ----
         "Remove \"{path}\" from the list":
             "Odebrat \"{path}\" ze seznamu",
@@ -7014,6 +7089,21 @@ CATALOGS = {
             "Définir la couleur de {emulator}…",
         "Reset the {emulator} color":
             "Réinitialiser la couleur de {emulator}",
+        # ---- 9.7.22: the two local FOLDER path boxes' history ----
+        "Remember this folder":
+            "Mémoriser ce dossier",
+        "Removed {path} from the list — the folder itself was not deleted.":
+            "{path} retiré de la liste — le dossier lui-même n'a pas été supprimé.",
+        "Clear the folder list?":
+            "Effacer la liste des dossiers ?",
+        "Forget all {count} remembered folder paths? The folders themselves are not deleted.":
+            "Oublier les {count} chemins de dossiers mémorisés ? Les dossiers eux-mêmes ne sont pas supprimés.",
+        "Cleared the folder list — no folders were deleted.":
+            "Liste des dossiers effacée — aucun dossier n'a été supprimé.",
+        "Remembered folder is no longer there: {path}":
+            "Le dossier mémorisé n'existe plus : {path}",
+        "Remove the folder path shown on the left from the list.\nThe folder itself is not deleted.":
+            "Retirer de la liste le chemin de dossier affiché à gauche.\nLe dossier lui-même n'est pas supprimé.",
         # ---- 9.6.0: forgetting a remembered SD image path ----
         "Remove \"{path}\" from the list":
             "Retirer \"{path}\" de la liste",
