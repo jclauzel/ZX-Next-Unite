@@ -2797,6 +2797,7 @@ def inspect_phase16():
     idx = combo.history_index(want)
     check("the typed folder is back in the list", idx >= 0, idx)
     if idx >= 0 and view_dir().rstrip("/") != want:
+        combo._pick_armed = True     # a bare activated() is not a pick
         combo.activated.emit(idx)
         check("picking it from the dropdown navigates there",
               view_dir().rstrip("/") == want,

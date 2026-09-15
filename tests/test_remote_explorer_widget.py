@@ -1188,9 +1188,13 @@ def test_sync_root_and_local_pane():
           f"{w._browse_dir()} / {w.sync_root()}")
     check("...and raises the sync-root offer",
           w.local_set_syncroot_button.isVisibleTo(w))
-    QApplication.instance().processEvents()   # box restore is deferred
-    check("...and the box still shows the SYNC ROOT, not the typed path",
-          w.local_path_edit.text() == sub.replace("\\", "/"),
+    QApplication.instance().processEvents()   # the box update is deferred
+    # 9.7.23: the box shows the folder the pane is BROWSING, not the
+    # committed sync root. It used to flip back a beat after every move,
+    # which reads as the app undoing your choice (reported twice); what
+    # the sync root is shows in the offer button instead.
+    check("...and the box shows where the pane now IS",
+          w.local_path_edit.text() == root.replace("\\", "/"),
           w.local_path_edit.text())
     w._commit_sync_root(root)     # back to a known state for what follows
 
@@ -1277,6 +1281,7 @@ def test_sync_root_history():
     dead = w.local_path_edit.history_index("C:/gone")
     if dead >= 0:
         root_before, browse_before = w.sync_root(), w._browse_dir()
+        w.local_path_edit._pick_armed = True   # a real row release
         w.local_path_edit.activated.emit(dead)
         check("picking a folder that has gone does not move the sync root",
               w.sync_root() == root_before and w._browse_dir() == browse_before,
@@ -1371,6 +1376,7 @@ def test_sync_root_offer_repeats():
     check("the earlier sync root is remembered", idx >= 0, str(idx))
     if idx >= 0:
         w.local_path_edit._popup_shown_at = 0.0     # a deliberate pick
+        w.local_path_edit._pick_armed = True        # ...from the popup
         w.local_path_edit.activated.emit(idx)
         app.processEvents()
         check("picking a remembered folder browses and offers, not commits",
@@ -1383,6 +1389,7 @@ def test_sync_root_offer_repeats():
     idx = w.local_path_edit.history_index(fwd[root])
     if idx >= 0:
         w.local_path_edit._popup_shown_at = 0.0
+        w.local_path_edit._pick_armed = True
         w.local_path_edit.activated.emit(idx)
         app.processEvents()
         check("picking the CURRENT sync root browses back to it",
@@ -1395,6 +1402,89 @@ def test_sync_root_offer_repeats():
     check("a bogus typed path moves nothing",
           (w._browse_dir(), w.sync_root()) == before,
           f"{before} -> {(w._browse_dir(), w.sync_root())}")
+    w.deleteLater()
+
+
+def test_box_follows_the_pane():
+    """The path box shows where the pane IS, and stays there (9.7.23).
+
+    Two reports, one root cause each, both invisible to the checks that came
+    with the feature:
+
+    * clicking anywhere in the window after browsing elsewhere snapped the
+      pane back - Qt emits `activated` on a focus change (and on an Escape
+      dismissal) whenever the box text matches a remembered row, and that was
+      taken for a dropdown pick. A pick is now recognised from the gesture in
+      the popup itself;
+    * the box then flipped back to the previous path a beat after every move,
+      because it was being restored to the committed sync root on the reasoning
+      that it is the sync-root display. It is a path box: it follows the pane,
+      and the offer button is what says the sync root is elsewhere.
+    """
+    root = tdir("follow_root")
+    alpha = tdir("follow_alpha")
+    beta = tdir("follow_beta")
+    fwd = {p: p.replace("\\", "/") for p in (root, alpha, beta)}
+    w, calls = make_widget(local_start_dir=root,
+                           local_history=fwd[alpha] + "|" + fwd[beta])
+    app = QApplication.instance()
+    btn = w.local_set_syncroot_button
+    combo = w.local_path_edit
+
+    def settle():
+        app.processEvents()          # the box update is deferred one turn
+        app.processEvents()
+
+    check("the box starts on the sync root",
+          combo.text() == fwd[root], combo.text())
+
+    # ---- a dropdown pick moves the pane AND the box, and they STAY --------
+    idx = combo.history_index(fwd[alpha])
+    combo._pick_armed = True         # what a real left release on the row does
+    combo._popup_shown_at = 0.0
+    combo.activated.emit(idx)
+    settle()
+    check("a pick moves the pane and the box together",
+          w._browse_dir() == fwd[alpha] and combo.text() == fwd[alpha],
+          f"{w._browse_dir()} / {combo.text()}")
+    check("...and the offer says the sync root is elsewhere",
+          btn.isVisibleTo(w) and w.sync_root() == fwd[root])
+    # THE regression: nothing may put the previous path back afterwards.
+    for _ in range(4):
+        settle()
+    check("...and neither moves back afterwards",
+          w._browse_dir() == fwd[alpha] and combo.text() == fwd[alpha],
+          f"{w._browse_dir()} / {combo.text()}")
+
+    # ---- an UNARMED activated is the focus-out echo: it must do nothing ---
+    combo.activated.emit(combo.history_index(fwd[beta]))
+    settle()
+    check("a focus-out echo does not move the pane",
+          w._browse_dir() == fwd[alpha] and combo.text() == fwd[alpha],
+          f"{w._browse_dir()} / {combo.text()}")
+
+    # ---- tree navigation keeps the box in step too ------------------------
+    w._set_local_dir(beta, commit=False)
+    settle()
+    check("browsing the tree updates the box as well",
+          w._browse_dir() == fwd[beta] and combo.text() == fwd[beta],
+          f"{w._browse_dir()} / {combo.text()}")
+
+    # ---- committing keeps it, and takes the offer away --------------------
+    FakeMsg.answer = QMessageBox.Yes
+    w._on_set_syncroot_clicked()
+    settle()
+    check("accepting the offer keeps the box and hides the button",
+          combo.text() == fwd[beta] and w.sync_root() == fwd[beta]
+          and not btn.isVisibleTo(w), f"{combo.text()} / {w.sync_root()}")
+
+    # ---- a path that names nothing puts back where we are -----------------
+    combo.setText(os.path.join(TMP, "follow-no-such-dir"))
+    w._on_path_edit()
+    settle()
+    check("a bogus typed path restores the browsed folder",
+          combo.text() == fwd[beta] and w._browse_dir() == fwd[beta],
+          f"{combo.text()} / {w._browse_dir()}")
     w.deleteLater()
 
 
@@ -3343,6 +3433,7 @@ def main():
         test_sync_root_and_local_pane()
         test_sync_root_history()
         test_sync_root_offer_repeats()
+        test_box_follows_the_pane()
         test_modified_column_local_time()
         test_local_file_operations()
         test_local_open_with_shell()

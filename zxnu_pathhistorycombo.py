@@ -130,6 +130,9 @@ class PathHistoryCombo(QComboBox):
         self._popup_shown_at = 0.0
         self._armed_view = None
         self._opening_popup = False
+        #: Set by the popup's event filter when the user really picks a
+        #: row; read (and cleared) through take_pick_arm. See there.
+        self._pick_armed = False
 
     # ---- history helpers --------------------------------------------------
 
@@ -188,6 +191,8 @@ class PathHistoryCombo(QComboBox):
                         self.removeIndexRequested.emit(row)
                         self.refresh_open_popup(row)
                     return True
+                if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                    self._pick_armed = True     # see _pick_armed
             # The container selects (and so LOADS) a row on ANY button
             # release, right one included. Swallow the whole right-button
             # gesture and open the menu from the press instead.
@@ -198,7 +203,31 @@ class PathHistoryCombo(QComboBox):
                     if etype == QEvent.Type.MouseButtonPress:
                         self._popup_menu_from_press(view, event)
                     return True
+                if (etype == QEvent.Type.MouseButtonRelease
+                        and event.button() == Qt.MouseButton.LeftButton
+                        and view.indexAt(event.position().toPoint()).isValid()):
+                    self._pick_armed = True     # see _pick_armed
         return super().eventFilter(obj, event)
+
+    def take_pick_arm(self):
+        """True when the `activated` now arriving really is the user picking a
+        row, consuming the arm.
+
+        ``activated`` is NOT a reliable "the user chose something" signal on an
+        editable combo. Measured on Windows, it also fires when the popup is
+        dismissed with Escape, and — the one that was reported — whenever the
+        box merely LOSES FOCUS while its text happens to match a remembered
+        row. Both look exactly like a pick to a plain `activated` handler: on
+        the folder boxes, clicking anywhere in the window after browsing
+        elsewhere fired a pick for the row the box was showing and snapped the
+        tree back to it.
+
+        So a pick is recognised from the gesture instead, in the popup's own
+        event filter above: a LEFT release over a real row, or Return/Enter on
+        the highlighted one. Escape arms nothing (dismissing must not
+        navigate) and neither does a focus change."""
+        armed, self._pick_armed = self._pick_armed, False
+        return armed
 
     def _popup_menu_from_press(self, view, event):
         """Right-press on a dropdown row: remember what was hit, then open
@@ -631,6 +660,14 @@ class FolderHistoryCombo(PathHistoryCombo):
         row. Within half a second of the popup opening it is treated as that
         and the list is put straight back up, so the user gets the list their
         click asked for instead of a silent re-navigation."""
+        if not self.take_pick_arm():
+            # Not a pick at all: `activated` also fires when the popup is
+            # dismissed with Escape and whenever the box loses focus while its
+            # text matches a remembered row. Reported on BOTH folder boxes as
+            # "I browse somewhere else, then click in the window and it jumps
+            # back" - the click moved the focus, the box was showing the
+            # previous folder, and that fired a pick for it.
+            return
         picked = self.itemText(index)
         if (self.canonicalize(picked) == self.canonicalize(
                 self._current_path() or "")
