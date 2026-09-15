@@ -43,11 +43,14 @@ from PySide6.QtWidgets import (
 from zxnu_config import (
     DEFAULT_COLOR_UP_DIRECTORY, DEFAULT_COLOR_DIR_NAME, DEFAULT_COLOR_DIR_TYPE,
     DEFAULT_COLOR_FILE_NAME, DEFAULT_COLOR_FILE_EXT, DEFAULT_COLOR_FILE_SIZE,
-    DEFAULT_COLOR_GENERAL_TEXT, SPLITTER_HANDLE_QSS_HORIZONTAL, ZX_NEXT_UNITE_DOTN_VERSION,
+    DEFAULT_COLOR_GENERAL_TEXT, MAX_PATH_HISTORY,
+    SPLITTER_HANDLE_QSS_HORIZONTAL, ZX_NEXT_UNITE_DOTN_VERSION,
     ZXNR_NEX_FLAVORS, deploypak_counts, hex_to_qcolor,
+    normalize_history_folder,
     open_path_with_system_shell, qcolor_to_hex, read_deploypak,
     readable_text_color, zxnextremote_package_binary,
 )
+from zxnu_pathhistorycombo import FolderHistoryCombo
 from zxnu_workers import (
     RE_CANCEL_GRACE_MS, RE_MAX_REMOTE_PATH, RE_UPD_EXTRA_RETRIES,
     CompactButton, DotDotFirstProxyModel, HdfProgressDialog,
@@ -1043,7 +1046,8 @@ class RemoteExplorerWidget(QWidget):
                  zxnr_choose_package=None,
                  splitter_sizes=None, on_splitter_moved=None,
                  on_emulator_recheck=None, update_prompt_enabled=None,
-                 on_update_prompt=None):
+                 on_update_prompt=None,
+                 local_history=None, on_local_history_changed=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
         # host closure: enqueue_to(sid, cmd) -> bool, delivering ONE command
@@ -1131,6 +1135,12 @@ class RemoteExplorerWidget(QWidget):
         # did before the picker existed.
         self._zxnr_choose_package = zxnr_choose_package
         self._on_sync_root_changed = on_sync_root_changed or (lambda p: None)
+        # The sync-root box's remembered folders (9.7.22). Passed in and
+        # reported back rather than read from the cfg here, like the
+        # splitter sizes above: this widget is built lazily, long after
+        # load_configuration_file has run.
+        self._on_local_history_changed = (
+            on_local_history_changed or (lambda _raw: None))
         # Surface Next-side failures ('F' replies / abandoned transfers) to the
         # user: on_toast(title, message, variant) pops a host toast.
         self._on_toast = on_toast or (lambda title, msg, variant="red": None)
@@ -1395,13 +1405,37 @@ class RemoteExplorerWidget(QWidget):
         # the tree above. The button appears only while browsing a different
         # folder than the sync root and asks for confirmation before
         # committing. Typing a folder path and pressing Enter also commits.
-        self.local_path_edit = QLineEdit(self)
+        # A history combo since 9.7.22 (it was a plain QLineEdit): every
+        # sync root committed here is remembered and persisted, so moving
+        # between a handful of projects is a pick rather than a retype.
+        # The QLineEdit call sites below - .text() / .setText() - keep
+        # working through FolderHistoryCombo's compatibility surface.
+        # offer_remember stays OFF: this box already shows a deliberate
+        # choice, and a second "remember" verb beside the pulsing 'Set
+        # current folder as new sync root folder' button would be ambiguous.
+        self.local_path_edit = FolderHistoryCombo(
+            self, cap=MAX_PATH_HISTORY,
+            on_changed=lambda raw: self._on_local_history_changed(raw),
+            current_path=lambda: self._sync_root,
+            log=lambda msg: self._log(msg))
         self.local_path_edit.setPlaceholderText("Sync root folder...")
         self.local_path_edit.setToolTip(
             "Sync root: the local folder the Remote Explorer works in.\n"
             "Type a folder path here, or navigate the explorer above and press\n"
-            "'Set current folder as new sync root folder'.")
+            "'Set current folder as new sync root folder'.\n"
+            "Sync roots you have used are remembered: pick one from the arrow,\n"
+            "right-click for list options, or press Delete on a dropdown entry.")
         self.local_path_edit.editingFinished.connect(self._on_path_edit)
+        # activated, NEVER currentIndexChanged: _commit_sync_root writes
+        # this box on every commit, and through currentIndexChanged each of
+        # those writes would re-enter the commit.
+        self.local_path_edit.pathActivated.connect(self._on_local_history_picked)
+        self.local_path_clear = self.local_path_edit.clear_button
+        # BEFORE the startup _set_local_dir(commit=True) ~50 lines below:
+        # restored after it, the saved root would be appended to an empty
+        # list and the real list then loaded over the top of it, so the
+        # widget would rewrite hdfg.cfg at build time on every launch.
+        self.local_path_edit.set_history_from_cfg(local_history or "")
 
         self.local_set_syncroot_button = QPushButton(
             "Set current folder as new sync root folder", self)
@@ -1414,9 +1448,14 @@ class RemoteExplorerWidget(QWidget):
         # button — see zxnu_nextsync_pane).
         self._syncroot_pulse_timer = None
 
-        local_path_row = QHBoxLayout()
+        self.local_path_row_container = QWidget(self)
+        local_path_row = QHBoxLayout(self.local_path_row_container)
         local_path_row.setContentsMargins(0, 0, 0, 0)
         local_path_row.addWidget(self.local_path_edit, 1)
+        # The '✕' sits BETWEEN the box and the sync-root offer, so it does
+        # not jump sideways each time that runtime-toggled button - the
+        # widest label in the pane - appears and disappears.
+        local_path_row.addWidget(self.local_path_clear)
         local_path_row.addWidget(self.local_set_syncroot_button)
 
         # Emulator strip (9.5.27): the session strip's mirror image, down
@@ -1443,7 +1482,7 @@ class RemoteExplorerWidget(QWidget):
         local_box.setSpacing(2)
         local_box.addLayout(local_bar)
         local_box.addLayout(local_tree_row)
-        local_box.addLayout(local_path_row)
+        local_box.addWidget(self.local_path_row_container)
         local_container = QWidget(self)
         local_container.setLayout(local_box)
 
@@ -5225,6 +5264,14 @@ class RemoteExplorerWidget(QWidget):
         if not norm or not os.path.isdir(norm):
             return
         self._sync_root = norm
+        # Remembered here and nowhere else: every caller of this method is
+        # a deliberate commit (a typed path, the "Set current folder"
+        # button, the startup restore), while plain navigation goes through
+        # _set_local_dir(commit=False) and must stay silent. remember()
+        # reports nothing when the root is already at the top, which is
+        # what keeps the startup commit - and every focus-out, since this
+        # method deliberately has no unchanged-guard - out of hdfg.cfg.
+        self.local_path_edit.remember(norm)
         if self.local_path_edit.text() != norm:
             self.local_path_edit.setText(norm)
         self._on_sync_root_changed(norm)
@@ -5294,6 +5341,20 @@ class RemoteExplorerWidget(QWidget):
 
     def _local_filter_changed(self, text):
         self.local_proxy.setFilterFixedString((text or "").strip())
+
+    def _on_local_history_picked(self, path):
+        """A sync root picked from the path box's dropdown (9.7.22):
+        committed exactly as a typed path would be. One that has since been
+        deleted or unplugged leaves the sync root alone and puts the box
+        back, so the pane never ends up rooted on nothing."""
+        clean = normalize_history_folder(path)
+        if clean and os.path.isdir(clean):
+            self._set_local_dir(clean, commit=True)
+        else:
+            self._log(ui_tr_now(
+                "Remembered folder is no longer there: {path}").format(
+                    path=path))
+            self.local_path_edit.setText(self._sync_root)
 
     def _on_path_edit(self):
         new = self.local_path_edit.text().strip()

@@ -857,6 +857,21 @@ def build_nextsync_pane(
                 pass
         _re_update_start_button()
 
+    def _re_on_local_history_changed(raw):
+        # The Remote Explorer's sync-root box reports its remembered list
+        # (9.7.22). Its own key, distinct from the SD Card tab's: the two
+        # panes browse for different reasons and one shared list would
+        # drop a sync root into the other tab's box. Written only from
+        # here - the widget is built lazily and may never exist, so
+        # save_configuration_file must never try to scrape it.
+        try:
+            configuration_dictionary[
+                SETTING_NEXTSYNC_EXPLORERPATH_HISTORY] = raw
+            save_configuration_file()
+        except Exception:
+            logging.exception(
+                "NextSync: saving the sync-root history failed")
+
     def _re_on_remote_cwd_changed(path, addr=None):
         # The widget reports the Next-side folder it's now showing. Persist it
         # so the next (re)connect jumps straight back to it (fires only when
@@ -1191,12 +1206,19 @@ def build_nextsync_pane(
         if host._re_widget is not None:
             return host._re_widget
         start_dir = configuration_dictionary.get(SETTING_NEXTSYNC_EXPLORERPATH) or None
+        local_hist = configuration_dictionary.get(
+            SETTING_NEXTSYNC_EXPLORERPATH_HISTORY) or ""
         remote_cwd = configuration_dictionary.get(SETTING_NEXTSYNC_REMOTE_CWD) or None
         local_sort = configuration_dictionary.get(SETTING_NEXTSYNC_RE_LOCAL_SORT) or None
         next_sort = configuration_dictionary.get(SETTING_NEXTSYNC_RE_NEXT_SORT) or None
         extra_drives = configuration_dictionary.get(SETTING_NEXTSYNC_EXTRA_DRIVES) or ""
         widget = RemoteExplorerWidget(
             _re_enqueue, local_start_dir=start_dir,
+            # The sync roots this box remembers (9.7.22): restored here for
+            # the same reason as splitter_sizes below - this widget is
+            # built lazily, after load_configuration_file has run.
+            local_history=local_hist,
+            on_local_history_changed=_re_on_local_history_changed,
             log=lambda s: add_nextsync_log_window(str(s)),
             drain=_re_drain, on_sync_root_changed=_re_on_sync_root_changed,
             remote_start_dir=remote_cwd,

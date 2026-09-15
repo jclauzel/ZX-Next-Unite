@@ -98,6 +98,14 @@ def build_config_io(
                 host.imageinput.addItem(entry)
             host.imageinput.blockSignals(False)
 
+            # The local FOLDER history of the same tab's path box (9.7.22).
+            # Unconditional for the same reason as the list above, and the
+            # combo restores the text it was showing itself - the mirror
+            # call further down sits inside the SETTING_EXPLORERPATH guard
+            # and cannot be relied on to repair the box.
+            host.local_file_explorer_path.set_history_from_cfg(
+                configuration_dictionary.get(SETTING_EXPLORERPATH_HISTORY, ""))
+
             # Set the active image path (most recently used), tidied the same way.
             current_hddfile = normalize_sd_image_path(configuration_dictionary[SETTING_HDDFILE])
             host.imageinput.setCurrentText(current_hddfile)

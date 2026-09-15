@@ -377,6 +377,9 @@ import rc_backgrounds
 # --- Extracted modules (refactored out of this file) ------------------
 from zxnu_config import *
 from zxnu_workers import *
+# Not via the star-import above: the shared path-history combo lives in
+# its own module now (9.7.22), so _ImagePathCombo's base is named here.
+from zxnu_pathhistorycombo import PathHistoryCombo
 from zxnu_sdcard_explorer import (SdCardExplorerPane, IMG_PATH_ROLE,
                                   IMG_ISDIR_ROLE, IMG_LOADED_ROLE,
                                   IMG_LOADING_ROLE)
@@ -965,221 +968,22 @@ def _apply_completer_fix_to_children(widget: QWidget):
 IMAGE_DRAG_MIME = "application/x-zxnu-image-paths"
 
 
-class _ImagePathCombo(QComboBox):
-    """The SD-image path box. showPopup stamps WHEN the history dropdown
-    opened, so the activation wiring can tell a real pick from the Windows
-    "phantom activation" — the very click that opens the dropdown also
-    "activating" the current entry when the (long-path-widened) popup lands
-    under the cursor. Reported as: the history list appeared and instantly
-    vanished while the already-loaded image reloaded. See the
-    imageinput.activated wiring in MainWindow.setupUI.
+class _ImagePathCombo(PathHistoryCombo):
+    """The SD-image path box: :class:`PathHistoryCombo` with image-path
+    canonicalisation.
 
-    It also owns the history-REMOVAL affordances (9.6.0). The remembered
-    paths used to be write-only: clearing the line edit and pressing Enter
-    unloaded the image but the stale path was still sitting in the dropdown
-    on the next click, with no way at all to forget it (reported). Three
-    ways out now, and every one of them ends in ``removeIndexRequested`` /
-    ``clearHistoryRequested`` so the persist-and-unload closure wired in
-    MainWindow.setupUI stays the single writer of the list:
+    The four load-bearing Qt rules that used to be documented here now live
+    on the base in ``zxnu_workers.py``, where the two folder path boxes
+    (9.7.22) read them too - a fix to any of them belongs there, once.
 
-      * the '✕' button beside the box — forget the path that is SHOWN;
-      * Delete on the highlighted row of the open dropdown — forget that
-        row in place, with the popup staying up for the next one;
-      * right-click, on the box (text area OR arrow) or on a dropdown row —
-        'Remove "<path>" from the list' / 'Clear the whole list'. On the box
-        the actions are appended to the line edit's own standard menu, so
-        Cut/Copy/Paste survive.
-
-    Four Qt rules are load-bearing here, and three of them cost a rewrite:
-
-    * The dropdown view is created in C++ by ``QComboBoxPrivateContainer``.
-      PySide6 dispatches a virtual to a Python attribute only for objects
-      INSTANTIATED FROM PYTHON, so the house style used on the explorers'
-      trees — ``view.keyPressEvent = my_handler`` — is silently dead code
-      here. An event filter is the only mechanism that reaches it, and this
-      combo, being Python-made, is a valid filter target. ShortcutOverride
-      arrives first carrying the same key(), so only KeyPress is acted on.
-    * That same container's mouse handler does NOT check which button was
-      released: any release over a row calls hidePopup() and selects it. So
-      a right-click on a dropdown entry LOADED that image instead of
-      offering to forget it. The filter swallows the right button outright
-      and drives the menu from the PRESS.
-    * ``customContextMenuRequested`` is not used on the popup for the same
-      reason: on Windows the context-menu event is synthesised on RELEASE,
-      i.e. after the popup has already closed, and its position maps
-      through a hidden viewport.
-    * QComboBox forces its line edit to NoContextMenu and builds the menu
-      itself, so ONE ``contextMenuEvent`` override covers the text area and
-      the drop-down arrow together.
-
-    A QMenu is never exec'd inside the dropdown's Qt::Popup grab: the row
-    and the screen position are captured, the popup is dismissed, and the
-    menu opens on the next event-loop turn. The first 250 ms after the
-    popup opens are refused outright — inside that window Windows' combo
-    animation makes hidePopup() a no-op (the popup comes back up anyway),
-    which is exactly how a nested grab would wedge the UI.
+    Everything image-specific stays out here: the removal/clear closures and
+    the phantom-activation guard are wired in ``MainWindow.setupUI``, because
+    forgetting an image path also has to unload the disk.
     """
 
-    removeIndexRequested = Signal(int)
-    clearHistoryRequested = Signal()
-
-    # Right-clicks inside this window after the dropdown opened are refused:
-    # see the class docstring (hidePopup() is a no-op while the open
-    # animation runs, and a menu over a live popup is a nested grab).
-    _POPUP_SETTLE_S = 0.25
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._popup_shown_at = 0.0
-        self._armed_view = None
-
-    # ---- history helpers --------------------------------------------------
-
-    def history_index(self, text):
-        """Row of *text* in the remembered list, or -1.
-
-        Compared the way the filesystem compares: normalize_sd_image_path
-        first (stray quotes, native separators) and then os.path.normcase,
-        because C:\\TEMP\\next.img and C:\\temp\\next.img are one path on
-        Windows and QComboBox.findText would call them two."""
-        wanted = os.path.normcase(normalize_sd_image_path(text))
-        if not wanted:
-            return -1
-        for i in range(self.count()):
-            if os.path.normcase(normalize_sd_image_path(self.itemText(i))) == wanted:
-                return i
-        return -1
-
-    @staticmethod
-    def _menu_path_label(path, limit=64):
-        """A path made fit for a menu label: shortened around the middle so
-        the drive and the file name survive (a full image path can be wider
-        than the screen), and '&' doubled — Qt reads a single one as the
-        mnemonic marker, which ate the ampersand in 'Rock & Roll'."""
-        text = str(path)
-        if len(text) > limit:
-            head, tail = text[:limit // 3], text[-(limit - limit // 3 - 1):]
-            text = f"{head}…{tail}"
-        return text.replace("&", "&&")
-
-    # ---- the dropdown's event filter --------------------------------------
-
-    def _arm_popup_view(self):
-        """(Re)install the dropdown hooks. self.view() is only guaranteed to
-        be the same object until something calls setView/setEditable, so the
-        arming is idempotent and keyed on the view identity. Both the view
-        (keys) and its viewport (mouse) are filtered."""
-        view = self.view()
-        if view is None or self._armed_view is view:
-            return
-        self._armed_view = view
-        view.installEventFilter(self)
-        view.viewport().installEventFilter(self)
-
-    def eventFilter(self, obj, event):
-        view = self._armed_view
-        if view is not None and obj in (view, view.viewport()):
-            etype = event.type()
-            # Delete forgets the highlighted row in place. KeyPress only:
-            # ShortcutOverride arrives first with the same key() and would
-            # fire the removal twice.
-            if etype == QtCore.QEvent.Type.KeyPress:
-                if event.key() == Qt.Key.Key_Delete:
-                    row = view.currentIndex().row()
-                    if 0 <= row < self.count():
-                        self.removeIndexRequested.emit(row)
-                        self.refresh_open_popup(row)
-                    return True
-            # The container selects (and so LOADS) a row on ANY button
-            # release, right one included. Swallow the whole right-button
-            # gesture and open the menu from the press instead.
-            elif etype in (QtCore.QEvent.Type.MouseButtonPress,
-                           QtCore.QEvent.Type.MouseButtonRelease,
-                           QtCore.QEvent.Type.MouseButtonDblClick):
-                if event.button() == Qt.MouseButton.RightButton:
-                    if etype == QtCore.QEvent.Type.MouseButtonPress:
-                        self._popup_menu_from_press(view, event)
-                    return True
-        return super().eventFilter(obj, event)
-
-    def _popup_menu_from_press(self, view, event):
-        """Right-press on a dropdown row: remember what was hit, then open
-        the menu once the popup's grab is gone."""
-        if time.monotonic() - self._popup_shown_at < self._POPUP_SETTLE_S:
-            return                      # see _POPUP_SETTLE_S
-        # indexAt() wants VIEWPORT coordinates, and a mouse event delivered
-        # to either the view or its viewport carries viewport ones here (the
-        # scroll area hands the event on unchanged) — so no remap: the
-        # frame-width remap this started life with picked the row ABOVE on
-        # every row boundary.
-        row = view.indexAt(event.position().toPoint()).row()
-        where = event.globalPosition().toPoint()
-        self.hidePopup()
-        QTimer.singleShot(0, lambda: self._exec_history_menu(where, row))
-
-    def showPopup(self):
-        self._popup_shown_at = time.monotonic()
-        self._arm_popup_view()
-        super().showPopup()
-
-    def refresh_open_popup(self, keep_row=-1):
-        """Re-lay an OPEN dropdown after a row was removed underneath it.
-
-        The container is sized when it opens, so a row removed under it
-        leaves a blank strip; showPopup() on an already-open popup
-        re-measures it in place, with no hide/show flicker. No-op when the
-        popup is closed (the '✕' button's path) or while the box is locked
-        mid-load — a live dropdown over a disabled combo can still be
-        clicked, and that click would re-enter load_image()."""
-        try:
-            view = self.view()
-            if view is None or not view.isVisible() or not self.isEnabled():
-                return
-            if not self.count():
-                self.hidePopup()
-                return
-            self.showPopup()
-            row = min(max(keep_row, 0), self.count() - 1)
-            self.view().setCurrentIndex(
-                self.model().index(row, self.modelColumn()))
-        except RuntimeError:
-            pass
-
-    # ---- the menus --------------------------------------------------------
-
-    def contextMenuEvent(self, event):
-        """Right-click on the BOX. One override covers the text area and the
-        drop-down arrow: QComboBox pins its line edit to NoContextMenu and
-        builds the menu itself, so both land here."""
-        line = self.lineEdit()
-        menu = line.createStandardContextMenu() if line is not None else None
-        if menu is not None:
-            menu.setParent(self, menu.windowFlags())
-        event.accept()
-        self._exec_history_menu(event.globalPos(),
-                                self.history_index(self.currentText()),
-                                menu=menu)
-
-    def _exec_history_menu(self, global_pos, row, menu=None):
-        if menu is None:
-            menu = QMenu(self)
-        elif not menu.isEmpty():
-            menu.addSeparator()
-        if 0 <= row < self.count():
-            act_remove = menu.addAction(
-                ui_tr_now('Remove "{path}" from the list').format(
-                    path=self._menu_path_label(self.itemText(row))))
-            act_remove.triggered.connect(
-                lambda _checked=False, r=row: self.removeIndexRequested.emit(r))
-        act_clear = menu.addAction(ui_tr_now("Clear the whole list"))
-        act_clear.setEnabled(self.count() > 0)
-        # Deferred: the confirm dialog must not open inside the menu's own
-        # input grab (see the NextSync explorer menu for the same rule).
-        act_clear.triggered.connect(
-            lambda _checked=False: QTimer.singleShot(
-                0, self.clearHistoryRequested.emit))
-        menu.exec(global_pos)
-        menu.deleteLater()
+    # C:\TEMP\next.img and C:\temp\next.img are one path on Windows, so the
+    # base's history_index compares through this rather than by raw text.
+    canonicalize = staticmethod(normalize_sd_image_path)
 
 
 class _CompleterPopupHider(QtCore.QObject):
@@ -2299,6 +2103,15 @@ class MainWindow(QMainWindow):
                 if clean and clean not in history_items:
                     history_items.append(clean)
             configuration_dictionary[SETTING_IMAGE_HISTORY] = "|".join(history_items)
+            # The SD Card tab's local FOLDER history (9.7.22), scraped from
+            # the live combo exactly as the image list above is - so the
+            # places that mutate it need no second write path and the two
+            # mechanisms can never fight over one key. The Remote
+            # Explorer's twin is deliberately NOT written here: that widget
+            # is built lazily and may never exist, and a user who never
+            # opens the view must keep their saved list untouched.
+            configuration_dictionary[SETTING_EXPLORERPATH_HISTORY] = (
+                self.local_file_explorer_path.history_to_cfg())
 
             # ---- the last-look UX capture (9.5.14): the monitor, window
             # size and explorer column widths as they stand RIGHT NOW, so
@@ -3033,6 +2846,7 @@ class MainWindow(QMainWindow):
         self.image_usage_gauge = _pane.image_usage_gauge
         self.image_explorer_container = _pane.image_explorer_container
         self.local_file_explorer_path = _pane.local_file_explorer_path
+        self.local_path_clear = _pane.local_path_clear
         self.localexplorerlabel = _pane.localexplorerlabel
         self.local_explorer_up_button = _pane.local_explorer_up_button
         self.local_explorer_refresh_button = _pane.local_explorer_refresh_button

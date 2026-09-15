@@ -71,8 +71,11 @@ from zxnu_i18n import ui_tr_now
 # Explorer (where it was born) rather than copied: one painted widget
 # means the two strips cannot drift apart.
 from zxnu_remote_explorer import EmulatorTab, emulator_color_menu
-from zxnu_config import (SETTING_EXPLORERPATH, SETTING_IMAGE_EXPLORERPATH,
-                         SPLITTER_HANDLE_QSS_HORIZONTAL, is_filetype_a_directory)
+from zxnu_config import (MAX_PATH_HISTORY, SETTING_EXPLORERPATH,
+                         SETTING_IMAGE_EXPLORERPATH,
+                         SPLITTER_HANDLE_QSS_HORIZONTAL,
+                         is_filetype_a_directory, normalize_history_folder)
+from zxnu_pathhistorycombo import FolderHistoryCombo
 from zxnu_workers import (CompactButton, DotDotFirstProxyModel,
                           HdfTaskWorker, as_emulator_launch,
                           bind_select_all_except_updir)
@@ -209,13 +212,33 @@ class SdCardExplorerPane(QWidget):
         # editable path box sits in its own row directly BELOW the tree —
         # the image-side one right above the New Folder / Rename / Delete
         # buttons, exactly where the Remote Explorer keeps its Next path.
-        self.local_file_explorer_path = QLineEdit()
+        # A history combo since 9.7.22 (it was a plain QLineEdit): the
+        # folders reached here are remembered and persisted, the way the
+        # image box above has remembered its images since 9.6.0. The
+        # QLineEdit call sites below it - setText/text/editingFinished -
+        # keep working through FolderHistoryCombo's compatibility surface.
+        # No setClearButtonEnabled: the inline "x" would sit ~20px from the
+        # new '✕' meaning something else entirely (blank the text vs forget
+        # the remembered folder), which is the confusion the image row was
+        # built to avoid - and it was inert here anyway, since an emptied
+        # box fails os.path.isdir and the mirror puts the path straight back.
+        self.local_file_explorer_path = FolderHistoryCombo(
+            cap=MAX_PATH_HISTORY,
+            on_changed=lambda _raw: self._hooks.save_config(),
+            current_path=self.local_current_view_dir,
+            log=lambda msg: self._hooks.log(msg),
+            # This box FOLLOWS the tree, so nothing would ever enter the
+            # list by double-clicking around: the menu entry is the way in.
+            offer_remember=True)
         self.local_file_explorer_path.setPlaceholderText("Local folder path...")
-        self.local_file_explorer_path.setClearButtonEnabled(True)
         self.local_file_explorer_path.setToolTip(
-            "Folder currently shown in the local file explorer below.\nType or paste a folder (or file) path and press Enter to navigate there;\nthe drive selector follows automatically."
+            "Folder currently shown in the local file explorer below.\nType or paste a folder (or file) path and press Enter to navigate there;\nthe drive selector follows automatically.\nRecently used folders are remembered: pick one from the arrow, right-click\nfor list options, or press Delete on a dropdown entry to forget it."
         )
         self.local_file_explorer_path.editingFinished.connect(self._on_local_path_edited)
+        self.local_file_explorer_path.pathActivated.connect(self._on_local_history_picked)
+        self.local_file_explorer_path.rememberRequested.connect(
+            self._on_local_remember_requested)
+        self.local_path_clear = self.local_file_explorer_path.clear_button
 
         self.local_explorer_up_button = CompactButton("Up", self)
         self.local_explorer_up_button.setToolTip("Go up one folder in the local file explorer\n(same as double-clicking its '..' entry).")
@@ -240,6 +263,8 @@ class SdCardExplorerPane(QWidget):
         local_path_row.setContentsMargins(0, 0, 0, 0)
         local_path_row.addWidget(self.localexplorerlabel)
         local_path_row.addWidget(self.local_file_explorer_path, 1)
+        # Stretch 0, so the '✕' stays put while the box takes the slack.
+        local_path_row.addWidget(self.local_path_clear)
 
         self.image_explorer_up_button = CompactButton("Up", self)
         self.image_explorer_up_button.setToolTip("Select the parent folder inside the SD card image\n(at the top level this returns the target to the image root).")
@@ -505,15 +530,27 @@ class SdCardExplorerPane(QWidget):
                     break
         self.local_file_explorer_path.setText(path)
 
-    def local_navigate_to_dir(self, dest):
+    def local_navigate_to_dir(self, dest, *, remember=False):
         """Root the local tree at *dest* (forward slashes, trailing '/'),
-        persist it like a double-click navigation, and sync the path box."""
+        persist it like a double-click navigation, and sync the path box.
+
+        *remember* adds *dest* to the path box's remembered list (9.7.22).
+        It defaults to False because most callers are the WALKING TRAIL -
+        double-click, Up, Refresh, a drive switch, the startup restore -
+        and a 15-entry list of folders merely passed through on the way
+        somewhere is worth nothing. Only a deliberate choice sets it: a
+        typed or pasted path, a pick from the dropdown, or the menu's
+        'Remember this folder'.
+        """
         host = self._host
         host.left_file_explorer_selection_file_name = ""
         host.left_file_explorer_selection_full_filename_path = dest
         self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(dest, 0)))
         self._hooks.set_treeview_properties()
         self.treeview.show()
+        if remember:
+            # Before the save below, so the one save_config call carries it.
+            self.local_file_explorer_path.remember(dest)
         self._hooks.set_setting(SETTING_EXPLORERPATH, dest)
         self._hooks.save_config()
         self.local_sync_path_box()
@@ -575,9 +612,34 @@ class SdCardExplorerPane(QWidget):
             norm = new_path.replace("\\", "/")
             if not norm.endswith("/"):
                 norm += "/"
-            self.local_navigate_to_dir(norm)
+            self.local_navigate_to_dir(norm, remember=True)
         else:
             self.local_sync_path_box()
+
+    def _on_local_history_picked(self, path):
+        """A folder picked from the path box's dropdown (9.7.22): navigate
+        there exactly as a typed path would.
+
+        A remembered folder that has since been deleted or unplugged simply
+        fails and leaves the tree where it was - the row stays for the user
+        to forget with the '✕' - rather than rooting the explorer on
+        nothing."""
+        clean = normalize_history_folder(path)
+        if clean and os.path.isdir(clean):
+            self.local_navigate_to_dir(clean.rstrip("/") + "/", remember=True)
+        else:
+            self._hooks.log(ui_tr_now(
+                "Remembered folder is no longer there: {path}").format(
+                    path=path))
+            self.local_sync_path_box()
+
+    def _on_local_remember_requested(self):
+        """The path box menu's 'Remember this folder' (9.7.22): the only
+        way the folder the tree is SITTING in enters the list, since plain
+        navigation deliberately never does."""
+        if self.local_file_explorer_path.remember(
+                normalize_history_folder(self.local_current_view_dir())):
+            self._hooks.save_config()
 
     def local_explorer_up(self):
         """Navigate one folder up — the 'Up' button twin of double-clicking

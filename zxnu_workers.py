@@ -144,6 +144,12 @@ class CompactButton(QPushButton):
         self.setMaximumWidth(max(self._fit_floor, needed))
 
 
+# PathHistoryCombo / FolderHistoryCombo - the shared editable path boxes with a
+# remembered dropdown - moved to zxnu_pathhistorycombo.py in 9.7.22, so this
+# module stays about background work. They import CompactButton from here; do
+# not import them back, or the two modules become a cycle.
+
+
 # One emulator's "start this file" context-menu entry.
 #   name        "CSpect" / "MAME" — for composing messages about it
 #   label       the ready-to-use, already-translated menu label
