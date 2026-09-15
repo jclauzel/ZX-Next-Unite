@@ -886,7 +886,7 @@ RE_REPLY_TIMEOUT = 60.0
 #: 400 -> 620 AT 9.7.24, and NOT for a reason of its own: this limit must
 #: outlast one whole relayed bridge op, and that op's budget
 #: (zxnu_http_bridge.LONG_TIMEOUT) went 270 -> 570 to follow ZXNextRemote
-#: 1.2.8's raised client patience. The ~330 s floor above is untouched and
+#: 1.3.2's raised client patience. The ~330 s floor above is untouched and
 #: still satisfied — the Next's own verdict lands first, which is the
 #: ordering that matters. Three more minutes of a zombie seat is the cost
 #: of letting a multi-megabyte file cross the bridge.

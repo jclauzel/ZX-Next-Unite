@@ -282,7 +282,7 @@ def test_silence_limit_outlasts_the_next_verdict():
     the bridge's LONG_TIMEOUT, the longest single relayed op it waits out.
 
     THE SECOND CHECK IS WHY THE REAPER MOVED AT 9.7.24: LONG_TIMEOUT went
-    270 -> 570 to follow ZXNextRemote 1.2.8's client patience, and 400 was
+    270 -> 570 to follow ZXNextRemote 1.3.2's client patience, and 400 was
     no longer above it."""
     from zxnu_http_bridge import LONG_TIMEOUT
     check("silence: reaper outlasts the Next's ~330 s worst-case verdict",
@@ -297,12 +297,12 @@ def test_long_timeout_under_client_patience():
     """The bridge must give up BEFORE its strictest client does, or the user
     sees silence instead of a 504 naming the stalled operation.
 
-    THE CLIENT MOVED AT ZXNextRemote 1.2.8: HTTP_FIRSTBYTE_TICKS went 300 ->
+    THE CLIENT MOVED AT ZXNextRemote 1.3.2: HTTP_FIRSTBYTE_TICKS went 300 ->
     600 s so a multi-megabyte file can cross the bridge, and LONG_TIMEOUT
     followed it to 570. Both numbers here are that pair — change them
     together, in that order, or the rule stops meaning anything."""
     from zxnu_http_bridge import LONG_TIMEOUT
-    # ZXNextRemote's HTTP_FIRSTBYTE_TICKS is 10 minutes (600 s) since 1.2.8.
+    # ZXNextRemote's HTTP_FIRSTBYTE_TICKS is 10 minutes (600 s) since 1.3.2.
     check("timeout: bridge answers before a 600 s client gives up",
           LONG_TIMEOUT < 600.0, LONG_TIMEOUT)
     check("timeout: still long enough for a real relayed transfer",

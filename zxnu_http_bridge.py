@@ -117,7 +117,7 @@ DEFAULT_TIMEOUT = 45.0     # quick verbs: one poll round-trip + margin
 # client will wait has already failed from the client's seat. Raise BOTH
 # together if the bridge ever streams instead of collect-then-respond.
 #
-# 270 -> 570 AT 9.7.24, because that client moved: ZXNextRemote 1.2.8
+# 270 -> 570 AT 9.7.24, because that client moved: ZXNextRemote 1.3.2
 # raised its first-byte patience 300 -> 600 s (HTTP_FIRSTBYTE_TICKS) so a
 # multi-megabyte file can cross the bridge at all — at the 115200 its
 # transport is pinned to, 5 MB is nine minutes of download, and the old
@@ -482,6 +482,13 @@ class NextSyncHttpBridge:
         # any off=0 request refreshes it, serving the final slice drops it.
         self._get_cache = {"path": None, "data": b""}
         self._get_cache_lock = threading.Lock()
+        # Ranged /ls relay cache, the same shape and for the same reason
+        # (9.7.25): a client whose de-framer ring is smaller than one
+        # listing pulls it in slices, and the far Next must still be asked
+        # only once. One entry; any off=0 refreshes it, the final slice
+        # drops it.
+        self._ls_cache = {"path": None, "text": b""}
+        self._ls_cache_lock = threading.Lock()
         # In-flight request registry: rid -> [method, path, start, last_note].
         # Every request is tracked whether or not -v is on, because the two
         # things it powers are worth having always: the live count (exposed
@@ -666,6 +673,8 @@ class NextSyncHttpBridge:
             self._put_spool.clear()   # drop any unfinished chunked uploads
         with self._get_cache_lock:
             self._get_cache = {"path": None, "data": b""}
+        with self._ls_cache_lock:
+            self._ls_cache = {"path": None, "text": b""}
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -1016,22 +1025,70 @@ class NextSyncHttpBridge:
                           ["OK", f"version-number: {v}"])
 
         # ---- listing --------------------------------------------------
-        @app.route("/ls")
-        def _ls():
-            v = need(("path", "dir"))
-            path = v[0] if v else "/"
+        def _ls_relay(path):
+            """One listing relay, rendered both ways. Returns
+            (payload, lines, None) or (None, None, error response)."""
             res = run("ls", path)
             if not res.get("ok"):
-                return fail(res, f"ls {path}")
+                return None, None, fail(res, f"ls {path}")
             entries = res.get("entries") or []
             lines = [f"OK {len(entries)} entries"]
             for is_dir, size, name in entries:
                 lines.append(f"{'D' if is_dir else 'F'}\t{size}\t{name}")
-            return answer(
-                {"ok": True, "path": path,
-                 "entries": [{"dir": bool(d), "size": s, "name": n}
-                             for d, s, n in entries]},
-                lines)
+            payload = {"ok": True, "path": path,
+                       "entries": [{"dir": bool(d), "size": s, "name": n}
+                                   for d, s, n in entries]}
+            return payload, lines, None
+
+        @app.route("/ls")
+        def _ls():
+            v = need(("path", "dir"))
+            path = v[0] if v else "/"
+            off_arg = request.args.get("off")
+            if off_arg is None:
+                payload, lines, err = _ls_relay(path)
+                if err is not None:
+                    return err
+                return answer(payload, lines)
+            # ---- ranged slices (9.7.25, ZXNextRemote 1.3.2) -------------
+            # The SAME contract /get's slices use: &off=&len= serve windows
+            # of one relay, a SHORT slice is EOF, X-Total-Size rides along.
+            # It exists because a listing is one continuous response and
+            # the Next's de-framer ring holds 1023 payload bytes: above
+            # 115200 the excess waits in a 512-byte hardware FIFO with
+            # 4.4 ms of grace, and a 940-byte listing loses its tail
+            # repeatably. Slices keep every response under that.
+            #
+            # ALWAYS the plain-text body, never JSON: a slice of one half
+            # of a JSON document is not JSON, and the only client that
+            # slices is the Next, which reads the text form. The unsliced
+            # route above still answers either shape.
+            try:
+                off = int(off_arg)
+                ln = int(request.args.get("len") or "512")
+            except ValueError:
+                return bad("off/len must be integers")
+            if off < 0 or not (1 <= ln <= 16384):
+                return bad("off/len out of range")
+            with self._ls_cache_lock:
+                c = self._ls_cache
+                text = c["text"] if (off and c["path"] == skey(path)) else None
+            if text is None:
+                _payload, lines, err = _ls_relay(path)
+                if err is not None:
+                    return err
+                text = ("\n".join(lines) + "\n").encode("utf-8")
+                with self._ls_cache_lock:
+                    self._ls_cache = {"path": skey(path), "text": text}
+            chunk = bytes(text[off:off + ln])
+            if off + ln >= len(text):
+                with self._ls_cache_lock:
+                    if self._ls_cache["path"] == skey(path):
+                        self._ls_cache = {"path": None, "text": b""}
+            elif off and not self._verbose:
+                request.environ["zxnu.trace_quiet"] = True
+            return Response(chunk, mimetype="text/plain",
+                            headers={"X-Total-Size": str(len(text))})
 
         # ---- file transfer -------------------------------------------
         @app.route("/get")
