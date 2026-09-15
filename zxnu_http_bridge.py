@@ -111,13 +111,27 @@ def flask_available():
         return False
 DEFAULT_TIMEOUT = 45.0     # quick verbs: one poll round-trip + margin
 # get/put/rcpy/rfsize/rmtree can move real data. Deliberately just UNDER
-# the patience of the strictest known client (ZXNextRemote gives a relayed
-# transfer 300 s to produce its first byte): whoever gives up first decides
-# what the user sees, and a 504 naming the stalled op beats silence. It
-# costs nothing real — a relay that needs longer than the client will wait
-# has already failed from the client's seat. Raise BOTH together if the
-# bridge ever streams instead of collect-then-respond.
-LONG_TIMEOUT = 270.0
+# the patience of the strictest known client: whoever gives up first
+# decides what the user sees, and a 504 naming the stalled op beats
+# silence. It costs nothing real — a relay that needs longer than the
+# client will wait has already failed from the client's seat. Raise BOTH
+# together if the bridge ever streams instead of collect-then-respond.
+#
+# 270 -> 570 AT 9.7.24, because that client moved: ZXNextRemote 1.2.8
+# raised its first-byte patience 300 -> 600 s (HTTP_FIRSTBYTE_TICKS) so a
+# multi-megabyte file can cross the bridge at all — at the 115200 its
+# transport is pinned to, 5 MB is nine minutes of download, and the old
+# ceiling cut it off mid-body. This 270 was the OTHER half of that wall:
+# it is this side's budget for pulling the file off the far Next, so a far
+# seat that is itself slow could not hand over much more than 2.5 MB
+# before this 504'd. 570 keeps the "just under" rule against the new 600.
+#
+# IT DRAGS THE REAPER WITH IT. PEER_SILENCE_LIMIT must stay ABOVE this
+# (tests/test_bridge_stall.py pins it), or a long relayed op reads as a
+# dead peer — hence 400 -> 620 in zxnu_workers.py. The price is on that
+# constant's own note: a Next that vanishes without a FIN holds its seat
+# for ~10 min rather than ~7.
+LONG_TIMEOUT = 570.0
 _LONG_OPS = ("get", "put", "rcpy", "rfsize", "rmtree", "crc")
 
 # ---- "that listener has no crc op" as a STATUS, not as prose (9.7.17) ----
