@@ -117,7 +117,7 @@ DEFAULT_TIMEOUT = 45.0     # quick verbs: one poll round-trip + margin
 # client will wait has already failed from the client's seat. Raise BOTH
 # together if the bridge ever streams instead of collect-then-respond.
 #
-# 270 -> 570 AT 9.7.24, because that client moved: ZXNextRemote 1.3.2
+# 270 -> 570 AT 9.7.24, because that client moved: ZXNextRemote 1.3.4
 # raised its first-byte patience 300 -> 600 s (HTTP_FIRSTBYTE_TICKS) so a
 # multi-megabyte file can cross the bridge at all — at the 115200 its
 # transport is pinned to, 5 MB is nine minutes of download, and the old
@@ -1050,7 +1050,7 @@ class NextSyncHttpBridge:
                 if err is not None:
                     return err
                 return answer(payload, lines)
-            # ---- ranged slices (9.7.25, ZXNextRemote 1.3.2) -------------
+            # ---- ranged slices (9.7.25, ZXNextRemote 1.3.4) -------------
             # The SAME contract /get's slices use: &off=&len= serve windows
             # of one relay, a SHORT slice is EOF, X-Total-Size rides along.
             # It exists because a listing is one continuous response and
