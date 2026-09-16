@@ -2223,6 +2223,45 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             return True
                         _re_sendpacket(conn, opc + path.encode(), 0)
                         if _re_reply_call(conn, _h):
+                            # MKDIR IS IDEMPOTENT (9.7.27). A refusal here
+                            # most often means the directory is already
+                            # there, and NextSync's own mkdir op merges in
+                            # that case - so the bridge refusing was the
+                            # same machine giving two answers depending on
+                            # which protocol asked. ZXNextRemote's walker
+                            # settles which is right: it ignores the mkdir
+                            # result for SUB-directories during a paste, so
+                            # a collision there has always been tolerated
+                            # and only the top-level one was fatal.
+                            #
+                            # Ask whether the path is already a listable
+                            # directory: 'E' terminates a listing and 'F'
+                            # is a refusal, so a clean 'E' means it exists
+                            # and mkdir had nothing to do. An os-protected
+                            # refusal is left alone - that one means
+                            # something of its own. A real failure (bad
+                            # name, full card, read-only) still fails,
+                            # because none of those will list.
+                            #
+                            # One extra round trip, and only after mkdir
+                            # has already said no - on a healthy paste,
+                            # never.
+                            if (op == "mkdir" and not res['ok']
+                                    and not res['osp']):
+                                ex = {'failed': False}
+
+                                def _hx(payload, _x=ex):
+                                    o = payload[0:1]
+                                    if o == b'E':
+                                        return True
+                                    if o == b'F':
+                                        _x['failed'] = True
+                                        return True
+                                    return False
+                                _re_sendpacket(conn, b"L" + path.encode(), 0)
+                                if (_re_reply_call(conn, _hx)
+                                        and not ex['failed']):
+                                    res['ok'] = True
                             if res['osp'] and reply:
                                 reply.put({'ok': False, 'error': RE_OSP_ERROR,
                                            'http': 401})
