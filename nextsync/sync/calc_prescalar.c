@@ -31,7 +31,14 @@ void calc_prescalar(int bps)
     int vid;
     for (vid = 0; vid < 8; vid++)
     {
-        printf("%5d, ", video_timing[vid] / bps_values[bps]);    
+        /* ROUND, DO NOT TRUNCATE (5.9.4). Plain integer division is
+           what put the shipped table one low on five of the eight video
+           timings: 28571429/1152000 is 24.80, and 24 puts the wire 3.3%
+           above the rate the ESP is told while 25 puts it 0.8% below. The
+           ORIGINAL hand-written table at the bottom of this file rounded;
+           regenerating it with this line is what lost that. */
+        printf("%5d, ", (video_timing[vid] + bps_values[bps] / 2)
+                        / bps_values[bps]);    
     }
     printf("// (%d) %d\n", bps, bps_values[bps]);
 }

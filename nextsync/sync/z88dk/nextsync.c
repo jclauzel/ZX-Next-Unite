@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.3"
+#define SYNC_VERSION "5.9.4"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -141,10 +141,25 @@ void live_tick(void)
 // ADDING A RATE means adding its row here AND its index in the
 // g_fast_uart_mode assignment; the old 15-row table is in the 5.9.2 source
 // if a rate needs to come back.
+// CORRECTED IN 5.9.4, AND THIS WAS A REGRESSION, not an original sin.
+// calc_prescalar.c divided with plain integer division, so the regenerated
+// table TRUNCATED where the original hand-written one (still quoted at the
+// foot of calc_prescalar.c) rounded. Five of the eight 1152000 cells and
+// four of the 2000000 cells were one LOW, which puts the wire ~3% ABOVE
+// the nominal rate the ESP is handed - at the edge of what a UART
+// tolerates, and invisible because timings 0, 3 and 7 happened to agree.
+// ZXNextRemote recalculated the same numbers independently at its 1.2.9
+// and arrived here too.
+//
+// STILL NOT EXACT, and it cannot be: the prescalar is an integer divisor
+// of the video clock, so 27000/2000 = 13.5 rounds to 14 and leaves timing
+// 7 at -fast 3.6% off whichever way it goes. The cure for THAT is to tell
+// the ESP the rate we are really running (clock / prescalar) instead of
+// the nominal one, which is what gofast() still does not do.
 static const unsigned short prescalar_values[] = {
-  243,   248,   255,   260,   269,   277,   286,   234, // (0) 115200
-   24,    24,    25,    26,    26,    27,    28,    23, // (1) 1152000
-   14,    14,    14,    15,    15,    16,    16,    13  // (2) 2000000
+  243,   248,   256,   260,   269,   278,   286,   234, // (0) 115200
+   24,    25,    26,    26,    27,    28,    29,    23, // (1) 1152000
+   14,    14,    15,    15,    16,    16,    17,    14  // (2) 2000000
 };
 
 // Uart setup based on code by D. ‘Xalior’ Rimron-Soutter
@@ -1475,6 +1490,43 @@ int main(int arglen, char *rawcmd)
              (g_syncmode == MODE_DEFAULT) ? "default (1152000)" :
                                             "fast (2000000)");
     conprint("\r");
+
+    // WHAT THIS MACHINE ACTUALLY IS (5.9.4), printed before anything
+    // touches the wire, because two of these three decide what this UART
+    // can do and neither was ever visible:
+    //
+    //   iss<N>  nextreg 0x0F bits 3:0, + 2 = the BOARD ISSUE. This is not
+    //           cosmetic: issue 2 (KS1, and the N-GO) has no esp_cts_n_o
+    //           or esp_rtr_n_i in its top-level entity at all, so hardware
+    //           flow control there is not switched off - it does not
+    //           exist, and the ESP can never be told to pause. Issue 4 and
+    //           5 have the pins.
+    //   t<N>    nextreg 0x11 & 7, the video timing. It selects the clock
+    //           the baud prescalar divides, i.e. the row of the table
+    //           above, so it is half of what sets the real wire rate.
+    //   ps<N>   the prescalar this run will program. The wire runs at
+    //           clock / ps, which is NOT the nominal rate handed to the
+    //           ESP - with these two numbers a user can work out the
+    //           mismatch themselves.
+    // ONE TEMPLATE, PATCHED IN PLACE, PRINTED ONCE - and that shape is
+    // forced, not preferred. The first cut spent four rodata literals and
+    // five conprint calls, and build_dotn.ps1 threw: 134 bytes between
+    // __BSS_END and REGISTER_SP against 5.7.1's hardware-proven floor of
+    // 156. That guard is not advisory; 5.7.2 scrambled the -anim state at
+    // 46. nextreg 0x00 (machine ID) was dropped for the same reason - 0x0F
+    // is the register that decides whether flow control can exist at all.
+    {
+        char nb[16];
+        unsigned char bid = readnextreg(0x0F) & 0x0F;
+        unsigned char vt  = readnextreg(0x11) & 0x07;
+
+        memcpy(nb, "Brd - t- p", 11);            /* the NUL travels too */
+        nb[4] = (char)((bid < 4) ? ('2' + bid) : '?');
+        nb[7] = (char)('0' + vt);
+        uitoa(prescalar_values[((g_syncmode == MODE_SLOW)
+                                ? 0 : g_fast_uart_mode) * 8 + vt], nb + 10);
+        print(nb);
+    }
 
     nextreg6 = readnextreg(0x06);
     writenextreg(0x06, nextreg6 & 0x7d); // disable turbo key & 50/60 switch (leave other bits alone)
