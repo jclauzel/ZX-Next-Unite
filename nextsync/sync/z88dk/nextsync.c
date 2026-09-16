@@ -1546,15 +1546,38 @@ int main(int arglen, char *rawcmd)
     //           clock / ps, which is NOT the nominal rate handed to the
     //           ESP - with these two numbers a user can work out the
     //           mismatch themselves.
-    // ONE TEMPLATE, PATCHED IN PLACE, PRINTED ONCE - and that shape is
-    // forced, not preferred. The first cut spent four rodata literals and
-    // five conprint calls, and build_dotn.ps1 threw: 134 bytes between
-    // __BSS_END and REGISTER_SP against 5.7.1's hardware-proven floor of
-    // 156. That guard is not advisory; 5.7.2 scrambled the -anim state at
-    // 46. nextreg 0x00 (machine ID) was dropped for the same reason - 0x0F
-    // is the register that decides whether flow control can exist at all.
+    // WHAT THIS MACHINE ACTUALLY IS (5.9.4), as "Brd 2 t7 p14", before
+    // anything touches the wire. Two of the three decide what this UART
+    // can do and neither was ever visible from any screen:
+    //
+    //   Brd <n>  nextreg 0x0F bits 3:0, + 2 = the BOARD ISSUE. Not
+    //            cosmetic: issue 2 (KS1, and the N-GO) has no esp_cts_n_o
+    //            or esp_rtr_n_i in its top-level entity at all, so
+    //            hardware flow control there is not switched off - it does
+    //            not exist, and the ESP can never be told to pause. Issue
+    //            4 and 5 have the pins. The boot banner cannot tell you
+    //            this: a licensed clone shows its own logo and the stock
+    //            core version and stops there.
+    //   t<n>     nextreg 0x11 & 7, the video timing - it picks the clock
+    //            the prescalar divides, i.e. the row of the table above.
+    //   p<n>     the prescalar this run programs. The wire runs clock/p,
+    //            so these two numbers give the real rate.
+    //
+    // BUILT IN inbuf, NOT IN A LOCAL ARRAY, and that is the memory point.
+    // SDCC allocates a function's WHOLE frame at entry and main() sits
+    // under every deep call chain for the entire run, so a 16-byte local
+    // here would cost 16 bytes of the C stack arena at EVERY depth - and
+    // build_dotn.ps1 measures 0xC000 - __BSS_END_head, which counts bss
+    // and code but NOT frame locals, so it would report a comfortable
+    // number while the real margin sat under 5.7.1's proven floor. Giving
+    // it its own function was measured too: 15 bytes of code to save 16 of
+    // frame, a net gain of one byte, and it tripped the guard. inbuf costs
+    // nothing - it is dead here (the conffile copy above consumes it
+    // immediately, and the AT traffic that uses it next comes after this),
+    // exactly the argument sendpath already relies on to double as the
+    // command-line scratch.
     {
-        char nb[16];
+        char *nb = (char *)inbuf;
         unsigned char bid = readnextreg(0x0F) & 0x0F;
         unsigned char vt  = readnextreg(0x11) & 0x07;
 
