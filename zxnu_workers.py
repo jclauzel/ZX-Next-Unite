@@ -2223,45 +2223,25 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             return True
                         _re_sendpacket(conn, opc + path.encode(), 0)
                         if _re_reply_call(conn, _h):
-                            # MKDIR IS IDEMPOTENT (9.7.27). A refusal here
-                            # most often means the directory is already
-                            # there, and NextSync's own mkdir op merges in
-                            # that case - so the bridge refusing was the
-                            # same machine giving two answers depending on
-                            # which protocol asked. ZXNextRemote's walker
-                            # settles which is right: it ignores the mkdir
-                            # result for SUB-directories during a paste, so
-                            # a collision there has always been tolerated
-                            # and only the top-level one was fatal.
+                            # ONE COMMAND PER POLL CYCLE, and mkdir does not
+                            # get a second one (9.7.28). 9.7.27 tried to make
+                            # a refused mkdir idempotent from here by probing
+                            # "L<path>" and accepting a clean listing as proof
+                            # the directory already existed. The seat answered
+                            # "ls FAIL not an ack" - its PB_NOTOK - because
+                            # THE SEAT IS THE ONE THAT POLLS: every command in
+                            # this worker rides the seat's own cadence, and
+                            # that probe jammed a second one into a slot
+                            # already spent. The next ordinary ls succeeded,
+                            # so the link was never the problem.
                             #
-                            # Ask whether the path is already a listable
-                            # directory: 'E' terminates a listing and 'F'
-                            # is a refusal, so a clean 'E' means it exists
-                            # and mkdir had nothing to do. An os-protected
-                            # refusal is left alone - that one means
-                            # something of its own. A real failure (bad
-                            # name, full card, read-only) still fails,
-                            # because none of those will list.
-                            #
-                            # One extra round trip, and only after mkdir
-                            # has already said no - on a healthy paste,
-                            # never.
-                            if (op == "mkdir" and not res['ok']
-                                    and not res['osp']):
-                                ex = {'failed': False}
-
-                                def _hx(payload, _x=ex):
-                                    o = payload[0:1]
-                                    if o == b'E':
-                                        return True
-                                    if o == b'F':
-                                        _x['failed'] = True
-                                        return True
-                                    return False
-                                _re_sendpacket(conn, b"L" + path.encode(), 0)
-                                if (_re_reply_call(conn, _hx)
-                                        and not ex['failed']):
-                                    res['ok'] = True
+                            # It was also the wrong repo. The disagreement was
+                            # never protocol-vs-protocol; it was three mkdirs
+                            # inside ZXNextRemote, of which the File server's
+                            # 'M' op was the only one that refused an existing
+                            # directory. Fixed there, in the main-bank
+                            # fsx_mkdir wrapper (1.4.1). We relay the seat's
+                            # verdict verbatim, which is this worker's job.
                             if res['osp'] and reply:
                                 reply.put({'ok': False, 'error': RE_OSP_ERROR,
                                            'http': 401})
