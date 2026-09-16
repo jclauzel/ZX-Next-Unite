@@ -67,14 +67,7 @@ unsigned char sync_readdir(unsigned char handle, void *buf)
  * by the caller, which then retries the file create). */
 unsigned char sync_mkdir(const char *path)
 {
-   unsigned char h;
-   if (esx_f_mkdir(path) != 0xFF)
-      return 0;
-   h = esx_f_opendir(path);
-   if (h == 0xFF)
-      return 0xFF;
-   esx_f_close(h);
-   return 0;
+   return esx_f_mkdir(path);
 }
 
 /* rmdir / rm for the -listen commands. esxDOS returns 0xFF (and sets errno) on
