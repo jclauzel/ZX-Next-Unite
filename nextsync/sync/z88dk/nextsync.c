@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.3"
+#define SYNC_VERSION "5.9.4"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -141,10 +141,25 @@ void live_tick(void)
 // ADDING A RATE means adding its row here AND its index in the
 // g_fast_uart_mode assignment; the old 15-row table is in the 5.9.2 source
 // if a rate needs to come back.
+// CORRECTED IN 5.9.4, AND THIS WAS A REGRESSION, not an original sin.
+// calc_prescalar.c divided with plain integer division, so the regenerated
+// table TRUNCATED where the original hand-written one (still quoted at the
+// foot of calc_prescalar.c) rounded. Five of the eight 1152000 cells and
+// four of the 2000000 cells were one LOW, which puts the wire ~3% ABOVE
+// the nominal rate the ESP is handed - at the edge of what a UART
+// tolerates, and invisible because timings 0, 3 and 7 happened to agree.
+// ZXNextRemote recalculated the same numbers independently at its 1.2.9
+// and arrived here too.
+//
+// STILL NOT EXACT, and it cannot be: the prescalar is an integer divisor
+// of the video clock, so 27000/2000 = 13.5 rounds to 14 and leaves timing
+// 7 at -fast 3.6% off whichever way it goes. The cure for THAT is to tell
+// the ESP the rate we are really running (clock / prescalar) instead of
+// the nominal one, which is what gofast() still does not do.
 static const unsigned short prescalar_values[] = {
-  243,   248,   255,   260,   269,   277,   286,   234, // (0) 115200
-   24,    24,    25,    26,    26,    27,    28,    23, // (1) 1152000
-   14,    14,    14,    15,    15,    16,    16,    13  // (2) 2000000
+  243,   248,   256,   260,   269,   278,   286,   234, // (0) 115200
+   24,    25,    26,    26,    27,    28,    29,    23, // (1) 1152000
+   14,    14,    15,    15,    16,    16,    17,    14  // (2) 2000000
 };
 
 // Uart setup based on code by D. ‘Xalior’ Rimron-Soutter
@@ -441,12 +456,50 @@ void cipxfer(char *cmd, unsigned char cmdlen, unsigned char *output, unsigned sh
     *len = received - 2; // reduce size bytes    
 }
 
+// WHAT THE WIRE REALLY RUNS AT, in kHz, one row per fast mode and eight
+// columns of video timing - i.e. clock / prescalar, rounded, for exactly
+// the prescalars the table above programs. Row 0 is 1152000, row 1 is
+// 2000000 (g_fast_uart_mode - 1; gofast is never reached at -slow, which
+// leaves the module at its 115200 default).
+//
+// 16-BIT VALUES, NOT STRINGS, and that is the memory decision: sixteen
+// shorts are 32 bytes where sixteen 4-character cells would be 64, and
+// uitoa renders them for nothing since it is already linked and divides by
+// repeated subtraction. Computing clock/prescalar here instead would drag
+// in SDCC's division runtime, measured at 490 bytes when ZXNextRemote hit
+// this same wall at its 1.2.9.
+static const unsigned short khz_values[] = {
+  1167, 1143, 1133, 1154, 1148, 1143, 1138, 1174, // (1) 1152000
+  2000, 2041, 1964, 2000, 1938, 2000, 1941, 1929  // (2) 2000000
+};
+
 char gofast(char *inbuf)
 {
-    if (g_syncmode == MODE_FAST)
-        atcmd("AT+UART_CUR=2000000,8,1,0,0\r\n", "", 0, inbuf);
-    else
-        atcmd("AT+UART_CUR=1152000,8,1,0,0\r\n", "", 0, inbuf);
+    // TELL THE MODULE THE RATE WE ARE ACTUALLY PRODUCING (5.9.4). The
+    // prescalar is an integer divisor of the video clock, so the wire
+    // almost never runs at the nominal rate, and this used to hand the ESP
+    // the nominal one regardless. Two machines, same command:
+    //
+    //   Brd 4 t0 p14   28000/14 = 2000.0 kHz  told 2000000   0.00%
+    //   Brd 2 t7 p14   27000/14 = 1928.6 kHz  told 2000000  -3.57%
+    //
+    // -3.57% is outside what a UART tolerates, and rounding cannot fix it:
+    // 27000/2000 is 13.5 and no integer divisor exists. Saying the real
+    // number does. Built here rather than stored as sixteen full commands
+    // for the obvious reason.
+    //
+    // The buffer is a FRAME LOCAL: gofast runs once, at connect depth,
+    // nowhere near the deep sync and -listen loops the stack floor is
+    // sized for - and a static would spend the same bytes permanently, on
+    // the very budget build_dotn.ps1 guards.
+    char cmd[32];
+    unsigned char n;
+
+    memcpy(cmd, "AT+UART_CUR=", 12);
+    n = uitoa(khz_values[(g_fast_uart_mode - 1) * 8
+                         + (readnextreg(0x11) & 0x07)], cmd + 12);
+    memcpy(cmd + 12 + n, "000,8,1,0,0\r\n", 14);   /* the NUL travels too */
+    atcmd(cmd, "", 0, inbuf);
 
     setupuart(g_fast_uart_mode);
     flush_uart_hard();
@@ -1475,6 +1528,66 @@ int main(int arglen, char *rawcmd)
              (g_syncmode == MODE_DEFAULT) ? "default (1152000)" :
                                             "fast (2000000)");
     conprint("\r");
+
+    // WHAT THIS MACHINE ACTUALLY IS (5.9.4), printed before anything
+    // touches the wire, because two of these three decide what this UART
+    // can do and neither was ever visible:
+    //
+    //   iss<N>  nextreg 0x0F bits 3:0, + 2 = the BOARD ISSUE. This is not
+    //           cosmetic: issue 2 (KS1, and the N-GO) has no esp_cts_n_o
+    //           or esp_rtr_n_i in its top-level entity at all, so hardware
+    //           flow control there is not switched off - it does not
+    //           exist, and the ESP can never be told to pause. Issue 4 and
+    //           5 have the pins.
+    //   t<N>    nextreg 0x11 & 7, the video timing. It selects the clock
+    //           the baud prescalar divides, i.e. the row of the table
+    //           above, so it is half of what sets the real wire rate.
+    //   ps<N>   the prescalar this run will program. The wire runs at
+    //           clock / ps, which is NOT the nominal rate handed to the
+    //           ESP - with these two numbers a user can work out the
+    //           mismatch themselves.
+    // WHAT THIS MACHINE ACTUALLY IS (5.9.4), as "Brd 2 t7 p14", before
+    // anything touches the wire. Two of the three decide what this UART
+    // can do and neither was ever visible from any screen:
+    //
+    //   Brd <n>  nextreg 0x0F bits 3:0, + 2 = the BOARD ISSUE. Not
+    //            cosmetic: issue 2 (KS1, and the N-GO) has no esp_cts_n_o
+    //            or esp_rtr_n_i in its top-level entity at all, so
+    //            hardware flow control there is not switched off - it does
+    //            not exist, and the ESP can never be told to pause. Issue
+    //            4 and 5 have the pins. The boot banner cannot tell you
+    //            this: a licensed clone shows its own logo and the stock
+    //            core version and stops there.
+    //   t<n>     nextreg 0x11 & 7, the video timing - it picks the clock
+    //            the prescalar divides, i.e. the row of the table above.
+    //   p<n>     the prescalar this run programs. The wire runs clock/p,
+    //            so these two numbers give the real rate.
+    //
+    // BUILT IN inbuf, NOT IN A LOCAL ARRAY, and that is the memory point.
+    // SDCC allocates a function's WHOLE frame at entry and main() sits
+    // under every deep call chain for the entire run, so a 16-byte local
+    // here would cost 16 bytes of the C stack arena at EVERY depth - and
+    // build_dotn.ps1 measures 0xC000 - __BSS_END_head, which counts bss
+    // and code but NOT frame locals, so it would report a comfortable
+    // number while the real margin sat under 5.7.1's proven floor. Giving
+    // it its own function was measured too: 15 bytes of code to save 16 of
+    // frame, a net gain of one byte, and it tripped the guard. inbuf costs
+    // nothing - it is dead here (the conffile copy above consumes it
+    // immediately, and the AT traffic that uses it next comes after this),
+    // exactly the argument sendpath already relies on to double as the
+    // command-line scratch.
+    {
+        char *nb = (char *)inbuf;
+        unsigned char bid = readnextreg(0x0F) & 0x0F;
+        unsigned char vt  = readnextreg(0x11) & 0x07;
+
+        memcpy(nb, "Brd - t- p", 11);            /* the NUL travels too */
+        nb[4] = (char)((bid < 4) ? ('2' + bid) : '?');
+        nb[7] = (char)('0' + vt);
+        uitoa(prescalar_values[((g_syncmode == MODE_SLOW)
+                                ? 0 : g_fast_uart_mode) * 8 + vt], nb + 10);
+        print(nb);
+    }
 
     nextreg6 = readnextreg(0x06);
     writenextreg(0x06, nextreg6 & 0x7d); // disable turbo key & 50/60 switch (leave other bits alone)
