@@ -456,12 +456,50 @@ void cipxfer(char *cmd, unsigned char cmdlen, unsigned char *output, unsigned sh
     *len = received - 2; // reduce size bytes    
 }
 
+// WHAT THE WIRE REALLY RUNS AT, in kHz, one row per fast mode and eight
+// columns of video timing - i.e. clock / prescalar, rounded, for exactly
+// the prescalars the table above programs. Row 0 is 1152000, row 1 is
+// 2000000 (g_fast_uart_mode - 1; gofast is never reached at -slow, which
+// leaves the module at its 115200 default).
+//
+// 16-BIT VALUES, NOT STRINGS, and that is the memory decision: sixteen
+// shorts are 32 bytes where sixteen 4-character cells would be 64, and
+// uitoa renders them for nothing since it is already linked and divides by
+// repeated subtraction. Computing clock/prescalar here instead would drag
+// in SDCC's division runtime, measured at 490 bytes when ZXNextRemote hit
+// this same wall at its 1.2.9.
+static const unsigned short khz_values[] = {
+  1167, 1143, 1133, 1154, 1148, 1143, 1138, 1174, // (1) 1152000
+  2000, 2041, 1964, 2000, 1938, 2000, 1941, 1929  // (2) 2000000
+};
+
 char gofast(char *inbuf)
 {
-    if (g_syncmode == MODE_FAST)
-        atcmd("AT+UART_CUR=2000000,8,1,0,0\r\n", "", 0, inbuf);
-    else
-        atcmd("AT+UART_CUR=1152000,8,1,0,0\r\n", "", 0, inbuf);
+    // TELL THE MODULE THE RATE WE ARE ACTUALLY PRODUCING (5.9.4). The
+    // prescalar is an integer divisor of the video clock, so the wire
+    // almost never runs at the nominal rate, and this used to hand the ESP
+    // the nominal one regardless. Two machines, same command:
+    //
+    //   Brd 4 t0 p14   28000/14 = 2000.0 kHz  told 2000000   0.00%
+    //   Brd 2 t7 p14   27000/14 = 1928.6 kHz  told 2000000  -3.57%
+    //
+    // -3.57% is outside what a UART tolerates, and rounding cannot fix it:
+    // 27000/2000 is 13.5 and no integer divisor exists. Saying the real
+    // number does. Built here rather than stored as sixteen full commands
+    // for the obvious reason.
+    //
+    // The buffer is a FRAME LOCAL: gofast runs once, at connect depth,
+    // nowhere near the deep sync and -listen loops the stack floor is
+    // sized for - and a static would spend the same bytes permanently, on
+    // the very budget build_dotn.ps1 guards.
+    char cmd[32];
+    unsigned char n;
+
+    memcpy(cmd, "AT+UART_CUR=", 12);
+    n = uitoa(khz_values[(g_fast_uart_mode - 1) * 8
+                         + (readnextreg(0x11) & 0x07)], cmd + 12);
+    memcpy(cmd + 12 + n, "000,8,1,0,0\r\n", 14);   /* the NUL travels too */
+    atcmd(cmd, "", 0, inbuf);
 
     setupuart(g_fast_uart_mode);
     flush_uart_hard();
