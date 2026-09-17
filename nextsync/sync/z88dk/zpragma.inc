@@ -35,13 +35,61 @@
 // clones), the command-tail buffer the OS handed us was swapped away
 // mid-launch: the v5.6 diag build showed ptr=$E1D0 pointing at another
 // bank's tokenized BASIC, which is why ".sync5 <ip>" parsed garbage.
-// Marking mmu6+mmu7 "absolute" leaves the OS banks — and the command
-// tail — in place.
+//
+// CORRECTED 5.9.7 - the fix is right, this explanation of it was wrong, and
+// the fix's own mechanics disprove it. 0xc0 does not "leave the OS banks in
+// place": the crt writes all six MMU slots unconditionally, and for an
+// absolute page appmake fills the table with an identity map, so mmu6/mmu7
+// are FORCED to physical pages 0/1 = bank 0 - which is exactly what 128K
+// BASIC already has at $C000. Before the fix those entries were 0xFE
+// (allocate-only), i.e. FRESH banks carrying stale data mapped over
+// $C000-$FFFF. Had the N-Go really kept the line in some other bank up
+// there, forcing bank 0 in would have swapped it away just as thoroughly
+// and v5.6 would have fixed nothing.
+//
+// There is no N-Go special case. $E1D0 is simply (E_LINE) for a program of
+// roughly 34 KB - an ordinary address for an ordinary large program - and
+// the bug is that a dotN pages BASIC out from under the pointer NextZXOS
+// gave it. v5.6 fixed the UPPER window. $8000-$BFFF stayed dark until 5.9.7;
+// see CRT_ENABLE_COMMANDLINE below.
 #pragma output DOTN_MAIN_ABSOLUTE_MASK = 0xc0
 
 // Hand main() the unprocessed command line (len in 1st arg, pointer in 2nd) so
 // the app can do its own parsing and keep ':' in paths like "c:/foo".
-#pragma output CRT_ENABLE_COMMANDLINE = 2
+//
+// 2 -> 4 AT 5.9.7, AND IT IS THE TIMING THAT MATTERS, not the format. Mode 2
+// hands main() a RAW POINTER into live BASIC memory - the NextZXOS API doc
+// says the address "usually points within a BASIC statement", and for a typed
+// command that statement is the edit line at (E_LINE) = PROG + program length
+// + variables length + 1. The tail's address therefore CLIMBS with the size
+// of the user's BASIC program, and once it reaches $8000 this dot has mapped
+// its own pages over that window and reads ITS OWN CODE as the command line.
+//
+// A 16 KB BAND, measured on hardware: program+vars under ~9005 works, ~9005
+// to ~25397 is BROKEN, above ~25397 works again because the tail climbs out
+// past $C000. (6930 ok / 11276 broken / 26404 ok again, on a real Next and an
+// N-GO.) Nothing is corrupted - BASIC's program is safe in its own bank and
+// LISTs intact; only our VIEW of it goes dark, which is why this looked like
+// a parsing bug for so long.
+//
+// Mode 4 copies the tail at zxn_crt_798.asm.m4:546, with SP still at
+// DOTN_REGISTER_SP ($4000 - the DivMMC head page, never repaged) and about
+// twenty instructions BEFORE the crt's only mmu4/mmu5 writes. That is the
+// entire fix: the copy is taken while BASIC's own bank is still mapped. No
+// user code can be early enough - by the time main() runs, _main and
+// _tail_copy physically occupy the addresses the tail was at.
+//
+// The library's mode 4 is NOT what runs: crt_cmdline_esxdos.inc in THIS
+// directory overrides it, because the library's length scan stops at the
+// first ':' (so "-send c:/foo" would arrive as "-send c") and caps at 128
+// where tail_copy's contract is 158. The override keeps mode 4's timing,
+// terminates on $00/$0D only, caps at 160, and by dropping l_minu_bc_hl and
+// the ':'-aware scan costs the head page NOTHING - measured one byte smaller
+// than mode 2.
+//
+// NOT 1: on this target 1 means "push an EMPTY argc/argv", not "copy the
+// line" - it would break every invocation on every machine at every size.
+#pragma output CRT_ENABLE_COMMANDLINE = 4
 
 // Take the command line from HL (the argument tail, WITHOUT the ".sync" program
 // name), matching the original SDCC crt0. The dotN default is 0x80, whose bit 7

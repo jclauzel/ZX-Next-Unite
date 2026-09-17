@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.6"
+#define SYNC_VERSION "5.9.7"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
