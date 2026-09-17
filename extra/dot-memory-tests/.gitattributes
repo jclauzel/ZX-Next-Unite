@@ -1,0 +1,6 @@
+# The .bas files are TOKENISED BASIC with a 128-byte +3DOS header, not text.
+# Without this, a checkout on Windows would rewrite every 0x0A inside the
+# tokenised program - and 0x0A is both a line terminator in the BASIC stream
+# and an ordinary data byte - silently corrupting them and the header checksum
+# with them. Marked binary so git never touches the bytes.
+*.bas binary

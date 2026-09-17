@@ -1,0 +1,106 @@
+10 PRINT "Hello World"
+20 REM filler to fill the mmu3 window without reaching the dot main
+30 REM e mmu3 window without reaching the dot main bank at 8000 hex
+40 REM hout reaching the dot main bank at 8000 hex where the sync5 
+50 REM  dot main bank at 8000 hex where the sync5 command itself li
+60 REM  8000 hex where the sync5 command itself lives filler to fil
+70 REM he sync5 command itself lives filler to fill the mmu3 window
+80 REM itself lives filler to fill the mmu3 window without reaching
+90 REM er to fill the mmu3 window without reaching the dot main ban
+100 REM u3 window without reaching the dot main bank at 8000 hex whe
+110 REM  reaching the dot main bank at 8000 hex where the sync5 comm
+120 REM  main bank at 8000 hex where the sync5 command itself lives 
+130 REM 0 hex where the sync5 command itself lives filler to fill th
+140 REM ync5 command itself lives filler to fill the mmu3 window wit
+150 REM lf lives filler to fill the mmu3 window without reaching the
+160 REM o fill the mmu3 window without reaching the dot main bank at
+170 REM indow without reaching the dot main bank at 8000 hex where t
+180 REM ching the dot main bank at 8000 hex where the sync5 command 
+190 REM n bank at 8000 hex where the sync5 command itself lives fill
+200 REM x where the sync5 command itself lives filler to fill the mm
+210 REM  command itself lives filler to fill the mmu3 window without
+220 REM ives filler to fill the mmu3 window without reaching the dot
+230 REM ll the mmu3 window without reaching the dot main bank at 800
+240 REM w without reaching the dot main bank at 8000 hex where the s
+250 REM g the dot main bank at 8000 hex where the sync5 command itse
+260 REM nk at 8000 hex where the sync5 command itself lives filler t
+270 REM ere the sync5 command itself lives filler to fill the mmu3 w
+280 REM mand itself lives filler to fill the mmu3 window without rea
+290 REM  filler to fill the mmu3 window without reaching the dot mai
+300 REM he mmu3 window without reaching the dot main bank at 8000 he
+310 REM thout reaching the dot main bank at 8000 hex where the sync5
+320 REM e dot main bank at 8000 hex where the sync5 command itself l
+330 REM t 8000 hex where the sync5 command itself lives filler to fi
+340 REM the sync5 command itself lives filler to fill the mmu3 windo
+350 REM  itself lives filler to fill the mmu3 window without reachin
+360 REM ler to fill the mmu3 window without reaching the dot main ba
+370 REM mu3 window without reaching the dot main bank at 8000 hex wh
+380 REM t reaching the dot main bank at 8000 hex where the sync5 com
+390 REM t main bank at 8000 hex where the sync5 command itself lives
+400 REM 00 hex where the sync5 command itself lives filler to fill t
+410 REM sync5 command itself lives filler to fill the mmu3 window wi
+420 REM elf lives filler to fill the mmu3 window without reaching th
+430 REM to fill the mmu3 window without reaching the dot main bank a
+440 REM window without reaching the dot main bank at 8000 hex where 
+450 REM aching the dot main bank at 8000 hex where the sync5 command
+460 REM in bank at 8000 hex where the sync5 command itself lives fil
+470 REM ex where the sync5 command itself lives filler to fill the m
+480 REM 5 command itself lives filler to fill the mmu3 window withou
+490 REM lives filler to fill the mmu3 window without reaching the do
+500 REM ill the mmu3 window without reaching the dot main bank at 80
+510 REM ow without reaching the dot main bank at 8000 hex where the 
+520 REM ng the dot main bank at 8000 hex where the sync5 command its
+530 REM ank at 8000 hex where the sync5 command itself lives filler 
+540 REM here the sync5 command itself lives filler to fill the mmu3 
+550 REM mmand itself lives filler to fill the mmu3 window without re
+560 REM s filler to fill the mmu3 window without reaching the dot ma
+570 REM the mmu3 window without reaching the dot main bank at 8000 h
+580 REM ithout reaching the dot main bank at 8000 hex where the sync
+590 REM he dot main bank at 8000 hex where the sync5 command itself 
+600 REM at 8000 hex where the sync5 command itself lives filler to f
+610 REM  the sync5 command itself lives filler to fill the mmu3 wind
+620 REM d itself lives filler to fill the mmu3 window without reachi
+630 REM ller to fill the mmu3 window without reaching the dot main b
+640 REM mmu3 window without reaching the dot main bank at 8000 hex w
+650 REM ut reaching the dot main bank at 8000 hex where the sync5 co
+660 REM ot main bank at 8000 hex where the sync5 command itself live
+670 REM 000 hex where the sync5 command itself lives filler to fill 
+680 REM  sync5 command itself lives filler to fill the mmu3 window w
+690 REM self lives filler to fill the mmu3 window without reaching t
+700 REM  to fill the mmu3 window without reaching the dot main bank 
+710 REM  window without reaching the dot main bank at 8000 hex where
+720 REM eaching the dot main bank at 8000 hex where the sync5 comman
+730 REM ain bank at 8000 hex where the sync5 command itself lives fi
+740 REM hex where the sync5 command itself lives filler to fill the 
+750 REM c5 command itself lives filler to fill the mmu3 window witho
+760 REM  lives filler to fill the mmu3 window without reaching the d
+770 REM fill the mmu3 window without reaching the dot main bank at 8
+780 REM dow without reaching the dot main bank at 8000 hex where the
+790 REM ing the dot main bank at 8000 hex where the sync5 command it
+800 REM bank at 8000 hex where the sync5 command itself lives filler
+810 REM where the sync5 command itself lives filler to fill the mmu3
+820 REM ommand itself lives filler to fill the mmu3 window without r
+830 REM es filler to fill the mmu3 window without reaching the dot m
+840 REM  the mmu3 window without reaching the dot main bank at 8000 
+850 REM without reaching the dot main bank at 8000 hex where the syn
+860 REM the dot main bank at 8000 hex where the sync5 command itself
+870 REM  at 8000 hex where the sync5 command itself lives filler to 
+880 REM e the sync5 command itself lives filler to fill the mmu3 win
+890 REM nd itself lives filler to fill the mmu3 window without reach
+900 REM iller to fill the mmu3 window without reaching the dot main 
+910 REM  mmu3 window without reaching the dot main bank at 8000 hex 
+920 REM out reaching the dot main bank at 8000 hex where the sync5 c
+930 REM dot main bank at 8000 hex where the sync5 command itself liv
+940 REM 8000 hex where the sync5 command itself lives filler to fill
+950 REM e sync5 command itself lives filler to fill the mmu3 window 
+960 REM tself lives filler to fill the mmu3 window without reaching 
+970 REM r to fill the mmu3 window without reaching the dot main bank
+980 REM 3 window without reaching the dot main bank at 8000 hex wher
+990 REM reaching the dot main bank at 8000 hex where the sync5 comma
+1000 REM main bank at 8000 hex where the sync5 command itself lives f
+1010 REM  hex where the sync5 command itself lives filler to fill the
+1020 REM nc5 command itself lives filler to fill the mmu3 window with
+1030 REM f lives filler to fill the mmu3 window without reaching the 
+1040 REM  fill the mmu3 window without reaching the dot main bank at 
+1050 REM ndow without reaching the dot main bank at 8000 hex where th
+1060 REM hing the dot main bank at 8000 hex where the sync5 command i
