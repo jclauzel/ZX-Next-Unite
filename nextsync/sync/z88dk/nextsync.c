@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.4"
+#define SYNC_VERSION "5.9.5"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -986,8 +986,11 @@ static char s_bad[] = "bad";
 // of stack headroom against the 156-byte floor - so the PC asks instead
 // (Unite's Remote Explorer, the HTTP bridge's /crc, the console's crc verb)
 // and the digits are printed here for the Next's screen as they go out.
-extern char inbuf[2048];   // the 2 KB receive buffer, declared with the
-                           // other big statics below (uart.asm bounds on it)
+extern char inbuf[2048];   // the 2 KB receive buffer. v5.9.5: it is NOT bss
+                           // - uart.asm defines the symbol as the absolute
+                           // address $6000, the base of the banked mmu3
+                           // window (see the note where the other big
+                           // buffers are declared, below)
 unsigned char crc_run(char *path, char *out)
 {
     unsigned char fh = fopen(path, 1);
@@ -1279,8 +1282,36 @@ extern void listen_rfsize(char *arg, unsigned char *inbuf, unsigned char *scratc
 // allocated and mapped. They are only used from main() and its callees, one
 // invocation at a time, so static is safe.
 static char fn[256];
-char inbuf[2048];          // NOT static: uart.asm's receive() hard-bounds its
-                           // drain at the link-time constant _inbuf+2048 (v5.7)
+
+// v5.9.5 - inbuf is the one buffer that is NOT in main-bank bss any more.
+// uart.asm defines _inbuf as the absolute address $6000: the base of the
+// mmu3 window, which main() points at a private 8 KB page the dotN loader
+// got from NextZXOS (DOTN_NUM_EXTRA = 1) and the crt hands back at
+// terminate. That buys the main bank 2048 bytes of stack headroom for ~11
+// bytes of code.
+//
+// WHAT MUST STAY TRUE, because a pointer into a paged window is only as
+// good as the mapping underneath it:
+//   * map_data_bank() is called once, at the top of main(), immediately
+//     after tail_copy() and before ANY use of inbuf - and the page is then
+//     held for the whole run. There is no unmap: nothing else in this dot
+//     touches $6000-$7FFF, so one owner holds one window and no pointer
+//     can go dark.
+//   * receive() (uart.asm) drains straight into it, and its hard wall is
+//     the link-time constant _inbuf+2048, which now resolves to $6800 -
+//     dead space inside our own page, where it used to be scratch's first
+//     byte.
+//   * esxDOS both reads and writes it (readdir entries, esx_f_read chunks,
+//     and filenames handed to createfilewithpath). esxDOS traps take
+//     $0000-$3FFF, not mmu3; the dotN loader itself F_READs 8192 bytes
+//     into a freshly allocated page at $6000 on machines whose BASIC stack
+//     is high.
+//   * the ROM print driver saves and restores mmu6/mmu7 only, so printing
+//     a string out of inbuf is safe here - it would NOT be at $C000-$FFFF.
+//   * being outside bss it is NOT zeroed by the crt, so main() clears it
+//     explicitly right after the map, to keep the old semantics exactly.
+extern void map_data_bank(void);   // uart.asm
+
 static char scratch[1280]; // outgoing block: 1024 file bytes + opcode + framing (~1030 max)
 static char sendpath[256]; // -send's path, and send_dir's walk extends it IN
                            // PLACE up to 254 chars (its guard) - so 256, not the
@@ -1344,6 +1375,16 @@ int main(int arglen, char *rawcmd)
     (void)arglen;
     tail_copy(sendpath, rawcmd);
     cmdline = sendpath;
+
+    // The command tail is ours now, so the page underneath it may go.
+    // Point mmu3 at our own 8 KB page: from here to terminate, $6000-$7FFF
+    // is inbuf and nothing else. This must NOT move any earlier - rawcmd
+    // points into BASIC's program, which spans the very page we hide - and
+    // must not move later either, because everything below can reach
+    // inbuf. Zero it because it is no longer bss and the crt therefore
+    // does not.
+    map_data_bank();
+    memset(inbuf, 0, 2048);
 
     // Strip speed/option switches into a private buffer (never write the OS
     // cmdline), then point cmdline at it so the normal parser sees the cleaned

@@ -53,8 +53,19 @@
 // Cover the main-bank logical->physical page table.
 #pragma output DOTN_LAST_PAGE = 11
 
-// No manually-paged extra data pages and no divmmc pages.
-#pragma output DOTN_NUM_EXTRA = 0
+// ONE manually-paged extra 8 KB data page, and no divmmc pages.
+// The dotN loader asks NextZXOS for it (IDE_BANK through the M_P3DOS
+// hook) BEFORE main() runs - i.e. while the stack is still the crt's and
+// not ours - and frees it again on every exit path that reaches
+// terminate. Do NOT be tempted to allocate a page at run time instead:
+// M_P3DOS remaps $8000-$BFFF, which is this dot's code AND its stack
+// (see syncsys.c's getdrives note - the dot died on hardware doing
+// exactly that). The page is allocated but NOT loaded
+// (__z_extra_alloc_table defaults to 0xfe), so nothing is appended to the
+// dot file, and the loader maps it nowhere - main() maps it over mmu3 /
+// $6000-$7FFF itself, where inbuf now lives. See map_data_bank in
+// uart.asm.
+#pragma output DOTN_NUM_EXTRA = 1
 
 // We only run under 128 K NextZXOS; do not try to load a 48 K alternate.
 #pragma output DOTN_ENABLE_ALTERNATE = 0

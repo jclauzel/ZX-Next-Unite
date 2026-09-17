@@ -213,18 +213,59 @@ if ($headroom -lt 150) {
 }
 # The head page's TOP is the crt's load/exit-stack territory
 # (DOTN_REGISTER_SP $4000 down, minus the parked command line): keep our
-# head sections out of it. appmake warns at $3F0F; fail there too.
+# head sections out of it.
+#
+# $3F00, NOT $3F0F (5.9.5). The comment here used to say "appmake warns at
+# $3F0F" and it was wrong by 15 bytes: appmake's own test is
+#     (sb->org + sb->size) > (0x4000 - 256)
+# at zx-util.c:1056, i.e. $3F00. So this guard was LOOSER than the tool it
+# claims to mirror, and a build could sit in that gap passing us while
+# appmake printed "Section ... may overlap stack area in divmmc memory".
+# The margin matters now: the head page already ends around $3EF5, and
+# every banked page added grows the loader's tables by two more bytes.
 foreach ($sec in '__rodata_dot_tail', '__data_dot_tail', '__bss_dot_tail') {
     $m = Select-String -Path syncdev.map -Pattern ($sec + '\s*=\s*\$([0-9A-Fa-f]+)') |
         Select-Object -First 1
     if ($m) {
         $v = [Convert]::ToInt32($m.Matches[0].Groups[1].Value, 16)
-        if ($v -gt 0x3F0F) {
+        if ($v -gt 0x3F00) {
             throw ("$sec = `$" + ("{0:X4}" -f $v) +
-                   " - inside the crt's divmmc stack zone (>`$3F0F).")
+                   " - inside the crt's divmmc stack zone (>`$3F00, appmake's own fence).")
         }
     }
 }
+
+# --- banked data-window guards (5.9.5) ----------------------------------------
+# inbuf is no longer bss: uart.asm defines _inbuf as the ABSOLUTE address
+# $6000 and main() maps the dotN loader's one extra page over mmu3 before
+# any I/O. Two things must hold for that to be anything but memory
+# corruption, and NEITHER fails the build on its own - which is exactly why
+# they are checked here.
+#
+#   * DOTN_NUM_EXTRA must be >= 1. If it ever returns to 0, __z_extra_table
+#     becomes a ZERO-LENGTH label, map_data_bank reads whatever byte follows
+#     it and maps THAT page over $6000-$7FFF - which on a 128K machine is
+#     where a BASIC program lives - and main() then memsets 2 KB of it to
+#     zero. It builds clean and it destroys the user's program.
+#   * _inbuf must actually BE $6000. A stray `char inbuf[2048]` put back in
+#     C would silently win the link, the buffer would be in bss again, and
+#     the mmu3 map would be pointless.
+$m = Select-String -Path syncdev.map -Pattern '^_inbuf\s*=\s*\$([0-9A-Fa-f]+)' |
+    Select-Object -First 1
+if ($null -eq $m) { throw "syncdev.map: _inbuf not found - is it still a C array?" }
+$inbufAddr = [Convert]::ToInt32($m.Matches[0].Groups[1].Value, 16)
+if ($inbufAddr -ne 0x6000) {
+    throw ("_inbuf = `$" + ("{0:X4}" -f $inbufAddr) + " but must be `$6000, " +
+           "the base of the mmu3 window map_data_bank points at. Something " +
+           "put inbuf back in main-bank bss.")
+}
+$m = Select-String -Path syncdev.map -Pattern '__z_extra_table\s*=\s*\$([0-9A-Fa-f]+)' |
+    Select-Object -First 1
+if ($null -eq $m) {
+    throw ("syncdev.map: __z_extra_table not found - DOTN_NUM_EXTRA is 0, so " +
+           "map_data_bank would map a page NextZXOS never gave us.")
+}
+Write-Host "banked window: _inbuf = `$6000, __z_extra_table present - ok"
 
 # --- deploy ------------------------------------------------------------------
 New-Item -ItemType Directory -Force -Path "..\server\dot" | Out-Null
