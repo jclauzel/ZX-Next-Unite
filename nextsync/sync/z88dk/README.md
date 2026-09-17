@@ -100,8 +100,39 @@ examples (same `0xf0` allocation mask): the crt saves NextZXOS's bank/MMU state
 on entry and restores it on exit, and esxDOS file/dir calls work through divMMC
 regardless of what is paged at mmu6/7.
 
-`CRT_ENABLE_COMMANDLINE=2` hands `main(len, cmdline)` the **unprocessed** command
-tail, so the app's own parser still sees `:` in paths like `.sync -send c:/foo`.
+`CRT_ENABLE_COMMANDLINE=4` hands `main(len, cmdline)` the **unprocessed** command
+tail, so the app's own parser still sees `:` in paths.
+
+**Quote a drive-qualified path at the BASIC prompt:**
+
+    .sync5 -send "c:/somedir/somefile.tap"
+
+Unquoted it is rejected before the dot ever runs — `:` is BASIC's **statement
+separator**, so the editor reads `c:/somedir/…` as the variable `c` followed by
+a new statement and refuses the line. NextZXOS's rule is that a `:` inside
+double quotes does not terminate the tail, and the quotes are stripped before
+`main()` sees them, so the dot receives a clean path. (This example used to read
+`c:/foo` unquoted, which cannot have worked from the prompt.)
+
+`-send` is served by the **Classic sync** server only: `run_classic_sync_server`
+answers the `Sync4` handshake and acks `Send`; the Remote Explorer's listener
+does not. Commit a sync root first ("Set current folder as new sync root
+folder") — the upload lands under it, falling back to Unite's working directory
+if none is set. `-send` and `-listen` are mutually exclusive, and `-send` must
+be the first thing on the line.
+
+**Mode 4 rather than 2 since dot 5.9.7, and the reason is timing.** Mode 2
+handed `main()` a raw pointer into live BASIC memory: for a typed command the
+tail sits in the edit line at `(E_LINE) = PROG + program length + variables
+length + 1`, so its address climbs with the size of the user's program. Once it
+reached `$8000`, this dotN had mapped its own pages over that window and read
+**its own code** as the command line — the `Bad server name` failure. A 16 KB
+band, measured on hardware: under ~9005 bytes of program+vars works,
+~9005–25397 is broken, above ~25397 works again because the tail climbs past
+`$C000`. Mode 4 copies the tail while BASIC's bank is still mapped, about twenty
+instructions before the crt's only mmu4/mmu5 writes. A local
+`crt_cmdline_esxdos.inc` overrides the library's mode 4, whose length scan stops
+at the first `:` and caps at 128 where `tail_copy`'s contract is 158.
 `CRT_ENABLE_COMMANDLINE_EX=0` forces the tail to come from HL **without** the
 `.sync` program name (the dotn default is `0x80` = from BC *with* the name, which
 made a bare `.sync` behave as if given `sync` as a server argument).

@@ -48,6 +48,17 @@ emulator launch buttons below:
   lines to remember.
 - **NextSync tab** — push files over Wi-Fi from your PC to a real Spectrum Next
   (KS1/KS2 or clones with an ESP module) using the `.sync5` dot command.
+  The Next can push files back the other way with `-send`, served by the
+  **Classic sync** server (start it from NextSync → Classic sync, after
+  choosing a sync root — that is where uploads land). **Quote a
+  drive-qualified path**, because `:` is BASIC's statement separator and the
+  editor rejects the line without quotes:
+
+      .sync5 -send "c:/somedir/somefile.tap"
+
+  A path with no drive letter needs no quotes: `.sync5 -send somefile.tap`
+  sends from the folder you are in. The Remote Explorer's listener does not
+  serve `-send`, and `-send` cannot be combined with `-listen`.
 - ⭐ **Remote Explorer** — a two-pane file manager for your Next's **real
   filesystem over Wi-Fi**: browse, drag & drop, upload/download and manage files
   (new folder, delete) directly — no SD-card swapping. Run `.sync5 -listen`
