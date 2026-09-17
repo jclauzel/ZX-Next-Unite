@@ -5219,8 +5219,38 @@ class RemoteExplorerWidget(QWidget):
         return self._browse_root or QDir.homePath()
 
     def _local_dir(self):
-        """Where downloads land: the sync root once chosen, else the browse root."""
-        return self._sync_root or self._browse_dir()
+        """Where local operations land: THE FOLDER THE PANE IS SHOWING.
+
+        It used to read ``self._sync_root or self._browse_dir()`` - "the sync
+        root once chosen, else the browse root" - and that was wrong in a way
+        that stayed invisible while the two could not diverge.
+
+        9.7.23 let them diverge: the path box now FOLLOWS the folder being
+        browsed, and plain navigation deliberately leaves the sync root alone
+        (see _commit_sync_root - only a typed path, the "Set current folder"
+        button or the startup restore commits one). From then on, browsing
+        away from the sync root silently redirected EVERY local destination
+        back to it.
+
+        Field report 2026-09-17: the pane was pointed at a new folder, a file
+        was dragged in from the OS file manager, and it landed in the previous
+        folder - "Copied .../Videos/x.mp4 -> .../repos/ZXNextRemote\\x.mp4".
+        Drag and drop was how it was noticed, but every caller was affected
+        alike: Download, Paste, move-from-Next and the emulator staging
+        directory all used this. The comment at the emulator call site had
+        already written down the intended contract - "the local pane's folder,
+        same as Download" - which is precisely what this now returns.
+
+        The sync root keeps its real job: it is the Classic NextSync server's
+        root and it must NOT follow browsing, which is also why the fix is
+        here rather than committing a new sync root on every flip. Auto-
+        committing would make the "Set current folder as new sync root folder"
+        offer meaningless, change what the server serves as a side effect of
+        looking around, and write hdfg.cfg on every navigation.
+
+        Deliberately the same value as _browse_dir(); the separate name is
+        kept because it reads correctly at the call sites."""
+        return self._browse_dir()
 
     def _on_local_drive_picked(self, _index=None):
         """The local drive switcher: browse that drive's root. Navigation
@@ -6046,7 +6076,11 @@ class RemoteExplorerWidget(QWidget):
         if staged:
             self._copy_paths_into_local(staged, self._local_drop_dir(event))
             return
-        dest = self._local_dir()
+        # The DROP's folder, not the pane's: a drop onto a folder ROW lands in
+        # that folder, exactly as the two staged/URL paths above already do
+        # (9.7.29). This arm - a Next drag whose staging never started - was
+        # the one that still ignored the row under the cursor.
+        dest = self._local_drop_dir(event)
         # Each line is "<D|F>\t<path>"; keep the dir flag so folders (empty ones
         # in particular) are recreated locally, not silently dropped.
         entries = []
