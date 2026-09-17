@@ -16,7 +16,50 @@ SECTION code_compiler
 PUBLIC _receive
 PUBLIC _zx_keyrow
 
-EXTERN _inbuf        ; nextsync.c's 2 KB receive buffer - receive()'s hard wall
+; v5.9.5 - inbuf is no longer main-bank bss. It is an ABSOLUTE address at
+; the base of the mmu3 window, which main() maps to a private 8 KB NextZXOS
+; page (DOTN_NUM_EXTRA = 1) before any I/O happens. Defining the symbol here
+; rather than in C keeps the address next to the wall arithmetic below that
+; depends on it. receive()'s source is UNCHANGED: ld hl,_inbuf+2048 is an
+; ordinary link-time relocation, so the wall now resolves to $6800 - the
+; halfway mark of our own 8 KB window, i.e. genuine dead space, where it
+; used to be the first byte of _scratch.
+PUBLIC _inbuf
+defc _inbuf = 0x6000
+
+; void map_data_bank(void)   [no args, no return value]
+;   Map the dotN loader's one extra 8 KB page over $6000-$7FFF.
+;
+;   ORDER IS LOAD-BEARING: call this from main() only AFTER tail_copy has
+;   taken its private copy of the OS command tail. With
+;   CRT_ENABLE_COMMANDLINE = 2 the crt hands main() a RAW pointer into
+;   BASIC's own program area, and on a 128K machine that program runs
+;   upward out of page 10 into page 11 - which is exactly what sits at
+;   $6000-$7FFF and exactly what we hide here.
+;
+;   mmu3 a is ED 92 53: ONE instruction, so the 50 Hz ROM IM1 tick (live
+;   for this dot's whole run - the dot never executes DI) cannot land
+;   between a register-select and a register-write. Do not replace it with
+;   the $243B/$253B port pair.
+;
+;   Nothing restores mmu3 here, and nothing needs to: the dotN crt reads
+;   all 8 MMU slots into __z_saved_mmu_state at launch and writes them back
+;   at terminate (zxn_crt_798.asm.m4, asm_zxn_read_mmu_state /
+;   asm_zxn_write_mmu_state) - reached by the normal return, by the clib
+;   exit stack and by the BASIC error intercept alike. 'Restore what you
+;   found' is therefore already guaranteed for us on every exit path that
+;   runs at all.
+;
+;   __z_extra_table lives in the primary dot page at $2xxx, which every
+;   esxDOS trap and the ROM print driver page away. So it is read ONCE,
+;   early in main(), and never again.
+PUBLIC _map_data_bank
+EXTERN __z_extra_table
+
+_map_data_bank:
+    ld   a, (__z_extra_table)   ; physical page NextZXOS gave the loader
+    mmu3 a                      ; ED 92 53 - atomic against the ROM tick
+    ret
 
 ; unsigned char zx_keyrow(unsigned char highbyte) __z88dk_fastcall
 ;   L = highbyte : the high 8 bits of the ULA keyboard port (low byte is 0xFE),
