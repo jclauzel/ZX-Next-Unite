@@ -285,7 +285,7 @@ def build_nextsync_pane(
         nextsync_import_external_paths(paths, dest_dir)
 
     host.nextsync_treeview.setAcceptDrops(True)
-    host.nextsync_treeview.setDragEnabled(True)
+    register_drag_view(host.nextsync_treeview)   # armed after startup (9.7.29)
     host.nextsync_treeview.setDragDropMode(QAbstractItemView.DragDrop)
     # A drag within the explorer proposes a COPY (the copy is performed by
     # _nextsync_drop); without this Qt would propose an internal move for

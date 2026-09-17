@@ -3005,7 +3005,7 @@ class MainWindow(QMainWindow):
             drag.exec(Qt.CopyAction)
 
         self.treeview.setAcceptDrops(True)
-        self.treeview.setDragEnabled(True)
+        register_drag_view(self.treeview)   # armed after startup (9.7.29)
         self.treeview.setDragDropMode(QAbstractItemView.DragDrop)
         self.treeview.setDefaultDropAction(Qt.CopyAction)
         self.treeview.setDropIndicatorShown(True)
@@ -3128,7 +3128,7 @@ class MainWindow(QMainWindow):
             drag.exec(Qt.CopyAction)
 
         self.image_treeview.setAcceptDrops(True)
-        self.image_treeview.setDragEnabled(True)
+        register_drag_view(self.image_treeview)   # armed after startup (9.7.29)
         self.image_treeview.setDragDropMode(QAbstractItemView.DragDrop)
         self.image_treeview.setDefaultDropAction(Qt.CopyAction)
         self.image_treeview.setDropIndicatorShown(True)
@@ -4384,6 +4384,23 @@ class MainWindow(QMainWindow):
         # prompts and log lines don't collide.
         QTimer.singleShot(1200, self._check_dotn_version_advisory)
         QTimer.singleShot(3400, self._check_zxnu_update_async)
+
+        # DRAG IS ARMED LAST (9.7.29). Every drag-enabled tree is built with
+        # dragging OFF - register_drag_view() in zxnu_config carries the full
+        # argument - and this is where it is switched on.
+        #
+        # A QTimer callback cannot run until the event loop is free, so
+        # "armed" means "the app is already responsive" without anyone having
+        # to guess how long startup takes: a slower machine simply arms later.
+        # 3600 puts it after the whole stagger above, INCLUDING the 400/1200 ms
+        # toasts - the 2026-09-17 report was a toast dismissed and a second
+        # click landing on the tree that had been underneath it, which is
+        # exactly the moment worth being disarmed for.
+        #
+        # This NARROWS the window, it does not close it: an accidental drag
+        # after startup can still park the main thread in QDrag::exec(), and
+        # that is Qt/OLE behaviour we do not control.
+        QTimer.singleShot(3600, arm_drag_views)
 
         # Expose the nested save function so closeEvent (a class method) can call it.
         self._save_configuration_file = save_configuration_file
