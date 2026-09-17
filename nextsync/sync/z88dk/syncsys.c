@@ -63,11 +63,65 @@ unsigned char sync_readdir(unsigned char handle, void *buf)
 }
 
 /* Original createfilewithpath() walked the path making each directory in turn;
- * esx_f_mkdir makes a single directory (errors on an existing one are ignored
- * by the caller, which then retries the file create). */
+ * esx_f_mkdir makes a single directory.
+ *
+ * ALREADY THERE IS NOT A FAILURE (5.9.6). esxDOS returns the same 0xFF for
+ * "that directory exists" as for a real fault, so the only way to tell them
+ * apart is to try opening it. Without this, pasting a folder onto a dot seat
+ * that already held it FAILED, while the same paste onto a ZXNextRemote seat
+ * merged - ZXNextRemote fixed its own half at 1.4.1/1.4.3 and this was the
+ * last of the four mkdirs still disagreeing.
+ *
+ * It also makes the two callers that ALREADY wanted merge semantics honest:
+ * nextsync.c's per-level walk ("make this level") and the -send root
+ * ("exists = merge") got it by DISCARDING the result, which also discarded
+ * real failures. They can now read it.
+ *
+ * THREE SPELLINGS MUST NOT BE PROBED, because for them the probe answers a
+ * different question from the one asked:
+ *
+ *   "." and ".."     every directory contains both, so both ALWAYS open.
+ *                    Reporting success would claim we created a folder that
+ *                    was never made - ZXNextRemote shipped exactly that bug
+ *                    at 1.4.1 and fixed it at 1.4.2.
+ *   an EMPTY segment a path ending in its separator. opendir("/") is the
+ *                    same call every root listing makes, so it succeeds, and
+ *                    we would be claiming to have created the drive root.
+ *                    ZXNextRemote's 1.4.3.
+ *
+ * walk_isdots() is the terminator test, and it is FREE here: rfsize.c is
+ * head-page resident, so only the call costs main-bank bytes. It is a
+ * terminator test and not a prefix test on purpose - ".config" and "..d" are
+ * real names. And deliberately not "ends with a dot": a FAT layer may FOLD a
+ * trailing dot, so "foo." can name the directory "foo", and refusing it would
+ * break a merge that should work.
+ *
+ * Affordable at all only because 5.9.5 banked inbuf out of the main bank -
+ * this cost ~30 bytes against a budget that used to be 165 in total. */
+extern unsigned char walk_isdots(char *n);   /* "."/".." test (rfsize.c) */
+
 unsigned char sync_mkdir(const char *path)
 {
-   return esx_f_mkdir(path);
+   const char *s = path, *last = path;
+   unsigned char h;
+
+   if (esx_f_mkdir(path) != 0xFF)
+      return 0;                     /* created it */
+
+   while (*s)                       /* the last path segment */
+   {
+      if (*s == '/' || *s == '\\')
+         last = s + 1;
+      ++s;
+   }
+   if (last[0] == 0 || walk_isdots((char *)last))
+      return 0xFF;
+
+   h = sync_opendir(path);          /* 0 = could not open */
+   if (h == 0)
+      return 0xFF;
+   sync_close(h);
+   return 0;                        /* already there - merge */
 }
 
 /* rmdir / rm for the -listen commands. esxDOS returns 0xFF (and sets errno) on
