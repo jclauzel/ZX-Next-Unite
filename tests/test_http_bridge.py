@@ -302,10 +302,25 @@ def phase_b():
     check("B session active",
           wait_until(lambda: nextsync5._listen_state['active']))
 
-    st, body = http(HTTP_B, "/status?json=1")
-    j = json.loads(body)
-    check("B /status connected + partitions", st == 200 and j["connected"]
-          and j["partitions"] == 2, j)
+    # POLLED, NOT SAMPLED ONCE. "session active" and "the drives have been
+    # enumerated" are two different milestones, and the drives query is the
+    # later one - so a single /status here races it. On a slow CI runner the
+    # sample lands in the gap and returns connected=True with partitions=0,
+    # which failed the RELEASE workflow on 2026-09-17 while the same commit
+    # passed on the PR, on main and twice locally. The assertion below is
+    # unchanged; it is just given the 5 s wait_until() the rest of this file
+    # already uses, so a value that never arrives still fails honestly.
+    jbox = {}
+
+    def _status_ready(_box=jbox):
+        st_, body_ = http(HTTP_B, "/status?json=1")
+        if st_ != 200:
+            return False
+        _box.update(json.loads(body_))
+        return bool(_box.get("connected")) and _box.get("partitions") == 2
+
+    check("B /status connected + partitions", wait_until(_status_ready), jbox)
+    j = jbox
 
     st, body = http(HTTP_B, "/ls?path=/&json=1")
     j = json.loads(body)
