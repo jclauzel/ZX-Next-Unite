@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from zxnu_config import (
+    register_drag_view,     # drag is armed after startup (9.7.29)
     DEFAULT_COLOR_UP_DIRECTORY, DEFAULT_COLOR_DIR_NAME, DEFAULT_COLOR_DIR_TYPE,
     DEFAULT_COLOR_FILE_NAME, DEFAULT_COLOR_FILE_EXT, DEFAULT_COLOR_FILE_SIZE,
     DEFAULT_COLOR_GENERAL_TEXT, MAX_PATH_HISTORY,
@@ -1343,7 +1344,7 @@ class RemoteExplorerWidget(QWidget):
         # now (guarded so applying it doesn't count as a user change).
         self.local_view.header().sortIndicatorChanged.connect(self._on_local_sort_changed)
         self._apply_local_sort()
-        self.local_view.setDragEnabled(True)
+        register_drag_view(self.local_view)   # armed after startup (9.7.29)
         self.local_view.setAcceptDrops(True)
         self.local_view.setDropIndicatorShown(True)
         # A drag within the local pane proposes a COPY (we perform the copy
@@ -1551,7 +1552,7 @@ class RemoteExplorerWidget(QWidget):
         self.next_view.customContextMenuRequested.connect(self._next_context_menu)
         self.next_view.doubleClicked.connect(self._next_double_clicked)
         self.next_view.setAcceptDrops(True)
-        self.next_view.setDragEnabled(True)
+        register_drag_view(self.next_view)   # armed after startup (9.7.29)
         self.next_view.setDropIndicatorShown(True)
         self.next_view.dragEnterEvent = self._next_drag_enter
         self.next_view.dragMoveEvent = self._next_drag_enter

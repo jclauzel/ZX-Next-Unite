@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.28"
+ZX_NEXT_UNITE_VERSION = "9.7.29"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -3562,6 +3562,65 @@ def sync5_version_key(version) -> tuple:
 # corrupted or tampered download is refused instead of run. If jjjs ever
 # publishes a new archive, recompute with sha256_of_file and update this pin.
 HDF_MONKEY_JJJS_SHA256 = "41266e54ce27ef0be52c9b1fc5cabd377b9f490d632891e681a44814f7c1ddcc"
+
+
+# ── Drag-and-drop arming (9.7.29) ──────────────────────────────────────
+# DRAG IS OFF UNTIL THE APP IS READY, because an accidental drag during
+# startup does not merely misfire - it can park the whole application.
+#
+# QDrag::exec() is a BLOCKING nested event loop that returns only when the
+# gesture is dropped or cancelled. If the button-release never reaches it,
+# the MAIN THREAD stays in it indefinitely: the OS still reports the
+# process as responding (that loop is faithfully pumping messages), no
+# dialog appears, and every queued signal behind it stops being delivered,
+# so the log simply STOPS with no error.
+#
+# Field report 2026-09-17. The last line written was the GitHub update
+# check, so it read as "the update check hung" - those four checks had in
+# fact finished in milliseconds and their results were sitting undelivered
+# behind the drag loop. A thread stack settled it: QDrag::exec+0xb7
+# directly on user32!GetMessageW, reached from a QTreeView startDrag. Esc
+# could not cancel it (the drag loop only sees the key while the app holds
+# focus) and the process had to be killed. Startup had taken eight seconds
+# that day, and a click that travels while the UI is busy is processed as
+# a drag once Qt catches up.
+#
+# WHY ARMING FROM A TIMER IS THE WHOLE TRICK: a QTimer callback cannot run
+# until the event loop is free, so "armed" is by construction "the app is
+# already responsive". There is no interval to tune and no guess about how
+# long startup takes on a slow machine - a slower startup simply arms
+# later. See arm_drag_views()'s call site in zxnu_main.
+#
+# AT setDragEnabled, NOT in the startDrag handlers: four of the five views
+# override startDrag, but the NextSync pane uses Qt's default, so a guard
+# written in the handlers would silently miss it.
+_DRAG_VIEWS = []
+_DRAG_ARMED = False
+
+
+def register_drag_view(view):
+    """Start *view* with dragging DISABLED and arm it later (9.7.29).
+
+    Views built after arming - the Remote Explorer panes are created when
+    their tab is first opened, long after startup - are enabled at once,
+    so this is safe to call from anywhere at any time."""
+    if _DRAG_ARMED:
+        view.setDragEnabled(True)
+        return
+    view.setDragEnabled(False)
+    _DRAG_VIEWS.append(view)
+
+
+def arm_drag_views():
+    """Enable dragging on every registered view. Idempotent."""
+    global _DRAG_ARMED
+    _DRAG_ARMED = True
+    pending, _DRAG_VIEWS[:] = list(_DRAG_VIEWS), []
+    for view in pending:
+        try:
+            view.setDragEnabled(True)
+        except RuntimeError:
+            pass          # the C++ side was destroyed; nothing to arm
 
 
 __all__ = [_n for _n in dir() if not _n.startswith('__')]
