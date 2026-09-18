@@ -387,7 +387,7 @@ sys.meta_path.insert(0, _NoPygame())
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, REPO)
 
-from PySide6.QtWidgets import (QApplication, QComboBox, QLabel,
+from PySide6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel,
                                QLineEdit)
 from PySide6.QtCore import QTimer, QCoreApplication
 
@@ -519,14 +519,57 @@ def inspect_phase1():
               wait_until(lambda: any(l.startswith("sdcard_hsplitter_sizes=") for l in cfg_lines()),
                          3, "the debounced splitter save"),
               str([l for l in cfg_lines() if "splitter" in l]))
+    # ONE ROW PER PANE (9.7.33). The drive combo and both filter boxes used
+    # to sit on horizontal2, a full-width form row above the splitter, so
+    # the tab spent two rows on one row of controls. Pinning indices 0 and 1
+    # alone - which is all this used to do - would let the whole moved bar
+    # ship untested, the same hole the path row's check below names.
     _lnav = win.local_nav_row_container.layout()
-    check("local nav = Up|Refresh",
-          _lnav.indexOf(win.local_explorer_up_button) == 0
-          and _lnav.indexOf(win.local_explorer_refresh_button) == 1)
+    _lorder = [_lnav.indexOf(w) for w in (win.local_explorer_up_button,
+                                          win.local_explorer_refresh_button,
+                                          win.zx_next_unite_diskdrive,
+                                          win.filterlabel,
+                                          win.filtertext)]
+    # The drive combo is Windows-only and is simply not built elsewhere, so
+    # it reports -1 there; every other item must be present and in order.
+    check("local nav = Up|Refresh|drive|Search:|filter, in that order",
+          _lorder[0] == 0 and _lorder[1] == 1
+          and (_lorder[2] == -1 or _lorder[2] == 2)
+          and _lorder[3] > _lorder[1] and _lorder[4] > _lorder[3],
+          str(_lorder))
+    # The box takes the slack and the row keeps a trailing stretch - without
+    # one Qt hands the slack to the widgets and the combo and label balloon.
+    check("local filter box owns the row's slack, with a stretch behind it",
+          _lnav.stretch(_lorder[4]) == 3
+          and _lnav.count() == _lorder[4] + 2
+          and _lnav.itemAt(_lnav.count() - 1).widget() is None,
+          "stretch=%d count=%d" % (_lnav.stretch(_lorder[4]), _lnav.count()))
     _inav = win.image_nav_row_container.layout()
-    check("image nav = Up|Refresh",
-          _inav.indexOf(win.image_explorer_up_button) == 0
-          and _inav.indexOf(win.image_explorer_refresh_button) == 1)
+    _iorder = [_inav.indexOf(w) for w in (win.image_explorer_up_button,
+                                          win.image_explorer_refresh_button,
+                                          win.image_filterlabel,
+                                          win.image_filtertext)]
+    check("image nav = Up|Refresh|...|Filter:|filter, in that order",
+          _iorder[0] == 0 and _iorder[1] == 1
+          and _iorder[2] > _iorder[1] and _iorder[3] == _iorder[2] + 1,
+          str(_iorder))
+    # Its stretch sits BEFORE the label, which is what keeps this box hard
+    # right over the image explorer, where it has always been.
+    check("image filter is right-anchored by a stretch before it",
+          _inav.itemAt(_iorder[2] - 1).widget() is None,
+          str(_iorder))
+    # A MAXIMUM AND NO MINIMUM on both boxes. Inside the splitter a minimum
+    # is added straight onto the pane's floor, and setChildrenCollapsible
+    # (False) then makes the saved split unrestorable - measured, the local
+    # pane's floor went 358 -> 684 with the old min+max pair.
+    check("neither filter box sets a width FLOOR inside the splitter",
+          win.filtertext.minimumWidth() == 0
+          and win.image_filtertext.minimumWidth() == 0
+          and win.filtertext.maximumWidth() > 0
+          and win.image_filtertext.maximumWidth()
+          == win.filtertext.maximumWidth(),
+          "%d/%d" % (win.filtertext.minimumWidth(),
+                     win.image_filtertext.minimumWidth()))
     check("local path row bottoms the left column", _lcol.indexOf(win.local_path_row_container) == 2, str(_lcol.indexOf(win.local_path_row_container)))
     check("image path row at image-side grid (2,1)", pos(win.image_path_row_container) == (2, 1), str(pos(win.image_path_row_container)))
     _lrow = win.local_path_row_container.layout()
@@ -696,9 +739,13 @@ def inspect_phase1():
     check("button cluster no longer a grid row of its own",
           pos(win.imageexplorerbuttonscontainer) is None,
           str(pos(win.imageexplorerbuttonscontainer)))
-    check("old widgets out of top row",
-          win.horizontal2.indexOf(win.diskimageexplorerlabel) == -1
-          and win.horizontal2.indexOf(win.diskimageexplorerpathinput) == -1)
+    # The 'top row' this used to guard (horizontal2) no longer exists: its
+    # last three occupants moved into the two nav rows at 9.7.33 and the
+    # layout went with them. Keeping the check would have been worse than
+    # useless - dereferencing the dead attribute raises inside a QTimer slot,
+    # where Qt PRINTS the traceback and swallows it, so exec() never returns
+    # and the phase hangs to the runner's timeout instead of failing.
+    check("the two-row top bar is gone", not hasattr(win, "horizontal2"))
     check("no old attribute left", not hasattr(win, "diskimageexplorerlabelpath"))
 
     def view_dir():
@@ -1816,6 +1863,24 @@ def inspect_phase11():
         check("a corrupt saved size is bounded before Qt sees it",
               "SPLITTER_MAX_PANE_PX" in _pane_src
               and "except (TypeError, ValueError, OverflowError):" in _pane_src)
+        # The local/Next split beside it takes the same value from the
+        # same file and was the one restore left unbounded (9.7.33). Two
+        # separate things guard it and the tripwire must name both: the
+        # BOUND in _parse_splitter_sizes, which is what keeps a corrupt
+        # value away from Qt, and a try around the setSizes CALL, which
+        # is the only place OverflowError can actually be raised.
+        # Pinning the clause alone was the first cut and it pinned dead
+        # code - nothing in that parse can overflow, because Python ints
+        # are arbitrary precision.
+        _rex_src = open(os.path.join(REPO, "zxnu_remote_explorer.py"),
+                        encoding="utf-8").read()
+        check("the local/Next split is bounded before Qt sees it",
+              "SPLITTER_MAX_PANE_PX" in _rex_src)
+        check("...and the setSizes call itself catches OverflowError",
+              "self.hsplitter.setSizes(_sizes)" in _rex_src
+              and _rex_src.split("self.hsplitter.setSizes(_sizes)")[0]
+              .rstrip().endswith("try:"),
+              "the setSizes call is not inside a try")
 
         # A drag must reach the cfg. splitterMoved only fires for real
         # drags, so emit it the way a drag does after moving the panes -
@@ -1948,6 +2013,79 @@ def inspect_phase11():
     check("both navigation bars' buttons rendered",
           labels == ["+ Drive", "Disconnect", "Refresh", "Refresh",
                      "Up", "Up", "✕"], str(labels))
+    # Both panes carry a name filter (9.7.33). This is the only place the
+    # widget is built inside the REAL app, so it is the only place the
+    # lazy container's translate_widget_tree walk runs over it and the
+    # only place the bar has a real width - a box that was built but
+    # never added to a layout, or squeezed to nothing by the status
+    # label's stretch, passes every headless check and fails on screen.
+    check("each explorer bar carries its own name filter",
+          re_widget.next_filter_edit.isVisible()
+          and re_widget.local_filter_edit.isVisible()
+          and re_widget.next_filter_edit
+          is not re_widget.local_filter_edit,
+          "next=%d local=%d" % (re_widget.next_filter_edit.width(),
+                                re_widget.local_filter_edit.width()))
+    # PLACEMENT, not just existence. width() > 0 was the first cut and it
+    # could not fail for either mode this comment names: the box is parented
+    # to the widget 45 lines before it is added to the bar, so DELETING the
+    # addWidget leaves an orphan at its unmanaged 100x30 default - visible,
+    # non-zero, and painted under the local pane where nobody can see it.
+    _bar = None
+    for _b in re_widget.findChildren(QHBoxLayout):
+        if any(_b.itemAt(_i).widget() is re_widget.next_filter_edit
+               for _i in range(_b.count())):
+            _bar = _b
+            break
+    check("the Next filter is really IN the Next bar, at its end",
+          _bar is not None
+          and _bar.itemAt(_bar.count() - 1).widget()
+          is re_widget.next_filter_edit
+          and any(_bar.itemAt(_i).widget() is re_widget.next_path_label
+                  for _i in range(_bar.count())),
+          "no bar" if _bar is None else "last=%r" % (
+              _bar.itemAt(_bar.count() - 1).widget(),))
+    # ...and a REAL width at a known window size. At the harness's default
+    # 900px both stretch 0 and stretch 1 floor the box at ~31px, so the
+    # resize is what makes this discriminate at all; it is undone straight
+    # after so the rest of the phase sees the geometry it expects.
+    #
+    # BOTH floors are deliberately low. This bar carries Up, Refresh, the
+    # machine combo, the rename button, Disconnect, the drive list and
+    # + Drive before either of these two gets a pixel, so at a 1920 window
+    # with the default split they measure ~53 and ~105. The check is here
+    # to catch one of them being STARVED TO NOTHING by the other - which is
+    # what stretch 0 on the box did (label 0 from 1600 down) - not to assert
+    # a comfortable layout. Dragging the local/Next splitter is the real
+    # recovery and it is persisted: measured at a 1400 pane, moving the
+    # handle from 50/50 to 25/75 takes the box 62 -> 187 and the label
+    # 123 -> 374.
+    _was = win.size()
+    win.resize(1920, 1000)
+    QApplication.processEvents()
+    check("neither the Next filter nor the status label is starved out",
+          re_widget.next_filter_edit.width() >= 45
+          and re_widget.next_path_label.width() >= 45,
+          "box=%d label=%d" % (re_widget.next_filter_edit.width(),
+                               re_widget.next_path_label.width()))
+    win.resize(_was)
+    QApplication.processEvents()
+    # Enabled while OFFLINE, unlike every other Next-side control: the
+    # machine switch runs _set_connected(False), so a box greyed there
+    # would be wiped by the exact event the filter must survive.
+    check("the Next filter stays live while nothing is connected",
+          re_widget.next_filter_edit.isEnabled())
+    # Both bars say the same word, and the label actually RENDERS - the
+    # first cut shipped the Next box bare and it was reported at once.
+    check("both bars are labelled Filter: , and both labels render",
+          re_widget.next_filter_label.text() == "Filter: "
+          and re_widget.local_filter_label.text() == "Filter: "
+          and re_widget.next_filter_label.isVisible()
+          and re_widget.next_filter_label.width() > 0,
+          "%r/%d  %r" % (re_widget.next_filter_label.text(),
+                         re_widget.next_filter_label.width(),
+                         re_widget.local_filter_label.text()))
+
     # Disconnect (9.5.24) sits in the Next bar between the machine's name
     # and its drive, and is dead until a Next is actually connected.
     check("Disconnect is present but disabled while offline",

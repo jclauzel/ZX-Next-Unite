@@ -26,7 +26,8 @@ from zxnu_http_bridge import session_label   # stdlib-only at import
 from zxnu_i18n import ui_tr_now
 
 from PySide6.QtCore import (
-    Qt, QCoreApplication, QDir, QEvent, QEventLoop, QModelIndex, QMimeData,
+    Qt, QCoreApplication, QDir, QEvent, QEventLoop, QItemSelection,
+    QItemSelectionModel, QModelIndex, QMimeData,
     QObject, QRect, QRunnable, QThreadPool, QUrl, QSize, QTimer, Signal,
 )
 from PySide6.QtGui import (
@@ -45,7 +46,9 @@ from zxnu_config import (
     DEFAULT_COLOR_UP_DIRECTORY, DEFAULT_COLOR_DIR_NAME, DEFAULT_COLOR_DIR_TYPE,
     DEFAULT_COLOR_FILE_NAME, DEFAULT_COLOR_FILE_EXT, DEFAULT_COLOR_FILE_SIZE,
     DEFAULT_COLOR_GENERAL_TEXT, MAX_PATH_HISTORY,
-    SPLITTER_HANDLE_QSS_HORIZONTAL, ZX_NEXT_UNITE_DOTN_VERSION,
+    FILTER_TEXT_WIDTH,
+    SPLITTER_HANDLE_QSS_HORIZONTAL, SPLITTER_MAX_PANE_PX,
+    ZX_NEXT_UNITE_DOTN_VERSION,
     ZXNR_NEX_FLAVORS, deploypak_counts, hex_to_qcolor,
     normalize_history_folder,
     open_path_with_system_shell, qcolor_to_hex, read_deploypak,
@@ -1011,11 +1014,30 @@ class _Sync5ResolveTask(QRunnable):
 def _parse_splitter_sizes(value):
     """``"left,right"`` (px, as the cfg stores it) or a 2-sequence -> a
     ``[left, right]`` list QSplitter.setSizes accepts, or None when absent or
-    malformed (a bad value must never keep the pane from opening)."""
+    malformed (a bad value must never keep the pane from opening).
+
+    BOUNDED, not merely positive - the 9.7.21 rule the mini-log splitter
+    beside this one already carries, and this restore was the one place
+    left without it. A pane size past a few thousand pixels can only be
+    corruption, and Qt answers a value over a C int with OverflowError
+    (measured: 2**31 raises, 2**31-1 does not), which is an
+    ArithmeticError that a TypeError/ValueError clause does not catch.
+
+    THE BOUND IS THE GUARD, and it is the only one here: nothing in the
+    try below can raise OverflowError - Python ints are arbitrary
+    precision, so int() of a huge decimal string simply succeeds - so
+    listing it in this clause would be dead code that reads like
+    protection. That was the first cut, copied from the twin in
+    zxnu_nextsync_pane where the clause genuinely wraps setSizes; the
+    comment travelled across a seam the try did not. The real Qt call is
+    guarded at its own site instead (see the setSizes below).
+    """
     try:
         parts = value.split(",") if isinstance(value, str) else list(value or ())
         left, right = (int(str(v).strip()) for v in parts[:2])
-        return [left, right] if left > 0 and right > 0 else None
+        return ([left, right]
+                if 0 < left < SPLITTER_MAX_PANE_PX
+                and 0 < right < SPLITTER_MAX_PANE_PX else None)
     except (TypeError, ValueError):
         return None
 
@@ -1375,7 +1397,12 @@ class RemoteExplorerWidget(QWidget):
         local_up = CompactButton("Up", self)
         local_up.clicked.connect(self._local_up)
         local_refresh = CompactButton("Refresh", self, floor=72)
-        local_refresh.setToolTip("Re-read the current local folder from disk")
+        # The trailing period is not a typo: all six catalogs key this
+        # string WITH it (the spelling zxnu_sdcard_explorer uses), so
+        # without it ui_tr found no entry and the tooltip stayed English
+        # in every language - silently, because an uncatalogued string
+        # is a coverage gap the suite deliberately does not police.
+        local_refresh.setToolTip("Re-read the current local folder from disk.")
         local_refresh.clicked.connect(self._local_refresh)
         self.local_drive_combo = QComboBox(self)
         self.local_drive_combo.setToolTip(
@@ -1387,7 +1414,11 @@ class RemoteExplorerWidget(QWidget):
         self.local_drive_combo.setVisible(
             self.local_drive_combo.count() > 1)
         self.local_drive_combo.activated.connect(self._on_local_drive_picked)
-        self.local_filter_label = QLabel("Search: ", self)
+        # "Filter: ", not "Search: " - the word the SD Card tab's
+        # image tree has always used, and now the word BOTH panes here
+        # use, so one box cannot read as a different kind of thing
+        # from the one beside it.
+        self.local_filter_label = QLabel("Filter: ", self)
         self.local_filter_edit = QLineEdit(self)
         self.local_filter_edit.setPlaceholderText("Filter by name...")
         self.local_filter_edit.setClearButtonEnabled(True)
@@ -1686,6 +1717,75 @@ class RemoteExplorerWidget(QWidget):
             "again straight away.")
         self.btn_disconnect.setEnabled(False)
         self.btn_disconnect.clicked.connect(self._disconnect_peer)
+        # Name filter for the listing on screen (9.7.33) - the local
+        # pane's Search box mirrored onto this side, because the left
+        # pane could be narrowed to a name and the right one could not
+        # (reported). It hides rows in the VIEW and leaves the model
+        # whole; _apply_next_filter says why that is load-bearing
+        # rather than an implementation detail.
+        #
+        # A "Filter: " QLabel, like the local pane and like the SD Card
+        # tab's image tree. The first cut shipped the box BARE, on the
+        # argument that a QLabel's minimum size IS its text width - the
+        # trap next_path_label's own 9.7.2 comment documents - and that
+        # one here would cost this bar 96px, 132-168px translated.
+        #
+        # THOSE NUMBERS WERE WRONG, and the way they were wrong is worth
+        # keeping: they were taken under the offscreen platform with no
+        # QT_QPA_FONTDIR, where Qt measures a fallback face and every
+        # string comes out roughly four times too wide. Measured again
+        # with real fonts the label is ~23px in English and ~28px at its
+        # worst translation - noise on a bar that carries a machine
+        # combo, four buttons and a drive list. A layout decision taken
+        # on tofu metrics is not a measured decision.
+        #
+        # It was reported the moment it shipped, and the report was
+        # right on its own terms too: beside the SD Card tab's labelled
+        # box an unlabelled one does not read as the same control, and a
+        # placeholder is the one label that vanishes exactly when you
+        # are typing into it.
+        self.next_filter_label = QLabel("Filter: ", self)
+        self.next_filter_edit = QLineEdit(self)
+        # Name, Type OR Size - the SD Card image tree's rule (see
+        # _apply_next_filter), and this placeholder is that tree's
+        # wording verbatim so the two boxes promise the same thing.
+        self.next_filter_edit.setPlaceholderText(
+            "Filter by name, type or size...")
+        self.next_filter_edit.setClearButtonEnabled(True)
+        # Plain English literals, never ui_tr_now - the splitter
+        # handle's rule below, for the same reason: this widget is built
+        # lazily and translate_widget_tree caches the text it FIRST
+        # sees as the English source, so a pre-translated string has
+        # none and freezes in whatever language happened to be active.
+        self.next_filter_edit.setToolTip(
+            "Show only the entries whose Name, Type or Size contains "
+            "this text. The filter applies to the Next folder shown "
+            "here and is re-applied to every new listing \u2014 "
+            "including the one that arrives when you switch to "
+            "another Next.")
+        # A maximum, never a minimum, and that asymmetry is the whole
+        # trick: a maximum cannot raise the layout's floor (qSmartMinSize
+        # bounds by it last) while a minimum is added straight onto it -
+        # measured, setMinimumWidth(80) costs this bar 62px and
+        # setFixedWidth(150) costs it 152. So the cap can be generous for
+        # free. It is FILTER_TEXT_WIDTH, the SD Card tab's own number for
+        # this very placeholder: at 180 the text was ELIDED in all seven
+        # languages (measured - English alone wants ~212px of box, French
+        # and Polish ~270), and a truncated placeholder is the one label
+        # this box has when it is empty. Unlike the SD Card tab, which
+        # pins min AND max to this number because its filter row sits
+        # OUTSIDE the splitter, only the MAX is set here - so the box
+        # still shrinks to nothing rather than forcing the pane wide, and
+        # next_path_label (Ignored, and the row's only stretch) is what
+        # gives way first on a narrow window, exactly as 9.7.2 intended.
+        self.next_filter_edit.setMaximumWidth(FILTER_TEXT_WIDTH)
+        # Never added to _set_connected's enable list, and not an
+        # oversight: the machine switch runs _set_connected(False) +
+        # on_connected(), so a box greyed (or cleared) there would be
+        # wiped by the exact event it exists to survive. The local box
+        # is likewise never disabled, and a filter sends nothing over
+        # the wire.
+        self.next_filter_edit.textChanged.connect(self._next_filter_changed)
         next_bar = QHBoxLayout()
         next_bar.setContentsMargins(0, 0, 0, 0)
         next_bar.addWidget(next_up)
@@ -1695,7 +1795,27 @@ class RemoteExplorerWidget(QWidget):
         next_bar.addWidget(self.btn_disconnect)
         next_bar.addWidget(self.next_drive_combo)
         next_bar.addWidget(self.next_drive_add)
-        next_bar.addWidget(self.next_path_label, 1)
+        next_bar.addWidget(self.next_path_label, 2)
+        # BOTH stretch, 2 parts label to 1 part box, and the ratio is the
+        # whole point. The first cut gave the box stretch 0 so it would
+        # keep its width - which it did, by taking the status label's:
+        # next_path_label is QSizePolicy.Ignored (hint AND minimum 0, the
+        # 9.7.2 fix that lets the splitter move), so qGeomCalc serves the
+        # box's whole hint before the label sees a pixel. Measured on the
+        # real widget with a Next connected, label/box in px:
+        #
+        #   stretch 0:      2560 412/210   1920  58/210   1600   0/150
+        #   label 2, box 1: 2560 415/207   1920 179/ 89   1600  60/ 30
+        #
+        # i.e. the free-space figure, the build version and the one-click
+        # update link were being clipped away to feed a filter box that
+        # already has a QLabel of its own saying what it is. The label is
+        # this pane's ONLY status readout and, with a single Next
+        # connected, its update link is the primary route to the update
+        # (the session strip needs two machines) - so it gets the larger
+        # share, and neither is evicted before the other any more.
+        next_bar.addWidget(self.next_filter_label, 0)
+        next_bar.addWidget(self.next_filter_edit, 1)
 
         # The session strip (9.5.25): one SessionTab per connected Next,
         # down the pane's outer edge, shown only when there are at least
@@ -1785,7 +1905,19 @@ class RemoteExplorerWidget(QWidget):
             "Drag to resize the local / Next explorers split.")
         _sizes = _parse_splitter_sizes(splitter_sizes)
         if _sizes:
-            self.hsplitter.setSizes(_sizes)
+            # The one call that can actually raise: Qt answers a value over
+            # a C int with OverflowError, an ArithmeticError. The bound in
+            # _parse_splitter_sizes keeps such a value away from here, so
+            # this is the belt to that braces - but it belongs HERE, at the
+            # Qt call, and not in that function's clause where it could
+            # never fire. Escaping would abandon the rest of this lazy build
+            # and leave the Remote Explorer half-made for the session.
+            try:
+                self.hsplitter.setSizes(_sizes)
+            except (TypeError, ValueError, OverflowError):
+                logging.exception(
+                    "Remote Explorer: refusing saved splitter sizes %r",
+                    _sizes)
         if on_splitter_moved is not None:
             # splitterMoved fires for real drags only, never for the
             # setSizes above, so a restore can't echo back into the cfg.
@@ -3812,7 +3944,96 @@ class RemoteExplorerWidget(QWidget):
             self._add_next_row("..", True, None, is_updir=True)
         for is_dir, size, name in self._sorted_next_entries():
             self._add_next_row(name, is_dir, size)
+        # MEASURE FIRST, THEN HIDE, and that order is a fix rather than a
+        # preference. resizeColumnToContents walks the VIEW's rows, so
+        # filtering first sized the Name column to whatever survived the
+        # filter - 70px, the bare "Name" header, when nothing matched -
+        # and nothing ever measured it again, because the box's own
+        # handler only hides. Clearing the filter then brought the whole
+        # folder back into a column sized for the matches, every name
+        # elided, until the next listing happened to arrive. Measuring
+        # the full listing first is also why this is not done from
+        # _next_filter_changed: that would re-measure on every keystroke
+        # and make the column jitter as the user types.
         self.next_view.resizeColumnToContents(0)
+        self._apply_next_filter()
+
+    def _next_filter_changed(self, _text=None):
+        self._apply_next_filter()
+
+    def _apply_next_filter(self):
+        """Hide the Next rows whose name does not contain the Search text.
+
+        A QSortFilterProxyModel is not an option on this side. Nearly
+        every operation in this file indexes ``next_model`` DIRECTLY -
+        the selection, the drag payload, the zip name-collision walk -
+        so a proxy would renumber every index in sight. The SD Card
+        tab's disk-image tree has the same shape and filters the same
+        way: hide in the VIEW, leave the model whole (apply_image_filter
+        in zxnu_sdcard_explorer).
+
+        Three Qt behaviours shape this method, all measured rather than
+        recalled:
+
+        * A row's hidden flag is a QPersistentModelIndex and does NOT
+          survive the model being emptied and refilled - after any
+          rebuild every row comes back VISIBLE. That is why this runs
+          from the tail of _rebuild_next_rows rather than once when the
+          box is typed into, and it is what makes the filter survive a
+          Refresh, a re-sort, and the machine switch the feature was
+          asked for: on_peers -> _set_connected(False) + on_connected()
+          -> ls -> on_listing -> _rebuild_next_rows -> here.
+        * Every row therefore has its state SET on every pass, hidden or
+          shown. A hide-only loop would leave a CLEARED filter showing
+          nothing, because nothing is rebuilt on that path.
+        * Hiding a row does NOT deselect it. _selected_next_entries
+          reads the selection model, which knows nothing about
+          view-level hiding, so without the Deselect below a
+          filtered-away file would still be handed to Delete, Rename,
+          Download and drag-out - destroying something the user cannot
+          see. That method carries the same guard again; this is the one
+          invariant worth stating twice.
+
+        The ".." row is never filtered out, exactly as the local pane's
+        DotDotFirstProxyModel.filterAcceptsRow accepts it
+        unconditionally: a filter narrows what is IN a folder, it never
+        takes away the way out of one.
+
+        Matching is a case-insensitive substring of the row's joined
+        Name + Type + Size text - the SD Card tab's image tree rule,
+        which is the tree this pane was asked to mirror. The first cut
+        matched the NAME alone, copying the local box beside it, and
+        the report was immediate and correct: the placeholder offered
+        "name, type or size" on the tab this one echoes, and filtering
+        by size did nothing. Typing DIR now lists the folders and a
+        size fragment finds the big files, exactly as it does one tab
+        over. The LOCAL box keeps matching names only, because that is
+        all a QFileSystemModel proxy on FileNameRole can do, and its
+        placeholder says so - the same honest asymmetry the SD Card tab
+        has always had between its two boxes.
+        """
+        text = (self.next_filter_edit.text() or "").strip().lower()
+        model = self.next_model
+        root = QModelIndex()
+        sel = self.next_view.selectionModel()
+        last_col = max(0, model.columnCount() - 1)
+        for row_i in range(model.rowCount()):
+            item = model.item(row_i, 0)
+            if item is None:
+                continue
+            if bool(text) and item.data(RE_PATH_ROLE) != "..":
+                row = " ".join(
+                    (model.item(row_i, c).text()
+                     if model.item(row_i, c) is not None else "")
+                    for c in range(model.columnCount())).lower()
+                hide = text not in row
+            else:
+                hide = False
+            self.next_view.setRowHidden(row_i, root, hide)
+            if hide and sel is not None and sel.isRowSelected(row_i, root):
+                sel.select(QItemSelection(model.index(row_i, 0),
+                                          model.index(row_i, last_col)),
+                           QItemSelectionModel.Deselect)
 
     def _sorted_next_entries(self):
         """The cached Next entries ordered by the current sort key/direction.
@@ -4144,7 +4365,22 @@ class RemoteExplorerWidget(QWidget):
 
     def _selected_next_entries(self):
         out = []
-        for ix in self.next_view.selectionModel().selectedRows(0):
+        # ROW order, not selection order: selectedRows answers in RANGE
+        # order, and once the Search filter has punched holes in the
+        # selection a Ctrl-A comes back as (measured) gamma, epsilon,
+        # alpha - which _remote_zip would then name the archive after.
+        # Sorting by row is simply what the user sees.
+        for ix in sorted(self.next_view.selectionModel().selectedRows(0),
+                         key=lambda ix: ix.row()):
+            # A row the Search filter has hidden is not a target,
+            # however it came to be selected: the selection model knows
+            # nothing about view-level hiding (measured), and every
+            # caller of this method deletes, renames, downloads or drags
+            # what it returns. _apply_next_filter deselects as it hides;
+            # this holds even if some later path hides a row without
+            # going through it.
+            if self.next_view.isRowHidden(ix.row(), ix.parent()):
+                continue
             item = self.next_model.itemFromIndex(ix)
             if item is None:
                 continue
@@ -4896,8 +5132,15 @@ class RemoteExplorerWidget(QWidget):
     # carries the data twice; the dotN needs zero new bytes.
 
     def _next_listing_names(self):
-        """Lower-cased entry names currently listed in the Next pane (to pick
-        a zip name that doesn't collide with an existing one)."""
+        """Lower-cased entry names currently listed in the Next pane (to
+        pick a zip name that doesn't collide with an existing one).
+
+        Deliberately the MODEL, not the view: a row the Search box has
+        filtered out is still a file on the Next, and a zip named over
+        it would destroy it (the put has no overwrite guard and the
+        confirm never names the archive). Never narrow this walk to
+        visible rows.
+        """
         names = set()
         for row in range(self.next_model.rowCount()):
             item = self.next_model.item(row, 0)
