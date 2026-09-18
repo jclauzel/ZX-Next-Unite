@@ -370,6 +370,7 @@ CATALOGS = {
         "  File name": "  Nombre de archivo",
         "  File size": "  Tamaño de archivo",
         "  Filter: ": "  Filtro: ",
+        "Filter: ": "Filtrar: ",
         "  General UI text": "  Texto general de la interfaz",
         "  Retro logs console": "  Consola de registro retro",
         "  Up Directory item": "  Elemento «Subir directorio»",
@@ -1226,6 +1227,7 @@ CATALOGS = {
         # ---- placeholders ----
         "Filter by name, type or size...": "Filtrar por nombre, tipo o tamaño…",
         "Filter by name...": "Filtrar por nombre…",
+        "Show only the entries whose Name, Type or Size contains this text. The filter applies to the Next folder shown here and is re-applied to every new listing — including the one that arrives when you switch to another Next.": "Muestra solo las entradas cuyo Nombre, Tipo o Tamaño contenga este texto. El filtro se aplica a la carpeta del Next mostrada aquí y se vuelve a aplicar a cada nuevo listado — incluido el que llega al cambiar a otro Next.",
         "Local folder path...": "Ruta de la carpeta local…",
         "New directory name ...": "Nombre del nuevo directorio…",
         "Paste your personal API key (itch.io → Settings → API keys)":
@@ -1745,6 +1747,7 @@ CATALOGS = {
         "  File name": "  Nome do ficheiro",
         "  File size": "  Tamanho do ficheiro",
         "  Filter: ": "  Filtro: ",
+        "Filter: ": "Filtrar: ",
         "  General UI text": "  Texto geral da interface",
         "  Retro logs console": "  Consola de registo retro",
         "  Up Directory item": "  Item «Subir diretório»",
@@ -2601,6 +2604,7 @@ CATALOGS = {
         # ---- placeholders ----
         "Filter by name, type or size...": "Filtrar por nome, tipo ou tamanho…",
         "Filter by name...": "Filtrar por nome…",
+        "Show only the entries whose Name, Type or Size contains this text. The filter applies to the Next folder shown here and is re-applied to every new listing — including the one that arrives when you switch to another Next.": "Mostra apenas as entradas cujo Nome, Tipo ou Tamanho contém este texto. O filtro aplica-se à pasta do Next mostrada aqui e é reaplicado a cada nova listagem — incluindo a que chega ao mudar para outro Next.",
         "Local folder path...": "Caminho da pasta local…",
         "New directory name ...": "Nome do novo diretório…",
         "Paste your personal API key (itch.io → Settings → API keys)":
@@ -3118,6 +3122,7 @@ CATALOGS = {
         "  File name": "  Nazwa pliku",
         "  File size": "  Rozmiar pliku",
         "  Filter: ": "  Filtr: ",
+        "Filter: ": "Filtruj: ",
         "  General UI text": "  Ogólny tekst interfejsu",
         "  Retro logs console": "  Konsola dziennika retro",
         "  Up Directory item": "  Pozycja «katalog wyżej»",
@@ -3973,6 +3978,7 @@ CATALOGS = {
         # ---- placeholders ----
         "Filter by name, type or size...": "Filtruj wg nazwy, typu lub rozmiaru…",
         "Filter by name...": "Filtruj wg nazwy…",
+        "Show only the entries whose Name, Type or Size contains this text. The filter applies to the Next folder shown here and is re-applied to every new listing — including the one that arrives when you switch to another Next.": "Pokazuje tylko wpisy, których Nazwa, Typ lub Rozmiar zawiera ten tekst. Filtr dotyczy folderu Nexta pokazanego tutaj i jest ponownie stosowany do każdej nowej listy — również tej, która pojawia się po przełączeniu na innego Nexta.",
         "Local folder path...": "Ścieżka folderu lokalnego…",
         "New directory name ...": "Nazwa nowego katalogu…",
         "Paste your personal API key (itch.io → Settings → API keys)":
@@ -4492,6 +4498,7 @@ CATALOGS = {
         "  File name": "  Имя файла",
         "  File size": "  Размер файла",
         "  Filter: ": "  Фильтр: ",
+        "Filter: ": "Фильтр: ",
         "  General UI text": "  Общий текст интерфейса",
         "  Retro logs console": "  Ретро-консоль журнала",
         "  Up Directory item": "  Пункт «вверх по каталогу»",
@@ -5347,6 +5354,7 @@ CATALOGS = {
         # ---- placeholders ----
         "Filter by name, type or size...": "Фильтр по имени, типу или размеру…",
         "Filter by name...": "Фильтр по имени…",
+        "Show only the entries whose Name, Type or Size contains this text. The filter applies to the Next folder shown here and is re-applied to every new listing — including the one that arrives when you switch to another Next.": "Показывать только записи, чей Имя, Тип или Размер содержит этот текст. Фильтр применяется к папке Next, показанной здесь, и применяется заново к каждому новому списку — включая тот, который приходит при переключении на другой Next.",
         "Local folder path...": "Путь к локальной папке…",
         "New directory name ...": "Имя нового каталога…",
         "Paste your personal API key (itch.io → Settings → API keys)":
@@ -5865,6 +5873,7 @@ CATALOGS = {
         "  File name": "  Název souboru",
         "  File size": "  Velikost souboru",
         "  Filter: ": "  Filtr: ",
+        "Filter: ": "Filtr: ",
         "  General UI text": "  Obecný text rozhraní",
         "  Retro logs console": "  Retro konzole protokolu",
         "  Up Directory item": "  Položka «o adresář výš»",
@@ -6718,6 +6727,7 @@ CATALOGS = {
         # ---- placeholders ----
         "Filter by name, type or size...": "Filtrovat podle názvu, typu či velikosti…",
         "Filter by name...": "Filtrovat podle názvu…",
+        "Show only the entries whose Name, Type or Size contains this text. The filter applies to the Next folder shown here and is re-applied to every new listing — including the one that arrives when you switch to another Next.": "Zobrazí jen položky, jejichž Název, Typ nebo Velikost obsahuje tento text. Filtr platí pro složku Nextu zobrazenou zde a znovu se použije na každý nový výpis — včetně toho, který přijde po přepnutí na jiný Next.",
         "Local folder path...": "Cesta k místní složce…",
         "New directory name ...": "Název nového adresáře…",
         "Paste your personal API key (itch.io → Settings → API keys)":
@@ -7238,6 +7248,7 @@ CATALOGS = {
         "  File name": "  Nom du fichier",
         "  File size": "  Taille du fichier",
         "  Filter: ": "  Filtre : ",
+        "Filter: ": "Filtre : ",
         "  General UI text": "  Texte général de l'interface",
         "  Retro logs console": "  Console de journal rétro",
         "  Up Directory item": "  Élément « dossier parent »",
@@ -8096,6 +8107,7 @@ CATALOGS = {
         # ---- placeholders ----
         "Filter by name, type or size...": "Filtrer par nom, type ou taille…",
         "Filter by name...": "Filtrer par nom…",
+        "Show only the entries whose Name, Type or Size contains this text. The filter applies to the Next folder shown here and is re-applied to every new listing — including the one that arrives when you switch to another Next.": "N'affiche que les entrées dont le Nom, le Type ou la Taille contient ce texte. Le filtre s'applique au dossier du Next affiché ici et il est réappliqué à chaque nouvelle liste — y compris celle qui arrive lorsque vous passez à un autre Next.",
         "Local folder path...": "Chemin du dossier local…",
         "New directory name ...": "Nom du nouveau répertoire…",
         "Paste your personal API key (itch.io → Settings → API keys)":

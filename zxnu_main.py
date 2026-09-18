@@ -2513,7 +2513,6 @@ class MainWindow(QMainWindow):
 
         # zx_next_unite horizontals
         self.horizontal1 = QHBoxLayout()
-        self.horizontal2 = QHBoxLayout()
         # horizontal3 (explorers) and horizontal4 (Path) are now the
         # sdcard_explorer_grid built further below; horizontal5 (the log row)
         # became the bottom pane of the explorers ⇄ log splitter.
@@ -2739,8 +2738,8 @@ class MainWindow(QMainWindow):
 
             self.zx_next_unite_diskdrive.show()
 
-            self.horizontal2.addWidget(self.zx_next_unite_diskdrive)
-            # (activated is connected by SdCardExplorerPane, which owns the tree)
+            # (added to the local nav row by SdCardExplorerPane, which owns
+            # that row; activated is connected there too)
         else:
             available_drives.append('/')
             self.zx_next_unite_diskdrive.setVisible(False)
@@ -2748,26 +2747,22 @@ class MainWindow(QMainWindow):
         self.filterlabel = QLabel()
         self.filterlabel.setText("Search: ")
 
-
-        self.horizontal2.addWidget(self.filterlabel)
-
         self.filtertext = QLineEdit()
         self.filtertext.setPlaceholderText("Filter by name...")
-        # (textChanged is connected by SdCardExplorerPane, which owns the tree)
-        self.filtertext.setMinimumWidth(FILTER_TEXT_WIDTH)
+        # (textChanged is connected by SdCardExplorerPane, which owns the
+        # tree, and it adds this box to the local nav row)
+        # A MAXIMUM AND NO MINIMUM since the box moved INSIDE the splitter
+        # (9.7.33). The pair used to be safe because this row sat above
+        # the splitter and nothing it contained could set a pane's floor.
+        # It can now: a minimum is added straight onto the floor, and
+        # sdcard_hsplitter carries setChildrenCollapsible(False), so the
+        # pair took the local pane from 358px to 684 and the saved split
+        # was lost. A maximum cannot raise a floor, so the familiar width
+        # survives with none of the cost.
         self.filtertext.setMaximumWidth(FILTER_TEXT_WIDTH)
-
-        self.horizontal2.addWidget(self.filtertext)
-
-        # The "Disk Image Explorer:" label and its path moved into the path
-        # row that now sits directly above the explorers (see the
-        # sdcard_explorer_grid below); a stretch keeps the image-explorer
-        # Filter box on the right-hand side, roughly over that explorer.
-        self.horizontal2.addStretch(1)
 
         self.image_filterlabel = QLabel()
         self.image_filterlabel.setText("  Filter: ")
-        self.horizontal2.addWidget(self.image_filterlabel)
 
         self.image_filtertext = QLineEdit()
         self.image_filtertext.setPlaceholderText("Filter by name, type or size...")
@@ -2776,12 +2771,10 @@ class MainWindow(QMainWindow):
             "Type any text to show only rows whose Name, Type or Size columns contain that text.\n"
             "Clear the field to show all entries."
         )
-        # (textChanged is connected by SdCardExplorerPane, which owns the tree)
-        self.image_filtertext.setMinimumWidth(FILTER_TEXT_WIDTH)
+        # (textChanged is connected by SdCardExplorerPane, which owns the
+        # tree, and it adds this box to the image nav row)
+        # Cap only, never a floor - see the local box above.
         self.image_filtertext.setMaximumWidth(FILTER_TEXT_WIDTH)
-        self.horizontal2.addWidget(self.image_filtertext)
-
-        self.zx_next_unite_form.addRow(self.horizontal2)
 
         # ---- SD Card explorer pane (zxnu_sdcard_explorer) -------------------
         # The explorer pair's widgets and navigation/model layer live in
@@ -2828,6 +2821,12 @@ class MainWindow(QMainWindow):
             self, _sd_hooks,
             self.zx_next_unite_diskdrive if platform.system() == "Windows" else None,
             available_drives[0], self.filtertext, self.image_filtertext,
+            # The two filter LABELS travel with their boxes now (9.7.33):
+            # the pane owns the nav rows both halves live on. Keyword-only,
+            # so the positional signature every other caller uses is
+            # untouched.
+            local_filter_label=self.filterlabel,
+            image_filter_label=self.image_filterlabel,
             # The left-hand emulator strip, the Remote Explorer's twin. A
             # forwarding lambda, not the function itself: what it reports
             # (_mame_usable, the detected CSpect path, the launch closures)

@@ -50,8 +50,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from PySide6.QtCore import (QEvent, QItemSelectionModel, QMimeData, QPoint,
-                            QPointF, Qt, QTimer, QUrl)
+from PySide6.QtCore import (QEvent, QItemSelectionModel, QMimeData,
+                            QModelIndex, QPoint, QPointF, Qt, QTimer, QUrl)
 from PySide6.QtGui import QColor, QDropEvent, QMouseEvent, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
@@ -182,6 +182,7 @@ def make_widget(**kw):
         enqueue_to=kw.get(
             "enqueue_to",
             lambda sid, cmd: (calls["q_to"].append((sid, cmd)) or True)),
+        splitter_sizes=kw.get("splitter_sizes"),
         local_sort=kw.get("local_sort"),
         next_sort=kw.get("next_sort"),
         on_sort_changed=lambda which, v: calls["sorts"].append((which, v)),
@@ -249,6 +250,18 @@ def logged(calls, needle):
 def next_names(w):
     return [w.next_model.item(r, 0).text()
             for r in range(w.next_model.rowCount())]
+
+
+def next_visible(w):
+    """The Next rows the user can actually SEE.
+
+    Deliberately not next_names(): the Search box hides rows in the
+    view and leaves the model whole, so next_names() still lists every
+    entry and cannot see the filter at all.
+    """
+    return [w.next_model.item(r, 0).text()
+            for r in range(w.next_model.rowCount())
+            if not w.next_view.isRowHidden(r, QModelIndex())]
 
 
 def select_next(w, *names):
@@ -772,6 +785,320 @@ def test_sorting():
     w2.local_view.sortByColumn(1, Qt.AscendingOrder)
     check("local header click persists",
           calls2["sorts"] == [("local", "size:asc")])
+
+
+def test_splitter_size_restore():
+    """A corrupt saved local|Next split must not break the view.
+
+    The sizes come from hdfg.cfg as "left,right" and the widget is
+    built LAZILY, the first time the Remote Explorer view is shown, so
+    anything that escapes here abandons the rest of that build and
+    leaves the view half-made for the session. _parse_splitter_sizes
+    used to check only that both numbers were positive; Qt answers a
+    value over a C int with OverflowError, an ArithmeticError its
+    TypeError/ValueError clause did not catch, and the setSizes call
+    site has no try of its own. Same bound and same clause as the
+    mini-log splitter's restore in zxnu_nextsync_pane (9.7.21).
+    """
+    print("\n== splitter size restore ==")
+    p = rex._parse_splitter_sizes
+    check("a sane saved split is restored", p("700,300") == [700, 300],
+          str(p("700,300")))
+    check("a 2-sequence works too", p([700, 300]) == [700, 300],
+          str(p([700, 300])))
+    check("whitespace is tolerated", p(" 700 , 300 ") == [700, 300],
+          str(p(" 700 , 300 ")))
+    for bad, why in ((None, "absent"),
+                     ("", "empty"),
+                     ("abc", "not numbers"),
+                     ("700", "only one number"),
+                     ("0,300", "a zero pane"),
+                     ("-5,300", "a negative pane"),
+                     ("700,99999999999999", "past a C int"),
+                     ("99999999999999,300", "past a C int, left"),
+                     (str(zxnu_config.SPLITTER_MAX_PANE_PX) + ",300",
+                      "on the bound")):
+        check("refused: %s" % why, p(bad) is None, repr(p(bad)))
+
+    # And end to end: the corrupt value must not raise out of the
+    # constructor. Measured - Qt raises OverflowError at 2**31, so
+    # without the bound this call is what would have thrown.
+    try:
+        w = make_widget(local_start_dir=tdir("split_root"),
+                        splitter_sizes="99999999999999,300")[0]
+        built = True
+    except (OverflowError, TypeError, ValueError) as exc:
+        built = False
+        check("a corrupt saved split does not break the build",
+              False, "%s: %s" % (type(exc).__name__, exc))
+    if built:
+        check("a corrupt saved split does not break the build", True)
+        # NOT an assertion on hsplitter.sizes(): that reports laid-out
+        # geometry, so a successfully restored "700,300" also answers
+        # [45, 45] offscreen and the check could never fail. Assert what
+        # actually happened instead - that setSizes was never CALLED with
+        # the corrupt pair - by recording the argument.
+        seen = []
+        import PySide6.QtWidgets as _qtw
+        _real = _qtw.QSplitter.setSizes
+        try:
+            _qtw.QSplitter.setSizes = (
+                lambda self, s: (seen.append(list(s)), _real(self, s))[1])
+            w2 = make_widget(local_start_dir=tdir("split_root2"),
+                             splitter_sizes="99999999999999,300")[0]
+        finally:
+            _qtw.QSplitter.setSizes = _real
+        check("the corrupt pair is never handed to setSizes",
+              all(9999999 not in s for s in seen), str(seen))
+        w2.deleteLater()
+        w.deleteLater()
+
+
+def test_next_pane_filter():
+    """The Next pane's Search box (9.7.33): the local pane's filter
+    mirrored onto the right-hand side, which had none.
+
+    The pane's model is a plain QStandardItemModel that the rest of
+    the widget indexes directly, so the filter hides rows in the VIEW
+    instead of going through a proxy - the same way the SD Card tab's
+    disk-image tree does it. Three measured Qt behaviours make the
+    checks below load-bearing rather than decorative: a row's hidden
+    flag does not survive the model being rebuilt, hiding a row does
+    not deselect it, and selectAll() skips hidden rows.
+    """
+    print("\n== Next pane name filter ==")
+    w, calls = make_widget(local_start_dir=tdir("nfilter_root"))
+    connect_widget(w, calls)
+    folder = [(True, 0, "DEMOS"), (False, 10, "Alpha.tap"),
+              (False, 20, "beta.tap"), (False, 30, "gamma.nex")]
+    w.on_listing("/GAMES", list(folder))
+    everything = ["..", "DEMOS", "Alpha.tap", "beta.tap", "gamma.nex"]
+    check("with no filter the whole listing is on screen",
+          sorted(next_visible(w)) == sorted(everything),
+          str(next_visible(w)))
+
+    # --- it filters -------------------------------------------------
+    w.next_filter_edit.setText("tap")
+    check("a filter hides the rows that do not match",
+          sorted(next_visible(w)) == sorted(["..", "Alpha.tap",
+                                             "beta.tap"]),
+          str(next_visible(w)))
+    check("...and leaves the model whole",
+          sorted(next_names(w)) == sorted(everything),
+          str(next_names(w)))
+    check("matching is case-insensitive, like the local box",
+          (_visible_for(w, "ALPHA") == ["..", "Alpha.tap"]
+           == _visible_for(w, "alpha")),
+          str(_visible_for(w, "ALPHA")))
+
+    # NAME, TYPE **OR SIZE** - the SD Card image tree's rule, which is
+    # the tree this pane mirrors. The first cut matched the name alone
+    # and the report was immediate: the placeholder promises three
+    # columns and filtering by size did nothing.
+    check("the Type column is matched too - DIR lists the folders",
+          _visible_for(w, "DIR") == ["..", "DEMOS"],
+          str(_visible_for(w, "DIR")))
+    check("...and so is the Size column",
+          _visible_for(w, "30 B") == ["..", "gamma.nex"],
+          str(_visible_for(w, "30 B")))
+    check("a Type fragment finds every file of that type",
+          sorted(_visible_for(w, "nex")) == sorted(["..", "gamma.nex"]),
+          str(_visible_for(w, "nex")))
+
+    # --- the way out of a folder is never filtered away ---------------
+    check("'..' survives a filter that matches nothing",
+          _visible_for(w, "zzz") == [".."],
+          str(_visible_for(w, "zzz")))
+
+    # --- clearing restores every row (nothing is rebuilt on this path,
+    #     so a hide-only implementation gets exactly this case wrong) --
+    w.next_filter_edit.setText("")
+    check("clearing the box brings every row back",
+          sorted(next_visible(w)) == sorted(everything),
+          str(next_visible(w)))
+
+    # --- the Name column is measured on the WHOLE folder ---------------
+    # A rebuild while filtered used to size column 0 against the VISIBLE
+    # rows, and clearing the box never re-measured, so the whole folder
+    # came back with every name elided into a column sized for the
+    # matches (measured 412px -> 70px when nothing matched).
+    w.next_filter_edit.setText("")
+    w.on_listing("/GAMES", list(folder))
+    full_col = w.next_view.columnWidth(0)
+    w.next_filter_edit.setText("zzz")           # nothing matches
+    w.on_listing("/GAMES", list(folder))        # a rebuild while filtered
+    w.next_filter_edit.setText("")
+    check("the Name column is not left sized for the filtered subset",
+          w.next_view.columnWidth(0) == full_col,
+          "%d vs %d" % (w.next_view.columnWidth(0), full_col))
+
+    # --- it survives every rebuild ------------------------------------
+    w.next_filter_edit.setText("tap")
+    w.on_listing("/GAMES", list(folder))          # a Refresh
+    check("the filter is re-applied to a fresh listing",
+          sorted(next_visible(w)) == sorted(["..", "Alpha.tap",
+                                             "beta.tap"]),
+          str(next_visible(w)))
+    w._on_next_header_clicked(1)                  # re-sort by Type
+    check("...and to a re-sort",
+          sorted(next_visible(w)) == sorted(["..", "Alpha.tap",
+                                             "beta.tap"]),
+          str(next_visible(w)))
+
+    # --- hidden rows are never operated on -----------------------------
+    # TWO guards, and they need a tripwire EACH: the review proved by
+    # mutation that deleting either one alone left the whole suite green,
+    # because the only check read _selected_next_entries, which sits
+    # downstream of both.
+    #
+    # Guard 1, the deselect in _apply_next_filter, observed at the
+    # SELECTION MODEL so the skip downstream cannot stand in for it. It
+    # is not merely redundant: it is the only thing that collapses the
+    # selection to the visible set, so without it typing a filter and
+    # clearing it again RESURRECTS the hidden rows as selected.
+    w.next_filter_edit.setText("")
+    select_next(w, "Alpha.tap", "gamma.nex")
+    w.next_filter_edit.setText("tap")
+    live = sorted(w.next_model.item(ix.row(), 0).text()
+                  for ix in w.next_view.selectionModel().selectedRows(0))
+    check("the filter DESELECTS the rows it hides",
+          live == ["Alpha.tap"], str(live))
+    w.next_filter_edit.setText("")
+    back = sorted(w.next_model.item(ix.row(), 0).text()
+                  for ix in w.next_view.selectionModel().selectedRows(0))
+    check("...so clearing the box cannot resurrect them",
+          back == ["Alpha.tap"], str(back))
+
+    # Guard 2, the isRowHidden skip in _selected_next_entries, reached
+    # WITHOUT the filter - which is exactly the case its comment claims
+    # to cover, 'even if some later path hides a row without going
+    # through it'.
+    select_next(w, "Alpha.tap", "gamma.nex")
+    for _r in range(w.next_model.rowCount()):
+        if w.next_model.item(_r, 0).text() == "gamma.nex":
+            w.next_view.setRowHidden(_r, QModelIndex(), True)
+    picked = [p for p, _d in w._selected_next_entries()]
+    check("a row hidden by any other route is not a target either",
+          picked == ["/GAMES/Alpha.tap"], str(picked))
+    for _r in range(w.next_model.rowCount()):
+        w.next_view.setRowHidden(_r, QModelIndex(), False)
+
+    # --- and the selection is answered in ROW order --------------------
+    # Deliberately NOT sorted() here: selectedRows answers in RANGE
+    # order, so selecting bottom-up returns the bottom row first, and
+    # _remote_zip names its archive after entries[0]. This check is the
+    # only thing standing between that and an arbitrary zip name.
+    # Derive the rows rather than assuming them: the re-sort above reorders
+    # the listing, so which name sits where is not a constant. Select the
+    # LOWER row second, so click order and row order genuinely differ - pick
+    # them the other way round and range order happens to match row order,
+    # and the check passes with the sort deleted.
+    rows = {w.next_model.item(_r, 0).text(): _r
+            for _r in range(w.next_model.rowCount())}
+    hi, lo = sorted(("Alpha.tap", "gamma.nex"), key=rows.get, reverse=True)
+    sm = w.next_view.selectionModel()
+    sm.clearSelection()
+    for _name in (hi, lo):                         # LATER row clicked first
+        sm.select(w.next_model.index(rows[_name], 0),
+                  QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    order = [p.rsplit('/', 1)[-1] for p, _d in w._selected_next_entries()]
+    check("the selection is answered top-to-bottom, not in click order",
+          order == [lo, hi],
+          "%s (rows %d/%d, clicked %s first)" % (order, rows[lo], rows[hi], hi))
+    w.next_filter_edit.setText("tap")
+
+    # Ctrl-A under a filter selects what is on screen and nothing else
+    # (measured: QTreeView.selectAll skips hidden rows; the '..' row is
+    # removed by bind_select_all_except_updir).
+    w.next_view.selectAll()
+    picked = sorted(p for p, _d in w._selected_next_entries())
+    check("select-all under a filter takes only the visible rows",
+          picked == ["/GAMES/Alpha.tap", "/GAMES/beta.tap"],
+          str(picked))
+
+    # But the zip name-collision walk must still see the whole folder:
+    # a filtered-out file is still a file on the Next, and a zip named
+    # over it would destroy it.
+    check("the zip collision walk still sees filtered-out files",
+          "gamma.nex" in w._next_listing_names(),
+          str(sorted(w._next_listing_names())))
+
+    # --- and it survives the machine switch (the reported requirement)
+    w2, calls2 = make_widget(local_start_dir=tdir("nfilter_root2"))
+    w2.on_peers((1, [(1, "192.168.1.10")]))
+    connect_widget(w2, calls2)
+    w2.on_listing("/A", [(False, 1, "one.tap"), (False, 2, "two.nex")])
+    w2.next_filter_edit.setText("tap")
+    check("filter applied on the first machine",
+          sorted(next_visible(w2)) == sorted(["..", "one.tap"]),
+          str(next_visible(w2)))
+    before = drain(calls2)                        # clear the recorder
+    check("a filter never touches the wire", not before
+          or all(c[0] != "ls" for c in before), str(before))
+
+    # The baton moves to a second Next: _set_connected(False) empties
+    # the pane, on_connected() re-reads the new card.
+    w2.on_peers((2, [(1, "192.168.1.10"), (2, "192.168.1.20")]))
+    w2.on_drives("C", ["C"])
+    w2.on_listing("/Home", [(False, 5, "three.tap"),
+                            (False, 6, "four.nex")])
+    check("the box kept its text across the switch",
+          w2.next_filter_edit.text() == "tap",
+          repr(w2.next_filter_edit.text()))
+    check("...and the filter re-applied to the new machine's listing",
+          sorted(next_visible(w2)) == sorted(["..", "three.tap"]),
+          str(next_visible(w2)))
+
+    # --- disconnect: no crash, and the box keeps working --------------
+    w2.on_disconnected()
+    check("a disconnect empties the pane without upsetting the filter",
+          w2.next_model.rowCount() == 0)
+    check("the box stays enabled offline, like its local twin",
+          w2.next_filter_edit.isEnabled()
+          and w2.local_filter_edit.isEnabled())
+
+    # --- the strings must be the ones the catalogs actually carry -----
+    # An uncatalogued label ships as permanent English in all six
+    # languages and nothing else in the suite would notice.
+    from zxnu_i18n import CATALOGS
+    check("the placeholder promises what the box actually matches",
+          w.next_filter_edit.placeholderText()
+          == "Filter by name, type or size..."
+          and all(w.next_filter_edit.placeholderText() in CATALOGS[c]
+                  for c in ("es", "pt", "pl", "ru", "cs", "fr")),
+          repr(w.next_filter_edit.placeholderText()))
+    # BOTH panes carry a label, and both say the same word (reported:
+    # an unlabelled box does not read as the same control as the
+    # labelled one beside it, and a placeholder disappears as you type).
+    check("both panes are labelled Filter: ",
+          w.next_filter_label.text() == "Filter: "
+          and w.local_filter_label.text() == "Filter: "
+          and all("Filter: " in CATALOGS[c]
+                  for c in ("es", "pt", "pl", "ru", "cs", "fr")),
+          "%r / %r" % (w.next_filter_label.text(),
+                       w.local_filter_label.text()))
+    check("the tooltip is catalogued in every language",
+          all(w.next_filter_edit.toolTip() in CATALOGS[c]
+              for c in ("es", "pt", "pl", "ru", "cs", "fr")),
+          repr(w.next_filter_edit.toolTip()))
+
+    # The box must not become the Next pane's width floor: a maximum
+    # cannot raise a layout minimum, a minimum is added straight onto
+    # it, and this bar IS the pane's floor (9.7.2).
+    check("the filter box is capped, never floored",
+          w.next_filter_edit.maximumWidth() == zxnu_config.FILTER_TEXT_WIDTH
+          and w.next_filter_edit.minimumWidth() == 0,
+          "%d/%d" % (w.next_filter_edit.minimumWidth(),
+                     w.next_filter_edit.maximumWidth()))
+
+    w.deleteLater()
+    w2.deleteLater()
+
+
+def _visible_for(w, text):
+    """Set the Next filter to `text` and answer what is on screen."""
+    w.next_filter_edit.setText(text)
+    return next_visible(w)
 
 
 def test_op_lifecycle_new_folder_rename_delete():
@@ -3422,6 +3749,8 @@ def main():
         test_drive_switching()
         test_ls_failed_fallback()
         test_sorting()
+        test_splitter_size_restore()
+        test_next_pane_filter()
         test_op_lifecycle_new_folder_rename_delete()
         test_get_size_dialog()
         test_transfers_get_put()

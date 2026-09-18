@@ -94,13 +94,19 @@ IMG_LOADING_ROLE = int(Qt.ItemDataRole.UserRole) + 4  # bool: a background "ls" 
 class SdCardExplorerPane(QWidget):
     """The SD Card tab's explorer pair (see the module docstring)."""
 
-    def __init__(self, host, hooks, drive_combo, initial_root, local_filter_edit, image_filter_edit, transfer_buttons_container=None, image_buttons_container=None, parent=None, *, emulator_launchers=None):
+    def __init__(self, host, hooks, drive_combo, initial_root, local_filter_edit, image_filter_edit, transfer_buttons_container=None, image_buttons_container=None, parent=None, *, emulator_launchers=None, local_filter_label=None, image_filter_label=None):
         super().__init__(parent)
         self._host = host
         self._hooks = hooks
         self._drive_combo = drive_combo
         self._local_filter_edit = local_filter_edit
         self._image_filter_edit = image_filter_edit
+        # Their labels (9.7.33). The host still CREATES all four widgets -
+        # they keep their historical attribute names there and every
+        # connection the host made - but this pane owns the two nav rows
+        # they now sit on, so it is what places them.
+        self._local_filter_label = local_filter_label
+        self._image_filter_label = image_filter_label
         # host closure: () -> [(name, launch_callable)] for the emulators
         # that are installed and launchable right now, drawn as the
         # left-hand emulator strip. The pane deliberately knows nothing
@@ -256,6 +262,32 @@ class SdCardExplorerPane(QWidget):
         local_nav_row.setContentsMargins(0, 0, 0, 0)
         local_nav_row.addWidget(self.local_explorer_up_button)
         local_nav_row.addWidget(self.local_explorer_refresh_button)
+        # ONE ROW, the Remote Explorer's local bar exactly (9.7.33):
+        # Up / Refresh / drive / Filter label / box. These three used to
+        # sit on horizontal2, a full-width form row above the splitter,
+        # which cost a whole row of height to carry controls that belong
+        # to the pane beneath it - the same thing 9.6.0 fixed on the
+        # NextSync tab, where this combo came from in the first place.
+        if self._drive_combo is not None:
+            local_nav_row.addWidget(self._drive_combo)
+        if self._local_filter_label is not None:
+            # A CAPTION, NOT A FLOOR - the same rule diskimageexplorerlabel
+            # carries below, and for the same reason now that this label is
+            # INSIDE the splitter: a QLabel's minimum is its text width, so
+            # without this the caption sets how narrow the pane can ever be
+            # dragged (measured: the French "Rechercher : " took the local
+            # pane's floor from 305 to 418). The Preferred hint still earns
+            # it the full text whenever there is room; past that it clips.
+            self._local_filter_label.setMinimumWidth(1)
+            local_nav_row.addWidget(self._local_filter_label)
+        if self._local_filter_edit is not None:
+            # Stretch 3 against the trailing stretch of 1: the box reaches
+            # its familiar 320px cap on a wide window and gives way first
+            # as the pane narrows. The trailing stretch is NOT optional -
+            # without a stretchable item Qt hands the slack to the widgets
+            # themselves and the drive combo and the label balloon (the
+            # same trap zxnu_nextsync_pane's horizontal10 documents).
+            local_nav_row.addWidget(self._local_filter_edit, 3)
         local_nav_row.addStretch(1)
 
         self.local_path_row_container = QWidget()
@@ -303,7 +335,16 @@ class SdCardExplorerPane(QWidget):
         image_nav_row.setContentsMargins(0, 0, 0, 0)
         image_nav_row.addWidget(self.image_explorer_up_button)
         image_nav_row.addWidget(self.image_explorer_refresh_button)
+        # The stretch stays BEFORE the filter here, unlike the local row:
+        # that is where this box has always been - hard right, over the
+        # image explorer - and it is the Remote Explorer's Next bar minus
+        # the widgets this tab has none of.
         image_nav_row.addStretch(1)
+        if self._image_filter_label is not None:
+            self._image_filter_label.setMinimumWidth(1)   # caption, not a floor
+            image_nav_row.addWidget(self._image_filter_label)
+        if self._image_filter_edit is not None:
+            image_nav_row.addWidget(self._image_filter_edit, 1)
 
         self.image_path_row_container = QWidget()
         image_path_row = QHBoxLayout(self.image_path_row_container)

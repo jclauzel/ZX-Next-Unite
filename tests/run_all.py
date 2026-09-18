@@ -55,6 +55,12 @@ SUITES = [
     ("test_listen.py",          120, None),
     ("test_remote_listen.py",   120, None),
     ("test_bridge_stall.py",    180, None),
+    # The narrow unit test of bind_select_all_except_updir, against a
+    # synthetic fixture: it is the only cover for the SD-tab regression
+    # where SingleSelection killed Ctrl-A. The Remote Explorer's two
+    # panes are covered on the real widget by the suite below. It sat
+    # unregistered - and so never ran - until 9.7.33.
+    ("test_select_all_updir.py", 120, None),
     ("test_remote_explorer_widget.py", 180, None),
     ("test_http_bridge.py",     240, "flask"),
     ("test_powershell_module.py", 300, "flask"),  # skips without powershell/pwsh

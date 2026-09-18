@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.7"
+#define SYNC_VERSION "5.9.9"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -40,6 +40,36 @@
 // are assigned at runtime in main() before first use.
 static unsigned char g_syncmode;
 static unsigned char g_fast_uart_mode;
+// Flow control for THIS run: 1 = this board has the pins (nextreg 0x0F
+// nibble 2 or 3) AND this run will reach a fast rate, so the module is
+// told ",3" and 0x163B bit 5 is set. ONE VARIABLE - ZX Next Remote
+// tracked the FPGA bit and the module setting separately and four paths
+// disagreed (its 1.3.8). Decided ONCE in the board block, set from the
+// ONE statement sequence that tells the module (gofast), and cleared
+// unconditionally by three sites that never read it. IT HAS EXACTLY ONE
+// JOB: the moment it acquires a second, re-read the two paths that never
+// tell the module - MODE_SLOW and the already-fast branch. That is
+// ZXNR's 1.3.10 bug exactly. Assigned before any read, so it does not
+// depend on bss being zeroed.
+static unsigned char g_flow;
+// The user asked for flow control (-fc). NOTHING touches port 0x163B
+// unless this is set, and that is the whole point of it: the register is
+// documented as living in the shared core, but the one zxnext.vhd this
+// project can see decodes three UART ports and not that one ("-- todo:
+// add cts/rts" sits beside them), so on a core generation without it a
+// read returns the floating bus and the read-modify-write puts garbage
+// back. A default run must therefore be byte-for-byte the 5.9.7 dot.
+static unsigned char g_flow_ask;
+// The armed AT+UART_CUR did not take and gofast retried at ",0". Kept
+// only so the report can tell "this board cannot" from "the module
+// refused" - the 5.9.8 field report could not, and that cost a session.
+static unsigned char g_flow_esp;
+// The module took ",3" but the link then failed its first real test (the
+// ATE0 that follows), so we disarmed OUR side and left the module armed -
+// the benign half of the mismatch. A separate flag from g_flow_esp
+// because "the module refused" and "the module agreed and then the link
+// died" are different faults and the report is read to tell them apart.
+static unsigned char g_flow_ate;
 
 // xxxsmbbb
 // where b = border color, m is mic, s is speaker
@@ -53,6 +83,28 @@ __sfr __at 0xfe gPort254;
 __sfr __banked __at 0x133b UART_TX;
 __sfr __banked __at 0x143b UART_RX;
 __sfr __banked __at 0x153b UART_CTL;
+// UART Frame (R/W, hard reset 0x18): bits 4:3 frame size, bit 0 stop
+// bits, BIT 5 = HARDWARE FLOW CONTROL. Every write is READ-MODIFY-WRITE:
+// a blind "out 0x20" would also reconfigure the line, which presents as
+// corruption rather than as a flow-control bug. Safe to READ, which
+// 0x133B is NOT - its status bits clear on read, so probing there eats
+// the evidence a lost-byte hunt depends on.
+//
+// SAFE ON EVERY BOARD: the register is in the shared core, so it reads
+// and writes identically on an issue 2; only the PINS are missing there.
+// That is why the CLEARS below are unguarded and only the ENABLE is
+// gated - the one operation that must always be possible must never
+// grow a board test in front of it.
+//
+// WHICH UART: 0x153B bit 6 selects ESP(0)/Pi(1) and we inherit it.
+// Whether 0x163B is multiplexed by that select is unconfirmed, so every
+// access below sits AFTER main()'s "UART_CTL = 16" - correct under
+// either answer, and the only placement that is. Do not hoist the entry
+// clear above that line.
+__sfr __banked __at 0x163b UART_FRAME;
+
+#define FLOW_ON()  (UART_FRAME = (unsigned char)(UART_FRAME | 0x20))
+#define FLOW_OFF() (UART_FRAME = (unsigned char)(UART_FRAME & 0xDF))
 
 // Command line pointer (was a crt0 global). main() points it first at the raw
 // NextZXOS command tail, then at the cleaned private buffer. The old crt0 also
@@ -303,20 +355,83 @@ unsigned char receive_slow(void)
     return UART_RX;
 }
 
+// TWO COUNTERS SINCE 5.9.8, and hardware flow control is why. `timeout`
+// was a single per-CALL budget: 20000 iterations of a 59 T-state loop at
+// 28 MHz, i.e. ~42 ms shared by all of a chunk's bytes, against the ~450
+// iterations a healthy 255-byte chunk at 2 Mbaud spends. Nothing could
+// hold the Tx-full bit for that long, so the expiry arm was unreachable.
+//
+// Arming 0x163B bit 5 makes it reachable ON PURPOSE: the ESP may now park
+// our transmitter (uart_tx.vhd S_RTR, no timeout) for as long as it likes,
+// which is the entire point of the feature. A single budget therefore
+// conflated "the peer legitimately paused us" with "the link is dead" -
+// and on expiry the old code wrote the byte into a FIFO it had just
+// measured FULL, then abandoned the chunk's remainder. The block checksum
+// and the 12-retry loop above catch the short block, so nothing corrupt is
+// ever accepted, but the retries are pure cost.
+//
+// THE SHAPE IS flush_uart_hard's, proven in this file: a window that
+// REFILLS ON PROGRESS and a cap that never does. That is the rule this
+// project already paid for once (ZX Next Remote 0.7.13: any two-phase
+// deadline must reset on progress), applied here to "a byte went out"
+// rather than to a clock. A dead link still terminates - on the cap, in
+// ~126 ms instead of ~42 - while a legitimate pause costs time, not bytes.
+//
+// NO RETURN VALUE, deliberately: every caller's correctness already rests
+// on the framed reply and its checksum, so a short write is detected end
+// to end today, and threading a status through send_long/send_block to
+// re-detect it would touch every transfer path for no new information.
 void send(const char *b, unsigned char bytes)
 {
-    unsigned short timeout = TIMEOUT;
+    unsigned short timeout;
     unsigned char t;
-    while (timeout && bytes)
+    while (bytes)
     {
+        // ONE WINDOW PER BYTE. `timeout` used to be a single budget for the
+        // whole call, and nothing could hold the Tx-full bit long enough to
+        // spend it, so its expiry arm was unreachable. Arming 0x163B bit 5
+        // makes it reachable ON PURPOSE - the ESP may now park our
+        // transmitter (uart_tx.vhd S_RTR, no timeout) for as long as it
+        // likes, which is the whole point of the feature - and one shared
+        // budget conflates "the peer legitimately paused us" with "the link
+        // is dead". Refilling it here is the rule this project already paid
+        // for once (ZX Next Remote 0.7.13: any two-phase deadline must reset
+        // on progress), applied to a byte going out rather than to a clock.
+        timeout = TIMEOUT;
         // busy wait until byte is transmitted
         do
         {
             timeout--;
-            t = UART_TX;
+            t = (unsigned char)(UART_TX & 2); // bit 1 = Tx buffer full
         }
-        while ((t & 2) && timeout); // bit 1 = 1 if the Tx buffer is full
-        
+        while (t && timeout);
+
+        // The window expired with no slot: STOP, and do not store. The old
+        // code wrote the byte into a buffer it had just measured full -
+        // lost either way, and it is what made the expiry arm look like a
+        // successful send. Breaking here is also what BOUNDS the whole
+        // loop: it can only go round again when a byte actually went out,
+        // and `bytes` is at most 255, so the call is capped at 255 windows
+        // by construction. That is why there is no second never-reset
+        // counter here, unlike flush_uart_hard above - THAT window resets
+        // on a byte ARRIVING, which a chatty peer can sustain for ever, so
+        // it genuinely needs a ceiling. This one cannot run away.
+        //
+        // A dead link therefore still gives up in one window (~42 ms at 28
+        // MHz), exactly as before this change; what is new is that a
+        // legitimate pause now costs time instead of bytes.
+        //
+        // NO COMPOUND CONDITIONALS, deliberately: the first cut carried a
+        // cap and read `while (timeout && cap && bytes)`, which compiled
+        // with a new "warning 110: conditional flow changed by optimizer" -
+        // the same one syncsys.c's `(d >= 'A' && d <= 'P') ? d : 0` draws.
+        // The generated code was correct (verified by disassembly), but in
+        // the hottest function in the program, in the one loop that now has
+        // a reachable failure arm, a clean build is worth more than a
+        // counter that cannot fire.
+        if (t)
+            break;
+
         UART_TX = *b;
 
         gPort254 = *b & 7;
@@ -494,20 +609,142 @@ char gofast(char *inbuf)
     // the very budget build_dotn.ps1 guards.
     char cmd[32];
     unsigned char n;
+    unsigned short w;
 
+    // HARD-RESET THE MODULE BEFORE ARMING (5.9.9), and this is the field
+    // report's own finding: on a KS2, -fc worked on the FIRST run after a
+    // complete power-off and failed on every run after it. That is not a
+    // board problem (the gate said "Brd 4", i.e. capable, every time) and not
+    // our own bit (the entry clear already handles that). It is the MODULE:
+    // ESP-AT only takes ",3" cleanly from its power-on state, and once it has
+    // been through a ",3" -> ",0" cycle the next armed AT+UART_CUR is not
+    // applied - the following probe then burns its timeout (the ~1 s pause
+    // after the Brd line), we fall back to ",0", and the report says off.
+    //
+    // ZX Next Remote never sees this because it routes EVERY failed probe
+    // through esp_hard_reset(); the dot only resets on its "No esp" bail. So
+    // reproduce the one state that demonstrably works. Only when we are
+    // actually going to arm: an incapable board, or a run without -fc, must
+    // stay byte-for-byte the old bring-up - which is what KS1 and MAME, both
+    // connecting happily today, are the evidence for.
+    if (g_flow)
+    {
+        FLOW_OFF();                  /* ours first - the ZXNR ordering */
+        writenextreg(0x02, 128);     /* hold the ESP in reset */
+        for (w = 0; w < 20000u; w++) ;
+        writenextreg(0x02, 0);       /* release */
+        setupuart(0);                /* it comes back at 115200, flow off */
+        // THEN WAIT FOR IT TO COME BACK, AND DO NOT GUESS HOW LONG.
+        // 5.9.9's first cut released reset and waited one 60000-iteration
+        // drain before sending the armed command. MEASURED by disassembling
+        // the shipped binary, and the first pass at these numbers got two of
+        // three wrong - they are re-counted here: the drain loop is 60
+        // T-states idle (73 when a byte arrives), so one 60000-iteration
+        // pass is ~129 ms at 28 MHz and the six below are ~771 ms. The hold
+        // above is 26 T, i.e. 18.6 ms - not the '10 frames' its own comment
+        // once claimed. (main()'s 10000-iteration reset delay says '5+
+        // frames' and is ~22.9 ms, not the ~9 ms first reported here: its
+        // counter is spilled to a stack slot, 64 T per iteration, where this
+        // one stays in BC. Still not 5 frames, and it has never mattered
+        // because that path bails immediately afterwards.)
+        //
+        // An ESP-AT module needs several hundred ms to boot, so we were
+        // firing AT+UART_CUR=...,3 into a module that was still coming up:
+        // the command was lost, the probe burned its timeout, and the ,0
+        // fallback then succeeded because by THAT point it had booted.
+        // Exactly the field report - 'Flow off esp' on every run after the
+        // first, and a retried connection with it.
+        //
+        // So drain for ~771 ms (six passes, an unsigned short caps one at
+        // 65535) and then PROBE until it answers, which is self-timing and
+        // costs nothing on a module that is already up. Echo is still on
+        // here - ATE0 comes later - so the reply carries the command back
+        // before its OK; strinstr finds the OK either way.
+        for (n = 0; n < 6; n++)
+            for (w = 0; w < 60000u; w++)
+                if (UART_TX & 1)
+                    UART_RX;
+        flush_uart_hard();
+        for (n = 0; n < 8; n++)
+            if (!atcmd("AT\r\n", "OK", 2, inbuf))
+                break;
+    }
+
+retry:
     memcpy(cmd, "AT+UART_CUR=", 12);
     n = uitoa(khz_values[(g_fast_uart_mode - 1) * 8
                          + (readnextreg(0x11) & 0x07)], cmd + 12);
     memcpy(cmd + 12 + n, "000,8,1,0,0\r\n", 14);   /* the NUL travels too */
+    // The fifth field is the MODULE's flow control: 0 none, 3 RTS+CTS.
+    // 3 in BOTH directions - CTS lets the FPGA stop the module before the
+    // Next's 512-byte Rx fifo overruns (the download leg, the one this dot
+    // actually needs), RTS lets the module stop US. ",2" would buy the
+    // download half alone and is NOT safer: with the ESP not driving RTS,
+    // our bit 5 would point the transmitter at an undriven esp_rtr_n_i, a
+    // pin with no pullup in the issue-4 constraints.
+    //
+    // INDEX IS COMPUTED, not the literal 26: uitoa returned n, the tail
+    // starts at 12+n, and the flow digit is its 11th character. Every
+    // khz_values cell is four digits today, so 26 would be right BY LUCK.
+    //
+    // THIS COMMAND IS WHERE THE MODULE LEARNS, so it is the only place in
+    // the program that may arm anything.
+    if (g_flow)
+        cmd[12 + n + 10] = '3';
     atcmd(cmd, "", 0, inbuf);
+
+    // DRAIN AT THE OLD BAUD BEFORE FOLLOWING WITH THE PRESCALAR (5.9.9).
+    // This is ZX Next Remote's shape, and its comment names this very
+    // function: "the dot's gofast(): command the module up, drain its OK (it
+    // arrives at the OLD baud), then follow with the prescalar". The dot has
+    // always switched immediately instead, and at ",0" that was fine for
+    // years - the module only had a divisor to change.
+    //
+    // ",3" also makes it reconfigure its handshake pins, and the KS2 field
+    // report for 5.9.8 was exactly the shape you would expect if we moved
+    // first: a ~1 s pause after the Brd line (the following probe burning
+    // its timeout), then the ",0" fallback, and occasionally a link left
+    // desynced. atcmd() returns as soon as it has sent, because the command
+    // is issued with expect "" - so without this the module gets no quiet
+    // time at the rate it is still listening on.
+    flush_uart_hard();
 
     setupuart(g_fast_uart_mode);
     flush_uart_hard();
     if (atcmd("\r\n", "ERROR", 5, inbuf))
     {
+        // The rate did not take, so NOTHING in that command took: ESP-AT
+        // parses UART_CUR's five fields together and applies them together
+        // or not at all. It is sent fire-and-forget (expect ""), so a
+        // module that REFUSES the flow field is invisible - and that field
+        // is the one new thing in a command which has worked for years.
+        // RETRY ONCE AT ",0" before declaring failure: without this an
+        // ESP-AT build that will not do flow control loses fast mode
+        // ENTIRELY on a board that has always had it, which is a hard
+        // regression on exactly the hardware this feature is for. Our bit
+        // is still clear (the only line that sets it is below), so both
+        // ends go round unarmed.
+        if (g_flow)
+        {
+            g_flow = 0;
+            g_flow_esp = 1;            /* so the report can say WHY */
+            setupuart(0);              /* back to 115200 to be heard */
+            flush_uart_hard();
+            goto retry;
+        }
         print("No fast esp");
         return 1;
     }
+
+    // OURS LAST, AND ONLY HERE - the rule this change must not break. The
+    // module was told above and the rate has just been CONFIRMED, and that
+    // confirmation IS the flow confirmation, because baud and flow ride in
+    // one command and apply together. Arming any earlier points our
+    // receiver's readiness at a line the ESP is not yet driving, and the
+    // dot has no UI, no Settings escape and no watchdog: a parked
+    // transmitter is a frozen Next needing a reset.
+    if (g_flow)
+        FLOW_ON();
     return 0;
 }
 
@@ -815,7 +1052,9 @@ char send_dir(char *fullpath, unsigned short plen, unsigned char *inbuf, unsigne
 //                                        switch each one off (no anim / no
 //                                        verbose / no retro)
 //
-// Also consumes the standalone option flags "-v" (verbose), "-a" and "-anim"
+// Also consumes "-fc" (UART hardware flow control, issue 4/5 boards only -
+// see g_flow_ask) and the standalone option flags "-v" (verbose), "-a" and
+// "-anim"
 // (sprite eye-candy) - now-default no-ops kept for old habits and scripts.
 // Consuming them here means they are dropped from the cleaned command line, so
 // e.g. ".sync5 -na" still runs a normal PC->Next sync (without anim) instead
@@ -826,6 +1065,9 @@ unsigned char setspeed(char *p, unsigned char n)
 {
     if (*p != '-') return 0;
     if (p[1] == 'f' && (n == 5 || n == 2))              { g_syncmode = MODE_FAST;    return 1; }
+    // -fc: ask for UART hardware flow control. OPT-IN since 5.9.9 - see
+    // g_flow_ask. n == 3 is free here because -f is matched at 2 or 5.
+    if (p[1] == 'f' && n == 3 && p[2] == 'c')           { g_flow_ask = 1;           return 1; }
     if (p[1] == 'd' && n == 8)                          { g_syncmode = MODE_DEFAULT; return 1; }
     if (p[1] == 'd' && (n == 2 || (n == 5 && p[2] == 'a'))) { g_dark = 1;            return 1; }
     if (p[1] == 's' && (n == 2 || (n == 5 && p[2] == 'l'))) { g_syncmode = MODE_SLOW; return 1; }
@@ -1502,6 +1744,8 @@ int main(int arglen, char *rawcmd)
                 "  ren free rcpy rfsize\r"
                 "  BREAK key stops it (safe)\r"
                 ".SYNC5 -slow -default -fast\r"
+                ".SYNC5 -fc : UART flow control\r"
+                "  (issue 4/5 boards only)\r"
                 "Anim, verbose trace and retro\r"
                 "look are ON; to disable:\r"
                 ".SYNC5 -na -nv -nr\r"
@@ -1514,7 +1758,11 @@ int main(int arglen, char *rawcmd)
         {
             // Clone hardening, same N-Go failure family as the bounded copy
             // above: a mangled tail must NEVER overwrite the saved config.
-            // valid_server (head-page, free.c) accepts host chars only
+            // valid_server (hand asm in uart.asm, SECTION code_compiler
+            // - the MAIN bank, not the head page and not free.c; the
+            // comment said both and neither is true, which would have
+            // sent the next person costing a change to the wrong pool)
+            // accepts host chars only
             // (alnum . -), whole token, minimum 2 chars — junk like the
             // lone 'n' a mangled tail produced is refused, not written.
             if (!valid_server(fn))
@@ -1570,26 +1818,13 @@ int main(int arglen, char *rawcmd)
                                             "fast (2000000)");
     conprint("\r");
 
-    // WHAT THIS MACHINE ACTUALLY IS (5.9.4), printed before anything
-    // touches the wire, because two of these three decide what this UART
-    // can do and neither was ever visible:
-    //
-    //   iss<N>  nextreg 0x0F bits 3:0, + 2 = the BOARD ISSUE. This is not
-    //           cosmetic: issue 2 (KS1, and the N-GO) has no esp_cts_n_o
-    //           or esp_rtr_n_i in its top-level entity at all, so hardware
-    //           flow control there is not switched off - it does not
-    //           exist, and the ESP can never be told to pause. Issue 4 and
-    //           5 have the pins.
-    //   t<N>    nextreg 0x11 & 7, the video timing. It selects the clock
-    //           the baud prescalar divides, i.e. the row of the table
-    //           above, so it is half of what sets the real wire rate.
-    //   ps<N>   the prescalar this run will program. The wire runs at
-    //           clock / ps, which is NOT the nominal rate handed to the
-    //           ESP - with these two numbers a user can work out the
-    //           mismatch themselves.
     // WHAT THIS MACHINE ACTUALLY IS (5.9.4), as "Brd 2 t7 p14", before
     // anything touches the wire. Two of the three decide what this UART
     // can do and neither was ever visible from any screen:
+    //
+    // SINCE 5.9.8 THIS IS NOT JUST A REPORT: the dot ASKS for hardware
+    // flow control on board id 2 or 3 and prints the verdict on the
+    // "Flow" line below, so this block decides as well as describes.
     //
     //   Brd <n>  nextreg 0x0F bits 3:0, + 2 = the BOARD ISSUE. Not
     //            cosmetic: issue 2 (KS1, and the N-GO) has no esp_cts_n_o
@@ -1622,6 +1857,23 @@ int main(int arglen, char *rawcmd)
         unsigned char bid = readnextreg(0x0F) & 0x0F;
         unsigned char vt  = readnextreg(0x11) & 0x07;
 
+        // Decided HERE, off the read this line already makes, and nowhere
+        // else. A CLOSED RANGE {2,3}, never ">= 2": 0xFF & 0x0F is 15,
+        // which is what an emulator with no 0x0F model hands back, and
+        // telling a module to honour a CTS line nobody drives is how you
+        // get a transmitter that never sends - AN UNKNOWN ID MUST MEAN NO.
+        // The RAW nibble, not the printed digit: the line prints '2' + bid,
+        // so capable is the line reading "Brd 4" or "Brd 5". Kept identical
+        // to ZX Next Remote's flow_capable(), or the two programs arm on
+        // different machines and the field reports stop being comparable.
+        // MODE_SLOW is folded in so -slow can never arm and can never
+        // report on: gofast is not reached at -slow today, but this flag
+        // also drives the report, and a slow run claiming flow control is a
+        // lie that would be believed.
+        g_flow = (unsigned char)(g_flow_ask
+                                 && (bid == 2u || bid == 3u)
+                                 && g_syncmode != MODE_SLOW);
+
         memcpy(nb, "Brd - t- p", 11);            /* the NUL travels too */
         nb[4] = (char)((bid < 4) ? ('2' + bid) : '?');
         nb[7] = (char)('0' + vt);
@@ -1640,6 +1892,43 @@ int main(int arglen, char *rawcmd)
 
     // select esp uart, set 17-bit prescalar top bits to zero
     UART_CTL = 16; 
+    // INHERITED FLOW CONTROL, CLEARED BEFORE WE TRANSMIT A BYTE. 0x163B
+    // outlives a program: the crt restores the MMU slots and this code
+    // restores nextreg 0x06/0x07, but nothing restores the UART frame. A
+    // dot killed by NMI or reset, or an older ZX Next Remote, leaves bit 5
+    // SET, and this run would start against a module at its 115200 default
+    // with flow OFF - parking our transmitter on esp_rtr_n_i before
+    // anything useful prints. That run reports "No esp - reset, try again"
+    // and bails: the symptom is a dot claiming there is no ESP attached.
+    //
+    // uart_tx.vhd holds S_RTR only while i_cts_n='1' AND i_frame(5)='1',
+    // evaluated combinationally, so CLEARING RELEASES A PARKED TRANSMITTER
+    // ON THE NEXT EDGE - and the clear is one OUT that needs no working
+    // transmitter. Both the reset and the escape hatch. UNCONDITIONAL: not
+    // gated on the board (shared silicon, legal everywhere) and not on the
+    // speed mode (a -slow run after a killed fast run is exactly the case
+    // it exists for). AFTER the select above, never before.
+    //
+    // AND IT IS NOT GATED ON -fc, which 5.9.9 briefly made it. Review
+    // found the gate was ASYMMETRIC and that the asymmetry manufactured
+    // the very failure this line exists to clear: a run without the flag
+    // skipped this clear but still DISARMED THE MODULE, because bailout's
+    // AT+UART_CUR=115200,8,1,0,0 and the "No esp" hard reset are both
+    // unconditional. Inheriting (our bit set, module armed) - which works
+    // - a plain run turned it into (our bit set, module not driving RTS),
+    // which is the combination that parks the transmitter.
+    //
+    // The worry that motivated the gate was a core that does not decode
+    // 0x163B, where the read-modify-write would put back garbage. Hardware
+    // answered it: 5.9.8 ran this clear unconditionally on a KS1 and under
+    // MAME and both connected normally. CLEARING IS ALWAYS SAFE AND ALWAYS
+    // RIGHT; enabling is the half that needs asking for.
+    //
+    // SCOPE: "unconditional" means no board test, no speed test and no
+    // flag test. The argument-parsing exits above jump straight to
+    // terminate: and never reach this line, which is harmless - they touch
+    // no UART at all.
+    FLOW_OFF();
     // set the baud rate (default)
     setupuart(0);
 
@@ -1651,6 +1940,27 @@ int main(int arglen, char *rawcmd)
             fastuart = 1;
             setupuart(g_fast_uart_mode);
             flush_uart_hard();
+            // THE MODULE'S FLOW STATE IS UNKNOWN HERE, and it must not be
+            // inferred from "we are at the fast rate": gofast is the ONLY
+            // place it is ever told, and this branch used to skip it.
+            //
+            // The first cut simply cleared g_flow here and let the skip
+            // stand, arguing that re-stating the rate would buy flow
+            // control on a RECOVERY path at the price of a new failure
+            // mode "on a path that today always proceeds". The premise was
+            // wrong, and the field found it in one session: this is not a
+            // recovery path, it is the NORMAL path for every run after the
+            // first, because the dot leaves the module at the fast rate on
+            // the way out. So -fc armed once after a power-off and never
+            // again, reporting a bare "Flow off" - not "Flow off esp",
+            // because nothing had refused anything; nothing had been asked.
+            //
+            // ZX Next Remote hit this at 1.3.10 and wrote down the lesson:
+            // "when a variable acquires a new job, re-read its old edge
+            // cases". g_flow is left ALONE here and the guard below lets
+            // gofast run anyway when we mean to arm - gofast's own hard
+            // reset then puts the module back to a known 115200 first, so
+            // the sequence is identical to the one that already works.
         }
         // In slow mode there is no fast rate to fall back to, so bail straight
         // away; otherwise bail only if the esp is unresponsive at the fast rate.
@@ -1669,10 +1979,76 @@ int main(int arglen, char *rawcmd)
         // transfer is going on)
     }
 
-    if (g_syncmode != MODE_SLOW && !fastuart && gofast(inbuf))
+    // `!fastuart || g_flow`: the second half is 5.9.9's fix. An unarmed
+    // run is byte-for-byte what it always was - fastuart still skips
+    // gofast - while a run that means to arm goes through it even when the
+    // module is already fast, because that is the only way the flow field
+    // is ever sent. g_flow is non-zero only with -fc on a capable board at
+    // a non-slow rate, so nothing else can reach the new branch.
+    //
+    // The cost is honest and bounded: on this path gofast can now bail
+    // where it previously was not called, taking the run with it. It only
+    // does so when BOTH the armed attempt and its ,0 fallback fail, which
+    // means the module is unreachable at either rate - a run that had
+    // nothing to offer anyway.
+    if (g_syncmode != MODE_SLOW && (!fastuart || g_flow) && gofast(inbuf))
         goto bailout;
 
-    atcmd("ATE0\r\n", "OK", 2, inbuf); // command echo off; if on, we might match server name as OK/ERROR/BUSY =)
+    // ATE0 IS ALSO THE ARMED LINK'S FIRST REAL TEST (echo off; if on, we
+    // might match the server name as OK/ERROR/BUSY =). Everything above
+    // proves the module ACCEPTED ",3". Nothing above proves its RTS pin is
+    // physically routed to esp_rtr_n_i on this ESP board - the one link no
+    // software can verify. If it is not, our transmitter is parked right
+    // now and this is the first command that notices. WHAT THIS DOES NOT
+    // COVER: a pin that floats benign here and misbehaves later. It will
+    // also disarm on an unrelated transient ATE0 failure, costing that run
+    // its flow control and nothing else. Clearing ours while the module
+    // stays at ,3 is the benign half of the mismatch, so this is safe
+    // unconditionally; && short-circuits, so an unarmed run is
+    // byte-for-byte what it was.
+    if (atcmd("ATE0\r\n", "OK", 2, inbuf) && g_flow)
+    {
+        g_flow = 0;
+        // NOT g_flow_esp: that word means the module REFUSED the armed
+        // command and we retried at ,0. Here it ACCEPTED - gofast
+        // confirmed the rate before arming - and its ,0 fallback is
+        // upstream of this point and never re-entered. What failed is the
+        // link, after the module was already armed, so the two ends are
+        // left disagreeing in the BENIGN direction (module at ,3, our bit
+        // clear) and the report has to say so rather than blame the ESP.
+        g_flow_ate = 1;
+        FLOW_OFF();
+        flush_uart_hard();
+        atcmd("ATE0\r\n", "OK", 2, inbuf);  /* retry unarmed; ignored */
+    }
+
+    // WHAT THIS RUN ACTUALLY DID, printed at the first point that KNOWS -
+    // a line of its own, not a field on the Brd line, which is printed
+    // before anything touches the wire and could therefore only ever carry
+    // a PREDICTION (and would guess WRONG on the already-fast path, which
+    // has no failure line to correct it). ZXNR's first cut printed its f18
+    // on the one bring-up that actually armed and looked like it had done
+    // nothing; a field meant to be read off two machines and compared has
+    // to be true the first time. "Flow on" is ZXNR's f38, "Flow off" its
+    // f18. A "Brd 2" machine always prints off and cannot print anything
+    // else: those owners want -default rather than -fast.
+    // WHY, not just whether (5.9.9). The 5.9.8 field report was "Flow off on
+    // a KS2, and it hangs" - and "Flow off" could not distinguish a board
+    // that cannot from a module that refused the armed command, which is
+    // what had actually happened. Three outcomes, three strings:
+    //   "Flow off"       - not asked for (no -fc), or this board has no pins
+    //   "Flow on"        - asked, capable, and the module took ",3"
+    //   "Flow off esp"   - asked and capable, but the module refused and we
+    //                      fell back to ",0"; the transfer is unprotected but
+    //                      the link is the same one 5.9.7 would have built.
+    //   "Flow off ate"   - the module TOOK ",3" and then the link failed its
+    //                      first command, so we disarmed our half. Not the
+    //                      module's fault, and not the same link as esp:
+    //                      that one is symmetric at ,0, this one is the
+    //                      module still at ,3 with our bit clear.
+    print(g_flow ? "Flow on"
+                 : (g_flow_esp ? "Flow off esp"
+                               : (g_flow_ate ? "Flow off ate" : "Flow off")));
 
     // Runs once (the handshake "goto retryconnect"s land BELOW this line), so
     // the retry budget is never refilled by a mid-session reconnect.
@@ -1976,6 +2352,10 @@ retryhandshake4:
         send_block_rt(scratch, 1, inbuf);
 
         print("Upload done");
+        // Ours first, as at closeconn/closenobye: this CIPCLOSE has to get
+        // out through the very transmitter a set bit 5 could be holding,
+        // and this exit reaches bailout's clear only AFTER sending it.
+        FLOW_OFF();
         atcmd("AT+CIPCLOSE\r\n", "", 0, inbuf);
         goto bailout;
     }
@@ -2031,11 +2411,40 @@ retrynext:
     while (*fn != 0);
     
 closeconn:
+    // OURS FIRST, AND HERE rather than only at bailout: the "Bye" below
+    // and the CIPCLOSE after it both have to get out through the very
+    // transmitter a stale bit 5 would be holding. Parked, they burn their
+    // timeouts and deliver nothing, and the server never learns we left -
+    // which since Unite 9.7.18 means it holds our seat for
+    // PEER_SILENCE_LIMIT (620 s since 9.7.24; it was 400 when that
+    // mechanism landed). One OUT, needs no working transmitter,
+    // releases a parked one on the next clock edge. UNGATED, like every
+    // other clear: our bit is cheap to write and a stale one is not.
+    FLOW_OFF();
     print("Closing..");
     cipxfer("Bye", 3, inbuf, &len, &dp);
 closenobye:
+    // AGAIN, because "goto closenobye" (the -listen quit) jumps PAST the
+    // clear above. Without this the CIPCLOSE below is the one wire
+    // command the closeconn comment names as protected and is not -
+    // idempotent, one IN and one OUT, and it makes the invariant true on
+    // every route rather than on the one it was written beside.
+    FLOW_OFF();
     atcmd("AT+CIPCLOSE\r\n", "", 0, inbuf);
 bailout:
+    // Again for the five direct "goto bailout"s, which skip closeconn, and
+    // before the restore below for the same reason. THIS IS THE WHOLE EXIT
+    // SURFACE: closeconn and closenobye fall through here, every goto
+    // bailout lands here, and the only exits that skip it are the
+    // "goto terminate"s in the argument parsing - every one ABOVE
+    // "UART_CTL = 16", i.e. before the entry clear and long before
+    // anything can set the bit. IF A NEW EARLY EXIT IS ADDED BELOW THE
+    // UART BRING-UP IT MUST COME HERE, NOT TO terminate. The restore's own
+    // fifth field is already 0, so the MODULE is disarmed for free on
+    // every wire exit; only our side needed this. UNGATED for the reason
+    // the entry clear is: the restore below runs on every run, so gating
+    // only our half is what leaves the two ends disagreeing.
+    FLOW_OFF();
     anim_end();   // hide sprites + restore the sprite/layers reg (no-op unless -anim)
     atcmd("AT+UART_CUR=115200,8,1,0,0\r\n", "", 0, inbuf); // restore uart speed
     print("All done");
