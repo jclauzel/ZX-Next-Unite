@@ -154,18 +154,41 @@ Brd 4 t0 p14
 Flow on
 ```
 
-Three verdicts, and the difference between the last two is the one that matters
-when something is wrong:
+Four verdicts, and the differences between the last three are the ones that
+matter when something is wrong:
 
 | line | meaning |
 |---|---|
 | `Flow on` | armed - the module took `,3` and bit 5 is set |
-| `Flow off` | not asked for (no `-fc`), or this board has no pins |
+| `Flow off` | not asked for (no `-fc`), or this board has no pins, or the run is `-slow` (folded into the same decision so a slow run can never claim flow control) |
 | `Flow off esp` | asked, board capable, but the module refused the armed `AT+UART_CUR` and the dot fell back to `,0`. The transfer is unprotected; the link is the one 5.9.7 would have built |
+| `Flow off ate` | the module TOOK `,3` and the link then failed its first command (`ATE0`), so the Next stood its own half down. Not the module's fault, and not the same state as `esp`: that one is symmetric at `,0`, this one is the module still at `,3` with our bit clear |
 
 `Flow on` means both halves are armed: the module was told `,3` in the fifth
 field of `AT+UART_CUR`, and bit 5 of port `0x163B` (UART Frame) is set. It is
 the same state ZX Next Remote reports as `f38`; `Flow off` is its `f18`.
+
+**When the module refuses (5.9.10).** If the armed `AT+UART_CUR` does not
+produce a reply at the new rate, the dot retries once at `,0` so an ESP-AT
+build that will not do flow control does not lose fast mode entirely. Until
+5.9.10 that retry went back to 115200 "to be heard", on the premise that a
+failed probe proved the command had not been applied. **It does not.**
+`atcmd` returns the same failure for a refusal and for silence, and hardware
+showed the second case is the one `-fc` actually produces on a board without
+the pins: an N-GO ACKED the armed command at 115200 and then went mute,
+because `,3` made it honour a CTS line nothing there drives. It had applied
+all five fields and was sitting at the *fast* rate, so the 115200 retry was
+never heard and the run died with `No fast esp` instead of falling back.
+
+So the retry now **forces** the module's state instead of guessing it: it
+goes round through the same hard reset the arming path uses, which returns
+the module to 115200 with flow off whichever state it was in, and only then
+re-sends `,0`. The cheaper idea was measured too and does not work -
+re-sending `,0` at the rate we are already at, on the theory that a muted
+module still *receives* (only its transmitter is CTS-gated), rescued nothing
+on that machine. The cost is one extra module reset on a run that was
+already failing, and with it a Wi-Fi re-association, visible as a
+`Retrying connection` or two before the session comes up.
 
 **Which boards.** `nextreg 0x0F` bits 3:0 plus 2 is the board issue, and the
 test is a *closed range* — issue 4 and issue 5 only. Issue 2 (KS1, and the

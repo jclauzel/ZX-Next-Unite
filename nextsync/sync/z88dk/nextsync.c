@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.9"
+#define SYNC_VERSION "5.9.10"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -610,6 +610,12 @@ char gofast(char *inbuf)
     char cmd[32];
     unsigned char n;
     unsigned short w;
+    // 5.9.10: set once when the armed attempt failed and the ,0 retry is
+    // about to go round through the hard reset. ONE SHOT - it is what
+    // stops the third failure looping, and it is a frame local because
+    // gofast runs once at connect depth (the file's standing rule for
+    // this function: a static would spend the bytes permanently).
+    unsigned char reset_retry = 0;
 
     // HARD-RESET THE MODULE BEFORE ARMING (5.9.9), and this is the field
     // report's own finding: on a KS2, -fc worked on the FIRST run after a
@@ -627,7 +633,15 @@ char gofast(char *inbuf)
     // actually going to arm: an incapable board, or a run without -fc, must
     // stay byte-for-byte the old bring-up - which is what KS1 and MAME, both
     // connecting happily today, are the evidence for.
-    if (g_flow)
+    //
+    // 5.9.10 GAVE THIS BLOCK A SECOND CALLER, and that is the whole fix:
+    // the ,0 fallback below used to `goto retry`, which lands AFTER this
+    // block and therefore skipped the one thing that puts the module
+    // somewhere known - at the exact moment its state had become
+    // unknowable. It now jumps HERE instead. reset_retry rather than
+    // g_flow because g_flow is cleared one statement before that jump.
+hardreset:
+    if (g_flow || reset_retry)
     {
         FLOW_OFF();                  /* ours first - the ZXNR ordering */
         writenextreg(0x02, 128);     /* hold the ESP in reset */
@@ -713,24 +727,50 @@ retry:
     flush_uart_hard();
     if (atcmd("\r\n", "ERROR", 5, inbuf))
     {
-        // The rate did not take, so NOTHING in that command took: ESP-AT
-        // parses UART_CUR's five fields together and applies them together
-        // or not at all. It is sent fire-and-forget (expect ""), so a
-        // module that REFUSES the flow field is invisible - and that field
-        // is the one new thing in a command which has worked for years.
-        // RETRY ONCE AT ",0" before declaring failure: without this an
-        // ESP-AT build that will not do flow control loses fast mode
-        // ENTIRELY on a board that has always had it, which is a hard
-        // regression on exactly the hardware this feature is for. Our bit
-        // is still clear (the only line that sets it is below), so both
-        // ends go round unarmed.
+        // WHAT THIS BRANCH KNOWS IS ONLY THAT NOBODY ANSWERED. atcmd
+        // returns the same 1 for a refusal and for silence (it has one
+        // exit for a timeout), so "no reply at the new rate" does NOT
+        // mean "the command was rejected".
+        //
+        // Until 5.9.10 it was read that way - "the rate did not take, so
+        // NOTHING in that command took" - and the retry went back to
+        // 115200 to be heard. HARDWARE SAYS OTHERWISE (an N-GO, board
+        // issue 2, with the board guard lifted for the experiment): the
+        // module ACKED the armed AT+UART_CUR at 115200 and then went
+        // silent, because ,3 made it honour a CTS line nothing on that
+        // board drives. It had applied all five fields. It was sitting at
+        // the FAST rate, so the 115200 retry was never heard, the second
+        // probe failed too, and the run died with "No fast esp" - instead
+        // of the unprotected fast link this retry exists to fall back to.
+        // The atomicity claim is not the error; the inference from silence
+        // is. A module that refuses and a module that obeyed and was then
+        // muted look identical from here, and the second is the one -fc
+        // actually produces on a board without the pins.
+        //
+        // So the module's state is FORCED, not guessed: go round through
+        // the hard reset above, which returns it to 115200 with flow off
+        // whichever of the two it was in. MEASURED, and the cheaper idea
+        // was measured too and does not work: re-sending ,0 at the rate
+        // we are already at, on the theory that a muted module still
+        // RECEIVES (only its transmitter is CTS-gated), rescued nothing on
+        // that N-GO - it acked nothing and stayed mute. Only the reset
+        // brought it back. Do not reintroduce it.
+        //
+        // The fallback still exists for the case it always did - an ESP-AT
+        // build that will not do flow control must not lose fast mode
+        // ENTIRELY on a board that has always had it - and our bit is
+        // still clear (the only line that sets it is below), so both ends
+        // go round unarmed.
+        //
+        // COST: one extra module reset on a run that was already failing,
+        // and with it a Wi-Fi re-association - visible afterwards as a
+        // "Retrying connection" or two before the session comes up.
         if (g_flow)
         {
             g_flow = 0;
             g_flow_esp = 1;            /* so the report can say WHY */
-            setupuart(0);              /* back to 115200 to be heard */
-            flush_uart_hard();
-            goto retry;
+            reset_retry = 1;
+            goto hardreset;
         }
         print("No fast esp");
         return 1;
