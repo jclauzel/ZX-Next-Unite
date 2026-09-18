@@ -64,18 +64,18 @@ $C000–$FFFF   (mmu6/7)              : NextZXOS (saved/restored by the crt)
 very top of mmu5; v5.2's `0xBF00` wasted the last 256 bytes, which nothing in
 the dotn crt or clib touches). The large buffers (`inbuf`,
 `scratch`, …) are file-scope statics so they land in the main bank and keep the
-stack small. Current layout (v5.9.3): main-bank content ends at `0xBEB3`
-(`__BSS_END_head` in `syncdev.map`), leaving 333 bytes of stack below `0xC000`
+stack small. Current layout (v5.9.8): main-bank content ends at `0xB88C`
+(`__BSS_END_head` in `syncdev.map`), leaving 1908 bytes of stack below `0xC000`
 (`build_dotn.ps1` refuses a build under 150; 5.7.1's proven floor is 156);
-the primary dot page ends at `0x3EF5` (`__CODE_END_tail`), 26 bytes below the
-hard `0x3F0F` line the build enforces — content past it triggers appmake's
+the primary dot page ends at `0x3EF6` (`__CODE_END_tail`), 10 bytes below the
+hard `0x3F00` line the build enforces (appmake's own fence; the guard said `0x3F0F` until 5.9.5 and was looser than the tool) — content past it triggers appmake's
 "may overlap stack area" warning and sits where the dotn loader's own
 startup/exit stack (SP = `0x4000`) and its 128-byte exit-message buffer
 (`0x3F76+`) can scribble.
 **Both pools are tight — check those two numbers after any change, and treat
 that appmake warning as an error.**
 
-The 333 bytes are recent and were bought, not found: v5.9.2 ran on 160, and
+The 1908 bytes are recent and were bought, not found: v5.9.2 ran on 160, v5.9.5 moved `inbuf` to a banked page for most of the rest, and
 5.9.3's hang fixes cost 8 more (a `break_pressed()` poll and a length guard
 inside `transfer()`), which put the build at 152 — under 5.7.1's proven floor
 even though `build_dotn.ps1`'s hard guard at 150 let it through. The 192 bytes
@@ -140,6 +140,91 @@ made a bare `.sync` behave as if given `sync` as a server argument).
 Console output goes through z88dk's ROM-print driver, which **ignores `\r`** and
 only newlines on `\n`; the app uses `\r` throughout, so `conprint()` translates
 `\r`→`\n`.
+
+## UART hardware flow control (`-fc`, 5.9.9)
+
+**Opt-in.** Pass `-fc` and the dot asks the ESP for RTS/CTS flow control, but
+**only on the boards that have the pins**. Without the flag it never reads or
+writes port `0x163B` at all and the bring-up is the one 5.9.7 shipped. Either
+way it says what it did on the line under `Brd`:
+
+```
+.sync5 -listen -fc
+Brd 4 t0 p14
+Flow on
+```
+
+Three verdicts, and the difference between the last two is the one that matters
+when something is wrong:
+
+| line | meaning |
+|---|---|
+| `Flow on` | armed - the module took `,3` and bit 5 is set |
+| `Flow off` | not asked for (no `-fc`), or this board has no pins |
+| `Flow off esp` | asked, board capable, but the module refused the armed `AT+UART_CUR` and the dot fell back to `,0`. The transfer is unprotected; the link is the one 5.9.7 would have built |
+
+`Flow on` means both halves are armed: the module was told `,3` in the fifth
+field of `AT+UART_CUR`, and bit 5 of port `0x163B` (UART Frame) is set. It is
+the same state ZX Next Remote reports as `f38`; `Flow off` is its `f18`.
+
+**Which boards.** `nextreg 0x0F` bits 3:0 plus 2 is the board issue, and the
+test is a *closed range* — issue 4 and issue 5 only. Issue 2 (KS1, and the
+N-GO) has no `esp_cts_n_o` / `esp_rtr_n_i` in its top-level design at all, so
+there flow control is not switched off, it is **absent**, and no software
+change can add it. An unknown id reads as *not* capable on purpose: `0xFF &
+0x0F` is 15, which is what an emulator with no `0x0F` model hands back, and
+telling a module to honour a CTS line nobody drives is how you get a
+transmitter that never sends.
+
+**Which speed your board can hold.** On a machine that prints `Brd 2` with
+`Flow off`, prefer `-default` to `-fast`: nothing can pause the module
+mid-burst, so a long transfer relies on the Next draining the FIFO faster
+than the ESP fills it, and the one moment it cannot is the SD write after
+each block. On `Brd 4`/`Brd 5` with `Flow on`, `-fast` is protected.
+
+**Order, and why it is not negotiable.** Going up, the module is told first,
+the rate is *confirmed*, and only then is our bit set — arming our side
+against a line the ESP is not yet driving parks the transmitter in the core's
+`S_RTR` state, which has no timeout. Going down, ours is cleared **first**,
+because the commands that follow have to get out through that same
+transmitter. The dot has no UI and no watchdog, so a parked transmitter is a
+frozen Next needing a reset.
+
+The escape hatch is real and cheap: `S_RTR` is held only while `i_cts_n='1'`
+*and* `i_frame(5)='1'`, evaluated combinationally, so clearing bit 5 releases
+a parked transmitter on the next clock edge — and the clear is a single `OUT`
+that needs no working transmitter. That is why the dot clears **unconditionally
+at entry**, before it transmits a byte: `0x163B` outlives a program, so a dot
+killed by NMI or reset, or an older ZX Next Remote, can leave bit 5 set, and a
+run starting that way against a module at its `115200` default would park
+before printing anything useful — reporting `No esp - reset, try again`, i.e.
+the symptom is a dot claiming there is no ESP attached.
+
+**If the module refuses `,3`** the whole `AT+UART_CUR` fails (ESP-AT applies
+its five fields together or not at all), so the dot retries once at `,0`
+rather than losing fast mode entirely on hardware that has always had it.
+
+**Two things had to be right before any of this worked on real hardware, and
+both were found on a KS2 rather than reasoned about.**
+
+*The module must be reset first.* ESP-AT only applies `,3` cleanly from its
+power-on state, so `-fc` armed on the first run after a cold boot and never
+again. `gofast` now pulses `nextreg 0x02`, waits ~700 ms and then probes with
+`AT` until the module answers, rather than guessing a delay - the first cut
+waited 118 ms (measured from the generated code; the source comment claimed
+frames and delivered milliseconds) and fired the armed command into a module
+that was still booting.
+
+*The already-fast path had to re-state the rate.* The dot leaves the module at
+the fast rate on exit, so the NEXT run's 115200 probe fails and `main` takes
+its `fastuart` recovery - which used to skip `gofast`, the only place the flow
+field is ever sent. That made the recovery path the normal path and `-fc` a
+once-per-power-cycle feature. This is ZX Next Remote's 1.3.10 bug, and its own
+note is the lesson: *when a variable acquires a new job, re-read its old edge
+cases*.
+
+This follows ZX Next Remote 1.3.7–1.3.11, which paid for the closed range,
+the ordering, the single state variable and the already-fast path.
 
 ## `-listen` — remote file server
 
