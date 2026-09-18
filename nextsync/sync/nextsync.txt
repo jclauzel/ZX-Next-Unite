@@ -508,11 +508,19 @@ the video timing and p the baud divisor it produced. The line under it is
 one of four:
 
     Flow on         armed - the module agreed and the Next is honouring it
-    Flow off        you did not ask for it, or this board has no pins
+    Flow off        you did not ask for it, this board has no pins, or
+                    the run is -slow (which never needs it)
     Flow off esp    you asked, the board can, but the module refused; the
                     dot carried on without it, exactly as it always did
     Flow off ate    the module agreed and then the link failed its first
                     command, so the Next stood its own half down
+
+If the module will not do flow control, the dot does not give up on fast
+mode: it resets the module, retries without it, and carries on. That is
+what "Flow off esp" means, and it costs a moment and sometimes a
+"Retrying connection" line before the session comes up. Before 5.9.10
+that retry could fail on hardware that had accepted flow control and then
+fallen silent, ending the run with "No fast esp" instead.
 
 If you see "Brd 2" then "Flow off" is the only answer that machine can give.
 Prefer -default to -fast there: it leaves enough margin that the buffer does
