@@ -471,24 +471,31 @@ may appear before or after the rest of the command, and works with every form:
 
 Use -slow if a transfer is unreliable (lots of retries/restarts, hangs, or
 "No fast esp"); use -fast to squeeze out maximum speed on a good link. On a
-Next whose board has the flow-control pins, -fc is the better answer to an
-unreliable -fast than dropping to -slow - see the next section.
+Next whose board has the flow-control pins, flow control (on by default
+since 5.9.12) is what makes -fast reliable - see the next section; if you
+turned it off with -nfc, turn it back on before dropping to -slow.
 
 
-Hardware flow control (-fc)
----------------------------
+Hardware flow control (on by default; -nfc turns it off)
+--------------------------------------------------------
 
-Add -fc and the Next asks the esp module to honour RTS/CTS, so the Next can
-tell it to STOP TALKING before its 512-byte receive buffer overruns. Without
-it, a fast transfer relies on the Next draining that buffer faster than the
-esp fills it, and the one moment it cannot is the SD card write after each
-block. That is the single biggest cause of an unreliable -fast link.
+On a board that has the pins, the Next asks the esp module to honour
+RTS/CTS, so the Next can tell it to STOP TALKING before its 512-byte receive
+buffer overruns. Without it, a fast transfer relies on the Next draining
+that buffer faster than the esp fills it, and the one moment it cannot is
+the SD card write after each block. That is the single biggest cause of an
+unreliable -fast link.
 
-It is off unless you ask for it:
+Since 5.9.12 it is on unless you turn it off. (From 5.9.9 to 5.9.11 you
+asked for it with -fc; that switch is still accepted and re-asserts the
+default - the last of -fc/-nfc on the line wins.) Put -nfc AFTER -listen: a
+dot older than 5.9.12 does not know the switch and shows its help screen
+when it comes first - and after -send it would swallow a trailing -nfc into
+the path, so -send with -nfc needs the 5.9.12 dot.
 
-    .sync -listen -fc           file server, with flow control
-    .sync -fc -send mygame      push a file/dir, with flow control
-    .sync -listen               no flow control (exactly as before)
+    .sync -listen               file server, flow control where the board can
+    .sync -listen -nfc          file server, no flow control
+    .sync -send mygame -nfc     push a file/dir, no flow control
 
 IT ONLY WORKS ON SOME MACHINES, and this is not a limitation the software
 can lift. The pins that carry the signal exist on issue 4 and issue 5 boards
@@ -508,19 +515,22 @@ the video timing and p the baud divisor it produced. The line under it is
 one of four:
 
     Flow on         armed - the module agreed and the Next is honouring it
-    Flow off        you did not ask for it, this board has no pins, or
+    Flow off        you turned it off (-nfc), this board has no pins, or
                     the run is -slow (which never needs it)
-    Flow off esp    you asked, the board can, but the module refused; the
-                    dot carried on without it, exactly as it always did
+    Flow off esp    the board can, but the module refused; the dot
+                    carried on without it, exactly as it always did
     Flow off ate    the module agreed and then the link failed its first
                     command, so the Next stood its own half down
 
-If the module will not do flow control, the dot does not give up on fast
-mode: it resets the module, retries without it, and carries on. That is
-what "Flow off esp" means, and it costs a moment and sometimes a
-"Retrying connection" line before the session comes up. Before 5.9.10
-that retry could fail on hardware that had accepted flow control and then
-fallen silent, ending the run with "No fast esp" instead.
+If the module does not take flow control as the dot finds it, the dot does
+not give up: since 5.9.12 it resets the module and asks once more (a module
+only takes the setting cleanly from a fresh boot, and one that another
+program or a crash left mid-way is not fresh), and only if that fails too
+does it reset again and carry on WITHOUT it. That last case is what "Flow
+off esp" means; each reset costs a moment and sometimes a "Retrying
+connection" line before the session comes up. Before 5.9.10 that retry
+could fail on hardware that had accepted flow control and then fallen
+silent, ending the run with "No fast esp" instead.
 
 If you see "Brd 2" then "Flow off" is the only answer that machine can give.
 Prefer -default to -fast there: it leaves enough margin that the buffer does
@@ -535,9 +545,13 @@ cost: a relaunch within a few seconds of quitting meets a module still
 booting or rejoining Wi-Fi and says "No esp - reset, try again" - wait a
 moment and run it again.
 
--fc costs about a second of extra startup, and only on the runs that use it:
-the module is reset first, because it only accepts the flow-control setting
-cleanly from a fresh boot.
+What flow control costs: nothing extra on a module left as a power-on leaves
+it - which every exit since 5.9.11 does, so a normal relaunch pays nothing
+(from 5.9.9 to 5.9.11 every -fc run reset the module first, about a second).
+A module that another program or a crash left mid-way pays one reset and
+about a second. A module whose firmware refuses flow control pays two resets
+and two failed probes on EVERY run and prints "Flow off esp" - pass -nfc
+there and the run skips all of it.
 
 
 ESP-01 Challenges

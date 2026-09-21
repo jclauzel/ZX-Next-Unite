@@ -8,7 +8,7 @@ Odds and ends that support the project but are not part of the app.
 | `tour_capture.py` | Drives the demo app through every tab and grabs the animation frames (real Qt platform — a window appears; host name/IPs are masked to placeholders) |
 | `tour_assemble_gif.py` | Assembles the frames into `zx-next-unite-tour.gif` (140 ms frames, crossfades, ffmpeg palette pipeline). Needs **Pillow** — `pip install pillow` |
 | `MAME_ROM_HOWTO_CREATE.md` | How to (re)build the `tbblue.zip` boot-ROM package MAME's `tbblue` / `specnext_ks1..3` machines need: which four ROMs go in it and why (not six), where each one comes from (pinned FPGA-repo commits — the `30204` branch tip has moved on and no longer matches), how to decode the two VHDL-embedded ones, and why the whole thing is GPLv3 and therefore yours to rebuild and pass on |
-| `flowcontrolinfo.md` | What was **measured** about UART hardware flow control (`.sync5 -fc`): why the board gate is a closed set, what `Flow on` does and does not prove, and the N-GO experiment that showed the ESP module *accepts* `,3` and then goes permanently mute - which is what justified the 5.9.10 fallback fix, and which killed the obvious cheaper fix |
+| `flowcontrolinfo.md` | What was **measured** about UART hardware flow control (`.sync5 -fc`, the default since 5.9.12 with `-nfc` to refuse it): why the board gate is a closed set, what `Flow on` does and does not prove, and the N-GO experiment that showed the ESP module *accepts* `,3` and then goes permanently mute - which is what justified the 5.9.10 fallback fix, and which killed the obvious cheaper fix |
 | `Get-PyLineCounts.ps1` | Per-module line-count report for the Python sources |
 | `detectenvironnement.bas` / `.txt` | NextBASIC environment-detection helper and its notes |
 | `Send-ToNext.ps1` | Push a build to a real Next over Unite's NextSync HTTP bridge, verified end-to-end (see below) |
@@ -128,14 +128,16 @@ halves are `extra\Send-ToNext.ps1` (PC) and `extra\autoexec.bas` (Next).
 
    Using `.sync5` instead? Run `.sync5 <PC ip>` once to save the server
    address; the dot keeps it in `c:/sys/config/nextsync.cfg` and the loop
-   passes only `-listen` and your speed switch after that.
+   passes only `-listen`, your speed switch and, if you turned it off,
+   `-nfc` after that.
 4. Copy `autoexec.bas` into the **`/nextzxos/` folder** on the card — not
    the card root, where NextZXOS will not run it. No renaming: the file
    ships under the name the machine looks for.
 5. Boot it. With no `autoexec.cfg` yet the loop opens **configuration
-   mode** and asks for all of the above — flavour, `.sync5` speed, the two
-   folders, and what to do when a new push would overwrite the previous
-   build. It saves your answers to `c:/nextzxos/autoexec.cfg` and starts
+   mode** and asks for all of the above — flavour, `.sync5` speed, whether
+   `.sync5` may use flow control, the two folders, and what to do when a new
+   push would overwrite the previous build. It saves your answers to
+   `c:/nextzxos/autoexec.cfg` and starts
    the loop. Nothing needs re-tokenising to change your mind: press **`b`**
    at the overwrite prompt, or **hold `B` while the machine boots**, to get
    back in. Every boot says so on screen before it carries on.
@@ -149,7 +151,7 @@ to look for in its messages (`nextdev: waiting for a push...`).
 
 ### The settings file
 
-`c:/nextzxos/autoexec.cfg`, plain text, six lines, hand-editable on the card:
+`c:/nextzxos/autoexec.cfg`, plain text, eight lines, hand-editable on the card:
 
 ```
 ZXNU1      format marker - anything else means "reconfigure"
@@ -161,6 +163,10 @@ ask        when a push would overwrite the previous build:
            ask | always (retire it) | never (discard it)
 loop       at boot: loop (serve a push) | menu (hand the machine
            straight to the boot menu instead)
+(empty)    .sync5 flow control: an empty line (on where the board has
+           the pins - the default) | -nfc (off, for a module whose
+           firmware refuses it and prints "Flow off esp" every run).
+           A cfg written before this line reads it as empty.
 ```
 
 Both folders must be **absolute** — starting `/` or a drive letter. The loop
@@ -315,8 +321,9 @@ beside the script). SampleNex's README documents refreshing them.
 `autoexec.txt` is the readable source; `autoexec.bas` is the tokenised
 NextBASIC the Next loads.
 
-**Most changes need no editing at all.** Flavour, `.sync5` speed, both
-folders and the retire rule all live in `autoexec.cfg` on the card and are
+**Most changes need no editing at all.** Flavour, `.sync5` speed and flow
+control, both folders, the retire rule and the boot rule all live in
+`autoexec.cfg` on the card and are
 set from configuration mode on the Next — that is the whole point of it.
 Edit the source only to change the loop's *behaviour*.
 
