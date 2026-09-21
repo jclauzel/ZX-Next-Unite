@@ -1,5 +1,9 @@
 # UART hardware flow control: what was measured, on real hardware
 
+*Since 5.9.12 flow control is on by default where the board has the pins
+(`-nfc` refuses it) and `gofast` asks the module as found before it resets;
+the measurements below stand, and their `:NNNN` anchors are as of 5.9.10.*
+
 Notes behind `.sync5`'s `-fc` (5.9.9) and the fallback fix (5.9.10). Written up
 because two of the things in here are **measurements**, not reasoning, and one
 of them contradicts the obvious answer. Source references are
@@ -29,8 +33,9 @@ depends on the FPGA.
 
 ## The gate, and why it is a closed set
 
-`-fc` only records a *request* (`g_flow_ask` at `:1070`); there is no board test
-at parse time. The decision is made once, before anything touches the wire:
+The switch only records a *request* (`g_flow_ask`: 1 unless `-nfc` since 5.9.12,
+0 unless `-fc` before); there is no board test at parse time. The decision is
+made once, before anything touches the wire:
 
 ```c
 unsigned char bid = readnextreg(0x0F) & 0x0F;          /* :1857 */
@@ -45,9 +50,10 @@ emulator with no `0x0F` model hands back — and **an unknown id must mean no**.
 `-slow` is folded into the same expression so a slow run can neither arm nor
 report that it did.
 
-Everything downstream reads `g_flow`, never `g_flow_ask`: the arming hard reset
-(`:630`), the `,3` patch (`:693`) and `FLOW_ON()` (`:747`, the file's only call
-site). On a board outside the set, a `-fc` run is byte-for-byte the 5.9.7
+Everything downstream reads `g_flow`, never `g_flow_ask`: the `,3` patch
+(`:693`) and `FLOW_ON()` (`:747`, the file's only call site); the hard reset
+(`:630`) is gated on `reset_retry` since 5.9.12 and runs only after a failed
+probe. On a board outside the set, a run is byte-for-byte the 5.9.7
 bring-up.
 
 ## What "Flow on" proves — and what it does not

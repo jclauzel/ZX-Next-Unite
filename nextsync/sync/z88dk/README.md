@@ -64,8 +64,8 @@ $C000–$FFFF   (mmu6/7)              : NextZXOS (saved/restored by the crt)
 very top of mmu5; v5.2's `0xBF00` wasted the last 256 bytes, which nothing in
 the dotn crt or clib touches). The large buffers (`inbuf`,
 `scratch`, …) are file-scope statics so they land in the main bank and keep the
-stack small. Current layout (v5.9.11): main-bank content ends at `0xB9E0`
-(`__BSS_END_head` in `syncdev.map`), leaving 1568 bytes of stack below `0xC000`
+stack small. Current layout (v5.9.12): main-bank content ends at `0xBA0C`
+(`__BSS_END_head` in `syncdev.map`), leaving 1524 bytes of stack below `0xC000`
 (`build_dotn.ps1` refuses a build under 150; 5.7.1's proven floor is 156);
 the primary dot page ends at `0x3EF6` (`__CODE_END_tail`), 10 bytes below the
 hard `0x3F00` line the build enforces (appmake's own fence; the guard said `0x3F0F` until 5.9.5 and was looser than the tool) — content past it triggers appmake's
@@ -141,15 +141,23 @@ Console output goes through z88dk's ROM-print driver, which **ignores `\r`** and
 only newlines on `\n`; the app uses `\r` throughout, so `conprint()` translates
 `\r`→`\n`.
 
-## UART hardware flow control (`-fc`, 5.9.9)
+## UART hardware flow control (on by default since 5.9.12; `-fc` 5.9.9, `-nfc` 5.9.12)
 
-**Opt-in.** Pass `-fc` and the dot asks the ESP for RTS/CTS flow control, but
-**only on the boards that have the pins**. Without the flag it never reads or
-writes port `0x163B` at all and the bring-up is the one 5.9.7 shipped. Either
-way it says what it did on the line under `Brd`:
+**On by default where the board has the pins; `-nfc` turns it off.** The dot
+asks the ESP for RTS/CTS flow control **only on the boards that have the
+pins**; from 5.9.9 to 5.9.11 that was opt-in behind `-fc`, which is still
+accepted and re-asserts the default (the last of `-fc`/`-nfc` on the line
+wins, as `-a`/`-na` do). What the switch decides is the enabling half - the
+`,3`, `FLOW_ON()` and the resets the fallback takes - so a `-nfc` run and an
+issue 2 board get the bring-up 5.9.7 shipped (and so does MAME, by another
+route: see *Which boards*). Put `-nfc` after `-listen`: a dot older than
+5.9.12 shows its help screen when an unknown switch comes first, and after
+`-send` it would swallow a trailing `-nfc` into the path - so `-send` with
+`-nfc` needs the 5.9.12 dot. Either way it says what it did on the line under
+`Brd`:
 
 ```
-.sync5 -listen -fc
+.sync5 -listen
 Brd 4 t0 p14
 Flow on
 ```
@@ -160,7 +168,7 @@ matter when something is wrong:
 | line | meaning |
 |---|---|
 | `Flow on` | armed - the module took `,3` and bit 5 is set |
-| `Flow off` | not asked for (no `-fc`), or this board has no pins, or the run is `-slow` (folded into the same decision so a slow run can never claim flow control) |
+| `Flow off` | turned off (`-nfc`), or this board has no pins, or the run is `-slow` (folded into the same decision so a slow run can never claim flow control) |
 | `Flow off esp` | asked, board capable, but the module refused the armed `AT+UART_CUR` and the dot fell back to `,0`. The transfer is unprotected; the link is the one 5.9.7 would have built |
 | `Flow off ate` | the module TOOK `,3` and the link then failed its first command (`ATE0`), so the Next stood its own half down. Not the module's fault, and not the same state as `esp`: that one is symmetric at `,0`, this one is the module still at `,3` with our bit clear |
 
@@ -181,14 +189,31 @@ all five fields and was sitting at the *fast* rate, so the 115200 retry was
 never heard and the run died with `No fast esp` instead of falling back.
 
 So the retry now **forces** the module's state instead of guessing it: it
-goes round through the same hard reset the arming path uses, which returns
-the module to 115200 with flow off whichever state it was in, and only then
-re-sends `,0`. The cheaper idea was measured too and does not work -
+goes round through the hard reset 5.9.9 put before the armed command (since
+5.9.12, the reset each rung takes), which returns the module to 115200 with
+flow off whichever state it was in, and only then re-sends `,0`. The
+cheaper idea was measured too and does not work -
 re-sending `,0` at the rate we are already at, on the theory that a muted
 module still *receives* (only its transmitter is CTS-gated), rescued nothing
-on that machine. The cost is one extra module reset on a run that was
-already failing, and with it a Wi-Fi re-association, visible as a
+on that machine. The cost is one extra module reset per rung on a run that
+was already failing, and with it a Wi-Fi re-association, visible as a
 `Retrying connection` or two before the session comes up.
+
+**Ask first, reset on refusal (5.9.12).** From 5.9.9 to 5.9.11 every armed
+run reset the module *before* the armed command, because every exit of that
+era left it in the one state that refuses `,3`. Since 5.9.11 no exit of ours
+does (`bailout:` pulses the reset line; ZX Next Remote 1.4.7 does the same),
+so with flow control on by default a reset-first would have charged every
+plain run on a capable board ~0.8 s of boot wait plus the Wi-Fi
+re-association it restarts (1-6 s, a `Retrying connection` line) to reproduce
+a state the module was already in. `gofast` now sends the armed command to
+the module as found; if the probe at the new rate fails it resets and asks
+`,3` once more (the 5.9.9 path, exactly); if that fails too it resets again
+and falls back to `,0` (the 5.9.10 path). A fresh module pays nothing; a
+stale one pays one failed probe more than 5.9.11's `-fc` did; a module whose
+firmware refuses flow control pays two resets and two probes on every run,
+and `-nfc` is its remedy. `reset_retry` (0, 1, 2) is the rung; the reset
+block is gated on it alone.
 
 **Which boards.** `nextreg 0x0F` bits 3:0 plus 2 is the board issue, and the
 test is a *closed range* — issue 4 and issue 5 only. Issue 2 (KS1, and the
@@ -197,7 +222,14 @@ there flow control is not switched off, it is **absent**, and no software
 change can add it. An unknown id reads as *not* capable on purpose: `0xFF &
 0x0F` is 15, which is what an emulator with no `0x0F` model hands back, and
 telling a module to honour a CTS line nobody drives is how you get a
-transmitter that never sends.
+transmitter that never sends. MAME *does* model it: `src/mame/sinclair/next/
+specnext.cpp` answers `nextreg 0x0F` with the board of the machine you
+picked - `tbblue` 0, `specnext_ks1` 1, `specnext_ks2` 2, `specnext_ks3` 3 - so
+under `specnext_ks2`/`ks3` the gate would say yes. It changes nothing there:
+MAME's emulated wire is pinned at 115200 by its null-modem defaults, so any
+non-slow run fails its rate probe under MAME whatever the flow field (which
+is why MAME runs are `-s`), and `-s` folds the gate to no. `tbblue` and `ks1`
+never pass it at all. Its `specnext_uart.cpp` has no CTS/RTR model either.
 
 **Which speed your board can hold.** On a machine that prints `Brd 2` with
 `Flow off`, prefer `-default` to `-fast`: nothing can pause the module
@@ -224,15 +256,18 @@ before printing anything useful — reporting `No esp - reset, try again`, i.e.
 the symptom is a dot claiming there is no ESP attached.
 
 **If the module refuses `,3`** the whole `AT+UART_CUR` fails (ESP-AT applies
-its five fields together or not at all), so the dot retries once at `,0`
-rather than losing fast mode entirely on hardware that has always had it.
+its five fields together or not at all), so the dot resets and asks `,3`
+once more (5.9.12), then retries at `,0` (5.9.10) rather than losing fast
+mode entirely on hardware that has always had it.
 
 **Two things had to be right before any of this worked on real hardware, and
 both were found on a KS2 rather than reasoned about.**
 
-*The module must be reset first.* ESP-AT only applies `,3` cleanly from its
-power-on state, so `-fc` armed on the first run after a cold boot and never
-again. `gofast` now pulses `nextreg 0x02`, waits ~700 ms and then probes with
+*The module must be reset before it will take `,3` again - and until 5.9.12
+that meant before every armed command.* ESP-AT only applies `,3` cleanly from
+its power-on state, so `-fc` armed on the first run after a cold boot and
+never again. `gofast` pulses `nextreg 0x02` (since 5.9.12 only on the
+ladder's rungs, see above), waits ~700 ms and then probes with
 `AT` until the module answers, rather than guessing a delay - the first cut
 waited 118 ms (measured from the generated code; the source comment claimed
 frames and delivered milliseconds) and fired the armed command into a module
@@ -280,7 +315,10 @@ The on-screen trace of each received command and action (`> P /ho/bj.txt`,
 default since v5.0 — handy for diagnosing a transfer on the hardware. Disable
 it with `-nv` (likewise `-na` disables the sprite animation and `-nr` the
 retro green-on-black look, both also on by default; the old opt-in flags
-`-v`/`-anim`/`-a`/`-dark`/`-d` are still accepted as no-ops). `-help`/`-h`
+`-v`/`-anim`/`-a`/`-dark`/`-d` are still accepted as no-ops; `-fc`, since
+flow control went default-on in 5.9.12, re-asserts the default - a no-op
+unless `-nfc` came before it, as the last of the two on the line wins).
+`-help`/`-h`
 show the help screen. On the PC side, `nextsync5.py -v` logs every packet.
 
 Long operations stay visibly alive: a `| / - \` **spinner** twirls at the end

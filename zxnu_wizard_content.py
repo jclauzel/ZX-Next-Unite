@@ -1351,6 +1351,7 @@ TEXTS = {
               ".sync5 -slow | -default | -fast — transfer speed\n"
               ".sync5 -na | -nv | -nr — disable the animation, the "
               "verbose trace or the retro look\n"
+              ".sync5 -nfc — no UART flow control (on by default on issue 4/5 boards)\n"
               ".sync5 -help (-h) — the built-in help",
         "es": "Aquí está el grimorio de .sync5:\n"
               ".sync5 <ip> — guardar la dirección del servidor\n"
@@ -1362,6 +1363,7 @@ TEXTS = {
               "transferencia\n"
               ".sync5 -na | -nv | -nr — desactivar la animación, la "
               "traza detallada o el aspecto retro\n"
+              ".sync5 -nfc — sin control de flujo UART (activado por defecto en placas issue 4/5)\n"
               ".sync5 -help (-h) — la ayuda integrada",
         "pt": "Eis o grimório do .sync5:\n"
               ".sync5 <ip> — guardar o endereço do servidor\n"
@@ -1373,6 +1375,7 @@ TEXTS = {
               "transferência\n"
               ".sync5 -na | -nv | -nr — desligar a animação, o registo "
               "detalhado ou o visual retro\n"
+              ".sync5 -nfc — sem controlo de fluxo UART (ligado por omissão nas placas issue 4/5)\n"
               ".sync5 -help (-h) — a ajuda integrada",
         "pl": "Oto księga zaklęć .sync5:\n"
               ".sync5 <ip> — zapisz adres serwera\n"
@@ -1383,6 +1386,7 @@ TEXTS = {
               ".sync5 -slow | -default | -fast — prędkość przesyłu\n"
               ".sync5 -na | -nv | -nr — wyłącz animację, szczegółowy "
               "ślad lub wygląd retro\n"
+              ".sync5 -nfc — bez sprzętowej kontroli przepływu UART (domyślnie włączona na płytach issue 4/5)\n"
               ".sync5 -help (-h) — wbudowana pomoc",
         "ru": "Вот книга заклинаний .sync5:\n"
               ".sync5 <ip> — сохранить адрес сервера\n"
@@ -1393,6 +1397,7 @@ TEXTS = {
               ".sync5 -slow | -default | -fast — скорость передачи\n"
               ".sync5 -na | -nv | -nr — отключить анимацию, подробную "
               "трассировку или ретро-вид\n"
+              ".sync5 -nfc — без аппаратного управления потоком UART (по умолчанию включено на платах issue 4/5)\n"
               ".sync5 -help (-h) — встроенная справка",
         "cs": "Tady je kniha kouzel .sync5:\n"
               ".sync5 <ip> — uložit adresu serveru\n"
@@ -1403,6 +1408,7 @@ TEXTS = {
               ".sync5 -slow | -default | -fast — rychlost přenosu\n"
               ".sync5 -na | -nv | -nr — vypnout animaci, podrobný "
               "výpis nebo retro vzhled\n"
+              ".sync5 -nfc — bez hardwarového řízení toku UART (na deskách issue 4/5 zapnuto ve výchozím stavu)\n"
               ".sync5 -help (-h) — vestavěná nápověda",
         "fr": "Voici le grimoire de .sync5 :\n"
               ".sync5 <ip> — enregistrer l'adresse du serveur\n"
@@ -1414,6 +1420,7 @@ TEXTS = {
               ".sync5 -slow | -default | -fast — vitesse de transfert\n"
               ".sync5 -na | -nv | -nr — désactiver l'animation, la "
               "trace détaillée ou le look rétro\n"
+              ".sync5 -nfc — sans contrôle de flux UART (activé par défaut sur les cartes issue 4/5)\n"
               ".sync5 -help (-h) — l'aide intégrée",
     },
     "ns.classic": {
