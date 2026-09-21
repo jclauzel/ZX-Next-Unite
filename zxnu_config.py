@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.34"
+ZX_NEXT_UNITE_VERSION = "9.7.35"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -29,7 +29,7 @@ ZX_NEXT_UNITE_VERSION = "9.7.34"
 # startup dotN-updated advisory compares this against the dotn_last_version
 # persisted in hdfg.cfg, so the user is told to refresh the copy on their
 # Next (which the app cannot deploy automatically).
-ZX_NEXT_UNITE_DOTN_VERSION = "5.9.10"
+ZX_NEXT_UNITE_DOTN_VERSION = "5.9.11"
 # Self-update check (Settings toggle, default on): the app's own releases.
 ZXNU_GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/jclauzel/ZX-Next-Unite/releases/latest"
 # Per-tag lookup: the remote .sync5 self-update fetches THIS app version's
@@ -295,7 +295,7 @@ SETTING_MAME_JOYSTICK                = "mame_joystick"             # combo index
 SETTING_MAME_ESC                     = "mame_esc"                  # combo index into MAME_ESC (ESC-exit disable on/off; default 1 = on, passes -confirm_quit)
 SETTING_MAME_RS232_ESP               = "mame_rs232_esp"            # bool: RS232 ESP emulation for MAME - start the espemu AT proxy and pass -rs232_esp/-bitb at launch (default off)
 SETTING_MAME_RS232_ESP_PORT          = "mame_rs232_esp_port"       # TCP port the espemu proxy listens on for MAME's -bitb socket (default 2222)
-SETTING_MAME_RS232_ESP_VERBOSE       = "mame_rs232_esp_verbose"    # bool: trace espemu commands/traffic into the SD Card log console (default off; rate-limited)
+SETTING_MAME_RS232_ESP_VERBOSE       = "mame_rs232_esp_verbose"    # bool: trace espemu commands/traffic into the SD Card log console AND the file log (9.7.35) (default off; rate-limited)
 SETTING_MAME_FLATPAK                 = "mame_flatpak"              # bool (Linux): launch MAME via `flatpak run org.mamedev.MAME` instead of a local binary (default off)
 SETTING_MAME_FLATPAK_ROMPATH         = "mame_flatpak_rompath"      # rom directory passed as `-rompath` when launching MAME via Flatpak (default ~/roms)
 SETTING_EMULATOR_COLORS              = "emulator_colors"            # JSON {"mame"|"cspect": "#rrggbb"} background tint for BOTH emulator strips and the SD Card tab's Launch buttons (empty = the theme's own look)

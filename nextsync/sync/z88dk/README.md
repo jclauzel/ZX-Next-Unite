@@ -64,8 +64,8 @@ $C000–$FFFF   (mmu6/7)              : NextZXOS (saved/restored by the crt)
 very top of mmu5; v5.2's `0xBF00` wasted the last 256 bytes, which nothing in
 the dotn crt or clib touches). The large buffers (`inbuf`,
 `scratch`, …) are file-scope statics so they land in the main bank and keep the
-stack small. Current layout (v5.9.8): main-bank content ends at `0xB88C`
-(`__BSS_END_head` in `syncdev.map`), leaving 1908 bytes of stack below `0xC000`
+stack small. Current layout (v5.9.11): main-bank content ends at `0xB9E0`
+(`__BSS_END_head` in `syncdev.map`), leaving 1568 bytes of stack below `0xC000`
 (`build_dotn.ps1` refuses a build under 150; 5.7.1's proven floor is 156);
 the primary dot page ends at `0x3EF6` (`__CODE_END_tail`), 10 bytes below the
 hard `0x3F00` line the build enforces (appmake's own fence; the guard said `0x3F0F` until 5.9.5 and was looser than the tool) — content past it triggers appmake's
@@ -238,11 +238,29 @@ waited 118 ms (measured from the generated code; the source comment claimed
 frames and delivered milliseconds) and fired the armed command into a module
 that was still booting.
 
-*The already-fast path had to re-state the rate.* The dot leaves the module at
-the fast rate on exit, so the NEXT run's 115200 probe fails and `main` takes
-its `fastuart` recovery - which used to skip `gofast`, the only place the flow
-field is ever sent. That made the recovery path the normal path and `-fc` a
-once-per-power-cycle feature. This is ZX Next Remote's 1.3.10 bug, and its own
+*The already-fast path had to re-state the rate.* Before 5.9.11 the dot LEFT
+the module at the fast rate on exit - its restore was a fire-and-forget
+`AT+UART_CUR=115200` that cannot reach a wedged module and, on a KS2, is the
+very `,3 -> ,0` step the module refuses the next `,3` after - so the NEXT
+run's 115200 probe failed and `main` took its `fastuart` recovery, which used
+to skip `gofast`, the only place the flow field is ever sent. That made the
+recovery path the normal path and `-fc` a once-per-power-cycle feature.
+
+Since 5.9.11 `bailout:` pulses the reset line instead (`FLOW_OFF()` first,
+one bounded drain so the `CIPCLOSE` just sent actually leaves, then the
+nextreg 0x02 hold/release and `setupuart(0)`) and hands the next program a
+module at 115200, flow off, no links - the cold power-on state. The 115200
+probe now succeeds and `fastuart` is back to being the exception: a module
+some *other* program left fast. Two things to know. A relaunch inside the
+module's boot and AP re-join (roughly the first 1-6 s after quitting) meets a
+module that is not back yet and says `No esp - reset, try again` - wait a
+moment. And under MAME the pulse is invisible: the emulator has no reset
+line, so the emulated module keeps its links across a relaunch exactly as
+before; hardware is the proof, a KS2 first and then a KS1 / N-GO, where the
+relaunch pause vanishing is what shows it was the module's state and not
+flow control.
+
+The re-state itself was ZX Next Remote's 1.3.10 bug, and its own
 note is the lesson: *when a variable acquires a new job, re-read its old edge
 cases*.
 

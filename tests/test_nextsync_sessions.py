@@ -155,7 +155,7 @@ check("retried ops are the idempotent UI ones - never rmtree, never a raw query"
 check("EOF is told apart from garbage by the block reader",
       "return 'EOF'" in wk and "if blk == 'EOF':" in wk)
 check("the session shadows _re_reply_call and raises _ReLinkDead when eligible",
-      "def _re_reply_call(conn_, handler, timeout=None):" in sess
+      "def _re_reply_call(conn_, handler, timeout=None, late_ok=False):" in sess
       and 'raise _ReLinkDead("the link died under "' in sess)
 check("_ReLinkDead is an OSError caught ahead of the OSError arm",
       "class _ReLinkDead(OSError):" in wk

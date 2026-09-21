@@ -526,6 +526,15 @@ If you see "Brd 2" then "Flow off" is the only answer that machine can give.
 Prefer -default to -fast there: it leaves enough margin that the buffer does
 not run out during an SD write.
 
+Since 5.9.11 the dot resets the module on the way out, so the next program
+- or the next run of this dot - finds it as a cold power-on does: 115200,
+flow off, no links. Before, the exit only asked the module to drop back to
+115200, and it often did not hear: that is why a relaunch used to be slower
+than the first run after power-on, and sometimes needed a retry. The one
+cost: a relaunch within a few seconds of quitting meets a module still
+booting or rejoining Wi-Fi and says "No esp - reset, try again" - wait a
+moment and run it again.
+
 -fc costs about a second of extra startup, and only on the runs that use it:
 the module is reset first, because it only accepts the flow-control setting
 cleanly from a fresh boot.

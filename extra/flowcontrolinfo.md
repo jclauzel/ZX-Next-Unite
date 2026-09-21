@@ -222,6 +222,8 @@ guard. To rebuild one:
 
 Expect a parked transmitter if you get as far as `FLOW_ON()` on a board without
 the pins: the Next appears frozen and needs a reset. Nothing else is at risk —
-the module is restored either by the exit path's `AT+UART_CUR=115200,8,1,0,0` at
-`:2449` (sent at the fast rate, and reception is not CTS-gated) or, failing
-that, by the next run's `No esp - reset, try again` pulse at `:1971`.
+the module is restored by the exit path's reset pulse (`bailout:` since 5.9.11:
+`FLOW_OFF()` first, a bounded drain so the `CIPCLOSE` just sent leaves, then
+the nextreg 0x02 hold/release and `setupuart(0)`), which reaches it at any
+baud and needs no working transmitter - the same pulse the
+`No esp - reset, try again` bail now jumps to.
