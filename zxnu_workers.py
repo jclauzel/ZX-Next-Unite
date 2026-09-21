@@ -838,8 +838,25 @@ def _re_recv_block(conn):
     hdr = _re_recv_exact(conn, 2)
     if hdr is None:
         return 'EOF'          # the link died (9.7.20: told apart from garbage)
+    if hdr == b"Po":
+        # THE SEAT'S OWN RAW "Poll", NOT A FRAME (9.7.35). The seat polls
+        # with four bare bytes and answers a command with FRAMED blocks;
+        # this reader only ever expected the latter, so a Poll arriving
+        # while a reply was owed was read as a length of 0x506F = 20591
+        # and refused as garbage. A frame can never start with these two
+        # bytes (20591 is over the 4096 cap), so hand the Poll up as its
+        # own thing - WITH ITS TAIL STILL IN THE SOCKET. What it means is
+        # the caller's to decide (_re_recv_reply): a seat that missed the
+        # command and re-polled, or a seat that does not know the opcode
+        # at all and answered with silence. Only the caller knows which
+        # opcode it sent.
+        return 'POLL'
     total = (hdr[0] << 8) | hdr[1]
     if total < 5 or total > 4096:
+        # SAY SO. This branch was silent, which is why the 2026-09-21
+        # failure left no line in the file at all (9.7.35).
+        logging.warning("Remote explorer: bad block header %02x %02x - not"
+                        " a frame, the reply is dropped", hdr[0], hdr[1])
         return None
     rest = _re_recv_exact(conn, total - 2)
     if rest is None:
@@ -973,7 +990,7 @@ def re_verify_wait(size_bytes):
                + max(0, int(size_bytes)) / RE_VERIFY_BYTES_PER_S)
 
 
-def _re_reply_call(conn, handler, timeout=None):
+def _re_reply_call(conn, handler, timeout=None, late_ok=False):
     """:func:`_re_recv_reply` under a per-command socket timeout.
 
     The session loop parks the socket at a 1 s timeout so an idle poll
@@ -993,7 +1010,7 @@ def _re_reply_call(conn, handler, timeout=None):
     the test suite can shorten it without waiting out a real minute."""
     try:
         conn.settimeout(RE_REPLY_TIMEOUT if timeout is None else timeout)
-        return _re_recv_reply(conn, handler)
+        return _re_recv_reply(conn, handler, late_ok)
     except socket.timeout:
         return False
     finally:
@@ -1003,7 +1020,7 @@ def _re_reply_call(conn, handler, timeout=None):
             pass
 
 
-def _re_recv_reply(conn, handler):
+def _re_recv_reply(conn, handler, late_ok=False):
     """Read the framed blocks the Next pushes in reply to a command, acking each
     with "Ok". handler(payload) returns True to stop. Returns True on clean
     completion, False on drop - or None when the link DIED under the reply
@@ -1013,10 +1030,55 @@ def _re_recv_reply(conn, handler):
     Call it through :func:`_re_reply_call`, never directly: on its own it
     inherits whatever socket timeout the session loop last set (1 s)."""
     expected = 0
+    polled = False
     while True:
         blk = _re_recv_block(conn)
         if blk == 'EOF':
             return None
+        if blk == 'POLL':
+            # A RAW POLL WHILE A REPLY WAS OWED (9.7.35) means one of two
+            # things, and the bytes cannot tell them apart:
+            #  - the seat does NOT KNOW THE OPCODE (an old dot asked 'Y',
+            #    'K' or 'U') and answered with silence, then polled. That
+            #    IS its answer, and it now waits for ours. This has always
+            #    worked by accident: the two header bytes were refused as
+            #    garbage, the arm reported no reply, and the leftover "ll"
+            #    fell to the session loop's catch-all, which answered the
+            #    seat's Poll with the idle 'I' it was waiting for.
+            #  - the seat MISSED THE COMMAND inside its 5 s window (an idle
+            #    seat's first command after a multi-minute leg, the
+            #    2026-09-21 cross-seat paste) and re-polled; the command
+            #    then lands, it executes it, and the framed reply FOLLOWS.
+            #    Reporting 'connection dropped' here turned that into a
+            #    502 for a mkdir the seat had done and said ok to.
+            # Only the CALLER knows which is possible: an arm whose opcode
+            # every seat has known since v1 (M, R, X) passes late_ok and
+            # gets the second reading; every other arm keeps the first,
+            # byte for byte - return False with the tail still in the
+            # socket, and the catch-all answers it exactly as before.
+            # In the late case: swallow the tail, never ANSWER the Poll
+            # (an 'I' would queue behind the command and the seat would
+            # read it as the answer to its NEXT Poll - one-behind for
+            # good), never RESEND the command (rm, rmdir and put are not
+            # idempotent; nothing new goes on the wire, so the
+            # one-command-per-Poll rule of the 9.7.27/28 comment holds),
+            # and swallow ONCE: the Next's control GET is bounded at 10 s
+            # and a re-poll costs the seat ~5.4 s, so a second Poll means
+            # the command was lost (it landed inside the seat's 0.2 s
+            # drain) and the old verdict, with the tail left for the
+            # catch-all, is the honest one.
+            if not late_ok or polled:
+                if late_ok:
+                    logging.warning("Remote explorer: the Next re-polled"
+                                    " twice while a reply was owed -"
+                                    " reply dropped")
+                return False
+            if _re_recv_exact(conn, 2) is None:     # the Poll's "ll"
+                return None
+            polled = True
+            logging.warning("Remote explorer: the Next re-polled while a"
+                            " reply was owed - swallowed, still waiting")
+            continue
         if blk is None:
             return False
         if blk == 'BADCS':
@@ -1431,7 +1493,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
             log(line)
             logging.warning("Remote explorer: %s", line)
 
-    def _re_reply_call(conn_, handler, timeout=None):
+    def _re_reply_call(conn_, handler, timeout=None, late_ok=False):
         # Shadows the module function for every arm of THIS session
         # (9.7.20): the same contract, plus - when the reply ends in EOF and
         # a link-loss retry is eligible - _ReLinkDead instead of False, so
@@ -1441,7 +1503,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         # arm below.
         try:
             conn_.settimeout(RE_REPLY_TIMEOUT if timeout is None else timeout)
-            r = _re_recv_reply(conn_, handler)
+            r = _re_recv_reply(conn_, handler, late_ok)
         except socket.timeout:
             return False
         finally:
@@ -1911,8 +1973,14 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         break
                     log(ui_tr_now(
                         "Remote explorer: the Next closed the connection."))
+                    # The FILE line names the seat (9.7.35): two of these
+                    # bracketed the 2026-09-21 failure and could not be
+                    # assigned to a machine. The console line is a
+                    # translated catalog key and stays as it is.
                     logging.info(
-                        "Remote explorer: the Next closed the connection.")
+                        "Remote explorer: the Next closed the connection"
+                        " (seat #%s, %s).", sid,
+                        addr[0] if addr else "?")
                     break
                 last_rx = time.monotonic()
 
@@ -2222,7 +2290,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             _r['osp'] = _re_is_osp(payload)
                             return True
                         _re_sendpacket(conn, opc + path.encode(), 0)
-                        if _re_reply_call(conn, _h):
+                        if _re_reply_call(conn, _h, late_ok=True):
                             # ONE COMMAND PER POLL CYCLE, and mkdir does not
                             # get a second one (9.7.28). 9.7.27 tried to make
                             # a refused mkdir idempotent from here by probing

@@ -248,6 +248,15 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
         elif op == b'M':
             if arg_np.startswith("/sys"):
                 push(b'FOSP', 0)             # OS-protected mkdir refusal
+            elif arg_np.startswith("/repoll"):
+                # THE SEAT RE-POLLS BEFORE IT ANSWERS (9.7.35): its 5 s
+                # window missed the command, so a raw Poll goes out first
+                # and the framed reply follows. The worker must swallow
+                # the Poll and wait - and NOT answer it: push() below
+                # asserts the next bytes it reads are the 'O' ack, so an
+                # 'I' sent in reply to the Poll fails this test too.
+                settle(); sock.sendall(b"Poll")
+                push(b'O', 0)
             else:
                 push(b'O', 0)
         elif op == b'W':
@@ -578,7 +587,8 @@ def main():
     crc_no = BridgeReply()
     # "ls /gone" sits between real commands on purpose: if the 'F' (opendir-fail)
     # reply were mishandled it would desync the stream and break everything after.
-    for c in [("mkdir", "/ho"), ("ls", "/"), ("ls", "/gone"),
+    for c in [("mkdir", "/ho"), ("mkdir", "/repoll"),   # re-polls mid-reply (9.7.35)
+              ("ls", "/"), ("ls", "/gone"),
               ("get", "boot.bas", getdir),
               ("get", "/games/lev", foldl),
               ("put", putfile, "/ho/"),
@@ -688,6 +698,13 @@ def main():
         print("PASS ops  :", got['ops'])
     else:
         print("FAIL ops  :", got['ops']); ok = False
+    # A seat that re-polled while its mkdir reply was owed (9.7.35): the
+    # raw Poll must be swallowed, not read as a frame header, and the
+    # framed 'O' that follows must land as ok=True.
+    if (True, "mkdir", "/repoll") in got['ops']:
+        print("PASS repoll: a raw Poll mid-reply is swallowed, the reply lands")
+    else:
+        print("FAIL repoll:", [o for o in got['ops'] if o[1] == "mkdir"]); ok = False
     if cap.get('ren') == "/ho/a.txt\x00/ho/b.txt" and any(o[1] == "rename" for o in got['ops']):
         print("PASS ren  :", cap['ren'].replace("\x00", " -> "))
     else:
