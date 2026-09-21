@@ -287,8 +287,21 @@ def build_emulator_ops(
         signals = EspEmuSignals()
         signals.line.connect(
             lambda s: add_main_log_window(str(s)), Qt.QueuedConnection)
+
+        def _esp_log(line):
+            # THE CONSOLE AND THE FILE. The verbose trace used to reach only
+            # the SD Card console - a QListWidget nobody can read after the
+            # fact - and it is the one witness a failure on the MAME leg
+            # has: the 2026-09-21 cross-seat paste that died on its first
+            # command to the emulated seat logged NOTHING in the file.
+            # Called from the emulator's own thread; the queued signal and
+            # logging are both thread-safe. The trace is already rate-
+            # limited at the source (_TraceGate), so the file cannot flood.
+            signals.line.emit(line)
+            logging.info("%s", line)
+
         server = espemu.EspAtServer(
-            port=want_port, log=signals.line.emit, verbose=verbose)
+            port=want_port, log=_esp_log, verbose=verbose)
         try:
             server.start()
         except OSError as ex:
