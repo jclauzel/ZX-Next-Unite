@@ -1953,7 +1953,8 @@ int main(int arglen, char *rawcmd)
     // found the gate was ASYMMETRIC and that the asymmetry manufactured
     // the very failure this line exists to clear: a run without the flag
     // skipped this clear but still DISARMED THE MODULE, because bailout's
-    // AT+UART_CUR=115200,8,1,0,0 and the "No esp" hard reset are both
+    // module restore - the reset pulse since 5.9.11; the AT+UART_CUR=115200
+    // it replaced, plus the "No esp" bail's own pulse, before that - is
     // unconditional. Inheriting (our bit set, module armed) - which works
     // - a plain run turned it into (our bit set, module not driving RTS),
     // which is the combination that parks the transmitter.
@@ -2503,6 +2504,18 @@ bailout:
     // its own (it now just jumps here). Same three lines as gofast's
     // hardreset: on purpose - kept identical so the two cannot drift.
     // ZX Next Remote adopts the same rule at its exit (1.4.7).
+    // LET THE CIPCLOSE LEAVE FIRST. Review of the first cut: the pulse
+    // asserted ~100 us after the last CIPCLOSE byte left our Tx FIFO, so
+    // the module never parsed it and the PC's goodbye ran its full 2 s
+    // linger instead of ending on the FIN. flush_uart_hard() is the
+    // drain for exactly this: a quiet window that every arriving byte
+    // extends, under a hard cap - so it eats the module's CLOSED/OK reply
+    // and returns once the line has gone quiet, which is the close
+    // processed. A 3-byte call where an inline 60000-iteration loop cost
+    // 118 bytes of main bank (measured, and the dot cannot afford it).
+    // Harmless on the routes that sent no close (the "No esp" bail): one
+    // quiet window, nothing read.
+    flush_uart_hard();
     writenextreg(0x02, 128);     // hold the ESP in reset
     for (len = 0; len < 20000u; len++) ;
     writenextreg(0x02, 0);       // release
