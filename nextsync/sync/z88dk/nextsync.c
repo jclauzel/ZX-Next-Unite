@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.10"
+#define SYNC_VERSION "5.9.11"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -2007,11 +2007,8 @@ int main(int arglen, char *rawcmd)
         if (g_syncmode == MODE_SLOW || atcmd("\r\n", "ERROR", 5, inbuf))
         {
             print("No esp - reset, try again");
-            // reset esp
-            writenextreg(0x02, 128);
-            // wait for 5+ frames
-            for (len = 0; len < 10000; len++);
-            writenextreg(0x02, 0);
+            // The reset pulse that stood here moved to bailout, which
+            // every wire exit now runs (5.9.11) - one copy, not two.
             goto bailout;
         }
         // if we get this far, esp was already at the fast rate
@@ -2479,14 +2476,37 @@ bailout:
     // "goto terminate"s in the argument parsing - every one ABOVE
     // "UART_CTL = 16", i.e. before the entry clear and long before
     // anything can set the bit. IF A NEW EARLY EXIT IS ADDED BELOW THE
-    // UART BRING-UP IT MUST COME HERE, NOT TO terminate. The restore's own
-    // fifth field is already 0, so the MODULE is disarmed for free on
-    // every wire exit; only our side needed this. UNGATED for the reason
-    // the entry clear is: the restore below runs on every run, so gating
-    // only our half is what leaves the two ends disagreeing.
+    // UART BRING-UP IT MUST COME HERE, NOT TO terminate. Ours FIRST, before
+    // the reset pulse below, for the ordering the whole flow design rests
+    // on: a transmitter parked on a released line must not gate the
+    // escape. UNGATED for the reason the entry clear is: the pulse below
+    // runs on every run, so gating only our half is what leaves the two
+    // ends disagreeing.
     FLOW_OFF();
     anim_end();   // hide sprites + restore the sprite/layers reg (no-op unless -anim)
-    atcmd("AT+UART_CUR=115200,8,1,0,0\r\n", "", 0, inbuf); // restore uart speed
+    // HAND THE MODULE OVER IN ITS POWER-ON STATE (5.9.11). Until now this
+    // was atcmd("AT+UART_CUR=115200,8,1,0,0", "", 0): a polite request
+    // that (a) cannot reach a wedged module at all, (b) on a KS2 is the
+    // very ,3 -> ,0 step this file measured ESP-AT refusing the NEXT ,3
+    // after (see gofast), (c) leaves links, a CIPSERVER and ATE0 as they
+    // were, and (d) never put OUR prescaler back either, so NextZXOS got
+    // the UART at whatever rate the run used. The next program - this dot
+    // again, or ZX Next Remote - then paid for all of it in its bring-up
+    // ladder: the 115200 probes fail against a module left fast, a reset
+    // round or two follows, and the AP re-join races the first screen.
+    // The reset line reaches the module at ANY baud and through a
+    // dangling CIPSEND prompt, and it reboots at 115200, flow off, no
+    // links - what a cold power-on hands the next program. NO WAIT for
+    // it to boot: nothing after this line talks to the module, and its
+    // boot chatter lands in the FIFO where the next run's drain eats it,
+    // exactly as it did after the "No esp" reset that used to pulse on
+    // its own (it now just jumps here). Same three lines as gofast's
+    // hardreset: on purpose - kept identical so the two cannot drift.
+    // ZX Next Remote adopts the same rule at its exit (1.4.7).
+    writenextreg(0x02, 128);     // hold the ESP in reset
+    for (len = 0; len < 20000u; len++) ;
+    writenextreg(0x02, 0);       // release
+    setupuart(0);                // ours back to 115200 - never done before
     print("All done");
     writenextreg(0x07, nextreg7); // restore cpu speed
     writenextreg(0x06, nextreg6); // restore turbo key & 50/60 switch
