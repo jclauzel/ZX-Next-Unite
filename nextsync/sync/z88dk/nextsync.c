@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.11"
+#define SYNC_VERSION "5.9.12"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -35,9 +35,12 @@
 #define MODE_FAST    1
 #define MODE_SLOW    2
 
-// Left uninitialised on purpose: this dot's custom crt0 has no initialised-data
-// segment (an initialiser here balloons the binary past the 8KB limit), so both
-// are assigned at runtime in main() before first use.
+// Left uninitialised on purpose: in the 8K-dot era this dot's crt0 had no
+// initialised-data segment (an initialiser here ballooned the binary past the
+// limit), so both are assigned at runtime in main() before first use. The
+// dotN layout does carry one - the v5.0 toggles below are initialised
+// globals and g_flow_ask an initialised static, all in main-bank DATA -
+// but these two still take the main() store.
 static unsigned char g_syncmode;
 static unsigned char g_fast_uart_mode;
 // Flow control for THIS run: 1 = this board has the pins (nextreg 0x0F
@@ -52,14 +55,27 @@ static unsigned char g_fast_uart_mode;
 // ZXNR's 1.3.10 bug exactly. Assigned before any read, so it does not
 // depend on bss being zeroed.
 static unsigned char g_flow;
-// The user asked for flow control (-fc). NOTHING touches port 0x163B
-// unless this is set, and that is the whole point of it: the register is
-// documented as living in the shared core, but the one zxnext.vhd this
-// project can see decodes three UART ports and not that one ("-- todo:
-// add cts/rts" sits beside them), so on a core generation without it a
-// read returns the floating bus and the read-modify-write puts garbage
-// back. A default run must therefore be byte-for-byte the 5.9.7 dot.
-static unsigned char g_flow_ask;
+// Flow control is WANTED for this run: 1 unless the user passed -nfc
+// (5.9.12). From 5.9.9 to 5.9.11 it was the opt-in behind -fc, and this
+// comment promised that nothing touched port 0x163B without it - the
+// register is documented as living in the shared core, but the one
+// zxnext.vhd this project can see decodes three UART ports and not that
+// one, so on a core without it a read-modify-write would put the
+// floating bus back. That promise had already gone at 5.9.10, when the
+// entry clear became unconditional and hardware answered the worry (a
+// KS1 and MAME both ran the clear and connected). What this flag still
+// decides is the ENABLING half - the ",3" and FLOW_ON(), and the reset
+// the fallback takes - all behind g_flow, which needs this AND a capable
+// board AND a fast mode; g_flow_ask has exactly one reader, the board
+// block. So a KS1 and an N-GO see no change from the default flipping:
+// their gate says no. Nor does MAME, by another route: its ks2/ks3
+// machines answer 0x0F with 2/3, but its emulated wire is pinned at
+// 115200, so a MAME run is -s, and -s folds the gate. An initialised
+// static in the same data_compiler section as the v5.0 toggles below
+// (static only hides the symbol: no main-bank code, one byte of DATA).
+// -fc is still accepted and sets it: the last of -fc/-nfc on the line
+// wins, as -a/-na do.
+static unsigned char g_flow_ask = 1;
 // The armed AT+UART_CUR did not take and gofast retried at ",0". Kept
 // only so the report can tell "this board cannot" from "the module
 // refused" - the 5.9.8 field report could not, and that cost a session.
@@ -113,7 +129,9 @@ char *cmdline;
 unsigned short corever;
 // The three cosmetic/trace options default ON (v5.0); each has an -n? switch
 // to turn it off. The old opt-in flags (-v / -anim|-a / -dark|-d) are still
-// accepted as harmless no-ops so existing habits and scripts keep working.
+// accepted as harmless no-ops so existing habits and scripts keep working;
+// -fc joined them when flow control went default-on (5.9.12), except that
+// it re-asserts the default - a no-op unless -nfc came before it.
 char g_verbose = 1;   // echo -listen commands/actions on screen; -nv disables
 char g_anim = 1;      // hardware-sprite eye-candy while syncing; -na disables
 char g_dark = 1;      // retro green-on-black look + custom font; -nr disables
@@ -610,38 +628,52 @@ char gofast(char *inbuf)
     char cmd[32];
     unsigned char n;
     unsigned short w;
-    // 5.9.10: set once when the armed attempt failed and the ,0 retry is
-    // about to go round through the hard reset. ONE SHOT - it is what
-    // stops the third failure looping, and it is a frame local because
-    // gofast runs once at connect depth (the file's standing rule for
-    // this function: a static would spend the bytes permanently).
+    // The rung of the fallback ladder (5.9.12; 5.9.10's one-shot before):
+    // 0 = the module as found, 1 = fresh it and ask ",3" once more, 2 =
+    // fresh it and go round at ",0". Incremented on each refusal behind
+    // g_flow; rung two clears g_flow, so a third failure falls through to
+    // "No fast esp" instead of looping. A frame local because gofast runs
+    // once at connect depth (the file's standing rule for this function:
+    // a static would spend the bytes permanently).
     unsigned char reset_retry = 0;
 
-    // HARD-RESET THE MODULE BEFORE ARMING (5.9.9), and this is the field
-    // report's own finding: on a KS2, -fc worked on the FIRST run after a
-    // complete power-off and failed on every run after it. That is not a
-    // board problem (the gate said "Brd 4", i.e. capable, every time) and not
-    // our own bit (the entry clear already handles that). It is the MODULE:
-    // ESP-AT only takes ",3" cleanly from its power-on state, and once it has
-    // been through a ",3" -> ",0" cycle the next armed AT+UART_CUR is not
-    // applied - the following probe then burns its timeout (the ~1 s pause
-    // after the Brd line), we fall back to ",0", and the report says off.
+    // THE RESET BEFORE ARMING (5.9.9), and why it no longer runs FIRST
+    // (5.9.12). The 5.9.9 field finding: on a KS2, -fc worked on the FIRST
+    // run after a complete power-off and failed on every run after it. Not
+    // the board (the gate said "Brd 4", i.e. capable, every time), not our
+    // own bit (the entry clear handles that): the MODULE. ESP-AT only takes
+    // ",3" cleanly from its power-on state, and once it has been through a
+    // ",3" -> ",0" cycle the next armed AT+UART_CUR is not applied - the
+    // following probe burns its timeout (the ~1 s pause after the Brd
+    // line), we fall back to ",0", and the report says off. 5.9.9 answered
+    // that by resetting BEFORE the armed command on every -fc run, because
+    // every exit of that era left the module in exactly the state that
+    // refuses. (ZX Next Remote never saw it: it routes EVERY failed probe
+    // through esp_hard_reset().)
     //
-    // ZX Next Remote never sees this because it routes EVERY failed probe
-    // through esp_hard_reset(); the dot only resets on its "No esp" bail. So
-    // reproduce the one state that demonstrably works. Only when we are
-    // actually going to arm: an incapable board, or a run without -fc, must
-    // stay byte-for-byte the old bring-up - which is what KS1 and MAME, both
-    // connecting happily today, are the evidence for.
+    // Since 5.9.11 no exit of ours does: bailout pulses the reset line, and
+    // so does ZX Next Remote's 1.4.7, so the module a run meets is fresh
+    // unless a crash, a power event or an older program got there first.
+    // With flow control on by default (5.9.12) a reset-first would have
+    // charged every plain run on a capable board ~0.8 s of boot wait PLUS
+    // the Wi-Fi re-association it restarts (1-6 s, surfacing as "Retrying
+    // connection") - to reproduce a state the module is already in. So the
+    // order is now ASK FIRST, RESET ONLY ON REFUSAL: the first pass sends
+    // the armed command to the module as found; if the probe at the new
+    // rate fails, the fallback below resets and asks ",3" once more (the
+    // 5.9.9 path, exactly); if THAT fails, it resets again and falls back
+    // to ",0" (the 5.9.10 path). A fresh module pays nothing extra; a
+    // stale one pays one failed probe more than 5.9.11's -fc did; a module
+    // whose firmware refuses flow control pays two resets and two probes on
+    // every run, and -nfc is its remedy (nextsync.txt says so).
     //
-    // 5.9.10 GAVE THIS BLOCK A SECOND CALLER, and that is the whole fix:
-    // the ,0 fallback below used to `goto retry`, which lands AFTER this
-    // block and therefore skipped the one thing that puts the module
-    // somewhere known - at the exact moment its state had become
-    // unknowable. It now jumps HERE instead. reset_retry rather than
-    // g_flow because g_flow is cleared one statement before that jump.
+    // An incapable board, or a -nfc run, never reaches this block or the
+    // ",3": byte-for-byte the old bring-up, which is what KS1 and MAME,
+    // both connecting happily today, are the evidence for. Gated on
+    // reset_retry alone: the fallbacks below set it before they jump here,
+    // and the second of them clears g_flow before its jump.
 hardreset:
-    if (g_flow || reset_retry)
+    if (reset_retry)
     {
         FLOW_OFF();                  /* ours first - the ZXNR ordering */
         writenextreg(0x02, 128);     /* hold the ESP in reset */
@@ -756,20 +788,32 @@ retry:
         // that N-GO - it acked nothing and stayed mute. Only the reset
         // brought it back. Do not reintroduce it.
         //
-        // The fallback still exists for the case it always did - an ESP-AT
-        // build that will not do flow control must not lose fast mode
-        // ENTIRELY on a board that has always had it - and our bit is
-        // still clear (the only line that sets it is below), so both ends
-        // go round unarmed.
+        // TWO RUNGS SINCE 5.9.12, because the first pass no longer resets.
+        // Rung one: the module as found did not take ",3" - most likely a
+        // stale one (a crash, a power event or an older program left it
+        // mid-cycle), which is exactly the state 5.9.9 learned to reset out
+        // of. Reset it and ask ",3" once more: that second pass IS the
+        // 5.9.9 bring-up, byte for byte. Rung two: a module that refused
+        // ",3" even from its power-on state will not take it at all - an
+        // ESP-AT build that will not do flow control must not lose fast mode
+        // ENTIRELY on a board that has always had it - so reset once more
+        // and go round at ",0". Our bit is still clear on both rungs (the
+        // only line that sets it is below), so both ends go round unarmed.
         //
-        // COST: one extra module reset on a run that was already failing,
-        // and with it a Wi-Fi re-association - visible afterwards as a
-        // "Retrying connection" or two before the session comes up.
+        // COST: rung one is one module reset and one failed probe on a run
+        // that was already failing; rung two is the same again, and with
+        // each reset a Wi-Fi re-association - visible afterwards as a
+        // "Retrying connection" or two before the session comes up. A
+        // module that pays rung two on every run is the -nfc case.
         if (g_flow)
         {
-            g_flow = 0;
-            g_flow_esp = 1;            /* so the report can say WHY */
-            reset_retry = 1;
+            if (reset_retry)           /* rung two: give up on ",3"     */
+            {
+                g_flow = 0;
+                g_flow_esp = 1;        /* so the report can say WHY */
+            }
+            reset_retry++;             /* 1: fresh it, ask ",3" again;
+                                        * 2: fresh it, go round at ",0" */
             goto hardreset;
         }
         print("No fast esp");
@@ -1092,8 +1136,10 @@ char send_dir(char *fullpath, unsigned short plen, unsigned char *inbuf, unsigne
 //                                        switch each one off (no anim / no
 //                                        verbose / no retro)
 //
-// Also consumes "-fc" (UART hardware flow control, issue 4/5 boards only -
-// see g_flow_ask) and the standalone option flags "-v" (verbose), "-a" and
+// Also consumes "-nfc" (NO UART hardware flow control - it is on by default
+// where the board has the pins, 5.9.12; see g_flow_ask), "-fc" (the old
+// opt-in, which re-asserts the default: the last of -fc/-nfc on the line
+// wins) and the standalone option flags "-v" (verbose), "-a" and
 // "-anim"
 // (sprite eye-candy) - now-default no-ops kept for old habits and scripts.
 // Consuming them here means they are dropped from the cleaned command line, so
@@ -1105,8 +1151,10 @@ unsigned char setspeed(char *p, unsigned char n)
 {
     if (*p != '-') return 0;
     if (p[1] == 'f' && (n == 5 || n == 2))              { g_syncmode = MODE_FAST;    return 1; }
-    // -fc: ask for UART hardware flow control. OPT-IN since 5.9.9 - see
-    // g_flow_ask. n == 3 is free here because -f is matched at 2 or 5.
+    // -fc: ask for UART hardware flow control - the default since 5.9.12, so
+    // this re-asserts it; the last of -fc/-nfc on the line wins, as -a/-na
+    // do (see g_flow_ask). n == 3 is free here because -f is matched at 2
+    // or 5.
     if (p[1] == 'f' && n == 3 && p[2] == 'c')           { g_flow_ask = 1;           return 1; }
     if (p[1] == 'd' && n == 8)                          { g_syncmode = MODE_DEFAULT; return 1; }
     if (p[1] == 'd' && (n == 2 || (n == 5 && p[2] == 'a'))) { g_dark = 1;            return 1; }
@@ -1114,18 +1162,35 @@ unsigned char setspeed(char *p, unsigned char n)
     if (p[1] == 'v' && n == 2)                          { g_verbose = 1;             return 1; }
     if (p[1] == 'a' && n == 2)                          { g_anim = 1;                return 1; }
     if (p[1] == 'a' && n == 5 && p[2] == 'n')           { g_anim = 1;                return 1; }
-    if (p[1] == 'n' && n == 3)
+    if (p[1] == 'n')
     {
-        if (p[2] == 'a') { g_anim = 0;    return 1; }
-        if (p[2] == 'v') { g_verbose = 0; return 1; }
-        if (p[2] == 'r') { g_dark = 0;    return 1; }
+        if (n == 3)
+        {
+            if (p[2] == 'a') { g_anim = 0;    return 1; }
+            if (p[2] == 'v') { g_verbose = 0; return 1; }
+            if (p[2] == 'r') { g_dark = 0;    return 1; }
+        }
+        // -nfc: NO flow control (5.9.12), matched by shape like every other
+        // switch here - '-n', length 4, 'f' - and consumed like the rest so
+        // it leaves the cleaned line. It lives INSIDE the '-n' test and reads
+        // p[2] through the pointer the n == 3 arms already hold, on purpose:
+        // the first cut was a separate arm that also compared p[3], and that
+        // one extra live value made zsdcc spill every temporary of this chain
+        // to an IX frame - setspeed grew 95 bytes against 5.9.11 (measured
+        // from the maps). A dot older than 5.9.12 does not know the switch:
+        // there '-nfc' survives into the cleaned line and, placed first,
+        // routes to the help screen, and after -send it is swallowed into
+        // the path - so the docs put it after -listen, and say -send with
+        // -nfc needs 5.9.12.
+        else if (n == 4 && p[2] == 'f') { g_flow_ask = 0; return 1; }
     }
     return 0;
 }
 
-// Pull the -slow/-default/-fast/-v/-anim/-a/-dark/-d/-na/-nv/-nr switches out
-// of the command line and copy the remaining tokens into dst. Sets
-// g_syncmode/g_verbose/g_anim/g_dark. Works anywhere in the line.
+// Pull the -slow/-default/-fast/-v/-anim/-a/-dark/-d/-na/-nv/-nr/-nfc/-fc
+// switches out of the command line and copy the remaining tokens into dst.
+// Sets g_syncmode/g_verbose/g_anim/g_dark/g_flow_ask. Works anywhere in the
+// line.
 //
 // CRITICAL: this only READS cmdline and writes to dst (a private buffer). It
 // must NEVER write into cmdline itself - that buffer belongs to the NextZXOS
@@ -1784,8 +1849,8 @@ int main(int arglen, char *rawcmd)
                 "  ren free rcpy rfsize\r"
                 "  BREAK key stops it (safe)\r"
                 ".SYNC5 -slow -default -fast\r"
-                ".SYNC5 -fc : UART flow control\r"
-                "  (issue 4/5 boards only)\r"
+                ".SYNC5 -nfc : no UART flow ctl\r"
+                "  (on by default on issue 4/5)\r"
                 "Anim, verbose trace and retro\r"
                 "look are ON; to disable:\r"
                 ".SYNC5 -na -nv -nr\r"
@@ -1999,9 +2064,12 @@ int main(int arglen, char *rawcmd)
             // ZX Next Remote hit this at 1.3.10 and wrote down the lesson:
             // "when a variable acquires a new job, re-read its old edge
             // cases". g_flow is left ALONE here and the guard below lets
-            // gofast run anyway when we mean to arm - gofast's own hard
-            // reset then puts the module back to a known 115200 first, so
-            // the sequence is identical to the one that already works.
+            // gofast run anyway when we mean to arm. Since 5.9.12 gofast
+            // asks the module as found first - at the rate this branch has
+            // just heard it on - and only a refusal goes through its reset,
+            // which returns both ends to 115200 before asking again; and
+            // since 5.9.11's exit pulse this branch is the crash, NMI or
+            // older-program case, no longer every run after the first.
         }
         // In slow mode there is no fast rate to fall back to, so bail straight
         // away; otherwise bail only if the esp is unresponsive at the fast rate.
@@ -2021,8 +2089,9 @@ int main(int arglen, char *rawcmd)
     // run is byte-for-byte what it always was - fastuart still skips
     // gofast - while a run that means to arm goes through it even when the
     // module is already fast, because that is the only way the flow field
-    // is ever sent. g_flow is non-zero only with -fc on a capable board at
-    // a non-slow rate, so nothing else can reach the new branch.
+    // is ever sent. g_flow is non-zero only on a capable board at a
+    // non-slow rate without -nfc (with -fc, before 5.9.12), so nothing
+    // else can reach the new branch.
     //
     // The cost is honest and bounded: on this path gofast can now bail
     // where it previously was not called, taking the run with it. It only
@@ -2074,7 +2143,7 @@ int main(int arglen, char *rawcmd)
     // a KS2, and it hangs" - and "Flow off" could not distinguish a board
     // that cannot from a module that refused the armed command, which is
     // what had actually happened. Three outcomes, three strings:
-    //   "Flow off"       - not asked for (no -fc), or this board has no pins
+    //   "Flow off"       - turned off (-nfc), or this board has no pins
     //   "Flow on"        - asked, capable, and the module took ",3"
     //   "Flow off esp"   - asked and capable, but the module refused and we
     //                      fell back to ",0"; the transfer is unprotected but
