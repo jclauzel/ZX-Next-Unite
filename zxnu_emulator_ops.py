@@ -295,8 +295,10 @@ def build_emulator_ops(
             # has: the 2026-09-21 cross-seat paste that died on its first
             # command to the emulated seat logged NOTHING in the file.
             # Called from the emulator's own thread; the queued signal and
-            # logging are both thread-safe. The trace is already rate-
-            # limited at the source (_TraceGate), so the file cannot flood.
+            # logging are both thread-safe. The byte-moving traces (ipd,
+            # send) are rate-limited at the source (_TraceGate); the
+            # per-command line is one per AT command - one per emulated
+            # poll cycle with verbose on - bounded by the log's rotation.
             signals.line.emit(line)
             logging.info("%s", line)
 

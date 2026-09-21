@@ -248,6 +248,18 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
         elif op == b'M':
             if arg_np.startswith("/sys"):
                 push(b'FOSP', 0)             # OS-protected mkdir refusal
+            elif arg_np.startswith("/repoll2"):
+                # TWO raw Polls and never an 'O' (9.7.35): the second Poll
+                # means the command was lost, so the worker must give the
+                # OLD verdict at once - an error signal, not a wait - with
+                # the second Poll's tail left for the session loop's
+                # catch-all, whose framed 'I' this seat then reads as its
+                # answer and polls on. Pins the swallow-once cap: without
+                # it the worker waits for a reply that never comes and
+                # this seat's read below times out.
+                settle(); sock.sendall(b"Poll")
+                settle(); sock.sendall(b"Poll")
+                assert rx_payload(sock)[0:1] == b'I'
             elif arg_np.startswith("/repoll"):
                 # THE SEAT RE-POLLS BEFORE IT ANSWERS (9.7.35): its 5 s
                 # window missed the command, so a raw Poll goes out first
@@ -564,12 +576,13 @@ def main():
     cap = {}
     got = {'listing': None, 'gets': [], 'put': None, 'puts': [], 'ops': [],
            'ls_failed': [], 'drives': None, 'free': [], 'fsize': [], 'hb': [],
-           'osp': []}
+           'osp': [], 'errors': []}
 
     sig = RemoteExplorerSignals()
     sig.listing.connect(lambda p, e: got.update(listing=(p, e)), Qt.DirectConnection)
     sig.ls_failed.connect(lambda p: got['ls_failed'].append(p), Qt.DirectConnection)
     sig.got.connect(lambda r, l: got['gets'].append((r, l)), Qt.DirectConnection)
+    sig.error.connect(lambda m: got['errors'].append(str(m)), Qt.DirectConnection)
     sig.put_done.connect(lambda ok, r: (got.update(put=(ok, r)), got['puts'].append((ok, r))), Qt.DirectConnection)
     sig.op_done.connect(lambda ok, o, p: got['ops'].append((ok, o, p)), Qt.DirectConnection)
     sig.os_protected.connect(lambda o, p: got['osp'].append((o, p)), Qt.DirectConnection)
@@ -588,6 +601,7 @@ def main():
     # "ls /gone" sits between real commands on purpose: if the 'F' (opendir-fail)
     # reply were mishandled it would desync the stream and break everything after.
     for c in [("mkdir", "/ho"), ("mkdir", "/repoll"),   # re-polls mid-reply (9.7.35)
+              ("mkdir", "/repoll2"),                     # re-polls TWICE: the cap
               ("ls", "/"), ("ls", "/gone"),
               ("get", "boot.bas", getdir),
               ("get", "/games/lev", foldl),
@@ -705,6 +719,16 @@ def main():
         print("PASS repoll: a raw Poll mid-reply is swallowed, the reply lands")
     else:
         print("FAIL repoll:", [o for o in got['ops'] if o[1] == "mkdir"]); ok = False
+    # Two raw Polls (9.7.35): the swallow-once cap. The second Poll means the
+    # command was lost; the worker must give the old verdict - the error
+    # signal, no op_done, no hang - and the seat must get the catch-all's
+    # 'I' for the tail (the fake seat asserts that itself).
+    if (any("mkdir /repoll2: connection dropped" in e for e in got['errors'])
+            and not any(o[2] == "/repoll2" for o in got['ops'])):
+        print("PASS repoll2: two Polls -> the old verdict at once, the seat polls on")
+    else:
+        print("FAIL repoll2:", got['errors'],
+              [o for o in got['ops'] if o[2] == "/repoll2"]); ok = False
     if cap.get('ren') == "/ho/a.txt\x00/ho/b.txt" and any(o[1] == "rename" for o in got['ops']):
         print("PASS ren  :", cap['ren'].replace("\x00", " -> "))
     else:

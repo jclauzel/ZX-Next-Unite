@@ -835,6 +835,11 @@ def _re_drop_link(conn):
 
 
 def _re_recv_block(conn):
+    """One framed block from the seat, as (payload, pktno). 'BADCS' on a
+    checksum miss, None on a header that is not a frame (logged), 'EOF'
+    when the link died - or 'POLL' (9.7.35) when the two header bytes are
+    the seat's own raw "Poll", in which case its LAST TWO BYTES ARE LEFT
+    UNREAD for the caller to consume or to hand to the session loop."""
     hdr = _re_recv_exact(conn, 2)
     if hdr is None:
         return 'EOF'          # the link died (9.7.20: told apart from garbage)
@@ -1028,7 +1033,12 @@ def _re_recv_reply(conn, handler, late_ok=False):
     session's own reply wrapper, which turns it into a link-loss retry.
 
     Call it through :func:`_re_reply_call`, never directly: on its own it
-    inherits whatever socket timeout the session loop last set (1 s)."""
+    inherits whatever socket timeout the session loop last set (1 s).
+
+    ``late_ok`` (9.7.35): a raw Poll from the seat while the reply is owed
+    is "no reply" - False, its tail left in the socket for the session
+    loop's catch-all - unless ``late_ok``, when it is swallowed ONCE and the
+    wait continues. Only for opcodes every seat knows; see the branch."""
     expected = 0
     polled = False
     while True:
