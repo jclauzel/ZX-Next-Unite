@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.12"
+#define SYNC_VERSION "5.9.13"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -1702,6 +1702,51 @@ int main(int arglen, char *rawcmd)
     // if (g_dark) as the writes, but SDCC's flow analysis can't see that)
     unsigned char saved_attr_p = 0, saved_attr_t = 0;
 
+    // 28 MHz, AND IT IS THE FIRST THING main() DOES (5.9.13). The bump has
+    // been in this file since the dot learned to go fast, but it used to sit
+    // ~280 lines down, just above the UART bring-up - so the banner, the
+    // whole argument parse, the -help screen and the config-file read all
+    // ran at whatever speed BASIC was left at. A dot is not a .nex: NEXLOAD
+    // hands a .nex 28 MHz on its way in and nothing does that for a dot
+    // command, so that early stretch really was running slow on a machine
+    // sitting at its 3.5 MHz default.
+    //
+    // MOVING IT UP IS ONLY HALF THE CHANGE. The restore lives between
+    // bailout: and terminate:, and that arrangement was load-bearing: the
+    // five "goto terminate" in the argument parser were all ABOVE the old
+    // bump, so they had nothing to put back and deliberately skipped it.
+    // From up here they no longer skip anything - they would hand BASIC a
+    // 28 MHz machine and a dead F8 - so every one of them now goes to
+    // restorecpu: instead. The two must move together; see that label.
+    //
+    // MASK 0x7F, NOT 0x7d (5.9.13). The old constant cleared bit 7 - right,
+    // that is the F8 CPU-speed hotkey and the whole point - and bit 1, which
+    // is the AUDIO CHIP MODE MSB (00 = YM, 01 = AY, 10 = ZXN-8950, 11 = hold
+    // every AY in reset), not the 50/60 switch its comment claimed. It never
+    // cleared bit 5, the F3 50/60 key it named. No core revision ever put
+    // 50/60 at bit 1 - the core-2.x doc already gave bits 1:0 to the audio
+    // chip - so this was a typo carried in from upstream NextSync, not a
+    // constant the core outgrew. Nothing escaped: the restore writes the
+    // whole saved byte back on every exit the dot can reach. But a user's
+    // audio chip mode was being changed under them for the length of a sync
+    // for no reason at all. F3 is left alone on purpose: our baud divisor
+    // comes off nextreg 0x11 video timing, not off the CPU, so a 50/60 flip
+    // cannot move the wire - and a 60 Hz machine is not ours to overrule.
+    //
+    // READ-MODIFY-WRITE, never a constant: 0x06 also carries the DRIVE and
+    // M1 NMI enables and the internal-speaker divert, and THIS PROGRAM
+    // RETURNS TO BASIC WITHOUT RESETTING ANYTHING - unlike a .nex, whose
+    // exit soft reset repairs a clobbered bit for free. Here nothing does.
+    nextreg6 = readnextreg(0x06);
+    writenextreg(0x06, nextreg6 & 0x7f);
+    // & 3 on the way in: the READ gives bits 5:4 = actual speed and bits 1:0
+    // = programmed speed, while the WRITE spec makes bits 7:2 reserved and
+    // "must be 0" - so the old restore handed 0x33 straight back whenever
+    // the user was already at 28 MHz. The shipping core slices the low two
+    // bits on write, so this is robustness rather than a field bug.
+    nextreg7 = readnextreg(0x07) & 3;
+    writenextreg(0x07, 3); // 28MHz
+
     // Save SCR_CT (23692) before print() starts forcing it to 255, so it can be
     // restored at terminate. Leaving it at 255 would suppress the ROM "scroll?"
     // prompt for the rest of the BASIC session after the dot command exits.
@@ -1856,7 +1901,7 @@ int main(int arglen, char *rawcmd)
                 ".SYNC5 -na -nv -nr\r"
                 ".SYNC5 -help -h : this help\r"
                 "See nextsync.txt\r\r");
-            goto terminate;
+            goto restorecpu;
         }
 
         if (isserver)
@@ -1873,7 +1918,7 @@ int main(int arglen, char *rawcmd)
             if (!valid_server(fn))
             {
                 conprint("Bad server name\r");
-                goto terminate;
+                goto restorecpu;
             }
 
             conprint("Setting server to:");
@@ -1886,13 +1931,13 @@ int main(int arglen, char *rawcmd)
             if (filehandle == 0)
             {
                 conprint("Failed to open file\r");
-                goto terminate;
+                goto restorecpu;
             }
 
             fwrite(filehandle, fn, len);
             fclose(filehandle);
             conprint("Ok\r");
-            goto terminate;
+            goto restorecpu;
         }
 
         len = fread(filehandle, fn, 255);
@@ -1906,7 +1951,7 @@ int main(int arglen, char *rawcmd)
         if (filehandle == 0)
         {
             conprint("No server set - .sync5 <ip>\r");
-            goto terminate;
+            goto restorecpu;
         }
         len = fread(filehandle, fn, 255);
         fclose(filehandle);
@@ -1986,11 +2031,6 @@ int main(int arglen, char *rawcmd)
                                 ? 0 : g_fast_uart_mode) * 8 + vt], nb + 10);
         print(nb);
     }
-
-    nextreg6 = readnextreg(0x06);
-    writenextreg(0x06, nextreg6 & 0x7d); // disable turbo key & 50/60 switch (leave other bits alone)
-    nextreg7 = readnextreg(0x07);
-    writenextreg(0x07, 3); // 28MHz
 
     // read Next core version - e.g. 3.01.10 will be 0x310a
     corever = readnextreg(0x01) * 256 + readnextreg(0x0e);
@@ -2238,7 +2278,17 @@ connbreak:
             print("Server too old (-listen)");
             goto closeconn;
         }
-        print("Listening for commands");
+        // "BREAK exits" earns its place by replacing words that said nothing
+        // (5.9.13). -listen is the mode that sits and waits, so it is the one
+        // where the user needs telling how to get out - and the -help screen
+        // that DOES say so ("BREAK key stops it (safe)") is gated behind
+        // !listenmode, so a -listen run has never shown it. Exactly 22
+        // characters, the same as the "Listening for commands" it replaces:
+        // same rodata, same call, no bytes. Honest HERE AND ONLY HERE - BREAK
+        // is sampled at the top of the poll loop below, strictly between
+        // commands. It is not sampled at all during a -send upload, which is
+        // why no such line goes on the banner.
+        print("Listening: BREAK exits");
 
         // Poll the server for the next command and run it, until "Q" (quit).
         for (;;)
@@ -2541,12 +2591,17 @@ closenobye:
 bailout:
     // Again for the five direct "goto bailout"s, which skip closeconn, and
     // before the restore below for the same reason. THIS IS THE WHOLE EXIT
-    // SURFACE: closeconn and closenobye fall through here, every goto
-    // bailout lands here, and the only exits that skip it are the
-    // "goto terminate"s in the argument parsing - every one ABOVE
-    // "UART_CTL = 16", i.e. before the entry clear and long before
-    // anything can set the bit. IF A NEW EARLY EXIT IS ADDED BELOW THE
-    // UART BRING-UP IT MUST COME HERE, NOT TO terminate. Ours FIRST, before
+    // SURFACE FOR THE WIRE: closeconn and closenobye fall through here,
+    // every goto bailout lands here, and the only exits that skip it are
+    // the five "goto restorecpu"s in the argument parsing - every one
+    // ABOVE "UART_CTL = 16", i.e. before the entry clear and long before
+    // anything can set the bit. (They were "goto terminate" until 5.9.13,
+    // when the CPU restore they now need was given its own label two lines
+    // above terminate:. Skipping THIS block is still right for them - they
+    // have touched no UART - and restorecpu: deliberately sits below it so
+    // falling through from here still clears flow before the speed goes
+    // back.) IF A NEW EARLY EXIT IS ADDED BELOW THE UART BRING-UP IT MUST
+    // COME HERE, NOT TO restorecpu OR terminate. Ours FIRST, before
     // the reset pulse below, for the ordering the whole flow design rests
     // on: a transmitter parked on a released line must not gate the
     // escape. UNGATED for the reason the entry clear is: the pulse below
@@ -2590,8 +2645,25 @@ bailout:
     writenextreg(0x02, 0);       // release
     setupuart(0);                // ours back to 115200 - never done before
     print("All done");
-    writenextreg(0x07, nextreg7); // restore cpu speed
-    writenextreg(0x06, nextreg6); // restore turbo key & 50/60 switch
+restorecpu:
+    // PUT THE MACHINE BACK (5.9.13). Reached two ways: bailout: falls
+    // through, and the five "goto restorecpu" in the argument parser jump
+    // straight here - the -help screen, "Bad server name", the config save
+    // and its two failure lines. Those five used to go to terminate: and
+    // were RIGHT to, because the bump sat below them and there was nothing
+    // to undo; now the bump is main()'s first statement and they are the
+    // only paths that could hand BASIC a fast machine with no F8. Every
+    // exit the dot can reach passes through these two writes: BREAK out of
+    // the -listen loop and BREAK during the connect retries both land on
+    // bailout:, and main() has exactly one return, below terminate:.
+    //
+    // THIS MATTERS MORE HERE THAN IT DOES IN A .nex. ZX Next Remote can
+    // afford to skip its restore because it leaves by soft-resetting the
+    // machine, and the core puts 0x07 and 0x06 bit 7 back itself. A dot
+    // returns to the BASIC prompt: nothing resets, so what we do not put
+    // back stays wrong until the user reboots.
+    writenextreg(0x07, nextreg7); // the speed they were on (bits 1:0 only)
+    writenextreg(0x06, nextreg6); // F8 back, and every other bit as found
 terminate:
     *((unsigned char  *)23692) = saved_scr_ct;  // restore ROM scroll counter
     if (g_dark)                                  // undo the -dark look

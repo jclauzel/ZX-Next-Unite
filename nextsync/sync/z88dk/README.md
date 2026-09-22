@@ -64,8 +64,10 @@ $C000–$FFFF   (mmu6/7)              : NextZXOS (saved/restored by the crt)
 very top of mmu5; v5.2's `0xBF00` wasted the last 256 bytes, which nothing in
 the dotn crt or clib touches). The large buffers (`inbuf`,
 `scratch`, …) are file-scope statics so they land in the main bank and keep the
-stack small. Current layout (v5.9.12): main-bank content ends at `0xBA0C`
-(`__BSS_END_head` in `syncdev.map`), leaving 1524 bytes of stack below `0xC000`
+stack small. Current layout (v5.9.13): main-bank content ends at `0xB9F6`
+(`__BSS_END_head` in `syncdev.map`), leaving 1546 bytes of stack below `0xC000`
+(5.9.13 *gained* 22 — moving the CPU bump to the top of `main()` shortened the
+code that reads the two nextregs, measured both ways against 5.9.12's 1524)
 (`build_dotn.ps1` refuses a build under 150; 5.7.1's proven floor is 156);
 the primary dot page ends at `0x3EF6` (`__CODE_END_tail`), 10 bytes below the
 hard `0x3F00` line the build enforces (appmake's own fence; the guard said `0x3F0F` until 5.9.5 and was looser than the tool) — content past it triggers appmake's
@@ -140,6 +142,73 @@ made a bare `.sync` behave as if given `sync` as a server argument).
 Console output goes through z88dk's ROM-print driver, which **ignores `\r`** and
 only newlines on `\n`; the app uses `\r` throughout, so `conprint()` translates
 `\r`→`\n`.
+
+## CPU speed: 28 MHz for the run, and put back on every exit (5.9.13)
+
+The dot runs the Z80 at 28 MHz — the de-framer has to outrun the wire — and
+since **5.9.13** that write is the **first statement of `main()`**. It used to
+sit ~280 lines down, just above the UART bring-up, so the banner, the whole
+argument parse, the `-help` screen and the config-file read all ran at whatever
+speed BASIC was left at. A dot is not a `.nex`: NEXLOAD hands a `.nex` 28 MHz on
+its way in, and nothing does that for a dot command.
+
+**Moving it up was only half the change.** The restore sits between `bailout:`
+and `terminate:`, and that was load-bearing: the five `goto terminate` in the
+argument parser were all *above* the old bump, so they had nothing to put back
+and deliberately skipped it. From the top of `main()` they would instead hand
+BASIC a 28 MHz machine with a dead F8, so all five now go to a new
+`restorecpu:` label placed just above `terminate:`. Every exit the dot can
+reach passes through it — `bailout:` falls through, BREAK out of the `-listen`
+loop and BREAK during the connect retries both land on `bailout:`, and `main()`
+has exactly one `return`.
+
+This matters **more here than in a `.nex`**. ZX Next Remote can skip its restore
+entirely because it leaves by soft-resetting the machine and the core puts
+nextreg `0x07` and `0x06` bit 7 back itself. A dot returns to the BASIC prompt:
+nothing resets, so whatever it fails to put back stays wrong until a reboot.
+
+Two register fixes came with it:
+
+- **The 0x06 mask was `0x7d` and is now `0x7f`.** `0x7d` cleared bit 7 (the F8
+  CPU-speed hotkey — correct, and the whole point) *and* bit 1, which is the
+  **audio chip mode** MSB (`00` YM, `01` AY, `10` ZXN-8950, `11` hold every AY
+  in reset) — not the 50/60 switch the comment beside it claimed. It never
+  touched bit 5, the F3 50/60 key it named. No core revision ever put 50/60 at
+  bit 1; the core-2.x doc already gave bits 1:0 to the audio chip, so this was a
+  typo inherited from upstream NextSync, not a constant the core outgrew. The
+  restore always wrote the whole saved byte back, so nothing escaped a completed
+  run — but a user's audio chip mode was being changed under them for the length
+  of every sync. F3 is deliberately left alone: the baud divisor comes off
+  nextreg `0x11` video timing, not the CPU, so a 50/60 flip cannot move the wire.
+- **The 0x07 save now masks `& 3`.** Reading `0x07` returns bits 5:4 = *actual*
+  speed and bits 1:0 = *programmed* speed, while the write spec makes bits 7:2
+  reserved and "must be 0" — so the old restore handed `0x33` straight back
+  whenever the user was already at 28 MHz. The shipping core slices the low two
+  bits on write, so this is robustness rather than a field bug.
+
+Measured both ways with `build_dotn.ps1`: 5.9.12 = 1524 bytes of stack, 5.9.13 =
+**1546**. The change *gained* 22 bytes.
+
+### BREAK, and where it is honest
+
+`-listen`'s first line reads **`Listening: BREAK exits`** from 5.9.13 (it was
+`Listening for commands` — the same 22 characters, so the line costs nothing).
+It went there and nowhere else on purpose, because BREAK is not universal:
+
+| Mode | BREAK? | Where |
+|---|---|---|
+| `-listen` | yes | top of the poll loop, strictly *between* commands |
+| connect retries (all modes) | yes | before and throughout each ~2 s pause |
+| classic pull sync | yes, per packet | inside `transfer()` — but it reports as `Lost connection.` |
+| `-send` upload | **no** | no `break_pressed()` in `send_file`/`send_dir`/`send_block_rt` |
+
+That table is why there is no BREAK line on the startup banner: it would promise
+`-send` something the code does not deliver. Three known gaps, all pre-dating
+5.9.13 and none fixed by it: the classic-sync BREAK misreports as a lost link
+(`transfer()` returns the same `1` for both), `-send` cannot be stopped from the
+Next once the link is up, and the classic-sync retry loop has no failcount, no
+budget and no BREAK check — so it can spin indefinitely, which is exactly where
+a user most wants the key.
 
 ## UART hardware flow control (on by default since 5.9.12; `-fc` 5.9.9, `-nfc` 5.9.12)
 
