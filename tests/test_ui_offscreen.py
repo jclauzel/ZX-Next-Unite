@@ -1094,6 +1094,48 @@ def inspect_phase4():
     ok = wait_until(_landed, timeout=30, what="dropped file lands in drop zone")
     check("OS drop imports the file", ok)
     check("source file untouched (copy, not move)", os.path.isfile(DROPSRC))
+
+    # --- the SD Card Utility's LOCAL tree: same four properties, plus a real
+    # drop and the 9.7.37 styling. That pane swapped its plain QFileSystemModel
+    # for the Remote Explorer's ColoredFileSystemModel and gained
+    # header().swapSections(1, 2) - a cosmetic change, but it lands on the one
+    # widget whose drag & drop had no test at all, so this is the net under it.
+    # The drag/drop wiring lives in zxnu_main.py and is applied AFTER the pane
+    # is built, so what these four really pin is that the pane never starts
+    # setting them itself and silently losing to (or fighting) that wiring.
+    sd = win.treeview
+    check("sdcard local tree accepts drops", sd.acceptDrops())
+    check("sdcard local tree drag enabled", sd.dragEnabled())
+    check("sdcard local tree mode is DragDrop",
+          sd.dragDropMode() == QAbstractItemView.DragDrop, str(sd.dragDropMode()))
+    check("sdcard local tree default action Copy",
+          sd.defaultDropAction() == Qt.CopyAction, str(sd.defaultDropAction()))
+
+    # Columns stay LOGICAL - only the header's visual order moved - so a
+    # failure here means either the swap was lost or someone reordered the
+    # columns for real, which would break every selectedRows(0) in the app.
+    hdr = sd.header()
+    _visual = [hdr.visualIndex(i) for i in range(4)]
+    check("sdcard local tree shows Name/Type/Size/Modified",
+          _visual == [0, 2, 1, 3], str(_visual))
+    check("sdcard local tree is not in-place editable",
+          sd.editTriggers() == QAbstractItemView.NoEditTriggers,
+          str(sd.editTriggers()))
+
+    sd_drop = os.path.join(DROPZONE, "sdcard")
+    os.makedirs(sd_drop, exist_ok=True)
+    win.local_file_explorer_path.setText(sd_drop)
+    win.local_file_explorer_path.editingFinished.emit()
+    QCoreApplication.processEvents()
+    md2 = QMimeData()
+    md2.setUrls([QUrl.fromLocalFile(DROPSRC)])
+    ev2 = QDropEvent(QPointF(5.0, 5.0), Qt.CopyAction, md2,
+                     Qt.LeftButton, Qt.NoModifier)
+    sd.dropEvent(ev2)
+    ok2 = wait_until(lambda: os.path.isfile(os.path.join(sd_drop, "dropsrc.txt")),
+                     timeout=30, what="dropped file lands in the sdcard drop zone")
+    check("sdcard local tree OS drop imports the file", ok2)
+    check("source file still untouched after sdcard drop", os.path.isfile(DROPSRC))
     app.quit()
 
 def _expand_and_watch(tv, proxy, model, path):
