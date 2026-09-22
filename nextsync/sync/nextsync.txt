@@ -474,12 +474,19 @@ which in the middle of a transfer is not a slower copy but a broken one.
 constant had been clearing for the length of every sync.
 
 WHERE BREAK ACTUALLY WORKS. -listen says so itself now ("Listening: BREAK
-exits") and honours it between commands, so a transfer is never cut in half.
+exits"). It ENDS the session between commands, so pressing BREAK while the
+dot is sitting idle waiting for the PC always stops it cleanly. If a file is
+arriving at that moment the key is noticed sooner, per packet: that one file
+stops where it is and is left incomplete on the Next, the PC is told the
+transfer failed, and the session carries on to the next command - press BREAK
+again at the idle prompt to leave. Delete the part-written file yourself.
+
 BREAK also works while the dot is retrying a connection, in every mode, and
 during a classic sync from the PC (though that one currently reports itself
-as "Lost connection." rather than as a stop). It does NOT work during a
-"-send" upload once the link is up - that mode cannot be stopped from the
-Next, so close the server on the PC instead.
+as "Lost connection." rather than as a stop, and likewise leaves the file it
+was mid-way through). It does NOT work during a "-send" upload once the link
+is up - that mode cannot be stopped from the Next, so close the server on the
+PC instead.
 
 
 UART speed switches (-slow / -default / -fast)

@@ -133,11 +133,15 @@ class _HostItemColors:
     def __getitem__(self, key):
         col = getattr(self._host, "img_color_" + key, None)
         if col is None:
-            # general_text is the model's own notion of "no opinion"; for any
-            # other key an invalid QColor makes the view fall back to its
-            # palette, which is what an unpainted row did before 9.7.37.
             col = getattr(self._host, "img_color_general_text", None)
-        return col if col is not None else QColor()
+        # None, NOT an invalid QColor. data() hands whatever this returns
+        # straight back as the ForegroundRole, and QStyledItemDelegate turns a
+        # QColor into a QBrush - an INVALID one paints BLACK, which on the dark
+        # ground these explorers use would be an invisible row rather than the
+        # "no opinion" it looks like in the source. Returning None leaves the
+        # role unset, which is what an unpainted row was before 9.7.37 and lets
+        # the view use its own palette.
+        return col
 
 
 class SdCardExplorerPane(QWidget):
@@ -957,8 +961,9 @@ class SdCardExplorerPane(QWidget):
         # the hook every colour change goes through (the Settings picker, the
         # desktop-theme switch and the return to this tab all call it), which
         # is why the repaint belongs here rather than in a new fan-out of its
-        # own. Guarded: image_recolor_all can be reached before the local pane
-        # exists in some construction orders.
+        # own. Guarded only because a repaint must never be the thing that
+        # takes a colour change down - _build_local_pane is the first call
+        # __init__ makes, so self.treeview is in fact always there by now.
         try:
             self.treeview.viewport().update()
         except Exception:

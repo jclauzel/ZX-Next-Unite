@@ -197,7 +197,8 @@ It went there and nowhere else on purpose, because BREAK is not universal:
 
 | Mode | BREAK? | Where |
 |---|---|---|
-| `-listen` | yes | top of the poll loop, strictly *between* commands |
+| `-listen` (idle) | yes, exits | top of the poll loop, *between* commands |
+| `-listen` (a `put` in flight) | aborts that file, does **not** exit | per packet inside `transfer()` |
 | connect retries (all modes) | yes | before and throughout each ~2 s pause |
 | classic pull sync | yes, per packet | inside `transfer()` — but it reports as `Lost connection.` |
 | `-send` upload | **no** | no `break_pressed()` in `send_file`/`send_dir`/`send_block_rt` |
