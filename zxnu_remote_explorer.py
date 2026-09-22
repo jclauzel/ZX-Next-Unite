@@ -184,9 +184,16 @@ class ColoredFileSystemModel(QFileSystemModel):
     configurable item colours, so the local pane matches the look of the SD Card
     Utility's image tree.
 
-    ``colours`` is a live dict (see _default_item_colors) shared with the owning
-    widget: it is mutated in place when the user changes the colours in Settings,
-    and a repaint re-queries these values — no re-listing of the folder needed.
+    ``colours`` is anything subscriptable by the seven keys below, and it is
+    re-queried on every paint rather than cached — so a colour change needs a
+    repaint, never a re-listing of the folder. Two shapes are in use: the
+    Remote Explorer passes a live dict (see _default_item_colors) that the
+    host mutates in place via set_item_colors, and the SD Card Utility's local
+    pane passes a _HostItemColors (zxnu_sdcard_explorer, 9.7.37) that reads
+    straight through to host.img_color_* on each lookup. A lookup may return
+    None, meaning "no opinion" — leave the role unset rather than substituting
+    an invalid QColor, which paints black.
+
     QFileSystemModel's native column order is 0=Name, 1=Size, 2=Type, so the
     colour mapping is keyed off that (the view re-orders them visually to
     Name/Type/Size to mirror the image tree).

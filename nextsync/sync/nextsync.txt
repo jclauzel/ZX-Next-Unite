@@ -449,6 +449,46 @@ If the Next's ack is lost it resends a block whose packetno equals the server's
 last-accepted one; the server re-acks "Ok" without writing the data again.
 
 
+CPU speed, and the BREAK key
+----------------------------
+
+The dot runs your Next at 28 MHz while it works - the code that unpacks the
+serial stream has to stay ahead of the wire, and at 3.5 MHz it cannot. Since
+5.9.13 that happens on the command's very first instruction, so the banner,
+the help screen and the config read are quick too; before that the switch
+happened later and the whole opening stretch ran at whatever speed you were
+already on.
+
+It puts your speed back on the way out - every way out. Whether the sync
+finishes by itself, fails, or you stop it with BREAK, the dot restores the
+CPU speed it found and re-enables the F8 hotkey before returning to BASIC.
+That matters more for a dot than for a .nex: a .nex resets the machine when
+it exits, which puts these settings back by itself, while a dot hands you
+straight back to the BASIC prompt with nothing reset at all.
+
+While it runs, F8 is switched off (and with it F5/F6, which the machine
+gates on the same setting). F8 does not toggle turbo, it steps the speed
+setting - and from 28 MHz one press wraps it all the way round to 3.5 MHz,
+which in the middle of a transfer is not a slower copy but a broken one.
+5.9.13 also stopped the dot disturbing your audio chip mode, which a wrong
+constant had been clearing for the length of every sync.
+
+WHERE BREAK ACTUALLY WORKS. -listen says so itself now ("Listening: BREAK
+exits"). It ENDS the session between commands, so pressing BREAK while the
+dot is sitting idle waiting for the PC always stops it cleanly. If a file is
+arriving at that moment the key is noticed sooner, per packet: that one file
+stops where it is and is left incomplete on the Next, the PC is told the
+transfer failed, and the session carries on to the next command - press BREAK
+again at the idle prompt to leave. Delete the part-written file yourself.
+
+BREAK also works while the dot is retrying a connection, in every mode, and
+during a classic sync from the PC (though that one currently reports itself
+as "Lost connection." rather than as a stop, and likewise leaves the file it
+was mid-way through). It does NOT work during a "-send" upload once the link
+is up - that mode cannot be stopped from the Next, so close the server on the
+PC instead.
+
+
 UART speed switches (-slow / -default / -fast)
 ----------------------------------------------
 
