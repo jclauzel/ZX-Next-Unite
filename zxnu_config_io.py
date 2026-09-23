@@ -49,6 +49,79 @@ def build_config_io(
     _nextsync_update_set_syncroot_button,
 ):
     """Define load/save_configuration_file and expose them on the host."""
+    def _restore_selected_tab():
+        """Select the main tab the app was left on last session.
+
+        The saved value is the page's `tab_name_private` identity (9.7.38);
+        anything purely NUMERIC is a value written by an older build, where
+        this setting was the raw tab index, and is migrated.
+
+        The migration is exact rather than approximate, and that is worth
+        stating because it looks like it could not be. Before 9.7.38 index 0
+        was "TOOL: SD Card Utility" and index 1 "TOOL: NextSync"; those two
+        are ONE tab now, so index 0 and 1 both land on it (choosing the
+        sub-tab that matches which of them the user was on), and every tab
+        from index 2 up has moved exactly one to the left. That -1 holds no
+        matter which optional tabs (itch.io, Alien Floyd's, zxArt, ZXDB,
+        Favorites) were present when the value was written, because every one
+        of them is inserted RELATIVE to a neighbour it finds by name or by
+        indexOf - never at an absolute index - so removing a tab from the
+        front shifts the whole remainder uniformly and preserves their order.
+
+        A saved identity that no longer resolves (a pane hidden by a feature
+        flag, an optional tab switched off since) falls through to the same
+        first-run default as an empty value: the Unite! tab.
+        """
+        tabw = _wid_inner().tab
+        saved = str(configuration_dictionary.get(
+            SETTING_DEFAULT_TAB_WHEN_OPENING, "") or "").strip()
+
+        def _index_of_identity(identity):
+            for _ti in range(tabw.count()):
+                _page = tabw.widget(_ti)
+                if getattr(_page, "tab_name_private", None) == identity:
+                    return _ti
+            return -1
+
+        def _unite_index():
+            for _ti in range(tabw.count()):
+                if tabw.tabText(_ti).startswith(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE):
+                    return _ti
+            return 0
+
+        target = -1
+        if saved.lstrip("-").isdigit():
+            # Pre-9.7.38: a raw index into the old tab order.
+            _kind, _val = migrate_legacy_tab_index(
+                saved,
+                str(configuration_dictionary.get(
+                    SETTING_NEXTSYNC_REMOTE_EXPLORER, "")
+                    ).strip().lower() in ("true", "1", "yes"))
+            if _kind == "transfer":
+                target = _index_of_identity(ZX_NEXT_UNITE_TAB_TITLE_TRANSFER)
+                # Seed the sub-tab from which of the two merged tabs it was -
+                # unless this cfg already carries an explicit one. It cannot
+                # yet, but a downgrade-then-upgrade can leave both keys set,
+                # and the explicit one must win.
+                if not str(configuration_dictionary.get(
+                        SETTING_TRANSFER_SUBTAB, "") or "").strip():
+                    configuration_dictionary[SETTING_TRANSFER_SUBTAB] = _val
+            elif 0 <= _val < tabw.count():
+                target = _val
+        elif saved:
+            target = _index_of_identity(saved)
+
+        if target < 0:
+            # First run, or an identity this build does not show: land on the
+            # aggregated Unite! view of the latest releases.
+            target = _unite_index()
+        tabw.setCurrentIndex(target)
+        # Rewrite the setting in the current format, so one launch is enough
+        # to retire a legacy value and the migration never has to run twice.
+        _page = tabw.currentWidget()
+        configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING] = (
+            getattr(_page, "tab_name_private", "") or tabw.tabText(target))
+
     def load_configuration_file():
 
         config_loaded_with_success = False
@@ -147,18 +220,7 @@ def build_config_io(
                 if hasattr(host, "_refresh_mame_launch_ui"):
                     host._refresh_mame_launch_ui()
 
-            if configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING]== "":
-                # First run (no previously saved tab): default to the
-                # AllInOne ("Unite!") tab so the user lands on the
-                # aggregated view showing the latest releases.
-                _aio_default_idx = 0
-                for _ti in range(_wid_inner().tab.count()):
-                    if _wid_inner().tab.tabText(_ti).startswith(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE):
-                        _aio_default_idx = _ti
-                        break
-                configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING] = _aio_default_idx
-
-            _wid_inner().tab.setCurrentIndex(get_int_value(configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING]))
+            _restore_selected_tab()
 
             if configuration_dictionary[SETTING_EXPLORERPATH] != "":
                 if not os.path.isdir(configuration_dictionary[SETTING_EXPLORERPATH]):
@@ -697,19 +759,60 @@ def build_config_io(
                     host._nextsync_pygame_restoring = False
 
             # Restore the Remote Explorer view if it was open last session by
-            # selecting its tab (index 0), which drives all the show/hide +
+            # selecting its sub-tab, which drives all the show/hide +
             # widget-build side effects (the listen server itself is NOT
             # auto-started).
             _re_open_pref = configuration_dictionary.get(
                 SETTING_NEXTSYNC_REMOTE_EXPLORER, "").strip().lower()
             if _re_open_pref in ("true", "1", "yes") and \
                     hasattr(host, "nextsync_mode_tabs") and \
-                    host.nextsync_mode_tabs.currentIndex() != 0:
+                    host.nextsync_mode_tabs.currentIndex() != TRANSFER_SUBTAB_REMOTE:
                 host._re_open_restoring = True
+                # ...and the sub-tab flag: without it this selection would
+                # write "remote" into SETTING_TRANSFER_SUBTAB, and the block
+                # below would read its own overwrite instead of what the
+                # user actually left the app on.
+                host._transfer_subtab_restoring = True
                 try:
-                    host.nextsync_mode_tabs.setCurrentIndex(0)
+                    host.nextsync_mode_tabs.setCurrentIndex(TRANSFER_SUBTAB_REMOTE)
                 finally:
                     host._re_open_restoring = False
+                    host._transfer_subtab_restoring = False
+
+            # ...and THEN the Transfer tools sub-tab the app was left on.
+            # Order is load-bearing and this block must stay below the one
+            # above: the two settings answer different questions, and the
+            # Remote Explorer restore has no idea the SD Card Utility exists.
+            # A user who left the app on the SD Card page with Remote
+            # Explorer as their NextSync experience has BOTH recorded, and
+            # running the blocks the other way round would leave them staring
+            # at the Remote Explorer they never asked to see.
+            #
+            # It stays ABOVE the autostart block that follows, though:
+            # -start-remote-explorer-listener and the Settings autostart
+            # checkbox are an explicit request for that view, for this run
+            # only, and they are entitled to win.
+            _sub_pref = str(configuration_dictionary.get(
+                SETTING_TRANSFER_SUBTAB, "") or "").strip().lower()
+            _sub_idx = TRANSFER_SUBTAB_BY_TOKEN.get(_sub_pref)
+            if _sub_idx is not None and hasattr(host, "nextsync_mode_tabs") \
+                    and host.nextsync_mode_tabs.currentIndex() != _sub_idx:
+                # Both flags: reading a setting back must never rewrite it,
+                # and selecting a NextSync sub-tab here would otherwise also
+                # re-persist the experience choice.
+                host._re_open_restoring = True
+                host._transfer_subtab_restoring = True
+                try:
+                    host.nextsync_mode_tabs.setCurrentIndex(_sub_idx)
+                finally:
+                    host._re_open_restoring = False
+                    host._transfer_subtab_restoring = False
+            # The stack is assembled after this pane is built, and a
+            # setCurrentIndex that changed nothing emits no signal, so sync
+            # the page to the bar by hand rather than trusting the handler.
+            _sync_stack = getattr(host, "_transfer_sync_stack", None)
+            if _sync_stack is not None:
+                _sync_stack()
 
             # Settings: "Automatically start Remote Explorer server on
             # startup". Restore the checkbox silently (its change handler
@@ -733,12 +836,17 @@ def build_config_io(
             # talks to all exist by then.
             if ((_zxnu_start_re_listener() or _re_auto_on)
                     and hasattr(host, "nextsync_mode_tabs")):
-                if host.nextsync_mode_tabs.currentIndex() != 0:
+                if host.nextsync_mode_tabs.currentIndex() != TRANSFER_SUBTAB_REMOTE:
+                    # This run only (the CLI switch / the autostart
+                    # checkbox), so neither the experience choice nor the
+                    # saved sub-tab may be rewritten.
                     host._re_open_restoring = True
+                    host._transfer_subtab_restoring = True
                     try:
-                        host.nextsync_mode_tabs.setCurrentIndex(0)
+                        host.nextsync_mode_tabs.setCurrentIndex(TRANSFER_SUBTAB_REMOTE)
                     finally:
                         host._re_open_restoring = False
+                        host._transfer_subtab_restoring = False
 
                 def _autostart_re_listener():
                     if getattr(host, "_re_running", False):

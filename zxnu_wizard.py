@@ -581,6 +581,16 @@ class WizardManager(QObject):
         tabw = getattr(host, "_tab_widget", None)
         if tabw is not None:
             tabw.currentChanged.connect(self._on_tab_switched)
+        # ...and the Transfer tools sub-tab bar, which carries two of the
+        # guided topics. Before 9.7.38 the SD Card Utility and NextSync were
+        # main tabs, so moving between them was a main-tab change and this
+        # one connection saw it. They are sub-tabs now: without the second
+        # connection the SD Card guide would only ever be offered when the
+        # user happened to arrive from ANOTHER main tab, and never by
+        # crossing between the two tools - which is the common gesture.
+        _subbar = getattr(host, "nextsync_mode_tabs", None)
+        if _subbar is not None:
+            _subbar.currentChanged.connect(self._on_subtab_switched)
         host.installEventFilter(self)
 
     # ── plumbing ─────────────────────────────────────────────────────────
@@ -846,15 +856,20 @@ class WizardManager(QObject):
 
     # ── the tour ─────────────────────────────────────────────────────────
     def _resolve_step(self, step):
-        """(tab_index, text_key, wiki_page) or None when the tab is hidden."""
-        const_name, text_key, page = step
+        """(tab_index, text_key, wiki_page, subtab) or None when hidden.
+
+        A step is a 3-tuple, or a 4-tuple whose last element names a
+        Transfer tools sub-tab (see TOUR_STEPS).
+        """
+        const_name, text_key, page = step[:3]
+        subtab = step[3] if len(step) > 3 else None
         prefix = getattr(zxnu_config, const_name, const_name)
         tabw = getattr(self._host, "_tab_widget", None)
         if tabw is None:
             return None
         for i in range(tabw.count()):
             if tabw.tabText(i).startswith(prefix):
-                return (i, text_key, page)
+                return (i, text_key, page, subtab)
         return None
 
     def start_tour(self):
@@ -876,9 +891,12 @@ class WizardManager(QObject):
         resolved = self._resolve_step(TOUR_STEPS[self._tour_index])
         if resolved is None:
             return
-        tab_index, text_key, page = resolved
+        tab_index, text_key, page, subtab = resolved
         try:
             self._host._tab_widget.setCurrentIndex(tab_index)
+            # Two tour steps share the Transfer tools tab; without this the
+            # second would speak about NextSync over the SD Card page.
+            self._goto_subtab(subtab)
         except Exception:
             pass
         self._tour_active_page = page
@@ -938,8 +956,8 @@ class WizardManager(QObject):
         fn = getattr(self._host, "download_nextzxos_image", None)
         if fn is None:
             return
-        self._goto_tab(getattr(zxnu_config, "ZX_NEXT_UNITE_TAB_TITLE_GOOEY",
-                               "TOOL: SD Card Utility"))
+        self._goto_tab(getattr(zxnu_config, "ZX_NEXT_UNITE_TAB_TITLE_TRANSFER",
+                               "Transfer tools"), subtab="sdcard")
         try:
             fn()
         except Exception:
@@ -1215,21 +1233,114 @@ class WizardManager(QObject):
                   gesture=node.get("gesture", "talk"), cycles=10,
                   links=links)
 
-    def _goto_tab(self, title_prefix):
+    def _subtab_bar(self):
+        """The merged Transfer tools tab's sub-tab bar, or None."""
+        return getattr(self._host, "nextsync_mode_tabs", None)
+
+    def _current_subtab(self):
+        """Which Transfer tools sub-tab is selected: "sdcard", "remote",
+        "classic" - or None when the bar does not exist yet."""
+        bar = self._subtab_bar()
+        if bar is None:
+            return None
+        try:
+            return zxnu_config.TRANSFER_SUBTAB_TOKENS.get(bar.currentIndex())
+        except RuntimeError:
+            return None
+
+    def _subtab_matches(self, want):
+        """Does the selected sub-tab satisfy *want* ("sdcard"/"nextsync")?
+
+        A guide or tour step that names no sub-tab matches anything. The
+        "nextsync" token deliberately covers BOTH NextSync experiences: the
+        guide branches into Remote Explorer and Classic itself, so pinning
+        it to one of them would make it unreachable from the other.
+        """
+        if not want:
+            return True
+        cur = self._current_subtab()
+        if cur is None:
+            return False
+        if want == "nextsync":
+            return cur in ("remote", "classic")
+        return cur == want
+
+    def _goto_subtab(self, want):
+        """Select the Transfer tools sub-tab *want* names.
+
+        Guarded with _re_open_restoring, the same flag the startup restore
+        uses, because the sub-tab handler PERSISTS the choice: a guided tour
+        is a preview, and walking the user past NextSync must not quietly
+        rewrite the Remote-Explorer-vs-Classic preference they had set. For
+        the same reason "nextsync" leaves an already-chosen experience alone
+        and only falls back to Classic - the view that needs no lazy build -
+        when the SD Card page was the one on screen.
+        """
+        bar = self._subtab_bar()
+        if bar is None or not want:
+            return
+        if self._subtab_matches(want):
+            return
+        if want == "nextsync":
+            target = zxnu_config.TRANSFER_SUBTAB_CLASSIC
+        else:
+            target = zxnu_config.TRANSFER_SUBTAB_BY_TOKEN.get(want)
+        if target is None:
+            return
+        host = self._host
+        _prev = getattr(host, "_re_open_restoring", False)
+        _prev_sub = getattr(host, "_transfer_subtab_restoring", False)
+        host._re_open_restoring = True
+        host._transfer_subtab_restoring = True
+        try:
+            bar.setCurrentIndex(target)
+        except RuntimeError:
+            pass
+        finally:
+            host._re_open_restoring = _prev
+            host._transfer_subtab_restoring = _prev_sub
+
+    def _goto_tab(self, title_prefix, subtab=None):
         """Switch the main tab widget to the tab whose title starts with
-        *title_prefix* (the guide bubble stays where it is)."""
+        *title_prefix* (the guide bubble stays where it is), and optionally
+        its Transfer tools sub-tab."""
         tabw = getattr(self._host, "_tab_widget", None)
         if tabw is None:
             return
         for i in range(tabw.count()):
             if tabw.tabText(i).startswith(title_prefix):
                 tabw.setCurrentIndex(i)
+                self._goto_subtab(subtab)
                 return
 
     def _maybe_offer_current_tab(self):
         tabw = getattr(self._host, "_tab_widget", None)
         if tabw is not None:
             self._on_tab_switched(tabw.currentIndex())
+
+    def _on_subtab_switched(self, _index=None):
+        """A Transfer tools sub-tab change is a topic change.
+
+        Re-enter the main-tab handler with the main tab's own index: the
+        topic lookup reads the sub-tab itself, so the two paths agree, and
+        the handler's own guards (wizard disabled, a tour running, real
+        content on screen, an offer already spent) all still apply.
+        """
+        tabw = getattr(self._host, "_tab_widget", None)
+        if tabw is None:
+            return
+        try:
+            index = tabw.currentIndex()
+            prefix = getattr(zxnu_config, "ZX_NEXT_UNITE_TAB_TITLE_TRANSFER", None)
+            if prefix is None or not tabw.tabText(index).startswith(prefix):
+                # The sub-tab moved while another main tab is showing (a
+                # startup restore, or the SD Card pane reaching across to
+                # open the Remote Explorer). Nothing is on screen to talk
+                # about, so stay quiet.
+                return
+        except RuntimeError:
+            return
+        self._on_tab_switched(index)
 
     def _on_tab_switched(self, index):
         """First time a guided tab is visited this session (wizard idle):
@@ -1260,16 +1371,27 @@ class WizardManager(QObject):
         """What the wizard knows about the tab titled *title*:
         ("guide", guide_id, page) for the in-depth tabs, ("help",
         tour_key, page) for tour tabs (the Settings tab's help is
-        tour.settings, not the tour's language opener), else None."""
+        tour.settings, not the tour's language opener), else None.
+
+        Since 9.7.38 the title alone is not always enough: the SD Card
+        Utility and NextSync are two sub-tabs of one "Transfer tools" tab,
+        so both their guides and both their help topics answer to the same
+        title. Each carries a sub-tab token, and the SELECTED sub-tab picks
+        between them - without that, whichever is declared first would
+        shadow the other for good.
+        """
         for guide_id, guide in GUIDES.items():
             prefix = getattr(zxnu_config, guide["tab"], guide["tab"])
-            if title.startswith(prefix):
+            if title.startswith(prefix) and self._subtab_matches(
+                    guide.get("subtab")):
                 return ("guide", guide_id, guide["page"])
-        for const_name, text_key, page in TOUR_STEPS:
+        for step in TOUR_STEPS:
+            const_name, text_key, page = step[:3]
             if text_key == "tour.language":
                 continue
             prefix = getattr(zxnu_config, const_name, const_name)
-            if title.startswith(prefix):
+            if title.startswith(prefix) and self._subtab_matches(
+                    step[3] if len(step) > 3 else None):
                 return ("help", text_key, page)
         return None
 

@@ -172,11 +172,13 @@ def build_sidebar_anim(host):
     host._allinone_color_timer.timeout.connect(_allinone_color_tick)
 
     # ---- Remote Explorer sub-tab text colour animation --------------------
-    # Mirrors the Unite! main-tab colour cycling, but on the NextSync tab's
-    # "Remote Explorer" sub-tab (nextsync_mode_tabs index 0). To save CPU it
-    # runs ONLY while the NextSync tab is the visible main tab: on_tab_changed
-    # (and the deferred startup activation) call _re_tab_anim_set_active to
-    # start/stop it. Reuses the Unite! colour list and 500 ms cadence.
+    # Mirrors the Unite! main-tab colour cycling, but on the Transfer tools
+    # tab's "Remote Explorer" sub-tab (nextsync_mode_tabs, index
+    # TRANSFER_SUBTAB_REMOTE - it was index 0 until the SD Card Utility took
+    # that slot in 9.7.38). To save CPU it runs ONLY while the Transfer tools
+    # tab is the visible main tab AND that sub-tab is the chosen one:
+    # on_tab_changed, the sub-tab handler and the deferred startup activation
+    # all call _re_tab_anim_set_active. Reuses the Unite! colours and cadence.
     host._re_tab_color_frame = 0
     host._re_tab_color_timer = QTimer(host)
     host._re_tab_color_timer.setInterval(500)
@@ -188,7 +190,7 @@ def build_sidebar_anim(host):
         color = _ALLINONE_COLORS[host._re_tab_color_frame % len(_ALLINONE_COLORS)]
         host._re_tab_color_frame += 1
         try:
-            tabs.setTabTextColor(0, color)   # index 0 == "Remote Explorer"
+            tabs.setTabTextColor(TRANSFER_SUBTAB_REMOTE, color)
         except RuntimeError:
             pass  # tab bar gone (shutdown) — harmless
     host._re_tab_color_timer.timeout.connect(_re_tab_color_tick)

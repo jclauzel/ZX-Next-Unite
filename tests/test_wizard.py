@@ -89,11 +89,23 @@ host = StubHost()
 host.resize(900, 600)
 host.show()     # children can only report visible under a shown window
 tabs = QTabWidget(host)
-for title in ("TOOL: SD Card Utility", "TOOL: NextSync", "🌍 GetIt",
+import zxnu_config as _zcfg
+for title in (_zcfg.ZX_NEXT_UNITE_TAB_TITLE_TRANSFER, "🌍 GetIt",
               "Settings 🔩", "?"):
     from PySide6.QtWidgets import QWidget
     tabs.addTab(QWidget(), title)
 host._tab_widget = tabs
+# The SD Card Utility and NextSync share ONE main tab since 9.7.38, so the
+# wizard tells their guides and help topics apart by the sub-tab that is
+# selected. A stub without this bar would make every one of those lookups
+# answer None and the merge would look fine while two guides were dead.
+from PySide6.QtWidgets import QTabBar as _QTabBar
+host.nextsync_mode_tabs = _QTabBar(host)
+host.nextsync_mode_tabs.addTab("SD Card Utility")   # TRANSFER_SUBTAB_SDCARD
+host.nextsync_mode_tabs.addTab("Remote Explorer")   # TRANSFER_SUBTAB_REMOTE
+host.nextsync_mode_tabs.addTab("Classic sync")      # TRANSFER_SUBTAB_CLASSIC
+host.nextsync_mode_tabs.setCurrentIndex(_zcfg.TRANSFER_SUBTAB_CLASSIC)
+TAB_TRANSFER, TAB_GETIT, TAB_SETTINGS, TAB_HELP = 0, 1, 2, 3
 saved = {"n": 0}
 host._save_configuration_file = lambda: saved.__setitem__("n", saved["n"] + 1)
 
@@ -122,13 +134,22 @@ check("tour opens on Settings with the language step",
       tabs.tabText(tabs.currentIndex()).startswith("Settings")
       and wiz.bubble.label.text() == wc.wizard_tr("tour.language", "en"))
 wiz.next_tour_step()
-check("then the SD-card tab and step",
-      tabs.currentIndex() == 0
+check("then the SD-card step, on the Transfer tools tab",
+      tabs.currentIndex() == TAB_TRANSFER
       and wiz.bubble.label.text() == wc.wizard_tr("tour.sdcard", "en"))
+check("...and it selects the SD Card sub-tab",
+      host.nextsync_mode_tabs.currentIndex() == _zcfg.TRANSFER_SUBTAB_SDCARD,
+      str(host.nextsync_mode_tabs.currentIndex()))
 wiz.next_tour_step()
-check("tour advanced to NextSync", tabs.currentIndex() == 1)
+check("tour advanced to NextSync - same tab, different sub-tab",
+      tabs.currentIndex() == TAB_TRANSFER
+      and wiz.bubble.label.text() == wc.wizard_tr("tour.nextsync", "en"))
+check("...which is a NextSync sub-tab, not the SD Card one",
+      host.nextsync_mode_tabs.currentIndex() in (
+          _zcfg.TRANSFER_SUBTAB_REMOTE, _zcfg.TRANSFER_SUBTAB_CLASSIC),
+      str(host.nextsync_mode_tabs.currentIndex()))
 wiz.next_tour_step()
-check("tour advanced to GetIt", tabs.currentIndex() == 2)
+check("tour advanced to GetIt", tabs.currentIndex() == TAB_GETIT)
 check("catalogue step softly recalls the rights reminder",
       wc.wizard_tr("tour.disclaimer", "en")[:40]
       in " ".join(wiz.bubble._pages))
@@ -351,7 +372,8 @@ for gid, guide in wc.GUIDES.items():
 # Offer trigger: first visit to the NextSync tab offers the guide, with
 # Manual/GitHub links present; a second visit stays quiet.
 wiz._dismiss()
-tabs.setCurrentIndex(1)      # TOOL: NextSync
+host.nextsync_mode_tabs.setCurrentIndex(_zcfg.TRANSFER_SUBTAB_CLASSIC)
+tabs.setCurrentIndex(TAB_TRANSFER)      # Transfer tools, on a NextSync sub-tab
 check("guided tab visit triggers the offer",
       wiz.bubble.isVisible()
       and wiz.bubble.label.text() == wc.wizard_tr("guide.offer", "en"))
@@ -394,7 +416,7 @@ wiz.bubble._actions[0][1]()  # Next -> ns.root
 wiz.bubble._actions[0][1]()  # Next -> ns.server
 wiz.bubble._actions[0][1]()  # Close
 check("classic branch closes cleanly", not wiz.bubble.isVisible())
-tabs.setCurrentIndex(2)                  # GetIt: a tour-step tab
+tabs.setCurrentIndex(TAB_GETIT)          # GetIt: a tour-step tab
 check("manual switch to a tour tab offers quick help",
       wiz.bubble.isVisible()
       and wiz.bubble.label.text() == wc.wizard_tr("help.offer", "en"))
@@ -404,10 +426,10 @@ check("tab help shows the GetIt blurb + rights reminder",
       and wc.wizard_tr("tour.disclaimer", "en")[:30]
       in " ".join(wiz.bubble._pages))
 wiz._dismiss()
-tabs.setCurrentIndex(1)
+tabs.setCurrentIndex(TAB_TRANSFER)
 check("no second offer for the same tab this session",
       not wiz.bubble.isVisible())
-tabs.setCurrentIndex(2)
+tabs.setCurrentIndex(TAB_GETIT)
 check("tab help offered once per session too",
       not wiz.bubble.isVisible())
 
@@ -428,7 +450,7 @@ wiz._dismiss()
 
 # "About this tab" in the menu re-opens tab help even after the automatic
 # once-per-session offers were spent.
-tabs.setCurrentIndex(1)                  # NextSync: offer already consumed
+tabs.setCurrentIndex(TAB_TRANSFER)       # NextSync: offer already consumed
 wiz._dismiss()
 wiz.show_menu()
 check("menu leads with About this tab",
@@ -437,7 +459,7 @@ wiz.bubble._actions[0][1]()
 check("About this tab opens the NextSync guide",
       wiz.bubble.label.text() == wc.wizard_tr("ns.what", "en"))
 wiz._dismiss()
-tabs.setCurrentIndex(2)                  # GetIt: help offer spent too
+tabs.setCurrentIndex(TAB_GETIT)          # GetIt: help offer spent too
 wiz._dismiss()
 wiz.show_menu()
 wiz.bubble._actions[0][1]()
@@ -467,17 +489,18 @@ wiz._dismiss()
 # An offer left open across a tab switch must retarget to the NEW tab —
 # and its buttons must open the CURRENT tab's content, never the tab the
 # offer was created on. Real (non-offer) content is never hijacked.
-tabs.setCurrentIndex(3)              # Settings: first visit -> help offer
+tabs.setCurrentIndex(TAB_SETTINGS)   # Settings: first visit -> help offer
 check("Settings visit offers help",
       wiz.bubble.isVisible()
       and wiz.bubble.label.text() == wc.wizard_tr("help.offer", "en"))
-tabs.setCurrentIndex(0)              # switch WHILE the offer is open
+host.nextsync_mode_tabs.setCurrentIndex(_zcfg.TRANSFER_SUBTAB_SDCARD)
+tabs.setCurrentIndex(TAB_TRANSFER)   # switch WHILE the offer is open
 check("stale offer replaced by the SD Card guide offer",
       wiz.bubble.label.text() == wc.wizard_tr("guide.offer", "en"))
 wiz.bubble._actions[0][1]()          # "Tell me more" clicked NOW
 check("Tell me more opens the CURRENT tab's guide (SD Card)",
       wiz.bubble.label.text() == wc.wizard_tr("sd.images", "en"))
-tabs.setCurrentIndex(4)              # switch during REAL content
+tabs.setCurrentIndex(TAB_HELP)       # switch during REAL content
 check("real guide content is never hijacked by a tab switch",
       wiz.bubble.label.text() == wc.wizard_tr("sd.images", "en"))
 wiz._dismiss()
@@ -630,7 +653,7 @@ _real_threading = zw.threading
 zw.threading = _StubThreading
 del wiz._request_teaser              # drop the no-op stub: use the real one
 try:
-    tabs.setCurrentIndex(2)                     # 🌍 GetIt — a "help" tab
+    tabs.setCurrentIndex(TAB_GETIT)             # a "help" tab
     wiz.about_current_tab()                     # first click
     check("tab help opens on the GetIt page",
           wiz._tour_active_page == "GetIt-tab" and wiz.bubble.isVisible())

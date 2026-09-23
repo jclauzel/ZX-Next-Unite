@@ -427,33 +427,51 @@ def build_nextsync_pane(
         "Requires the optional 'pygame-ce' package.")
     host.nextsync_container_log_and_sync_buttons.addWidget(host.nextsync_pygame_button)
 
-    # NextSync experience selector. Two tabs replace the old checkable
-    # "Remote Explorer" toggle button:
-    #   index 0 "Remote Explorer" — flips the log window into a dual-pane
-    #       local <-> Next file explorer driven by ".sync5 -listen" (built
-    #       lazily the first time it is shown).
-    #   index 1 "Classic" — the traditional one-way NextSync push (PC -> Next).
-    # The chosen tab is persisted (SETTING_NEXTSYNC_REMOTE_EXPLORER, "true"
-    # for Remote Explorer) so the NextSync tab reopens in the same experience
-    # next launch. currentChanged drives the same show/hide + persist logic
-    # the toggle button used to (connected below, once the mode widgets exist).
+    # The merged Transfer tools tab's experience selector. It began as two
+    # tabs replacing a checkable "Remote Explorer" toggle button, and took a
+    # third in 9.7.38 when the SD Card Utility stopped being a main tab of
+    # its own:
+    #   TRANSFER_SUBTAB_SDCARD  "SD Card Utility" - the whole former
+    #       "TOOL: SD Card Utility" tab, shown as page 0 of
+    #       host.transfer_stack (assembled in zxnu_main).
+    #   TRANSFER_SUBTAB_REMOTE  "Remote Explorer" - flips the log window into
+    #       a dual-pane local <-> Next file explorer driven by
+    #       ".sync5 -listen" (built lazily the first time it is shown).
+    #   TRANSFER_SUBTAB_CLASSIC "Classic" - the traditional one-way NextSync
+    #       push (PC -> Next).
+    # Two settings are persisted, and they mean different things ON PURPOSE:
+    # SETTING_TRANSFER_SUBTAB is which of the three is open, while
+    # SETTING_NEXTSYNC_REMOTE_EXPLORER stays exactly what it always was -
+    # which NextSync experience to return to - so a user parked on the SD
+    # Card page still comes back to the one they chose. currentChanged drives
+    # the stack, the persist and the same show/hide logic the toggle button
+    # used to (connected below, once the mode widgets exist).
+    #
+    # The attribute keeps its historical `nextsync_mode_tabs` name although
+    # it is no longer only about NextSync: five modules, the offscreen UI
+    # suite and extra/tour_capture.py address it by that name, and renaming
+    # it would have been the largest and least interesting part of the merge.
     host.nextsync_mode_tabs = QTabBar(host)
     host.nextsync_mode_tabs.setExpanding(False)
-    host.nextsync_mode_tabs.addTab("🗂 Remote Explorer")   # index 0
-    host.nextsync_mode_tabs.addTab("🔄 Classic sync")       # index 1
+    host.nextsync_mode_tabs.addTab("💾 SD Card Utility")  # ..._SDCARD
+    host.nextsync_mode_tabs.addTab("🗂 Remote Explorer")  # ..._REMOTE
+    host.nextsync_mode_tabs.addTab("🔄 Classic sync")     # ..._CLASSIC
     host.nextsync_mode_tabs.setToolTip(
+        "SD Card Utility: mount an HDF/IMG disk image and move files in and out of it.\n"
         "Remote Explorer: a dual-pane file explorer (local <-> Next).\n"
         "Run '.sync5 -L' (-l or -listen) on your Next, then transfer files with ->: / :<-,\n"
         "drag & drop, or the right-click menu (New Folder / Rename / Delete).\n"
         "Classic: the traditional one-way NextSync push (PC -> Next).")
     # Default to the Classic tab (matches the historical default and the
-    # controls built below); the saved preference restores Remote Explorer
-    # at startup. Set before currentChanged is connected so it does not fire
-    # the handler while the mode widgets are still being constructed.
-    host.nextsync_mode_tabs.setCurrentIndex(1)
-    # Placed at the very top of the NextSync tab page (added to
-    # grid_tab_nextsync below), so it sits right under the main tab strip
-    # and spans the full width, rather than being buried in the log column.
+    # controls built below); the saved preference restores the SD Card page
+    # or Remote Explorer at startup. Set before currentChanged is connected
+    # so it does not fire the handler while the mode widgets are still being
+    # constructed.
+    host.nextsync_mode_tabs.setCurrentIndex(TRANSFER_SUBTAB_CLASSIC)
+    # Placed at the very top of the Transfer tools tab page (added to
+    # grid_tab_transfer in zxnu_main), so it sits right under the main tab
+    # strip and spans the full width, rather than being buried in the log
+    # column.
 
     # Stack: page 0 = the classic list log, page 1 = the retro pygame log
     # (built lazily the first time the user switches it on).
@@ -768,7 +786,8 @@ def build_nextsync_pane(
             btn.setEnabled(True)
             btn.setText("⏹ Stop Remote Explorer NextSync server")
             return
-        in_view = (host.nextsync_mode_tabs.currentIndex() == 0)
+        in_view = (host.nextsync_mode_tabs.currentIndex()
+                   == TRANSFER_SUBTAB_REMOTE)
         if getattr(host, "_re_sync_root", ""):
             btn.setEnabled(True)
             btn.setText(_RE_START_TEXT)
@@ -1552,7 +1571,7 @@ def build_nextsync_pane(
         if host._re_running:
             return
         try:
-            if host.nextsync_mode_tabs.currentIndex() != 0:
+            if host.nextsync_mode_tabs.currentIndex() != TRANSFER_SUBTAB_REMOTE:
                 return
         except RuntimeError:
             return
@@ -2152,10 +2171,76 @@ def build_nextsync_pane(
             except Exception:
                 pass
 
+    def _transfer_sync_stack(index=None):
+        """Show the page the sub-tab bar is pointing at.
+
+        The bar is built here but the stack it drives is assembled later, in
+        zxnu_main, so this getattr-guards it and zxnu_main calls it once by
+        hand after adding the pages. Only the SD Card sub-tab has a page of
+        its own: Remote Explorer and Classic sync are both the NextSync page,
+        which switches between them internally.
+        """
+        stack = getattr(host, "transfer_stack", None)
+        if stack is None:
+            return
+        if index is None:
+            try:
+                index = host.nextsync_mode_tabs.currentIndex()
+            except RuntimeError:
+                return
+        stack.setCurrentIndex(0 if index == TRANSFER_SUBTAB_SDCARD else 1)
+    host._transfer_sync_stack = _transfer_sync_stack
+
     def _nextsync_on_mode_tab_changed(index):
-        # Tab 0 = Remote Explorer, tab 1 = Classic. Reuse the toggle logic:
-        # `checked` here means "Remote Explorer active".
-        _nextsync_toggle_remote_explorer(index == 0)
+        """The merged Transfer tools tab's sub-tab bar changed.
+
+        TRANSFER_SUBTAB_SDCARD / _REMOTE / _CLASSIC. Reuse the toggle logic
+        for the two NextSync experiences: `checked` there means "Remote
+        Explorer active".
+
+        Moving to the SD Card page deliberately does NOT call that toggle.
+        It persists SETTING_NEXTSYNC_REMOTE_EXPLORER on every call, so
+        running it here would rewrite the user's Remote-Explorer-vs-Classic
+        choice to "classic" every time they merely glanced at the SD card -
+        and that choice is precisely what they must come back to. The
+        NextSync page simply stays as it was, off screen.
+        """
+        _transfer_sync_stack(index)
+        # Persist which sub-tab is open. Gated on its OWN flag, NOT on
+        # _re_open_restoring: that one means "do not rewrite which NextSync
+        # experience the user chose", and the two are set in different
+        # places for different reasons. Starting the Remote Explorer server
+        # from the SD Card pane sets only the old flag - it must not rewrite
+        # the experience, but it DOES move the user to the Remote Explorer
+        # sub-tab deliberately, and that is worth remembering.
+        _restoring = getattr(host, "_transfer_subtab_restoring", False)
+        if not _restoring:
+            try:
+                configuration_dictionary[SETTING_TRANSFER_SUBTAB] = \
+                    TRANSFER_SUBTAB_TOKENS.get(index, "classic")
+            except Exception:
+                pass
+        if index == TRANSFER_SUBTAB_SDCARD:
+            # The toggle normally does the saving; it is not running here.
+            if not _restoring:
+                try:
+                    save_configuration_file()
+                except Exception:
+                    pass
+        else:
+            _nextsync_toggle_remote_explorer(index == TRANSFER_SUBTAB_REMOTE)
+        # Per-tool entry side effects (the SD card's idle glow and explorer
+        # refresh, the NextSync auto-prepare and sub-tab animation). These
+        # used to be main-tab work in on_tab_changed; they belong to the
+        # sub-tab now, and that one helper is what all THREE entry paths
+        # call - here, on_tab_changed and the deferred startup activation -
+        # so they can never drift apart.
+        _activate = getattr(host, "_activate_transfer_subtab", None)
+        if _activate is not None:
+            try:
+                _activate(index)
+            except Exception:
+                logging.exception("transfer sub-tab activation failed")
     host.nextsync_mode_tabs.currentChanged.connect(_nextsync_on_mode_tab_changed)
 
     def _nextsync_build_retro_log():

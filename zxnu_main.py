@@ -2085,7 +2085,18 @@ class MainWindow(QMainWindow):
         save_configuration_file = self.save_configuration_file
 
         def get_pyhdfmgooey_currenttab_config():
-            configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING] = wid_inner.tab.currentIndex()
+            # Save the tab by its STABLE identity, never its index. Two
+            # things move an index under a saved value: the SD Card and
+            # NextSync tabs merging in 9.7.38 (every later tab shifted one
+            # left), and a session that toggles the optional itch.io or Alien
+            # Floyd's tab, which has always been able to silently reopen the
+            # app on a different tab than the one it was left on.
+            # tab_name_private is immune to both, and to the badges and
+            # spinners that rewrite tabText ("🌍 GetIt (18)").
+            _cur_page = wid_inner.tab.currentWidget()
+            configuration_dictionary[SETTING_DEFAULT_TAB_WHEN_OPENING] = (
+                getattr(_cur_page, "tab_name_private", "")
+                or wid_inner.tab.tabText(wid_inner.tab.currentIndex()))
             # Persist the tidied path (no surrounding quotes, native separators)
             # so the config file stays clean regardless of what is in the box.
             configuration_dictionary[SETTING_HDDFILE] = normalize_sd_image_path(self.imageinput.currentText())
@@ -3731,6 +3742,15 @@ class MainWindow(QMainWindow):
             zxart_run_search=lambda *a, **k: zxart_run_search(*a, **k),
         )
 
+        # Zero the TOP margin, for the reason zxnu_nextsync_pane documents
+        # on the form beside it: this is a page of the Transfer tools stack
+        # now, sitting directly under the sub-tab bar, and the tab page's
+        # grid margin already provides the gap. Left as the style's 9 px it
+        # would start the SD Card page lower than the NextSync page and the
+        # two tools would jump vertically as the user crossed between them.
+        _sd_m = self.zx_next_unite_form.contentsMargins()
+        self.zx_next_unite_form.setContentsMargins(
+            _sd_m.left(), 0, _sd_m.right(), _sd_m.bottom())
         zx_next_unite_container = QWidget()
         zx_next_unite_container.setLayout(self.zx_next_unite_form)
 
@@ -3877,29 +3897,50 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(wid_inner)
 
 
-        # Create zx-next-unite Tab
-        zx_next_unite_tab = QWidget(wid_inner.tab)
-        zx_next_unite_tab.setAttribute(Qt.WA_TranslucentBackground)
-        zx_next_unite_tab.setAutoFillBackground(False)
-        grid_tab = QGridLayout(zx_next_unite_tab)
-        grid_tab.addWidget(zx_next_unite_container) # here use the form container
-        zx_next_unite_tab.setLayout(grid_tab)
-        zx_next_unite_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_GOOEY
-        wid_inner.tab.addTab(zx_next_unite_tab, ZX_NEXT_UNITE_TAB_TITLE_GOOEY)
-
-        # Create NextSync Tab
-        zxnextunite_NextSync_tab = QWidget(wid_inner.tab)
-        zxnextunite_NextSync_tab.setAttribute(Qt.WA_TranslucentBackground)
-        zxnextunite_NextSync_tab.setAutoFillBackground(False)
-        grid_tab_nextsync = QGridLayout(zxnextunite_NextSync_tab)
-        # Row 0: the Remote Explorer / Classic experience selector, right below
-        # the main tab strip and spanning the full width. Row 1: the form content.
-        grid_tab_nextsync.addWidget(self.nextsync_mode_tabs, 0, 0)
-        grid_tab_nextsync.addWidget(nextsync_container, 1, 0) # here use the form container
-        grid_tab_nextsync.setRowStretch(1, 1)
-        zxnextunite_NextSync_tab.setLayout(grid_tab_nextsync)
-        zxnextunite_NextSync_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC
-        wid_inner.tab.addTab(zxnextunite_NextSync_tab, ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC)
+        # ── The merged "Transfer tools" tab (9.7.38) ─────────────────────
+        # "TOOL: SD Card Utility" and "TOOL: NextSync" were two sibling main
+        # tabs; they are ONE tab now, and the sub-tab bar that already
+        # carried the two NextSync experiences carries the SD Card Utility
+        # ahead of them (host.nextsync_mode_tabs, built in
+        # build_nextsync_pane - it keeps its historical name because five
+        # modules and the test suite address it by that name).
+        #
+        # Both containers are the SAME widgets as before, merely reparented
+        # into a stack. That is what makes the merge safe for the two things
+        # most easily broken here: every explorer's drag & drop rides
+        # setAcceptDrops plus ASSIGNED dragEnterEvent/dropEvent/startDrag
+        # attributes on the VIEW, and Ctrl-C/X/V rides an assigned
+        # keyPressEvent on the same view - there is not one QShortcut in the
+        # whole app, which is the only construct a reparent would break.
+        # Measured offscreen before the change: acceptDrops, dragEnabled,
+        # dragDropMode, all three assigned handlers and key delivery are
+        # byte-identical either side of exactly this reparent.
+        transfer_tab = QWidget(wid_inner.tab)
+        transfer_tab.setAttribute(Qt.WA_TranslucentBackground)
+        transfer_tab.setAutoFillBackground(False)
+        grid_tab_transfer = QGridLayout(transfer_tab)
+        # Row 0: the three-way experience selector, right below the main tab
+        # strip and spanning the full width. Row 1: the chosen tool.
+        grid_tab_transfer.addWidget(self.nextsync_mode_tabs, 0, 0)
+        # Page 0 = the SD Card Utility, page 1 = NextSync. The NextSync
+        # side's own Remote Explorer / Classic split is NOT a stack page: it
+        # stays the show/hide dance inside nextsync_container that
+        # _nextsync_toggle_remote_explorer has always driven, so that whole
+        # body is untouched. This stack only decides whether the NextSync
+        # side is on screen at all.
+        self.transfer_stack = QStackedWidget(transfer_tab)
+        self.transfer_stack.addWidget(zx_next_unite_container)
+        self.transfer_stack.addWidget(nextsync_container)
+        grid_tab_transfer.addWidget(self.transfer_stack, 1, 0)
+        grid_tab_transfer.setRowStretch(1, 1)
+        transfer_tab.setLayout(grid_tab_transfer)
+        transfer_tab.tab_name_private = ZX_NEXT_UNITE_TAB_TITLE_TRANSFER
+        wid_inner.tab.addTab(transfer_tab, ZX_NEXT_UNITE_TAB_TITLE_TRANSFER)
+        # The sub-tab bar was built (and its currentChanged connected) long
+        # before this stack existed, so its handler getattr-guards the stack
+        # and cannot have synced it yet. Do it once now, from the bar's own
+        # current index, so the page on screen matches the tab that is lit.
+        self._transfer_sync_stack()
 
         # Create GetIt Tab
         zxnextunite_GetIt_tab = QWidget(wid_inner.tab)
@@ -4129,6 +4170,10 @@ class MainWindow(QMainWindow):
         )
 
         zxnextunite_Help_tab.setLayout(grid_tab_Help)
+        # Every tab page carries a tab_name_private: it is the identity
+        # the saved-tab setting is written under (9.7.38), and the Help
+        # tab was the one page that had never been given one.
+        zxnextunite_Help_tab.tab_name_private = "Help"
         wid_inner.tab.addTab(zxnextunite_Help_tab, "?")
 
         #wid_inner.tab.tabBarClicked.connect(tab_changed)
@@ -4312,10 +4357,13 @@ class MainWindow(QMainWindow):
                 current_title = wid_inner.tab.tabText(wid_inner.tab.currentIndex())
             except Exception:
                 return
-            if current_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GOOEY):
-                # App restored onto the SD-card tab: kick off the idle glow now,
-                # since currentChanged wasn't connected during config restore.
-                _start_transfer_idle_animation()
+            if current_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_TRANSFER):
+                # App restored onto the Transfer tools tab. currentChanged was
+                # not connected during the config restore and the sub-tab bar's
+                # own signal fired while the main tab was still elsewhere, so
+                # NEITHER entry path has run: do the restored sub-tab's entry
+                # work by hand, through the same one helper both of them use.
+                self._activate_transfer_subtab()
             elif current_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GETIT):
                 _show_content_disclaimer()
                 self._getit_fetch_motd()
@@ -4338,13 +4386,6 @@ class MainWindow(QMainWindow):
                 self._zxart_on_tab_activated()
             elif current_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE):
                 _show_content_disclaimer()
-            elif current_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC):
-                # App restored directly onto the NextSync tab: start the Remote
-                # Explorer sub-tab animation (currentChanged wasn't connected yet)
-                # and auto-prepare so the Start button is ready.
-                self._re_tab_anim_set_active(True)
-                if self.nextsync_prepare_server.isVisible():
-                    nextsync_perform_checks_and_prepare_server_start()
 
         # Use a small delay (not 0) so the first paint/show events have a
         # chance to be processed before any thumbnail fetch threads spin up.

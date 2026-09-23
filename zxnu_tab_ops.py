@@ -260,6 +260,97 @@ def build_tab_ops(
         gate = getattr(host, "_network_online", None)
         return True if gate is None else gate()
 
+    def _activate_transfer_subtab(index=None):
+        """Per-tool entry work for the merged Transfer tools tab.
+
+        Called from THREE places, and none may be dropped:
+
+          * on_tab_changed, when the Transfer tools tab becomes the current
+            MAIN tab - the sub-tab did not move, so its own signal never
+            fires;
+          * the sub-tab bar's currentChanged, when the main tab is already
+            current - on_tab_changed never fires;
+          * the deferred startup activation in zxnu_main, where NEITHER
+            fired - currentChanged was not connected during the config
+            restore, and the sub-tab settled while another main tab was up.
+
+        Before 9.7.38 these were two separate main-tab branches of
+        on_tab_changed (SD Card and NextSync). Keeping ONE body is what stops
+        the two entry paths drifting apart - the same failure the emulator
+        launch gate documents, where the gallery item viewers came to
+        disagree with the SD Card tab by re-deriving the rules locally.
+
+        The sub-tab handler calls this on EVERY sub-tab change, including
+        while the Transfer tools tab is NOT the visible main tab: a startup
+        restore does that, and so does the SD Card pane's "Start NextSync
+        Remote Explorer" action reaching across to select the sub-tab. So the
+        main-tab guard lives here - without it the idle glow and the sub-tab
+        colour animation would run on a tab nobody is looking at, which is
+        the CPU cost both were explicitly written to avoid.
+        """
+        tabs = getattr(host, "nextsync_mode_tabs", None)
+        if tabs is None:
+            return
+        if index is None:
+            try:
+                index = tabs.currentIndex()
+            except RuntimeError:
+                return
+        try:
+            _on_screen = wid_inner.tab.tabText(
+                wid_inner.tab.currentIndex()).startswith(
+                    ZX_NEXT_UNITE_TAB_TITLE_TRANSFER)
+        except Exception:
+            _on_screen = False
+        # Always stop first, so leaving a sub-tab (or the whole main tab)
+        # cannot strand either animation running.
+        _stop_transfer_idle_animation()
+        if not _on_screen:
+            host._re_tab_anim_set_active(False)
+            return
+        # The sub-tab bar - and with it the animated "Remote Explorer" label
+        # the animation advertises - is on screen for ALL THREE sub-tabs, so
+        # this follows the MAIN tab exactly as it did when the bar lived on
+        # the NextSync tab.
+        host._re_tab_anim_set_active(True)
+        if index == TRANSFER_SUBTAB_SDCARD:
+            _start_transfer_idle_animation()
+            # Re-tint the existing rows with the current item colors (the
+            # user may have changed them in Settings). This is synchronous
+            # and instant, independent of the async re-listing below.
+            host._image_recolor_all()
+            # Escape hatch for an emulator this app did NOT launch: coming
+            # back to the view is the natural "is it free yet?" moment, and
+            # without it a grey-out from an externally started emulator
+            # would only clear by re-picking the image by hand. Conditional
+            # on the last verdict being "busy", so the common case does no
+            # I/O at all on a tab switch.
+            _busy = getattr(host, "_image_busy_reason", None)
+            _reprobe = getattr(host, "_reprobe_and_regate", None)
+            if _busy is not None and _reprobe is not None:
+                for _emu in ("MAME", "CSpect"):
+                    if _busy(_emu):
+                        _reprobe(host.imageinput.currentText()
+                                 if _emu == "MAME"
+                                 else getattr(host, "right_disk_image_path", ""))
+                        break
+            if _right_disk_content():
+                # Refresh the explorer when returning to the SD Card view.
+                # The listing runs on a worker thread (no UI-thread
+                # hdfmonkey call on tab switch).
+                update_disk_manager_widget_table()
+        else:
+            # Auto-run the "Prepare" step on entering the Classic view so the
+            # "Start Classic NextSync server" button is ready without an
+            # extra click. Guard on the prepare button still being visible so
+            # we don't re-scan/re-log on every revisit or after a sync is set
+            # up - and note it is hidden outright in Remote Explorer mode and
+            # whenever the SD Card page is the one on screen, so this is
+            # self-gating for the other two sub-tabs.
+            if host.nextsync_prepare_server.isVisible():
+                nextsync_perform_checks_and_prepare_server_start()
+    host._activate_transfer_subtab = _activate_transfer_subtab
+
     def on_tab_changed(index):
         if host._initialising:
             return
@@ -295,40 +386,19 @@ def build_tab_ops(
         except Exception:
             pass
         tab_title = wid_inner.tab.tabText(index)
-        # Only run the idle "breathing" glow on the transfer buttons while the
-        # SD-card tab is the active one; stop it on every other tab.
-        _stop_transfer_idle_animation()
-        # The Remote Explorer sub-tab colour animation only runs while the
-        # NextSync tab is visible; stop it here and (re)start it in the
-        # NextSync branch below.
-        host._re_tab_anim_set_active(False)
-        if tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GOOEY):
-            _start_transfer_idle_animation()
-            # Re-tint the existing rows with the current item colors (the
-            # user may have changed them in Settings). This is synchronous
-            # and instant, independent of the async re-listing below.
-            host._image_recolor_all()
-            # Escape hatch for an emulator this app did NOT launch: coming
-            # back to the tab is the natural "is it free yet?" moment, and
-            # without it a grey-out from an externally started emulator
-            # would only clear by re-picking the image by hand. Conditional
-            # on the last verdict being "busy", so the common case does no
-            # I/O at all on a tab switch.
-            _busy = getattr(host, "_image_busy_reason", None)
-            _reprobe = getattr(host, "_reprobe_and_regate", None)
-            if _busy is not None and _reprobe is not None:
-                for _emu in ("MAME", "CSpect"):
-                    if _busy(_emu):
-                        _reprobe(host.imageinput.currentText()
-                                 if _emu == "MAME"
-                                 else getattr(host, "right_disk_image_path", ""))
-                        break
-            if _right_disk_content():
-                # Refresh the explorer when returning to the SD Card tab. The
-                # listing runs on a worker thread (no UI-thread hdfmonkey call
-                # on tab switch).
-                update_disk_manager_widget_table()
-        elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GETIT):
+        if tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_TRANSFER):
+            # Both former branches (SD Card and NextSync) now live in
+            # _activate_transfer_subtab, which dispatches on the sub-tab and
+            # owns the idle glow + sub-tab animation for every path in and
+            # out of this tab.
+            _activate_transfer_subtab()
+        else:
+            # Leaving the Transfer tools tab: stop the idle "breathing" glow
+            # on the transfer buttons and the Remote Explorer sub-tab colour
+            # cycling, neither of which may outlive the tab it belongs to.
+            _stop_transfer_idle_animation()
+            host._re_tab_anim_set_active(False)
+        if tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_GETIT):
             _show_content_disclaimer()
             # Confirmed offline (zxnu_network watcher): skip the automatic
             # fetches — nothing was marked "already fetched", so when the
@@ -358,15 +428,6 @@ def build_tab_ops(
             host._zxart_on_tab_activated()
         elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_ALLINONE):
             _show_content_disclaimer()
-        elif tab_title.startswith(ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC):
-            # Now visible: animate the "Remote Explorer" sub-tab text.
-            host._re_tab_anim_set_active(True)
-            # Auto-run the "Prepare" step on entering the tab so the
-            # "Start Classic NextSync server" button is ready without an extra
-            # click. Guard on the prepare button still being visible so we
-            # don't re-scan/re-log on every revisit or after a sync is set up.
-            if host.nextsync_prepare_server.isVisible():
-                nextsync_perform_checks_and_prepare_server_start()
 
 
     # Consumed by bare name elsewhere in __init__ (re-bound at the call site).

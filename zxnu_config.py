@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.37"
+ZX_NEXT_UNITE_VERSION = "9.7.38"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -128,6 +128,22 @@ ZX_NEXT_UNITE_CONFIG_FILE_NAME = os.path.join(ZXNU_DATA_ROOT, "hdfg.cfg")
 # selection changes are coalesced so the recursive scan runs once after settling.
 NEXTSYNC_PREPARE_DEBOUNCE_MS = 300
 
+# The merged transfer tab (9.7.38). "TOOL: SD Card Utility" and
+# "TOOL: NextSync" used to be two sibling main tabs; they are one tab now,
+# whose sub-tab bar carries the SD Card Utility beside the two NextSync
+# experiences. The two old constants survive ONLY as the identities the
+# legacy-config migration and the wizard's tour steps address the SD Card
+# and NextSync sub-tabs by - nothing adds a main tab under them any more.
+# The '&&' is a literal ampersand, not a typo: Qt reads a single '&' in a tab
+# label as a mnemonic marker and strips it from what is drawn (measured - the
+# tab read "Transfer tools (SD card  NextSync)"). It is escaped HERE rather
+# than at the addTab call because tabText() hands back exactly what was set,
+# so every `tabText(i).startswith(THIS)` dispatch has to compare against the
+# same escaped spelling. Use ..._TRANSFER_PLAIN for anything shown to a human
+# outside a tab label.
+ZX_NEXT_UNITE_TAB_TITLE_TRANSFER = "Transfer tools (SD card && NextSync)"
+ZX_NEXT_UNITE_TAB_TITLE_TRANSFER_PLAIN = (
+    ZX_NEXT_UNITE_TAB_TITLE_TRANSFER.replace("&&", "&"))
 ZX_NEXT_UNITE_TAB_TITLE_GOOEY = "TOOL: SD Card Utility"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC = "TOOL: NextSync"
 ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC_SYNCON = "NextSync - Sync ON"
@@ -137,6 +153,60 @@ ZX_NEXT_UNITE_TAB_TITLE_ZXART = "🌍 ZXArt.ee"
 ZX_NEXT_UNITE_TAB_TITLE_FAVORITES = "🌍 ♥ Favorites"
 ZX_NEXT_UNITE_TAB_TITLE_ALLINONE  = "🌍 Unite!"
 ZX_NEXT_UNITE_TAB_TITLE_ITCHIO    = "🌍 itch.io"
+
+# Sub-tab indices of the merged Transfer tools tab's QTabBar
+# (host.nextsync_mode_tabs). The bar predates the merge and carried just the
+# two NextSync experiences at 0/1; the SD Card Utility took index 0 in
+# 9.7.38 and pushed both along, so EVERY historical "currentIndex() == 0
+# means Remote Explorer" test had to be renumbered. They are named here
+# rather than spelled as literals precisely so the next insertion is a
+# one-line change instead of another hunt through five modules.
+TRANSFER_SUBTAB_SDCARD  = 0
+TRANSFER_SUBTAB_REMOTE  = 1
+TRANSFER_SUBTAB_CLASSIC = 2
+# Persisted tokens for SETTING_TRANSFER_SUBTAB. Stored as WORDS, not the
+# indices above: the index is a layout detail that has already moved once,
+# and a saved "1" that silently changes meaning is exactly the migration
+# bug this merge had to fix for the main tab bar.
+TRANSFER_SUBTAB_TOKENS = {
+    TRANSFER_SUBTAB_SDCARD:  "sdcard",
+    TRANSFER_SUBTAB_REMOTE:  "remote",
+    TRANSFER_SUBTAB_CLASSIC: "classic",
+}
+TRANSFER_SUBTAB_BY_TOKEN = {v: k for k, v in TRANSFER_SUBTAB_TOKENS.items()}
+
+
+def migrate_legacy_tab_index(legacy, remote_explorer_pref=False):
+    """Map a PRE-9.7.38 saved main-tab index onto the current tab bar.
+
+    Returns ``("transfer", <sub-tab token>)`` when the saved index named one
+    of the two tabs that merged, or ``("index", n)`` for any other tab.
+
+    Back then index 0 was "TOOL: SD Card Utility" and index 1 "TOOL:
+    NextSync". They are one tab now, so both map to it - index 1 choosing the
+    NextSync experience from *remote_explorer_pref*, which is what
+    SETTING_NEXTSYNC_REMOTE_EXPLORER has always recorded - and every tab from
+    index 2 up has moved exactly ONE to the left.
+
+    That -1 is exact, not approximate, whichever optional tabs (itch.io,
+    Alien Floyd's, zxArt, ZXDB, Favorites) happened to be present when the
+    value was written: every one of them is inserted RELATIVE to a neighbour
+    it finds by ``indexOf`` or by title, never at an absolute index, so
+    removing one tab from the front shifts the whole remainder uniformly and
+    preserves their order. A negative index is nonsense from a corrupt cfg
+    and is reported as ``("index", -1)`` for the caller to reject.
+    """
+    try:
+        legacy = int(legacy)
+    except (TypeError, ValueError):
+        return ("index", -1)
+    if legacy < 0:
+        return ("index", -1)
+    if legacy == 0:
+        return ("transfer", "sdcard")
+    if legacy == 1:
+        return ("transfer", "remote" if remote_explorer_pref else "classic")
+    return ("index", legacy - 1)
 
 GETIT_BASE_URL = "https://zxnext.uk"
 GETIT_USER_AGENT = f"ZX-Next-Unite/{ZX_NEXT_UNITE_VERSION}"
@@ -309,7 +379,20 @@ SETTING_NEXTSYNC_EXPLORERPATH_HISTORY = "nextsync_explorerpath_history"
 SETTING_NEXTSYNC_SYNCONCE = "nextsync_synconce"
 SETTING_NEXTSYNC_ALWAYSSYNC = "nextsync_alwayssync"
 SETTING_NEXTSYNC_SLOWTRANSFER = "nextsync_slowtransfer"
+# The main tab to reopen on. Stored as the page's `tab_name_private`
+# identity since 9.7.38, NOT the raw index it used to be: the index shifted
+# by one when the SD Card and NextSync tabs merged, and it was already
+# fragile across a session that toggled the optional itch.io or Alien
+# Floyd's tab off. A purely numeric value is read as a pre-9.7.38 index and
+# migrated (see _restore_selected_tab in zxnu_config_io).
 SETTING_DEFAULT_TAB_WHEN_OPENING = "default_tab"
+# Which sub-tab of the merged Transfer tools tab to reopen on: one of
+# TRANSFER_SUBTAB_TOKENS' values. Kept SEPARATE from
+# SETTING_NEXTSYNC_REMOTE_EXPLORER, which still means "the NextSync
+# experience is Remote Explorer" - a user parked on the SD Card sub-tab
+# must still return to the NextSync experience they last chose, so both
+# facts have to survive independently.
+SETTING_TRANSFER_SUBTAB = "transfer_subtab"
 SETTING_WARN_IMAGE_NEARLY_FULL = "warn_image_nearly_full"
 SETTING_NO_PROMPT_ON_DELETION  = "no_prompt_on_deletion"
 SETTING_AVAIL_CHECK            = "avail_check"
@@ -1042,7 +1125,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              ("")
             )
 CONFIG_FILE_SETTINGS = (SETTING_HDDFILE, SETTING_EXPLORERPATH, SETTING_EXPLORERPATH_HISTORY, SETTING_IMAGE_EXPLORERPATH, SETTING_SCREENSIZE, SETTING_SOUND, SETTING_VSYNC, SETTING_HERTZ, SETTING_JOYSTICK, SETTING_MOUSE, SETTING_CUSTOM, SETTING_ESC, SETTING_NEXTSYNC_EXPLORERPATH, SETTING_NEXTSYNC_EXPLORERPATH_HISTORY, SETTING_NEXTSYNC_SYNCONCE,
-SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME,
+SETTING_NEXTSYNC_ALWAYSSYNC, SETTING_NEXTSYNC_SLOWTRANSFER, SETTING_DEFAULT_TAB_WHEN_OPENING, SETTING_TRANSFER_SUBTAB, SETTING_WARN_IMAGE_NEARLY_FULL, SETTING_NO_PROMPT_ON_DELETION, SETTING_COLOR_UP_DIRECTORY, SETTING_COLOR_DIR_NAME, SETTING_COLOR_DIR_TYPE, SETTING_COLOR_FILE_NAME,
 SETTING_COLOR_FILE_EXT, SETTING_COLOR_FILE_SIZE, SETTING_COLOR_GENERAL_TEXT, SETTING_COLOR_RETRO_LOG, SETTING_COLOR_BACKGROUND, SETTING_DESKTOP_THEME, SETTING_IMAGE_HISTORY, SETTING_ZXDB_LAST_MODE, SETTING_ZXDB_LAST_QUERY, SETTING_CONTENT_DISCLAIMER_AGREED, SETTING_BG_OPACITY, SETTING_AVAIL_CHECK, SETTING_MULTI_SEARCH, SETTING_SEARCH_AUTOCOMPLETE, SETTING_SEARCH_SORT_MODE, SETTING_GALLERY_ANIM_MODE,
 SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, SETTING_GALLERY_SLIDESHOW_SECS, SETTING_GETIT_VIEW_MODE, SETTING_ZXDB_VIEW_MODE,
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,

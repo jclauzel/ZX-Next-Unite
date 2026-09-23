@@ -1786,10 +1786,10 @@ def build_local_explorer_ops(
                 variant="yellow", duration_ms=10000)
             return
         tabs = getattr(host, "nextsync_mode_tabs", None)
-        if tabs is not None and tabs.currentIndex() != 0:
+        if tabs is not None and tabs.currentIndex() != TRANSFER_SUBTAB_REMOTE:
             host._re_open_restoring = True
             try:
-                tabs.setCurrentIndex(0)     # tab 0 = Remote Explorer view
+                tabs.setCurrentIndex(TRANSFER_SUBTAB_REMOTE)
             finally:
                 host._re_open_restoring = False
         toggle = getattr(host, "_nextsync_re_toggle_server", None)

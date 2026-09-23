@@ -12,7 +12,7 @@ Co-developed with the assistance of **Claude** (Anthropic's AI).
 
 ![A tour of the ZX-Next-Unite tabs](docs/zx-next-unite-tour.gif)
 
-*The main tabs, in Retro mode: SD Card Utility · NextSync (classic sync, then
+*The main tabs, in Retro mode: Transfer tools — SD Card Utility · NextSync (classic sync, then
 the Remote Explorer) · GetIt · ZXArt.ee · ZXDB/ZXInfo.dk · Unite! · Alien
 Floyd's. Every tab is documented in the
 **[User Manual](https://github.com/jclauzel/ZX-Next-Unite/wiki/User-Manual)**.*
@@ -43,13 +43,13 @@ emulator launch buttons below:
 
 ## Features
 
-- **SD Card tab** — mount an HDF image, copy files in/out with a built-in
-  explorer, then launch **CSpect** or **MAME** directly. No emulator command
-  lines to remember.
-- **NextSync tab** — push files over Wi-Fi from your PC to a real Spectrum Next
+- **Transfer tools → SD Card Utility** — mount an HDF image, copy files in/out
+  with a built-in explorer, then launch **CSpect** or **MAME** directly. No
+  emulator command lines to remember.
+- **Transfer tools → NextSync** — push files over Wi-Fi from your PC to a real Spectrum Next
   (KS1/KS2 or clones with an ESP module) using the `.sync5` dot command.
   The Next can push files back the other way with `-send`, served by the
-  **Classic sync** server (start it from NextSync → Classic sync, after
+  **Classic sync** server (start it from Transfer tools → Classic sync, after
   choosing a sync root — that is where uploads land). **Quote a
   drive-qualified path**, because `:` is BASIC's statement separator and the
   editor rejects the line without quotes:
@@ -69,7 +69,7 @@ emulator launch buttons below:
 - ⭐ **`.sync5` deployed into your disk image for you** — emulator users
   need the Next-side half of NextSync, the `.sync5` dot command, in the
   image's `/dot` folder before the Remote Explorer can talk to the emulated
-  Next. When an image is loaded on the SD Card tab and `/dot` has no
+  Next. When an image is loaded on the SD Card Utility and `/dot` has no
   `.sync5` (or an older build than this version ships), the app offers to
   download the latest from GitHub and put it there — Wizzy asks when the
   wizard is on, a 15-second toast otherwise — reads it back to check its
