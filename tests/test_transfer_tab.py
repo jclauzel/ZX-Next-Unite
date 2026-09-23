@@ -248,6 +248,23 @@ check("a 'transfer' sprite exists and the packets ride it",
       is not None)
 
 print()
+print("== the SD Card page keeps its margins ==")
+# The merged tab zeroes the SD form's TOP margin so both tools start at the
+# same height under the sub-tab bar. That call must come AFTER setLayout: an
+# unparented QLayout reports (0,0,0,0), so reading the margins first and
+# writing them back zeroes the left, right and bottom too - the trap
+# zxnu_nextsync_pane's twin call documents, walked into once already.
+_mainsrc = src("zxnu_main.py")
+_set_layout = _mainsrc.find("zx_next_unite_container.setLayout(self.zx_next_unite_form)")
+_read_margins = _mainsrc.find("_sd_m = self.zx_next_unite_form.contentsMargins()")
+check("the SD form's margins are read AFTER its layout is installed",
+      _set_layout != -1 and _read_margins != -1 and _set_layout < _read_margins,
+      f"setLayout@{_set_layout} read@{_read_margins}")
+# The live measurement belongs where a real window exists - offscreen phase 1
+# asserts the resulting margins. This suite creates no QApplication on purpose
+# (instantiating a QFormLayout here aborts the interpreter with no traceback).
+
+print()
 print("== the two properties copy/paste and drag & drop rely on ==")
 # 1. No QShortcut anywhere: shortcuts with a window/application context are
 #    the ONLY construct a reparent would break. Ctrl-C/X/V reach the views

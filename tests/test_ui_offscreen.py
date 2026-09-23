@@ -1076,6 +1076,16 @@ def inspect_phase1():
               win.image_selected_path == "" and win.diskimageexplorerpathinput.text() == "/",
               win.diskimageexplorerpathinput.text())
 
+    # The SD Card page zeroes only its TOP margin, so both tools start at the
+    # same height under the sub-tab bar. Reading contentsMargins() before
+    # setLayout() (where an unparented layout answers 0) zeroed the other three
+    # as well and the whole page lost its padding.
+    _sdm = win.zx_next_unite_form.contentsMargins()
+    check("SD Card page keeps its left/right/bottom margins, top zeroed",
+          _sdm.top() == 0 and _sdm.left() > 0 and _sdm.right() > 0
+          and _sdm.bottom() > 0,
+          f"{_sdm.left()},{_sdm.top()},{_sdm.right()},{_sdm.bottom()}")
+
     # ---- retro log console color picker (Settings tab) ---------------------
     lay = win.settings_btn_color_retro_log.parentWidget().layout()
     def spos(w):
