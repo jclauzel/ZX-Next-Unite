@@ -1812,11 +1812,15 @@ def inspect_phase11():
 
     # Bring the NextSync tab to the front: children of a non-current tab are
     # never isVisible(), so every visibility check below would be meaningless.
-    from zxnu_config import ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC
+    from zxnu_config import (TRANSFER_SUBTAB_CLASSIC, TRANSFER_SUBTAB_REMOTE,
+                             ZX_NEXT_UNITE_TAB_TITLE_TRANSFER)
     main_tabs = win._bg_widget.tab
+    # Match by PREFIX, never by equality: badges and spinners rewrite tabText
+    # (the same rule test_startup_tab_activation pins for the startup path).
     idx = next((i for i in range(main_tabs.count())
-                if main_tabs.tabText(i) == ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC), None)
-    check("NextSync tab present", idx is not None,
+                if main_tabs.tabText(i).startswith(
+                    ZX_NEXT_UNITE_TAB_TITLE_TRANSFER)), None)
+    check("Transfer tools tab present", idx is not None,
           str([main_tabs.tabText(i) for i in range(main_tabs.count())]))
     if idx is None:
         app.quit()
@@ -1824,10 +1828,19 @@ def inspect_phase11():
     main_tabs.setCurrentIndex(idx)
     check("the app window is shown", wait_until(win.isVisible, 20, "window shown"))
 
-    tabs = win.nextsync_mode_tabs
-    # Tab 0 = Remote Explorer. The cfg pre-selected it, but drive it explicitly
-    # so the phase does not depend on the restore having happened yet.
-    tabs.setCurrentIndex(0)
+    tabs = getattr(win, "nextsync_mode_tabs", None)
+    # Guarded: an AttributeError here would be raised inside a QTimer slot,
+    # where Qt prints the traceback and swallows it - exec() never returns
+    # and the phase HANGS to the runner's timeout instead of failing.
+    check("the Transfer tools sub-tab bar exists", tabs is not None)
+    if tabs is None:
+        app.quit()
+        return
+    check("...carrying SD Card Utility, Remote Explorer and Classic sync",
+          tabs.count() == 3, str(tabs.count()))
+    # The cfg pre-selected the Remote Explorer, but drive it explicitly so the
+    # phase does not depend on the restore having happened yet.
+    tabs.setCurrentIndex(TRANSFER_SUBTAB_REMOTE)
     ok = wait_until(lambda: getattr(win, "_re_widget", None) is not None, 20,
                     "Remote Explorer widget built")
     check("Remote Explorer widget is built without pygame", ok)
@@ -2143,7 +2156,7 @@ def inspect_phase11():
           not win.nextsync_pygame_button.isVisible())
 
     # Switching back to Classic must not need pygame either.
-    tabs.setCurrentIndex(1)
+    tabs.setCurrentIndex(TRANSFER_SUBTAB_CLASSIC)
     QCoreApplication.processEvents()
     check("Classic view falls back to the plain list log without pygame",
           win.nextsync_log_stack.currentWidget() is win.nextsync_log,
@@ -2158,7 +2171,7 @@ def inspect_phase11():
           f"checked={win.nextsync_pygame_button.isChecked()}")
 
     # And back into the Remote Explorer once more (the widget is now cached).
-    tabs.setCurrentIndex(0)
+    tabs.setCurrentIndex(TRANSFER_SUBTAB_REMOTE)
     QCoreApplication.processEvents()
     check("returning to the Remote Explorer still shows it",
           win.nextsync_log_stack.currentWidget() is win._re_container

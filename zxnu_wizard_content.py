@@ -2425,17 +2425,26 @@ STORIES = {
 }
 
 # ── The tour script ──────────────────────────────────────────────────────
-# (tab-title constant NAME in zxnu_config, dialogue key above, wiki page).
-# The wizard resolves the constant at runtime, finds the tab whose title
-# starts with it, and SKIPS steps whose tab is hidden (zxArt/ZXDB feature
-# flags, itch.io without itch-dl). The Settings/Help steps match the
-# literal titles the monolith uses for those two addTab calls.
+# (tab-title constant NAME in zxnu_config, dialogue key above, wiki page,
+# and an OPTIONAL Transfer tools sub-tab token). The wizard resolves the
+# constant at runtime, finds the tab whose title starts with it, and SKIPS
+# steps whose tab is hidden (zxArt/ZXDB feature flags, itch.io without
+# itch-dl). The Settings/Help steps match the literal titles the monolith
+# uses for those two addTab calls.
+#
+# The 4th element exists because two steps share ONE tab since 9.7.38: the
+# SD Card Utility and NextSync are sub-tabs of "Transfer tools" now, and a
+# step that can only name a MAIN tab would resolve to nothing and be
+# silently skipped - quietly losing two stops on the tour. "sdcard" selects
+# that sub-tab outright; "nextsync" means "either NextSync experience", so
+# it leaves the user on the one they already chose and only picks Classic
+# when they were on the SD Card page.
 TOUR_STEPS = (
     # The tour OPENS on Settings so the user can pick their language first
     # (the wizard re-speaks the step live when they do).
     ("Settings 🔩",                        "tour.language",  "Settings-tab"),
-    ("ZX_NEXT_UNITE_TAB_TITLE_GOOEY",     "tour.sdcard",    "SD-Card-Utility-tab"),
-    ("ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC",  "tour.nextsync",  "NextSync-tab"),
+    ("ZX_NEXT_UNITE_TAB_TITLE_TRANSFER",  "tour.sdcard",    "SD-Card-Utility-tab", "sdcard"),
+    ("ZX_NEXT_UNITE_TAB_TITLE_TRANSFER",  "tour.nextsync",  "NextSync-tab",        "nextsync"),
     ("ZX_NEXT_UNITE_TAB_TITLE_GETIT",     "tour.getit",     "GetIt-tab"),
     ("ZX_NEXT_UNITE_TAB_TITLE_ZXART",     "tour.zxart",     "zxArt-tab"),
     ("ZX_NEXT_UNITE_TAB_TITLE_ZXDB",      "tour.zxdb",      "ZXDB-tab"),
@@ -2480,11 +2489,17 @@ ZXNR_ITCH_URL = "https://jclauzel.itch.io/zxnextremote"
 # pairs where target is another node id or "close"; optional "linux_extra"
 # = a TEXTS key appended only on Linux; optional "goto" = a zxnu_config
 # tab-title constant offered as a "Take me there" button; optional
-# "gesture" for the sprite. The wizard offers a guide the first time its
-# tab is visited in a session ("guide.offer").
+# "gesture" for the sprite. Guide schema: "tab" = a zxnu_config tab-title
+# constant, plus an optional "subtab" token ("sdcard" / "nextsync") for the
+# two guides that share the merged Transfer tools tab - without it both
+# would answer to the same tab and whichever is listed first would shadow
+# the other. The wizard offers a guide the first time its tab is visited in
+# a session ("guide.offer") - and with a "subtab", the first time that
+# SUB-tab is.
 GUIDES = {
     "sdcard": {
-        "tab": "ZX_NEXT_UNITE_TAB_TITLE_GOOEY",
+        "tab": "ZX_NEXT_UNITE_TAB_TITLE_TRANSFER",
+        "subtab": "sdcard",
         "page": "SD-Card-Utility-tab",
         "start": "sd.images",
         "nodes": {
@@ -2505,7 +2520,8 @@ GUIDES = {
         },
     },
     "nextsync": {
-        "tab": "ZX_NEXT_UNITE_TAB_TITLE_NEXTSYNC",
+        "tab": "ZX_NEXT_UNITE_TAB_TITLE_TRANSFER",
+        "subtab": "nextsync",
         "page": "NextSync-tab",
         "start": "ns.what",
         "nodes": {

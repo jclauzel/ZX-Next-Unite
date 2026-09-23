@@ -3151,6 +3151,12 @@ class TabSpriteSidebar(QWidget):
     # (lowercased keyword found in the tab title) -> sprite key. First match
     # wins, so order the more specific keywords first.
     _MATCH = (
+        # "transfer tools" MUST precede "sd card": the merged tab is titled
+        # "Transfer tools (SD card & NextSync)", so the SD entry below would
+        # otherwise claim it and the sync-activity packets - which only ride
+        # a sprite keyed "sync" or "transfer" - would vanish from the bar the
+        # moment the two tabs became one.
+        ("transfer tools", "transfer"),
         ("sd card", "sd"), ("nextsync", "sync"), ("sync", "sync"),
         ("getit", "getit"), ("zxart", "zxart"), ("zxinfo", "zxdb"),
         ("zxdb", "zxdb"), ("favorite", "fav"), ("unite", "unite"),
@@ -3191,6 +3197,25 @@ class TabSpriteSidebar(QWidget):
             "..c........",
             "...........",
         ], {"g": (80, 210, 110), "c": (110, 210, 235)}),
+        # The merged Transfer tools tab: the sync sprite's two arrows with an
+        # SD card slotted into the rows it left blank. The shafts are kept on
+        # rows 2 and 8 ON PURPOSE - _SYNC_SHAFT_ROWS addresses them by number
+        # for both sprites, so moving them here would silently draw the packet
+        # pixels across the card face instead of along the arrows.
+        "transfer": ([
+            "...........",
+            "........g..",
+            "ggggggggggg",
+            "........g..",
+            "...bbbbb...",
+            "...bByBb...",
+            "...bbbbb...",
+            "..c........",
+            "ccccccccccc",
+            "..c........",
+            "...........",
+        ], {"g": (80, 210, 110), "c": (110, 210, 235),
+            "b": (35, 60, 120), "B": (85, 135, 220), "y": (245, 205, 80)}),
         "getit": ([
             "...bbbbb...",
             "..bbbbbbb..",
@@ -3475,7 +3500,11 @@ class TabSpriteSidebar(QWidget):
             if 0 <= slot < len(self._cells):
                 idx = self._cells[slot][0]
                 try:
-                    QToolTip.showText(ev.globalPos(), self._tab.tabText(idx), self)
+                    # Strip the tab label's Qt mnemonic escape: a tooltip is
+                    # drawn as plain text, so "&&" would show as "&&".
+                    QToolTip.showText(ev.globalPos(),
+                                      self._tab.tabText(idx).replace("&&", "&"),
+                                      self)
                 except Exception:
                     pass
             else:
@@ -3563,7 +3592,8 @@ class TabSpriteSidebar(QWidget):
             # Packet pixels ride the sync icon whenever a NextSync server is
             # running (drawn inside the hover flip transform too, so they stay
             # on the arrows mid-spin).
-            packets_on = (key == "sync" and self._sync_activity[0])
+            packets_on = (key in ("sync", "transfer")
+                          and self._sync_activity[0])
             if hovered:
                 # Spin the icon about its vertical centre line (a 3D-style flip):
                 # a horizontal scale of cos(angle) squashes it toward an edge and,

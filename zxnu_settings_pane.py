@@ -1088,16 +1088,17 @@ def build_settings_pane(
         for _i in range(host._tab_widget.count()):
             if "Unite!" not in host._tab_widget.tabText(_i):
                 _tab_bar.setTabTextColor(_i, _color)
-        # Also paint the NextSync experience sub-tabs (nextsync_mode_tabs) so
-        # they honour the theme. Skip the "Remote Explorer" tab (index 0)
-        # while its colour animation is running — exactly as the Unite! main
-        # tab is skipped above — so its cycling colour isn't overwritten.
+        # Also paint the Transfer tools sub-tabs (nextsync_mode_tabs) so
+        # they honour the theme. Skip the "Remote Explorer" tab while its
+        # colour animation is running - exactly as the Unite! main tab is
+        # skipped above - so its cycling colour isn't overwritten. That tab
+        # was index 0 until the SD Card Utility took the slot in 9.7.38.
         _mode_tabs = getattr(host, "nextsync_mode_tabs", None)
         if _mode_tabs is not None:
             _re_anim = getattr(host, "_re_tab_color_timer", None)
             _re_animating = bool(_re_anim is not None and _re_anim.isActive())
             for _i in range(_mode_tabs.count()):
-                if _i == 0 and _re_animating:
+                if _i == TRANSFER_SUBTAB_REMOTE and _re_animating:
                     continue
                 _mode_tabs.setTabTextColor(_i, _color)
     host._apply_tab_text_colors = _apply_tab_text_colors

@@ -97,9 +97,29 @@ def orchestrate():
                 pix.save(os.path.join(OUT, f"seg{seg}_{seg_name}_{i:02d}.png"))
             step(FRAME_MS, grab, f"grab {seg_name} {i}")
 
+    # The SD Card Utility and both NextSync experiences are sub-tabs of the
+    # one "Transfer tools" tab since 9.7.38. tab_index() still finds that tab
+    # from either old fragment - its title names both tools - so what the
+    # three segments below really need is the SUB-tab.
+    from zxnu_config import (TRANSFER_SUBTAB_CLASSIC, TRANSFER_SUBTAB_REMOTE,
+                             TRANSFER_SUBTAB_SDCARD,
+                             ZX_NEXT_UNITE_TAB_TITLE_TRANSFER)
+
+    def transfer_subtab(index):
+        # Sub-tab FIRST. Selecting the main tab runs the entry work of
+        # whichever sub-tab happens to be current, and at the first call that
+        # is still the construction default (Classic sync) - whose prepare
+        # scan prints the host name and the local IP into the log these
+        # frames capture.
+        win.nextsync_mode_tabs.setCurrentIndex(index)
+        tab.setCurrentIndex(tab_index(ZX_NEXT_UNITE_TAB_TITLE_TRANSFER))
+
     # --- the tour ----------------------------------------------------------
     step(400, lambda: win.resize(1500, 950), "resize")
-    step(9000, lambda: tab.setCurrentIndex(tab_index("SD Card")), "SD tab")
+    # Mask the local IP before ANY tab entry: the SD Card and NextSync views
+    # share one tab now, so entering it can run NextSync's prepare scan.
+    step(200, lambda: patch_ip(), "mask IPs (early)")
+    step(9000, lambda: transfer_subtab(TRANSFER_SUBTAB_SDCARD), "SD tab")
     step(1200, lambda: None, "settle")
     capture_segment("sdcard")
 
@@ -109,17 +129,17 @@ def orchestrate():
             m = sys.modules.get(mod)
             if m is not None and hasattr(m, "detect_local_ipv4"):
                 m.detect_local_ipv4 = fake_ipv4
-    # Mask BEFORE entering the tab: switching to NextSync auto-runs the
-    # prepare/perform-checks (host/IP info + the "Ready to sync" scan), so
-    # the patch must already be in place — and no explicit prepare click is
-    # needed (it would just duplicate the scan block in the log).
+    # Re-apply: modules imported since the early pass get masked too. The
+    # Classic view auto-runs the prepare/perform-checks (host/IP info + the
+    # "Ready to sync" scan), so the patch must already be in place - and no
+    # explicit prepare click is needed (it would just duplicate the scan
+    # block in the log).
     step(300, patch_ip, "mask IPs")
-    step(300, lambda: tab.setCurrentIndex(tab_index("NextSync")), "NextSync tab")
-    step(600, lambda: win.nextsync_mode_tabs.setCurrentIndex(1), "classic view")
+    step(300, lambda: transfer_subtab(TRANSFER_SUBTAB_CLASSIC), "classic view")
     step(4000, lambda: None, "server log settles")
     capture_segment("nextsync_classic")
 
-    step(600, lambda: win.nextsync_mode_tabs.setCurrentIndex(0), "remote explorer")
+    step(600, lambda: transfer_subtab(TRANSFER_SUBTAB_REMOTE), "remote explorer")
     step(1800, lambda: None, "RE settles")
     capture_segment("nextsync_re")
 
