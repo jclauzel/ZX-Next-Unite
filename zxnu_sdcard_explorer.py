@@ -49,7 +49,8 @@ import logging
 import os
 import platform
 
-from PySide6.QtCore import QModelIndex, Qt, QTimer
+from PySide6.QtCore import (QItemSelection, QItemSelectionModel,
+                            QModelIndex, Qt, QTimer)
 from PySide6.QtGui import QColor, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -175,6 +176,12 @@ class SdCardExplorerPane(QWidget):
         # invalidates listings that complete after the tree was wiped.
         self._image_ls_workers = set()
         self._image_load_generation = 0
+        # Where uploads / New Folder / paste / Up / Refresh point. It tracks
+        # the selection, because selecting IS how you navigate this tree -
+        # but it survives a name filter hiding that selection, which would
+        # otherwise drop the target back to the image root. See
+        # image_dest_dir and apply_image_filter.
+        self._image_anchor_dir = "/"
 
         # ---- local explorer (left pane) -----------------------------------
         self.model = None  # created below; kept as attributes for host aliases
@@ -816,6 +823,10 @@ class SdCardExplorerPane(QWidget):
         # descendants match, so matches stay reachable inside folders.
         text = self._image_filter_edit.text().strip().lower() if self._image_filter_edit is not None else ""
 
+        sel = self.image_treeview.selectionModel()
+        last_col = max(0, self.image_model.columnCount() - 1)
+        dropped = []          # rows this pass took out of the selection
+
         def _filter(parent_item):
             any_visible = False
             for r in range(parent_item.rowCount()):
@@ -837,23 +848,119 @@ class SdCardExplorerPane(QWidget):
                 unknown = (bool(text) and bool(name_item.data(IMG_ISDIR_ROLE))
                            and not name_item.data(IMG_LOADED_ROLE))
                 visible = self_match or child_match or unknown
-                self.image_treeview.setRowHidden(r, name_item.index().parent(), not visible)
+                parent_ix = name_item.index().parent()
+                self.image_treeview.setRowHidden(r, parent_ix, not visible)
+                # DESELECT as we hide. The selection model knows nothing about
+                # view-level hiding (measured), so without this a file the
+                # filter has taken off screen is still handed to Delete,
+                # Download, the transfer buttons and drag-out - destroying or
+                # copying something the user cannot see. The readers carry the
+                # same guard again (_selected_image_rows); this is the one
+                # invariant worth stating twice, exactly as the Next pane's
+                # _apply_next_filter says.
+                if (not visible and sel is not None
+                        and sel.isRowSelected(r, parent_ix)):
+                    sel.select(
+                        QItemSelection(self.image_model.index(r, 0, parent_ix),
+                                       self.image_model.index(r, last_col, parent_ix)),
+                        QItemSelectionModel.Deselect)
+                    dropped.append(1)
                 any_visible = any_visible or visible
             return any_visible
 
-        _filter(self.image_model.invisibleRootItem())
+        # One pass, then ONE selection-changed run. Deselecting row by row
+        # with the signal live re-runs _on_image_selection_changed for every
+        # hidden row and walks the whole selection each time; the tree can
+        # hold a few thousand rows.
+        _blocked = sel.blockSignals(True) if sel is not None else False
+        try:
+            _filter(self.image_model.invisibleRootItem())
+            # currentIndex is NOT part of the selection and survives a
+            # Deselect, and _on_image_selection_changed reads it as the
+            # PRIMARY row - so a hidden current would still name the target
+            # for New Folder and the path label.
+            _cur = self.image_treeview.currentIndex()
+            if _cur.isValid() and self._image_row_hidden(_cur) and sel is not None:
+                sel.clearCurrentIndex()
+                dropped.append(1)
+        finally:
+            if sel is not None:
+                sel.blockSignals(_blocked)
+        # ONLY when this pass actually narrowed the selection. This method is
+        # called from the LOAD pipeline too (image_load_root, the lazy expand,
+        # navigate, the ops layer's reload), and re-running the handler there
+        # recomputes host.image_selected_path from a selection the restore has
+        # not made yet - which silently emptied the startup restore of
+        # image_explorerpath (offscreen phase 2 caught it).
+        if dropped:
+            # Hiding a row is not navigating away from it: keep the target
+            # the pane had, or a filter keystroke would send the next upload
+            # to the image root.
+            _anchor = getattr(self, "_image_anchor_dir", "/")
+            self._on_image_selection_changed()
+            self._image_anchor_dir = _anchor
+
+    def _image_row_hidden(self, index):
+        """True when *index* is hidden, or sits under a hidden ancestor.
+
+        The Next pane can test one row because its list is flat. This tree is
+        not: a row carries its own hidden flag, and apply_image_filter happens
+        to hide a folder only when every child is hidden too - but that is a
+        property of today's filter, not of the view, so the ancestors are
+        walked rather than assumed.
+        """
+        ix = index.siblingAtColumn(0) if index.isValid() else index
+        while ix.isValid():
+            if self.image_treeview.isRowHidden(ix.row(), ix.parent()):
+                return True
+            ix = ix.parent()
+        return False
+
+    def _selected_image_rows(self):
+        """The selected image rows that are actually ON SCREEN, column 0.
+
+        Every caller acts on what this returns - delete, download, transfer,
+        drag-out - so a row the Search filter has hidden is not a target,
+        however it came to be selected. apply_image_filter deselects as it
+        hides; this holds even if some later path hides a row without going
+        through it.
+        """
+        sel = self.image_treeview.selectionModel()
+        if sel is None:
+            return []
+        return [ix for ix in sel.selectedRows(0)
+                if not self._image_row_hidden(ix)]
+
+    @staticmethod
+    def _dir_of(path, is_dir):
+        """The folder *path* targets: itself when a folder, its parent when a
+        file, the image root when there is nothing."""
+        if not path:
+            return "/"
+        if is_dir:
+            return path or "/"
+        parent = path.rstrip("/").rsplit("/", 1)[0]
+        return parent if parent else "/"
 
     def image_dest_dir(self):
         """Image directory targeted by uploads / new folders, based on the
         current tree selection: a selected folder -> that folder; a selected
-        file -> the folder containing it; nothing selected -> the image root."""
+        file -> the folder containing it.
+
+        With NOTHING selected it is the remembered anchor rather than the
+        image root. Selecting is how you navigate this tree, so the two used
+        to be the same field - and once the name filter began deselecting the
+        rows it hides (so a row you cannot see cannot be deleted), an empty
+        selection stopped meaning "you are at the root" and started also
+        meaning "your row is filtered away". Reading the root out of that
+        silently moved uploads, New Folder, paste, Up and Refresh to "/".
+        The anchor still becomes "/" when you genuinely navigate there,
+        because that path clears the selection through the handler below."""
         host = self._host
         if host.image_selected_path:
-            if host.image_selected_is_dir:
-                return host.image_selected_path or "/"
-            parent = host.image_selected_path.rstrip("/").rsplit("/", 1)[0]
-            return parent if parent else "/"
-        return "/"
+            return self._dir_of(host.image_selected_path,
+                                host.image_selected_is_dir)
+        return getattr(self, "_image_anchor_dir", "/")
 
     def image_update_path_label(self):
         if self._hooks.is_image_loaded():
@@ -1250,8 +1357,7 @@ class SdCardExplorerPane(QWidget):
         host.image_selected_paths = []
         selected_names = []
 
-        sel_model = self.image_treeview.selectionModel()
-        for col0 in sel_model.selectedRows(0):
+        for col0 in self._selected_image_rows():
             name_item = self.image_model.itemFromIndex(col0)
             if name_item is None:
                 continue
@@ -1264,7 +1370,9 @@ class SdCardExplorerPane(QWidget):
 
         current = self.image_treeview.currentIndex()
         primary_item = None
-        if current.isValid():
+        # A hidden current row is not the primary target either: it is what
+        # New Folder, the path label and the single-row menu entries act on.
+        if current.isValid() and not self._image_row_hidden(current):
             primary_item = self.image_model.itemFromIndex(current.siblingAtColumn(0))
         if primary_item is None or not (primary_item.data(IMG_PATH_ROLE) or ""):
             # Fall back to the first selected row.
@@ -1274,5 +1382,12 @@ class SdCardExplorerPane(QWidget):
             host.image_selected_path = primary_item.data(IMG_PATH_ROLE) or ""
             host.image_selected_is_dir = bool(primary_item.data(IMG_ISDIR_ROLE))
 
+        # Every genuine navigation lands here - a click, image_navigate_to_path
+        # descending to its target, and the explicit clear that "/" performs -
+        # so this is where the anchor tracks the pane. apply_image_filter
+        # preserves it across its own call, because hiding a row is not
+        # navigation.
+        self._image_anchor_dir = self._dir_of(host.image_selected_path,
+                                              host.image_selected_is_dir)
         self._hooks.set_selected_names(selected_names)
         self.image_update_path_label()
