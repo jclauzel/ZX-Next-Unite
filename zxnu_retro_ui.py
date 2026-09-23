@@ -176,9 +176,13 @@ def build_sidebar_anim(host):
     # tab's "Remote Explorer" sub-tab (nextsync_mode_tabs, index
     # TRANSFER_SUBTAB_REMOTE - it was index 0 until the SD Card Utility took
     # that slot in 9.7.38). To save CPU it runs ONLY while the Transfer tools
-    # tab is the visible main tab AND that sub-tab is the chosen one:
-    # on_tab_changed, the sub-tab handler and the deferred startup activation
-    # all call _re_tab_anim_set_active. Reuses the Unite! colours and cadence.
+    # tab is the visible MAIN tab - whichever of the three sub-tabs is chosen,
+    # because the sub-tab bar carrying the animated label is on screen for all
+    # three, so the animation follows the main tab exactly as it did when the
+    # bar lived on the NextSync tab. _activate_transfer_subtab (zxnu_tab_ops)
+    # owns that decision and is reached from all three entry paths:
+    # on_tab_changed, the sub-tab handler and the deferred startup activation.
+    # Reuses the Unite! colours and cadence.
     host._re_tab_color_frame = 0
     host._re_tab_color_timer = QTimer(host)
     host._re_tab_color_timer.setInterval(500)

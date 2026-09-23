@@ -3119,7 +3119,11 @@ class MainWindow(QMainWindow):
             if not right_disk_image_explorer_content:
                 return
             items = []
-            for col0 in self.image_treeview.selectionModel().selectedRows(0):
+            # Through the pane's reader, NOT the selection model: a row the
+            # Search filter has hidden is not a target, and dragging one out
+            # would copy a file the user cannot see (the Next pane's rule,
+            # 9.7.33 - drag-out is one of the four paths it names).
+            for col0 in self.sdcard_explorer._selected_image_rows():
                 name_item = self.image_model.itemFromIndex(col0)
                 if name_item is None:
                     continue

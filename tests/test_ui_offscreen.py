@@ -1003,6 +1003,52 @@ def inspect_phase1():
               not _fshown, f"{len(_fshown)} file(s) wrongly visible")
         win.image_filtertext.setText("")
         QCoreApplication.processEvents()
+
+        # A row the filter hides must stop being a TARGET. This tree filters
+        # in the VIEW (setRowHidden), and hiding a row does NOT deselect it,
+        # so a file taken off screen was still handed to Delete, Download and
+        # drag-out - destroying or copying something the user cannot see.
+        # tests/test_image_filter_selection.py covers the rule in full and
+        # headlessly (CI cannot run this phase); this is the same invariant
+        # end to end, which is what proves the pane's own widgets are wired
+        # to it.
+        from zxnu_sdcard_explorer import IMG_PATH_ROLE as _PATHROLE
+
+        def _image_index_for(path):
+            out = []
+
+            def walk(item):
+                for r in range(item.rowCount()):
+                    child = item.child(r, 0)
+                    if child is None:
+                        continue
+                    if (child.data(_PATHROLE) or "") == path:
+                        out.append(child.index())
+                    walk(child)
+            walk(win.image_model.invisibleRootItem())
+            return out[0] if out else None
+
+        win.diskimageexplorerpathinput.setText("/games/sub/hello.txt")
+        win.diskimageexplorerpathinput.editingFinished.emit()
+        _okf = wait_until(
+            lambda: win.image_selected_path == "/games/sub/hello.txt",
+            what="select the nested file for the filter check")
+        check("premise: the nested file is the selected target", _okf,
+              win.image_selected_path)
+        _hello = _image_index_for("/games/sub/hello.txt")
+        check("premise: its row is findable", _hello is not None)
+        if _okf and _hello is not None:
+            win.image_filtertext.setText("zzz-no-such-name")
+            QCoreApplication.processEvents()
+            check("a filtered-away file stops being a Delete/Download target",
+                  win.image_selected_path != "/games/sub/hello.txt"
+                  and all(p != "/games/sub/hello.txt"
+                          for p, _d in win.image_selected_paths),
+                  f"{win.image_selected_path!r} {win.image_selected_paths!r}")
+            check("...and is deselected, not merely skipped",
+                  not win.image_treeview.selectionModel().isSelected(_hello))
+            win.image_filtertext.setText("")
+            QCoreApplication.processEvents()
         # The root reload above cleared the selection; the Up checks
         # below start from /games/sub, so put it back before handing over.
         win.sdcard_explorer.image_navigate_to_path("/games/sub")
