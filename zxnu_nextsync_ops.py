@@ -90,9 +90,8 @@ def build_nextsync_server_start(
             host.nextsync_filesystem_model.setRootPath("")
             host.nextsync_filesystem_model.setRootPath(view_path or "/")
             if view_path:
-                host.nextsync_treeview.setRootIndex(
-                    host.nextsync_model.mapFromSource(
-                        host.nextsync_filesystem_model.index(view_path)))
+                root_tree_at(host.nextsync_treeview, host.nextsync_model,
+                             host.nextsync_filesystem_model, view_path)
         except Exception as e:
             logging.error(f"NextSync explorer refresh failed: {e}", exc_info=True)
 
@@ -530,7 +529,8 @@ def build_nextsync_explorer_ops(
             norm = new_path.replace("\\", "/")
             if not norm.endswith("/"):
                 norm += "/"
-            host.nextsync_treeview.setRootIndex(host.nextsync_model.mapFromSource(host.nextsync_filesystem_model.index(norm, 0)))
+            root_tree_at(host.nextsync_treeview, host.nextsync_model,
+                         host.nextsync_filesystem_model, norm)
             set_treeview_properties()
             host.nextsync_treeview.show()
             _nextsync_commit_sync_root(norm)
@@ -665,7 +665,9 @@ def build_nextsync_explorer_ops(
         else:
             return
 
-        host.nextsync_treeview.setRootIndex(host.nextsync_model.mapFromSource(host.nextsync_filesystem_model.index(selected_explorer_item_directory_destination, 0)))
+        root_tree_at(host.nextsync_treeview, host.nextsync_model,
+                     host.nextsync_filesystem_model,
+                     selected_explorer_item_directory_destination)
         set_treeview_properties()
         host.nextsync_treeview.show()
 

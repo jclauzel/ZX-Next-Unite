@@ -464,6 +464,100 @@ class DotDotFirstProxyModel(QSortFilterProxyModel):
         # regular expression Qt builds from setFilterWildcard carry the
         # option, so filterAcceptsRow can use it as it is.
         self.setFilterCaseSensitivity(Qt.CaseInsensitive)
+        # The folder the VIEW is rooted at (see set_keep_path).
+        self._keep_path = ""
+        self._keep_cmp = ""
+        self._keep_names = set()
+
+    # ---- the displayed folder is never filtered away --------------------
+    def set_keep_path(self, path):
+        """Never filter out *path* or any of its ancestors.
+
+        *path* is the folder the view using this proxy is ROOTED at. A view
+        roots itself with ``setRootIndex(proxy.mapFromSource(...))``, so that
+        index has to exist; if the filter rejects the folder, the index is
+        invalid and the view falls back to the proxy root - i.e. somewhere
+        else entirely, usually blank.
+
+        That was reachable by simply TYPING: with the tree on a folder whose
+        own name does not match what you type (and nothing inside it matching
+        either), the pane lost its place the moment the filter applied, and
+        CLEARING the filter did not bring it back - a root index that has
+        ceased to exist cannot be restored, so the folder was gone until the
+        user navigated by hand. Measured on the SD Card pane, and the same
+        hole existed in the NextSync classic explorer and the Remote
+        Explorer's local pane, which share this proxy.
+
+        Recursive filtering used to hide this by accident: a folder is
+        accepted when a DESCENDANT matches, and ``filterAcceptsRow`` accepts
+        the ".." row unconditionally, so a folder whose ".." child had
+        already been fetched was rescued. QFileSystemModel fetches lazily and
+        asynchronously, so whether that happened depended on timing - which
+        is why the failure looked intermittent and why the fix cannot rely on
+        it.
+
+        The filter still applies to everything INSIDE the displayed folder;
+        only the folder itself and the ancestors leading to it are exempt,
+        because they are the structure the view needs rather than content the
+        user is filtering.
+        """
+        self._keep_path = path or ""
+        self._keep_cmp = self._cmp_path(self._keep_path)
+        # Every row that can pass the keep test is an ancestor of the kept
+        # folder, so its NAME is one of that path's components. Checking the
+        # name first (the regex test needs it anyway) keeps the expensive
+        # filePath() call off every other row - see filterAcceptsRow.
+        #
+        # A ROOT row does not report a bare component: QFileSystemModel calls
+        # a Windows drive "C:/" and the POSIX root "/". Those rows are
+        # ancestors of every kept folder, so leaving their spellings out of
+        # the gate skipped the exemption for precisely the rows the mapping
+        # down to the kept folder depends on.
+        _parts = self._keep_cmp.split("/")
+        self._keep_names = {c for c in _parts if c}
+        if self._keep_cmp:
+            self._keep_names.add((_parts[0] + "/") if _parts[0] else "/")
+        self.invalidateFilter()
+
+    def keep_path(self):
+        """The folder currently exempt from the filter ("" when none)."""
+        return self._keep_path
+
+    @staticmethod
+    def _cmp_path(path):
+        """A path in the one spelling the ancestor test compares under.
+
+        A bare root SURVIVES the trailing-slash strip: "/" is the POSIX
+        filesystem root, and reducing it to "" turned the keep off entirely
+        there - the whole fix was inert on Linux and macOS, and "/" was never
+        recognised as the ancestor it is of every absolute path.
+        """
+        if not path:
+            return ""
+        p = str(path).replace("\\", "/")
+        rooted = p.startswith("/")
+        p = p.rstrip("/")
+        if not p:
+            return "/" if rooted else ""
+        # Windows paths are case-insensitive; POSIX ones are not, and folding
+        # them would let an unrelated sibling masquerade as the root.
+        return p.lower() if os.name == "nt" else p
+
+    def _is_kept(self, path):
+        """True when *path* IS the kept folder or an ancestor of it."""
+        keep = self._keep_cmp
+        if not keep:
+            return False
+        p = self._cmp_path(path)
+        if not p:
+            return False
+        if p == keep:
+            return True
+        # A prefix ending ON a separator - never a bare startswith, which
+        # would make "C:/foo" keep "C:/foobar". A root already ends in one,
+        # and appending a second would compare against "//".
+        prefix = p if p.endswith("/") else p + "/"
+        return keep.startswith(prefix)
 
     def lessThan(self, left, right):
         source_model = self.sourceModel()
@@ -490,8 +584,9 @@ class DotDotFirstProxyModel(QSortFilterProxyModel):
     def filterAcceptsRow(self, source_row, source_parent):
         source_model = self.sourceModel()
         index = source_model.index(source_row, 0, source_parent)
+        name = source_model.fileName(index)
         # Always show the parent-directory entry
-        if source_model.fileName(index) == "..":
+        if name == "..":
             return True
         # Match with the regular expression the proxy holds, NOT with its
         # pattern text as a substring (9.7.2). setFilterWildcard("abc")
@@ -506,10 +601,59 @@ class DotDotFirstProxyModel(QSortFilterProxyModel):
         rx = self.filterRegularExpression()
         if not rx.pattern() or not rx.isValid():
             return True
+        # The folder the view is rooted at, and the ancestors leading down to
+        # it, are structure rather than content: filtering them away destroys
+        # the view's root index (see set_keep_path). The name check is a cheap
+        # gate on the filePath() call, which walks the tree to build a string.
+        if self._keep_names and (
+                (name.lower() if os.name == "nt" else name) in self._keep_names):
+            if self._is_kept(source_model.filePath(index)):
+                return True
         if not (rx.patternOptions() & QRegularExpression.CaseInsensitiveOption):
             rx = QRegularExpression(rx.pattern(), rx.patternOptions()
                                     | QRegularExpression.CaseInsensitiveOption)
-        return rx.match(source_model.fileName(index)).hasMatch()
+        return rx.match(name).hasMatch()
+
+def root_tree_at(view, proxy, source_model, path, column=0):
+    """Root *view* at *path* through *proxy*, and return whether it worked.
+
+    Two things every caller needs and none of them used to do:
+
+    * the proxy is told to KEEP *path* first. The root index is obtained with
+      ``mapFromSource``, so the folder has to survive the name filter before
+      an index for it can exist at all - navigating while a filter is typed
+      would otherwise land on an invalid index. See
+      :meth:`DotDotFirstProxyModel.set_keep_path`.
+    * an INVALID index is not handed to ``setRootIndex``. Qt reads that as
+      "root at the model root", so a folder that has been deleted or
+      unplugged since used to blank the pane out instead of leaving it where
+      it was.
+    """
+    if proxy is None or source_model is None:
+        return False
+    # Resolve in the SOURCE model first. Nothing may touch the keep until the
+    # destination is known to exist: moving it and then failing would strip
+    # the exemption from the folder still on screen and blank it - the very
+    # bug this helper exists to prevent, through its own error path.
+    src = source_model.index(path, column)
+    if not src.isValid():
+        return False
+    setter = getattr(proxy, "set_keep_path", None)
+    previous = proxy.keep_path() if hasattr(proxy, "keep_path") else ""
+    if setter is not None:
+        # Keep the MODEL's spelling, not the caller's. They differ often
+        # enough to matter - an 8.3 short name, a drive letter's case, a
+        # trailing slash - and a keep that does not compare equal to what
+        # filePath() reports protects nothing at all.
+        setter(source_model.filePath(src) or path)
+    ix = proxy.mapFromSource(src)
+    if not ix.isValid():
+        if setter is not None:
+            setter(previous)
+        return False
+    view.setRootIndex(ix)
+    return True
+
 
 def bind_select_all_except_updir(view, is_updir):
     """Make the view's Select All (Ctrl-A, or any programmatic selectAll)

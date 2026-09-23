@@ -32,6 +32,7 @@ from zxnu_config import *
 from zxnu_i18n import ui_tr_now
 from zxnu_gallery import *
 from zxnu_http_bridge import flask_available
+from zxnu_workers import root_tree_at
 
 
 def build_config_io(
@@ -227,7 +228,8 @@ def build_config_io(
                     configuration_dictionary[SETTING_EXPLORERPATH] = os.path.dirname(configuration_dictionary[SETTING_EXPLORERPATH].rstrip("/\\")) + "/"
 
 
-                host.treeview.setRootIndex(host.proxy_model.mapFromSource(host.model.index(configuration_dictionary[SETTING_EXPLORERPATH])))
+                root_tree_at(host.treeview, host.proxy_model, host.model,
+                             configuration_dictionary[SETTING_EXPLORERPATH])
                 host.left_file_explorer_selection_full_filename_path = configuration_dictionary[SETTING_EXPLORERPATH]
                 local_sync_path_box()
 
@@ -236,7 +238,9 @@ def build_config_io(
                     configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH] = os.path.dirname(configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH].rstrip("/\\")) + "/"
 
 
-                host.nextsync_treeview.setRootIndex(host.nextsync_model.mapFromSource(host.nextsync_filesystem_model.index(configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH])))
+                root_tree_at(host.nextsync_treeview, host.nextsync_model,
+                             host.nextsync_filesystem_model,
+                             configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH])
                 host.left_file_nextsync_explorer_selection_full_filename_path = configuration_dictionary[SETTING_NEXTSYNC_EXPLORERPATH]
                 host.nextsync_file_explorer_path.setText(host.left_file_nextsync_explorer_selection_full_filename_path)
 

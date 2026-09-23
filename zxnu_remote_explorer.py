@@ -58,7 +58,7 @@ from zxnu_pathhistorycombo import FolderHistoryCombo
 from zxnu_workers import (
     RE_CANCEL_GRACE_MS, RE_MAX_REMOTE_PATH, RE_UPD_EXTRA_RETRIES,
     CompactButton, DotDotFirstProxyModel, HdfProgressDialog,
-    as_emulator_launch,
+    as_emulator_launch, root_tree_at,
     bind_select_all_except_updir, zip_create_with_dialog,
     zip_extract_with_dialog, zip_unique_name,
 )
@@ -5533,7 +5533,14 @@ class RemoteExplorerWidget(QWidget):
         root (a typed path or the restored saved path — plain navigation passes
         commit=False and leaves the sync root alone)."""
         path = path.replace("\\", "/") if path else path
-        self.local_view.setRootIndex(self._view_ix(path))
+        # root_tree_at keeps the browsed folder past the name filter: a
+        # folder whose own name does not match what is typed in the filter
+        # box would otherwise map to an invalid index and blank the pane
+        # (see DotDotFirstProxyModel.set_keep_path). It also declines to root
+        # on a path that no longer resolves, which is this pane's documented
+        # rule - "leaves the pane where it is, so it never ends up rooted on
+        # nothing".
+        root_tree_at(self.local_view, self.local_proxy, self.local_model, path)
         self._browse_root = path
         self._sync_local_drive_combo(path)
         if commit:
@@ -5712,7 +5719,8 @@ class RemoteExplorerWidget(QWidget):
         self.local_model.setRootPath("")          # bounce so an unchanged path rescans
         self.local_model.setRootPath(cur or "")
         if cur and os.path.isdir(cur):
-            self.local_view.setRootIndex(self._view_ix(cur))
+            root_tree_at(self.local_view, self.local_proxy,
+                         self.local_model, cur)
 
     def _local_double_clicked(self, index):
         # Pure navigation: double-clicking a folder (or "..") only changes the
