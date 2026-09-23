@@ -139,21 +139,54 @@ def skip(reason):
 # ---- runner mode: no phase argument = run every phase in a subprocess ------
 if PHASE is None:
     failed = []
+    skipped = []
     for ph in ALL_PHASES:
         print(f"\n=== UI offscreen phase {ph} ===", flush=True)
+        # TEE, do not capture: a phase can hang, and the output printed
+        # before it hung is the only evidence of where. Reading line by line
+        # keeps that live on the console (and in CI's log) while still
+        # letting the runner see the SKIPPED marker.
+        proc = subprocess.Popen(
+            [sys.executable, os.path.abspath(__file__), str(ph)],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace", bufsize=1)
+        saw_skip = False
         try:
-            rc = subprocess.call([sys.executable, os.path.abspath(__file__), str(ph)],
-                                 timeout=900)
+            for line in proc.stdout:
+                print(line, end="", flush=True)
+                if f"PHASE {ph} SKIPPED" in line:
+                    saw_skip = True
+            rc = proc.wait(timeout=900)
         except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
             print(f"PHASE {ph} TIMED OUT (possible UI hang)")
             rc = 1
+        finally:
+            if proc.stdout is not None:
+                proc.stdout.close()
+        if saw_skip:
+            skipped.append(ph)
         if rc != 0:
             failed.append(ph)
     print()
+    # Name the phases that did NOT run. A skip is not a pass, and hiding it
+    # behind "(or skipped cleanly)" is how the SD Card filter regression
+    # stayed green for ~35 commits: CI has no hdfmonkey, so phases 1-3 -
+    # the only coverage of the local explorer's real navigate/filter/persist
+    # pipeline - never executed there.
+    if skipped:
+        print(f"UI SUITE: {len(skipped)} phase(s) SKIPPED and therefore NOT "
+              f"covered: {skipped}")
+        print("          (phases 1-3 need hdfmonkey on PATH or in downloads/)")
     if failed:
         print(f"UI SUITE RESULT: FAILED phase(s): {failed}")
         sys.exit(1)
-    print("UI SUITE RESULT: ALL PHASES PASSED (or skipped cleanly)")
+    if skipped:
+        print(f"UI SUITE RESULT: {len(ALL_PHASES) - len(skipped)} phase(s) "
+              f"passed, {len(skipped)} skipped")
+    else:
+        print("UI SUITE RESULT: ALL PHASES PASSED")
     sys.exit(0)
 
 
@@ -890,19 +923,47 @@ def inspect_phase1():
         QCoreApplication.processEvents()
         check("local Refresh keeps folder", view_dir() == parent1, view_dir())
 
-        # Refresh WITH a filter active. The local pane re-roots through the
-        # proxy, and mapFromSource on a FILTERED proxy is invalid whenever the
-        # folder's own name does not match - which used to root the view
-        # somewhere else entirely. The filter must also survive the refresh.
+        # TYPING a filter that matches nothing - not Refresh - was the bug.
+        # The pane re-roots through the proxy, and mapFromSource on a FILTERED
+        # proxy is invalid whenever the displayed folder's own name does not
+        # match (and nothing inside it does either), so the root index died
+        # the moment the filter applied and the pane lost its folder. Refresh
+        # then had nothing to restore, because local_current_view_dir() was
+        # already empty. The proxy KEEPS the displayed folder now
+        # (DotDotFirstProxyModel.set_keep_path), so the view never moves.
         win.filtertext.setText("zzz-no-such-name")
         QCoreApplication.processEvents()
+        check("typing a filter that matches nothing keeps the folder",
+              view_dir() == parent1, view_dir())
+        check("...and the tree is still rooted on a valid index",
+              win.treeview.rootIndex().isValid())
+        # Everything INSIDE it is still filtered - the folder is exempt, its
+        # contents are not. The ".." row is always shown (it is how you go up),
+        # and whether QFileSystemModel has produced it yet varies, so count
+        # only the rows that are not it.
+        def _shown_rows():
+            _p, _r = win.proxy_model, win.treeview.rootIndex()
+            _names = [win.model.fileName(_p.mapToSource(_p.index(_i, 0, _r)))
+                      for _i in range(_p.rowCount(_r))]
+            return [_n for _n in _names if _n != ".."]
+        check("...while its contents are still filtered away",
+              not _shown_rows(), str(_shown_rows()))
         win.local_explorer_refresh_button.click()
         QCoreApplication.processEvents()
         check("local Refresh keeps the folder with a filter on",
               view_dir() == parent1, view_dir())
         check("local Refresh keeps the filter itself",
               win.filtertext.text() == "zzz-no-such-name", win.filtertext.text())
+        # Clearing the filter must bring the contents back. This is what made
+        # the old behaviour unrecoverable: a root index that has ceased to
+        # exist cannot be restored by clearing the filter, so the folder was
+        # gone until the user navigated to it by hand.
         win.filtertext.setText("")
+        QCoreApplication.processEvents()
+        check("clearing the filter leaves the pane on the same folder",
+              view_dir() == parent1, view_dir())
+        check("...with its contents back", bool(_shown_rows()),
+              str(_shown_rows()))
         QCoreApplication.processEvents()
 
         win.image_explorer_refresh_button.click()

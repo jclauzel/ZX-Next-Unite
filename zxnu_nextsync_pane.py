@@ -186,7 +186,8 @@ def build_nextsync_pane(
 
     host.nextsync_treeview.setModel(host.nextsync_model)
     host.nextsync_treeview.setSortingEnabled(True)
-    host.nextsync_treeview.setRootIndex(host.nextsync_model.mapFromSource(host.nextsync_filesystem_model.index(available_drives[0])))
+    root_tree_at(host.nextsync_treeview, host.nextsync_model,
+                 host.nextsync_filesystem_model, available_drives[0])
     host.nextsync_model.sort(0, QtCore.Qt.AscendingOrder)
 
     host.nextsync_treeview.show()

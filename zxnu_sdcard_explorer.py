@@ -83,7 +83,7 @@ from zxnu_config import (MAX_PATH_HISTORY, SETTING_EXPLORERPATH,
                          SPLITTER_HANDLE_QSS_HORIZONTAL,
                          is_filetype_a_directory, normalize_history_folder)
 from zxnu_pathhistorycombo import FolderHistoryCombo
-from zxnu_workers import (CompactButton, DotDotFirstProxyModel,
+from zxnu_workers import (CompactButton, DotDotFirstProxyModel, root_tree_at,
                           HdfTaskWorker, as_emulator_launch,
                           bind_select_all_except_updir)
 
@@ -228,7 +228,7 @@ class SdCardExplorerPane(QWidget):
         self.proxy_model.setDynamicSortFilter(True)
 
         self.treeview.setModel(self.proxy_model)
-        self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(initial_root)))
+        root_tree_at(self.treeview, self.proxy_model, self.model, initial_root)
         # Name / Type / Size / Modified, like the image tree on the right and
         # the Remote Explorer's local pane - QFileSystemModel's native order is
         # Name(0), Size(1), Type(2), Modified(3), so swap Size and Type
@@ -622,7 +622,7 @@ class SdCardExplorerPane(QWidget):
     # ------------------------------------------------- local explorer: nav --
     def update_root_drive(self, _index=None):
         drive = (self._drive_combo.currentText() or self._drive_combo.itemText(0)) if self._drive_combo else "/"
-        self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(drive)))
+        root_tree_at(self.treeview, self.proxy_model, self.model, drive)
         self._hooks.set_treeview_properties()
         self.treeview.show()
         self.local_sync_path_box()
@@ -671,7 +671,7 @@ class SdCardExplorerPane(QWidget):
         host = self._host
         host.left_file_explorer_selection_file_name = ""
         host.left_file_explorer_selection_full_filename_path = dest
-        self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(dest, 0)))
+        root_tree_at(self.treeview, self.proxy_model, self.model, dest)
         self._hooks.set_treeview_properties()
         self.treeview.show()
         if remember:
@@ -785,17 +785,20 @@ class SdCardExplorerPane(QWidget):
         filesystem watcher."""
         try:
             view_path = self.local_current_view_dir()
-            # Re-root UNFILTERED, then put the filter back. mapFromSource on
-            # a filtered proxy returns an INVALID index whenever the folder's
-            # own name does not match the wildcard - and setRootIndex on an
-            # invalid index roots the view at the proxy root, i.e. somewhere
-            # else entirely. Clearing first also means the filter is applied
-            # to the freshly re-listed rows rather than to whatever survived.
+            # Clear the filter around the re-listing so it is applied to the
+            # freshly read rows rather than to whatever survived the last
+            # pass. The re-root itself no longer depends on that: the proxy
+            # KEEPS the displayed folder past the filter (set_keep_path), so
+            # mapFromSource stays valid whether or not the folder's own name
+            # matches. It did not before, and typing a filter that matched
+            # nothing lost the pane's folder outright - Refresh could not
+            # recover it either, because view_path was already empty by then.
             self.proxy_model.setFilterWildcard("")
             self.model.setRootPath("")
             self.model.setRootPath(view_path or "/")
             if view_path:
-                self.treeview.setRootIndex(self.proxy_model.mapFromSource(self.model.index(view_path)))
+                root_tree_at(self.treeview, self.proxy_model, self.model,
+                             view_path)
             self.apply_local_filter()
         except Exception as exc:
             self._hooks.log(f"Local explorer refresh failed: {exc}")

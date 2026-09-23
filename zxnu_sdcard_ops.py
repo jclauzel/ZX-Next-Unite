@@ -1279,7 +1279,8 @@ def build_sdcard_utils(
 
     def nextsync_update_root_drive():
         drive = host.nextsync_diskdrive.currentText() or host.nextsync_diskdrive.itemText(0)
-        host.nextsync_treeview.setRootIndex(host.nextsync_model.mapFromSource(host.nextsync_filesystem_model.index(drive)))
+        root_tree_at(host.nextsync_treeview, host.nextsync_model,
+                     host.nextsync_filesystem_model, drive)
         host.nextsync_treeview.show()
         _nextsync_update_set_syncroot_button()
         # The drive switcher also drives the Remote Explorer's local pane so
@@ -3025,7 +3026,8 @@ def build_transfer_clipboard_ops(
             display_path = sel_path
             if not os.path.isdir(display_path):
                 display_path = os.path.dirname(display_path.rstrip("/\\")).replace("\\", "/") + "/"
-            host.treeview.setRootIndex(host.proxy_model.mapFromSource(host.model.index(display_path, 0)))
+            root_tree_at(host.treeview, host.proxy_model, host.model,
+                         display_path)
             set_treeview_properties()
             host.treeview.show()
             local_sync_path_box()

@@ -62,6 +62,9 @@ SUITES = [
     # panes are covered on the real widget by the suite below. It sat
     # unregistered - and so never ran - until 9.7.33.
     ("test_select_all_updir.py", 120, None),
+    # The displayed folder survives the name filter. Needs no hdfmonkey,
+    # unlike offscreen phase 1 - which is why that regression shipped.
+    ("test_filter_keeps_root.py", 120, None),
     ("test_remote_explorer_widget.py", 180, None),
     ("test_http_bridge.py",     240, "flask"),
     ("test_powershell_module.py", 300, "flask"),  # skips without powershell/pwsh
