@@ -500,6 +500,7 @@ SETTING_SDCARD_TREE_FONT       = "sdcard_tree_font"        # SD Card utility: LO
 SETTING_IMAGE_TREE_FONT        = "image_tree_font"         # SD Card utility: IMAGE explorer item font pt (Ctrl+wheel zoom)
 SETTING_RE_LOCAL_FONT          = "re_local_tree_font"      # Remote Explorer: local pane item font pt (Ctrl+wheel zoom)
 SETTING_RE_NEXT_FONT           = "re_next_tree_font"       # Remote Explorer: Next pane item font pt (Ctrl+wheel zoom)
+SETTING_NEXTSYNC_TREE_FONT     = "nextsync_tree_font"      # NextSync Classic sync: local tree item font pt (Ctrl+wheel zoom, 9.7.39)
 SETTING_RE_REMOTE_CWDS         = "re_remote_cwds"          # JSON {"ip": "/last/folder"} per connected Next (multi-Next; capped at 24, oldest out)
 SETTING_ITCHIO_API_KEY         = "itchio_api_key"          # str: personal itch.io API key (https://itch.io/user/settings/api-keys)
 SETTING_SHOW_ITCHIO_TAB        = "show_itchio_tab"         # "false" => hide the itch.io tab (default shown when itch-dl is installed)
@@ -1136,7 +1137,7 @@ SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTI
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
 SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
 SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS, SETTING_RE_REMOTE_CWDS, SETTING_RE_MACHINE_NAMES, SETTING_RE_MACHINE_COLORS,
-SETTING_SDCARD_TREE_FONT, SETTING_IMAGE_TREE_FONT, SETTING_RE_LOCAL_FONT, SETTING_RE_NEXT_FONT,
+SETTING_SDCARD_TREE_FONT, SETTING_IMAGE_TREE_FONT, SETTING_RE_LOCAL_FONT, SETTING_RE_NEXT_FONT, SETTING_NEXTSYNC_TREE_FONT,
 SETTING_EMULATOR_COLORS)
 
 

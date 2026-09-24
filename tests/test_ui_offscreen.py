@@ -101,6 +101,7 @@ CLASSIC_INTO = os.path.join(CLASSIC_ZONE, "into")
 UPDIR_SRC = os.path.join(SCRATCH, "updir-drop.txt")
 CLASSIC_MTIME = time.mktime((2024, 1, 2, 3, 4, 0, 0, 0, -1))
 CLASSIC_FILE_COLOR = "#a1b2c3"
+CLASSIC_FONT_PT = 15        # well clear of any platform's default item font
 
 PHASE = int(sys.argv[1]) if len(sys.argv) > 1 else None
 ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
@@ -281,7 +282,10 @@ elif PHASE == 4:
         # cfg is read, so seeing this colour on it proves the tree reads the
         # host's colours live rather than a snapshot taken at build time.
         f.write(BASE_CFG + f"color_file_name={CLASSIC_FILE_COLOR}\n"
-                + "desktop_theme=custom\n")
+                + "desktop_theme=custom\n"
+                # The Classic tree's Ctrl+wheel font size (9.7.39), restored
+                # at startup like the SD Card pair's.
+                + f"nextsync_tree_font={CLASSIC_FONT_PT}\n")
     if os.path.isdir(DROPZONE):
         shutil.rmtree(DROPZONE)
     os.makedirs(os.path.join(DROPZONE, "subdir"))
@@ -1277,6 +1281,8 @@ def inspect_phase4():
           tv.editTriggers() == QAbstractItemView.NoEditTriggers,
           str(tv.editTriggers()))
     check("classic tree uses uniform row heights", tv.uniformRowHeights())
+    check("classic tree font restored from the cfg",
+          tv.font().pointSize() == CLASSIC_FONT_PT, str(tv.font().pointSize()))
     check("classic model stays read-only (drops never reach dropMimeData)",
           model.isReadOnly())
 
@@ -1613,6 +1619,39 @@ def inspect_phase4():
         check("classic startDrag runs to completion", _ok)
         check("...and actually creates a drag", _made == 1, str(_made))
         check("...and the dragged file is still there", os.path.isfile(s512))
+
+    # --- Ctrl + mouse-wheel font zoom (9.7.39): one point per notch over
+    # the rows or the header, persisted to the cfg at once; a plain wheel
+    # is left to scroll.
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QWheelEvent
+
+    def _wheel(target, dy, ctrl=True):
+        QApplication.sendEvent(target, QWheelEvent(
+            QPointF(20, 20), QPointF(20, 20), QPoint(), QPoint(0, dy),
+            Qt.NoButton, Qt.ControlModifier if ctrl else Qt.NoModifier,
+            Qt.NoScrollPhase, False))
+
+    _wheel(tv.viewport(), 120)
+    check("Ctrl+wheel-up over the classic rows grows the font one point",
+          tv.font().pointSize() == CLASSIC_FONT_PT + 1,
+          str(tv.font().pointSize()))
+    check("...and persists it to the cfg",
+          wait_until(lambda: f"nextsync_tree_font={CLASSIC_FONT_PT + 1}"
+                     in cfg_lines(), 10, "classic tree font persisted"),
+          str([ln for ln in cfg_lines() if ln.startswith("nextsync_tree_font")]))
+    _wheel(tv.viewport(), 120, ctrl=False)
+    check("a plain wheel does not zoom the classic tree",
+          tv.font().pointSize() == CLASSIC_FONT_PT + 1,
+          str(tv.font().pointSize()))
+    _wheel(tv.header().viewport(), -120)
+    _wheel(tv.header().viewport(), -120)
+    check("Ctrl+wheel-down over the classic header shrinks it",
+          tv.font().pointSize() == CLASSIC_FONT_PT - 1,
+          str(tv.font().pointSize()))
+    check("...and the cfg follows",
+          wait_until(lambda: f"nextsync_tree_font={CLASSIC_FONT_PT - 1}"
+                     in cfg_lines(), 10, "classic tree font re-persisted"))
 
     # --- the SD Card Utility's LOCAL tree: same four properties, plus a real
     # drop and the 9.7.37 styling. That pane swapped its plain QFileSystemModel

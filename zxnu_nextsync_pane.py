@@ -239,6 +239,16 @@ def build_nextsync_pane(
     # nextsync_rename_explorer_item's input dialog, never an in-place editor.
     host.nextsync_treeview.setEditTriggers(QAbstractItemView.NoEditTriggers)
     host.nextsync_treeview.setUniformRowHeights(True)
+    # Ctrl + mouse-wheel zooms the item font (9.7.39), exactly as on the
+    # SD Card and Remote Explorer trees: one point per notch, clamped, a
+    # plain wheel still scrolls. Every applied change persists at once; the
+    # restore half runs in load_configuration_file beside the SD Card pair,
+    # because this tree - unlike the lazily-built Remote Explorer - already
+    # exists by then.
+    def _nextsync_tree_font_persist(pt):
+        configuration_dictionary[SETTING_NEXTSYNC_TREE_FONT] = str(pt)
+        save_configuration_file()
+    bind_tree_font_zoom(host.nextsync_treeview, _nextsync_tree_font_persist)
 
     host.nextsync_treeview.doubleClicked.connect(nextsync_on_treeview_double_clicked)
     host.nextsync_treeview.setContextMenuPolicy(Qt.CustomContextMenu)

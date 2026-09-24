@@ -93,9 +93,10 @@ def bind_tree_font_zoom(tree, persist=None):
     the size; the restore half is zxnu_config.apply_tree_font_pt. Returns
     the installed filter (parented to the tree; keep-alive is automatic).
 
-    Bound on all four explorer panes: the SD Card tab's local/image trees
-    (wired at the SdCardExplorerPane construction seam in zxnu_main) and
-    the Remote Explorer's local/Next trees (wired in zxnu_nextsync_pane).
+    Bound on all five explorer panes: the SD Card tab's local/image trees
+    (wired at the SdCardExplorerPane construction seam in zxnu_main), the
+    Remote Explorer's local/Next trees and the NextSync Classic sync tree
+    (9.7.39; both wired in zxnu_nextsync_pane).
     """
     filt = _TreeFontZoomFilter(tree, persist)
     tree.viewport().installEventFilter(filt)
