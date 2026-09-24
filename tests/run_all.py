@@ -65,6 +65,9 @@ SUITES = [
     # The displayed folder survives the name filter. Needs no hdfmonkey,
     # unlike offscreen phase 1 - which is why that regression shipped.
     ("test_filter_keeps_root.py", 120, None),
+    # The local trees' sort fast path (9.7.39) orders every column exactly
+    # as the old lessThan did, and is actually taken. Headless.
+    ("test_proxy_sort_fastpath.py", 120, None),
     # A filtered-away image row must not stay a Delete/Download target.
     # Headless on purpose: CI cannot run offscreen phases 1-3.
     ("test_image_filter_selection.py", 120, None),
