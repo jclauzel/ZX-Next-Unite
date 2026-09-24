@@ -32,7 +32,7 @@ during an all-ASCII sort: none with the fast path, many through the old one.
 ".." is the one row NOT compared against the reference. The old lessThan
 answered "'..' is less" whatever the order, and Qt's descending comparator
 calls lessThan(right, left), so it put ".." at the BOTTOM of every
-descending sort (fixed after 9.7.39). The reference keeps the old code
+descending sort (fixed in 9.7.40). The reference keeps the old code
 verbatim, so ".." is pinned on its own instead: row 0 in every sort this
 suite runs, both orders, every column - and every OTHER row must still
 match the reference row for row.

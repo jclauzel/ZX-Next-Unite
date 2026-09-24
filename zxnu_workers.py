@@ -472,7 +472,9 @@ class DotDotFirstProxyModel(QSortFilterProxyModel):
     """Proxy model that always keeps the '..' parent directory entry at the
     top - in BOTH sort orders (see lessThan). '..' is how every user knows
     to go back up a folder, so it must be where they look for it whatever
-    column or direction the tree is sorted by."""
+    column or direction the tree is sorted by. Only the SHOWN folder's
+    '..' is kept: the one an expanded subfolder would list is filtered
+    away (see _is_shown_updir)."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -506,9 +508,11 @@ class DotDotFirstProxyModel(QSortFilterProxyModel):
         Explorer's local pane, which share this proxy.
 
         Recursive filtering used to hide this by accident: a folder is
-        accepted when a DESCENDANT matches, and ``filterAcceptsRow`` accepts
-        the ".." row unconditionally, so a folder whose ".." child had
-        already been fetched was rescued. QFileSystemModel fetches lazily and
+        accepted when a DESCENDANT matches, and ``filterAcceptsRow`` accepted
+        every ".." row unconditionally, so a folder whose ".." child had
+        already been fetched was rescued. (Only the shown folder's ".." is
+        accepted now - see _is_shown_updir - which ended the same rescue one
+        level down, for subfolders.) QFileSystemModel fetches lazily and
         asynchronously, so whether that happened depended on timing - which
         is why the failure looked intermittent and why the fix cannot rely on
         it.
@@ -661,13 +665,44 @@ class DotDotFirstProxyModel(QSortFilterProxyModel):
                     return lt < rt
         return super().lessThan(left, right)
 
+    def _is_shown_updir(self, source_model, source_parent):
+        """Is the ".." row under *source_parent* the one the view SHOWS?
+
+        Only the ".." of the folder the view is rooted at is navigation. An
+        expanded subfolder lists a ".." of its own too, and that one is
+        worse than noise:
+
+        * double-clicking it does not go where it seems to point (the
+          subfolder's parent, i.e. the shown folder) - every pane's handler
+          goes up from the SHOWN folder, one level further than the row
+          suggests;
+        * Ctrl-A selected it, because bind_select_all_except_updir only
+          deselects the top-level ".." - "select everything here" then
+          carried rows that are not content;
+        * recursive filtering accepts a folder whose child is accepted, so a
+          subfolder that had been listed once was RESCUED by its own ".."
+          under any filter, while an identical folder never expanded was
+          not - what a filter showed depended on where the user had been.
+
+        So a nested ".." is filtered away. The shown folder is the kept
+        folder (set_keep_path, which root_tree_at - every rooting site - sets
+        in the model's own spelling). A proxy no view has been rooted
+        through keeps the old answer, every ".." shown.
+        """
+        keep = self._keep_cmp
+        if not keep:
+            return True
+        return self._cmp_path(source_model.filePath(source_parent)) == keep
+
     def filterAcceptsRow(self, source_row, source_parent):
         source_model = self.sourceModel()
         index = source_model.index(source_row, 0, source_parent)
         name = self._source_name(source_model, index)
-        # Always show the parent-directory entry
+        # Always show the parent-directory entry OF THE SHOWN FOLDER - never
+        # filtered, since it is how the user goes back up - and never the
+        # one an expanded subfolder lists (see _is_shown_updir).
         if name == "..":
-            return True
+            return self._is_shown_updir(source_model, source_parent)
         # Match with the regular expression the proxy holds, NOT with its
         # pattern text as a substring (9.7.2). setFilterWildcard("abc")
         # stores "(?s:abc)" on Qt 6.10 (older Qt stored the bare text), so
@@ -747,8 +782,13 @@ def bind_select_all_except_updir(view, is_updir):
     pattern the drag-and-drop hooks already use; Shiboken resolves
     virtual calls through the instance, so Qt's own Ctrl-A handling
     lands here too. Only top-level rows under the current root are
-    checked: DotDotFirstProxyModel pins ".." there, and an expanded
-    subfolder never shows one.
+    checked, and that is complete for every view this is bound to: the
+    Remote Explorer's Next pane is flat, and on the three local trees an
+    expanded subfolder DOES list a ".." of its own in the file-system
+    model - DotDotFirstProxyModel filters those away (_is_shown_updir),
+    so the only ".." left to deselect is the shown folder's, pinned at
+    the top. (Before that filter, Ctrl-A selected every expanded
+    subfolder's "..".)
 
     The closure holds the view only WEAKLY: ``view.selectAll = closure``
     capturing ``view`` strongly would make every bound view a reference

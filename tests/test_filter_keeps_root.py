@@ -12,6 +12,13 @@ That shipped from 9.7.2 to 9.7.37 because the only coverage was offscreen UI
 phase 1, which needs hdfmonkey and SKIPS on CI. This suite needs nothing but
 PySide6 and a temp folder, so it runs everywhere - which is the point.
 
+The same accident lived on one level down: recursive filtering accepts a
+folder whose child is accepted, and every listed folder has a ".." child, so
+a subfolder the user had once expanded was RESCUED by its own ".." under any
+filter while an identical one never expanded was not. The proxy now shows
+only the SHOWN folder's ".." (_is_shown_updir), and the last block below
+pins what a filter shows no longer depending on where the user has been.
+
 Run with: python tests/test_filter_keeps_root.py
 """
 import os
@@ -215,6 +222,85 @@ try:
     check("a backslash-spelled path is kept under the model's spelling",
           proxy.keep_path() == model.filePath(model.index(HERE_FWD)),
           f"{proxy.keep_path()!r}")
+
+    # A LISTED subfolder is not rescued by its own "..". Recursive filtering
+    # accepts a folder whose child is accepted; ".." used to be accepted
+    # everywhere, so a subfolder that had been expanded once (its ".." in
+    # the model) survived EVERY filter, while an identical one never
+    # expanded did not. Only the shown folder's ".." is accepted now.
+    print()
+    print("== a listed subfolder under the filter ==")
+    SUB = HERE_FWD + "/sub"
+    EMPTY = HERE_FWD + "/empty"          # a sibling: listed, holding nothing
+    os.makedirs(EMPTY)
+    with open(os.path.join(HERE, "sub", "inner.txt"), "w") as f:
+        f.write("x")
+    root_tree_at(view, proxy, model, HERE_FWD)
+
+    def src_names(path):
+        ix = model.index(path)
+        return [model.fileName(model.index(r, 0, ix))
+                for r in range(model.rowCount(ix))]
+
+    def listed(path, want):
+        # Re-resolved per poll: an index taken before a re-list dangles.
+        ix = model.index(path)
+        if model.canFetchMore(ix):
+            model.fetchMore(ix)
+        return set(want) <= set(src_names(path))
+
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not (
+            listed(SUB, ("..", "inner.txt")) and listed(EMPTY, ("..",))
+            and "empty" in src_names(HERE_FWD)):
+        QCoreApplication.processEvents()
+        time.sleep(0.01)
+    check("premise: both subfolders are listed, each with a '..' in the model",
+          ".." in src_names(SUB) and ".." in src_names(EMPTY),
+          f"sub={src_names(SUB)} empty={src_names(EMPTY)}")
+
+    def all_names(parent):
+        return [model.fileName(proxy.mapToSource(proxy.index(r, 0, parent)))
+                for r in range(proxy.rowCount(parent))]
+
+    check("with no filter a subfolder shows no '..' of its own",
+          sorted(all_names(proxy.mapFromSource(model.index(SUB)))) == ["inner.txt"]
+          and all_names(proxy.mapFromSource(model.index(EMPTY))) == [],
+          f"sub={all_names(proxy.mapFromSource(model.index(SUB)))} "
+          f"empty={all_names(proxy.mapFromSource(model.index(EMPTY)))}")
+    check("...while the shown folder keeps its '..'",
+          ".." in all_names(view.rootIndex()), str(all_names(view.rootIndex())))
+
+    proxy.setFilterWildcard("zzz-no-such-name")
+    QCoreApplication.processEvents()
+    check("a filter matching nothing hides the LISTED subfolders too",
+          not shown(view.rootIndex()), str(shown(view.rootIndex())))
+    check("...and keeps the shown folder's '..'",
+          ".." in all_names(view.rootIndex()), str(all_names(view.rootIndex())))
+
+    # Recursive filtering itself must still work for real content.
+    proxy.setFilterWildcard("inner")
+    QCoreApplication.processEvents()
+    check("a match INSIDE a subfolder still shows that subfolder",
+          shown(view.rootIndex()) == ["sub"], str(shown(view.rootIndex())))
+    check("...with just the match under it, no '..'",
+          all_names(proxy.mapFromSource(model.index(SUB))) == ["inner.txt"],
+          str(all_names(proxy.mapFromSource(model.index(SUB)))))
+    proxy.setFilterWildcard("")
+    QCoreApplication.processEvents()
+
+    # The empty folder, rooted: its ".." is the shown one now - the only way
+    # back up out of a folder with nothing in it.
+    check("rooting at an empty folder shows its '..'",
+          root_tree_at(view, proxy, model, EMPTY)
+          and all_names(view.rootIndex()) == [".."],
+          str(all_names(view.rootIndex())))
+    proxy.setFilterWildcard("zzz-no-such-name")
+    QCoreApplication.processEvents()
+    check("...and a filter never takes it away",
+          view_dir() == EMPTY and all_names(view.rootIndex()) == [".."],
+          f"{view_dir()} rows={all_names(view.rootIndex())}")
+    proxy.setFilterWildcard("")
 finally:
     shutil.rmtree(ROOT, ignore_errors=True)
 
