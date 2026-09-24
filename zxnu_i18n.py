@@ -1403,6 +1403,8 @@ CATALOGS = {
             "zx-next-unite se publica bajo la licencia MIT. Es una aplicación Qt que usa PySide6 (Qt para Python) sobre Qt6, utilizado bajo la GNU LGPL v3.",
         "Please refer to the LICENSE and THIRD-PARTY-NOTICES.md files on github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE and https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.":
             "Consulta los archivos LICENSE y THIRD-PARTY-NOTICES.md en github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE y https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.",
+        "ZX Spectrum Next is a trademark of SpecNext Ltd - see https://www.specnext.com/":
+            "ZX Spectrum Next es una marca comercial de SpecNext Ltd - ver https://www.specnext.com/",
         "PySide6 is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The pre-built release executables do include PySide6/Qt; since the app's full source code is published, they can be rebuilt with a modified Qt.":
             "PySide6 no viene incluido al hacer una instalación manual de python y debe instalarse por separado (ver instrucciones de instalación). Los ejecutables precompilados de las releases sí incluyen PySide6/Qt; como el código fuente completo de la aplicación está publicado, pueden reconstruirse con un Qt modificado.",
         "zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org.":
@@ -2780,6 +2782,8 @@ CATALOGS = {
             "O zx-next-unite é publicado sob a licença MIT. É uma aplicação Qt que usa PySide6 (Qt para Python) sobre Qt6, utilizado sob a GNU LGPL v3.",
         "Please refer to the LICENSE and THIRD-PARTY-NOTICES.md files on github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE and https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.":
             "Consulta os ficheiros LICENSE e THIRD-PARTY-NOTICES.md no github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE e https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.",
+        "ZX Spectrum Next is a trademark of SpecNext Ltd - see https://www.specnext.com/":
+            "ZX Spectrum Next é uma marca comercial da SpecNext Ltd - ver https://www.specnext.com/",
         "PySide6 is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The pre-built release executables do include PySide6/Qt; since the app's full source code is published, they can be rebuilt with a modified Qt.":
             "O PySide6 não vem incluído numa instalação manual de python e tem de ser instalado à parte (ver instruções de instalação). Os executáveis pré-compilados das releases incluem PySide6/Qt; como o código fonte completo da aplicação está publicado, podem ser reconstruídos com um Qt modificado.",
         "zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org.":
@@ -4154,6 +4158,8 @@ CATALOGS = {
             "zx-next-unite jest wydany na licencji MIT. To aplikacja Qt używająca PySide6 (Qt for Python) na Qt6, wykorzystywanym na licencji GNU LGPL v3.",
         "Please refer to the LICENSE and THIRD-PARTY-NOTICES.md files on github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE and https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.":
             "Zobacz pliki LICENSE i THIRD-PARTY-NOTICES.md na githubie: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE oraz https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.",
+        "ZX Spectrum Next is a trademark of SpecNext Ltd - see https://www.specnext.com/":
+            "ZX Spectrum Next jest znakiem towarowym SpecNext Ltd - zobacz https://www.specnext.com/",
         "PySide6 is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The pre-built release executables do include PySide6/Qt; since the app's full source code is published, they can be rebuilt with a modified Qt.":
             "PySide6 nie jest dołączany przy ręcznej instalacji pythona i trzeba go zainstalować osobno (zobacz instrukcję instalacji). Prekompilowane wydania zawierają PySide6/Qt; ponieważ pełny kod źródłowy aplikacji jest opublikowany, można je zbudować ponownie ze zmodyfikowanym Qt.",
         "zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org.":
@@ -5530,6 +5536,8 @@ CATALOGS = {
             "zx-next-unite выпускается под лицензией MIT. Это Qt-приложение на PySide6 (Qt for Python) поверх Qt6, используемого по GNU LGPL v3.",
         "Please refer to the LICENSE and THIRD-PARTY-NOTICES.md files on github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE and https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.":
             "См. файлы LICENSE и THIRD-PARTY-NOTICES.md на github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE и https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.",
+        "ZX Spectrum Next is a trademark of SpecNext Ltd - see https://www.specnext.com/":
+            "ZX Spectrum Next является товарным знаком SpecNext Ltd - см. https://www.specnext.com/",
         "PySide6 is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The pre-built release executables do include PySide6/Qt; since the app's full source code is published, they can be rebuilt with a modified Qt.":
             "PySide6 не входит в ручную установку python и ставится отдельно (см. инструкцию по установке). Готовые сборки релизов включают PySide6/Qt; поскольку полный исходный код приложения опубликован, их можно пересобрать с изменённым Qt.",
         "zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org.":
@@ -6903,6 +6911,8 @@ CATALOGS = {
             "zx-next-unite je vydán pod licencí MIT. Je to Qt aplikace používající PySide6 (Qt for Python) nad Qt6, užívaným pod GNU LGPL v3.",
         "Please refer to the LICENSE and THIRD-PARTY-NOTICES.md files on github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE and https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.":
             "Viz soubory LICENSE a THIRD-PARTY-NOTICES.md na githubu: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE a https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.",
+        "ZX Spectrum Next is a trademark of SpecNext Ltd - see https://www.specnext.com/":
+            "ZX Spectrum Next je ochranná známka společnosti SpecNext Ltd - viz https://www.specnext.com/",
         "PySide6 is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The pre-built release executables do include PySide6/Qt; since the app's full source code is published, they can be rebuilt with a modified Qt.":
             "PySide6 není součástí ruční instalace pythonu a je třeba jej nainstalovat zvlášť (viz pokyny k instalaci). Předkompilovaná sestavení releasů PySide6/Qt obsahují; protože je zveřejněn celý zdrojový kód aplikace, lze je znovu sestavit s upraveným Qt.",
         "zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org.":
@@ -8283,6 +8293,8 @@ CATALOGS = {
             "zx-next-unite est publié sous licence MIT. C'est une application Qt utilisant PySide6 (Qt for Python) au-dessus de Qt6, utilisé sous GNU LGPL v3.",
         "Please refer to the LICENSE and THIRD-PARTY-NOTICES.md files on github: https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE and https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.":
             "Consultez les fichiers LICENSE et THIRD-PARTY-NOTICES.md sur github : https://github.com/jclauzel/ZX-Next-Unite/blob/main/LICENSE et https://github.com/jclauzel/ZX-Next-Unite/blob/main/THIRD-PARTY-NOTICES.md.",
+        "ZX Spectrum Next is a trademark of SpecNext Ltd - see https://www.specnext.com/":
+            "ZX Spectrum Next est une marque commerciale de SpecNext Ltd - voir https://www.specnext.com/",
         "PySide6 is not bundled when performing a manual python install and needs to be installed separately (see installation instructions). The pre-built release executables do include PySide6/Qt; since the app's full source code is published, they can be rebuilt with a modified Qt.":
             "PySide6 n'est pas inclus lors d'une installation python manuelle et doit être installé séparément (voir les instructions d'installation). Les exécutables précompilés des releases incluent PySide6/Qt ; le code source complet de l'application étant publié, ils peuvent être reconstruits avec un Qt modifié.",
         "zx-next-unite also uses pygame-ce (the community edition of pygame) for its animated backgrounds and visualizations (e.g. the 'Alien Floyd's' effects). Many thanks to the pygame and pygame-ce communities - see https://pyga.me and https://www.pygame.org.":

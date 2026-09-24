@@ -71,6 +71,9 @@ RE_ISDIR_ROLE = Qt.UserRole + 2
 # lands mid garbage-collection (the machine-colour suite reproduced it).
 RE_BG_ROLE = Qt.ItemDataRole.BackgroundRole
 RE_FG_ROLE = Qt.ItemDataRole.ForegroundRole
+# Same rule, for the roles ColoredFileSystemModel's sort/paint reads use.
+_FS_NAME_ROLE = QFileSystemModel.Roles.FileNameRole
+_DISPLAY_ROLE = Qt.ItemDataRole.DisplayRole
 
 
 # CompactButton (imported above from zxnu_workers) backs the Up / Refresh /
@@ -251,8 +254,17 @@ class ColoredFileSystemModel(QFileSystemModel):
     colour mapping is keyed off that (the view re-orders them visually to
     Name/Type/Size to mirror the image tree).
 
-    ONLY data() IS OVERRIDDEN, and that is what makes this safe to drop under
-    a tree's existing drag & drop. flags(), mimeData()/mimeTypes() and the
+    SORTING (9.7.39): DotDotFirstProxyModel compares the Name and Type
+    columns through this model's sort_text() rather than through data(),
+    and reads names with the base-class call - a Python data() override is
+    a C++->Python crossing per read, and painting the trees had made a Type
+    sort of 5,223 entries 0.58 s against 0.09 s on a plain model (0.19 s
+    now). sort_text must stay equal to data(DisplayRole) for those columns;
+    tests/test_proxy_sort_fastpath.py pins that and the resulting order.
+
+    ONLY data() IS OVERRIDDEN among Qt's virtuals (the helpers below are
+    plain Python), and that is what makes this safe to drop under a tree's
+    existing drag & drop. flags(), mimeData()/mimeTypes() and the
     supported drag/drop actions are QFileSystemModel's own - measured
     identical to a plain model, through DotDotFirstProxyModel, when the
     Classic sync tree moved onto this class (9.7.39). Keep it that way. All
@@ -286,7 +298,7 @@ class ColoredFileSystemModel(QFileSystemModel):
             # the ".." row), so it matches the Next pane instead of the OS-localised
             # "octets/Kio". The real byte count is still used for sorting (see
             # DotDotFirstProxyModel.lessThan).
-            if self.isDir(index) or self.fileName(index) == "..":
+            if self.isDir(index) or self._name(index) == "..":
                 return ""
             return _human_size(self.size(index))
         if (role == Qt.ItemDataRole.DisplayRole and index.isValid()
@@ -295,9 +307,7 @@ class ColoredFileSystemModel(QFileSystemModel):
             # folders and the ".." row, the file's extension otherwise) instead
             # of the OS-localised description ("File folder", "Compressed
             # archived file", "text/plain", ...).
-            if self.isDir(index) or self.fileName(index) == "..":
-                return "DIR"
-            return _ext_type_text(self.fileName(index))
+            return self._type_text(index)
         if (role == Qt.ItemDataRole.DisplayRole and index.isValid()
                 and index.column() == 3):
             # Modified column: a fixed ISO-style stamp instead of the OS-locale
@@ -315,13 +325,13 @@ class ColoredFileSystemModel(QFileSystemModel):
             # date by the timezone offset — hours off, silently. Converting
             # explicitly is a no-op when the stamp is already local and the
             # correct wall-clock everywhere else.
-            if self.fileName(index) == "..":
+            if self._name(index) == "..":
                 return ""
             return (self.lastModified(index)
                     .toLocalTime().toString("yyyy-MM-dd HH:mm"))
         if role == Qt.ItemDataRole.ForegroundRole and index.isValid():
             c = self._colours
-            if self.fileName(index) == "..":  # the parent ".." up-entry
+            if self._name(index) == "..":     # the parent ".." up-entry
                 return c["up_directory"]
             is_dir = self.isDir(index)
             col = index.column()
@@ -335,6 +345,56 @@ class ColoredFileSystemModel(QFileSystemModel):
                 return c["file_size"]
             return None                        # let the view use its default
         return super().data(index, role)
+
+    # ---- reads that never re-enter data() (9.7.39) ------------------------
+    # fileName() is QFileSystemModel's INLINE index.data(FileNameRole): a
+    # call back through the virtual data(), i.e. into this Python override
+    # again - a second C++->Python crossing for every one this method is
+    # already serving. The sort proxy asks for names on every comparison, so
+    # those crossings were most of what painting the trees made sorting cost
+    # (measured: a Type sort of System32's 5,223 entries 0.09 s on a plain
+    # model -> 0.58 s on this one). The base-class call answers the same
+    # string - FileNameRole is not overridden here, and must not be - with
+    # no crossing. isDir()/size()/lastModified() read the file node directly
+    # and never go through data(), so they need nothing.
+    def _name(self, index):
+        return QFileSystemModel.data(self, index, _FS_NAME_ROLE) or ""
+
+    def _type_text(self, index, name=None):
+        """The Type column's text: "DIR" for a folder or the ".." row, else
+        the first extension segment - what data() shows AND what sort_text
+        sorts by, from this one place, so the two cannot drift apart. *name*
+        is the row's file name when the caller already has it (the sort
+        proxy reads it for its ".." test); None reads it here."""
+        if self.isDir(index):
+            return "DIR"
+        if name is None:
+            name = self._name(index)
+        if name == "..":
+            return "DIR"
+        return _ext_type_text(name)
+
+    def sort_text(self, index, name=None):
+        """The DisplayRole text of *index* for the columns the sort proxy
+        compares as TEXT (Name = 0, Type = 2), computed without re-entering
+        data(); None for any other column, which sends the proxy back to
+        Qt's own comparison. *name*, when given, must be the row's file name
+        (the FileNameRole), and only spares the Type column a second read.
+
+        DotDotFirstProxyModel.lessThan duck-types this (zxnu_workers cannot
+        import this module - the import runs the other way). It must equal
+        data(index, DisplayRole) exactly for those two columns, which is
+        why column 2 goes through _type_text, and why column 0's display
+        text must stay QFileSystemModel's own: override it in data() and
+        this hook has to follow, or the sort would order by one text while
+        showing another. tests/test_proxy_sort_fastpath.py pins the
+        equality on every row it generates."""
+        col = index.column()
+        if col == 0:
+            return QFileSystemModel.data(self, index, _DISPLAY_ROLE)
+        if col == 2:
+            return self._type_text(index, name)
+        return None
 
 
 def _human_size(n):

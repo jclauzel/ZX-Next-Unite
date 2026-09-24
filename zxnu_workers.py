@@ -455,6 +455,18 @@ def bind_listen_socket(port):
     return srv
 
 
+# Resolved ONCE at import, like zxnu_remote_explorer's RE_*_ROLE: PySide6
+# materialises enum members lazily, and lessThan/filterAcceptsRow are about
+# as hot a path as this app has.
+_FS_NAME_ROLE = QFileSystemModel.Roles.FileNameRole
+_DISPLAY_ROLE = Qt.ItemDataRole.DisplayRole
+# Measured: `x == Qt.CaseInsensitive` costs 1.2-1.9 us - the lookup through
+# the Qt namespace, not the compare - which was 40% of a whole fast-path
+# comparison. Resolved here, the compare is free.
+_CASE_INSENSITIVE = Qt.CaseSensitivity.CaseInsensitive
+_CASE_SENSITIVE = Qt.CaseSensitivity.CaseSensitive
+
+
 class DotDotFirstProxyModel(QSortFilterProxyModel):
     """Proxy model that always keeps the '..' parent directory entry at the top."""
 
@@ -560,10 +572,25 @@ class DotDotFirstProxyModel(QSortFilterProxyModel):
         prefix = p if p.endswith("/") else p + "/"
         return keep.startswith(prefix)
 
+    @staticmethod
+    def _source_name(source_model, index):
+        """The row's file name WITHOUT re-entering a Python data() override.
+
+        QFileSystemModel.fileName() is an inline index.data(FileNameRole),
+        so on a subclass that overrides data() in Python (all three local
+        trees' ColoredFileSystemModel) every name costs a C++->Python
+        crossing - and lessThan asks for two per comparison. The base-class
+        call answers the same string (FileNameRole is never overridden)
+        straight from the file node (9.7.39)."""
+        if isinstance(source_model, QFileSystemModel):
+            return QFileSystemModel.data(source_model, index,
+                                         _FS_NAME_ROLE) or ""
+        return source_model.fileName(index)
+
     def lessThan(self, left, right):
         source_model = self.sourceModel()
-        left_name = source_model.fileName(left)
-        right_name = source_model.fileName(right)
+        left_name = self._source_name(source_model, left)
+        right_name = self._source_name(source_model, right)
         if left_name == "..":
             return True
         if right_name == "..":
@@ -580,12 +607,52 @@ class DotDotFirstProxyModel(QSortFilterProxyModel):
         # what the display format is changed to later.
         if isinstance(source_model, QFileSystemModel) and left.column() == 3:
             return source_model.lastModified(left) < source_model.lastModified(right)
+        # Name and Type compare DISPLAY TEXT (9.7.39 fast path). Qt's own
+        # comparison below reads that text through the model's virtual data()
+        # - on a painted tree, two C++->Python crossings per comparison, and
+        # Type's text is computed there every time (measured: a Type sort of
+        # 5,223 entries 0.58 s, against 0.09 s on a plain model). A model that
+        # offers sort_text() (ColoredFileSystemModel) hands the same text over
+        # without re-entering data(), and the comparison is done here -
+        # EXACTLY as Qt would do it, which is only knowable for ASCII:
+        #  * QString::compare(Qt::CaseInsensitive) folds each UTF-16 unit with
+        #    SIMPLE case folding; Python's lower() and casefold() are full
+        #    mappings that differ ("İ", "ß", final sigma), and Python orders
+        #    by code point where Qt orders by UTF-16 unit (they disagree
+        #    between U+E000-U+FFFF and the supplementary planes). For ASCII
+        #    all of these coincide: folding is A-Z -> a-z, units are code
+        #    points, and a shorter prefix sorts first in both.
+        #  * so any non-ASCII text - and any configuration these trees never
+        #    use (another sort role, locale-aware sorting) - falls through to
+        #    Qt's comparison, unchanged. tests/test_proxy_sort_fastpath.py
+        #    pins the resulting order against the old one, row for row.
+        # Ties return False both ways, as Qt's does, so the stable sort keeps
+        # equal rows in the order the PREVIOUS sort left them (Qt stable-sorts
+        # the mapping's current rows), exactly as before.
+        sort_text = getattr(source_model, "sort_text", None)
+        if (sort_text is not None and self.sortRole() == _DISPLAY_ROLE
+                and not self.isSortLocaleAware()):
+            # The names read above are handed over, so the Type column need
+            # not read them a second time.
+            lt = sort_text(left, left_name)
+            rt = sort_text(right, right_name)
+            if (isinstance(lt, str) and isinstance(rt, str)
+                    and lt.isascii() and rt.isascii()):
+                # Both members named: an unforeseen value from the getter
+                # (another PySide6 enum representation, say) must cost speed,
+                # never order - so it falls through to Qt like the other
+                # guards do, rather than landing in a case-SENSITIVE compare.
+                cs = self.sortCaseSensitivity()
+                if cs == _CASE_INSENSITIVE:
+                    return lt.lower() < rt.lower()
+                if cs == _CASE_SENSITIVE:
+                    return lt < rt
         return super().lessThan(left, right)
 
     def filterAcceptsRow(self, source_row, source_parent):
         source_model = self.sourceModel()
         index = source_model.index(source_row, 0, source_parent)
-        name = source_model.fileName(index)
+        name = self._source_name(source_model, index)
         # Always show the parent-directory entry
         if name == "..":
             return True
