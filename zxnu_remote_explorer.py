@@ -4142,9 +4142,10 @@ class RemoteExplorerWidget(QWidget):
           invariant worth stating twice.
 
         The ".." row is never filtered out, exactly as the local pane's
-        DotDotFirstProxyModel.filterAcceptsRow accepts it
-        unconditionally: a filter narrows what is IN a folder, it never
-        takes away the way out of one.
+        DotDotFirstProxyModel.filterAcceptsRow accepts the SHOWN folder's
+        ".." whatever the filter: a filter narrows what is IN a folder, it
+        never takes away the way out of one. (This pane is flat, so its one
+        ".." is always the shown folder's.)
 
         Matching is a case-insensitive substring of the row's joined
         Name + Type + Size text - the SD Card tab's image tree rule,

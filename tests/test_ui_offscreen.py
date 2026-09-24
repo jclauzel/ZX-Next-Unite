@@ -1421,6 +1421,37 @@ def inspect_phase4():
         check("'..' row reads blank / DIR / blank", _cells == ("", "DIR", ""),
               str(_cells))
 
+    # '..' stays first through the VIEW's own sort (what a header click
+    # ends in), every column, both orders: Qt's descending sort calls
+    # lessThan(right, left), and a fixed "'..' is less" answer used to sink
+    # it to the BOTTOM of every descending sort. The original sort is put
+    # back afterwards. The root is read into a name of its OWN: `_root`
+    # above is a plain QModelIndex that the colour check below still reads,
+    # and a proxy index taken mid-loop names a ROW, which the restoring
+    # sort can hand to another folder (timestamps tie on Linux, so the
+    # Modified sort leaves the shown folder where the stable order put it).
+    _hdr = tv.header()
+    _was = (_hdr.sortIndicatorSection(), _hdr.sortIndicatorOrder())
+    _sunk = []
+    for _col in range(4):
+        for _ord in (Qt.SortOrder.AscendingOrder, Qt.SortOrder.DescendingOrder):
+            tv.sortByColumn(_col, _ord)
+            _sroot = tv.rootIndex()
+            _first = proxy.index(0, 0, _sroot).data() if proxy.rowCount(_sroot) else None
+            if _first != "..":
+                _sunk.append((_col, _ord.name, _first))
+    tv.sortByColumn(*_was)
+    # ...and `_root` itself is re-read from the view, whose root index IS
+    # persistent: even the restored sort only reproduces the old rows while
+    # the Name column has no ties. `_updir` is found again by NAME for the
+    # same reason; the colour checks below read both.
+    _root = tv.rootIndex()
+    _updir = next((proxy.index(r, 0, _root)
+                   for r in range(proxy.rowCount(_root))
+                   if proxy.index(r, 0, _root).data() == ".."), None)
+    check("'..' row stays first in every column, both orders", not _sunk,
+          str(_sunk))
+
     # --- item colours: the one restored from the cfg AFTER the tree was
     # built, every column's colour family, and a REBIND followed live.
     FG = Qt.ItemDataRole.ForegroundRole

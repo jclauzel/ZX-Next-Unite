@@ -29,6 +29,14 @@ It also proves the fast path is actually TAKEN - an equal order would also
 come from a fast path that never ran - by counting Python data() calls
 during an all-ASCII sort: none with the fast path, many through the old one.
 
+".." is the one row NOT compared against the reference. The old lessThan
+answered "'..' is less" whatever the order, and Qt's descending comparator
+calls lessThan(right, left), so it put ".." at the BOTTOM of every
+descending sort (fixed in 9.7.40). The reference keeps the old code
+verbatim, so ".." is pinned on its own instead: row 0 in every sort this
+suite runs, both orders, every column - and every OTHER row must still
+match the reference row for row.
+
 Run with: python tests/test_proxy_sort_fastpath.py
 """
 import os
@@ -76,7 +84,11 @@ class ReferenceProxy(DotDotFirstProxyModel):
     lessThan verbatim (names through fileName(), everything else through
     Qt's own QSortFilterProxyModel.lessThan - called on the BASE class, never
     super(), which would reach the new code), and names in the filter through
-    fileName() as well - the only thing the filter's change touched."""
+    fileName() as well - the only thing the filter's change touched.
+
+    Its ".." answers are the OLD ones too, which put ".." last in a
+    descending sort - so ".." is left out of every comparison with it and
+    pinned separately (see _compare)."""
 
     _source_name = staticmethod(lambda sm, ix: sm.fileName(ix))
 
@@ -196,12 +208,29 @@ def _order(proxy, parent_src):
             for r in range(proxy.rowCount(parent))]
 
 
+def _dotdot_first(label, proxy, parent_of=root_src):
+    rows = _order(proxy, parent_of())
+    check(f"{label}: '..' is row 0",
+          rows[:1] == [".."] and rows.count("..") == 1,
+          f"'..' at row {rows.index('..') if '..' in rows else None} of {len(rows)}")
+
+
 def _compare(label, new, ref, parent_of=root_src):
-    a, b = _order(new, parent_of()), _order(ref, parent_of())
+    """Every row but ".." in the reference's order, and ".." on top.
+
+    ".." is the one row whose place was MEANT to change (the reference
+    still sinks it to the bottom of a descending sort), so it is pinned
+    by _dotdot_first rather than compared. Taking it out cannot hide a
+    reordering of the others: it ties with nothing, and a stable sort of
+    a strict ordering places every other row the same with or without
+    it."""
+    a = [n for n in _order(new, parent_of()) if n != ".."]
+    b = [n for n in _order(ref, parent_of()) if n != ".."]
     first = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), None)
     check(label, a == b and len(a) > 1,
           f"first difference at row {first}: {a[first:first + 4] if first is not None else a}"
           f" vs {b[first:first + 4] if first is not None else b}")
+    _dotdot_first(label, new, parent_of)
 
 
 # ── 1. sort_text IS the displayed text, for the two text columns ─────────
@@ -255,17 +284,63 @@ for cfg_name, cfg in (
             ref.sort(col, order)
             _compare(f"{cfg_name}: column {col} {oname}", new, ref)
 
+# ── 2b. ".." stays on top whatever the sort ──────────────────────────────
+# '..' is how every user goes back up a folder, so it must be where they
+# look for it. _compare already pins it after every sort above; this block
+# proves that pin can FAIL (the old code really did sink it), pins the
+# comparison itself, and covers a folder first mapped under a descending
+# sort - the path a user takes by navigating into a folder with the tree
+# already sorted Z-A.
+print("== '..' on top in both orders ==")
+ref = _proxy(ReferenceProxy)
+ref.sort(0, Qt.DescendingOrder)
+_ro = _order(ref, root_src())
+check("the pre-fix lessThan sank '..' to the BOTTOM of a descending sort "
+      "(what the '..' pin catches)", _ro[-1:] == [".."], str(_ro[-3:]))
+
+new = _proxy(DotDotFirstProxyModel)
+_up = next(model.index(r, 0, root_src()) for r in range(model.rowCount(root_src()))
+           if model.fileName(model.index(r, 0, root_src())) == "..")
+_other = next(model.index(r, 0, root_src()) for r in range(model.rowCount(root_src()))
+              if model.fileName(model.index(r, 0, root_src())) == "Alpha.txt")
+for order, oname in ORDERS:
+    new.sort(0, order)
+    asc = order == Qt.AscendingOrder
+    # Qt places a before b when lessThan(a, b) ascending, lessThan(b, a)
+    # descending - so ".." first means the answer FOLLOWS the order.
+    check(f"{oname}: lessThan('..', x) is {asc}, lessThan(x, '..') is {not asc}",
+          new.lessThan(_up, _other) is asc and new.lessThan(_other, _up) is (not asc))
+    check(f"{oname}: lessThan('..', '..') is False (a strict ordering)",
+          new.lessThan(_up, _up) is False)
+
+for col in range(4):
+    for order, oname in ORDERS:
+        # A FRESH proxy, sorted before any folder is mapped: every folder is
+        # then sorted for the first time under this order.
+        fresh = _proxy(DotDotFirstProxyModel)
+        fresh.sort(col, order)
+        _dotdot_first(f"column {col} {oname}, folder first mapped after the sort",
+                      fresh, nested_src)
+        _dotdot_first(f"column {col} {oname}, root first mapped after the sort",
+                      fresh)
+
 # ── 3. dynamic sorting: a row that ARRIVES lands in the same place ───────
 print("== a file created while sorted ==")
-new, ref = _proxy(DotDotFirstProxyModel), _proxy(ReferenceProxy)
-new.sort(2, Qt.AscendingOrder)
-ref.sort(2, Qt.AscendingOrder)
-_late = os.path.join(ROOT, "Middle.late")
-_make(_late, 3)
-check("the new file reaches both proxies",
-      wait_until(lambda: "Middle.late" in _order(new, root_src())
-                 and "Middle.late" in _order(ref, root_src())))
-_compare("dynamic sort: the arrival sorts into the same place", new, ref)
+# Both orders: the insertion search compares the arrival against ".." with
+# the arguments SWAPPED when descending, just as the full sort does.
+for order, oname, late_name in ((Qt.AscendingOrder, "asc", "Middle.late"),
+                                (Qt.DescendingOrder, "desc", "Middle2.late")):
+    new, ref = _proxy(DotDotFirstProxyModel), _proxy(ReferenceProxy)
+    new.sort(2, order)
+    ref.sort(2, order)
+    _order(new, root_src())         # map the folder BEFORE the file arrives
+    _order(ref, root_src())
+    _make(os.path.join(ROOT, late_name), 3)
+    check(f"{oname}: the new file reaches both proxies",
+          wait_until(lambda: late_name in _order(new, root_src())
+                     and late_name in _order(ref, root_src())))
+    _compare(f"dynamic sort {oname}: the arrival sorts into the same place",
+             new, ref)
 
 # ── 4. the name filter keeps the same rows ───────────────────────────────
 print("== the name filter ==")
@@ -275,7 +350,8 @@ for pat in ("a", "TXT", "é", "ß", "zz*", "?.b", "no-such-name-anywhere", ""):
     ref.setFilterWildcard(pat)
     new.sort(0, Qt.AscendingOrder)
     ref.sort(0, Qt.AscendingOrder)
-    if len(_order(ref, root_src())) > 1:
+    # _compare leaves ".." out, so it needs two OTHER rows to show an order.
+    if len([n for n in _order(ref, root_src()) if n != ".."]) > 1:
         _compare(f"filter {pat!r}: same rows, same order", new, ref)
     else:
         check(f"filter {pat!r}: same rows",
