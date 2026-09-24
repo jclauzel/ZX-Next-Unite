@@ -771,6 +771,20 @@ def test_sorting():
     w._on_next_header_clicked(2)
     check("size sort desc reverses",
           next_names(w) == ["b.tap", "a.zzz", "zdir", "AAA"])
+    # Below a root the '..' row appears, and it stays FIRST in both orders:
+    # it is how every user goes back up a folder. This pane sorts the
+    # listing itself and inserts '..' ahead of it (_rebuild_next_rows), so
+    # it never had the descending bug the local trees' proxy had - pinned
+    # here so it never grows one.
+    w.on_listing("/games", entries)
+    check("'..' first under size desc",
+          next_names(w) == ["..", "b.tap", "a.zzz", "zdir", "AAA"])
+    w._on_next_header_clicked(0)
+    check("'..' first under name asc",
+          next_names(w) == ["..", "a.zzz", "AAA", "b.tap", "zdir"])
+    w._on_next_header_clicked(0)
+    check("'..' first under name desc",
+          next_names(w) == ["..", "zdir", "b.tap", "AAA", "a.zzz"])
 
     # Restored sorts: indicators applied, nothing re-saved.
     w2, calls2 = make_widget(local_start_dir=tdir("srt2_root"),

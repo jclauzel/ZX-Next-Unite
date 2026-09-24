@@ -465,10 +465,14 @@ _DISPLAY_ROLE = Qt.ItemDataRole.DisplayRole
 # comparison. Resolved here, the compare is free.
 _CASE_INSENSITIVE = Qt.CaseSensitivity.CaseInsensitive
 _CASE_SENSITIVE = Qt.CaseSensitivity.CaseSensitive
+_ASCENDING = Qt.SortOrder.AscendingOrder
 
 
 class DotDotFirstProxyModel(QSortFilterProxyModel):
-    """Proxy model that always keeps the '..' parent directory entry at the top."""
+    """Proxy model that always keeps the '..' parent directory entry at the
+    top - in BOTH sort orders (see lessThan). '..' is how every user knows
+    to go back up a folder, so it must be where they look for it whatever
+    column or direction the tree is sorted by."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -591,10 +595,18 @@ class DotDotFirstProxyModel(QSortFilterProxyModel):
         source_model = self.sourceModel()
         left_name = self._source_name(source_model, left)
         right_name = self._source_name(source_model, right)
+        # ".." goes first in BOTH orders. A descending sort does not reverse
+        # the result: Qt's descending comparator (QSortFilterProxyModel-
+        # GreaterThan, and the insertion search under dynamic sorting) calls
+        # lessThan(right, left), so a fixed "'..' is less" answer put ".." at
+        # the BOTTOM of every descending sort. The answer must therefore
+        # follow the order - and ".." against itself is False both ways, as
+        # a strict ordering requires. sortOrder() is read only when a ".."
+        # is involved, so the other comparisons pay nothing for it.
         if left_name == "..":
-            return True
+            return right_name != ".." and self.sortOrder() == _ASCENDING
         if right_name == "..":
-            return False
+            return self.sortOrder() != _ASCENDING
         # The Size column's display text is human-readable ("512 B", "2.0 K"), so
         # the default DisplayRole comparison would sort it as a string ("2.0 K"
         # before "512 B"). Compare the real byte count instead. QFileSystemModel's
