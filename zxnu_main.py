@@ -3752,11 +3752,18 @@ class MainWindow(QMainWindow):
         # grid margin already provides the gap. Left as the style's 9 px it
         # would start the SD Card page lower than the NextSync page and the
         # two tools would jump vertically as the user crossed between them.
+        zx_next_unite_container = QWidget()
+        zx_next_unite_container.setLayout(self.zx_next_unite_form)
+        # AFTER setLayout, and that ordering is the whole point: an unparented
+        # QLayout reports (0,0,0,0) and only picks up the style's margins when
+        # it is installed on a widget (measured: (0,0,0,0) before, (11,11,11,11)
+        # after). Reading them first and writing them back therefore zeroed the
+        # left, right and bottom margins as well as the intended top - the same
+        # trap zxnu_nextsync_pane's twin call documents, which is safe there
+        # only because its form is parented long before.
         _sd_m = self.zx_next_unite_form.contentsMargins()
         self.zx_next_unite_form.setContentsMargins(
             _sd_m.left(), 0, _sd_m.right(), _sd_m.bottom())
-        zx_next_unite_container = QWidget()
-        zx_next_unite_container.setLayout(self.zx_next_unite_form)
 
         # --- NextSync tab: widgets + wiring (extracted to zxnu_nextsync_pane.py).
         # The operation-layer closures defined above are injected as params; the

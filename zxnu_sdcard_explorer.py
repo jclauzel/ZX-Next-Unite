@@ -893,12 +893,9 @@ class SdCardExplorerPane(QWidget):
         # not made yet - which silently emptied the startup restore of
         # image_explorerpath (offscreen phase 2 caught it).
         if dropped:
-            # Hiding a row is not navigating away from it: keep the target
-            # the pane had, or a filter keystroke would send the next upload
-            # to the image root.
-            _anchor = getattr(self, "_image_anchor_dir", "/")
+            # No anchor bookkeeping needed: the handler only moves it for a
+            # REAL selection, and this pass only ever removes rows.
             self._on_image_selection_changed()
-            self._image_anchor_dir = _anchor
 
     def _image_row_hidden(self, index):
         """True when *index* is hidden, or sits under a hidden ancestor.
@@ -942,6 +939,18 @@ class SdCardExplorerPane(QWidget):
         parent = path.rstrip("/").rsplit("/", 1)[0]
         return parent if parent else "/"
 
+    def _set_image_anchor(self, dir_path):
+        """Point uploads / New Folder / paste / Up / Refresh at *dir_path*.
+
+        NAVIGATION calls this - descending to a target, going up, the explicit
+        clear to "/", and wiping the tree for a new image. Filtering never
+        does: hiding a row is not moving, and inferring the anchor from the
+        selection made a filter keystroke rewrite the path box to "/" and
+        persist image_explorerpath="/" while uploads still went to the old
+        folder.
+        """
+        self._image_anchor_dir = dir_path or "/"
+
     def image_dest_dir(self):
         """Image directory targeted by uploads / new folders, based on the
         current tree selection: a selected folder -> that folder; a selected
@@ -982,6 +991,10 @@ class SdCardExplorerPane(QWidget):
         self._image_load_generation += 1
         self.image_model.clear()
         self.set_table_image_properties()
+        # A different image starts at its own root. clear() does fire a
+        # selection change (measured), but the handler no longer zeroes the
+        # anchor on an empty selection, so say it here.
+        self._set_image_anchor("/")
 
     @staticmethod
     def image_parse_ls(ls_stdout):
@@ -1242,10 +1255,14 @@ class SdCardExplorerPane(QWidget):
         falls back to the current target directory."""
         segments = [s for s in path.replace("\\", "/").split("/") if s]
         if not segments:
-            # Root: clear current + selection so actions target "/" again
-            # (the selection-changed handler refreshes the path box).
+            # Root: clear current + selection so actions target "/" again.
+            # The anchor is set HERE rather than left to the selection-changed
+            # handler, because clearSelection() on an ALREADY empty selection
+            # (a filter having hidden the selected row) emits nothing, so the
+            # handler would not run and "/" would not take effect.
             self.image_treeview.setCurrentIndex(QModelIndex())
             self.image_treeview.selectionModel().clearSelection()
+            self._set_image_anchor("/")
             self.image_update_path_label()
             return
         # A listing finishing after the image was reloaded/cleared must not
@@ -1275,6 +1292,13 @@ class SdCardExplorerPane(QWidget):
                 # fires the selection-changed handler, which updates the path
                 # box to the resulting target directory.
                 idx = child.index()
+                # Explicitly, for the same reason as the root branch: with a
+                # filter up, the target row can be HIDDEN, and the handler
+                # skips hidden rows - so "Up" would select the parent and
+                # then leave the anchor exactly where it was.
+                self._set_image_anchor(self._dir_of(
+                    child.data(IMG_PATH_ROLE) or "",
+                    bool(child.data(IMG_ISDIR_ROLE))))
                 self.image_treeview.setCurrentIndex(idx)
                 self.image_treeview.scrollTo(idx)
                 if child.data(IMG_ISDIR_ROLE):
@@ -1382,12 +1406,13 @@ class SdCardExplorerPane(QWidget):
             host.image_selected_path = primary_item.data(IMG_PATH_ROLE) or ""
             host.image_selected_is_dir = bool(primary_item.data(IMG_ISDIR_ROLE))
 
-        # Every genuine navigation lands here - a click, image_navigate_to_path
-        # descending to its target, and the explicit clear that "/" performs -
-        # so this is where the anchor tracks the pane. apply_image_filter
-        # preserves it across its own call, because hiding a row is not
-        # navigation.
-        self._image_anchor_dir = self._dir_of(host.image_selected_path,
-                                              host.image_selected_is_dir)
+        # A real selection moves the anchor; an EMPTY one never does. Empty
+        # means either "you navigated to the root" - which sets the anchor
+        # itself, explicitly - or "the filter hid your row", which is not a
+        # move at all. Zeroing here is what made a filter keystroke retarget
+        # uploads to the image root.
+        if host.image_selected_path:
+            self._set_image_anchor(self._dir_of(host.image_selected_path,
+                                                host.image_selected_is_dir))
         self._hooks.set_selected_names(selected_names)
         self.image_update_path_label()

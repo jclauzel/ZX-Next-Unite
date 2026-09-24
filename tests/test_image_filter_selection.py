@@ -99,7 +99,7 @@ def build():
     # ships, not a restatement of it.
     for _m in ("_image_row_hidden", "_selected_image_rows",
                "_on_image_selection_changed", "apply_image_filter",
-               "image_dest_dir"):
+               "image_dest_dir", "_set_image_anchor"):
         setattr(pane, _m, types.MethodType(getattr(SdCardExplorerPane, _m), pane))
     # _dir_of is a staticmethod: taken off the class it is already a plain
     # function, so binding it would pass the fixture as its first argument.
@@ -248,14 +248,31 @@ pane.apply_image_filter()
 check("...and clearing the filter leaves it there",
       pane.image_dest_dir() == "/games", pane.image_dest_dir())
 
-# ...but genuinely navigating to the root still targets the root. That path
-# clears the selection through the same handler, which is what moves the
-# anchor - so the two cases stay distinguishable.
+# An empty selection must NOT move the anchor by itself - that inference is
+# what made a filter keystroke retarget uploads, and it also meant a
+# clearSelection() on an already-empty selection (which emits nothing) left
+# "/" with no effect.
 view.selectionModel().clearSelection()
 view.setCurrentIndex(_QMI())
 pane._on_image_selection_changed()
+check("an empty selection alone does not move the target",
+      pane.image_dest_dir() == "/games", pane.image_dest_dir())
+# ...but genuinely navigating to the root does, because navigation SETS the
+# anchor rather than leaving it to be inferred.
+pane._set_image_anchor("/")
 check("navigating to the root really does target the root",
       pane.image_dest_dir() == "/", pane.image_dest_dir())
+# ...and a real selection still moves it.
+select(view, model, "/readme.txt")
+view.setCurrentIndex(ix_of(model, "/readme.txt"))
+pane._on_image_selection_changed()
+check("a real selection moves the target again",
+      pane.image_dest_dir() == "/", pane.image_dest_dir())
+select(view, model, "/games/jetpac.tap")
+view.setCurrentIndex(ix_of(model, "/games/jetpac.tap"))
+pane._on_image_selection_changed()
+check("...to that row's folder", pane.image_dest_dir() == "/games",
+      pane.image_dest_dir())
 
 print()
 print("== a folder whose CHILD matches stays reachable ==")
