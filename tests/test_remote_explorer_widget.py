@@ -2520,7 +2520,7 @@ def test_select_all_skips_updir():
 
 def test_font_zoom():
     """Ctrl + mouse-wheel zooms a bound explorer tree's item font (the
-    shared zxnu_workers.bind_tree_font_zoom used by all four explorer
+    shared zxnu_workers.bind_tree_font_zoom used by all five explorer
     panes): one point per notch, clamped, persisted per change; a plain
     wheel is left alone (it must keep scrolling)."""
     w, _calls = make_widget(local_start_dir=tdir("zoom_root"))

@@ -1,7 +1,7 @@
 """Offscreen end-to-end UI suite for zx-next-unite.
 
 Run everything:   python test_ui_offscreen.py
-Run one phase:    python test_ui_offscreen.py <1..5>
+Run one phase:    python test_ui_offscreen.py <1..16>
 
 Phases:
   1  SD Card tab: explorer path rows (Up / Refresh / labels / editable path
@@ -16,12 +16,18 @@ Phases:
   4  Both local explorers (NextSync Classic sync + SD Card local): drag &
      drop configuration, an OS-style drop that imports the file, and the
      painted model's VISUAL column order (Name/Type/Size/Modified) plus no
-     in-place editing. On the Classic sync tree also the painted model itself
-     (Size/Type/Modified texts, item colours read live off the host, the
-     repaint on a colour change) and drag & drop through Qt's REAL event
-     delivery: an OS drop on empty space and on a folder row's Type cell, an
-     intra-tree copy, the same-folder no-op, a non-file drag refused, and the
-     drag-out payload of Qt's default startDrag.       (no hdfmonkey needed)
+     in-place editing; the startup drag arm on the Classic, SD local and SD
+     image trees (DropOnly while disarmed, DragDrop once armed). On the
+     Classic sync tree also the painted model itself (Size/Type/Modified
+     texts, item colours read live off the host, the repaint on a colour
+     change), drag & drop through Qt's REAL event delivery - an OS drop on
+     empty space, on a folder row's Type cell, on a file row inside an
+     expanded subfolder and on the ".." row, an intra-tree copy, the
+     same-folder no-op, non-local URLs and a non-file drag refused - the
+     tree's OWN copy-only startDrag (9.7.39) recorded through a QDrag
+     subclass (the selected file only, ".." never dragged, also via a real
+     press-move-move gesture), and its Ctrl+wheel font zoom (restored from
+     nextsync_tree_font, persisted per change).        (no hdfmonkey needed)
   5  Watched-folder delete regression on BOTH local explorers: expanding
      subfolders makes QFileSystemModel watch them; deleting the tree must
      fully remove it with ZERO 'FindNextChangeNotification failed' watcher
@@ -99,6 +105,9 @@ CLASSIC_INTO = os.path.join(CLASSIC_ZONE, "into")
 # A second drop source, for the drop on the ".." row: its own name, so where
 # it lands is unambiguous (the tree's own folder - never the parent).
 UPDIR_SRC = os.path.join(SCRATCH, "updir-drop.txt")
+# ...and one for the drop on a FILE row inside an expanded subfolder, where
+# "that file's folder" and the tree's root fallback give different answers.
+FILEROW_SRC = os.path.join(SCRATCH, "filerow-drop.txt")
 CLASSIC_MTIME = time.mktime((2024, 1, 2, 3, 4, 0, 0, 0, -1))
 CLASSIC_FILE_COLOR = "#a1b2c3"
 CLASSIC_FONT_PT = 15        # well clear of any platform's default item font
@@ -293,6 +302,8 @@ elif PHASE == 4:
         f.write("drop me")
     with open(UPDIR_SRC, "w") as f:
         f.write("updir")
+    with open(FILEROW_SRC, "w") as f:
+        f.write("filerow")
     # Written BEFORE the app starts, so the model's file-info gatherer sees
     # the final sizes and times on its first listing.
     os.makedirs(CLASSIC_INTO)
@@ -1226,7 +1237,7 @@ def inspect_phase4():
     from PySide6.QtWidgets import QAbstractItemView
     from PySide6.QtCore import (QMimeData, QUrl, QPoint, QPointF, Qt,
                                 QItemSelectionModel)
-    from PySide6.QtGui import QColor, QDropEvent, QWheelEvent
+    from PySide6.QtGui import QColor, QWheelEvent
     # LATE zxnu imports are safe here: settings_row's rule is about
     # MODULE-LEVEL ones, and by now the app has cached these modules with
     # the scratch argv.
@@ -1249,25 +1260,27 @@ def inspect_phase4():
     # before the 3600 ms arm_drag_views timer, so every drag-enabled tree
     # must still be DISARMED here - it used to read armed, because each of
     # them called setDragDropMode(DragDrop) (which re-enables dragging) on
-    # the line after register_drag_view. Asserted as an invariant against
-    # the real flag, so a slow CI start that has already armed cannot make
-    # this flaky: disarmed <=> not armed, whichever state we caught.
+    # the line after register_drag_view. That ordering is not timing luck:
+    # singleShot(0) POSTS the inspector as an event, every Qt dispatcher
+    # sends posted events before it fires timers, and nothing pumps the loop
+    # between the arm timer being scheduled and exec() - so even an OVERDUE
+    # arm timer runs after this (measured with one 3.3 s overdue). Hence a
+    # hard check, not a branch: an armed start means something now pumps the
+    # loop during startup, which is worth failing on.
     import zxnu_config as _zc
     _drag_trees = (("classic", tv), ("sdcard local", win.treeview),
                    ("sdcard image", win.image_treeview))
-    _armed0 = _zc._DRAG_ARMED
-    print(f"INFO  drag views armed at inspection start: {_armed0}")
+    check("the inspector runs before the startup drag arm",
+          not _zc._DRAG_ARMED)
     for _lbl, _v in _drag_trees:
-        check(f"{_lbl} tree drag follows the startup arm "
-              f"({'armed' if _armed0 else 'still disarmed'})",
-              _v.dragEnabled() == _armed0, str(_v.dragEnabled()))
-        if not _armed0:
-            # Disarmed is DRAG-out only: Qt derives the mode from the two
-            # flags, and drops must keep working throughout.
-            check(f"{_lbl} tree still takes drops while disarmed",
-                  _v.acceptDrops()
-                  and _v.dragDropMode() == QAbstractItemView.DropOnly,
-                  str(_v.dragDropMode()))
+        check(f"{_lbl} tree is still drag-disarmed at startup",
+              not _v.dragEnabled(), str(_v.dragEnabled()))
+        # Disarmed is DRAG-out only: Qt derives the mode from the two
+        # flags, and drops must keep working throughout.
+        check(f"{_lbl} tree still takes drops while disarmed",
+              _v.acceptDrops()
+              and _v.dragDropMode() == QAbstractItemView.DropOnly,
+              str(_v.dragDropMode()))
     check("the arm timer fires once the app is up",
           wait_until(lambda: _zc._DRAG_ARMED, 15, "drag views armed"))
     for _lbl, _v in _drag_trees:
@@ -1309,7 +1322,7 @@ def inspect_phase4():
     check("classic tree uses uniform row heights", tv.uniformRowHeights())
     check("classic tree font restored from the cfg",
           tv.font().pointSize() == CLASSIC_FONT_PT, str(tv.font().pointSize()))
-    check("classic model stays read-only (drops never reach dropMimeData)",
+    check("classic model stays read-only (dropMimeData would refuse a drop)",
           model.isReadOnly())
 
     # A colour change repaints the tree. The premise is what makes this bite:
@@ -1513,6 +1526,16 @@ def inspect_phase4():
     enter, drop = _sim_drag(tv, md_ctl, (10, 9000))
     check("control: the same drop from OUTSIDE makes the duplicate",
           wait_until(lambda: os.path.isfile(_dup), 30, "outside drop duplicates"))
+    # ...and EXACTLY one: a no-op that still imported late (after the 0.5 s
+    # settle above) would leave a second "-(copy)" sibling here, which the
+    # control's own duplicate would otherwise hide.
+    _settle = time.monotonic() + 0.5
+    while time.monotonic() < _settle:
+        QCoreApplication.processEvents()
+        time.sleep(0.02)
+    _mm = sorted(n for n in os.listdir(CLASSIC_ZONE) if n.startswith("moveme"))
+    check("...exactly one duplicate, the control's",
+          _mm == ["moveme-(copy).txt", "moveme.txt"], str(_mm))
 
     # A drag carrying no files is refused at the door: no Drop is delivered.
     md_txt = QMimeData()
@@ -1522,21 +1545,32 @@ def inspect_phase4():
           not enter.isAccepted() and drop is None)
 
     # A drop on a FILE row lands in that file's folder - the dirname branch
-    # of the drop target, which the folder-row drops above never reach.
+    # of the drop target, which the folder-row drops above never reach. The
+    # file sits in an EXPANDED subfolder: a file at the root would land in
+    # the root either way, so it could not tell that branch from the
+    # root fallback.
     check("classic tree back on the fixture folder", _classic_goto(win, CLASSIC_ZONE))
-    pix = _classic_row(win, s1100)
-    check("classic file row found for the file-row drop", pix is not None)
+    _nested = os.path.join(CLASSIC_INTO, "moveme.txt")   # the intra-tree copy's
+    check("subfolder expanded for the file-row drop",
+          _expand_and_watch(tv, proxy, model, CLASSIC_INTO))
+    pix = _classic_row(win, _nested)
+    check("nested file row found for the file-row drop", pix is not None)
     if pix is not None:
         _r = tv.visualRect(pix)
         md_file = QMimeData()
-        md_file.setUrls([QUrl.fromLocalFile(DROPSRC)])
+        md_file.setUrls([QUrl.fromLocalFile(FILEROW_SRC)])
         enter, drop = _sim_drag(tv, md_file, (_r.center().x(), _r.center().y()))
         check("OS drop on a file row is delivered",
               drop is not None and drop.isAccepted())
-        check("...and lands in that file's folder",
+        check("...and lands in THAT file's folder, not the tree's root",
               wait_until(lambda: os.path.isfile(
-                  os.path.join(CLASSIC_ZONE, "dropsrc.txt")), 30,
-                  "file-row drop lands beside the file"))
+                  os.path.join(CLASSIC_INTO, "filerow-drop.txt")), 30,
+                  "file-row drop lands beside the file")
+              and not os.path.exists(
+                  os.path.join(CLASSIC_ZONE, "filerow-drop.txt")))
+    _into_ix = proxy.mapFromSource(model.index(CLASSIC_INTO))
+    if _into_ix.isValid():
+        tv.collapse(_into_ix)
 
     # A drop on the ".." row lands in the folder the tree is SHOWING - ".."
     # is the way up, never a drop target for the parent.
@@ -1694,10 +1728,20 @@ def inspect_phase4():
           wait_until(lambda: f"nextsync_tree_font={CLASSIC_FONT_PT + 1}"
                      in cfg_lines(), 10, "classic tree font persisted"),
           str([ln for ln in cfg_lines() if ln.startswith("nextsync_tree_font")]))
-    _wheel(tv.viewport(), 120, ctrl=False)
+    # A plain wheel must not zoom AND must still reach the tree to scroll: a
+    # filter swallowing every wheel would pass the first half alone. The
+    # viewport's wheel reaches the view's (Python-dispatched) wheelEvent.
+    _wh = []
+    tv.wheelEvent = lambda e: _wh.append(e)
+    try:
+        _wheel(tv.viewport(), 120, ctrl=False)
+    finally:
+        del tv.wheelEvent
     check("a plain wheel does not zoom the classic tree",
           tv.font().pointSize() == CLASSIC_FONT_PT + 1,
           str(tv.font().pointSize()))
+    check("...and still reaches the tree to scroll", len(_wh) == 1,
+          str(len(_wh)))
     _wheel(tv.header().viewport(), -120)
     _wheel(tv.header().viewport(), -120)
     check("Ctrl+wheel-down over the classic header shrinks it",
@@ -1707,17 +1751,19 @@ def inspect_phase4():
           wait_until(lambda: f"nextsync_tree_font={CLASSIC_FONT_PT - 1}"
                      in cfg_lines(), 10, "classic tree font re-persisted"))
 
-    # --- the SD Card Utility's LOCAL tree: same four properties, plus a real
-    # drop and the 9.7.37 styling. That pane swapped its plain QFileSystemModel
-    # for the Remote Explorer's ColoredFileSystemModel and gained
-    # header().swapSections(1, 2) - a cosmetic change, but it lands on the one
-    # widget whose drag & drop had no test at all, so this is the net under it.
-    # The drag/drop wiring lives in zxnu_main.py and is applied AFTER the pane
-    # is built, so what these four really pin is that the pane never starts
-    # setting them itself and silently losing to (or fighting) that wiring.
+    # --- the SD Card Utility's LOCAL tree: its drop properties (drag enabled
+    # and the DragDrop mode are asserted by the arm checks at the top), a drop
+    # through Qt's real delivery like the Classic tree's, and the 9.7.37
+    # styling. That pane swapped its plain QFileSystemModel for the Remote
+    # Explorer's ColoredFileSystemModel and gained header().swapSections(1, 2)
+    # - a cosmetic change, but it landed on a widget whose drag & drop had no
+    # test at all, so this is the net under it. The drag/drop wiring lives in
+    # zxnu_main.py and is applied AFTER the pane is built, so what these pin
+    # is that the pane never starts setting them itself and silently losing
+    # to (or fighting) that wiring.
     sd = win.treeview
     check("sdcard local tree accepts drops", sd.acceptDrops())
-    # (drag enabled + DragDrop mode are asserted once ARMED, at the top)
+    check("sdcard local tree viewport accepts drops", sd.viewport().acceptDrops())
     check("sdcard local tree default action Copy",
           sd.defaultDropAction() == Qt.CopyAction, str(sd.defaultDropAction()))
 
@@ -1739,9 +1785,11 @@ def inspect_phase4():
     QCoreApplication.processEvents()
     md2 = QMimeData()
     md2.setUrls([QUrl.fromLocalFile(DROPSRC)])
-    ev2 = QDropEvent(QPointF(5.0, 5.0), Qt.CopyAction, md2,
-                     Qt.LeftButton, Qt.NoModifier)
-    sd.dropEvent(ev2)
+    # Empty space, through Qt's real delivery (the SD page is not the one on
+    # screen here, which neither delivery nor the drop target depends on).
+    enter2, drop2 = _sim_drag(sd, md2, (10, 9000))
+    check("sdcard local OS drop is delivered and accepted",
+          drop2 is not None and drop2.isAccepted())
     ok2 = wait_until(lambda: os.path.isfile(os.path.join(sd_drop, "dropsrc.txt")),
                      timeout=30, what="dropped file lands in the sdcard drop zone")
     check("sdcard local tree OS drop imports the file", ok2)
@@ -1756,9 +1804,20 @@ def inspect_phase4():
     _sd_ix = _row_in(win.proxy_model, win.model, _sd_file)
     check("sdcard local row found for the painted-model check", _sd_ix is not None)
     if _sd_ix is not None:
-        _sz = _sd_ix.siblingAtColumn(1).data()
+        # Waited for: the model can list a just-copied file before its size
+        # lands (on Linux inotify's directory watch reports no IN_MODIFY).
+        def _sd_size():
+            ix = _row_in(win.proxy_model, win.model, _sd_file)
+            return ix.siblingAtColumn(1).data() if ix is not None else None
+        wait_until(lambda: _sd_size() == "7 B", 10, "sdcard size listed")
+        _sz = _sd_size()
         check("sdcard local Size uses the unified text", _sz == "7 B", repr(_sz))
-        _v = _sd_ix.data(Qt.ItemDataRole.ForegroundRole)
+        # RE-resolved, never the index taken before the wait: a QModelIndex
+        # is not persistent, and a re-list in between (the watcher seeing
+        # the copy land) leaves the old one answering None for every role.
+        _sd_ix = _row_in(win.proxy_model, win.model, _sd_file)
+        _v = (_sd_ix.data(Qt.ItemDataRole.ForegroundRole)
+              if _sd_ix is not None else None)
         check("sdcard local file name uses the cfg's file-name colour",
               _v is not None and QColor(_v).name() == CLASSIC_FILE_COLOR, str(_v))
     app.quit()
@@ -3745,8 +3804,23 @@ INSPECTORS = {1: inspect_phase1, 2: inspect_phase2, 3: inspect_phase3,
               16: inspect_phase16}
 
 _orig_exec = QApplication.exec
+def _run_inspector():
+    """The phase's inspector, GUARDED. It runs inside a QTimer slot, where
+    an exception is printed and swallowed by the app's excepthook: exec()
+    never returns, and the runner's stdout loop keeps waiting on a process
+    that will never end - one stray AttributeError used to cost the whole
+    run_all budget with phases 5-16 never run. Now it is a FAILURE and the
+    phase ends."""
+    try:
+        INSPECTORS[PHASE]()
+    except BaseException:
+        import traceback
+        traceback.print_exc()
+        check(f"phase {PHASE} inspector ran without raising", False)
+        QApplication.instance().quit()
+
 def _patched_exec(*_a):
-    QTimer.singleShot(0, INSPECTORS[PHASE])
+    QTimer.singleShot(0, _run_inspector)
     return _orig_exec()
 QApplication.exec = _patched_exec
 

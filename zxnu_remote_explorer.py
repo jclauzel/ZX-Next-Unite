@@ -264,13 +264,15 @@ class ColoredFileSystemModel(QFileSystemModel):
     default): every tree takes drops through its own assigned
     dragEnter/dragMove/drop handlers, never through
     ItemIsDropEnabled/dropMimeData, which setReadOnly(False) would switch on.
-    That is inert today only because each assigned dropEvent REPLACES
-    QAbstractItemView.dropEvent, the one caller of dropMimeData; a handler
-    that ever fell through to the base would let Qt perform a real file move
-    (dropMimeData renames on MoveAction) behind the app's back. Never
-    override the FileNameRole either: fileName() reads it through this
-    method, and the ".." guards, the name filter, the sort and every drop
-    target resolve rows by it.
+    Two guards keep that path dead today: the read-only flag itself
+    (dropMimeData returns False on a read-only model - measured, although
+    canDropMimeData still says True) and each assigned dropEvent REPLACING
+    QAbstractItemView.dropEvent, the one caller of dropMimeData. Lose BOTH -
+    a writable model AND a handler that falls through to the base - and Qt
+    performs a real file move (dropMimeData renames on MoveAction) behind
+    the app's back. Never override the FileNameRole either: fileName()
+    reads it through this method, and the ".." guards, the name filter, the
+    sort and every drop target resolve rows by it.
     """
 
     def __init__(self, colours, parent=None):

@@ -294,12 +294,14 @@ def build_nextsync_pane(
     # folder is a no-op (a deliberate duplicate is Copy/Paste's job, never
     # a drag's side effect).
     #
-    # 9.7.39 changed the MODEL under this tree, not this wiring: the
-    # handlers are assigned to the VIEW, so the painted model rides under
-    # them unchanged. Offscreen phase 4 drives the drop paths below through
-    # Qt's real event delivery: empty space, a folder row, a file row, the
-    # ".." row, an intra-tree copy, the same-folder no-op, a drag of
-    # non-local URLs and one carrying no URLs at all.
+    # 9.7.39 swapped the MODEL under this tree; these drop handlers did not
+    # change: they are assigned to the VIEW, so the painted model rides under
+    # them unchanged. (The same release gave the tree its own copy-only
+    # startDrag and fixed the register_drag_view order - both further down.)
+    # Offscreen phase 4 drives the drop paths below through Qt's real event
+    # delivery: empty space, a folder row, a file row inside an expanded
+    # subfolder, the ".." row, an intra-tree copy, the same-folder no-op, a
+    # drag of non-local URLs and one carrying no URLs at all.
     def _nextsync_drop_target_dir(pos):
         index = host.nextsync_treeview.indexAt(pos)
         if index.isValid():
@@ -383,9 +385,11 @@ def build_nextsync_pane(
     # calls setDragEnabled(True) itself, so the other order silently undid
     # the startup disarm on this tree from 9.7.29 on. See register_drag_view.
     register_drag_view(host.nextsync_treeview)   # armed after startup (9.7.29)
-    # A drag within the explorer proposes a COPY (the copy is performed by
-    # _nextsync_drop); without this Qt would propose an internal move for
-    # same-view drags. Same setup as the Remote Explorer's local pane.
+    # Kept for parity with the other trees. It decided the proposed action
+    # while this tree ran Qt's default startDrag (the one reader of it, with
+    # the base dragMove/drop this tree replaces); since 9.7.39 the tree's own
+    # startDrag offers CopyAction only, so no drag from here can propose a
+    # move with or without it.
     host.nextsync_treeview.setDefaultDropAction(Qt.CopyAction)
     host.nextsync_treeview.setDropIndicatorShown(True)
     host.nextsync_treeview.dragEnterEvent = _nextsync_drag_enter
