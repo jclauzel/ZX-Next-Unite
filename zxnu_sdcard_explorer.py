@@ -74,11 +74,14 @@ from zxnu_i18n import ui_tr_now
 # on the same argument (9.7.37): it was written for the Remote Explorer's
 # local pane and its own docstring says it exists to "match the look of the
 # SD Card Utility's image tree" - and this, the local tree sitting right
-# beside that image tree, was the last pane nobody painted. The import
-# already runs in this direction and zxnu_remote_explorer imports nothing
-# back, so there is no cycle and no new module to declare in pyproject.
+# beside that image tree, was one of the last two panes nobody had painted
+# (the NextSync Classic sync tree followed in 9.7.39, which is when
+# HostItemColors moved over there beside the model, to be shared). The
+# import already runs in this direction and zxnu_remote_explorer imports
+# nothing back, so there is no cycle and no new module to declare in
+# pyproject.
 from zxnu_remote_explorer import (ColoredFileSystemModel, EmulatorTab,
-                                  emulator_color_menu)
+                                  HostItemColors, emulator_color_menu)
 from zxnu_config import (MAX_PATH_HISTORY, SETTING_EXPLORERPATH,
                          SETTING_IMAGE_EXPLORERPATH,
                          SPLITTER_HANDLE_QSS_HORIZONTAL,
@@ -97,52 +100,6 @@ IMG_PATH_ROLE = int(Qt.ItemDataRole.UserRole) + 1  # full path inside the image,
 IMG_ISDIR_ROLE = int(Qt.ItemDataRole.UserRole) + 2  # bool: is this item a directory
 IMG_LOADED_ROLE = int(Qt.ItemDataRole.UserRole) + 3  # bool: have this folder's children been loaded
 IMG_LOADING_ROLE = int(Qt.ItemDataRole.UserRole) + 4  # bool: a background "ls" for this folder is in flight
-
-
-class _HostItemColors:
-    """The item colours for the LOCAL tree, read live off the host (9.7.37).
-
-    ColoredFileSystemModel only ever subscripts what it is handed, so a
-    mapping is enough and a plain dict is not what we want here. The Remote
-    Explorer can afford a dict because the host PUSHES into it
-    (set_item_colors mutates it in place on every Settings change); this pane
-    has no such push, and a dict snapshotted at construction would be wrong
-    twice over:
-
-      * the pane is built long before the config file is read, so a snapshot
-        holds the DEFAULT colours - and it would keep holding them for
-        exactly the user who bothered to pick their own; and
-      * Settings REBINDS host.img_color_* to brand-new QColor objects rather
-        than mutating them, so even a later-seeded snapshot would go stale on
-        the first colour change.
-
-    Reading through on every access sidesteps both: there is no moment at
-    which this can be out of date, and no new startup hook to forget. The
-    keys are already an exact 1:1 match for the host attribute names.
-
-    NEVER RAISES. data() subscripts this inside Qt's paint path with no
-    guard, so a missing attribute (a host still being built, a key added to
-    the model later) must fall back rather than throw an exception through
-    the painter.
-    """
-
-    __slots__ = ("_host",)
-
-    def __init__(self, host):
-        self._host = host
-
-    def __getitem__(self, key):
-        col = getattr(self._host, "img_color_" + key, None)
-        if col is None:
-            col = getattr(self._host, "img_color_general_text", None)
-        # None, NOT an invalid QColor. data() hands whatever this returns
-        # straight back as the ForegroundRole, and QStyledItemDelegate turns a
-        # QColor into a QBrush - an INVALID one paints BLACK, which on the dark
-        # ground these explorers use would be an invisible row rather than the
-        # "no opinion" it looks like in the source. Returning None leaves the
-        # role unset, which is what an unpainted row was before 9.7.37 and lets
-        # the view use its own palette.
-        return col
 
 
 class SdCardExplorerPane(QWidget):
@@ -208,8 +165,8 @@ class SdCardExplorerPane(QWidget):
         # once and means the two local panes cannot drift apart again.
         #
         # The colours are read live off the host rather than snapshotted -
-        # see _HostItemColors for why a dict would be wrong here.
-        self.model = ColoredFileSystemModel(_HostItemColors(self._host), self)
+        # see HostItemColors for why a dict would be wrong here.
+        self.model = ColoredFileSystemModel(HostItemColors(self._host), self)
         self.model.setRootPath("/")
         from PySide6.QtCore import QDir
 
@@ -222,10 +179,12 @@ class SdCardExplorerPane(QWidget):
         # rename, '->:') still use the current/primary selection.
         self.treeview.setSelectionMode(QAbstractItemView.ExtendedSelection)
         # No in-place editing, matching the Remote Explorer's local pane and
-        # the image tree. QFileSystemModel is editable by default, so a
-        # click-pause-click on a name used to open a rename editor here by
-        # accident; renaming has its own dialog (F2 / context menu), which is
-        # what the key handler in zxnu_main.py calls.
+        # the image tree. A safeguard rather than a fix: QFileSystemModel is
+        # READ-ONLY by default (measured in 9.7.39 - isReadOnly() True, no
+        # ItemIsEditable), so no editor can open today, and this keeps it that
+        # way should anything ever call setReadOnly(False). Renaming has its
+        # own dialog (F2 / context menu), which is what the key handler in
+        # zxnu_main.py calls.
         self.treeview.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.treeview.setUniformRowHeights(True)
 

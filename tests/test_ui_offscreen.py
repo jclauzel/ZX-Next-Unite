@@ -13,8 +13,15 @@ Phases:
      are applied after the startup image load.    (needs hdfmonkey + phase 1)
   3  Startup fallback: a saved in-image path missing from the image logs the
      advisory, stays at "/" and re-persists "/".  (needs hdfmonkey + phase 1)
-  4  NextSync classic local explorer: drag & drop configuration and an
-     OS-style drop that imports the file.                (no hdfmonkey needed)
+  4  Both local explorers (NextSync Classic sync + SD Card local): drag &
+     drop configuration, an OS-style drop that imports the file, and the
+     painted model's VISUAL column order (Name/Type/Size/Modified) plus no
+     in-place editing. On the Classic sync tree also the painted model itself
+     (Size/Type/Modified texts, item colours read live off the host, the
+     repaint on a colour change) and drag & drop through Qt's REAL event
+     delivery: an OS drop on empty space and on a folder row's Type cell, an
+     intra-tree copy, the same-folder no-op, a non-file drag refused, and the
+     drag-out payload of Qt's default startDrag.       (no hdfmonkey needed)
   5  Watched-folder delete regression on BOTH local explorers: expanding
      subfolders makes QFileSystemModel watch them; deleting the tree must
      fully remove it with ZERO 'FindNextChangeNotification failed' watcher
@@ -83,6 +90,17 @@ PASTE_FILE = os.path.join(PASTE_SUB, "afile.txt")
 DROPZONE = os.path.join(SCRATCH, "dropzone")
 DROPSRC = os.path.join(SCRATCH, "dropsrc.txt")
 DELZONE = os.path.join(SCRATCH, "delzone")
+# Phase 4's Classic sync fixtures (9.7.39): a folder the painted tree is
+# pointed at, a subfolder to drop onto, and files whose Size / Type /
+# Modified texts are known in advance. The mtime is a local wall-clock time
+# well clear of any DST change, so the expected string is exact everywhere.
+CLASSIC_ZONE = os.path.join(DROPZONE, "classic")
+CLASSIC_INTO = os.path.join(CLASSIC_ZONE, "into")
+# A second drop source, for the drop on the ".." row: its own name, so where
+# it lands is unambiguous (the tree's own folder - never the parent).
+UPDIR_SRC = os.path.join(SCRATCH, "updir-drop.txt")
+CLASSIC_MTIME = time.mktime((2024, 1, 2, 3, 4, 0, 0, 0, -1))
+CLASSIC_FILE_COLOR = "#a1b2c3"
 
 PHASE = int(sys.argv[1]) if len(sys.argv) > 1 else None
 ALL_PHASES = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
@@ -258,12 +276,28 @@ elif PHASE in (2, 3):
 elif PHASE == 4:
     ensure_scratch(fresh=False)
     with open(CFG, "w") as f:
-        f.write(BASE_CFG)
+        # A restored file-name colour, with the Custom mode that lets a pick
+        # survive a restart. The Classic sync tree is built long BEFORE the
+        # cfg is read, so seeing this colour on it proves the tree reads the
+        # host's colours live rather than a snapshot taken at build time.
+        f.write(BASE_CFG + f"color_file_name={CLASSIC_FILE_COLOR}\n"
+                + "desktop_theme=custom\n")
     if os.path.isdir(DROPZONE):
         shutil.rmtree(DROPZONE)
     os.makedirs(os.path.join(DROPZONE, "subdir"))
     with open(DROPSRC, "w") as f:
         f.write("drop me")
+    with open(UPDIR_SRC, "w") as f:
+        f.write("updir")
+    # Written BEFORE the app starts, so the model's file-info gatherer sees
+    # the final sizes and times on its first listing.
+    os.makedirs(CLASSIC_INTO)
+    for _name, _size in (("size512.bin", 512), ("size1100.bin", 1100),
+                         ("noext", 1), ("a.b.c", 1), ("moveme.txt", 7)):
+        with open(os.path.join(CLASSIC_ZONE, _name), "wb") as f:
+            f.write(b"x" * _size)
+    os.utime(os.path.join(CLASSIC_ZONE, "size512.bin"),
+             (CLASSIC_MTIME, CLASSIC_MTIME))
 elif PHASE == 5:
     ensure_scratch(fresh=False)
     with open(CFG, "w") as f:
@@ -418,6 +452,11 @@ class _NoPygame(importlib.machinery.PathFinder):
 sys.meta_path.insert(0, _NoPygame())
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
+# Keep the offscreen platform's STUB drag, which returns at once. Qt 6.13
+# switches offscreen to a real in-process QSimpleDrag whose nested event loop
+# ends only on a mouse release or Escape - no synthetic input here provides
+# either, so phase 4's drag-start checks would block. Older Qt ignores this.
+os.environ.setdefault("QT_QPA_OFFSCREEN_NO_DND", "1")
 sys.path.insert(0, REPO)
 
 from PySide6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel,
@@ -1178,39 +1217,402 @@ def inspect_phase3():
     app.quit()
 
 def inspect_phase4():
+    import re
+    import threading
     from PySide6.QtWidgets import QAbstractItemView
-    from PySide6.QtCore import QMimeData, QUrl, QPointF, Qt
-    from PySide6.QtGui import QDropEvent
+    from PySide6.QtCore import (QEvent, QMimeData, QUrl, QPointF, Qt,
+                                QItemSelectionModel)
+    from PySide6.QtGui import QColor, QDrag, QDropEvent, QKeyEvent
+    # LATE zxnu imports are safe here: settings_row's rule is about
+    # MODULE-LEVEL ones, and by now the app has cached these modules with
+    # the scratch argv.
+    from zxnu_remote_explorer import ColoredFileSystemModel
+    from zxnu_workers import DotDotFirstProxyModel
     app = QApplication.instance()
     win = find_win()
     check("MainWindow found", win is not None)
     if win is None:
         app.quit(); return
     tv = win.nextsync_treeview
+    proxy = win.nextsync_model             # the PROXY (naming quirk)
+    model = win.nextsync_filesystem_model  # the SOURCE
     check("nextsync tree accepts drops", tv.acceptDrops())
+    # The VIEWPORT is the widget Qt actually delivers drag events to.
+    check("nextsync tree viewport accepts drops", tv.viewport().acceptDrops())
     check("nextsync tree drag enabled", tv.dragEnabled())
     check("nextsync tree mode is DragDrop",
           tv.dragDropMode() == QAbstractItemView.DragDrop, str(tv.dragDropMode()))
     check("nextsync tree default action Copy",
           tv.defaultDropAction() == Qt.CopyAction, str(tv.defaultDropAction()))
+    # The drag & drop handlers are the pane's own closures, still on the
+    # VIEW after the 9.7.39 model swap (an assigned closure reports its own
+    # __name__; an unassigned attribute is the bound Qt method), and drag-OUT
+    # is still Qt's DEFAULT startDrag - the one path whose payload, drag flag
+    # and actions come from the model rather than from the app's handlers.
+    for _attr, _name in (("dropEvent", "_nextsync_drop"),
+                         ("dragEnterEvent", "_nextsync_drag_enter"),
+                         ("dragMoveEvent", "_nextsync_drag_move"),
+                         ("keyPressEvent", "_nextsync_tree_key_press")):
+        _got = getattr(getattr(tv, _attr), "__name__", "")
+        check(f"classic {_attr} is still the pane's closure", _got == _name, _got)
+    check("classic drag-out is still Qt's default startDrag",
+          getattr(tv.startDrag, "__name__", "") == "startDrag",
+          str(tv.startDrag))
 
-    # Navigate the classic explorer to the drop zone via the sync-root box,
-    # then synthesize an OS-style drop (source None = external drag). The
-    # import dialog is modal but closes itself when the worker finishes.
-    win.nextsync_file_explorer_path.setText(DROPZONE)
-    win.nextsync_file_explorer_path.editingFinished.emit()
-    QCoreApplication.processEvents()
+    # --- the PAINTED model (9.7.39): the Classic sync tree now shares the
+    # other two local trees' ColoredFileSystemModel.
+    check("classic source model is the painted one",
+          isinstance(model, ColoredFileSystemModel), type(model).__name__)
+    check("naming quirk intact: nextsync_model is the proxy over it",
+          isinstance(proxy, DotDotFirstProxyModel)
+          and proxy.sourceModel() is model and tv.model() is proxy)
+    # Columns stay LOGICAL - only the header's visual order moved.
+    hdr = tv.header()
+    _visual = [hdr.visualIndex(i) for i in range(4)]
+    check("classic tree shows Name/Type/Size/Modified",
+          _visual == [0, 2, 1, 3], str(_visual))
+    check("classic tree still sorts on the logical Name column",
+          hdr.sortIndicatorSection() == 0, str(hdr.sortIndicatorSection()))
+    check("classic tree is not in-place editable",
+          tv.editTriggers() == QAbstractItemView.NoEditTriggers,
+          str(tv.editTriggers()))
+    check("classic tree uses uniform row heights", tv.uniformRowHeights())
+    check("classic model stays read-only (drops never reach dropMimeData)",
+          model.isReadOnly())
+
+    # A colour change repaints the tree. The premise is what makes this bite:
+    # the Remote Explorer is built lazily and _re_apply_item_colors returns
+    # early without it, so a repaint placed after that return would never run
+    # for a user who only uses Classic sync.
+    check("premise: the Remote Explorer was never built in this phase",
+          getattr(win, "_re_widget", None) is None)
+    _vp = tv.viewport()
+    _hits = []
+    _orig_update = _vp.update
+    _vp.update = lambda *a: (_hits.append(a), _orig_update(*a))
+    try:
+        win._image_recolor_all()
+        win._re_apply_item_colors()   # exactly what the Settings picker calls
+    finally:
+        del _vp.update
+    check("a colour change repaints the classic tree", len(_hits) >= 1,
+          str(len(_hits)))
+
+    # Put the Classic sync view on screen: geometry (visualRect / indexAt)
+    # means nothing on a view that was never shown and laid out. Classic
+    # FIRST, then the main tab, so the Remote Explorer is never selected on
+    # the way and never built.
+    from zxnu_config import (TRANSFER_SUBTAB_CLASSIC,
+                             ZX_NEXT_UNITE_TAB_TITLE_TRANSFER)
+    win.nextsync_mode_tabs.setCurrentIndex(TRANSFER_SUBTAB_CLASSIC)
+    main_tabs = win._bg_widget.tab
+    _idx = next((i for i in range(main_tabs.count())
+                 if main_tabs.tabText(i).startswith(
+                     ZX_NEXT_UNITE_TAB_TITLE_TRANSFER)), None)
+    check("Transfer tools tab present", _idx is not None)
+    if _idx is not None:
+        main_tabs.setCurrentIndex(_idx)
+    check("the Classic sync tree is on screen",
+          wait_until(tv.isVisible, 20, "classic tree visible"))
+
+    # Every drop below goes through Qt's REAL delivery (DragEnter -> DragMove
+    # -> Drop to the viewport) rather than calling the closure directly: that
+    # is the path that also checks the viewport accepts drops, the widget is
+    # enabled and the DragEnter was accepted. Empty space (10, 9000) resolves
+    # to the folder the tree is showing, deterministically - unlike a point
+    # near the top, which can land on the ".." row or a subfolder.
+    check("classic tree shows the drop zone", _classic_goto(win, DROPZONE))
     md = QMimeData()
     md.setUrls([QUrl.fromLocalFile(DROPSRC)])
-    ev = QDropEvent(QPointF(5.0, 5.0), Qt.CopyAction, md,
-                    Qt.LeftButton, Qt.NoModifier)
-    tv.dropEvent(ev)
-    def _landed():
-        return (os.path.isfile(os.path.join(DROPZONE, "dropsrc.txt"))
-                or os.path.isfile(os.path.join(DROPZONE, "subdir", "dropsrc.txt")))
-    ok = wait_until(_landed, timeout=30, what="dropped file lands in drop zone")
+    enter, drop = _sim_drag(tv, md, (10, 9000))
+    check("OS drag is accepted on enter", enter.isAccepted())
+    check("OS drop is delivered and accepted",
+          drop is not None and drop.isAccepted())
+    ok = wait_until(lambda: os.path.isfile(os.path.join(DROPZONE, "dropsrc.txt")),
+                    timeout=30, what="dropped file lands in drop zone")
     check("OS drop imports the file", ok)
     check("source file untouched (copy, not move)", os.path.isfile(DROPSRC))
+
+    # --- display texts, read through the proxy the view reads (logical
+    # columns: 1=Size, 2=Type, 3=Modified).
+    check("classic tree shows the fixture folder", _classic_goto(win, CLASSIC_ZONE))
+    s512 = os.path.join(CLASSIC_ZONE, "size512.bin")
+    s1100 = os.path.join(CLASSIC_ZONE, "size1100.bin")
+    for _p in (s512, s1100, CLASSIC_INTO,
+               os.path.join(CLASSIC_ZONE, "noext"),
+               os.path.join(CLASSIC_ZONE, "a.b.c")):
+        check(f"classic row listed: {os.path.basename(_p)}",
+              _classic_row(win, _p) is not None)
+
+    def _txt(p, col, role=Qt.ItemDataRole.DisplayRole):
+        ix = proxy.mapFromSource(model.index(p, col))
+        return ix.data(role) if ix.isValid() else "<no row>"
+
+    wait_until(lambda: _txt(s512, 1) == "512 B", 20, "size512 listed with its size")
+    check("Size: bytes under 1 KB", _txt(s512, 1) == "512 B", repr(_txt(s512, 1)))
+    check("Size: one decimal in K", _txt(s1100, 1) == "1.1 K", repr(_txt(s1100, 1)))
+    check("Type: the extension", _txt(s512, 2) == "bin", repr(_txt(s512, 2)))
+    _p = os.path.join(CLASSIC_ZONE, "noext")
+    check("Type: blank without an extension", _txt(_p, 2) == "", repr(_txt(_p, 2)))
+    _p = os.path.join(CLASSIC_ZONE, "a.b.c")
+    check("Type: the first extension segment", _txt(_p, 2) == "b", repr(_txt(_p, 2)))
+    _want = time.strftime("%Y-%m-%d %H:%M", time.localtime(CLASSIC_MTIME))
+    check("Modified: ISO stamp in local time", _txt(s512, 3) == _want,
+          f"{_txt(s512, 3)!r} != {_want!r}")
+    check("folder: blank Size", _txt(CLASSIC_INTO, 1) == "", repr(_txt(CLASSIC_INTO, 1)))
+    check("folder: Type DIR", _txt(CLASSIC_INTO, 2) == "DIR", repr(_txt(CLASSIC_INTO, 2)))
+    check("folder: real date",
+          bool(re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}",
+                            str(_txt(CLASSIC_INTO, 3)))),
+          repr(_txt(CLASSIC_INTO, 3)))
+    _root = tv.rootIndex()
+    _updir = next((proxy.index(r, 0, _root)
+                   for r in range(proxy.rowCount(_root))
+                   if proxy.index(r, 0, _root).data() == ".."), None)
+    check("'..' row present and pinned first",
+          _updir is not None and _updir.row() == 0)
+    if _updir is not None:
+        _cells = tuple(_updir.siblingAtColumn(c).data() for c in (1, 2, 3))
+        check("'..' row reads blank / DIR / blank", _cells == ("", "DIR", ""),
+              str(_cells))
+
+    # --- item colours: the one restored from the cfg AFTER the tree was
+    # built, every column's colour family, and a REBIND followed live.
+    FG = Qt.ItemDataRole.ForegroundRole
+
+    def _fg(p, col):
+        v = _txt(p, col, FG)
+        return QColor(v).name() if v is not None and v != "<no row>" else None
+
+    check("the cfg's file-name colour shows on the classic tree",
+          _fg(s512, 0) == CLASSIC_FILE_COLOR, str(_fg(s512, 0)))
+    check("file name uses the file-name colour",
+          _fg(s512, 0) == win.img_color_file_name.name(), str(_fg(s512, 0)))
+    check("folder name uses the folder colour",
+          _fg(CLASSIC_INTO, 0) == win.img_color_dir_name.name(),
+          str(_fg(CLASSIC_INTO, 0)))
+    check("file Type uses the extension colour",
+          _fg(s512, 2) == win.img_color_file_ext.name(), str(_fg(s512, 2)))
+    check("folder Type uses the DIR colour",
+          _fg(CLASSIC_INTO, 2) == win.img_color_dir_type.name(),
+          str(_fg(CLASSIC_INTO, 2)))
+    check("Size and Modified use the size colour",
+          _fg(s512, 1) == _fg(s512, 3) == win.img_color_file_size.name(),
+          f"{_fg(s512, 1)} {_fg(s512, 3)}")
+    if _updir is not None:
+        _v = _updir.data(FG)
+        check("'..' uses the up-directory colour",
+              _v is not None and QColor(_v).name()
+              == win.img_color_up_directory.name(), str(_v))
+    _bad = [(r, c) for r in range(proxy.rowCount(_root)) for c in range(4)
+            if (lambda v: v is not None and not QColor(v).isValid())(
+                proxy.index(r, c, _root).data(FG))]
+    check("no cell paints with an invalid (black) colour", not _bad, str(_bad))
+    _saved = win.img_color_file_name
+    try:
+        # Settings REBINDS the attribute (never mutates it) - a snapshot
+        # would keep answering the old colour here.
+        win.img_color_file_name = QColor("#13579b")
+        check("a rebound host colour is followed live, no hook, no re-list",
+              _fg(s512, 0) == "#13579b", str(_fg(s512, 0)))
+    finally:
+        win.img_color_file_name = _saved
+
+    # --- the swapped Type column is drawn LEFT of Size, and a drop on it
+    # still resolves to its row: the handlers never read the column. Every
+    # row lookup below is a CHECK, not just a guard: a lookup that timed out
+    # would otherwise skip its block and still report the phase green.
+    pix = _classic_row(win, CLASSIC_INTO)
+    check("classic folder row found for the Type-cell drop", pix is not None)
+    if pix is not None:
+        _rt = tv.visualRect(pix.siblingAtColumn(2))
+        _rs = tv.visualRect(pix.siblingAtColumn(1))
+        check("Type cell is drawn left of the Size cell",
+              not _rt.isEmpty() and not _rs.isEmpty() and _rt.left() < _rs.left(),
+              f"type={_rt} size={_rs}")
+        md_into = QMimeData()
+        md_into.setUrls([QUrl.fromLocalFile(DROPSRC)])
+        enter, drop = _sim_drag(tv, md_into, (_rt.center().x(), _rt.center().y()))
+        check("OS drop on a folder's Type cell is delivered",
+              drop is not None and drop.isAccepted())
+        check("...and imports INTO that folder",
+              wait_until(lambda: os.path.isfile(
+                  os.path.join(CLASSIC_INTO, "dropsrc.txt")), 30,
+                  "drop lands in the folder row"))
+
+    # --- intra-tree drag: a COPY into the folder it lands on, never a move.
+    # A synthesized drop has no source(), so _DropFrom supplies the tree.
+    moveme = os.path.join(CLASSIC_ZONE, "moveme.txt")
+    check("classic tree back on the fixture folder", _classic_goto(win, CLASSIC_ZONE))
+    pix = _classic_row(win, CLASSIC_INTO)
+    check("classic folder row re-listed after the drop's refresh",
+          pix is not None)
+    if pix is not None:
+        _r = tv.visualRect(pix)
+        md_in = QMimeData()
+        md_in.setUrls([QUrl.fromLocalFile(moveme)])
+        enter, drop = _sim_drag(tv, md_in, (_r.center().x(), _r.center().y()),
+                                source=tv)
+        check("intra-tree drop onto a folder is delivered",
+              drop is not None and drop.isAccepted())
+        check("...and copies the file into it",
+              wait_until(lambda: os.path.isfile(
+                  os.path.join(CLASSIC_INTO, "moveme.txt")), 30,
+                  "intra-tree copy lands"))
+        check("...leaving the original where it was", os.path.isfile(moveme))
+
+    # Dropping an item back into its own folder is a no-op, keyed on the
+    # drag coming FROM this tree - the control proves an outside drag of the
+    # same file does make the "-(copy)" duplicate, so the no-op is real.
+    _dup = os.path.join(CLASSIC_ZONE, "moveme-(copy).txt")
+    check("classic tree back on the fixture folder", _classic_goto(win, CLASSIC_ZONE))
+    md_same = QMimeData()
+    md_same.setUrls([QUrl.fromLocalFile(moveme)])
+    enter, drop = _sim_drag(tv, md_same, (10, 9000), source=tv)
+    _settle = time.monotonic() + 0.5
+    while time.monotonic() < _settle:
+        QCoreApplication.processEvents()
+        time.sleep(0.02)
+    check("same-folder intra-tree drop is refused",
+          drop is not None and not drop.isAccepted())
+    check("...and makes no duplicate", not os.path.exists(_dup))
+    md_ctl = QMimeData()
+    md_ctl.setUrls([QUrl.fromLocalFile(moveme)])
+    enter, drop = _sim_drag(tv, md_ctl, (10, 9000))
+    check("control: the same drop from OUTSIDE makes the duplicate",
+          wait_until(lambda: os.path.isfile(_dup), 30, "outside drop duplicates"))
+
+    # A drag carrying no files is refused at the door: no Drop is delivered.
+    md_txt = QMimeData()
+    md_txt.setText("not a file")
+    enter, drop = _sim_drag(tv, md_txt, (10, 9000))
+    check("a non-file drag is refused on enter",
+          not enter.isAccepted() and drop is None)
+
+    # A drop on a FILE row lands in that file's folder - the dirname branch
+    # of the drop target, which the folder-row drops above never reach.
+    check("classic tree back on the fixture folder", _classic_goto(win, CLASSIC_ZONE))
+    pix = _classic_row(win, s1100)
+    check("classic file row found for the file-row drop", pix is not None)
+    if pix is not None:
+        _r = tv.visualRect(pix)
+        md_file = QMimeData()
+        md_file.setUrls([QUrl.fromLocalFile(DROPSRC)])
+        enter, drop = _sim_drag(tv, md_file, (_r.center().x(), _r.center().y()))
+        check("OS drop on a file row is delivered",
+              drop is not None and drop.isAccepted())
+        check("...and lands in that file's folder",
+              wait_until(lambda: os.path.isfile(
+                  os.path.join(CLASSIC_ZONE, "dropsrc.txt")), 30,
+                  "file-row drop lands beside the file"))
+
+    # A drop on the ".." row lands in the folder the tree is SHOWING - ".."
+    # is the way up, never a drop target for the parent.
+    check("classic tree back on the fixture folder", _classic_goto(win, CLASSIC_ZONE))
+    _root = tv.rootIndex()
+    _updir = next((proxy.index(r, 0, _root)
+                   for r in range(proxy.rowCount(_root))
+                   if proxy.index(r, 0, _root).data() == ".."), None)
+    check("'..' row found for the '..' drop", _updir is not None)
+    if _updir is not None:
+        _r = tv.visualRect(_updir)
+        md_up = QMimeData()
+        md_up.setUrls([QUrl.fromLocalFile(UPDIR_SRC)])
+        enter, drop = _sim_drag(tv, md_up, (_r.center().x(), _r.center().y()))
+        check("OS drop on the '..' row is delivered",
+              drop is not None and drop.isAccepted())
+        check("...and lands in the folder shown, not its parent",
+              wait_until(lambda: os.path.isfile(
+                  os.path.join(CLASSIC_ZONE, "updir-drop.txt")), 30,
+                  "'..' drop lands in the shown folder")
+              and not os.path.exists(os.path.join(DROPZONE, "updir-drop.txt")))
+
+    # URLs that are not local files (a browser link): accepted as a drag -
+    # they ARE urls - but the drop itself must refuse and copy nothing.
+    check("classic tree back on the fixture folder", _classic_goto(win, CLASSIC_ZONE))
+    md_web = QMimeData()
+    md_web.setUrls([QUrl("https://example.invalid/web-drop.txt")])
+    enter, drop = _sim_drag(tv, md_web, (10, 9000))
+    _settle = time.monotonic() + 0.5
+    while time.monotonic() < _settle:
+        QCoreApplication.processEvents()
+        time.sleep(0.02)
+    check("a drop of non-local URLs is refused",
+          drop is not None and not drop.isAccepted())
+    check("...and copies nothing",
+          not os.path.exists(os.path.join(CLASSIC_ZONE, "web-drop.txt")))
+
+    # --- drag-OUT. The Classic tree is the one view on Qt's DEFAULT
+    # startDrag, which takes draggable rows, asks the MODEL for the payload
+    # and offers the model's actions - so this is the payload Windows
+    # Explorer (or any other drop target) receives.
+    check("classic tree back on the fixture folder", _classic_goto(win, CLASSIC_ZONE))
+    _dir = _classic_row(win, CLASSIC_INTO)
+    check("classic folder row found for the drop-flag check", _dir is not None)
+    if _dir is not None:
+        # A FOLDER row, because QFileSystemModel only ever makes a folder
+        # drop-enabled (and only once it is not read-only) - a file row
+        # would pass this whether or not the invariant held.
+        check("a folder row is not drop-enabled (drops ride the view's handlers)",
+              not proxy.flags(_dir) & Qt.ItemFlag.ItemIsDropEnabled)
+    pix = _classic_row(win, s512)
+    check("classic file row found for the drag-out checks", pix is not None)
+    if pix is not None:
+        check("a file row is drag-enabled",
+              bool(proxy.flags(pix) & Qt.ItemFlag.ItemIsDragEnabled))
+        _out = proxy.mimeData([pix.siblingAtColumn(c) for c in range(4)])
+        _urls = [os.path.normcase(os.path.abspath(u.toLocalFile()))
+                 for u in _out.urls()]
+        check("drag-out payload is exactly that file (one URL per row)",
+              _urls == [os.path.normcase(os.path.abspath(s512))], str(_urls))
+        check("drag-out offers Copy",
+              bool(proxy.supportedDragActions() & Qt.CopyAction))
+        # The drag START itself, with the actions Qt's mouseMoveEvent passes.
+        # It renders the drag pixmap through the model's data() - i.e.
+        # through the painted colours - and runs QDrag.exec, which returns at
+        # once on the offscreen STUB drag (see QT_QPA_OFFSCREEN_NO_DND). Two
+        # backstops should a future Qt run a real drag loop here anyway: an
+        # Escape, which QBasicDrag's filter treats as cancel, and - last
+        # resort - a thread watchdog. A NESTED EVENT LOOP is what such a Qt
+        # would block in, so the QTimer does fire; the thread can be starved
+        # of the GIL there, and runs only because the app's own Python timer
+        # keeps handing it back.
+        tv.setCurrentIndex(pix)
+        tv.selectionModel().select(
+            pix, QItemSelectionModel.SelectionFlag.ClearAndSelect
+            | QItemSelectionModel.SelectionFlag.Rows)
+        _sel = [i.row() for i in tv.selectionModel().selectedRows()]
+        check("the file row is what is selected for the drag",
+              _sel == [pix.row()], str(_sel))
+
+        def _dog():
+            print("FAIL  classic startDrag blocked (watchdog)")
+            sys.stdout.flush()
+            os._exit(1)
+        _w = threading.Timer(15.0, _dog)
+        _w.daemon = True
+        _esc = QTimer()
+        _esc.setSingleShot(True)
+        _esc.timeout.connect(lambda: QApplication.sendEvent(
+            tv, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+                          Qt.KeyboardModifier.NoModifier)))
+        _before = len(tv.findChildren(QDrag))
+        _w.start()
+        _esc.start(1000)
+        try:
+            tv.startDrag(proxy.supportedDragActions())
+            _ok = True
+        except Exception as e:
+            _ok = False
+            print("startDrag raised:", e)
+        finally:
+            _esc.stop()
+            _w.cancel()
+        # Counted BEFORE any processEvents: Qt deleteLater()s the QDrag.
+        _made = len(tv.findChildren(QDrag)) - _before
+        check("classic startDrag runs to completion", _ok)
+        check("...and actually creates a drag", _made == 1, str(_made))
+        check("...and the dragged file is still there", os.path.isfile(s512))
 
     # --- the SD Card Utility's LOCAL tree: same four properties, plus a real
     # drop and the 9.7.37 styling. That pane swapped its plain QFileSystemModel
@@ -1253,6 +1655,21 @@ def inspect_phase4():
                      timeout=30, what="dropped file lands in the sdcard drop zone")
     check("sdcard local tree OS drop imports the file", ok2)
     check("source file still untouched after sdcard drop", os.path.isfile(DROPSRC))
+    # The SD pane's painted model (9.7.37), which nothing pinned: it now
+    # reads its colours through the HostItemColors that moved beside the
+    # model in 9.7.39, so the file-name colour restored from the cfg must
+    # show here too.
+    check("sdcard local source model is the painted one",
+          isinstance(win.model, ColoredFileSystemModel), type(win.model).__name__)
+    _sd_file = os.path.join(sd_drop, "dropsrc.txt")
+    _sd_ix = _row_in(win.proxy_model, win.model, _sd_file)
+    check("sdcard local row found for the painted-model check", _sd_ix is not None)
+    if _sd_ix is not None:
+        _sz = _sd_ix.siblingAtColumn(1).data()
+        check("sdcard local Size uses the unified text", _sz == "7 B", repr(_sz))
+        _v = _sd_ix.data(Qt.ItemDataRole.ForegroundRole)
+        check("sdcard local file name uses the cfg's file-name colour",
+              _v is not None and QColor(_v).name() == CLASSIC_FILE_COLOR, str(_v))
     app.quit()
 
 def _expand_and_watch(tv, proxy, model, path):
@@ -1278,6 +1695,88 @@ def _press_delete(tv):
     ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete,
                    Qt.KeyboardModifier.NoModifier)
     tv.keyPressEvent(ev)
+
+def _sim_drag(view, mime, pos, source=None):
+    """Deliver a drag to *view* the way Qt does, and return (enter, drop).
+
+    DragEnter -> DragMove -> Drop, each sent to the VIEWPORT through
+    QApplication.sendEvent. Qt delivers a Drop only to the widget whose
+    DragEnter it ACCEPTED, and only while that widget is enabled and its
+    viewport accepts drops; calling view.dropEvent(ev) directly skips all
+    three gates, which is how a broken drop can stay green. The platform
+    then drops only if the LAST DragMove was still accepted (Qt pre-accepts
+    it with the enter's action in processDrag; Windows OLE never calls Drop
+    after a DragOver of DROPEFFECT_NONE) - so a move handler that refuses
+    kills the drop here as well. drop is None when the enter or the move
+    was refused (a DragLeave is still sent, as Qt does, to keep enter and
+    leave balanced). *source* stands in for QDropEvent.source(), which a
+    synthesized event leaves None - pass the view itself to act as a drag
+    from inside it. The caller keeps *mime* alive: the events do not own it."""
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import (QDragEnterEvent, QDragLeaveEvent,
+                               QDragMoveEvent, QDropEvent)
+
+    class _DropFrom(QDropEvent):
+        def __init__(self, src, *a):
+            super().__init__(*a)
+            self._zx_src = src
+
+        def source(self):
+            return self._zx_src
+
+    vp = view.viewport()
+    p = QPoint(int(pos[0]), int(pos[1]))
+    enter = QDragEnterEvent(p, Qt.CopyAction, mime, Qt.LeftButton,
+                            Qt.NoModifier)
+    QApplication.sendEvent(vp, enter)
+    if not enter.isAccepted():
+        QApplication.sendEvent(vp, QDragLeaveEvent())
+        return enter, None
+    move = QDragMoveEvent(p, Qt.CopyAction, mime, Qt.LeftButton,
+                          Qt.NoModifier)
+    move.setDropAction(enter.dropAction())
+    move.accept()
+    QApplication.sendEvent(vp, move)
+    if not move.isAccepted():
+        QApplication.sendEvent(vp, QDragLeaveEvent())
+        return enter, None
+    args = (QPointF(p), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+    drop = _DropFrom(source, *args) if source is not None else QDropEvent(*args)
+    QApplication.sendEvent(vp, drop)
+    return enter, drop
+
+def _classic_goto(win, folder):
+    """Point the Classic sync tree at *folder* through the sync-root box (the
+    user's own route) and wait until the tree is rooted there."""
+    win.nextsync_file_explorer_path.setText(folder)
+    win.nextsync_file_explorer_path.editingFinished.emit()
+    tv, proxy, model = (win.nextsync_treeview, win.nextsync_model,
+                        win.nextsync_filesystem_model)
+    want = os.path.normcase(os.path.abspath(folder))
+    return wait_until(
+        lambda: os.path.normcase(os.path.abspath(model.filePath(
+            proxy.mapToSource(tv.rootIndex())) or ".")) == want,
+        20, f"classic tree rooted at {folder}")
+
+def _row_in(proxy, model, path):
+    """The PROXY index of *path* in a local file tree once it is listed, else
+    None. Offscreen the view may never reach the layout pass that calls
+    fetchMore, so the parent folder's listing is kicked directly (the same
+    trick _expand_and_watch uses). Callers record the lookup with check():
+    a None silently skipping a block would otherwise read as a pass."""
+    def _found():
+        parent = model.index(os.path.dirname(path))
+        if parent.isValid() and model.canFetchMore(parent):
+            model.fetchMore(parent)
+        ix = model.index(path)
+        return ix.isValid() and proxy.mapFromSource(ix).isValid()
+    if not wait_until(_found, 20, f"tree row for {path}"):
+        return None
+    return proxy.mapFromSource(model.index(path))
+
+def _classic_row(win, path):
+    """_row_in on the Classic sync tree (proxy = nextsync_model)."""
+    return _row_in(win.nextsync_model, win.nextsync_filesystem_model, path)
 
 def inspect_phase5():
     from PySide6.QtCore import qInstallMessageHandler
@@ -1546,11 +2045,13 @@ def inspect_phase6():
     check("picked colour repaints the window fill",
           win._bg_widget._bg_color.name().lower() == "#123456",
           str(win._bg_widget._bg_color))
-    # The ground carries a default TEXT colour with it. The two plain
-    # QFileSystemModel local explorers (SD Card, NextSync classic) set no
-    # foreground brush, so they take this - and on a light Windows theme the
-    # OS palette drew them black, which went invisible the moment the ground
-    # turned dark. It follows the ground, so a light pick flips it back.
+    # The ground carries a default TEXT colour with it. It was added for the
+    # two local explorers that were plain QFileSystemModels (SD Card, NextSync
+    # classic) and set no foreground brush - on a light Windows theme the OS
+    # palette drew them black, invisible the moment the ground turned dark.
+    # Both are painted by ColoredFileSystemModel now (9.7.37 / 9.7.39), but
+    # the rule still colours whatever a view leaves unpainted, and it follows
+    # the ground, so a light pick flips it back.
     check("a dark ground carries light item text",
           "color: #e8e8e8" in QApplication.instance().styleSheet(),
           QApplication.instance().styleSheet()[-160:])

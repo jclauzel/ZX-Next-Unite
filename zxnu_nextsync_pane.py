@@ -2,7 +2,8 @@
 
 Strangler extraction from MainWindow.__init__ (builder-function seam, see
 zxnu_zxdb_pane.py): the NextSync tab's construction blob — the classic local
-explorer (drive combo / filter / tree + DnD), sync-root row, log window and
+explorer (drive combo / filter / tree painted by ColoredFileSystemModel since
+9.7.39 + DnD), sync-root row, log window and
 its Classic/Pygame toggle, the Remote Explorer / Classic experience selector
 tabs, the RemoteExplorerWidget + `-listen` server control block, the NextSync
 HTTP bridge state + start/stop plumbing, the sync-mode radio group and the
@@ -41,7 +42,11 @@ from PySide6.QtWidgets import (QWidget, QLabel, QPushButton, QCheckBox,
 
 from zxnu_http_bridge import NextSyncHttpBridge, QueueBridgeHost
 from zxnu_network import detect_local_ipv4
-from zxnu_remote_explorer import RemoteExplorerWidget, _norm_remote_dir
+# ColoredFileSystemModel + HostItemColors paint the Classic sync tree like
+# the other two local trees (9.7.39). Same import direction as the line
+# already here, so no cycle and nothing new to declare in pyproject.
+from zxnu_remote_explorer import (ColoredFileSystemModel, HostItemColors,
+                                  RemoteExplorerWidget, _norm_remote_dir)
 from zxnu_config import *
 from zxnu_api import *
 from zxnu_gallery import *
@@ -172,7 +177,25 @@ def build_nextsync_pane(
 
     host.nextsync_treeview = QTreeView()
 
-    host.nextsync_filesystem_model = QFileSystemModel()
+    # PAINTED LIKE THE OTHER TWO LOCAL TREES (9.7.39). This was a plain
+    # QFileSystemModel, and that was the whole difference between this tree
+    # and the SD Card Utility's local pane / the Remote Explorer's: the OS's
+    # own localised Size ("36,76 Kio", "508 octets"), its Type descriptions
+    # ("File Fold...", "text/plain"), its locale date order - and no item
+    # colours at all, because the colours ARE ColoredFileSystemModel's
+    # ForegroundRole, not styling laid over it. Sharing the class gets all
+    # four back at once and means the three trees cannot drift apart.
+    #
+    # The colours are read LIVE off the host (HostItemColors): this tree is
+    # built long before load_configuration_file runs, and Settings REBINDS
+    # host.img_color_* rather than mutating them, so a snapshot would show
+    # the defaults for good. Naming quirk worth knowing before touching any
+    # of this: host.nextsync_filesystem_model is the SOURCE model and
+    # host.nextsync_model is the DotDotFirstProxyModel over it. Unparented,
+    # exactly as the plain model was, so its lifetime and teardown order do
+    # not change: the host attribute is what keeps it alive.
+    host.nextsync_filesystem_model = ColoredFileSystemModel(
+        HostItemColors(host))
 
     host.nextsync_filesystem_model.setRootPath('/')
     host.nextsync_filesystem_model.setFilter(~QDir.NoDotAndDotDot | QDir.NoDot)
@@ -192,6 +215,30 @@ def build_nextsync_pane(
 
     host.nextsync_treeview.show()
     host.nextsync_treeview.setColumnWidth(0, 250)
+    # Name / Type / Size / Modified, like the other two local trees -
+    # QFileSystemModel's native order is Name(0), Size(1), Type(2),
+    # Modified(3), so swap Size and Type visually. MUST come after
+    # setModel(): with no model the header has no sections and this is a
+    # silent no-op.
+    #
+    # VISUAL ONLY. swapSections moves the header's visual<->logical mapping
+    # and nothing else, so every logical index used against this tree -
+    # selectedRows(0) in the shared clipboard, set_treeview_properties'
+    # sortByColumn(0), and every indexAt -> mapToSource -> fileName /
+    # filePath / isDir read below and in zxnu_nextsync_ops (which answer the
+    # same for any column of a row) - keeps meaning what it meant. Unlike
+    # the SD pane this tree persists no column widths, so there is nothing
+    # saved to migrate either.
+    host.nextsync_treeview.header().swapSections(1, 2)
+    host.nextsync_treeview.setColumnWidth(3, 130)
+    # No in-place editing, and uniform rows, matching the other two local
+    # trees. A safeguard, not a fix: QFileSystemModel is read-only by
+    # default, so no editor opens today. Rename is F2, which the key handler
+    # below catches before QTreeView's own edit trigger sees it, or the
+    # context menu's Rename (nextsync_on_treeview_context_menu); both end in
+    # nextsync_rename_explorer_item's input dialog, never an in-place editor.
+    host.nextsync_treeview.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    host.nextsync_treeview.setUniformRowHeights(True)
 
     host.nextsync_treeview.doubleClicked.connect(nextsync_on_treeview_double_clicked)
     host.nextsync_treeview.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -236,6 +283,17 @@ def build_nextsync_pane(
     # into the folder it is dropped on, and dropping it back into its own
     # folder is a no-op (a deliberate duplicate is Copy/Paste's job, never
     # a drag's side effect).
+    #
+    # 9.7.39 changed the MODEL under this tree, not this wiring, and none of
+    # it may move: the handlers are assigned to the VIEW, and drag-OUT is
+    # Qt's default drag start (mouseMoveEvent -> startDrag, none assigned
+    # here), which takes supportedDragActions(), flags() and mimeData() off
+    # the view's model (the proxy, which forwards to the source) -
+    # ColoredFileSystemModel inherits all three unchanged (see its
+    # docstring). Offscreen phase 4 drives the drop paths below through Qt's
+    # real event delivery: empty space, a folder row, a file row, the ".."
+    # row, an intra-tree copy, the same-folder no-op, a drag of non-local
+    # URLs and one carrying no URLs at all.
     def _nextsync_drop_target_dir(pos):
         index = host.nextsync_treeview.indexAt(pos)
         if index.isValid():
@@ -741,6 +799,19 @@ def build_nextsync_pane(
     host._nextsync_http_bridge_stop = _nextsync_http_bridge_stop
 
     def _re_apply_item_colors():
+        # Repaint the Classic sync tree FIRST (9.7.39). It reads the same
+        # host.img_color_* live through ColoredFileSystemModel, so there is
+        # nothing to push - it only needs telling to paint again. It must sit
+        # ABOVE the early return below: the Remote Explorer widget is built
+        # lazily and may never exist, and a user who only ever uses Classic
+        # sync would otherwise never get the repaint. A safeguard rather than
+        # a fix today - every colour change comes from the Settings tab, and
+        # a page coming back on screen repaints in full - and guarded on its
+        # own because the colour picker calls this with no try around it.
+        try:
+            host.nextsync_treeview.viewport().update()
+        except Exception:
+            pass
         # Push the SD Card Utility's live item colours into the Remote
         # Explorer so its two panes are tinted the same way as the image tree
         # (dir/file name, type, size, up-dir). Safe to call before the widget

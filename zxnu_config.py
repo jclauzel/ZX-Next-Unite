@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.38"
+ZX_NEXT_UNITE_VERSION = "9.7.39"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -1342,12 +1342,16 @@ def contrasting_text_hex(background_hex):
 
     Derived rather than a setting of its own, because it has to hold for ANY
     colour the user picks. It only decides the rows that carry no foreground
-    brush of their own - which is exactly the two plain QFileSystemModel local
-    explorers (SD Card, NextSync classic). Those took the OS palette's text
-    colour, so a light Windows theme drew them BLACK: fine on the stock white
-    viewport they used to have, invisible once the ground became dark. The
-    coloured panes (image explorer, both Remote Explorer sides) set their own
-    brushes per item and are unaffected by this.
+    brush of their own. It was written for the two local explorers that used
+    to be plain QFileSystemModels (SD Card, NextSync classic): they took the
+    OS palette's text colour, so a light Windows theme drew them BLACK - fine
+    on the stock white viewport they used to have, invisible once the ground
+    became dark. Both are painted by ColoredFileSystemModel now (the SD Card
+    pane since 9.7.37, the Classic sync tree since 9.7.39), and the image
+    explorer and both Remote Explorer sides set their own brushes too, so in
+    the file explorers this is only the fallback for a cell nobody paints (a
+    folder's blank Size); it still colours any other view the rule covers
+    whose items set no brush.
     """
     col = QColor(background_hex)
     if not col.isValid():
