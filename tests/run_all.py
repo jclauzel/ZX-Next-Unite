@@ -75,7 +75,7 @@ SUITES = [
     ("test_i18n.py",            120, None),
     ("test_wizard.py",          120, None),
     ("test_network.py",         120, None),
-    ("test_ui_offscreen.py",    3600, None),   # runs its 10 phases itself
+    ("test_ui_offscreen.py",    3600, None),   # runs its 16 phases itself
 ]
 
 WITH_COVERAGE = "--coverage" in sys.argv[1:]

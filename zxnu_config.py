@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.38"
+ZX_NEXT_UNITE_VERSION = "9.7.39"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -500,6 +500,7 @@ SETTING_SDCARD_TREE_FONT       = "sdcard_tree_font"        # SD Card utility: LO
 SETTING_IMAGE_TREE_FONT        = "image_tree_font"         # SD Card utility: IMAGE explorer item font pt (Ctrl+wheel zoom)
 SETTING_RE_LOCAL_FONT          = "re_local_tree_font"      # Remote Explorer: local pane item font pt (Ctrl+wheel zoom)
 SETTING_RE_NEXT_FONT           = "re_next_tree_font"       # Remote Explorer: Next pane item font pt (Ctrl+wheel zoom)
+SETTING_NEXTSYNC_TREE_FONT     = "nextsync_tree_font"      # NextSync Classic sync: local tree item font pt (Ctrl+wheel zoom, 9.7.39)
 SETTING_RE_REMOTE_CWDS         = "re_remote_cwds"          # JSON {"ip": "/last/folder"} per connected Next (multi-Next; capped at 24, oldest out)
 SETTING_ITCHIO_API_KEY         = "itchio_api_key"          # str: personal itch.io API key (https://itch.io/user/settings/api-keys)
 SETTING_SHOW_ITCHIO_TAB        = "show_itchio_tab"         # "false" => hide the itch.io tab (default shown when itch-dl is installed)
@@ -1136,7 +1137,7 @@ SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTI
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
 SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
 SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS, SETTING_RE_REMOTE_CWDS, SETTING_RE_MACHINE_NAMES, SETTING_RE_MACHINE_COLORS,
-SETTING_SDCARD_TREE_FONT, SETTING_IMAGE_TREE_FONT, SETTING_RE_LOCAL_FONT, SETTING_RE_NEXT_FONT,
+SETTING_SDCARD_TREE_FONT, SETTING_IMAGE_TREE_FONT, SETTING_RE_LOCAL_FONT, SETTING_RE_NEXT_FONT, SETTING_NEXTSYNC_TREE_FONT,
 SETTING_EMULATOR_COLORS)
 
 
@@ -1342,12 +1343,16 @@ def contrasting_text_hex(background_hex):
 
     Derived rather than a setting of its own, because it has to hold for ANY
     colour the user picks. It only decides the rows that carry no foreground
-    brush of their own - which is exactly the two plain QFileSystemModel local
-    explorers (SD Card, NextSync classic). Those took the OS palette's text
-    colour, so a light Windows theme drew them BLACK: fine on the stock white
-    viewport they used to have, invisible once the ground became dark. The
-    coloured panes (image explorer, both Remote Explorer sides) set their own
-    brushes per item and are unaffected by this.
+    brush of their own. It was written for the two local explorers that used
+    to be plain QFileSystemModels (SD Card, NextSync classic): they took the
+    OS palette's text colour, so a light Windows theme drew them BLACK - fine
+    on the stock white viewport they used to have, invisible once the ground
+    became dark. Both are painted by ColoredFileSystemModel now (the SD Card
+    pane since 9.7.37, the Classic sync tree since 9.7.39), and the image
+    explorer and both Remote Explorer sides set their own brushes too, so in
+    the file explorers this is only the fallback for a cell nobody paints (a
+    folder's blank Size); it still colours any other view the rule covers
+    whose items set no brush.
     """
     col = QColor(background_hex)
     if not col.isValid():
@@ -3674,9 +3679,23 @@ HDF_MONKEY_JJJS_SHA256 = "41266e54ce27ef0be52c9b1fc5cabd377b9f490d632891e681a448
 # long startup takes on a slow machine - a slower startup simply arms
 # later. See arm_drag_views()'s call site in zxnu_main.
 #
-# AT setDragEnabled, NOT in the startDrag handlers: four of the five views
-# override startDrag, but the NextSync pane uses Qt's default, so a guard
-# written in the handlers would silently miss it.
+# AT setDragEnabled, NOT in the startDrag handlers: a guard there runs only
+# once a drag has already begun - the gesture itself is what has to be
+# refused. (All five views assign their own startDrag since 9.7.39, when
+# the NextSync Classic sync tree, the last one on Qt's default, got one; a
+# view added later on the default would slip past a handler guard too.)
+#
+# CALL IT AFTER setDragDropMode, NEVER BEFORE (9.7.39). Qt's
+# setDragDropMode(DragDrop) calls setDragEnabled(True) itself, so a view
+# registered first and given its drag mode second was armed again on the
+# very next line. That was the order on all three trees that set a mode -
+# the SD Card local and image trees and the NextSync Classic sync tree - so
+# from 9.7.29 to 9.7.38 this guard protected only the two Remote Explorer
+# panes, which set no mode. While disarmed, such a view reports
+# dragDropMode() == DropOnly (Qt derives it from dragEnabled/acceptDrops):
+# drops keep working throughout, only dragging OUT waits. The order is
+# tripwired in tests/test_transfer_tab.py and the disarmed-then-armed state
+# is checked live in offscreen phase 4.
 _DRAG_VIEWS = []
 _DRAG_ARMED = False
 
@@ -3686,7 +3705,9 @@ def register_drag_view(view):
 
     Views built after arming - the Remote Explorer panes are created when
     their tab is first opened, long after startup - are enabled at once,
-    so this is safe to call from anywhere at any time."""
+    so this is safe to call from anywhere at any time - but AFTER the view's
+    setDragDropMode, which would otherwise switch dragging straight back on
+    (see the block comment above)."""
     if _DRAG_ARMED:
         view.setDragEnabled(True)
         return

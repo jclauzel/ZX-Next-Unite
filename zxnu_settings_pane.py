@@ -356,7 +356,8 @@ def build_settings_pane(
                 host._image_recolor_all()
             except Exception:
                 pass
-        # Mirror the theme's item colours into the Remote Explorer panes.
+        # Mirror the theme's item colours into the Remote Explorer panes
+        # (and repaint the Classic sync tree - see _re_apply_item_colors).
         if hasattr(host, "_re_apply_item_colors"):
             try:
                 host._re_apply_item_colors()
@@ -649,7 +650,9 @@ def build_settings_pane(
                 # change is visible immediately (no async re-listing needed).
                 if hasattr(host, "_image_recolor_all"):
                     host._image_recolor_all()
-                # Mirror the change into the NextSync Remote Explorer's panes.
+                # Mirror the change into the NextSync Remote Explorer's panes
+                # (and repaint the Classic sync tree - see
+                # _re_apply_item_colors).
                 if hasattr(host, "_re_apply_item_colors"):
                     host._re_apply_item_colors()
                 # If the general UI text colour changed, re-apply it to the panes.

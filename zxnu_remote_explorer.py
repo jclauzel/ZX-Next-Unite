@@ -179,24 +179,100 @@ def _default_item_colors():
     }
 
 
+class HostItemColors:
+    """The item colours for a LOCAL file tree, read live off the host.
+
+    Used by the two local trees that live on the host rather than inside
+    this widget: the SD Card Utility's local pane (9.7.37) and the NextSync
+    tab's Classic sync tree (9.7.39). It moved here from zxnu_sdcard_explorer
+    when the second one needed it, so it sits beside the one model it feeds.
+
+    ColoredFileSystemModel only ever subscripts what it is handed, so a
+    mapping is enough and a plain dict is not what we want here. The Remote
+    Explorer can afford a dict because the host PUSHES into it
+    (set_item_colors mutates it in place on every Settings change); these two
+    trees have no such push, and a dict snapshotted at construction would be
+    wrong twice over:
+
+      * both trees are built long before the config file is read, so a
+        snapshot holds the DEFAULT colours - and it would keep holding them
+        for exactly the user who bothered to pick their own; and
+      * Settings REBINDS host.img_color_* to brand-new QColor objects rather
+        than mutating them, so even a later-seeded snapshot would go stale on
+        the first colour change.
+
+    Reading through on every access sidesteps both: there is no moment at
+    which this can be out of date, and no new startup hook to forget. The
+    keys are already an exact 1:1 match for the host attribute names.
+
+    NEVER RAISES. data() subscripts this inside Qt's paint path with no
+    guard, so a missing attribute (a host still being built, a key added to
+    the model later) must fall back rather than throw an exception through
+    the painter.
+    """
+
+    __slots__ = ("_host",)
+
+    def __init__(self, host):
+        self._host = host
+
+    def __getitem__(self, key):
+        col = getattr(self._host, "img_color_" + key, None)
+        if col is None:
+            col = getattr(self._host, "img_color_general_text", None)
+        # None, NOT an invalid QColor. data() hands whatever this returns
+        # straight back as the ForegroundRole, and QStyledItemDelegate turns a
+        # QColor into a QBrush - an INVALID one paints BLACK, which on the dark
+        # ground these explorers use would be an invisible row rather than the
+        # "no opinion" it looks like in the source. Returning None leaves the
+        # role unset, which is what an unpainted row was before this model
+        # took over these trees (9.7.37 / 9.7.39) and lets the view use its
+        # own palette.
+        return col
+
+
 class ColoredFileSystemModel(QFileSystemModel):
     """QFileSystemModel that tints each column with the SD-card explorer's
-    configurable item colours, so the local pane matches the look of the SD Card
-    Utility's image tree.
+    configurable item colours, so every local file tree matches the look of
+    the SD Card Utility's image tree.
 
     ``colours`` is anything subscriptable by the seven keys below, and it is
     re-queried on every paint rather than cached — so a colour change needs a
-    repaint, never a re-listing of the folder. Two shapes are in use: the
-    Remote Explorer passes a live dict (see _default_item_colors) that the
-    host mutates in place via set_item_colors, and the SD Card Utility's local
-    pane passes a _HostItemColors (zxnu_sdcard_explorer, 9.7.37) that reads
-    straight through to host.img_color_* on each lookup. A lookup may return
-    None, meaning "no opinion" — leave the role unset rather than substituting
-    an invalid QColor, which paints black.
+    repaint, never a re-listing of the folder. Two shapes are in use across
+    three trees: the Remote Explorer's local pane passes a live dict (see
+    _default_item_colors) that the host mutates in place via set_item_colors,
+    while the SD Card Utility's local pane (9.7.37) and the NextSync tab's
+    Classic sync tree (9.7.39) each pass a HostItemColors that reads straight
+    through to host.img_color_* on each lookup. A lookup may return None,
+    meaning "no opinion" — leave the role unset rather than substituting an
+    invalid QColor, which paints black.
 
     QFileSystemModel's native column order is 0=Name, 1=Size, 2=Type, so the
     colour mapping is keyed off that (the view re-orders them visually to
     Name/Type/Size to mirror the image tree).
+
+    ONLY data() IS OVERRIDDEN, and that is what makes this safe to drop under
+    a tree's existing drag & drop. flags(), mimeData()/mimeTypes() and the
+    supported drag/drop actions are QFileSystemModel's own - measured
+    identical to a plain model, through DotDotFirstProxyModel, when the
+    Classic sync tree moved onto this class (9.7.39). Keep it that way. All
+    three trees on this class assign their own startDrag (the Classic tree
+    since 9.7.39: copy only, never the ".." row), so the drag PAYLOAD and
+    ACTIONS are theirs - but Qt still starts a drag only on rows the MODEL
+    flags ItemIsDragEnabled (selectedDraggableIndexes), so flags() stays
+    load-bearing. And the model stays read-only (QFileSystemModel's
+    default): every tree takes drops through its own assigned
+    dragEnter/dragMove/drop handlers, never through
+    ItemIsDropEnabled/dropMimeData, which setReadOnly(False) would switch on.
+    Two guards keep that path dead today: the read-only flag itself
+    (dropMimeData returns False on a read-only model - measured, although
+    canDropMimeData still says True) and each assigned dropEvent REPLACING
+    QAbstractItemView.dropEvent, the one caller of dropMimeData. Lose BOTH -
+    a writable model AND a handler that falls through to the base - and Qt
+    performs a real file move (dropMimeData renames on MoveAction) behind
+    the app's back. Never override the FileNameRole either: fileName()
+    reads it through this method, and the ".." guards, the name filter, the
+    sort and every drop target resolve rows by it.
     """
 
     def __init__(self, colours, parent=None):
@@ -262,7 +338,9 @@ class ColoredFileSystemModel(QFileSystemModel):
 
 
 def _human_size(n):
-    """One unified, human-readable size string used by BOTH Remote Explorer panes:
+    """One unified, human-readable size string used by BOTH Remote Explorer panes
+    and, through ColoredFileSystemModel, by the SD Card Utility's local pane
+    (9.7.37) and the NextSync Classic sync tree (9.7.39):
     exact bytes under 1 KiB, then one decimal in K/M/G (e.g. "512 B", "6.8 K",
     "4.0 M"). Replaces the OS-localised "octets/Kio" text on the local side and the
     terse "1B/10K" on the Next side. Sorting always uses the real byte count, never
@@ -287,7 +365,9 @@ def _human_size(n):
 
 
 def _ext_type_text(name):
-    """Type text for a file entry, used by BOTH Remote Explorer panes: the first
+    """Type text for a file entry, used by BOTH Remote Explorer panes and,
+    through ColoredFileSystemModel, by the SD Card Utility's local pane
+    (9.7.37) and the NextSync Classic sync tree (9.7.39): the first
     extension segment, exactly as the SD-card image tree shows it (guarded by
     the '.' test, so [1] is always present)."""
     return name.split(".")[1] if "." in name else ""

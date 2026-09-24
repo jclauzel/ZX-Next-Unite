@@ -3015,8 +3015,9 @@ class MainWindow(QMainWindow):
             drag.exec(Qt.CopyAction)
 
         self.treeview.setAcceptDrops(True)
-        register_drag_view(self.treeview)   # armed after startup (9.7.29)
         self.treeview.setDragDropMode(QAbstractItemView.DragDrop)
+        # AFTER setDragDropMode, never before (9.7.39) - see register_drag_view.
+        register_drag_view(self.treeview)   # armed after startup (9.7.29)
         self.treeview.setDefaultDropAction(Qt.CopyAction)
         self.treeview.setDropIndicatorShown(True)
         self.treeview.dragEnterEvent = _local_drag_enter
@@ -3142,8 +3143,9 @@ class MainWindow(QMainWindow):
             drag.exec(Qt.CopyAction)
 
         self.image_treeview.setAcceptDrops(True)
-        register_drag_view(self.image_treeview)   # armed after startup (9.7.29)
         self.image_treeview.setDragDropMode(QAbstractItemView.DragDrop)
+        # AFTER setDragDropMode, never before (9.7.39) - see register_drag_view.
+        register_drag_view(self.image_treeview)   # armed after startup (9.7.29)
         self.image_treeview.setDefaultDropAction(Qt.CopyAction)
         self.image_treeview.setDropIndicatorShown(True)
         self.image_treeview.dragEnterEvent = _image_drag_enter

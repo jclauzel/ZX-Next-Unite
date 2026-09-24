@@ -910,12 +910,15 @@ def build_config_io(
                 apply_tree_column_widths(
                     getattr(host, _cols_attr, None),
                     configuration_dictionary.get(_cols_key, ""))
-            # The Ctrl+wheel font zoom's restore half (same trees; the
-            # Remote Explorer pair restores at its lazy construction in
-            # zxnu_nextsync_pane, like its column widths).
+            # The Ctrl+wheel font zoom's restore half (the two trees above,
+            # plus the NextSync Classic sync tree since 9.7.39, which is
+            # built long before this runs; the Remote Explorer pair restores
+            # at its lazy construction in zxnu_nextsync_pane, like its column
+            # widths).
             for _font_key, _font_attr in (
                 (SETTING_SDCARD_TREE_FONT, "treeview"),
                 (SETTING_IMAGE_TREE_FONT, "image_treeview"),
+                (SETTING_NEXTSYNC_TREE_FONT, "nextsync_treeview"),
             ):
                 apply_tree_font_pt(
                     getattr(host, _font_attr, None),
