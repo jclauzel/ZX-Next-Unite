@@ -458,8 +458,9 @@ sys.meta_path.insert(0, _NoPygame())
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 # Keep the offscreen platform's STUB drag, which returns at once. Qt 6.13
 # switches offscreen to a real in-process QSimpleDrag whose nested event loop
-# ends only on a mouse release or Escape - no synthetic input here provides
-# either, so phase 4's drag-start checks would block. Older Qt ignores this.
+# ends only on a mouse release or Escape, so any real QDrag.exec reached by a
+# phase would block (phase 4 records its drags through a QDrag subclass that
+# never calls exec - this is the backstop). Older Qt ignores the variable.
 os.environ.setdefault("QT_QPA_OFFSCREEN_NO_DND", "1")
 sys.path.insert(0, REPO)
 
@@ -1222,11 +1223,10 @@ def inspect_phase3():
 
 def inspect_phase4():
     import re
-    import threading
     from PySide6.QtWidgets import QAbstractItemView
-    from PySide6.QtCore import (QEvent, QMimeData, QUrl, QPointF, Qt,
+    from PySide6.QtCore import (QMimeData, QUrl, QPoint, QPointF, Qt,
                                 QItemSelectionModel)
-    from PySide6.QtGui import QColor, QDrag, QDropEvent, QKeyEvent
+    from PySide6.QtGui import QColor, QDropEvent, QWheelEvent
     # LATE zxnu imports are safe here: settings_row's rule is about
     # MODULE-LEVEL ones, and by now the app has cached these modules with
     # the scratch argv.
@@ -1279,18 +1279,15 @@ def inspect_phase4():
           tv.defaultDropAction() == Qt.CopyAction, str(tv.defaultDropAction()))
     # The drag & drop handlers are the pane's own closures, still on the
     # VIEW after the 9.7.39 model swap (an assigned closure reports its own
-    # __name__; an unassigned attribute is the bound Qt method), and drag-OUT
-    # is still Qt's DEFAULT startDrag - the one path whose payload, drag flag
-    # and actions come from the model rather than from the app's handlers.
+    # __name__; an unassigned attribute is the bound Qt method) - drag-OUT
+    # included, which has its own copy-only startDrag since 9.7.39.
     for _attr, _name in (("dropEvent", "_nextsync_drop"),
                          ("dragEnterEvent", "_nextsync_drag_enter"),
                          ("dragMoveEvent", "_nextsync_drag_move"),
-                         ("keyPressEvent", "_nextsync_tree_key_press")):
+                         ("keyPressEvent", "_nextsync_tree_key_press"),
+                         ("startDrag", "_nextsync_start_drag")):
         _got = getattr(getattr(tv, _attr), "__name__", "")
-        check(f"classic {_attr} is still the pane's closure", _got == _name, _got)
-    check("classic drag-out is still Qt's default startDrag",
-          getattr(tv.startDrag, "__name__", "") == "startDrag",
-          str(tv.startDrag))
+        check(f"classic {_attr} is the pane's closure", _got == _name, _got)
 
     # --- the PAINTED model (9.7.39): the Classic sync tree now shares the
     # other two local trees' ColoredFileSystemModel.
@@ -1577,10 +1574,13 @@ def inspect_phase4():
     check("...and copies nothing",
           not os.path.exists(os.path.join(CLASSIC_ZONE, "web-drop.txt")))
 
-    # --- drag-OUT. The Classic tree is the one view on Qt's DEFAULT
-    # startDrag, which takes draggable rows, asks the MODEL for the payload
-    # and offers the model's actions - so this is the payload Windows
-    # Explorer (or any other drop target) receives.
+    # --- drag-OUT (9.7.39): the Classic tree's own startDrag carries only
+    # real selected rows, and only as a COPY. Qt's default, which it ran
+    # before, offered Copy|Move|Link (a same-drive Explorer drop could MOVE
+    # the file out of the sync root) and carried the ".." row as the PARENT
+    # folder. The module's QDrag is swapped for a recording subclass, so
+    # what is asserted is exactly what the app hands Qt - the URLs and the
+    # actions given to exec() - and no platform drag loop ever runs.
     check("classic tree back on the fixture folder", _classic_goto(win, CLASSIC_ZONE))
     _dir = _classic_row(win, CLASSIC_INTO)
     check("classic folder row found for the drop-flag check", _dir is not None)
@@ -1592,69 +1592,94 @@ def inspect_phase4():
               not proxy.flags(_dir) & Qt.ItemFlag.ItemIsDropEnabled)
     pix = _classic_row(win, s512)
     check("classic file row found for the drag-out checks", pix is not None)
-    if pix is not None:
+    _nsp = sys.modules.get("zxnu_nextsync_pane")
+    check("the pane module is loaded (to record its drags)", _nsp is not None)
+    if pix is not None and _nsp is not None:
+        # Qt starts a drag only on rows the MODEL flags draggable.
         check("a file row is drag-enabled",
               bool(proxy.flags(pix) & Qt.ItemFlag.ItemIsDragEnabled))
-        _out = proxy.mimeData([pix.siblingAtColumn(c) for c in range(4)])
-        _urls = [os.path.normcase(os.path.abspath(u.toLocalFile()))
-                 for u in _out.urls()]
-        check("drag-out payload is exactly that file (one URL per row)",
-              _urls == [os.path.normcase(os.path.abspath(s512))], str(_urls))
-        check("drag-out offers Copy",
-              bool(proxy.supportedDragActions() & Qt.CopyAction))
-        # The drag START itself, with the actions Qt's mouseMoveEvent passes.
-        # It renders the drag pixmap through the model's data() - i.e.
-        # through the painted colours - and runs QDrag.exec, which returns at
-        # once on the offscreen STUB drag (see QT_QPA_OFFSCREEN_NO_DND). Two
-        # backstops should a future Qt run a real drag loop here anyway: an
-        # Escape, which QBasicDrag's filter treats as cancel, and - last
-        # resort - a thread watchdog. A NESTED EVENT LOOP is what such a Qt
-        # would block in, so the QTimer does fire; the thread can be starved
-        # of the GIL there, and runs only because the app's own Python timer
-        # keeps handing it back.
-        tv.setCurrentIndex(pix)
-        tv.selectionModel().select(
-            pix, QItemSelectionModel.SelectionFlag.ClearAndSelect
-            | QItemSelectionModel.SelectionFlag.Rows)
-        _sel = [i.row() for i in tv.selectionModel().selectedRows()]
-        check("the file row is what is selected for the drag",
-              _sel == [pix.row()], str(_sel))
+        _drags = []
+        _RealDrag = _nsp.QDrag
 
-        def _dog():
-            print("FAIL  classic startDrag blocked (watchdog)")
-            sys.stdout.flush()
-            os._exit(1)
-        _w = threading.Timer(15.0, _dog)
-        _w.daemon = True
-        _esc = QTimer()
-        _esc.setSingleShot(True)
-        _esc.timeout.connect(lambda: QApplication.sendEvent(
-            tv, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
-                          Qt.KeyboardModifier.NoModifier)))
-        _before = len(tv.findChildren(QDrag))
-        _w.start()
-        _esc.start(1000)
+        class _RecDrag(_RealDrag):
+            def exec(self, *a):
+                md = self.mimeData()
+                _drags.append((
+                    [os.path.normcase(os.path.abspath(u.toLocalFile()))
+                     for u in md.urls()] if md is not None else [],
+                    a[0] if a else None, self.parent()))
+                return Qt.DropAction.IgnoreAction
+
+        def _select(ix):
+            tv.setCurrentIndex(ix)
+            tv.selectionModel().select(
+                ix, QItemSelectionModel.SelectionFlag.ClearAndSelect
+                | QItemSelectionModel.SelectionFlag.Rows)
+
+        _want = [os.path.normcase(os.path.abspath(s512))]
+        _nsp.QDrag = _RecDrag
         try:
+            # 1. A direct call, with the actions Qt's mouseMoveEvent passes.
+            _select(pix)
+            _sel = [i.row() for i in tv.selectionModel().selectedRows()]
+            check("the file row is what is selected for the drag",
+                  _sel == [pix.row()], str(_sel))
             tv.startDrag(proxy.supportedDragActions())
-            _ok = True
-        except Exception as e:
-            _ok = False
-            print("startDrag raised:", e)
+            check("drag-out starts exactly one drag", len(_drags) == 1,
+                  str(_drags))
+            if _drags:
+                _urls, _acts, _src = _drags[-1]
+                check("drag-out payload is exactly that file", _urls == _want,
+                      str(_urls))
+                check("drag-out offers a COPY only - never Move or Link",
+                      _acts == Qt.DropAction.CopyAction, str(_acts))
+                check("the drag's source is the tree (the intra-tree no-op "
+                      "recognises its own drags by it)", _src is tv)
+            # 2. The ".." row never travels: dragging it starts nothing.
+            _root = tv.rootIndex()
+            _up = next((proxy.index(r, 0, _root)
+                        for r in range(proxy.rowCount(_root))
+                        if proxy.index(r, 0, _root).data() == ".."), None)
+            check("'..' row found for the drag-out check", _up is not None)
+            if _up is not None:
+                _n = len(_drags)
+                _select(_up)
+                tv.startDrag(proxy.supportedDragActions())
+                check("dragging the '..' row starts no drag",
+                      len(_drags) == _n, str(_drags[_n:]))
+            # 3. A REAL mouse gesture - press, then two moves past the start
+            # distance, which is how QAbstractItemView enters DraggingState
+            # and calls startDrag - now that the drag views are armed.
+            from PySide6.QtTest import QTest
+            pix = _classic_row(win, s512)
+            check("classic file row found for the drag gesture",
+                  pix is not None)
+            if pix is not None:
+                _select(pix)
+                _c = tv.visualRect(pix).center()
+                _step = QApplication.startDragDistance() + 5
+                _n = len(_drags)
+                QTest.mousePress(tv.viewport(), Qt.MouseButton.LeftButton,
+                                 Qt.KeyboardModifier.NoModifier, _c)
+                QTest.mouseMove(tv.viewport(), _c + QPoint(_step, 0))
+                QTest.mouseMove(tv.viewport(), _c + QPoint(2 * _step, 0))
+                QTest.mouseRelease(tv.viewport(), Qt.MouseButton.LeftButton,
+                                   Qt.KeyboardModifier.NoModifier,
+                                   _c + QPoint(2 * _step, 0))
+                check("a real mouse gesture starts the tree's own drag",
+                      len(_drags) == _n + 1, str(_drags[_n:]))
+                if len(_drags) > _n:
+                    check("...carrying that file, as a copy only",
+                          _drags[-1][0] == _want
+                          and _drags[-1][1] == Qt.DropAction.CopyAction,
+                          str(_drags[-1][:2]))
         finally:
-            _esc.stop()
-            _w.cancel()
-        # Counted BEFORE any processEvents: Qt deleteLater()s the QDrag.
-        _made = len(tv.findChildren(QDrag)) - _before
-        check("classic startDrag runs to completion", _ok)
-        check("...and actually creates a drag", _made == 1, str(_made))
+            _nsp.QDrag = _RealDrag
         check("...and the dragged file is still there", os.path.isfile(s512))
 
     # --- Ctrl + mouse-wheel font zoom (9.7.39): one point per notch over
     # the rows or the header, persisted to the cfg at once; a plain wheel
     # is left to scroll.
-    from PySide6.QtCore import QPoint
-    from PySide6.QtGui import QWheelEvent
-
     def _wheel(target, dy, ctrl=True):
         QApplication.sendEvent(target, QWheelEvent(
             QPointF(20, 20), QPointF(20, 20), QPoint(), QPoint(0, dy),

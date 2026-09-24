@@ -3681,7 +3681,9 @@ HDF_MONKEY_JJJS_SHA256 = "41266e54ce27ef0be52c9b1fc5cabd377b9f490d632891e681a448
 #
 # AT setDragEnabled, NOT in the startDrag handlers: a guard there runs only
 # once a drag has already begun - the gesture itself is what has to be
-# refused - and a view on Qt's default startDrag would slip past it anyway.
+# refused. (All five views assign their own startDrag since 9.7.39, when
+# the NextSync Classic sync tree, the last one on Qt's default, got one; a
+# view added later on the default would slip past a handler guard too.)
 #
 # CALL IT AFTER setDragDropMode, NEVER BEFORE (9.7.39). Qt's
 # setDragDropMode(DragDrop) calls setDragEnabled(True) itself, so a view

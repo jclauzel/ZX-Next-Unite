@@ -32,8 +32,8 @@ import time
 from zxnu_i18n import current_ui_language, translate_widget_tree, ui_tr_now
 
 from PySide6 import QtCore
-from PySide6.QtCore import (Qt, QTimer, QRect, QDir)
-from PySide6.QtGui import (QKeySequence)
+from PySide6.QtCore import (Qt, QTimer, QRect, QDir, QMimeData, QUrl)
+from PySide6.QtGui import (QDrag, QKeySequence)
 from PySide6.QtWidgets import (QWidget, QLabel, QPushButton, QCheckBox,
     QComboBox, QLineEdit, QHBoxLayout, QVBoxLayout, QProgressBar, QTreeView,
     QFileSystemModel, QGroupBox, QRadioButton, QButtonGroup, QListWidget,
@@ -294,16 +294,12 @@ def build_nextsync_pane(
     # folder is a no-op (a deliberate duplicate is Copy/Paste's job, never
     # a drag's side effect).
     #
-    # 9.7.39 changed the MODEL under this tree, not this wiring, and none of
-    # it may move: the handlers are assigned to the VIEW, and drag-OUT is
-    # Qt's default drag start (mouseMoveEvent -> startDrag, none assigned
-    # here), which takes supportedDragActions(), flags() and mimeData() off
-    # the view's model (the proxy, which forwards to the source) -
-    # ColoredFileSystemModel inherits all three unchanged (see its
-    # docstring). Offscreen phase 4 drives the drop paths below through Qt's
-    # real event delivery: empty space, a folder row, a file row, the ".."
-    # row, an intra-tree copy, the same-folder no-op, a drag of non-local
-    # URLs and one carrying no URLs at all.
+    # 9.7.39 changed the MODEL under this tree, not this wiring: the
+    # handlers are assigned to the VIEW, so the painted model rides under
+    # them unchanged. Offscreen phase 4 drives the drop paths below through
+    # Qt's real event delivery: empty space, a folder row, a file row, the
+    # ".." row, an intra-tree copy, the same-folder no-op, a drag of
+    # non-local URLs and one carrying no URLs at all.
     def _nextsync_drop_target_dir(pos):
         index = host.nextsync_treeview.indexAt(pos)
         if index.isValid():
@@ -353,6 +349,34 @@ def build_nextsync_pane(
         event.acceptProposedAction()
         nextsync_import_external_paths(paths, dest_dir)
 
+    # Drag OUT: this tree's own drag start (9.7.39), like the other four
+    # explorer views. Until now it ran Qt's DEFAULT startDrag, which did two
+    # things the others never do: it offered the model's Copy|Move|Link, so
+    # a drop on a Windows Explorer folder on the SAME drive could be carried
+    # out as a MOVE - silently taking the file out of the sync root - and it
+    # did not skip the ".." row, whose URL "<dir>/.." names the PARENT
+    # folder, so a drop target would copy that whole folder. Only real
+    # selected rows travel, and only as a copy. The intra-tree no-op above
+    # still recognises the drag as its own: a QDrag's source is its parent.
+    def _nextsync_drag_paths():
+        paths = []
+        for ix in host.nextsync_treeview.selectionModel().selectedRows(0):
+            source_ix = host.nextsync_model.mapToSource(ix)
+            if host.nextsync_filesystem_model.fileName(source_ix) == "..":
+                continue
+            paths.append(host.nextsync_filesystem_model.filePath(source_ix))
+        return paths
+
+    def _nextsync_start_drag(supported_actions):
+        paths = _nextsync_drag_paths()
+        if not paths:
+            return
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
+        drag = QDrag(host.nextsync_treeview)
+        drag.setMimeData(mime)
+        drag.exec(Qt.CopyAction)
+
     host.nextsync_treeview.setAcceptDrops(True)
     host.nextsync_treeview.setDragDropMode(QAbstractItemView.DragDrop)
     # AFTER setDragDropMode, never before (9.7.39): setDragDropMode(DragDrop)
@@ -367,6 +391,7 @@ def build_nextsync_pane(
     host.nextsync_treeview.dragEnterEvent = _nextsync_drag_enter
     host.nextsync_treeview.dragMoveEvent = _nextsync_drag_move
     host.nextsync_treeview.dropEvent = _nextsync_drop
+    host.nextsync_treeview.startDrag = _nextsync_start_drag
 
     set_treeview_properties()
 

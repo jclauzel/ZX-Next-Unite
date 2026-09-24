@@ -206,10 +206,9 @@ class HostItemColors:
     keys are already an exact 1:1 match for the host attribute names.
 
     NEVER RAISES. data() subscripts this inside Qt's paint path with no
-    guard - and on the Classic sync tree, whose drag-out is Qt's default
-    startDrag, inside the drag pixmap's render too - so a missing attribute
-    (a host still being built, a key added to the model later) must fall
-    back rather than throw an exception through the painter.
+    guard, so a missing attribute (a host still being built, a key added to
+    the model later) must fall back rather than throw an exception through
+    the painter.
     """
 
     __slots__ = ("_host",)
@@ -254,23 +253,24 @@ class ColoredFileSystemModel(QFileSystemModel):
 
     ONLY data() IS OVERRIDDEN, and that is what makes this safe to drop under
     a tree's existing drag & drop. flags(), mimeData()/mimeTypes() and the
-    supported drag/drop actions are QFileSystemModel's own, so the drag-out
-    payload (one text/uri-list URL per row, built from column 0), the
-    drag-enabled flag and the Copy|Move|Link action set are exactly what a
-    plain model gives - measured identical, through DotDotFirstProxyModel,
-    when the Classic sync tree moved onto this class (9.7.39). Keep it that
-    way: that tree drags OUT through Qt's DEFAULT drag start (mouseMoveEvent
-    -> startDrag; see register_drag_view), which takes all three off the
-    model. And the model stays read-only (QFileSystemModel's default): every
-    tree takes drops through its own assigned dragEnter/dragMove/drop
-    handlers, never through ItemIsDropEnabled/dropMimeData, which
-    setReadOnly(False) would switch on. That is inert today only because each
-    assigned dropEvent REPLACES QAbstractItemView.dropEvent, the one caller
-    of dropMimeData; a handler that ever fell through to the base would let
-    Qt perform a real file move (dropMimeData renames on MoveAction) behind
-    the app's back. Never override the FileNameRole either: fileName() reads
-    it through this method, and the ".." guards, the name filter, the sort
-    and every drop target resolve rows by it.
+    supported drag/drop actions are QFileSystemModel's own - measured
+    identical to a plain model, through DotDotFirstProxyModel, when the
+    Classic sync tree moved onto this class (9.7.39). Keep it that way. All
+    three trees on this class assign their own startDrag (the Classic tree
+    since 9.7.39: copy only, never the ".." row), so the drag PAYLOAD and
+    ACTIONS are theirs - but Qt still starts a drag only on rows the MODEL
+    flags ItemIsDragEnabled (selectedDraggableIndexes), so flags() stays
+    load-bearing. And the model stays read-only (QFileSystemModel's
+    default): every tree takes drops through its own assigned
+    dragEnter/dragMove/drop handlers, never through
+    ItemIsDropEnabled/dropMimeData, which setReadOnly(False) would switch on.
+    That is inert today only because each assigned dropEvent REPLACES
+    QAbstractItemView.dropEvent, the one caller of dropMimeData; a handler
+    that ever fell through to the base would let Qt perform a real file move
+    (dropMimeData renames on MoveAction) behind the app's back. Never
+    override the FileNameRole either: fileName() reads it through this
+    method, and the ".." guards, the name filter, the sort and every drop
+    target resolve rows by it.
     """
 
     def __init__(self, colours, parent=None):
