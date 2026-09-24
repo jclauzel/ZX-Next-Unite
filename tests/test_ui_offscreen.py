@@ -1243,9 +1243,38 @@ def inspect_phase4():
     check("nextsync tree accepts drops", tv.acceptDrops())
     # The VIEWPORT is the widget Qt actually delivers drag events to.
     check("nextsync tree viewport accepts drops", tv.viewport().acceptDrops())
-    check("nextsync tree drag enabled", tv.dragEnabled())
-    check("nextsync tree mode is DragDrop",
-          tv.dragDropMode() == QAbstractItemView.DragDrop, str(tv.dragDropMode()))
+
+    # --- the startup drag guard (9.7.29, made to work in 9.7.39). This
+    # inspector runs from a singleShot(0) as exec() starts, normally well
+    # before the 3600 ms arm_drag_views timer, so every drag-enabled tree
+    # must still be DISARMED here - it used to read armed, because each of
+    # them called setDragDropMode(DragDrop) (which re-enables dragging) on
+    # the line after register_drag_view. Asserted as an invariant against
+    # the real flag, so a slow CI start that has already armed cannot make
+    # this flaky: disarmed <=> not armed, whichever state we caught.
+    import zxnu_config as _zc
+    _drag_trees = (("classic", tv), ("sdcard local", win.treeview),
+                   ("sdcard image", win.image_treeview))
+    _armed0 = _zc._DRAG_ARMED
+    print(f"INFO  drag views armed at inspection start: {_armed0}")
+    for _lbl, _v in _drag_trees:
+        check(f"{_lbl} tree drag follows the startup arm "
+              f"({'armed' if _armed0 else 'still disarmed'})",
+              _v.dragEnabled() == _armed0, str(_v.dragEnabled()))
+        if not _armed0:
+            # Disarmed is DRAG-out only: Qt derives the mode from the two
+            # flags, and drops must keep working throughout.
+            check(f"{_lbl} tree still takes drops while disarmed",
+                  _v.acceptDrops()
+                  and _v.dragDropMode() == QAbstractItemView.DropOnly,
+                  str(_v.dragDropMode()))
+    check("the arm timer fires once the app is up",
+          wait_until(lambda: _zc._DRAG_ARMED, 15, "drag views armed"))
+    for _lbl, _v in _drag_trees:
+        check(f"{_lbl} tree drag enabled once armed", _v.dragEnabled())
+        check(f"{_lbl} tree mode is DragDrop once armed",
+              _v.dragDropMode() == QAbstractItemView.DragDrop,
+              str(_v.dragDropMode()))
     check("nextsync tree default action Copy",
           tv.defaultDropAction() == Qt.CopyAction, str(tv.defaultDropAction()))
     # The drag & drop handlers are the pane's own closures, still on the
@@ -1663,9 +1692,7 @@ def inspect_phase4():
     # setting them itself and silently losing to (or fighting) that wiring.
     sd = win.treeview
     check("sdcard local tree accepts drops", sd.acceptDrops())
-    check("sdcard local tree drag enabled", sd.dragEnabled())
-    check("sdcard local tree mode is DragDrop",
-          sd.dragDropMode() == QAbstractItemView.DragDrop, str(sd.dragDropMode()))
+    # (drag enabled + DragDrop mode are asserted once ARMED, at the top)
     check("sdcard local tree default action Copy",
           sd.defaultDropAction() == Qt.CopyAction, str(sd.defaultDropAction()))
 

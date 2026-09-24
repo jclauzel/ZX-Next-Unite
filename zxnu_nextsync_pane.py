@@ -354,8 +354,11 @@ def build_nextsync_pane(
         nextsync_import_external_paths(paths, dest_dir)
 
     host.nextsync_treeview.setAcceptDrops(True)
-    register_drag_view(host.nextsync_treeview)   # armed after startup (9.7.29)
     host.nextsync_treeview.setDragDropMode(QAbstractItemView.DragDrop)
+    # AFTER setDragDropMode, never before (9.7.39): setDragDropMode(DragDrop)
+    # calls setDragEnabled(True) itself, so the other order silently undid
+    # the startup disarm on this tree from 9.7.29 on. See register_drag_view.
+    register_drag_view(host.nextsync_treeview)   # armed after startup (9.7.29)
     # A drag within the explorer proposes a COPY (the copy is performed by
     # _nextsync_drop); without this Qt would propose an internal move for
     # same-view drags. Same setup as the Remote Explorer's local pane.

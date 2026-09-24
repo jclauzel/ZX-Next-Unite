@@ -304,6 +304,13 @@ for mod, view in (("zxnu_main.py", "self.treeview"),
     check(f"{view} keeps its own drop + key handlers",
           f"{view}.dropEvent = " in _s and f"{view}.keyPressEvent = " in _s
           and f"{view}.setAcceptDrops(True)" in _s)
+    # The startup drag guard (9.7.29, fixed 9.7.39): setDragDropMode(DragDrop)
+    # re-enables dragging itself, so register_drag_view must come AFTER it
+    # or the view is armed from the start. Views that set no mode are fine.
+    _mode = _s.find(f"{view}.setDragDropMode(")
+    _reg = _s.find(f"register_drag_view({view})")
+    check(f"{view} registers for the drag arm AFTER setting its drag mode",
+          _reg >= 0 and (_mode < 0 or _reg > _mode), f"mode@{_mode} reg@{_reg}")
 # 3. The sub-tab bar must NOT accept drags. QTabBar calls setAcceptDrops on
 #    itself only for changeCurrentOnDrag, which would put the Remote
 #    Explorer's staged drag-out and the SD Card views inside one gesture -

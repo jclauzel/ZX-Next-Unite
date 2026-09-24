@@ -3679,9 +3679,21 @@ HDF_MONKEY_JJJS_SHA256 = "41266e54ce27ef0be52c9b1fc5cabd377b9f490d632891e681a448
 # long startup takes on a slow machine - a slower startup simply arms
 # later. See arm_drag_views()'s call site in zxnu_main.
 #
-# AT setDragEnabled, NOT in the startDrag handlers: four of the five views
-# override startDrag, but the NextSync pane uses Qt's default, so a guard
-# written in the handlers would silently miss it.
+# AT setDragEnabled, NOT in the startDrag handlers: a guard there runs only
+# once a drag has already begun - the gesture itself is what has to be
+# refused - and a view on Qt's default startDrag would slip past it anyway.
+#
+# CALL IT AFTER setDragDropMode, NEVER BEFORE (9.7.39). Qt's
+# setDragDropMode(DragDrop) calls setDragEnabled(True) itself, so a view
+# registered first and given its drag mode second was armed again on the
+# very next line. That was the order on all three trees that set a mode -
+# the SD Card local and image trees and the NextSync Classic sync tree - so
+# from 9.7.29 to 9.7.38 this guard protected only the two Remote Explorer
+# panes, which set no mode. While disarmed, such a view reports
+# dragDropMode() == DropOnly (Qt derives it from dragEnabled/acceptDrops):
+# drops keep working throughout, only dragging OUT waits. The order is
+# tripwired in tests/test_transfer_tab.py and the disarmed-then-armed state
+# is checked live in offscreen phase 4.
 _DRAG_VIEWS = []
 _DRAG_ARMED = False
 
@@ -3691,7 +3703,9 @@ def register_drag_view(view):
 
     Views built after arming - the Remote Explorer panes are created when
     their tab is first opened, long after startup - are enabled at once,
-    so this is safe to call from anywhere at any time."""
+    so this is safe to call from anywhere at any time - but AFTER the view's
+    setDragDropMode, which would otherwise switch dragging straight back on
+    (see the block comment above)."""
     if _DRAG_ARMED:
         view.setDragEnabled(True)
         return
