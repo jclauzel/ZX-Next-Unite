@@ -118,11 +118,13 @@ for src, dst in (
 print(run(HDFMONKEY, "ls", hdf, "/games"))
 
 # -- hdfg.cfg ----------------------------------------------------------------
-# nextsync_re_splitter_sizes: with no saved split (9.7.2+) Qt divides the
-# Remote Explorer by size hints, and the Next pane's toolbar has outgrown the
-# local one (9.7.33's filter box) - at 1500 px the local pane came out ~480 px
-# with its Date column clipped to "202". Seed the proportions the tour always
-# had instead (local 636 px, arrows + Next pane 734 px).
+# nextsync_re_splitter_sizes: pins the Remote Explorer split the tour has
+# always shown (local 636 px, arrows + Next pane 734 px at 1500 px). It is no
+# longer a workaround. Until 9.7.41 (PR #376) a first open with no saved
+# split divided the view by size hints, and the local pane came out ~480 px
+# with its Date column clipped to "202"; it now splits the view evenly. The
+# seed keeps the frames matching the earlier GIFs instead of following that
+# default.
 cfg = f"""hddffile={hdf}
 explorerpath={sample}
 nextsync_explorerpath={sample}

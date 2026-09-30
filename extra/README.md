@@ -189,9 +189,13 @@ or `FRAMES` / `FRAME_MS` in `tour_capture.py`, or `PER_SEG` in
   `content_disclaimer_agreed=1` (the gate checks the literal `"1"`). Without
   it, the online panes block the run on a modal.
 - **The Remote Explorer split.** The demo cfg also seeds
-  `nextsync_re_splitter_sizes`. Unseeded, Qt divides that view by size hints,
-  and since the Next pane grew its own filter box (9.7.33) the local pane
-  came out ~480 px at the tour's 1500 px, its Date column clipped to "202".
+  `nextsync_re_splitter_sizes=636,734`, the split the tour has always shown.
+  It is no longer a workaround. Until 9.7.41 (PR #376), an unseeded first
+  open divided that view by size hints, and the local pane came out ~480 px
+  at the tour's 1500 px, its Date column clipped to "202".
+  A first open now splits the view evenly (about 685 px a side there). The
+  seed keeps the frames matching the earlier GIFs instead of following that
+  default.
 - **ZXDB uses a Random page, never Latest.** ZXDB's newest rows are entries
   created before anyone uploads media for them, so a Latest page is a grid of
   typed "FILE" tiles. On 2026-09-30, 0 of the 12 visible Latest entries had a
