@@ -183,6 +183,7 @@ def make_widget(**kw):
             "enqueue_to",
             lambda sid, cmd: (calls["q_to"].append((sid, cmd)) or True)),
         splitter_sizes=kw.get("splitter_sizes"),
+        on_splitter_moved=kw.get("on_splitter_moved"),
         local_sort=kw.get("local_sort"),
         next_sort=kw.get("next_sort"),
         on_sort_changed=lambda which, v: calls["sorts"].append((which, v)),
@@ -866,6 +867,83 @@ def test_splitter_size_restore():
               all(9999999 not in s for s in seen), str(seen))
         w2.deleteLater()
         w.deleteLater()
+
+
+def _laid_out_split(w, width):
+    """Show ``w`` at ``width`` px and answer the splitter's laid-out sizes.
+
+    sizes() reports GEOMETRY, so the widget has to be shown for it to
+    mean anything (unshown, a restored "700,300" answers [45, 45])."""
+    w.resize(width, 600)
+    w.show()
+    for _ in range(10):
+        QApplication.processEvents()
+    return w.hsplitter.sizes()
+
+
+def test_splitter_default_is_even():
+    """With no saved split the local | Next splitter shares the width
+    EVENLY, and a saved split still wins.
+
+    Before, a first open left the split to Qt, which weighs the two sides
+    by their size hints. Since the Next pane grew its own Filter box
+    (9.7.33) the right-hand side's hint is nearly twice the local one's:
+    the local pane came out ~34% of the view (471/899 px of 1380, real
+    fonts), its Modified column clipped under a horizontal scrollbar.
+
+    The width is derived from the two sides' own minimums rather than
+    fixed. This suite runs offscreen, where without QT_QPA_FONTDIR Qt
+    measures a fallback face roughly four times too wide and the Next
+    side's floor alone reaches ~684 px, so a fixed width would pin that
+    floor instead of the split.
+    """
+    print("\n== splitter default split ==")
+    moved = []
+    w = make_widget(local_start_dir=tdir("split_even"),
+                    on_splitter_moved=moved.append)[0]
+    floor = max(w.hsplitter.widget(i).minimumSizeHint().width()
+                for i in (0, 1))
+    width = max(1380, 2 * floor + 120)
+    sz = _laid_out_split(w, width)
+    check("no saved split: the local pane gets half the width",
+          sum(sz) > 0 and abs(sz[0] - sz[1]) <= 2, str(sz))
+    # The default is a pair of equal WEIGHTS, not two pixel counts, so it
+    # has to stay even when the window is resized - a fixed [half, half]
+    # measured at the first show would drift the moment it grew.
+    sz = _laid_out_split(w, int(width * 1.4))
+    check("...and it stays even when the window grows",
+          sum(sz) > 0 and abs(sz[0] - sz[1]) <= 2, str(sz))
+    check("the default split is never written to the cfg", moved == [],
+          str(moved))
+    w.close()
+    w.deleteLater()
+
+    # A corrupt saved value is refused (test_splitter_size_restore) and
+    # falls back to the same even default rather than to the size hints.
+    w = make_widget(local_start_dir=tdir("split_even_corrupt"),
+                    splitter_sizes="99999999999999,300",
+                    on_splitter_moved=moved.append)[0]
+    sz = _laid_out_split(w, width)
+    check("a corrupt saved split falls back to the even default",
+          sum(sz) > 0 and abs(sz[0] - sz[1]) <= 2, str(sz))
+    w.close()
+    w.deleteLater()
+
+    # A saved split still wins: a quarter | three-quarters split is
+    # restored as that proportion, not evened out. Wide enough that the
+    # quarter clears either side's floor, which would otherwise decide.
+    wide = max(1600, 4 * floor + 120)
+    w = make_widget(local_start_dir=tdir("split_saved"),
+                    splitter_sizes="%d,%d" % (wide // 4, 3 * wide // 4),
+                    on_splitter_moved=moved.append)[0]
+    sz = _laid_out_split(w, wide)
+    share = sz[0] / float(sum(sz)) if sum(sz) else 0.0
+    check("a saved split still wins over the even default",
+          abs(share - 0.25) < 0.03, "%s (local %.3f)" % (sz, share))
+    check("restoring a saved split writes nothing back", moved == [],
+          str(moved))
+    w.close()
+    w.deleteLater()
 
 
 def test_next_pane_filter():
@@ -3764,6 +3842,7 @@ def main():
         test_ls_failed_fallback()
         test_sorting()
         test_splitter_size_restore()
+        test_splitter_default_is_even()
         test_next_pane_filter()
         test_op_lifecycle_new_folder_rename_delete()
         test_get_size_dialog()

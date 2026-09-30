@@ -2065,6 +2065,33 @@ class RemoteExplorerWidget(QWidget):
                 logging.exception(
                     "Remote Explorer: refusing saved splitter sizes %r",
                     _sizes)
+        else:
+            # No saved split (every first open, and a corrupt value too):
+            # share the width EVENLY. Left to itself Qt weighs the two
+            # sides by their size hints, and since the Next pane grew its
+            # own Filter box (9.7.33) the right-hand side's hint is nearly
+            # twice the local one's - measured with real fonts, 471/899 px
+            # of a 1380 px view, the local tree's Modified column clipped
+            # to "202" under a horizontal scrollbar and the sync-root box
+            # losing its leading "C".
+            #
+            # These are WEIGHTS, not pixels. Both sides carry a stretch
+            # factor, so QSplitter shares out the whole width in proportion
+            # to them, before the first layout as much as after it and at
+            # every window size, and only a side's minimum can overrule
+            # them. Nothing needs deferring to a showEvent. The one rule is
+            # that the value must not be below either side's minimum when
+            # it is set: setSizes raises such a value to that minimum, and
+            # the weights would then be the two floors (167/433 px), which
+            # are anything but even. Hence the largest hint of the pair.
+            #
+            # Never persisted: splitterMoved fires for real drags only, so
+            # a user who never drags keeps no split in hdfg.cfg at all and
+            # goes on getting this default.
+            _even = max(_w_hint for _side in (local_container, right_side)
+                        for _w_hint in (_side.sizeHint().width(),
+                                        _side.minimumSizeHint().width()))
+            self.hsplitter.setSizes([_even, _even])
         if on_splitter_moved is not None:
             # splitterMoved fires for real drags only, never for the
             # setSizes above, so a restore can't echo back into the cfg.
