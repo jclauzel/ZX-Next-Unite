@@ -260,9 +260,29 @@ def orchestrate():
             gallery("ZXArt", "zxart", win.zxart_on_latest, False)
             zxdb(False)
 
+    def force_english():
+        # EVERY frame is English, whatever the cfg or the OS says - the first
+        # step of both tours. The demo cfg seeds ui_language=en, but a blank
+        # value adopts the OS language on a first run and a stale one would go
+        # straight into the GIFs. The Settings combo is the user's own gesture
+        # (it re-translates the whole window live and persists the choice);
+        # when it already says English the walk is re-applied anyway, since
+        # nothing guarantees the widgets were last translated to match it.
+        combo = win.settings_ui_language_combo
+        en = combo.findData("en")
+        if combo.currentIndex() != en:
+            combo.setCurrentIndex(en)
+        else:
+            win._i18n_apply("en")
+        from zxnu_config import _zxart_set_language
+        from zxnu_i18n import current_ui_language
+        _zxart_set_language("eng")           # zxArt's own content language
+        log(f"UI language: {current_ui_language()}")
+
     # --- the tabs tour -------------------------------------------------------
     def tabs_tour():
-        step(400, lambda: win.resize(*WINDOW), "resize")
+        step(400, force_english, "English")
+        step(200, lambda: win.resize(*WINDOW), "resize")
         # Mask the local IP before ANY tab entry: the SD Card and NextSync views
         # share one tab now, so entering it can run NextSync's prepare scan.
         step(200, lambda: patch_ip(), "mask IPs (early)")
@@ -298,12 +318,6 @@ def orchestrate():
     def wizzy_tour():
         from zxnu_wizard_content import GUIDES, TOUR_STEPS
         wiz = win._wizard
-        ui_lang = win.settings_ui_language_combo
-
-        def set_language(code):
-            # The Settings combo, exactly as a user flips it: it re-translates
-            # the window live, and a speaking wizard re-speaks mid-sentence.
-            ui_lang.setCurrentIndex(ui_lang.findData(code))
 
         def quiet():
             # No idle gestures, no once-a-session ZX Next Remote pitch and no
@@ -332,7 +346,8 @@ def orchestrate():
             wiz.sprite.set_gesture("walk_left")
             wiz._stroll_timer.start()
 
-        step(400, lambda: win.resize(*WINDOW), "resize")
+        step(400, force_english, "English")
+        step(200, lambda: win.resize(*WINDOW), "resize")
         step(200, lambda: patch_ip(), "mask IPs (early)")
         # The wizard's own startup() runs 2.2 s in (and stays silent: he is
         # off). Visit the galleries unrecorded meanwhile, so each tour step
@@ -347,16 +362,10 @@ def orchestrate():
         plan = [s[1] for s in TOUR_STEPS if wiz._resolve_step(s) is not None]
         log(f"tour plan: {plan}")
         for key in plan:
-            if key == "tour.language":
-                # The opening step invites a language pick: take it up, in
-                # French, and back.
-                capture_segment("language_en")
-                step(300, lambda: set_language("fr"), "language: fr")
-                step(2500, lambda: None, "re-translated")
-                capture_segment("language_fr")
-                step(300, lambda: set_language("en"), "language: en")
-                step(2500, lambda: None, "re-translated")
-            elif key in WIZZY_GRAB:
+            # English throughout (force_english above): the opening step
+            # INVITES a language pick, and the GIF deliberately does not take
+            # it up.
+            if key in WIZZY_GRAB:
                 capture_segment(key.split(".", 1)[1])
             step(300, wiz.next_tour_step, f"next after {key}")
             step(2500, lambda: None, "bubble settles")
