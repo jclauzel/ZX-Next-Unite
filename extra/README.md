@@ -190,9 +190,9 @@ or `FRAMES` / `FRAME_MS` in `tour_capture.py`, or `PER_SEG` in
   it, the online panes block the run on a modal.
 - **The Remote Explorer split.** The demo cfg also seeds
   `nextsync_re_splitter_sizes=636,734`, the split the tour has always shown.
-  It is no longer a workaround. Until the fix that followed 9.7.40 (PR #376),
-  an unseeded first open divided that view by size hints, and the local pane
-  came out ~480 px at the tour's 1500 px, its Date column clipped to "202".
+  It is no longer a workaround. Until 9.7.41 (PR #376), an unseeded first
+  open divided that view by size hints, and the local pane came out ~480 px
+  at the tour's 1500 px, its Date column clipped to "202".
   A first open now splits the view evenly (about 685 px a side there). The
   seed keeps the frames matching the earlier GIFs instead of following that
   default.

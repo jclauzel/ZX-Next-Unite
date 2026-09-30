@@ -120,11 +120,11 @@ print(run(HDFMONKEY, "ls", hdf, "/games"))
 # -- hdfg.cfg ----------------------------------------------------------------
 # nextsync_re_splitter_sizes: pins the Remote Explorer split the tour has
 # always shown (local 636 px, arrows + Next pane 734 px at 1500 px). It is no
-# longer a workaround. Until the fix that followed 9.7.40 (PR #376) a first
-# open with no saved split divided the view by size hints, and the local pane
-# came out ~480 px with its Date column clipped to "202"; it now splits the
-# view evenly. The seed keeps the frames matching the earlier GIFs instead of
-# following that default.
+# longer a workaround. Until 9.7.41 (PR #376) a first open with no saved
+# split divided the view by size hints, and the local pane came out ~480 px
+# with its Date column clipped to "202"; it now splits the view evenly. The
+# seed keeps the frames matching the earlier GIFs instead of following that
+# default.
 cfg = f"""hddffile={hdf}
 explorerpath={sample}
 nextsync_explorerpath={sample}
