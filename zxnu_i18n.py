@@ -1202,19 +1202,41 @@ CATALOGS = {
             "Activar el puente HTTP de NextSync (servidor web para el comando .http del Next)",
         "Enable crash log file generation":
             "Activar la generación del registro de fallos",
-        "Enable multi API endpoints search (GetIt, ZXDB & zxArt search together).":
+        "Enable multi API endpoints search (GetIt, ZXDB && zxArt search together).":
             "Activar la búsqueda multi-API (GetIt, ZXDB y zxArt a la vez).",
+        "Check for ZXNextRemote update on itch.io on startup":
+            "Buscar actualizaciones de ZXNextRemote en itch.io al iniciar",
+        "Show Wizzy, the onboarding wizard (bottom-right assistant)":
+            "Mostrar a Wizzy, el mago de bienvenida (asistente en la esquina inferior derecha)",
+        "<a href=\"https://jclauzel.itch.io/zxnextremote\" style=\"color:#9cd2ff;\">🌐 ZX Next Remote on itch.io ↗</a>":
+            "<a href=\"https://jclauzel.itch.io/zxnextremote\" style=\"color:#9cd2ff;\">🌐 ZX Next Remote en itch.io ↗</a>",
+        "(cycling)":
+            "(en rotación)",
+        "Trace bridge requests":
+            "Registrar las peticiones del puente",
+        "Launch Mame with Flatpak":
+            "Iniciar Mame con Flatpak",
+        "Flatpak rom path:":
+            "Ruta de ROMs de Flatpak:",
+        "RS232 ESP Emulation (Mame)":
+            "Emulación RS232 ESP (Mame)",
+        "RS232 ESP Emulation verbose mode":
+            "Modo detallado de la emulación RS232 ESP",
+        "⏹ Stop Remote Explorer NextSync server":
+            "⏹ Detener servidor NextSync del Explorador remoto",
+        "Please set a sync root folder on the left local file explorer":
+            "Establece una carpeta raíz de sincronización en el explorador local de la izquierda",
         "Enable search autocompletion.": "Activar el autocompletado de búsqueda.",
         "NextSync — starfield log animation (Retro/pygame mode)":
             "NextSync — animación de estrellas en el registro (modo Retro/pygame)",
-        "Perform pre-availability check on Downloads (ZXDB & zxArt).":
+        "Perform pre-availability check on Downloads (ZXDB && zxArt).":
             "Comprobar la disponibilidad de las descargas (ZXDB y zxArt).",
         "Require bearer token": "Exigir token de acceso",
         "SD Card - Warn when an image is nearly full.":
             "Tarjeta SD — Avisar cuando una imagen esté casi llena.",
         "Send deleted files to the Recycle Bin (local file explorers).":
             "Enviar los archivos eliminados a la Papelera (exploradores locales).",
-        "Show the itch.io tab (browse & install your itch.io collections)":
+        "Show the itch.io tab (browse && install your itch.io collections)":
             "Mostrar la pestaña itch.io (explorar e instalar tus colecciones)",
         "Slow transfer": "Transferencia lenta",
         "Unite! — Invaders background animation (Retro/pygame mode)":
@@ -2584,19 +2606,41 @@ CATALOGS = {
             "Ativar a ponte HTTP do NextSync (servidor web para o comando .http do Next)",
         "Enable crash log file generation":
             "Ativar a geração do registo de falhas",
-        "Enable multi API endpoints search (GetIt, ZXDB & zxArt search together).":
+        "Enable multi API endpoints search (GetIt, ZXDB && zxArt search together).":
             "Ativar a pesquisa multi-API (GetIt, ZXDB e zxArt em conjunto).",
+        "Check for ZXNextRemote update on itch.io on startup":
+            "Procurar atualizações do ZXNextRemote no itch.io ao arrancar",
+        "Show Wizzy, the onboarding wizard (bottom-right assistant)":
+            "Mostrar o Wizzy, o feiticeiro de boas-vindas (assistente no canto inferior direito)",
+        "<a href=\"https://jclauzel.itch.io/zxnextremote\" style=\"color:#9cd2ff;\">🌐 ZX Next Remote on itch.io ↗</a>":
+            "<a href=\"https://jclauzel.itch.io/zxnextremote\" style=\"color:#9cd2ff;\">🌐 ZX Next Remote no itch.io ↗</a>",
+        "(cycling)":
+            "(em ciclo)",
+        "Trace bridge requests":
+            "Registar os pedidos da ponte",
+        "Launch Mame with Flatpak":
+            "Iniciar o Mame com o Flatpak",
+        "Flatpak rom path:":
+            "Caminho das ROMs do Flatpak:",
+        "RS232 ESP Emulation (Mame)":
+            "Emulação RS232 ESP (Mame)",
+        "RS232 ESP Emulation verbose mode":
+            "Modo detalhado da emulação RS232 ESP",
+        "⏹ Stop Remote Explorer NextSync server":
+            "⏹ Parar servidor NextSync do Explorador remoto",
+        "Please set a sync root folder on the left local file explorer":
+            "Define uma pasta raiz de sincronização no explorador local à esquerda",
         "Enable search autocompletion.": "Ativar a conclusão automática da pesquisa.",
         "NextSync — starfield log animation (Retro/pygame mode)":
             "NextSync — animação de estrelas no registo (modo Retro/pygame)",
-        "Perform pre-availability check on Downloads (ZXDB & zxArt).":
+        "Perform pre-availability check on Downloads (ZXDB && zxArt).":
             "Verificar a disponibilidade das transferências (ZXDB e zxArt).",
         "Require bearer token": "Exigir token de acesso",
         "SD Card - Warn when an image is nearly full.":
             "Cartão SD — Avisar quando uma imagem estiver quase cheia.",
         "Send deleted files to the Recycle Bin (local file explorers).":
             "Enviar os ficheiros eliminados para a Reciclagem (exploradores locais).",
-        "Show the itch.io tab (browse & install your itch.io collections)":
+        "Show the itch.io tab (browse && install your itch.io collections)":
             "Mostrar o separador itch.io (explorar e instalar as suas coleções)",
         "Slow transfer": "Transferência lenta",
         "Unite! — Invaders background animation (Retro/pygame mode)":
@@ -3963,19 +4007,41 @@ CATALOGS = {
             "Włącz mostek HTTP NextSync (serwer WWW dla polecenia .http Nexta)",
         "Enable crash log file generation":
             "Włącz zapisywanie dziennika awarii",
-        "Enable multi API endpoints search (GetIt, ZXDB & zxArt search together).":
+        "Enable multi API endpoints search (GetIt, ZXDB && zxArt search together).":
             "Włącz wyszukiwanie w wielu API naraz (GetIt, ZXDB i zxArt).",
+        "Check for ZXNextRemote update on itch.io on startup":
+            "Sprawdzaj aktualizacje ZXNextRemote na itch.io przy starcie",
+        "Show Wizzy, the onboarding wizard (bottom-right assistant)":
+            "Pokaż Wizzy'ego, czarodzieja-przewodnika (asystent w prawym dolnym rogu)",
+        "<a href=\"https://jclauzel.itch.io/zxnextremote\" style=\"color:#9cd2ff;\">🌐 ZX Next Remote on itch.io ↗</a>":
+            "<a href=\"https://jclauzel.itch.io/zxnextremote\" style=\"color:#9cd2ff;\">🌐 ZX Next Remote na itch.io ↗</a>",
+        "(cycling)":
+            "(zmieniane cyklicznie)",
+        "Trace bridge requests":
+            "Śledź żądania mostka",
+        "Launch Mame with Flatpak":
+            "Uruchamiaj Mame przez Flatpak",
+        "Flatpak rom path:":
+            "Ścieżka ROM-ów (Flatpak):",
+        "RS232 ESP Emulation (Mame)":
+            "Emulacja RS232 ESP (Mame)",
+        "RS232 ESP Emulation verbose mode":
+            "Tryb szczegółowy emulacji RS232 ESP",
+        "⏹ Stop Remote Explorer NextSync server":
+            "⏹ Zatrzymaj serwer NextSync zdalnego eksploratora",
+        "Please set a sync root folder on the left local file explorer":
+            "Wskaż folder główny synchronizacji w lewym lokalnym eksploratorze plików",
         "Enable search autocompletion.": "Włącz autouzupełnianie wyszukiwania.",
         "NextSync — starfield log animation (Retro/pygame mode)":
             "NextSync — animacja gwiazd w dzienniku (tryb Retro/pygame)",
-        "Perform pre-availability check on Downloads (ZXDB & zxArt).":
+        "Perform pre-availability check on Downloads (ZXDB && zxArt).":
             "Sprawdzaj dostępność plików do pobrania (ZXDB i zxArt).",
         "Require bearer token": "Wymagaj tokenu dostępu",
         "SD Card - Warn when an image is nearly full.":
             "Karta SD — ostrzegaj, gdy obraz jest prawie pełny.",
         "Send deleted files to the Recycle Bin (local file explorers).":
             "Przenoś usuwane pliki do Kosza (lokalne eksploratory).",
-        "Show the itch.io tab (browse & install your itch.io collections)":
+        "Show the itch.io tab (browse && install your itch.io collections)":
             "Pokaż kartę itch.io (przeglądaj i instaluj swoje kolekcje)",
         "Slow transfer": "Wolny transfer",
         "Unite! — Invaders background animation (Retro/pygame mode)":
@@ -5344,19 +5410,41 @@ CATALOGS = {
             "Включить HTTP-мост NextSync (веб-сервер для команды .http на Next)",
         "Enable crash log file generation":
             "Включить запись журнала сбоев",
-        "Enable multi API endpoints search (GetIt, ZXDB & zxArt search together).":
+        "Enable multi API endpoints search (GetIt, ZXDB && zxArt search together).":
             "Включить поиск сразу по нескольким API (GetIt, ZXDB и zxArt).",
+        "Check for ZXNextRemote update on itch.io on startup":
+            "Проверять обновления ZXNextRemote на itch.io при запуске",
+        "Show Wizzy, the onboarding wizard (bottom-right assistant)":
+            "Показывать Wizzy, волшебника-гида для новичков (помощник в правом нижнем углу)",
+        "<a href=\"https://jclauzel.itch.io/zxnextremote\" style=\"color:#9cd2ff;\">🌐 ZX Next Remote on itch.io ↗</a>":
+            "<a href=\"https://jclauzel.itch.io/zxnextremote\" style=\"color:#9cd2ff;\">🌐 ZX Next Remote на itch.io ↗</a>",
+        "(cycling)":
+            "(чередование)",
+        "Trace bridge requests":
+            "Трассировать запросы моста",
+        "Launch Mame with Flatpak":
+            "Запускать Mame через Flatpak",
+        "Flatpak rom path:":
+            "Путь к ROM для Flatpak:",
+        "RS232 ESP Emulation (Mame)":
+            "Эмуляция RS232 ESP (Mame)",
+        "RS232 ESP Emulation verbose mode":
+            "Подробный режим эмуляции RS232 ESP",
+        "⏹ Stop Remote Explorer NextSync server":
+            "⏹ Остановить сервер NextSync удалённого проводника",
+        "Please set a sync root folder on the left local file explorer":
+            "Задайте корневую папку синхронизации в левом локальном проводнике",
         "Enable search autocompletion.": "Включить автодополнение поиска.",
         "NextSync — starfield log animation (Retro/pygame mode)":
             "NextSync — анимация звёздного поля в журнале (режим Retro/pygame)",
-        "Perform pre-availability check on Downloads (ZXDB & zxArt).":
+        "Perform pre-availability check on Downloads (ZXDB && zxArt).":
             "Проверять доступность файлов перед скачиванием (ZXDB и zxArt).",
         "Require bearer token": "Требовать токен доступа",
         "SD Card - Warn when an image is nearly full.":
             "SD-карта — предупреждать, когда образ почти заполнен.",
         "Send deleted files to the Recycle Bin (local file explorers).":
             "Отправлять удалённые файлы в Корзину (локальные проводники).",
-        "Show the itch.io tab (browse & install your itch.io collections)":
+        "Show the itch.io tab (browse && install your itch.io collections)":
             "Показывать вкладку itch.io (просмотр и установка ваших коллекций)",
         "Slow transfer": "Медленная передача",
         "Unite! — Invaders background animation (Retro/pygame mode)":
@@ -6722,19 +6810,41 @@ CATALOGS = {
             "Zapnout HTTP most NextSync (webový server pro příkaz .http Nextu)",
         "Enable crash log file generation":
             "Zapnout zápis protokolu pádů",
-        "Enable multi API endpoints search (GetIt, ZXDB & zxArt search together).":
+        "Enable multi API endpoints search (GetIt, ZXDB && zxArt search together).":
             "Zapnout hledání ve více API najednou (GetIt, ZXDB a zxArt).",
+        "Check for ZXNextRemote update on itch.io on startup":
+            "Při startu hledat aktualizace ZXNextRemote na itch.io",
+        "Show Wizzy, the onboarding wizard (bottom-right assistant)":
+            "Zobrazit Wizzyho, uvítacího průvodce (pomocník vpravo dole)",
+        "<a href=\"https://jclauzel.itch.io/zxnextremote\" style=\"color:#9cd2ff;\">🌐 ZX Next Remote on itch.io ↗</a>":
+            "<a href=\"https://jclauzel.itch.io/zxnextremote\" style=\"color:#9cd2ff;\">🌐 ZX Next Remote na itch.io ↗</a>",
+        "(cycling)":
+            "(střídání)",
+        "Trace bridge requests":
+            "Protokolovat požadavky mostu",
+        "Launch Mame with Flatpak":
+            "Spouštět Mame přes Flatpak",
+        "Flatpak rom path:":
+            "Cesta k ROM pro Flatpak:",
+        "RS232 ESP Emulation (Mame)":
+            "Emulace RS232 ESP (Mame)",
+        "RS232 ESP Emulation verbose mode":
+            "Podrobný režim emulace RS232 ESP",
+        "⏹ Stop Remote Explorer NextSync server":
+            "⏹ Zastavit server NextSync vzdáleného průzkumníka",
+        "Please set a sync root folder on the left local file explorer":
+            "Nastavte kořenovou složku synchronizace v levém místním průzkumníku souborů",
         "Enable search autocompletion.": "Zapnout automatické doplňování hledání.",
         "NextSync — starfield log animation (Retro/pygame mode)":
             "NextSync — animace hvězd v protokolu (režim Retro/pygame)",
-        "Perform pre-availability check on Downloads (ZXDB & zxArt).":
+        "Perform pre-availability check on Downloads (ZXDB && zxArt).":
             "Ověřovat dostupnost souborů ke stažení (ZXDB a zxArt).",
         "Require bearer token": "Vyžadovat přístupový token",
         "SD Card - Warn when an image is nearly full.":
             "Karta SD — upozornit, když je obraz téměř plný.",
         "Send deleted files to the Recycle Bin (local file explorers).":
             "Přesouvat smazané soubory do Koše (místní průzkumníky).",
-        "Show the itch.io tab (browse & install your itch.io collections)":
+        "Show the itch.io tab (browse && install your itch.io collections)":
             "Zobrazit kartu itch.io (procházení a instalace vašich kolekcí)",
         "Slow transfer": "Pomalý přenos",
         "Unite! — Invaders background animation (Retro/pygame mode)":
@@ -8107,19 +8217,41 @@ CATALOGS = {
             "Activer le pont HTTP NextSync (serveur web pour la commande .http du Next)",
         "Enable crash log file generation":
             "Activer la génération du journal de plantage",
-        "Enable multi API endpoints search (GetIt, ZXDB & zxArt search together).":
+        "Enable multi API endpoints search (GetIt, ZXDB && zxArt search together).":
             "Activer la recherche multi-API (GetIt, ZXDB et zxArt ensemble).",
+        "Check for ZXNextRemote update on itch.io on startup":
+            "Vérifier les mises à jour de ZXNextRemote sur itch.io au démarrage",
+        "Show Wizzy, the onboarding wizard (bottom-right assistant)":
+            "Afficher Wizzy, l'assistant de prise en main (en bas à droite)",
+        "<a href=\"https://jclauzel.itch.io/zxnextremote\" style=\"color:#9cd2ff;\">🌐 ZX Next Remote on itch.io ↗</a>":
+            "<a href=\"https://jclauzel.itch.io/zxnextremote\" style=\"color:#9cd2ff;\">🌐 ZX Next Remote sur itch.io ↗</a>",
+        "(cycling)":
+            "(en rotation)",
+        "Trace bridge requests":
+            "Tracer les requêtes du pont",
+        "Launch Mame with Flatpak":
+            "Lancer Mame avec Flatpak",
+        "Flatpak rom path:":
+            "Chemin des ROM Flatpak :",
+        "RS232 ESP Emulation (Mame)":
+            "Émulation RS232 ESP (Mame)",
+        "RS232 ESP Emulation verbose mode":
+            "Mode verbeux de l'émulation RS232 ESP",
+        "⏹ Stop Remote Explorer NextSync server":
+            "⏹ Arrêter le serveur NextSync de l'explorateur distant",
+        "Please set a sync root folder on the left local file explorer":
+            "Définissez un dossier racine de synchronisation dans l'explorateur local de gauche",
         "Enable search autocompletion.": "Activer l'autocomplétion de la recherche.",
         "NextSync — starfield log animation (Retro/pygame mode)":
             "NextSync — animation d'étoiles dans le journal (mode Rétro/pygame)",
-        "Perform pre-availability check on Downloads (ZXDB & zxArt).":
+        "Perform pre-availability check on Downloads (ZXDB && zxArt).":
             "Vérifier la disponibilité des téléchargements (ZXDB et zxArt).",
         "Require bearer token": "Exiger un jeton d'accès",
         "SD Card - Warn when an image is nearly full.":
             "Carte SD — Avertir quand une image est presque pleine.",
         "Send deleted files to the Recycle Bin (local file explorers).":
             "Envoyer les fichiers supprimés à la Corbeille (explorateurs locaux).",
-        "Show the itch.io tab (browse & install your itch.io collections)":
+        "Show the itch.io tab (browse && install your itch.io collections)":
             "Afficher l'onglet itch.io (parcourir et installer vos collections)",
         "Slow transfer": "Transfert lent",
         "Unite! — Invaders background animation (Retro/pygame mode)":

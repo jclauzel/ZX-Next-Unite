@@ -899,6 +899,72 @@ check("wizard corner: _reposition and _stroll_home use the SAME right "
       "margin (they drift apart if one hardcodes it)",
       _mgr.sprite.x() == _home, "%d vs %d" % (_mgr.sprite.x(), _home))
 
+# ── Wizzy names every UI label the way it reads ON SCREEN ─────────────────
+# He always speaks the UI's own language, so a French bubble telling the user
+# to find « Application language: » pointed at a label that, in a French UI,
+# reads « Langue de l'application : ». Six texts did that, in all six
+# languages (tour.language, sd.mame, sd.mame.linux, sd.cspect_steps,
+# ns.server, ns.remote). A label is compared by its CORE - no leading icon
+# ("⬇  Install MAME" is quoted as « Install MAME »), no trailing colon or
+# ellipsis - and against every QUOTED span exactly, so a short one like
+# « Sync once » is caught too: the first cut compared whole catalog keys of
+# 12+ characters and passed with four of those texts still in English.
+import re as _re                                                      # noqa: E402
+from zxnu_i18n import CATALOGS as _CAT                                # noqa: E402
+
+
+def _core(s):
+    s = s.replace("&&", "&").strip()
+    while s and not s[0].isalnum():
+        s = s[1:]
+    return s.rstrip(" :.… ").strip()
+
+
+# « », „ ” / „ “, “ ”, and '…' / "…" only as QUOTES: an apostrophe with a
+# letter on its outer side is an elision (l'onglet), and pairing two of those
+# swallowed a whole French « … » span the first time this was written.
+_QUOTED = _re.compile(r"«\s*([^»]+?)\s*»|„([^”“]+)[”“]|“([^”]+)”"
+                      r"|(?<!\w)'([^']+)'(?!\w)|(?<!\w)\"([^\"]+)\"(?!\w)")
+_quoted = []
+for _key, _entry in wc.TEXTS.items():
+    for _lg in _entry:
+        if _lg == "en" or _lg not in _CAT:
+            continue
+        _t = wc.wizard_tr(_key, _lg)
+        _spans = {_core(next(g for g in _m.groups() if g is not None))
+                  for _m in _QUOTED.finditer(_t)}
+        for _k, _v in _CAT[_lg].items():
+            _ck = _core(_k)
+            if not _ck or _ck == _core(_v) or not any(c.isalpha() for c in _ck):
+                continue
+            if _ck in _spans or (len(_k) >= 12 and _k in _t):
+                _quoted.append(f"{_key}/{_lg}: {_ck[:40]!r}")
+check("wizard texts name UI labels as they read on screen, never by an "
+      "English label the translated UI does not show",
+      not _quoted, "; ".join(_quoted[:4]))
+check("the quoted-label scan really sees quotes in every script "
+      "(« », „ ”, „ “, ' ')",
+      {"Jazyk aplikace", "Język aplikacji", "Idioma de la aplicación",
+       "Langue de l'application"}
+      <= {_core(next(g for g in _m.groups() if g is not None))
+          for _lg in ("cs", "pl", "es", "fr")
+          for _m in _QUOTED.finditer(wc.wizard_tr("tour.language", _lg))})
+for _lg in sorted(_CAT):
+    _shown = _CAT[_lg]["Application language:"].rstrip(" :")
+    check(f"tour.language ({_lg}) names the label as shown: {_shown!r}",
+          _shown in wc.wizard_tr("tour.language", _lg))
+
+# French puts a space before ! ? : ; and inside « »; the bubble's word wrap
+# must not break there ("! Ici même" opened a line in the Wizzy GIF).
+_fr = ([e["fr"] for e in wc.TEXTS.values() if "fr" in e]
+       + list(wc.JOKES["fr"]) + list(wc.STORIES["fr"]))
+_breakable = [t[:40] for t in _fr
+              if any(p in t for p in (" !", " ?", " :", " ;", "« ", " »"))]
+check("French: no line can break before ! ? : ; or inside guillemets",
+      not _breakable, "; ".join(_breakable[:3]))
+check("French: the non-breaking-space pass really ran",
+      sum(t.count(" ") for t in _fr) > 50)
+
 
 print()
 if FAIL:

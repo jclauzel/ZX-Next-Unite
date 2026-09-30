@@ -887,63 +887,62 @@ TEXTS = {
               "itch.io ?",
     },
     "sd.cspect_steps": {
-        "en": "Here is the full incantation: 1) Purchase CSpect on "
-              "itch.io (the website) — it joins your itch.io library. "
-              "2) Open the itch.io tab here and connect with your "
-              "account's API key — the tab's 'Get key' button opens the "
-              "exact page. 3) Your library appears: click CSpect, then "
-              "Install. 4) That's it — it lands in the app's downloads "
-              "folder, hdfmonkey included, and the 'Launch CSpect' "
-              "button on the SD Card tab lights up automatically.",
-        "es": "Aquí va el conjuro completo: 1) Compra CSpect en itch.io "
-              "(la web) — se añadirá a tu biblioteca de itch.io. 2) Abre "
-              "aquí la pestaña itch.io y conéctate con la clave API de tu "
-              "cuenta — el botón «Get key» abre la página exacta. 3) "
-              "Aparece tu biblioteca: haz clic en CSpect y luego en "
-              "Install. 4) Listo — cae en la carpeta de descargas de la "
-              "aplicación, con hdfmonkey incluido, y el botón «Launch "
-              "CSpect» de la pestaña SD Card se enciende automáticamente.",
-        "pt": "Eis o encantamento completo: 1) Compra o CSpect no "
-              "itch.io (o site) — junta-se à tua biblioteca itch.io. 2) "
-              "Abre aqui o separador itch.io e liga-te com a chave API da "
-              "tua conta — o botão «Get key» abre a página certa. 3) A "
-              "tua biblioteca aparece: clica em CSpect e depois em "
-              "Install. 4) Pronto — cai na pasta de descargas da "
-              "aplicação, com o hdfmonkey incluído, e o botão «Launch "
-              "CSpect» do separador SD Card acende-se automaticamente.",
-        "pl": "Oto pełne zaklęcie: 1) Kup CSpecta na itch.io (na "
-              "stronie) — trafi do twojej biblioteki itch.io. 2) Otwórz "
-              "tutaj kartę itch.io i połącz się kluczem API swojego "
-              "konta — przycisk „Get key” otwiera właściwą stronę. 3) "
-              "Pojawi się twoja biblioteka: kliknij CSpect, potem "
-              "Install. 4) Gotowe — ląduje w folderze pobrań aplikacji "
-              "razem z hdfmonkey, a przycisk „Launch CSpect” na karcie "
-              "SD Card zapala się automatycznie.",
-        "ru": "Вот полное заклинание: 1) Купите CSpect на itch.io (на "
-              "сайте) — он появится в вашей библиотеке itch.io. 2) "
-              "Откройте здесь вкладку itch.io и подключитесь API-ключом "
-              "вашего аккаунта — кнопка «Get key» открывает нужную "
-              "страницу. 3) Появится ваша библиотека: нажмите CSpect, "
-              "затем Install. 4) Готово — он попадает в папку загрузок "
-              "приложения вместе с hdfmonkey, и кнопка «Launch CSpect» "
-              "на вкладке SD Card загорается автоматически.",
-        "cs": "Tady je celé zaříkadlo: 1) Kup CSpect na itch.io (na "
-              "webu) — přibude do tvé knihovny itch.io. 2) Otevři tady "
-              "záložku itch.io a připoj se API klíčem svého účtu — "
-              "tlačítko „Get key“ otevře přesně tu správnou stránku. 3) "
-              "Objeví se tvá knihovna: klikni na CSpect a pak na "
-              "Install. 4) Hotovo — přistane ve složce stahování "
-              "aplikace i s hdfmonkey a tlačítko „Launch CSpect“ na "
-              "záložce SD Card se rozsvítí samo.",
-        "fr": "Voici l'incantation complète : 1) Achetez CSpect sur "
-              "itch.io (le site) — il rejoint votre bibliothèque "
-              "itch.io. 2) Ouvrez ici l'onglet itch.io et connectez-vous "
-              "avec la clé API de votre compte — le bouton « Get key » "
-              "ouvre la page exacte. 3) Votre bibliothèque apparaît : "
-              "cliquez sur CSpect, puis sur Install. 4) Et voilà — il "
-              "atterrit dans le dossier de téléchargements de "
-              "l'application, hdfmonkey inclus, et le bouton « Launch "
-              "CSpect » de l'onglet SD Card s'allume automatiquement.",
+        "en": "Here is the full incantation: 1) Purchase CSpect on itch.io "
+              "(the website) — it joins your itch.io library. 2) Open the "
+              "itch.io tab here and connect with your account's API key — the "
+              "tab's 'Get API key' button opens the exact page. 3) Your "
+              "library appears: click CSpect, then 'Install'. 4) That's it — "
+              "it lands in the app's downloads folder, hdfmonkey included, "
+              "and the 'Launch CSpect' button on the SD Card tab lights up "
+              "automatically.",
+        "es": "Aquí va el conjuro completo: 1) Compra CSpect en itch.io (la "
+              "web) — se añadirá a tu biblioteca de itch.io. 2) Abre aquí la "
+              "pestaña itch.io y conéctate con la clave API de tu cuenta — el "
+              "botón «Obtener clave API» abre la página exacta. 3) Aparece tu "
+              "biblioteca: haz clic en CSpect y luego en «Instalar». 4) Listo "
+              "— cae en la carpeta de descargas de la aplicación, con "
+              "hdfmonkey incluido, y el botón «Iniciar CSpect» de la pestaña "
+              "SD Card se enciende automáticamente.",
+        "pt": "Eis o encantamento completo: 1) Compra o CSpect no itch.io (o "
+              "site) — junta-se à tua biblioteca itch.io. 2) Abre aqui o "
+              "separador itch.io e liga-te com a chave API da tua conta — o "
+              "botão «Obter chave API» abre a página certa. 3) A tua "
+              "biblioteca aparece: clica em CSpect e depois em «Instalar». 4) "
+              "Pronto — cai na pasta de descargas da aplicação, com o "
+              "hdfmonkey incluído, e o botão «Iniciar o CSpect» do separador "
+              "SD Card acende-se automaticamente.",
+        "pl": "Oto pełne zaklęcie: 1) Kup CSpecta na itch.io (na stronie) — "
+              "trafi do twojej biblioteki itch.io. 2) Otwórz tutaj kartę "
+              "itch.io i połącz się kluczem API swojego konta — przycisk "
+              "„Uzyskaj klucz API” otwiera właściwą stronę. 3) Pojawi się "
+              "twoja biblioteka: kliknij CSpect, potem „Zainstaluj”. 4) "
+              "Gotowe — ląduje w folderze pobrań aplikacji razem z hdfmonkey, "
+              "a przycisk „Uruchom CSpect” na karcie SD Card zapala się "
+              "automatycznie.",
+        "ru": "Вот полное заклинание: 1) Купите CSpect на itch.io (на сайте) "
+              "— он появится в вашей библиотеке itch.io. 2) Откройте здесь "
+              "вкладку itch.io и подключитесь API-ключом вашего аккаунта — "
+              "кнопка «Получить ключ API» открывает нужную страницу. 3) "
+              "Появится ваша библиотека: нажмите CSpect, затем «Установить». "
+              "4) Готово — он попадает в папку загрузок приложения вместе с "
+              "hdfmonkey, и кнопка «Запустить CSpect» на вкладке SD Card "
+              "загорается автоматически.",
+        "cs": "Tady je celé zaříkadlo: 1) Kup CSpect na itch.io (na webu) — "
+              "přibude do tvé knihovny itch.io. 2) Otevři tady záložku "
+              "itch.io a připoj se API klíčem svého účtu — tlačítko „Získat "
+              "klíč API“ otevře přesně tu správnou stránku. 3) Objeví se tvá "
+              "knihovna: klikni na CSpect a pak na „Nainstalovat“. 4) Hotovo "
+              "— přistane ve složce stahování aplikace i s hdfmonkey a "
+              "tlačítko „Spustit CSpect“ na záložce SD Card se rozsvítí samo.",
+        "fr": "Voici l'incantation complète : 1) Achetez CSpect sur itch.io "
+              "(le site) — il rejoint votre bibliothèque itch.io. 2) Ouvrez "
+              "ici l'onglet itch.io et connectez-vous avec la clé API de "
+              "votre compte — le bouton « Obtenir une clé API » ouvre la page "
+              "exacte. 3) Votre bibliothèque apparaît : cliquez sur CSpect, "
+              "puis sur « Installer ». 4) Et voilà — il atterrit dans le "
+              "dossier de téléchargements de l'application, hdfmonkey inclus, "
+              "et le bouton « Lancer CSpect » de l'onglet SD Card s'allume "
+              "automatiquement.",
     },
     "sd.mame": {
         "en": "MAME also emulates the Next (the 'tbblue' driver). MAME "
@@ -952,35 +951,35 @@ TEXTS = {
               "this tab fetches hdfmonkey, and the 'Install MAME' button "
               "fetches the latest MAME build for you.",
         "es": "MAME también emula el Next (el driver «tbblue»). MAME NO "
-              "incluye hdfmonkey, así que usa la vía clásica "
-              "independiente: el botón «Download and install HDF Monkey» "
-              "de esta pestaña instala hdfmonkey, y el botón «Install "
-              "MAME» descarga por ti la última versión de MAME.",
-        "pt": "O MAME também emula o Next (o driver «tbblue»). O MAME "
-              "NÃO traz o hdfmonkey, por isso segue a via clássica "
-              "independente: o botão «Download and install HDF Monkey» "
-              "deste separador instala o hdfmonkey, e o botão «Install "
-              "MAME» descarrega por ti a versão mais recente do MAME.",
+              "incluye hdfmonkey, así que usa la vía clásica independiente: "
+              "el botón «Descargar e instalar HDF Monkey» de esta pestaña "
+              "instala hdfmonkey, y el botón «Instalar MAME» descarga por ti "
+              "la última versión de MAME.",
+        "pt": "O MAME também emula o Next (o driver «tbblue»). O MAME NÃO "
+              "traz o hdfmonkey, por isso segue a via clássica independente: "
+              "o botão «Transferir e instalar o HDF Monkey» deste separador "
+              "instala o hdfmonkey, e o botão «Instalar o MAME» descarrega "
+              "por ti a versão mais recente do MAME.",
         "pl": "MAME również emuluje Nexta (sterownik „tbblue”). MAME NIE "
-              "zawiera hdfmonkey, więc skorzystaj z klasycznej "
-              "samodzielnej ścieżki: przycisk „Download and install HDF "
-              "Monkey” na tej karcie instaluje hdfmonkey, a przycisk "
-              "„Install MAME” pobiera najnowszą wersję MAME.",
-        "ru": "MAME тоже эмулирует Next (драйвер «tbblue»). MAME НЕ "
-              "включает hdfmonkey, поэтому идите классическим отдельным "
-              "путём: кнопка «Download and install HDF Monkey» на этой "
-              "вкладке установит hdfmonkey, а кнопка «Install MAME» "
-              "скачает для вас свежую сборку MAME.",
+              "zawiera hdfmonkey, więc skorzystaj z klasycznej samodzielnej "
+              "ścieżki: przycisk „Pobierz i zainstaluj HDF Monkey” na tej "
+              "karcie instaluje hdfmonkey, a przycisk „Zainstaluj MAME” "
+              "pobiera najnowszą wersję MAME.",
+        "ru": "MAME тоже эмулирует Next (драйвер «tbblue»). MAME НЕ включает "
+              "hdfmonkey, поэтому идите классическим отдельным путём: кнопка "
+              "«Скачать и установить HDF Monkey» на этой вкладке установит "
+              "hdfmonkey, а кнопка «Установить MAME» скачает для вас свежую "
+              "сборку MAME.",
         "cs": "MAME také emuluje Next (ovladač „tbblue“). MAME hdfmonkey "
-              "NEobsahuje, takže zvol klasickou samostatnou cestu: "
-              "tlačítko „Download and install HDF Monkey“ na této "
-              "záložce nainstaluje hdfmonkey a tlačítko „Install MAME“ "
-              "stáhne nejnovější sestavení MAME.",
+              "NEobsahuje, takže zvol klasickou samostatnou cestu: tlačítko "
+              "„Stáhnout a nainstalovat HDF Monkey“ na této záložce "
+              "nainstaluje hdfmonkey a tlačítko „Nainstalovat MAME“ stáhne "
+              "nejnovější sestavení MAME.",
         "fr": "MAME émule aussi le Next (le pilote « tbblue »). MAME "
-              "n'embarque PAS hdfmonkey : prenez la voie classique "
-              "autonome — le bouton « Download and install HDF Monkey » "
-              "de cet onglet installe hdfmonkey, et le bouton « Install "
-              "MAME » télécharge pour vous la dernière version de MAME.",
+              "n'embarque PAS hdfmonkey : prenez la voie classique autonome — "
+              "le bouton « Télécharger et installer HDF Monkey » de cet "
+              "onglet installe hdfmonkey, et le bouton « Installer MAME » "
+              "télécharge pour vous la dernière version de MAME.",
     },
     "sd.mame.linux": {
         "en": "A note for Linux: there is no official MAME binary — if "
@@ -988,30 +987,29 @@ TEXTS = {
               "'Launch Mame with Flatpak' in the Settings tab and the "
               "app will use the Flatpak MAME instead.",
         "es": "Nota para Linux: no existe binario oficial de MAME — si "
-              "compilar desde el código fuente no es tu idea de "
-              "diversión, activa «Launch Mame with Flatpak» en la "
-              "pestaña Ajustes y la aplicación usará el MAME de Flatpak.",
-        "pt": "Nota para Linux: não há binário oficial do MAME — se "
-              "compilar a partir do código-fonte não é a tua ideia de "
-              "diversão, ativa «Launch Mame with Flatpak» no separador "
-              "Definições e a aplicação usará o MAME do Flatpak.",
-        "pl": "Uwaga dla Linuksa: nie ma oficjalnej binarki MAME — "
-              "jeśli kompilacja ze źródeł to nie twoja bajka, włącz "
-              "„Launch Mame with Flatpak” w karcie Ustawienia, a "
-              "aplikacja użyje MAME z Flatpaka.",
+              "compilar desde el código fuente no es tu idea de diversión, "
+              "activa «Iniciar Mame con Flatpak» en la pestaña Ajustes y la "
+              "aplicación usará el MAME de Flatpak.",
+        "pt": "Nota para Linux: não há binário oficial do MAME — se compilar "
+              "a partir do código-fonte não é a tua ideia de diversão, ativa "
+              "«Iniciar o Mame com o Flatpak» no separador Definições e a "
+              "aplicação usará o MAME do Flatpak.",
+        "pl": "Uwaga dla Linuksa: nie ma oficjalnej binarki MAME — jeśli "
+              "kompilacja ze źródeł to nie twoja bajka, włącz „Uruchamiaj "
+              "Mame przez Flatpak” w karcie Ustawienia, a aplikacja użyje "
+              "MAME z Flatpaka.",
         "ru": "Замечание для Linux: официальной сборки MAME нет — если "
               "компиляция из исходников не ваше развлечение, включите "
-              "«Launch Mame with Flatpak» во вкладке Настройки, и "
+              "«Запускать Mame через Flatpak» во вкладке Настройки, и "
               "приложение будет использовать MAME из Flatpak.",
-        "cs": "Poznámka pro Linux: oficiální binárka MAME neexistuje — "
-              "pokud kompilace ze zdrojáků není tvá představa zábavy, "
-              "zapni „Launch Mame with Flatpak“ v záložce Nastavení a "
-              "aplikace použije MAME z Flatpaku.",
-        "fr": "Note pour Linux : il n'existe pas de binaire MAME "
-              "officiel — si compiler depuis les sources n'est pas votre "
-              "idée du plaisir, activez « Launch Mame with Flatpak » "
-              "dans l'onglet Réglages et l'application utilisera le MAME "
-              "de Flatpak.",
+        "cs": "Poznámka pro Linux: oficiální binárka MAME neexistuje — pokud "
+              "kompilace ze zdrojáků není tvá představa zábavy, zapni "
+              "„Spouštět Mame přes Flatpak“ v záložce Nastavení a aplikace "
+              "použije MAME z Flatpaku.",
+        "fr": "Note pour Linux : il n'existe pas de binaire MAME officiel — "
+              "si compiler depuis les sources n'est pas votre idée du "
+              "plaisir, activez « Lancer Mame avec Flatpak » dans l'onglet "
+              "Réglages et l'application utilisera le MAME de Flatpak.",
     },
     "sd.manipulate_ask": {
         "en": "Shall I show you how to actually work with an image — "
@@ -1498,45 +1496,48 @@ TEXTS = {
               "fichiers volent à la synchro suivante.",
     },
     "ns.server": {
-        "en": "Press 'Start server', then run .sync5 on the Next — files "
-              "flow immediately. 'Sync once' stops after one session; "
-              "'Always sync' keeps serving. And when the Next SENDS you "
-              "files (.sync5 -send), the conflict policy in Settings "
+        "en": "Press 'Start Classic NextSync server', then run .sync5 on the "
+              "Next — files flow immediately. 'Sync once' stops after one "
+              "session; 'Always sync' keeps serving. And when the Next SENDS "
+              "you files (.sync5 -send), the conflict policy in Settings "
               "decides what happens if a file already exists here.",
-        "es": "Pulsa «Start server» y ejecuta .sync5 en el Next — los "
-              "archivos fluyen al momento. «Sync once» se detiene tras "
-              "una sesión; «Always sync» sigue sirviendo. Y cuando el "
-              "Next te ENVÍA archivos (.sync5 -send), la política de "
-              "conflictos de Ajustes decide qué pasa si un archivo ya "
-              "existe aquí.",
-        "pt": "Carrega em «Start server» e corre .sync5 no Next — os "
-              "ficheiros fluem de imediato. «Sync once» pára após uma "
-              "sessão; «Always sync» continua a servir. E quando o Next "
-              "te ENVIA ficheiros (.sync5 -send), a política de "
-              "conflitos nas Definições decide o que acontece se um "
-              "ficheiro já existir aqui.",
-        "pl": "Wciśnij „Start server”, potem uruchom .sync5 na Nexcie — "
-              "pliki płyną od razu. „Sync once” kończy po jednej sesji; "
-              "„Always sync” serwuje dalej. A gdy Next WYSYŁA ci pliki "
-              "(.sync5 -send), polityka konfliktów w Ustawieniach "
-              "decyduje, co się dzieje, gdy plik już tu istnieje.",
-        "ru": "Нажмите «Start server», затем запустите .sync5 на Next — "
-              "файлы польются сразу. «Sync once» останавливается после "
-              "одной сессии; «Always sync» продолжает работать. А когда "
-              "Next ПРИСЫЛАЕТ вам файлы (.sync5 -send), политика "
-              "конфликтов в Настройках решает, что делать, если файл "
-              "здесь уже есть.",
-        "cs": "Stiskni „Start server“ a na Nextu spusť .sync5 — soubory "
-              "tečou okamžitě. „Sync once“ skončí po jedné relaci; "
-              "„Always sync“ servíruje dál. A když ti Next soubory "
-              "POSÍLÁ (.sync5 -send), politika konfliktů v Nastavení "
-              "rozhodne, co se stane, když soubor už tady existuje.",
-        "fr": "Appuyez sur « Start server », puis lancez .sync5 sur le "
-              "Next — les fichiers coulent aussitôt. « Sync once » "
-              "s'arrête après une session ; « Always sync » continue de "
-              "servir. Et quand le Next vous ENVOIE des fichiers "
-              "(.sync5 -send), la politique de conflit des Réglages "
-              "décide du sort d'un fichier déjà présent ici.",
+        "es": "Pulsa «Iniciar servidor NextSync clásico» y ejecuta .sync5 en "
+              "el Next — los archivos fluyen al momento. «Sincronizar una "
+              "vez» se detiene tras una sesión; «Sincronizar siempre» sigue "
+              "sirviendo. Y cuando el Next te ENVÍA archivos (.sync5 -send), "
+              "la política de conflictos de Ajustes decide qué pasa si un "
+              "archivo ya existe aquí.",
+        "pt": "Carrega em «Iniciar servidor NextSync clássico» e corre .sync5 "
+              "no Next — os ficheiros fluem de imediato. «Sincronizar uma "
+              "vez» pára após uma sessão; «Sincronizar sempre» continua a "
+              "servir. E quando o Next te ENVIA ficheiros (.sync5 -send), a "
+              "política de conflitos nas Definições decide o que acontece se "
+              "um ficheiro já existir aqui.",
+        "pl": "Wciśnij „Uruchom klasyczny serwer NextSync”, potem uruchom "
+              ".sync5 na Nexcie — pliki płyną od razu. „Synchronizuj raz” "
+              "kończy po jednej sesji; „Synchronizuj zawsze” serwuje dalej. A "
+              "gdy Next WYSYŁA ci pliki (.sync5 -send), polityka konfliktów w "
+              "Ustawieniach decyduje, co się dzieje, gdy plik już tu "
+              "istnieje.",
+        "ru": "Нажмите «Запустить классический сервер NextSync», затем "
+              "запустите .sync5 на Next — файлы польются сразу. "
+              "«Синхронизировать один раз» останавливается после одной "
+              "сессии; «Всегда синхронизировать» продолжает работать. А когда "
+              "Next ПРИСЫЛАЕТ вам файлы (.sync5 -send), политика конфликтов в "
+              "Настройках решает, что делать, если файл здесь уже есть.",
+        "cs": "Stiskni „Spustit klasický server NextSync“ a na Nextu spusť "
+              ".sync5 — soubory tečou okamžitě. „Synchronizovat jednou“ "
+              "skončí po jedné relaci; „Synchronizovat vždy“ servíruje dál. A "
+              "když ti Next soubory POSÍLÁ (.sync5 -send), politika konfliktů "
+              "v Nastavení rozhodne, co se stane, když soubor už tady "
+              "existuje.",
+        "fr": "Appuyez sur « Démarrer le serveur NextSync classique », puis "
+              "lancez .sync5 sur le Next — les fichiers coulent aussitôt. « "
+              "Synchroniser une fois » s'arrête après une session ; « "
+              "Toujours synchroniser » continue de servir. Et quand le Next "
+              "vous ENVOIE des fichiers (.sync5 -send), la politique de "
+              "conflit des Réglages décide du sort d'un fichier déjà présent "
+              "ici.",
     },
     "ns.remote": {
         "en": "The Remote Explorer is the full file-management mode. "
@@ -1547,53 +1548,51 @@ TEXTS = {
               "bottom. 3) On the Next, run '.sync5 -L' (-l or -listen) — the "
               "dot connects to the PC's configured IP address and the "
               "two panes light up.",
-        "es": "El Remote Explorer es el modo de gestión completa de "
-              "archivos. Ponerlo en marcha son tres pasos: 1) en el "
-              "explorador local izquierdo, elige tu carpeta base y "
-              "pulsa «Set current folder as new sync root folder». 2) "
-              "Pulsa el botón «Start Remote Explorer NextSync server» "
-              "de abajo. 3) En el Next, ejecuta «.sync5 -L» (-l o -listen) "
-              "— el dot se conecta a la dirección IP configurada del "
-              "PC y los dos paneles cobran vida.",
-        "pt": "O Remote Explorer é o modo de gestão completa de "
-              "ficheiros. Pô-lo a funcionar são três passos: 1) no "
-              "explorador local à esquerda, escolhe a tua pasta base e "
-              "carrega em «Set current folder as new sync root "
-              "folder». 2) Carrega no botão «Start Remote Explorer "
-              "NextSync server» em baixo. 3) No Next, corre «.sync5 -L» "
-              "(-l ou -listen) — o dot liga-se ao endereço IP "
-              "configurado do PC e os dois painéis ganham vida.",
+        "es": "El Remote Explorer es el modo de gestión completa de archivos. "
+              "Ponerlo en marcha son tres pasos: 1) en el explorador local "
+              "izquierdo, elige tu carpeta base y pulsa «Usar la carpeta "
+              "actual como nueva raíz de sincronización». 2) Pulsa el botón "
+              "«Iniciar servidor NextSync del Explorador remoto» de abajo. 3) "
+              "En el Next, ejecuta «.sync5 -L» (-l o -listen) — el dot se "
+              "conecta a la dirección IP configurada del PC y los dos paneles "
+              "cobran vida.",
+        "pt": "O Remote Explorer é o modo de gestão completa de ficheiros. "
+              "Pô-lo a funcionar são três passos: 1) no explorador local à "
+              "esquerda, escolhe a tua pasta base e carrega em «Usar a pasta "
+              "atual como nova raiz de sincronização». 2) Carrega no botão "
+              "«Iniciar servidor NextSync do Explorador remoto» em baixo. 3) "
+              "No Next, corre «.sync5 -L» (-l ou -listen) — o dot liga-se ao "
+              "endereço IP configurado do PC e os dois painéis ganham vida.",
         "pl": "Remote Explorer to tryb pełnego zarządzania plikami. "
-              "Uruchomienie to trzy ruchy: 1) w lewym lokalnym "
-              "eksploratorze wybierz folder bazowy i wciśnij „Set "
-              "current folder as new sync root folder”. 2) Wciśnij "
-              "przycisk „Start Remote Explorer NextSync server” na "
-              "dole. 3) Na Nexcie uruchom „.sync5 -L” (-l lub -listen) — dot "
-              "połączy się ze skonfigurowanym adresem IP PC i oba "
-              "panele ożyją.",
-        "ru": "Remote Explorer — режим полного управления файлами. "
-              "Запуск — три шага: 1) в левом локальном проводнике "
-              "выберите базовую папку и нажмите «Set current folder "
-              "as new sync root folder». 2) Нажмите кнопку «Start "
-              "Remote Explorer NextSync server» внизу. 3) На Next "
-              "выполните «.sync5 -L» (-l или -listen) — dot подключится к "
-              "настроенному IP-адресу ПК, и обе панели оживут.",
-        "cs": "Remote Explorer je režim plné správy souborů. "
-              "Rozjedeš ho třemi tahy: 1) v levém lokálním "
-              "průzkumníku vyber základní složku a stiskni „Set "
-              "current folder as new sync root folder“. 2) Stiskni "
-              "tlačítko „Start Remote Explorer NextSync server“ dole. "
-              "3) Na Nextu spusť „.sync5 -L“ (-l nebo -listen) — dot se "
-              "připojí na nastavenou IP adresu PC a oba panely ožijí.",
+              "Uruchomienie to trzy ruchy: 1) w lewym lokalnym eksploratorze "
+              "wybierz folder bazowy i wciśnij „Ustaw bieżący folder jako "
+              "nowy katalog główny synchronizacji”. 2) Wciśnij przycisk "
+              "„Uruchom serwer NextSync zdalnego eksploratora” na dole. 3) Na "
+              "Nexcie uruchom „.sync5 -L” (-l lub -listen) — dot połączy się "
+              "ze skonfigurowanym adresem IP PC i oba panele ożyją.",
+        "ru": "Remote Explorer — режим полного управления файлами. Запуск — "
+              "три шага: 1) в левом локальном проводнике выберите базовую "
+              "папку и нажмите «Сделать текущую папку корнем синхронизации». "
+              "2) Нажмите кнопку «Запустить сервер NextSync удалённого "
+              "проводника» внизу. 3) На Next выполните «.sync5 -L» (-l или "
+              "-listen) — dot подключится к настроенному IP-адресу ПК, и обе "
+              "панели оживут.",
+        "cs": "Remote Explorer je režim plné správy souborů. Rozjedeš ho "
+              "třemi tahy: 1) v levém lokálním průzkumníku vyber základní "
+              "složku a stiskni „Nastavit aktuální složku jako nový kořen "
+              "synchronizace“. 2) Stiskni tlačítko „Spustit server NextSync "
+              "vzdáleného průzkumníka“ dole. 3) Na Nextu spusť „.sync5 -L“ "
+              "(-l nebo -listen) — dot se připojí na nastavenou IP adresu PC "
+              "a oba panely ožijí.",
         "fr": "Le Remote Explorer est le mode de gestion complète des "
-              "fichiers. Trois gestes pour le lancer : 1) dans "
-              "l'explorateur local de gauche, choisissez votre dossier "
-              "de base et appuyez sur « Set current folder as new "
-              "sync root folder ». 2) Appuyez sur le bouton « Start "
-              "Remote Explorer NextSync server » en bas. 3) Sur le "
+              "fichiers. Trois gestes pour le lancer : 1) dans l'explorateur "
+              "local de gauche, choisissez votre dossier de base et appuyez "
+              "sur « Définir le dossier courant comme nouvelle racine de "
+              "synchronisation ». 2) Appuyez sur le bouton « Démarrer le "
+              "serveur NextSync de l'explorateur distant » en bas. 3) Sur le "
               "Next, lancez « .sync5 -L » (-l ou -listen) — le dot se "
-              "connecte à l'adresse IP configurée du PC et les deux "
-              "panneaux s'animent.",
+              "connecte à l'adresse IP configurée du PC et les deux panneaux "
+              "s'animent.",
     },
     "ns.remote2": {
         "en": "From there you exchange files and whole directories "
@@ -1605,63 +1604,57 @@ TEXTS = {
               "gracefully, or press the 'Stop Remote Explorer "
               "NextSync server' button here — either way an "
               "in-progress transfer always finishes first.",
-        "es": "A partir de ahí intercambias archivos y carpetas "
-              "enteras en AMBOS sentidos: transfiere, renombra, "
-              "incluso comprime y descomprime zip en remoto en el "
-              "Next — y directamente desde el Next, «.sync5 -send "
-              "<archivo|carpeta>» envía un archivo o carpeta de vuelta "
-              "al PC. ¿Terminaste por hoy? Pulsa la tecla BREAK (Caps "
-              "Shift + Space) en el Next para salir de la sesión con "
-              "elegancia, o pulsa aquí el botón «Stop Remote Explorer "
-              "NextSync server» — en ambos casos una transferencia en "
-              "curso siempre termina primero.",
-        "pt": "A partir daí trocas ficheiros e pastas inteiras nos "
-              "DOIS sentidos: transfere, renomeia, até faz zip e "
-              "unzip remotamente no Next — e diretamente do Next, "
-              "«.sync5 -send <ficheiro|pasta>» envia um ficheiro ou "
-              "pasta de volta para o PC. Acabou por hoje? Carrega na "
-              "tecla BREAK (Caps Shift + Space) no Next para sair da "
-              "sessão com elegância, ou carrega aqui no botão «Stop "
-              "Remote Explorer NextSync server» — em ambos os casos "
-              "uma transferência em curso termina sempre primeiro.",
-        "pl": "Od tej chwili wymieniasz pliki i całe katalogi w OBIE "
-              "strony: przesyłaj, zmieniaj nazwy, a nawet pakuj i "
-              "rozpakowuj zip zdalnie na Nexcie — a prosto z Nexta "
-              "„.sync5 -send <plik|katalog>” odsyła plik lub katalog "
-              "na PC. Koniec na dziś? Wciśnij klawisz BREAK (Caps "
-              "Shift + Space) na Nexcie, by elegancko zakończyć "
-              "sesję, albo wciśnij tutaj przycisk „Stop Remote "
-              "Explorer NextSync server” — w obu przypadkach trwający "
-              "transfer zawsze najpierw się kończy.",
-        "ru": "Дальше вы обмениваетесь файлами и целыми каталогами в "
-              "ОБЕ стороны: передавайте, переименовывайте, даже "
-              "упаковывайте и распаковывайте zip удалённо на Next — а "
-              "прямо с Next «.sync5 -send <файл|папка>» отправляет "
-              "файл или каталог обратно на ПК. Закончили? Нажмите "
-              "клавишу BREAK (Caps Shift + Space) на Next, чтобы "
-              "изящно завершить сеанс, или нажмите здесь кнопку "
-              "«Stop Remote Explorer NextSync server» — в обоих "
+        "es": "A partir de ahí intercambias archivos y carpetas enteras en "
+              "AMBOS sentidos: transfiere, renombra, incluso comprime y "
+              "descomprime zip en remoto en el Next — y directamente desde el "
+              "Next, «.sync5 -send <archivo|carpeta>» envía un archivo o "
+              "carpeta de vuelta al PC. ¿Terminaste por hoy? Pulsa la tecla "
+              "BREAK (Caps Shift + Space) en el Next para salir de la sesión "
+              "con elegancia, o pulsa aquí el botón «Detener servidor "
+              "NextSync del Explorador remoto» — en ambos casos una "
+              "transferencia en curso siempre termina primero.",
+        "pt": "A partir daí trocas ficheiros e pastas inteiras nos DOIS "
+              "sentidos: transfere, renomeia, até faz zip e unzip remotamente "
+              "no Next — e diretamente do Next, «.sync5 -send "
+              "<ficheiro|pasta>» envia um ficheiro ou pasta de volta para o "
+              "PC. Acabou por hoje? Carrega na tecla BREAK (Caps Shift + "
+              "Space) no Next para sair da sessão com elegância, ou carrega "
+              "aqui no botão «Parar servidor NextSync do Explorador remoto» — "
+              "em ambos os casos uma transferência em curso termina sempre "
+              "primeiro.",
+        "pl": "Od tej chwili wymieniasz pliki i całe katalogi w OBIE strony: "
+              "przesyłaj, zmieniaj nazwy, a nawet pakuj i rozpakowuj zip "
+              "zdalnie na Nexcie — a prosto z Nexta „.sync5 -send "
+              "<plik|katalog>” odsyła plik lub katalog na PC. Koniec na dziś? "
+              "Wciśnij klawisz BREAK (Caps Shift + Space) na Nexcie, by "
+              "elegancko zakończyć sesję, albo wciśnij tutaj przycisk "
+              "„Zatrzymaj serwer NextSync zdalnego eksploratora” — w obu "
+              "przypadkach trwający transfer zawsze najpierw się kończy.",
+        "ru": "Дальше вы обмениваетесь файлами и целыми каталогами в ОБЕ "
+              "стороны: передавайте, переименовывайте, даже упаковывайте и "
+              "распаковывайте zip удалённо на Next — а прямо с Next «.sync5 "
+              "-send <файл|папка>» отправляет файл или каталог обратно на ПК. "
+              "Закончили? Нажмите клавишу BREAK (Caps Shift + Space) на Next, "
+              "чтобы изящно завершить сеанс, или нажмите здесь кнопку "
+              "«Остановить сервер NextSync удалённого проводника» — в обоих "
               "случаях начатая передача всегда сперва завершится.",
-        "cs": "Odtud vyměňuješ soubory i celé složky OBĚMA směry: "
-              "přenášej, přejmenovávej, dokonce zipuj a rozbaluj "
-              "vzdáleně na Nextu — a přímo z Nextu „.sync5 -send "
-              "<soubor|složka>“ pošle soubor nebo složku zpátky do "
-              "PC. Hotovo pro dnešek? Stiskni klávesu BREAK (Caps "
-              "Shift + Space) na Nextu a sezení se elegantně ukončí, "
-              "nebo stiskni tady tlačítko „Stop Remote Explorer "
-              "NextSync server“ — v obou případech se rozběhnutý "
+        "cs": "Odtud vyměňuješ soubory i celé složky OBĚMA směry: přenášej, "
+              "přejmenovávej, dokonce zipuj a rozbaluj vzdáleně na Nextu — a "
+              "přímo z Nextu „.sync5 -send <soubor|složka>“ pošle soubor nebo "
+              "složku zpátky do PC. Hotovo pro dnešek? Stiskni klávesu BREAK "
+              "(Caps Shift + Space) na Nextu a sezení se elegantně ukončí, "
+              "nebo stiskni tady tlačítko „Zastavit server NextSync "
+              "vzdáleného průzkumníka“ — v obou případech se rozběhnutý "
               "přenos vždy nejdřív dokončí.",
-        "fr": "Dès lors, vous échangez fichiers et dossiers entiers "
-              "dans les DEUX sens : transférez, renommez, compressez "
-              "et décompressez même des zip à distance sur le Next — "
-              "et directement depuis le Next, « .sync5 -send "
-              "<fichier|dossier> » renvoie un fichier ou un dossier "
-              "vers le PC. Fini pour aujourd'hui ? Appuyez sur la "
-              "touche BREAK (Caps Shift + Space) sur le Next pour "
-              "quitter la session en douceur, ou appuyez ici sur le "
-              "bouton « Stop Remote Explorer NextSync server » — dans "
-              "les deux cas, un transfert en cours se termine "
-              "toujours d'abord.",
+        "fr": "Dès lors, vous échangez fichiers et dossiers entiers dans les "
+              "DEUX sens : transférez, renommez, compressez et décompressez "
+              "même des zip à distance sur le Next — et directement depuis le "
+              "Next, « .sync5 -send <fichier|dossier> » renvoie un fichier ou "
+              "un dossier vers le PC. Fini pour aujourd'hui ? Appuyez sur la "
+              "touche BREAK (Caps Shift + Space) sur le Next pour quitter la "
+              "session en douceur, ou appuyez ici sur le bouton « Arrêter le "
+              "serveur NextSync de l'explorateur distant » — dans les deux "
+              "cas, un transfert en cours se termine toujours d'abord.",
     },
     # ── Buttons / menu ────────────────────────────────────────────────────
     "btn.tour": {
@@ -1949,30 +1942,28 @@ TEXTS = {
               "Settings, find 'Application language:' and pick yours — I "
               "will switch the very moment you do. All set? Then let's "
               "go exploring!",
-        "es": "Lo primero es lo primero: ¡hablo siete idiomas! Aquí mismo "
-              "en Ajustes, busca «Application language:» y elige el tuyo "
-              "— cambiaré en el mismo instante. ¿Todo listo? ¡Pues vamos "
-              "a explorar!",
-        "pt": "Primeiro o mais importante: falo sete línguas! Aqui mesmo "
-              "nas Definições, procura «Application language:» e escolhe "
-              "a tua — mudo no preciso instante. Tudo pronto? Então vamos "
+        "es": "Lo primero es lo primero: ¡hablo siete idiomas! Aquí mismo en "
+              "Ajustes, busca «Idioma de la aplicación» y elige el tuyo — "
+              "cambiaré en el mismo instante. ¿Todo listo? ¡Pues vamos a "
               "explorar!",
+        "pt": "Primeiro o mais importante: falo sete línguas! Aqui mesmo nas "
+              "Definições, procura «Idioma da aplicação» e escolhe a tua — "
+              "mudo no preciso instante. Tudo pronto? Então vamos explorar!",
         "pl": "Najpierw najważniejsze: mówię w siedmiu językach! Tutaj, w "
-              "Ustawieniach, znajdź „Application language:” i wybierz "
-              "swój — przełączę się w tej samej chwili. Gotowe? To "
-              "ruszamy na zwiedzanie!",
+              "Ustawieniach, znajdź „Język aplikacji” i wybierz swój — "
+              "przełączę się w tej samej chwili. Gotowe? To ruszamy na "
+              "zwiedzanie!",
         "ru": "Первым делом: я говорю на семи языках! Прямо здесь, в "
-              "Настройках, найдите «Application language:» и выберите "
-              "свой — я переключусь в то же мгновение. Готовы? Тогда "
-              "отправляемся исследовать!",
-        "cs": "Nejdřív to hlavní: mluvím sedmi jazyky! Přímo tady v "
-              "Nastavení najdi „Application language:“ a vyber si svůj — "
-              "přepnu se v tu samou chvíli. Připraveno? Tak vyrážíme na "
-              "průzkum!",
-        "fr": "Commençons par l'essentiel : je parle sept langues ! Ici "
-              "même, dans les Réglages, trouvez « Application language: » "
-              "et choisissez la vôtre — je changerai à l'instant même. "
-              "Tout est prêt ? Alors partons explorer !",
+              "Настройках, найдите «Язык приложения» и выберите свой — я "
+              "переключусь в то же мгновение. Готовы? Тогда отправляемся "
+              "исследовать!",
+        "cs": "Nejdřív to hlavní: mluvím sedmi jazyky! Přímo tady v Nastavení "
+              "najdi „Jazyk aplikace“ a vyber si svůj — přepnu se v tu samou "
+              "chvíli. Připraveno? Tak vyrážíme na průzkum!",
+        "fr": "Commençons par l'essentiel : je parle sept langues ! Ici même, "
+              "dans les Réglages, trouvez « Langue de l'application » et "
+              "choisissez la vôtre — je changerai à l'instant même. Tout est "
+              "prêt ? Alors partons explorer !",
     },
     "tour.sdcard": {
         "en": "The SD Card Utility! Mount a Next .hdf/.img image, browse "
@@ -2565,3 +2556,31 @@ def wizard_tr(key, lang):
 def wizard_lines(table, lang):
     """The jokes/stories list for *lang*, falling back to English."""
     return table.get(lang) or table["en"]
+
+
+# French typography puts a space before ! ? : ; and inside the guillemets, and
+# the bubble's word wrap is free to break a line at an ordinary space - so a
+# line could START with the mark: "! Ici même" is what the Wizzy GIF showed.
+# Those spaces are made non-breaking ONCE, here, for every French string the
+# wizard can speak (TEXTS, JOKES, STORIES): wizard_tr() and the bubble keep
+# agreeing, and a French line added later is covered without anyone having to
+# remember. U+00A0 rather than the narrower U+202F French prefers, because
+# every font the bubble can fall back to carries it.
+_FR_NBSP = ((" !", "\u00a0!"), (" ?", "\u00a0?"), (" :", "\u00a0:"),
+            (" ;", "\u00a0;"), ("\u00ab ", "\u00ab\u00a0"), (" \u00bb", "\u00a0\u00bb"))
+
+
+def french_spacing(text):
+    """*text* with the spaces French puts before ! ? : ; and inside « »
+    made non-breaking."""
+    for plain, fixed in _FR_NBSP:
+        text = text.replace(plain, fixed)
+    return text
+
+
+for _entry in TEXTS.values():
+    if "fr" in _entry:
+        _entry["fr"] = french_spacing(_entry["fr"])
+for _table in (JOKES, STORIES):
+    if "fr" in _table:
+        _table["fr"] = [french_spacing(_line) for _line in _table["fr"]]

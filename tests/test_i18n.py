@@ -718,6 +718,86 @@ def test_runtime_text_sweep():
           f"{len(offenders)}: " + "; ".join(offenders[:5]))
 
 
+def test_settings_labels():
+    """Every label, checkbox and button text the Settings tab builds is in all
+    six catalogs, with no exceptions, so a new Settings row that forgets its
+    translations fails here instead of showing English in a translated UI.
+    Two had done exactly that (the Wizzy and ZX Next Remote checkboxes), and
+    seven more were found by the scan that became this test. Tooltips are not
+    held to it: most Settings tooltips are English today, deliberately (see
+    test_runtime_text_sweep)."""
+    import ast
+    print("\n== Settings tab texts are catalogued ==")
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    calls = {"QCheckBox", "QLabel", "QPushButton", "QRadioButton", "QGroupBox",
+             "setText", "setTitle", "setPlaceholderText", "ui_tr_now"}
+    tree = ast.parse(open(os.path.join(repo, "zxnu_settings_pane.py"),
+                          encoding="utf-8").read())
+    texts = {}
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and node.args):
+            continue
+        f = node.func
+        name = (f.attr if isinstance(f, ast.Attribute)
+                else f.id if isinstance(f, ast.Name) else "")
+        arg = node.args[0]
+        if (name in calls and isinstance(arg, ast.Constant)
+                and isinstance(arg.value, str)
+                and any(c.isalpha() for c in arg.value)):
+            texts.setdefault(arg.value, node.lineno)
+    check("the scan found the Settings tab's texts", len(texts) >= 50, len(texts))
+    for lang in sorted(CATALOGS):
+        missing = [f"L{line}: {text[:40]!r}" for text, line
+                   in sorted(texts.items(), key=lambda kv: kv[1])
+                   if text not in CATALOGS[lang]]
+        check(f"{lang}: every Settings label/checkbox/button text is catalogued",
+              not missing, f"{len(missing)}: " + "; ".join(missing[:4]))
+
+
+def test_button_ampersands():
+    """To Qt, a bare "&" in a button's text is a keyboard-mnemonic marker, not
+    an ampersand: "GetIt, ZXDB & zxArt" rendered as "GetIt, ZXDB  zxArt" on
+    the Settings tab, and was visible in the README tour GIF. A literal
+    ampersand is "&&", in the source AND in every translation of it, because
+    the translation replaces the text on the same widget."""
+    import ast
+    import glob
+    import re
+    print("\n== button texts carry no bare '&' ==")
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    bare = re.compile(r"(?<!&)&(?!&)")
+    calls = {"QCheckBox", "QPushButton", "QRadioButton", "QToolButton",
+             "QGroupBox", "QAction", "addAction", "addTab", "insertTab",
+             "setTabText"}
+    offenders, doubled = [], set()
+    for path in sorted(glob.glob(os.path.join(repo, "zxnu_*.py"))):
+        tree = ast.parse(open(path, encoding="utf-8").read())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            name = (f.attr if isinstance(f, ast.Attribute)
+                    else f.id if isinstance(f, ast.Name) else "")
+            if name not in calls:
+                continue
+            for arg in node.args:
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    if bare.search(arg.value):
+                        offenders.append(f"{os.path.basename(path)}:"
+                                         f"{node.lineno} {arg.value[:40]!r}")
+                    if "&&" in arg.value:
+                        doubled.add(arg.value)
+    check("no button, action or tab text carries a bare '&'", not offenders,
+          "; ".join(offenders[:4]))
+    check("the fixed Settings texts really carry '&&'", len(doubled) >= 3,
+          sorted(doubled))
+    for lang in sorted(CATALOGS):
+        bad = [k[:40] for k in sorted(doubled)
+               if k in CATALOGS[lang] and bare.search(CATALOGS[lang][k])]
+        check(f"{lang}: no translation of such a text carries a bare '&'",
+              not bad, bad)
+
+
 def main():
     QApplication(sys.argv)
     test_catalog_integrity()
@@ -731,6 +811,8 @@ def main():
     test_sdcard_console()
     test_help_tab()
     test_runtime_text_sweep()
+    test_settings_labels()
+    test_button_ampersands()
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
     sys.exit(0 if ok else 1)
 

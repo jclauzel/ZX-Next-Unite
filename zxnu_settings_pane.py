@@ -26,7 +26,8 @@ from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QPushButton, QChec
 
 import zxnu_itchio
 from zxnu_http_bridge import flask_available
-from zxnu_i18n import DEFAULT_UI_LANGUAGE, UI_LANGUAGES, normalize_ui_language
+from zxnu_i18n import (DEFAULT_UI_LANGUAGE, UI_LANGUAGES, normalize_ui_language,
+                       ui_tr_now)
 from zxnu_config import *
 from zxnu_api import *
 from zxnu_gallery import *
@@ -523,7 +524,7 @@ def build_settings_pane(
         configuration_dictionary[SETTING_AVAIL_CHECK] = "true" if host.settings_avail_check_checkbox.isChecked() else "false"
         save_configuration_file()
 
-    host.settings_avail_check_checkbox = QCheckBox("Perform pre-availability check on Downloads (ZXDB & zxArt).")
+    host.settings_avail_check_checkbox = QCheckBox("Perform pre-availability check on Downloads (ZXDB && zxArt).")
     host.settings_avail_check_checkbox.setChecked(True)
     host.settings_avail_check_checkbox.setToolTip(
         "When enabled, the Downloads dialog sends a HEAD request for each file\n"
@@ -540,7 +541,7 @@ def build_settings_pane(
         configuration_dictionary[SETTING_MULTI_SEARCH] = "true" if host.settings_multi_search_checkbox.isChecked() else "false"
         save_configuration_file()
 
-    host.settings_multi_search_checkbox = QCheckBox("Enable multi API endpoints search (GetIt, ZXDB & zxArt search together).")
+    host.settings_multi_search_checkbox = QCheckBox("Enable multi API endpoints search (GetIt, ZXDB && zxArt search together).")
     host.settings_multi_search_checkbox.setChecked(True)
     host.settings_multi_search_checkbox.setToolTip(
         "When enabled, a search on any of GetIt, ZXDB or zxArt also runs the\n"
@@ -1206,7 +1207,16 @@ def build_settings_pane(
                 )
                 return
         host.settings_bg_image_preview.clear()
-        host.settings_bg_image_preview.setText("(cycling)")
+        host.settings_bg_image_preview.setText(ui_tr_now("(cycling)"))
+
+    def _retranslate_bg_image_preview():
+        # A live language switch: the widget walk cannot re-translate a text
+        # the app wrote already translated (it adopts it as the new source),
+        # so _i18n_apply calls this to re-write the one runtime text here.
+        pm = host.settings_bg_image_preview.pixmap()
+        if pm is None or pm.isNull():
+            host.settings_bg_image_preview.setText(ui_tr_now("(cycling)"))
+    host._retranslate_bg_image_preview = _retranslate_bg_image_preview
 
     def _on_bg_image_combo_changed(index: int):
         path = host.settings_bg_image_combo.itemData(index) or ""
@@ -1995,7 +2005,7 @@ def build_settings_pane(
         _itchio_tab_set_visible(on)
 
     host.settings_show_itchio_tab_checkbox = QCheckBox(
-        "Show the itch.io tab (browse & install your itch.io collections)")
+        "Show the itch.io tab (browse && install your itch.io collections)")
     host.settings_show_itchio_tab_checkbox.setChecked(True)
     _itchdl_ok, _itchdl_why = zxnu_itchio.itchdl_available()
     if not _itchdl_ok:
@@ -2026,10 +2036,10 @@ def build_settings_pane(
                 save_configuration_file()
 
     host.settings_wizard_checkbox = QCheckBox(
-        "Show Wizzy, the onboarding wizard (bottom-left assistant)")
+        "Show Wizzy, the onboarding wizard (bottom-right assistant)")
     host.settings_wizard_checkbox.setChecked(True)
     host.settings_wizard_checkbox.setToolTip(
-        "An animated pixel-art wizard that lives in the bottom-left corner:\n"
+        "An animated pixel-art wizard that lives in the bottom-right corner:\n"
         "tours the tabs for newcomers (deep-dive content comes from the\n"
         "GitHub wiki user manual), tells ZX Spectrum Next jokes and stories,\n"
         "and follows the application language. On by default. Saved to the\n"
