@@ -1,18 +1,27 @@
 """Assemble tour_frames/ into the tour GIF: 140 ms frames, 5-frame
 crossfades between segments and a wrap-around fade for a seamless loop.
-ffmpeg palettegen/paletteuse keeps the retro colors clean at native size."""
+ffmpeg palettegen/paletteuse keeps the retro colors clean at native size.
+
+--wizzy assembles wizzy_frames/ (tour_capture.py --wizzy) into
+wizzy-tour.gif instead: 200 ms frames, the capture's own rate, halved to
+720x487 like the README's published copy."""
 import os
 import re
 import shutil
 import subprocess
+import sys
 from PIL import Image
 
 import tempfile
 WORK = os.environ.get("ZXNU_TOUR_WORK") or os.path.join(tempfile.gettempdir(), "zxnu-tour")
-SRC = os.path.join(WORK, "tour_frames")
+WIZZY = "--wizzy" in sys.argv[1:]
+SRC = os.path.join(WORK, "wizzy_frames" if WIZZY else "tour_frames")
 BUILD = os.path.join(WORK, "gif_build")
-OUT = os.path.join(WORK, "zx-next-unite-tour.gif")
+OUT = os.path.join(WORK, "wizzy-tour.gif" if WIZZY else "zx-next-unite-tour.gif")
 FADE = 4
+PER_SEG = 22 if WIZZY else 12
+FRAMERATE = "5" if WIZZY else "50/7"        # 200 ms / 140 ms per frame
+SCALE = 0.5 if WIZZY else 1.0
 
 shutil.rmtree(BUILD, ignore_errors=True)
 os.makedirs(BUILD)
@@ -24,7 +33,6 @@ for f in sorted(os.listdir(SRC)):
 order = [segs[k] for k in sorted(segs)]
 print("segments:", [(k, len(v)) for k, v in sorted(segs.items())])
 
-PER_SEG = 12
 order = [seg[:PER_SEG] for seg in order]
 frames = []
 for i, seg in enumerate(order):
@@ -39,13 +47,19 @@ for i, seg in enumerate(order):
         frames.append(p)
 
 for n, f in enumerate(frames):
-    shutil.copyfile(f, os.path.join(BUILD, f"frame_{n:04d}.png"))
+    dst = os.path.join(BUILD, f"frame_{n:04d}.png")
+    if SCALE == 1.0:
+        shutil.copyfile(f, dst)
+    else:
+        im = Image.open(f).convert("RGB")
+        im.resize((round(im.width * SCALE), round(im.height * SCALE)),
+                  Image.LANCZOS).save(dst)
 
 pattern = os.path.join(BUILD, "frame_%04d.png")
 palette = os.path.join(BUILD, "palette.png")
 subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", pattern,
                 "-vf", "palettegen=stats_mode=diff:max_colors=128", palette], check=True)
-subprocess.run(["ffmpeg", "-y", "-v", "error", "-framerate", "50/7",
+subprocess.run(["ffmpeg", "-y", "-v", "error", "-framerate", FRAMERATE,
                 "-i", pattern, "-i", palette,
                 "-lavfi", "paletteuse=dither=none:diff_mode=rectangle",
                 "-loop", "0", OUT], check=True)

@@ -5,8 +5,8 @@ Odds and ends that support the project but are not part of the app.
 | File | Role |
 |---|---|
 | `tour_build_demo_env.py` | Builds the throwaway demo environment (`C:\Users\Public\ZX-Next-Unite-demo`) the tour GIF is captured from: app copy, junctioned emulators, sample sync folder, demo HDF, seeded `hdfg.cfg` |
-| `tour_capture.py` | Drives the demo app through every tab and grabs the animation frames (real Qt platform — a window appears; host name/IPs are masked to placeholders) |
-| `tour_assemble_gif.py` | Assembles the frames into `zx-next-unite-tour.gif` (140 ms frames, crossfades, ffmpeg palette pipeline). Needs **Pillow** — `pip install pillow` |
+| `tour_capture.py` | Drives the demo app through every tab and grabs the animation frames (real Qt platform — a window appears; host name/IPs are masked to placeholders). `--wizzy` records Wizzy's own tour instead |
+| `tour_assemble_gif.py` | Assembles the frames into `zx-next-unite-tour.gif` (140 ms frames, crossfades, ffmpeg palette pipeline), or with `--wizzy` into `wizzy-tour.gif`. Needs **Pillow** — `pip install pillow` |
 | `MAME_ROM_HOWTO_CREATE.md` | How to (re)build the `tbblue.zip` boot-ROM package MAME's `tbblue` / `specnext_ks1..3` machines need: which four ROMs go in it and why (not six), where each one comes from (pinned FPGA-repo commits — the `30204` branch tip has moved on and no longer matches), how to decode the two VHDL-embedded ones, and why the whole thing is GPLv3 and therefore yours to rebuild and pass on |
 | `flowcontrolinfo.md` | What was **measured** about UART hardware flow control (`.sync5 -fc`, the default since 5.9.12 with `-nfc` to refuse it): why the board gate is a closed set, what `Flow on` does and does not prove, and the N-GO experiment that showed the ESP module *accepts* `,3` and then goes permanently mute - which is what justified the 5.9.10 fallback fix, and which killed the obvious cheaper fix |
 | `Get-PyLineCounts.ps1` | Per-module line-count report for the Python sources |
@@ -89,6 +89,17 @@ Notes (learned the hard way):
   Unseeded, Qt divides that view by size hints, and since the Next pane
   grew its own filter box (9.7.33) the local pane came out ~480 px at the
   tour's 1500 px, its Date column clipped to "202".
+- The ZXDB stop loads a **Random** page, never Latest. ZXDB's newest rows
+  are entries created before anyone uploads media for them, so a Latest
+  page is a grid of typed "FILE" tiles: on 2026-09-30, 0 of the 12 visible
+  Latest entries had a screenshot, against 12 of 12 on each of three Random
+  pages. Every tour GIF up to 9.7.40 showed that FILE grid, and no wait
+  could have fixed it. The capture waits until at least 10 of the 12
+  visible cells hold a real picture (a gallery cell's `_loaded_ok`), and
+  rolls another page, twice at most, when one comes up short.
+- The other galleries keep their fixed waits, then also wait (up to 20 s)
+  until every visible cell has settled on a picture or a typed tile, so a
+  slow day extends the wait instead of recording half-loaded thumbnails.
 - The Windows Firewall prompt for the NextSync port may appear once per
   Python interpreter; approve it or pre-authorize.
 - The first tab-entry to NextSync auto-runs the prepare/perform-checks, so
@@ -97,6 +108,39 @@ Notes (learned the hard way):
 - Another copy of Unite already running on the machine is harmless to the
   capture (it never starts a server), but it does hold ports 2048/80 — do not
   read a "port already in use" line in the demo log as a capture failure.
+
+## Regenerating the Wizzy GIF
+
+`docs/media/wizzy-tour.gif` (the README's "Meet Wizzy") comes from the same
+three scripts, with `--wizzy` on the last two:
+
+```powershell
+python extra\tour_build_demo_env.py        # rebuild: a tabs-tour run leaves its geometry behind
+python extra\tour_capture.py --wizzy       # ~5 min; a 1440x974 window appears
+python extra\tour_assemble_gif.py --wizzy  # writes %TEMP%\zxnu-tour\wizzy-tour.gif
+```
+
+Then copy the result over `docs/media/wizzy-tour.gif` and commit.
+
+The capture first visits the galleries unrecorded, so every tour step finds
+its pictures already loaded (ZXDB on a Random page, as above). It then
+switches the wizard on for this run only — `set_enabled(persist=False)`; the
+demo cfg keeps him off so the tabs tour never shows him — and plays his own
+tour through the methods his **Next** button calls. It records the opening
+Settings step in English, flips the Application language combo to French so
+he re-speaks that bubble live, and flips it back. Then it records the steps
+listed in `WIZZY_GRAB`, the kudos finale, and a walk-like-an-Egyptian stroll
+across the GetIt gallery. Idle gestures, the ZX Next Remote pitch and the
+per-tab guide offers are silenced, and every "From the manual" teaser is
+fetched before the tour starts, so none lands halfway through a recording.
+Frames are 200 ms apart (the bubbles are there to be read) and the assembler
+halves them to 720x487.
+
+Verify it the same way as the tabs tour: the NextSync step
+(`%TEMP%\zxnu-tour\wizzy_frames\seg3_nextsync_*.png`) carries the host
+banner, which must show placeholders only, and the demo-log check above
+applies unchanged. The July 2026 copy this replaced was captured by hand,
+before this tooling existed, and showed real LAN addresses in that banner.
 
 
 ## Push-to-hardware from VS Code (`Send-ToNext.ps1` + `autoexec`)
