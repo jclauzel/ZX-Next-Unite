@@ -139,6 +139,8 @@ or `FRAMES` / `FRAME_MS` in `tour_capture.py`, or `PER_SEG` in
    ```
 3. **Content, on the `--sheet` contact sheet.** Check each of the following:
    - Every stop shows the right tab and sub-tab.
+   - The SD Card stop's gauge, under the disk image's listing, shows a
+     percentage (about "0.6 % used"), not "No image loaded".
    - Every gallery shows real pictures. A cell showing just a big word such
      as **FILE**, **TAP** or **HTML** on a dark box is a typed placeholder
      for an entry that has no picture; it is NOT a loaded thumbnail. The
@@ -228,10 +230,12 @@ or `FRAMES` / `FRAME_MS` in `tour_capture.py`, or `PER_SEG` in
   stroll is started by hand, full length, on the GetIt gallery.
 - **The demo disk image.** It comes from `hdfmonkey create ... 64M`: an
   RS-IDE `.hdf` wrapping an MBR and a FAT16 partition at sector 63. It is
-  partitioned; the old belief that it was "unpartitioned" was wrong. Until
-  the SD usage-gauge fix lands (the gauge read every `.hdf`'s header as its
-  partition table), the SD Card stop shows "No image loaded" under the
-  image's own listing. Recapture once it has landed.
+  partitioned; the old belief that it was "unpartitioned" was wrong. Up to
+  9.7.40 the usage gauge read every `.hdf`'s header as its partition table,
+  so the SD Card stop showed "No image loaded" under the image's own
+  listing. 9.7.41 fixed it and the GIF was recaptured: the stop now reads
+  about "0.6 % used". A frame that says "No image loaded" or "Usage
+  unavailable" there is a regression, not a quirk of the demo image.
 - **The Windows Firewall prompt.** It may appear once per Python interpreter
   for the NextSync port; approve it or pre-authorize.
 - **Nobody clicks Start.** The first entry to the NextSync tab auto-runs the
