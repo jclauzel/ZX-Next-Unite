@@ -5,7 +5,9 @@ Junction-safe cleanup: downloads/mame and downloads/itchio are junctions into
 the repo's downloads — cleanup uses `rmdir /s /q`, which removes reparse
 points WITHOUT following them (shutil.rmtree would delete the real files).
 """
+import glob
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -13,8 +15,28 @@ import zipfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEMO = r"C:\Users\Public\ZX-Next-Unite-demo"
-HDFMONKEY = os.path.join(
-    REPO, r"downloads\itchio\mdf200\cspect\files\CSpect3_3_1_0\hdfmonkey\windows-64\hdfmonkey.exe")
+
+
+def find_hdfmonkey():
+    """hdfmonkey.exe under downloads/ - the one bundled with the itch.io
+    CSpect, else the jjjs download - found by SEARCH. It used to be a pinned
+    path, but the CSpect folder name carries its version (CSpect3_3_1_0), so
+    the first CSpect update would have broken the build. The newest wins
+    (natural sort: 3_3_10 after 3_3_9), then PATH."""
+    def natural(p):
+        return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", p)]
+    hits = sorted((h for h in glob.glob(os.path.join(REPO, "downloads", "**", "hdfmonkey.exe"),
+                                        recursive=True) if os.path.isfile(h)), key=natural)
+    found = hits[-1] if hits else shutil.which("hdfmonkey")
+    if not found:
+        sys.exit("hdfmonkey not found under downloads/ or on PATH: install CSpect from the "
+                 "app's itch.io tab, or use 'Download and install HDF Monkey' (SD Card tab). "
+                 "In a git worktree, junction downloads/ in from the main checkout first.")
+    return found
+
+
+HDFMONKEY = find_hdfmonkey()
+print("hdfmonkey:", HDFMONKEY)
 
 def run(*argv):
     r = subprocess.run(argv, capture_output=True, text=True)
@@ -96,6 +118,11 @@ for src, dst in (
 print(run(HDFMONKEY, "ls", hdf, "/games"))
 
 # -- hdfg.cfg ----------------------------------------------------------------
+# nextsync_re_splitter_sizes: with no saved split (9.7.2+) Qt divides the
+# Remote Explorer by size hints, and the Next pane's toolbar has outgrown the
+# local one (9.7.33's filter box) - at 1500 px the local pane came out ~480 px
+# with its Date column clipped to "202". Seed the proportions the tour always
+# had instead (local 636 px, arrows + Next pane 734 px).
 cfg = f"""hddffile={hdf}
 explorerpath={sample}
 nextsync_explorerpath={sample}
@@ -117,10 +144,12 @@ content_disclaimer_agreed=1
 wizard_enabled=false
 wizard_intro_shown=true
 ui_language=en
+zxart_language=eng
 zxnu_update_check=false
 mame_update_check=false
 cspect_update_check=false
 nextsync_remote_explorer=false
+nextsync_re_splitter_sizes=636,734
 """
 open(os.path.join(DEMO, "hdfg.cfg"), "w", newline="\n").write(cfg)
 print("demo environment ready at", DEMO)
