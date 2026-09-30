@@ -13,10 +13,13 @@ import secrets
 import shutil
 import stat
 import string
+import struct
 import subprocess
 import sys
 import tarfile
 import zipfile
+from array import array as _array
+from collections import namedtuple as _namedtuple
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
@@ -2342,6 +2345,209 @@ def probe_image_write_access(path):
         return IMAGE_WRITE_OK
     os.close(fd)
     return IMAGE_WRITE_OK
+
+
+# ── How full is the FAT volume inside a disk image? ─────────────────────────
+# The SD Card tab's usage gauge, its "nearly full" warning and the "volume is
+# full" pre-flight of every transfer all ask this one reader. Each used to
+# carry its own copy of a parser that read the partition table at byte 446 of
+# the FILE - and a .hdf is not a bare disk: it starts with an RS-IDE header
+# (0x216 bytes in v1.1, 0x80 in v1.0), so that parser read the header as the
+# MBR, found garbage, and gave up. Every .hdf image showed "No image loaded"
+# under its own listing, and the full-volume check never fired for one.
+#
+# The rule is to measure THE VOLUME HDFMONKEY MOUNTS, since hdfmonkey is what
+# lists the image above the gauge and writes into it. Its FatFs finds it so:
+#   * past an optional RS-IDE header, skipped by its own data-offset field. A
+#     "halved" image (flag bit 0: one byte of every 16-bit word stored) is a
+#     different layout, and is refused rather than misread;
+#   * sector 0 FIRST, if it is a FAT boot sector (a jump instruction and a
+#     valid BPB) - an unpartitioned "superfloppy", or a sector that is both a
+#     boot sector and a partition table, which hdfmonkey mounts as the former;
+#   * otherwise, when sector 0 carries 0x55AA, the four partition entries in
+#     order: the first whose start sector is a FAT boot sector.
+# FAT32 is recognised by the SHAPE of its boot sector (a 16-bit FAT size of
+# zero), as Linux and hdfmonkey do, and not by cluster count: mkfs.fat -F 32
+# and BusyBox write FAT32 volumes with fewer than 65525 clusters, and reading
+# one as FAT16 counted the zero upper half of every used entry as free - the
+# gauge stuck at ~50% on a full volume, the full-volume check never firing
+# while hdfmonkey silently truncated the file being put. Cluster count then
+# only splits FAT12 from FAT16, at FatFs's limits. The geometry is validated before a byte of the
+# FAT is read, so a stray byte pattern answers None - never a plausible wrong
+# number - and the gauge says "Usage unavailable".
+FatUsage = _namedtuple("FatUsage", "free_clusters total_clusters cluster_bytes fat_bits")
+
+_RS_IDE_MAGIC = b"RS-IDE\x1a"
+_RS_IDE_HALVED = 0x01
+_BOOT_JUMPS = (0xEB, 0xE9, 0xE8)     # what FatFs accepts as a boot sector's jump
+# FAT12/16 cluster-count limits, INCLUSIVE, as hdfmonkey's FatFs draws them
+# (MAX_FAT12 0xFF5, MAX_FAT16 0xFFF5) - one above Microsoft's and Linux's on
+# purpose, since hdfmonkey is the reference: a plain `hdfmonkey create`
+# of 2147450000 bytes makes a FAT16 volume of exactly 65525 clusters, which
+# it reads and writes, and Microsoft's limit refused it.
+_FAT12_MAX_CLUSTERS = 4085
+_FAT16_MAX_CLUSTERS = 65525
+_FAT32_MAX_CLUSTERS = 0x0FFFFFF4
+_LOW_NIBBLE = bytes(b & 0x0F for b in range(256))
+
+
+def _image_disk_offset(head):
+    """Where the disk starts inside an image whose first bytes are *head*:
+    past an RS-IDE header, else 0. None for a layout this cannot read."""
+    if not head.startswith(_RS_IDE_MAGIC):
+        return 0
+    if len(head) < 11 or head[8] & _RS_IDE_HALVED:
+        return None
+    offset = struct.unpack_from("<H", head, 9)[0]
+    # 0x16 is where the header's own fields end; the spec's two versions
+    # use 0x80 and 0x216. Anything less overlaps the header itself.
+    return offset if offset >= 0x16 else None
+
+
+def _fat_geometry(vbr):
+    """(bytes/sector, reserved sectors, FAT sectors, clusters, bytes/cluster,
+    FAT bits) of a FAT boot sector, or None unless it is one hdfmonkey mounts.
+
+    These are the tests of hdfmonkey's FatFs (check_fs, then mount_volume),
+    because a sector hdfmonkey passes over sends it on to the partition table
+    - and a reader that accepted it would measure a phantom volume while the
+    explorer lists another (a FAT32 BPB without its "FAT32   " label, a FAT12
+    one with no root entries and a 1024-byte sector were all measured that
+    way, and all refused by hdfmonkey). So: a jump instruction; 512-byte
+    sectors (hdfmonkey's only size); a power-of-two cluster size; reserved
+    sectors; one or two FATs. FAT32 needs 0x55AA, its "FAT32   " label and no
+    fixed root directory; FAT12/16 a root directory of whole sectors and at
+    least 128 sectors. And a FAT with room for every cluster it claims. exFAT
+    (sector-size field zero) and NTFS (no reserved sectors) fail here, as do
+    an MBR's boot code and a sector that is not a boot sector at all."""
+    if len(vbr) < 512 or vbr[0] not in _BOOT_JUMPS:
+        return None
+    bps = struct.unpack_from("<H", vbr, 11)[0]
+    spc = vbr[13]
+    rsvd = struct.unpack_from("<H", vbr, 14)[0]
+    nfats = vbr[16]
+    root_entries = struct.unpack_from("<H", vbr, 17)[0]
+    total16 = struct.unpack_from("<H", vbr, 19)[0]
+    fat_sz16 = struct.unpack_from("<H", vbr, 22)[0]
+    total32 = struct.unpack_from("<I", vbr, 32)[0]
+    fat_sz32 = struct.unpack_from("<I", vbr, 36)[0]
+    if bps != 512:
+        return None
+    if spc == 0 or spc & (spc - 1):
+        return None
+    if rsvd == 0 or nfats not in (1, 2):
+        return None
+    fat_sz = fat_sz16 or fat_sz32
+    total = total16 or total32
+    if not fat_sz or not total:
+        return None
+    root_sectors = (root_entries * 32 + bps - 1) // bps
+    data_start = rsvd + nfats * fat_sz + root_sectors
+    if total <= data_start:
+        return None
+    clusters = (total - data_start) // spc
+    if clusters < 1:
+        return None
+    if fat_sz16 == 0:                  # the FAT32 shape: see the section comment
+        if (vbr[510:512] != b"\x55\xaa" or vbr[82:90] != b"FAT32   "
+                or root_entries or clusters > _FAT32_MAX_CLUSTERS):
+            return None
+        bits = 32
+    elif not root_entries or root_entries % 16 or not (
+            total16 >= 128 or total32 >= 0x10000):
+        return None
+    elif clusters <= _FAT12_MAX_CLUSTERS:
+        bits = 12
+    elif clusters <= _FAT16_MAX_CLUSTERS:
+        bits = 16
+    else:
+        return None                    # a FAT16 BPB cannot address this many
+    # The FAT must have room for every cluster it claims to track - true of
+    # every real volume, and the cheapest test that turns away a sector whose
+    # numbers only happened to pass the ones above.
+    if fat_sz * bps < _fat_bytes_needed(bits, clusters):
+        return None
+    return bps, rsvd, fat_sz, clusters, bps * spc, bits
+
+
+def _fat_bytes_needed(bits, clusters):
+    """Bytes of FAT that hold the entries of clusters 2 .. clusters+1."""
+    if bits == 12:
+        return ((clusters + 1) * 3) // 2 + 2
+    return (clusters + 2) * (bits // 8)
+
+
+def _count_free_clusters(fat, bits, clusters):
+    """Free entries among clusters 2 .. clusters+1 of *fat* (bytes)."""
+    if bits == 12:
+        free = 0
+        for c in range(2, clusters + 2):
+            off = c * 3 // 2
+            v = fat[off] | (fat[off + 1] << 8)
+            if not ((v >> 4) if c & 1 else (v & 0xFFF)):
+                free += 1
+        return free
+    size = bits // 8
+    words = bytearray(fat[2 * size:(clusters + 2) * size])
+    if bits == 32:
+        # FAT32 entries are 28 bits wide; the top four are reserved and may
+        # be set on a free entry. Clear them in the high byte of every
+        # (little-endian) entry, and a free entry is then four zero bytes.
+        words[3::4] = words[3::4].translate(_LOW_NIBBLE)
+    # A zero word is zero in either byte order, so no byteswap is needed. One
+    # C-speed count: ~7 ms for a million FAT32 entries (a Python loop, or 16
+    # count() passes over the unmasked words, took 100+ ms, on the UI thread).
+    entries = _array("H" if bits == 16 else "I")
+    if entries.itemsize != size:        # no such platform today; stay exact
+        return sum(1 for i in range(0, len(words), size)
+                   if not any(words[i:i + size]))
+    entries.frombytes(words)
+    return entries.count(0)
+
+
+def read_image_fat_usage(path):
+    """The free space of the FAT volume in the .img / .hdf at *path*, as a
+    FatUsage, or None when it cannot be read or is not FAT12/16/32.
+
+    Never raises and never writes. Reads the boot sectors and the part of
+    the FAT that maps the volume - a few MB on the largest cards - and
+    nothing of the data area. See the section comment above for which volume
+    it picks: the one hdfmonkey mounts."""
+    clean = normalize_sd_image_path(path)
+    if not clean:
+        return None
+    try:
+        with open(clean, "rb") as f:
+            base = _image_disk_offset(f.read(512))
+            if base is None:
+                return None
+
+            def sector(byte_offset):
+                f.seek(byte_offset)
+                return f.read(512)
+
+            first = sector(base)
+            candidates = [base]                 # sector 0 first, as FatFs does
+            if first[510:512] == b"\x55\xaa":
+                for i in range(4):
+                    lba = struct.unpack_from("<I", first, 446 + 16 * i + 8)[0]
+                    if lba:
+                        candidates.append(base + lba * 512)
+            for volume in candidates:
+                geometry = _fat_geometry(first if volume == base else sector(volume))
+                if geometry is None:
+                    continue
+                bps, rsvd, _fat_sz, clusters, cluster_bytes, bits = geometry
+                f.seek(volume + rsvd * bps)
+                need = _fat_bytes_needed(bits, clusters)
+                fat = f.read(need)
+                if len(fat) < need:
+                    return None                 # a truncated image: no guess
+                free = _count_free_clusters(fat, bits, clusters)
+                return FatUsage(free, clusters, cluster_bytes, bits)
+    except Exception:                  # noqa: BLE001 - a gauge must never throw
+        logging.debug("image FAT usage unreadable: %s", clean, exc_info=True)
+    return None
 
 
 UP_DIRECTORY = "[Up Directory..]"
