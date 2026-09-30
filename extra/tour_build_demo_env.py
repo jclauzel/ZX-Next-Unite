@@ -96,6 +96,11 @@ for src, dst in (
 print(run(HDFMONKEY, "ls", hdf, "/games"))
 
 # -- hdfg.cfg ----------------------------------------------------------------
+# nextsync_re_splitter_sizes: with no saved split (9.7.2+) Qt divides the
+# Remote Explorer by size hints, and the Next pane's toolbar has outgrown the
+# local one (9.7.33's filter box) - at 1500 px the local pane came out ~480 px
+# with its Date column clipped to "202". Seed the proportions the tour always
+# had instead (local 636 px, arrows + Next pane 734 px).
 cfg = f"""hddffile={hdf}
 explorerpath={sample}
 nextsync_explorerpath={sample}
@@ -121,6 +126,7 @@ zxnu_update_check=false
 mame_update_check=false
 cspect_update_check=false
 nextsync_remote_explorer=false
+nextsync_re_splitter_sizes=636,734
 """
 open(os.path.join(DEMO, "hdfg.cfg"), "w", newline="\n").write(cfg)
 print("demo environment ready at", DEMO)

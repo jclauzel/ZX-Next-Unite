@@ -85,6 +85,10 @@ Notes (learned the hard way):
   anyway (above) — the app is free to grow another way of asking.
 - The demo cfg seeds `content_disclaimer_agreed=1` (the gate checks the
   literal `"1"`) — without it the online panes block the run on a modal.
+- It also seeds the Remote Explorer split (`nextsync_re_splitter_sizes`).
+  Unseeded, Qt divides that view by size hints, and since the Next pane
+  grew its own filter box (9.7.33) the local pane came out ~480 px at the
+  tour's 1500 px, its Date column clipped to "202".
 - The Windows Firewall prompt for the NextSync port may appear once per
   Python interpreter; approve it or pre-authorize.
 - The first tab-entry to NextSync auto-runs the prepare/perform-checks, so
