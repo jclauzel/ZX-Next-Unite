@@ -1258,6 +1258,9 @@ CATALOGS = {
         "Select a disk image to be loaded.": "Selecciona la imagen de disco a cargar.",
         "No SD card image is currently loaded.":
             "No hay ninguna imagen de tarjeta SD cargada.",
+        "Usage unavailable": "Uso no disponible",
+        "The image is loaded, but how full it is could not be read: it is not a FAT12, FAT16 or FAT32 volume, or the file could not be read.":
+            "La imagen está cargada, pero no se pudo leer cuánto espacio ocupa: no es un volumen FAT12, FAT16 o FAT32, o no se pudo leer el archivo.",
         "Re-read the current local folder from disk.":
             "Volver a leer la carpeta local actual desde el disco.",
         "Drag to resize the local / Next explorers split.": "Arrastra para redimensionar la división entre los exploradores local y Next.",
@@ -2637,6 +2640,9 @@ CATALOGS = {
         "Select a disk image to be loaded.": "Selecione a imagem de disco a carregar.",
         "No SD card image is currently loaded.":
             "Nenhuma imagem de cartão SD está carregada.",
+        "Usage unavailable": "Utilização indisponível",
+        "The image is loaded, but how full it is could not be read: it is not a FAT12, FAT16 or FAT32 volume, or the file could not be read.":
+            "A imagem está carregada, mas não foi possível ler quanto está ocupada: não é um volume FAT12, FAT16 ou FAT32, ou o ficheiro não pôde ser lido.",
         "Re-read the current local folder from disk.":
             "Voltar a ler a pasta local atual a partir do disco.",
         "Drag to resize the local / Next explorers split.": "Arraste para redimensionar a divisão entre os exploradores local e Next.",
@@ -4013,6 +4019,9 @@ CATALOGS = {
         "Select a disk image to be loaded.": "Wybierz obraz dysku do wczytania.",
         "No SD card image is currently loaded.":
             "Żaden obraz karty SD nie jest wczytany.",
+        "Usage unavailable": "Zajętość niedostępna",
+        "The image is loaded, but how full it is could not be read: it is not a FAT12, FAT16 or FAT32 volume, or the file could not be read.":
+            "Obraz jest wczytany, ale nie udało się odczytać jego zajętości: to nie jest wolumin FAT12, FAT16 ani FAT32 albo nie można odczytać pliku.",
         "Re-read the current local folder from disk.":
             "Odczytaj ponownie bieżący folder lokalny z dysku.",
         "Drag to resize the local / Next explorers split.": "Przeciągnij, aby zmienić podział między eksploratorem lokalnym a Next.",
@@ -5391,6 +5400,9 @@ CATALOGS = {
         "Select a disk image to be loaded.": "Выберите образ диска для загрузки.",
         "No SD card image is currently loaded.":
             "Образ SD-карты сейчас не загружен.",
+        "Usage unavailable": "Заполненность недоступна",
+        "The image is loaded, but how full it is could not be read: it is not a FAT12, FAT16 or FAT32 volume, or the file could not be read.":
+            "Образ загружен, но не удалось определить его заполненность: это не том FAT12, FAT16 или FAT32, либо файл не удалось прочитать.",
         "Re-read the current local folder from disk.":
             "Перечитать текущую локальную папку с диска.",
         "Drag to resize the local / Next explorers split.": "Перетащите, чтобы изменить разделение между локальным проводником и Next.",
@@ -6766,6 +6778,9 @@ CATALOGS = {
         "Select a disk image to be loaded.": "Vyberte obraz disku k načtení.",
         "No SD card image is currently loaded.":
             "Není načten žádný obraz karty SD.",
+        "Usage unavailable": "Zaplnění není k dispozici",
+        "The image is loaded, but how full it is could not be read: it is not a FAT12, FAT16 or FAT32 volume, or the file could not be read.":
+            "Obraz je načten, ale nepodařilo se zjistit jeho zaplnění: nejde o svazek FAT12, FAT16 ani FAT32, nebo soubor nelze přečíst.",
         "Re-read the current local folder from disk.":
             "Znovu načíst aktuální místní složku z disku.",
         "Drag to resize the local / Next explorers split.": "Tažením změníte rozdělení mezi místním průzkumníkem a Next.",
@@ -8148,6 +8163,9 @@ CATALOGS = {
         "Select a disk image to be loaded.": "Choisissez l'image disque à charger.",
         "No SD card image is currently loaded.":
             "Aucune image de carte SD n'est chargée.",
+        "Usage unavailable": "Occupation indisponible",
+        "The image is loaded, but how full it is could not be read: it is not a FAT12, FAT16 or FAT32 volume, or the file could not be read.":
+            "L'image est chargée, mais son taux d'occupation n'a pas pu être lu : ce n'est pas un volume FAT12, FAT16 ou FAT32, ou le fichier n'a pas pu être lu.",
         "Re-read the current local folder from disk.":
             "Relire le dossier local courant depuis le disque.",
         "Drag to resize the local / Next explorers split.": "Faites glisser pour redimensionner la séparation entre les explorateurs local et Next.",

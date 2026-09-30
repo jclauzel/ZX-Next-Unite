@@ -38,7 +38,6 @@ import platform
 import shlex
 import shutil
 import stat
-import struct
 import subprocess
 import tempfile
 import urllib.error
@@ -396,6 +395,10 @@ def build_sdcard_utils(
         # in-flight listing from a previous image so it can't repopulate the
         # tree we are about to rebuild.
         image_clear_model()
+        # ...and the previous image's usage leaves with it: the gauge is set
+        # again when the new root listing lands, and until then it would
+        # otherwise describe a disk that is no longer loaded.
+        _update_image_usage_gauge("")
 
         if host.right_disk_image_path and host.right_disk_image_path != '""':
             # Lock the controls while the image is being read; the load
@@ -982,64 +985,48 @@ def build_sdcard_utils(
         dialog.exec()
 
     def _get_image_free_space_pct(image_path):
-        """Parse the FAT layout of image_path and return (free_pct, free_mb, total_mb).
-        Returns None if the image cannot be read or is not a recognised FAT volume."""
-        try:
-            clean = image_path.strip('"').strip("'")
-            with open(clean, 'rb') as f:
-                mbr = f.read(512)
-                pte = mbr[446:462]
-                lba_start = struct.unpack_from('<I', pte, 8)[0]
-                f.seek(lba_start * 512)
-                vbr = f.read(512)
-                bps      = struct.unpack_from('<H', vbr, 11)[0]
-                spc      = vbr[13]
-                rsvd     = struct.unpack_from('<H', vbr, 14)[0]
-                nfats    = vbr[16]
-                root_ent = struct.unpack_from('<H', vbr, 17)[0]
-                total16  = struct.unpack_from('<H', vbr, 19)[0]
-                fat_sz16 = struct.unpack_from('<H', vbr, 22)[0]
-                total32  = struct.unpack_from('<I', vbr, 32)[0]
-                fat_sz32 = struct.unpack_from('<I', vbr, 36)[0]
-                fat_sz   = fat_sz32 if fat_sz16 == 0 else fat_sz16
-                total    = total32  if total16  == 0 else total16
-                if not (bps and spc and fat_sz and total):
-                    return None
-                data_start     = rsvd + nfats * fat_sz + (root_ent * 32 + bps - 1) // bps
-                total_clusters = (total - data_start) // spc
-                is_fat32       = (total_clusters >= 65525)
-                entry_size     = 4 if is_fat32 else 2
-                fat_offset     = (lba_start + rsvd) * bps
-                fat_size_bytes = fat_sz * bps
-                f.seek(fat_offset)
-                fat_data = f.read(fat_size_bytes)
-                free_clusters = sum(
-                    1 for c in range(2, min(total_clusters + 2, len(fat_data) // entry_size))
-                    if (struct.unpack_from('<I', fat_data, c * entry_size)[0] & 0x0FFFFFFF
-                        if is_fat32
-                        else struct.unpack_from('<H', fat_data, c * entry_size)[0]) == 0
-                )
-                cluster_bytes = spc * bps
-                total_mb = total_clusters * cluster_bytes // (1024 * 1024)
-                free_mb  = free_clusters  * cluster_bytes // (1024 * 1024)
-                free_pct = (free_clusters / total_clusters * 100) if total_clusters else 0
-                return (free_pct, free_mb, total_mb)
-        except Exception:
+        """(free_pct, free_mb, total_mb) of the FAT volume in image_path, or
+        None when it cannot be read or is not FAT12/16/32. The reading itself
+        is zxnu_config.read_image_fat_usage, shared with the transfer
+        pre-flight in _check_image_writable - .hdf headers, partition tables
+        and unpartitioned volumes are all handled there."""
+        usage = read_image_fat_usage(image_path)
+        if usage is None:
             return None
+        mb = 1024 * 1024
+        total_mb = usage.total_clusters * usage.cluster_bytes // mb
+        free_mb = usage.free_clusters * usage.cluster_bytes // mb
+        free_pct = usage.free_clusters / usage.total_clusters * 100
+        return (free_pct, free_mb, total_mb)
 
     def _update_image_usage_gauge(image_path=None):
         """Refresh the SD card usage gauge below the image explorer.
-        Reads the FAT free-space data from the image and updates the bar colour and tooltip.
-        Call with no argument (or empty string) to reset the gauge to an empty state."""
-        if not image_path:
-            image_path = host.right_disk_image_path if hasattr(host, 'right_disk_image_path') else ""
-        result = _get_image_free_space_pct(image_path) if image_path else None
+
+        With no argument it measures the loaded image. An EMPTY string resets
+        it to "No image loaded": every such caller is a failed load, a failed
+        listing or an unload, where the path still held may name an image
+        that is not loaded. (Any falsy path used to fall back to the loaded
+        one, which only looked harmless while the reading failed for .hdf.)
+
+        A loaded image whose free space cannot be read says "Usage
+        unavailable", never "No image loaded": the explorer above it is
+        listing that very image."""
+        if image_path is None:
+            image_path = getattr(host, "right_disk_image_path", "") or ""
         gauge = host.image_usage_gauge
+        result = _get_image_free_space_pct(image_path) if image_path else None
         if result is None:
             gauge.setValue(0)
-            gauge.setFormat(ui_tr_now("No image loaded"))
-            gauge.setToolTip(ui_tr_now(
-                "No SD card image is currently loaded."))
+            if image_path:
+                gauge.setFormat(ui_tr_now("Usage unavailable"))
+                gauge.setToolTip(ui_tr_now(
+                    "The image is loaded, but how full it is could not be "
+                    "read: it is not a FAT12, FAT16 or FAT32 volume, or the "
+                    "file could not be read."))
+            else:
+                gauge.setFormat(ui_tr_now("No image loaded"))
+                gauge.setToolTip(ui_tr_now(
+                    "No SD card image is currently loaded."))
             gauge.setStyleSheet("")
             return
         free_pct, free_mb, total_mb = result
@@ -1119,47 +1106,17 @@ def build_sdcard_utils(
                             f"Please right-click the file in Explorer and choose\n"
                             f"'Always keep on this device' to pin it locally before writing.")
             # Definitive write test
-            with open(clean, 'r+b') as f:
+            with open(clean, 'r+b'):
                 # --- FAT free-cluster check (skipped for delete operations) ---
-                if check_free_space:
-                    try:
-                        mbr = f.read(512)
-                        pte = mbr[446:462]
-                        lba_start = struct.unpack_from('<I', pte, 8)[0]
-                        f.seek(lba_start * 512)
-                        vbr = f.read(512)
-                        bps      = struct.unpack_from('<H', vbr, 11)[0]
-                        spc      = vbr[13]
-                        rsvd     = struct.unpack_from('<H', vbr, 14)[0]
-                        nfats    = vbr[16]
-                        root_ent = struct.unpack_from('<H', vbr, 17)[0]
-                        total16  = struct.unpack_from('<H', vbr, 19)[0]
-                        fat_sz16 = struct.unpack_from('<H', vbr, 22)[0]
-                        total32  = struct.unpack_from('<I', vbr, 32)[0]
-                        fat_sz32 = struct.unpack_from('<I', vbr, 36)[0]
-                        fat_sz   = fat_sz32 if fat_sz16 == 0 else fat_sz16
-                        total    = total32  if total16  == 0 else total16
-                        if bps and spc and fat_sz and total:
-                            data_start = rsvd + nfats * fat_sz + (root_ent * 32 + bps - 1) // bps
-                            total_clusters = (total - data_start) // spc
-                            is_fat32 = (total_clusters >= 65525)
-                            entry_size = 4 if is_fat32 else 2
-                            fat_offset = (lba_start + rsvd) * bps
-                            fat_size_bytes = fat_sz * bps
-                            f.seek(fat_offset)
-                            fat_data = f.read(fat_size_bytes)
-                            free = sum(
-                                1 for c in range(2, min(total_clusters + 2, len(fat_data) // entry_size))
-                                if (struct.unpack_from('<I', fat_data, c * entry_size)[0] & 0x0FFFFFFF
-                                    if is_fat32
-                                    else struct.unpack_from('<H', fat_data, c * entry_size)[0]) == 0
-                            )
-                            if free == 0:
-                                cap_mb = total_clusters * spc * bps // 1024 // 1024
-                                return (f"The image volume is full (0 free clusters, {cap_mb} MB capacity).\n"
-                                        f"Delete files from the image before adding new content.")
-                    except Exception:
-                        pass  # FAT parse failure is non-fatal for the write check
+                # The gauge's reader, which also understands .hdf images: this
+                # used to be a second copy of a parser that did not, so the
+                # check silently never ran for one. An unreadable volume is
+                # still not a reason to refuse the write.
+                usage = read_image_fat_usage(clean) if check_free_space else None
+                if usage is not None and usage.free_clusters == 0:
+                    cap_mb = usage.total_clusters * usage.cluster_bytes // 1024 // 1024
+                    return (f"The image volume is full (0 free clusters, {cap_mb} MB capacity).\n"
+                            f"Delete files from the image before adding new content.")
         except OSError as e:
             return (f"The image file cannot be opened for writing:\n{e}\n\n"
                     f"If the file is in OneDrive, right-click it and choose\n"

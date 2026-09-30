@@ -889,6 +889,20 @@ def inspect_phase1():
                     what="image load -> path box '/'")
     check("image loaded, box shows /", ok, win.diskimageexplorerpathinput.text())
 
+    # The usage gauge under the image explorer measures the FAT volume INSIDE
+    # the .hdf. It used to read the RS-IDE header as the MBR and said "No
+    # image loaded" under this very listing, for every .hdf there was. The
+    # image is `hdfmonkey create ... 64M`: an MBR partition at sector 63.
+    import re as _re
+    _gauge = win.image_usage_gauge
+    ok = wait_until(lambda: _gauge.format().endswith("% used"),
+                    what="usage gauge measures the .hdf")
+    check("usage gauge measures the loaded .hdf", ok,
+          f"{_gauge.format()!r} / {_gauge.toolTip()!r}")
+    _m = _re.search(r"(\d+) MB used / (\d+) MB total", _gauge.toolTip())
+    check("usage gauge reports the 64 MB volume",
+          bool(_m) and 56 <= int(_m.group(2)) <= 64, _gauge.toolTip())
+
     # The real re-check (9.7.2): a stale BUSY verdict on the selected image
     # greys MAME; the hover re-probe finds the file free, clears it and
     # re-gates (True); asked again with nothing changed it does nothing
@@ -3008,6 +3022,11 @@ def inspect_phase12():
     img = (win.imageinput.currentText() or "").strip().strip('"')
     check("premise: no disk image is loaded", not img or not os.path.isfile(img),
           f"imageinput={img!r}")
+    # With nothing loaded the gauge says so - and only then: a loaded image
+    # it cannot measure says "Usage unavailable" (tests/test_image_usage.py).
+    check("usage gauge says no image is loaded",
+          win.image_usage_gauge.format() == "No image loaded",
+          repr(win.image_usage_gauge.format()))
 
     local_widgets = (
         ("local file tree", win.treeview),

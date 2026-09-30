@@ -49,6 +49,10 @@ SUITES = [
     ("test_listen_single_seat.py", 180, None),
     ("test_listen_busy.py",     120, None),   # the multi-Next roster (Sessions On)
     ("test_image_lock.py",      120, None),
+    # The SD usage gauge's FAT reader (.hdf headers, MBR vs superfloppy,
+    # FAT12/16/32) and the gauge's two empty states. Headless; its real
+    # hdfmonkey cases skip without one, as on CI.
+    ("test_image_usage.py",     120, None),
     ("test_pane_imports.py",    120, None),
     ("test_hdf_workers.py",     120, None),
     ("test_esp_emu.py",         120, None),
