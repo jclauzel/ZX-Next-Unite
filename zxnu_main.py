@@ -3228,7 +3228,7 @@ class MainWindow(QMainWindow):
         self.button_rename.setText("Rename")
         self.button_rename.clicked.connect(image_rename_dialog)
 
-        self.download_and_install_hdfmonkey_button = QPushButton("Download & install HDF Monkey", self)
+        self.download_and_install_hdfmonkey_button = QPushButton("Download and install HDF Monkey", self)
         self.download_and_install_hdfmonkey_button.setText("Download and install HDF Monkey")
         self.download_and_install_hdfmonkey_button.setMinimumWidth(IMAGE_BUTTONS_SIZE)
         self.download_and_install_hdfmonkey_button.clicked.connect(_on_hdfmonkey_button_clicked)
@@ -4128,6 +4128,14 @@ class MainWindow(QMainWindow):
             _wiz = getattr(self, "_wizard", None)
             if _wiz is not None:
                 _wiz.on_language_changed()
+            # Texts the app writes at RUNTIME through ui_tr_now are already
+            # translated when the walk meets them, so it adopts them as their
+            # own source and cannot switch them: their owners re-write them.
+            for _rewrite in ("_re_update_start_button",
+                             "_retranslate_bg_image_preview"):
+                _fn = getattr(self, _rewrite, None)
+                if _fn is not None:
+                    _fn()
         self._i18n_apply = _i18n_apply
 
         build_settings_pane(

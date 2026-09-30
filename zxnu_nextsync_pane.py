@@ -898,17 +898,17 @@ def build_nextsync_pane(
         if host._re_running:
             _re_stop_startbtn_pulse()
             btn.setEnabled(True)
-            btn.setText("⏹ Stop Remote Explorer NextSync server")
+            btn.setText(ui_tr_now("⏹ Stop Remote Explorer NextSync server"))
             return
         in_view = (host.nextsync_mode_tabs.currentIndex()
                    == TRANSFER_SUBTAB_REMOTE)
         if getattr(host, "_re_sync_root", ""):
             btn.setEnabled(True)
-            btn.setText(_RE_START_TEXT)
+            btn.setText(ui_tr_now(_RE_START_TEXT))
             _re_start_startbtn_pulse("yellow") if in_view else _re_stop_startbtn_pulse()
         else:
             btn.setEnabled(False)
-            btn.setText(_RE_NO_ROOT_TEXT)
+            btn.setText(ui_tr_now(_RE_NO_ROOT_TEXT))
             _re_start_startbtn_pulse("green") if in_view else _re_stop_startbtn_pulse()
     def _re_update_start_button_and_status():
         _re_update_start_button_inner()
@@ -1894,7 +1894,8 @@ def build_nextsync_pane(
         host._re_thread.start()
         host._re_running = True
         _re_stop_startbtn_pulse()   # started now: drop the yellow "start me" pulse
-        host.nextsync_re_start_button.setText("⏹ Stop Remote Explorer NextSync server")
+        host.nextsync_re_start_button.setText(
+            ui_tr_now("⏹ Stop Remote Explorer NextSync server"))
         host.nextsync_re_play_label.setText("▶  Remote Explorer NextSync server running")
         host.nextsync_re_play_label.setVisible(True)
         _re_start_play_pulse()

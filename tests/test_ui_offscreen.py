@@ -2522,6 +2522,40 @@ def inspect_phase9():
     check("tab titles untouched (dispatch keys)",
           any(win._tab_widget.tabText(i).startswith("Settings")
               for i in range(win._tab_widget.count())))
+    check("Wizzy checkbox translated at startup (it had no entry at all)",
+          win.settings_wizard_checkbox.text()
+          == CATALOGS["es"]["Show Wizzy, the onboarding wizard (bottom-right assistant)"],
+          win.settings_wizard_checkbox.text())
+    check("no Settings checkbox carries a bare '&' (a mnemonic, shown as a gap)",
+          "&" not in win.settings_multi_search_checkbox.text().replace("&&", ""),
+          win.settings_multi_search_checkbox.text())
+    # The Remote Explorer's server button is re-written at RUNTIME, and was
+    # raw English: every language showed "Start/Stop Remote Explorer ...".
+    _re_btn_src = ("⏹ Stop Remote Explorer NextSync server",
+                   "▶ Start Remote Explorer NextSync server",
+                   "Please set a sync root folder on the left local file explorer")
+    check("Remote Explorer server button in the UI language",
+          win.nextsync_re_start_button.text()
+          in [CATALOGS["es"][s] for s in _re_btn_src],
+          win.nextsync_re_start_button.text())
+    # Make the app re-write it WHILE Spanish is applied, as picking a sync
+    # root or starting the server does: only a text the app changed after
+    # the walk is one the walk adopts and can no longer switch back. Written
+    # once before the walk, it switches back by itself, and this check
+    # passed with the _i18n_apply re-write removed. The state is picked so
+    # the TEXT changes: the builder's initial "Start" shows even with no sync
+    # root, so flipping the root blindly re-wrote the very same text.
+    _saved_root = getattr(win, "_re_sync_root", "")
+    _before = win.nextsync_re_start_button.text()
+    _noroot_es = CATALOGS["es"][_re_btn_src[2]]
+    win._re_sync_root = ("" if _before != _noroot_es
+                         else os.path.join(SCRATCH, "re-root"))
+    win._re_update_start_button()
+    check("the server button changed text in Spanish (the premise)",
+          win.nextsync_re_start_button.text() != _before
+          and win.nextsync_re_start_button.text()
+          in [CATALOGS["es"][s] for s in _re_btn_src],
+          f"{_before!r} -> {win.nextsync_re_start_button.text()!r}")
     # Live switch back to English via the Settings combo.
     win.settings_ui_language_combo.setCurrentIndex(
         win.settings_ui_language_combo.findData("en"))
@@ -2532,6 +2566,14 @@ def inspect_phase9():
     check("live switch restores placeholders",
           win.filtertext.placeholderText() == "Filter by name...",
           win.filtertext.placeholderText())
+    # A text written at runtime through ui_tr_now is already translated when
+    # the walk meets it, so the walk adopts it and cannot switch it: its
+    # owner re-writes it from _i18n_apply. Without that, this stays Spanish.
+    check("live switch re-writes the runtime-written server button too",
+          win.nextsync_re_start_button.text() in _re_btn_src,
+          win.nextsync_re_start_button.text())
+    win._re_sync_root = _saved_root
+    win._re_update_start_button()
     ok2 = wait_until(lambda: "ui_language=en" in cfg_lines(),
                      timeout=10, what="ui_language persisted")
     check("language change persisted", ok2,
