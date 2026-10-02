@@ -58,7 +58,7 @@ from zxnu_pathhistorycombo import FolderHistoryCombo
 from zxnu_workers import (
     RE_CANCEL_GRACE_MS, RE_MAX_REMOTE_PATH, RE_UPD_EXTRA_RETRIES,
     CompactButton, DotDotFirstProxyModel, HdfProgressDialog,
-    as_emulator_launch, root_tree_at,
+    as_emulator_launch, root_tree_at, tree_row_on_screen,
     bind_select_all_except_updir, zip_create_with_dialog,
     zip_extract_with_dialog, zip_unique_name,
 )
@@ -5903,8 +5903,15 @@ class RemoteExplorerWidget(QWidget):
             self._set_local_dir(path, commit=False)
 
     def _selected_local_paths(self):
+        """The local pane's selected paths: rows ON SCREEN only, minus "..".
+        _set_local_dir never clears the selection, and a selection survives
+        a re-root (9.7.42, tree_row_on_screen) - so without the rule a
+        double-click into a folder left that folder selected as the undrawn
+        root, and every action here (Delete included) would have taken it."""
         out = []
         for ix in self.local_view.selectionModel().selectedRows(0):
+            if not tree_row_on_screen(self.local_view, ix):
+                continue
             if self._is_local_updir(ix):     # never act on the ".." up-entry
                 continue
             p = self._path_of(ix)

@@ -2186,10 +2186,14 @@ def build_local_explorer_ops(
         refresh_fn()
 
     def _local_explorer_selected_paths_or(fallback_path):
-        """The SD-card local tree's multi-selection paths (minus '..'), or
-        the given fallback when nothing is selected."""
+        """The SD-card local tree's multi-selection paths (minus '..', and
+        only rows ON SCREEN - the selection survives a re-root, so Delete
+        after a double-click into a folder used to name the folder being
+        shown), or the given fallback when nothing is selected."""
         paths = []
         for ix in host.treeview.selectionModel().selectedRows(0):
+            if not tree_row_on_screen(host.treeview, ix):
+                continue
             src = host.proxy_model.mapToSource(ix)
             if host.model.fileName(src) == "..":
                 continue
@@ -2267,6 +2271,7 @@ def build_local_explorer_ops(
     host._local_start_re_server = _local_start_re_server
     host._local_stop_re_server = _local_stop_re_server
     host.local_explorer_delete_selection = local_explorer_delete_selection
+    host._local_explorer_selected_paths_or = _local_explorer_selected_paths_or
     host.local_explorer_import_external_paths = local_explorer_import_external_paths
     host.local_explorer_refresh = local_explorer_refresh
     host.local_explorer_rename_item = local_explorer_rename_item
@@ -2302,6 +2307,49 @@ def build_transfer_clipboard_ops(
     nextsync_current_view_dir,
 ):
     """Transfers, the shared explorer clipboard, remote zip and context menu."""
+    def _local_row_on_screen(ix):
+        """tree_row_on_screen on the SD-card local tree: a row the user can
+        SEE. The selection model survives a re-root (a double-click INTO a
+        folder leaves its row selected as the undrawn root, Up leaves the
+        rows inside the collapsed folder selected), so without this the
+        arrows acted on rows that were not on screen and the no-selection
+        fallback was unreachable by the ordinary double-click."""
+        return tree_row_on_screen(host.treeview, ix)
+
+    def _local_tree_selected_paths():
+        """Every selected row of the SD-card local tree that is ON SCREEN,
+        minus '..', as the model spells the path. The two transfer-arrow
+        buttons read THIS (9.7.42), never
+        host.left_file_explorer_selection_full_filename_path, which the
+        click handler fills from ONE row of a multi-selection."""
+        sel = host.treeview.selectionModel()
+        if sel is None:
+            return []
+        paths = []
+        for ix in sel.selectedRows(0):
+            if not _local_row_on_screen(ix):
+                continue
+            src = host.proxy_model.mapToSource(ix)
+            if host.model.fileName(src) == "..":
+                continue
+            paths.append(host.model.filePath(src))
+        return paths
+
+    def _image_selected_items():
+        """Every selected image entry as (image_path, base_name) - the shape
+        _run_get_task takes. host.image_selected_paths is the pane's record
+        of the WHOLE (on-screen) selection; the single-row slots are only a
+        fallback for a host that never populated the list."""
+        selected = list(host.image_selected_paths)
+        if not selected and host.image_selected_path:
+            selected = [(host.image_selected_path, host.image_selected_is_dir)]
+        items = []
+        for path, _is_dir in selected:
+            if not path:
+                continue
+            items.append((path, path.rstrip("/").rsplit("/", 1)[-1]))
+        return items
+
     def transfert_content_from_image_to_disk():
 
 
@@ -2330,12 +2378,16 @@ def build_transfer_clipboard_ops(
         else:
             directory_navigation = "/"
 
-        if not host.image_selected_path:
+        # EVERY selected image row travels, not just the primary one (9.7.42).
+        # image_selected_paths is what the pane's selection handler records
+        # for the whole selection - the same list Delete, Copy and drag-out
+        # act on - while image_selected_path is only the CURRENT row, which
+        # is why a two-file selection used to download one file.
+        items = _image_selected_items()
+        if not items:
             set_all_buttons_enabled()
             return
 
-        base_name  = host.image_selected_path.rstrip("/").rsplit("/", 1)[-1]
-        items      = [(host.image_selected_path, base_name)]
         image_path = host.right_disk_image_path
 
         dlg    = HdfProgressDialog("Downloading from image\u2026", host)
@@ -2801,16 +2853,21 @@ def build_transfer_clipboard_ops(
 
     def _local_explorer_copy_selection(mode="copy"):
         """Copy (or, when mode='cut', cut) the SD-card local tree's selection to
-        the shared clipboard."""
+        the shared clipboard. Only rows ON SCREEN (tree_row_on_screen): the
+        selection - and the current index - survive a re-root, so Ctrl+C
+        with nothing visibly selected used to copy the folder just entered
+        or the rows inside a folder just collapsed."""
         items = []
         for ix in host.treeview.selectionModel().selectedRows(0):
+            if not tree_row_on_screen(host.treeview, ix):
+                continue
             src = host.proxy_model.mapToSource(ix)
             if host.model.fileName(src) == "..":
                 continue
             items.append((host.model.filePath(src), host.model.isDir(src)))
         if not items:
             cur = host.treeview.currentIndex()
-            if cur.isValid():
+            if cur.isValid() and tree_row_on_screen(host.treeview, cur):
                 src = host.proxy_model.mapToSource(cur)
                 if host.model.fileName(src) != "..":
                     items.append((host.model.filePath(src), host.model.isDir(src)))
@@ -2827,9 +2884,11 @@ def build_transfer_clipboard_ops(
 
     def _nextsync_explorer_copy_selection(mode="copy"):
         """Copy (or, when mode='cut', cut) the NextSync local tree's selection to
-        the shared clipboard."""
+        the shared clipboard - rows ON SCREEN only, as the SD-card twin."""
         items = []
         for ix in host.nextsync_treeview.selectionModel().selectedRows(0):
+            if not tree_row_on_screen(host.nextsync_treeview, ix):
+                continue
             src = host.nextsync_model.mapToSource(ix)
             if host.nextsync_filesystem_model.fileName(src) == "..":
                 continue
@@ -2837,7 +2896,7 @@ def build_transfer_clipboard_ops(
                           host.nextsync_filesystem_model.isDir(src)))
         if not items:
             cur = host.nextsync_treeview.currentIndex()
-            if cur.isValid():
+            if cur.isValid() and tree_row_on_screen(host.nextsync_treeview, cur):
                 src = host.nextsync_model.mapToSource(cur)
                 if host.nextsync_filesystem_model.fileName(src) != "..":
                     items.append((host.nextsync_filesystem_model.filePath(src),
@@ -2957,20 +3016,40 @@ def build_transfer_clipboard_ops(
 
         set_all_buttons_disabled()
 
-        dest_file_path = (generate_disk_file_path() + "/" + host.left_file_explorer_selection_file_name).replace('//', '/')
-
-        upload_path = host.left_file_explorer_selection_full_filename_path
-        if platform.system() == "Windows":
-            upload_path = upload_path.replace("/", "\\")
+        # EVERY selected local row travels (9.7.42). The click handler only
+        # ever records ONE row in left_file_explorer_selection_*, so a
+        # two-file selection used to upload a single file; the selection
+        # model is the source of truth now, exactly as Copy and drag-out
+        # read it. With nothing selected the legacy single slot still
+        # applies: after a navigation it names the folder the tree is
+        # rooted at (file name blank), which uploads that folder's CONTENTS
+        # into the image folder - behaviour kept unchanged on purpose.
+        image_dir = generate_disk_file_path()
+        items = []            # (local_path, image_dest_path)
+        for p in _local_tree_selected_paths():
+            base = os.path.basename(p.rstrip("/\\"))
+            if not base:
+                continue
+            items.append((p, (image_dir + "/" + base).replace("//", "/")))
+        from_selection = bool(items)
+        if not items and host.left_file_explorer_selection_full_filename_path:
+            items.append((
+                host.left_file_explorer_selection_full_filename_path,
+                (image_dir + "/" + host.left_file_explorer_selection_file_name).replace("//", "/"),
+            ))
+        if not items:
+            set_all_buttons_enabled()
+            return
 
         image_path      = host.right_disk_image_path
-        sel_path        = host.left_file_explorer_selection_full_filename_path
-        disk_path_fn    = generate_disk_file_path
+        sel_path        = items[0][0]
+        if platform.system() == "Windows":
+            items = [(p.replace("/", "\\"), d) for p, d in items]
 
         dlg    = HdfProgressDialog("Uploading to image\u2026", host)
-        worker = HdfTaskWorker(_run_put_task, execute_hdf_monkey,
+        worker = HdfTaskWorker(_run_put_external_task, execute_hdf_monkey,
                                _check_access_denied_is_full_disk,
-                               image_path, upload_path, dest_file_path)
+                               image_path, items)
 
         dlg.cancel_requested.connect(worker.cancel)
         worker.signals.progress.connect(dlg.set_progress)
@@ -2980,9 +3059,17 @@ def build_transfer_clipboard_ops(
 
         def _on_put_finished():
             dlg.close()
-            display_path = sel_path
-            if not os.path.isdir(display_path):
-                display_path = os.path.dirname(display_path.rstrip("/\\")).replace("\\", "/") + "/"
+            # After a selection-driven upload the pane stays on the folder it
+            # was SHOWING. The single-slot rule below - re-root at the item's
+            # own path, kept for the legacy fallback - walks INTO a selected
+            # folder, and folders sort first, so "a file and a folder, click
+            # the file last" ended inside the folder (found in review).
+            if from_selection:
+                display_path = local_current_view_dir()
+            else:
+                display_path = sel_path
+                if not os.path.isdir(display_path):
+                    display_path = os.path.dirname(display_path.rstrip("/\\")).replace("\\", "/") + "/"
             root_tree_at(host.treeview, host.proxy_model, host.model,
                          display_path)
             set_treeview_properties()

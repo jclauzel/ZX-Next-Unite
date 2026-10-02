@@ -3000,8 +3000,13 @@ class MainWindow(QMainWindow):
         def _local_start_drag(supported_actions):
             # Carry the selected local file/folder paths as text/uri-list URLs so
             # they can be dropped onto the image explorer (equivalent to '->:').
+            # Rows ON SCREEN only (9.7.42): a Ctrl-press on a visible row keeps
+            # rows the selection still holds from before a re-root, and those
+            # would ride along invisibly.
             paths = []
             for ix in self.treeview.selectionModel().selectedRows(0):
+                if not tree_row_on_screen(self.treeview, ix):
+                    continue
                 source_ix = self.proxy_model.mapToSource(ix)
                 if self.model.fileName(source_ix) == "..":
                     continue

@@ -3075,6 +3075,48 @@ def test_emulator_strip():
           not w._emulator_tabs)
 
 
+def test_local_selection_on_screen():
+    """The local pane's one selection reader honours tree_row_on_screen
+    (9.7.42): _set_local_dir never clears the selection and a selection
+    survives a re-root, so after navigating INTO a folder its row stayed
+    selected as the undrawn root - and every local action (Delete among
+    them) read it. Measured here on the real pane."""
+    root = tdir("onscreen_root")
+    sub = tdir("onscreen_root/sub")
+    inner = tfile(sub, "s.txt")
+    top = tfile(root, "t.txt")
+    w, calls = make_widget(local_start_dir=root)
+    select_local(w, sub, top)
+    check("local reader names the visible selected rows",
+          sorted(fwd(p) for p in w._selected_local_paths())
+          == sorted([fwd(sub), fwd(top)]),
+          str(w._selected_local_paths()))
+    w._set_local_dir(sub, commit=False)
+    QApplication.processEvents()
+    still = sorted(fwd(w._path_of(ix))
+                   for ix in w.local_view.selectionModel().selectedRows(0))
+    check("premise: the rows are still selected after rooting INTO the folder",
+          still == sorted([fwd(sub), fwd(top)]), str(still))
+    check("the reader names nothing after navigating INTO the selected folder",
+          w._selected_local_paths() == [], str(w._selected_local_paths()))
+    select_local(w, inner)
+    check("...and names the visible file inside it",
+          [fwd(p) for p in w._selected_local_paths()] == [fwd(inner)])
+    w._set_local_dir(root, commit=False)       # Up: sub is collapsed again
+    QApplication.processEvents()
+    check("premise: the inner file is still selected after going up",
+          any(fwd(w._path_of(ix)) == fwd(inner)
+              for ix in w.local_view.selectionModel().selectedRows(0)))
+    check("a row inside the folder just left is not named",
+          w._selected_local_paths() == [], str(w._selected_local_paths()))
+    w.local_view.setExpanded(w.local_proxy.mapFromSource(w.local_model.index(sub)), True)
+    QApplication.processEvents()
+    check("...until its folder is expanded",
+          [fwd(p) for p in w._selected_local_paths()] == [fwd(inner)],
+          str(w._selected_local_paths()))
+    w.deleteLater()
+
+
 def test_os_protection_stops_and_explains():
     """A remote WRITE refused by the far side's OS protection (a ZXNextRemote
     listener, 0.9.0) must STOP the batch and toast the actionable message —
@@ -3868,6 +3910,7 @@ def main():
         test_emulator_start_from_next()
         test_sync5_resolve_task_survives_teardown()
         test_select_all_skips_updir()
+        test_local_selection_on_screen()
         test_os_protection_stops_and_explains()
         test_font_zoom()
         test_disconnect_button()

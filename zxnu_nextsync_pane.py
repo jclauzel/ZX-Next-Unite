@@ -361,8 +361,12 @@ def build_nextsync_pane(
     # selected rows travel, and only as a copy. The intra-tree no-op above
     # still recognises the drag as its own: a QDrag's source is its parent.
     def _nextsync_drag_paths():
+        # Rows ON SCREEN only (9.7.42, tree_row_on_screen): the selection
+        # survives a re-root, and a Ctrl-press on a visible row keeps it.
         paths = []
         for ix in host.nextsync_treeview.selectionModel().selectedRows(0):
+            if not tree_row_on_screen(host.nextsync_treeview, ix):
+                continue
             source_ix = host.nextsync_model.mapToSource(ix)
             if host.nextsync_filesystem_model.fileName(source_ix) == "..":
                 continue
