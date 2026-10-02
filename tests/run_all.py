@@ -55,6 +55,12 @@ SUITES = [
     ("test_image_usage.py",     120, None),
     ("test_pane_imports.py",    120, None),
     ("test_hdf_workers.py",     120, None),
+    # Both SD Card transfer-arrow buttons act on the WHOLE selection
+    # (9.7.42): the real closures on a fake host, headless.
+    ("test_transfer_buttons.py", 120, None),
+    # tree_row_on_screen against a REAL QTreeView over QFileSystemModel +
+    # DotDotFirstProxyModel, with the view's own layout as the oracle.
+    ("test_tree_row_on_screen.py", 120, None),
     ("test_esp_emu.py",         120, None),
     ("test_classic_sync.py",    180, None),
     ("test_listen.py",          120, None),

@@ -770,6 +770,36 @@ def root_tree_at(view, proxy, source_model, path, column=0):
     return True
 
 
+def tree_row_on_screen(view, index):
+    """True when *index* (an index of *view*'s own model) is a row the user
+    can SEE: under the view's current root, with every folder between them
+    expanded.
+
+    The selection model knows nothing of re-rooting, so a selection
+    SURVIVES one (measured on the real tree, 9.7.42): a double-click INTO a
+    folder leaves that folder's row selected as the undrawn root, Up leaves
+    the rows inside the now-collapsed folder selected, and collapsing a
+    folder leaves its selected children selected. Every reader that turns a
+    local tree's selection into an action - the SD Card transfer arrows,
+    Ctrl+C/X, Delete and Zip on the local trees, drag-out, the Remote
+    Explorer's local pane - asks this first, so a row the user cannot see
+    is never a target (the invariant the image tree states for its filter,
+    9.7.33, applied to a tree's root). The row that IS the root, and
+    anything above it, climb past the root to an invalid index and answer
+    False; under an invalid root (a view never rooted) a top-level row's
+    invalid parent equals it and answers True. Agrees with QTreeView's own
+    layout (``visualRect(ix).height() > 0``) for every case in
+    tests/test_tree_row_on_screen.py.
+    """
+    root = view.rootIndex()
+    parent = index.parent()
+    while parent != root:
+        if not parent.isValid() or not view.isExpanded(parent):
+            return False
+        parent = parent.parent()
+    return True
+
+
 def bind_select_all_except_updir(view, is_updir):
     """Make the view's Select All (Ctrl-A, or any programmatic selectAll)
     leave the ".." parent-directory row OUT of the selection: selecting

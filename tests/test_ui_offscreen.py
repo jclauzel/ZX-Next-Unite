@@ -8,7 +8,9 @@ Phases:
      boxes), local path box paste/file/invalid navigation, disk-image path
      navigation e2e on a generated test HDF (nested folder, file, root,
      unknown path), in-image path + retro-log color persistence to hdfg.cfg,
-     and the Settings color-picker layout.                  (needs hdfmonkey)
+     both transfer-arrow buttons moving a TWO-file selection each way
+     and ignoring a stale off-screen selection (9.7.42), and the Settings
+     color-picker layout.                                   (needs hdfmonkey)
   2  Startup restore: image_explorerpath and color_retro_log from hdfg.cfg
      are applied after the startup image load.    (needs hdfmonkey + phase 1)
   3  Startup fallback: a saved in-image path missing from the image logs the
@@ -1145,6 +1147,131 @@ def inspect_phase1():
               win.image_selected_path == "" and win.diskimageexplorerpathinput.text() == "/",
               win.diskimageexplorerpathinput.text())
 
+        # ---- both transfer-arrow buttons move the WHOLE selection (9.7.42) --
+        # Select two local files, press '->:': both must land in the image.
+        # Then select both image entries, press ':<-': both must come back,
+        # byte-identical. Each button opens a MODAL HdfProgressDialog (exec),
+        # so click() returns only when its worker has finished. The buttons
+        # used to read the single-row slots the click handlers fill (one row
+        # of a multi-selection / the current row), so exactly one file moved;
+        # tests/test_transfer_buttons.py pins the closures headlessly, this is
+        # the same gesture through the real trees, hdfmonkey and image.
+        from PySide6.QtCore import QItemSelectionModel as _QISM
+        _SEL = _QISM.SelectionFlag.Select | _QISM.SelectionFlag.Rows
+        XFER = os.path.join(SCRATCH, "xfer")
+        os.makedirs(XFER, exist_ok=True)
+        _payloads = {"one.nex": b"1" * 1500, "two.nex": b"22" * 1000}
+        for _n, _p in _payloads.items():
+            with open(os.path.join(XFER, _n), "wb") as _f:
+                _f.write(_p)
+        win.sdcard_explorer.local_navigate_to_dir(XFER.replace("\\", "/") + "/")
+
+        def _local_rows_named(names):
+            found = {}
+            root = win.treeview.rootIndex()
+            for r in range(win.proxy_model.rowCount(root)):
+                ix = win.proxy_model.index(r, 0, root)
+                nm = win.model.fileName(win.proxy_model.mapToSource(ix))
+                if nm in names:
+                    found[nm] = ix
+            return found
+
+        _okl = wait_until(lambda: len(_local_rows_named(set(_payloads))) == 2,
+                          timeout=20, what="local tree lists the two files")
+        check("premise: the local tree lists both files to upload", _okl)
+        win.diskimageexplorerpathinput.setText("/games")
+        win.diskimageexplorerpathinput.editingFinished.emit()
+        _okg = wait_until(lambda: win.image_selected_path == "/games",
+                          timeout=15, what="image target /games")
+        check("premise: /games is the image target", _okg, win.image_selected_path)
+        if _okl and _okg:
+            _lsm = win.treeview.selectionModel()
+            _lsm.clearSelection()
+            for ix in _local_rows_named(set(_payloads)).values():
+                _lsm.select(ix, _SEL)
+            QCoreApplication.processEvents()
+            check("premise: two local rows are selected",
+                  len(_lsm.selectedRows(0)) == 2, len(_lsm.selectedRows(0)))
+            win.button_to_image.click()        # modal: returns when uploaded
+            QCoreApplication.processEvents()
+            _ls = subprocess.run([HDFMONKEY, "ls", HDF, "/games"],
+                                 capture_output=True, text=True).stdout
+            check("'->:' uploads BOTH selected files",
+                  "one.nex" in _ls and "two.nex" in _ls, _ls)
+            _oki = wait_until(lambda: all(_image_index_for(f"/games/{n}") is not None
+                                          for n in _payloads),
+                              timeout=20, what="image tree lists both uploads")
+            check("the image tree lists both uploads after '->:'", _oki)
+            check("'->:' released the SD Card buttons",
+                  win.button_to_image.isEnabled() and win.button_to_disk.isEnabled())
+
+            DOWN = os.path.join(SCRATCH, "xfer-down")
+            os.makedirs(DOWN, exist_ok=True)
+            # The destination rule: a selected local FOLDER is the target
+            # itself, and a navigation records the rooted folder as the slot.
+            win.sdcard_explorer.local_navigate_to_dir(DOWN.replace("\\", "/") + "/")
+            if _oki:
+                _ism = win.image_treeview.selectionModel()
+                _ism.clearSelection()
+                for n in _payloads:
+                    _ism.select(_image_index_for(f"/games/{n}"), _SEL)
+                QCoreApplication.processEvents()
+                check("premise: the pane records both image rows as selected",
+                      sorted(p for p, _d in win.image_selected_paths)
+                      == ["/games/one.nex", "/games/two.nex"],
+                      str(win.image_selected_paths))
+                win.button_to_disk.click()     # modal: returns when downloaded
+                QCoreApplication.processEvents()
+                _got = sorted(os.listdir(DOWN))
+                check("':<-' downloads BOTH selected entries",
+                      _got == ["one.nex", "two.nex"], _got)
+                check("...byte-identical to what was uploaded",
+                      all(open(os.path.join(DOWN, n), "rb").read() == _payloads.get(n)
+                          for n in _got) and bool(_got))
+                check("':<-' released the SD Card buttons",
+                      win.button_to_image.isEnabled() and win.button_to_disk.isEnabled())
+
+            # Review (9.7.42): the selection model SURVIVES a re-root. After
+            # navigating INTO a folder its own row is still selected - as the
+            # undrawn root. The arrow must not upload that invisible row: the
+            # legacy slot applies and the folder's CONTENTS go in, as before.
+            _xfer_fwd = XFER.replace("\\", "/")
+            win.sdcard_explorer.local_navigate_to_dir(SCRATCH.replace("\\", "/") + "/")
+            _okp = wait_until(lambda: "xfer" in _local_rows_named({"xfer"}),
+                              timeout=20, what="the parent lists the xfer folder")
+            check("premise: the parent folder lists xfer", _okp)
+            if _okp:
+                _lsm = win.treeview.selectionModel()
+                _lsm.clearSelection()
+                _lsm.select(_local_rows_named({"xfer"})["xfer"], _SEL)
+                win.sdcard_explorer.local_navigate_to_dir(_xfer_fwd + "/")
+                QCoreApplication.processEvents()
+                _stale = [win.model.filePath(win.proxy_model.mapToSource(ix))
+                          for ix in _lsm.selectedRows(0)]
+                check("premise: the navigated-into folder's row is still selected (undrawn root)",
+                      any(p.rstrip("/").lower() == _xfer_fwd.lower() for p in _stale), _stale)
+                # Ctrl+C in that state must not put the invisible row on the
+                # clipboard (the same reader shape, the same stale selection).
+                win._explorer_clipboard = None
+                win._local_explorer_copy_selection("copy")
+                check("Ctrl+C after navigating INTO a folder copies nothing",
+                      not win._explorer_clipboard, str(win._explorer_clipboard))
+                win.diskimageexplorerpathinput.setText("/games/sub")
+                win.diskimageexplorerpathinput.editingFinished.emit()
+                _oks = wait_until(lambda: win.image_selected_path == "/games/sub",
+                                  timeout=15, what="image target /games/sub")
+                check("premise: /games/sub is the image target", _oks, win.image_selected_path)
+                if _oks:
+                    win.button_to_image.click()    # modal: returns when uploaded
+                    QCoreApplication.processEvents()
+                    _ls = subprocess.run([HDFMONKEY, "ls", HDF, "/games/sub"],
+                                         capture_output=True, text=True).stdout
+                    check("'->:' after navigating INTO a folder uploads its CONTENTS, never the invisible selected row",
+                          "one.nex" in _ls and "two.nex" in _ls and "xfer" not in _ls, _ls)
+                    check("...and the pane is still rooted at that folder",
+                          win.model.filePath(win.proxy_model.mapToSource(
+                              win.treeview.rootIndex())).lower() == _xfer_fwd.lower())
+
     # The SD Card page zeroes only its TOP margin, so both tools start at the
     # same height under the sub-tab bar. Reading contentsMargins() before
     # setLayout() (where an unparented layout answers 0) zeroed the other three
@@ -1752,6 +1879,32 @@ def inspect_phase4():
                           _drags[-1][0] == _want
                           and _drags[-1][1] == Qt.DropAction.CopyAction,
                           str(_drags[-1][:2]))
+            # 4. A STALE selection never travels (9.7.42): the selection
+            # model survives a re-root. Select the file, root the tree INTO
+            # the subfolder - the file is still selected, off screen - and
+            # a drag starts nothing; neither does Ctrl+C find anything.
+            pix = _classic_row(win, s512)
+            check("classic file row found for the stale-selection check",
+                  pix is not None)
+            if pix is not None:
+                _select(pix)
+                check("premise: the Classic tree re-roots into the subfolder",
+                      _classic_goto(win, CLASSIC_INTO))
+                _still = [os.path.normcase(os.path.abspath(model.filePath(
+                              proxy.mapToSource(i))))
+                          for i in tv.selectionModel().selectedRows(0)]
+                check("premise: the file's row is still selected after the re-root",
+                      _still == _want, str(_still))
+                _n = len(_drags)
+                tv.startDrag(proxy.supportedDragActions())
+                check("a drag with only an off-screen row selected starts nothing",
+                      len(_drags) == _n, str(_drags[_n:]))
+                win._explorer_clipboard = None
+                win._nextsync_explorer_copy_selection("copy")
+                check("Classic Ctrl+C with only an off-screen row selected copies nothing",
+                      not win._explorer_clipboard, str(win._explorer_clipboard))
+                check("classic tree back on the fixture folder after the stale check",
+                      _classic_goto(win, CLASSIC_ZONE))
         finally:
             _nsp.QDrag = _RealDrag
         check("...and the dragged file is still there", os.path.isfile(s512))
