@@ -612,7 +612,8 @@ def _ver_at_least(s, floor):
 # .sync5 dot from v5.9.2, ZX Next Remote (httpbridge/n2n) from 1.0.8. A
 # hand-kept twin of zxnu_workers.RE_CRC_FLOORS - this script imports no app
 # module (see the OSP_MARK note above).
-CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8)}
+CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8),
+              "qlnextremote": (0, 1, 0)}
 
 def _peer_answers_crc(ident):
     """True when a cached 'version' answer ``(type, number)`` names a
@@ -2343,7 +2344,7 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 else:
                     why = ('the file did not open' if res['fail'] else
                            'no answer (missing file, or the listener '
-                           'predates .sync v5.9.2 / ZXNR 1.0.8)')
+                           'predates .sync v5.9.2 / ZXNR 1.0.8 / QLNR 0.1.0)')
                     print(f'{timestamp()} | crc32 {a1}: {why}')
                     _reply_fill(reply, {'ok': False,
                                         'error': f'crc failed: {why}'})

@@ -725,6 +725,8 @@ def run_update_tests(tmp):
           and ns._peer_answers_crc(("n2n", "1.0.8"))
           and ns._peer_answers_crc(("httpbridge", "1.1.0"))
           and not ns._peer_answers_crc(("httpbridge", "1.0.7"))
+          and ns._peer_answers_crc(("qlnextremote", "0.1.0"))
+          and not ns._peer_answers_crc(("qlnextremote", "0.0.1"))
           and not ns._peer_answers_crc(None)
           and not ns._peer_answers_crc(False)
           and not ns._peer_answers_crc(("weird", "9.9.9"))
