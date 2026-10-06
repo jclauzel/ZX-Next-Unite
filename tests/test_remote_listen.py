@@ -653,12 +653,15 @@ def main():
     ok = True
     # ── pure gates of the verify-after-put (9.7.3) ─────────────────────
     _yes = [('sync', '5.9.2'), ('sync', '5.10.0'), ('sync', '5.9.10'),
-            ('httpbridge', '1.0.8'), ('n2n', '1.0.9'), (' SYNC ', '5.9.2')]
+            ('httpbridge', '1.0.8'), ('n2n', '1.0.9'), (' SYNC ', '5.9.2'),
+            ('qlnextremote', '0.1.0'), ('qlnextremote', '0.2.0')]
     _no = [('sync', '5.9.1'), ('n2n', '1.0.7'), ('', ''), ('sync', ''),
-           ('sync', 'x.y'), ('other', '9.9.9'), (None, None)]
+           ('sync', 'x.y'), ('other', '9.9.9'), (None, None),
+           ('qlnextremote', '0.0.1')]
     if (all(re_peer_answers_crc(*p) for p in _yes)
             and not any(re_peer_answers_crc(*p) for p in _no)):
-        print("PASS vcrc-gate: dot >= 5.9.2 / ZXNR >= 1.0.8 answer 'K', nothing else")
+        print("PASS vcrc-gate: dot >= 5.9.2 / ZXNR >= 1.0.8 / QLNR >= 0.1.0 "
+              "answer 'K', nothing else")
     else:
         print("FAIL vcrc-gate:", [(p, re_peer_answers_crc(*p)) for p in _yes + _no]); ok = False
     if (re_verify_wait(0) == 60.0 and re_verify_wait(1_500_000) == 160.0

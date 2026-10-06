@@ -704,6 +704,12 @@ def phase_crc_no_op():
           peer_lacks_crc({"ok": True, "type": "n2n", "number": "1.0.7"}))
     check("a peer AT the floor is not old",
           not peer_lacks_crc({"ok": True, "type": "sync", "number": "5.9.2"}))
+    check("proof refuses: a QLNextRemote below its floor",
+          peer_lacks_crc({"ok": True, "type": "qlnextremote",
+                          "number": "0.0.1"}))
+    check("a QLNextRemote AT its floor is not old",
+          not peer_lacks_crc({"ok": True, "type": "qlnextremote",
+                              "number": "0.1.0"}))
     check("a newer peer is not old",
           not peer_lacks_crc({"ok": True, "type": "httpbridge",
                               "number": "1.1.9"}))

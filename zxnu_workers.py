@@ -1239,7 +1239,8 @@ RE_LINK_RETRY_OPS = frozenset(("ls", "get", "put", "mkdir", "rmdir", "rm",
 
 #: Listener builds that answer the 'K' (crc) op, by 'Y' ident type:
 #: the .sync5 dot from v5.9.2, ZX Next Remote (httpbridge/n2n) from 1.0.8.
-RE_CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8)}
+RE_CRC_FLOORS = {"sync": (5, 9, 2), "httpbridge": (1, 0, 8), "n2n": (1, 0, 8),
+                 "qlnextremote": (0, 1, 0)}
 #: Verify-after-put reply wait = floor + size/rate (the HTTP bridge's /crc
 #: formula, 15 KB/s worst case plus a minute), capped at the crc op's hour.
 #: Read at CALL time so the test suite can shorten the floor.
@@ -1873,8 +1874,9 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 if not vstate['skip_said']:
                     vstate['skip_said'] = True
                     log("crc32: verification skipped for this Next — its "
-                        "listener predates .sync v5.9.2 / ZX Next Remote 1.0.8 "
-                        "(or does not answer the version query); files are "
+                        "listener predates .sync v5.9.2 / ZX Next Remote 1.0.8 / "
+                        "QLNextRemote 0.1.0 (or does not answer the version "
+                        "query); files are "
                         "sent unverified")
 
             def _plan_verify(remote):
@@ -2790,7 +2792,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             why = ('the file did not open' if res['fail']
                                    else 'no answer: the file did not open, '
                                         'or the listener predates .sync '
-                                        'v5.9.2 / ZXNR 1.0.8')
+                                        'v5.9.2 / ZXNR 1.0.8 / QLNR 0.1.0')
                             log(f"crc32 {path}: {why}")
                             if reply:
                                 reply.put({'ok': False,
@@ -2862,7 +2864,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 why = "malformed digest from the Next"
                             else:
                                 why = ("no answer: the listener predates .sync "
-                                       "v5.9.2 / ZXNR 1.0.8, or the link dropped")
+                                       "v5.9.2 / ZXNR 1.0.8 / QLNR 0.1.0, "
+                                       "or the link dropped")
                             log(f"crc32 {job['remote']}: not verified ({why}) "
                                 "— file kept")
                             vjobs.pop(vid, None)
