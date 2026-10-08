@@ -18,7 +18,7 @@ license = "MIT"
 authors = [{ name = "Julien Clauzel" }]
 requires-python = ">=3.10"
 dependencies = [
-    "PySide6>=6.5.1",
+    "PySide6>=6.5.1,<6.12",
 ]
 keywords = ["zx-spectrum-next", "zx-spectrum", "nextsync", "cspect", "retrocomputing"]
 classifiers = [
