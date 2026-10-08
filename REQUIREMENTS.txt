@@ -3,7 +3,7 @@
 # Install everything with:  python -m pip install -r requirements.txt
 
 # Required - the GUI toolkit the whole app is built on.
-PySide6>=6.5.1,<6.12
+PySide6>=6.5.1
 
 # Optional - enables the retro 8-bit pygame log windows and the
 # "Alien Floyd's" background/tab. The app runs fine without it.
