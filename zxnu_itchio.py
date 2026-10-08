@@ -32,9 +32,10 @@ import zipfile
 
 from zxnu_config import (ITCH_API_BASE, ITCH_USER_AGENT, ITCH_PAGE_SIZE,
                          ITCH_MAX_PAGES, CSPECT_ITCH_URL,
-                         ZXNEXTREMOTE_ITCH_URL, _version_stem,
+                         ZXNEXTREMOTE_ITCH_URL, QLNEXTREMOTE_ITCH_URL,
+                         _version_stem,
                          build_version_key, cspect_version_key,
-                         zxnextremote_sort_key)
+                         zxnextremote_sort_key, qlnextremote_sort_key)
 
 
 # ── optional-dependency detection ──────────────────────────────────────────
@@ -971,6 +972,35 @@ def latest_zxnextremote_upload(api_key, game=None):
     # zxnextremote-zxnextremote-1.1.8.zip pinned that slot - hiding 1.2.0
     # from the check for good (9.7.19).
     uploads = sorted(uploads, key=lambda u: zxnextremote_sort_key(
+        u.get("filename") or ""), reverse=True)
+    newest = uploads[0]
+    return {
+        "game": game,
+        "game_id": game_id,
+        "key_id": key_id,
+        "uploads": uploads,
+        "filename": newest["filename"],
+        "version_name": newest["version_name"],
+        "version_key": newest["version_key"],
+    }
+
+
+def latest_qlnextremote_upload(api_key, game=None):
+    """:func:`latest_zxnextremote_upload`, for the QL port's own itch.io
+    page: the same creator-path lookup and BETA filter, the uploads ordered
+    by the validated ``qlnextremote-X.Y.Z`` version (the ZXNR key reads no
+    version out of a QL package name, so it could not order these)."""
+    game = game or {"url": QLNEXTREMOTE_ITCH_URL, "title": "QLNextRemote"}
+    listed = list_installable_uploads(game, api_key)
+    if listed is None:
+        return None
+    game_id, key_id, uploads = listed
+    uploads = [u for u in uploads
+               if "beta" not in (u.get("filename") or "").lower()
+               and "beta" not in (u.get("version_name") or "").lower()]
+    if not uploads:
+        return None
+    uploads = sorted(uploads, key=lambda u: qlnextremote_sort_key(
         u.get("filename") or ""), reverse=True)
     newest = uploads[0]
     return {

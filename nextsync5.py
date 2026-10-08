@@ -625,6 +625,39 @@ def _peer_answers_crc(ident):
     floor = CRC_FLOORS.get((ident[0] or "").strip().lower())
     return floor is not None and _ver_at_least(ident[1] or "", floor)
 
+def _qlnr_package_dir(path):
+    """The qlnextremote-X.Y.Z package folder a staged QLNextRemote build
+    sits in: the build lives at <package>/qemulator/qlnextremote_exe, so
+    the file's own folder and its parent are both tried. "" when neither is
+    named like a package."""
+    here = os.path.dirname(os.path.abspath(path))
+    for cand in (here, os.path.dirname(here)):
+        if os.path.basename(cand).lower().startswith("qlnextremote-"):
+            return cand
+    return ""
+
+def _qlnr_staged_ver(path):
+    """Version of a staged QLNextRemote build (the QL port), read from its
+    package folder's name (see _qlnr_package_dir) - the prefix stripped
+    repeatedly, three dotted integers demanded, as for ZXNR. Hand-kept twin
+    of zxnu_config.qlnextremote_name_version."""
+    folder = os.path.basename(_qlnr_package_dir(path))
+    prefix = "qlnextremote-"
+    ver = folder
+    while ver.lower().startswith(prefix):
+        ver = ver[len(prefix):]
+    parts = ver.split(".")
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        return ver
+    return ""
+
+def _qlnr_blob_has_header(blob):
+    """True when a QLNextRemote build starts with the 30-byte Q-emuLator
+    header of a type-1 (executable) file: the magic, the length word 15
+    and type 1. Hand-kept twin of zxnu_config.qlnextremote_blob_has_header."""
+    return (len(blob) >= 30 and blob[:18] == b"]!QDOS File Header"
+            and blob[19] == 15 and blob[21] == 1)
+
 def _zxnr_staged_ver(path):
     """Version of a staged ZX Next Remote build, read from the CONTAINING
     folder's name - the itch.io extract layout puts each build in its own
@@ -1705,10 +1738,44 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                         refuse = (f"the Next already runs ZXNR {ident[1]} "
                                   f"(staged build is {bver}) - add 'force' "
                                   "to push anyway")
+                elif ident[0] == "qlnextremote":
+                    # The QL port (QLNextRemote 0.5.0+): the job swaps its
+                    # own file in HOME and relaunches itself on the marked
+                    # quit. The staged file must be the package's qemulator
+                    # form (its 30-byte QDOS header travels in the bytes -
+                    # the job sets the real header on the put); the version
+                    # comes from the package folder's name, the brand and
+                    # version bytes are checked like ZXNR's.
+                    base = os.path.basename(a1)
+                    marked = True
+                    bver = _qlnr_staged_ver(a1)
+                    if not _ver_at_least(ident[1], (0, 5, 0)):
+                        refuse = (f"the listener is QLNR {ident[1]} - the "
+                                  "remote update flow needs QLNR 0.5.0+")
+                    elif not a2:
+                        refuse = ("the QL flavor needs an explicit remote "
+                                  "dir naming where the running job lives, "
+                                  "e.g.: update <file> W:/HOME")
+                    elif not _qlnr_blob_has_header(blob):
+                        refuse = (f"{a1} does not start with the QDOS "
+                                  "executable header (type 1) - send the "
+                                  "package's qemulator/qlnextremote_exe")
+                    elif (b"QLNextRemote" not in blob or
+                          (bool(bver) and bver.encode() not in blob)):
+                        refuse = (f"{a1} does not look like a QLNextRemote"
+                                  f"{' ' + bver if bver else ''} build - "
+                                  "wrong or stale file")
+                    elif op == "update" and not bver:
+                        refuse = ("cannot read the staged build's version - "
+                                  "add 'force' to push anyway")
+                    elif op == "update" and not _dot_ver_older(ident[1], bver):
+                        refuse = (f"the QL already runs QLNR {ident[1]} "
+                                  f"(staged build is {bver}) - add 'force' "
+                                  "to push anyway")
                 else:
                     refuse = (f"the listener is '{ident[0]}' - this flow "
-                              "updates the .sync5 dot or a ZX Next Remote "
-                              "build")
+                              "updates the .sync5 dot, a ZX Next Remote "
+                              "build or a QLNextRemote job")
                 extras = []
                 if not refuse and ident[0] in ("httpbridge", "n2n"):
                     # The OTHER flavor's build (9.7.7): a ZXNR package ships
@@ -1769,6 +1836,18 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                                   + "; ".join(problems))
                     elif sib:
                         extras = [("sibling", sib_path, sib)] + extras
+                if not refuse and ident[0] == "qlnextremote":
+                    # The QL package's deploypak.txt sits at the PACKAGE
+                    # root (one level above qemulator/); it lists the README
+                    # that goes into HOME before the build. No sibling: the
+                    # QL has one build form to push.
+                    _pkg = _qlnr_package_dir(a1) or os.path.dirname(
+                        os.path.abspath(a1))
+                    extras, problems = _read_deploypak(
+                        _pkg, (base, base + ".new", base + ".bak"))
+                    if problems:
+                        refuse = ("the package's deploypak.txt is broken: "
+                                  + "; ".join(problems))
                 if not refuse:
                     # The listener copies a path into a 254-byte buffer and
                     # TRUNCATES a longer one (a misplaced file the crc check
@@ -2152,8 +2231,17 @@ def _listen_session_inner(conn, stats, _test_commands=None):
                 v = upd_job.get('ver', '')
                 base = upd_job.get('base', 'sync5')
                 was_marked = upd_job.get('marked', False)
+                was_ql = _listen_state.get('ident') and (
+                    _listen_state['ident'][0] == "qlnextremote")
                 upd_job.clear()
-                if was_marked:
+                if was_marked and was_ql:
+                    # The QL's marked quit: the job starts the new build
+                    # from HOME and exits, the new build seats itself again.
+                    print(f'{timestamp()} | update COMPLETE: {base} {v} is '
+                          'on the QL. The QL will now restart into the new '
+                          'build and seat itself again.')
+                    sendpacket(conn, b"Q" + QUIT_EXIT_MARK, 0)
+                elif was_marked:
                     print(f'{timestamp()} | update COMPLETE: {base} {v} is '
                           'on the card. The Next will now soft-reset to '
                           f'NextZXOS - relaunch {base} to run the new build.')

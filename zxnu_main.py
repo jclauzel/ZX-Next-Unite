@@ -1517,6 +1517,9 @@ class MainWindow(QMainWindow):
         # The ZX Next Remote twin (same two-trigger shape).
         self._zxnextremote_update_checked = False
         self._zxnextremote_update_installing = False
+        # The QLNextRemote twin (off by default, Settings toggle).
+        self._qlnextremote_update_checked = False
+        self._qlnextremote_update_installing = False
 
         # Live QColor instances for the image explorer — updated by Settings pickers
         self.img_color_up_directory = hex_to_qcolor(DEFAULT_COLOR_UP_DIRECTORY)
@@ -4442,6 +4445,13 @@ class MainWindow(QMainWindow):
         _check_zxnr = getattr(self, "_check_zxnextremote_update_async", None)
         if _check_zxnr is not None:
             QTimer.singleShot(3000, _check_zxnr)
+
+        # And the QLNextRemote package (the QL port) - the same twin, off
+        # unless its Settings toggle is on; 3800 keeps it clear of the
+        # others in the stagger.
+        _check_qlnr = getattr(self, "_check_qlnextremote_update_async", None)
+        if _check_qlnr is not None:
+            QTimer.singleShot(3800, _check_qlnr)
 
         # The ".sync5 dot was updated" advisory (compares the bundled dotN
         # version with the one this cfg last saw) runs early — it concerns the

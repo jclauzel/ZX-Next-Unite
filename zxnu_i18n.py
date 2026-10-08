@@ -484,6 +484,56 @@ CATALOGS = {
              "completa — ejecuta {command} de nuevo en el Next "
              "después.\n\nDirectorio de destino en el Next:"),
         "ZX Next Remote update": "Actualización de ZX Next Remote",
+        # ---- QLNextRemote (the QL port) remote update ----
+        "QLNextRemote update": "Actualización de QLNextRemote",
+        "Update QLNextRemote on this QL ({old} → {new})…":
+            "Actualizar QLNextRemote en este QL ({old} → {new})…",
+        "QLNextRemote {old} predates self-update — install 0.5.0 or newer on the QL by hand once":
+            "QLNextRemote {old} es anterior a la autoactualización — instala 0.5.0 o posterior en el QL a mano una vez",
+        "No QLNextRemote package on this PC — drop a qlnextremote-X.Y.Z.zip into the downloads folder first":
+            "No hay ningún paquete QLNextRemote en este PC — deja antes un qlnextremote-X.Y.Z.zip en la carpeta de descargas",
+        "Could not obtain the QLNextRemote package to send: {reason}":
+            "No se pudo obtener el paquete QLNextRemote a enviar: {reason}",
+        ("Update QLNextRemote on {machine}: v{old} → v{new}.\n\nThe new job is "
+         "staged in the QL's HOME folder, verified, then swapped in; the "
+         "previous job is kept next to it with a .bak ending (renaming it "
+         "back is the one-step recovery). The QL's OS protection does not "
+         "cover HOME, so the swap never meets a refusal there. On success "
+         "the running job starts the new build and exits, and the new build "
+         "seats itself again.\n\nFull path of the job on the QL:"):
+            ("Actualizar QLNextRemote en {machine}: v{old} → v{new}.\n\nEl "
+             "nuevo trabajo se prepara en la carpeta HOME del QL, se verifica "
+             "y después se sustituye; el trabajo anterior se conserva a su "
+             "lado con la terminación .bak (renombrarlo de nuevo es la "
+             "recuperación en un paso). La protección del sistema del QL no "
+             "cubre HOME, así que la sustitución nunca encuentra un rechazo "
+             "ahí. Si todo va bien, el trabajo en ejecución arranca la nueva "
+             "compilación y termina, y la nueva compilación vuelve a "
+             "conectarse.\n\nRuta completa del trabajo en el QL:"),
+        "Its deploypak.txt lists {files} file(s) and {folders} folder(s): they are sent into HOME FIRST, each checked against the CRC-32 the QL computes and re-sent up to {retries} times — and written in place, so the .bak revert does not cover them.":
+            "Su deploypak.txt enumera {files} archivo(s) y {folders} carpeta(s): se envían a HOME PRIMERO, cada uno comprobado con el CRC-32 que calcula el QL y reenviado hasta {retries} veces — y escritos en su sitio, así que la recuperación con .bak no los cubre.",
+        "QLNextRemote update: enter the FULL path of the job on the QL (e.g. {example}).":
+            "Actualización de QLNextRemote: escribe la ruta COMPLETA del trabajo en el QL (p. ej. {example}).",
+        "QLNextRemote update: {path} is the name of a file sent alongside the build ({file}); nothing was sent.":
+            "Actualización de QLNextRemote: {path} es el nombre de un archivo enviado junto a la compilación ({file}); no se envió nada.",
+        "QLNextRemote update: {path} is longer than the {limit} bytes a path on the QL may have — choose a shorter folder; nothing was sent.":
+            "Actualización de QLNextRemote: {path} supera los {limit} bytes que puede tener una ruta en el QL — elige una carpeta más corta; no se envió nada.",
+        "QLNextRemote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Actualización de QLNextRemote: sustituir {path} necesitaría un comando de renombrado más largo que los {limit} bytes que acepta un oyente — elige una carpeta más corta; no se envió nada.",
+        "QLNextRemote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
+            "Actualización de QLNextRemote: deploypak.txt enumera {files} archivo(s) y {folders} carpeta(s) para {dir}: {items}",
+        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's qemulator/qlnextremote_exe; nothing was sent.":
+            "Actualización remota de {name} rechazada: {path} no empieza por la cabecera de ejecutable QDOS (tipo 1) — envía el qemulator/qlnextremote_exe del paquete; no se envió nada.",
+        "Remote {name} update failed: the QL's OS protection refused renaming {file} aside — the job must live in HOME, outside the protected roots. Nothing was swapped — the QL still runs its current build.":
+            "La actualización remota de {name} falló: la protección del sistema del QL rechazó apartar {file} — el trabajo debe vivir en HOME, fuera de las raíces protegidas. No se sustituyó nada — el QL sigue ejecutando su compilación actual.",
+        "Remote {name} update failed: the QL could not rename {file} aside (a driver that locks the running job's file answers so). Nothing was swapped — the QL still runs its current build.":
+            "La actualización remota de {name} falló: el QL no pudo apartar {file} (un controlador que bloquea el archivo del trabajo en ejecución responde así). No se sustituyó nada — el QL sigue ejecutando su compilación actual.",
+        "Remote {name} update FAILED mid-swap: the QL may be missing {target}. If it no longer starts, rename {backup} back to {file} from SuperBASIC (the staged {staged} can be deleted).":
+            "La actualización remota de {name} FALLÓ a mitad de la sustitución: puede que al QL le falte {target}. Si ya no arranca, renombra {backup} de nuevo a {file} desde SuperBASIC (el {staged} preparado se puede borrar).",
+        "Remote {name} update complete: {version} is on the QL. The QL will now restart into the new build and seat itself again.":
+            "Actualización remota de {name} completada: {version} está en el QL. El QL se reiniciará ahora con la nueva compilación y volverá a conectarse.",
+        "Check for QLNextRemote update on itch.io on startup":
+            "Buscar actualizaciones de QLNextRemote en itch.io al iniciar",
         "Update ZX Next Remote on this Next ({old} → {new})…":
             "Actualizar ZX Next Remote en este Next ({old} → {new})…",
         "ZX Next Remote {old} predates self-update — copy a new build to the Next by hand once":
@@ -1888,6 +1938,56 @@ CATALOGS = {
              "{command} de novo no Next depois.\n\nDiretório de destino "
              "no Next:"),
         "ZX Next Remote update": "Atualização do ZX Next Remote",
+        # ---- QLNextRemote (the QL port) remote update ----
+        "QLNextRemote update": "Atualização do QLNextRemote",
+        "Update QLNextRemote on this QL ({old} → {new})…":
+            "Atualizar o QLNextRemote neste QL ({old} → {new})…",
+        "QLNextRemote {old} predates self-update — install 0.5.0 or newer on the QL by hand once":
+            "O QLNextRemote {old} é anterior à autoatualização — instala a 0.5.0 ou mais recente no QL à mão uma vez",
+        "No QLNextRemote package on this PC — drop a qlnextremote-X.Y.Z.zip into the downloads folder first":
+            "Não há nenhum pacote QLNextRemote neste PC — coloca antes um qlnextremote-X.Y.Z.zip na pasta de transferências",
+        "Could not obtain the QLNextRemote package to send: {reason}":
+            "Não foi possível obter o pacote QLNextRemote a enviar: {reason}",
+        ("Update QLNextRemote on {machine}: v{old} → v{new}.\n\nThe new job is "
+         "staged in the QL's HOME folder, verified, then swapped in; the "
+         "previous job is kept next to it with a .bak ending (renaming it "
+         "back is the one-step recovery). The QL's OS protection does not "
+         "cover HOME, so the swap never meets a refusal there. On success "
+         "the running job starts the new build and exits, and the new build "
+         "seats itself again.\n\nFull path of the job on the QL:"):
+            ("Atualizar o QLNextRemote em {machine}: v{old} → v{new}.\n\nO "
+             "novo trabalho é preparado na pasta HOME do QL, verificado e "
+             "depois trocado; o trabalho anterior fica ao lado com a "
+             "terminação .bak (voltar a renomeá-lo é a recuperação num só "
+             "passo). A proteção do sistema do QL não cobre a HOME, pelo que "
+             "a troca nunca encontra aí uma recusa. Em caso de sucesso, o "
+             "trabalho em execução arranca a nova compilação e termina, e a "
+             "nova compilação volta a ligar-se.\n\nCaminho completo do "
+             "trabalho no QL:"),
+        "Its deploypak.txt lists {files} file(s) and {folders} folder(s): they are sent into HOME FIRST, each checked against the CRC-32 the QL computes and re-sent up to {retries} times — and written in place, so the .bak revert does not cover them.":
+            "O seu deploypak.txt lista {files} ficheiro(s) e {folders} pasta(s): são enviados PRIMEIRO para a HOME, cada um verificado com o CRC-32 que o QL calcula e reenviado até {retries} vezes — e escritos no sítio, pelo que a reversão .bak não os cobre.",
+        "QLNextRemote update: enter the FULL path of the job on the QL (e.g. {example}).":
+            "Atualização do QLNextRemote: indica o caminho COMPLETO do trabalho no QL (p. ex. {example}).",
+        "QLNextRemote update: {path} is the name of a file sent alongside the build ({file}); nothing was sent.":
+            "Atualização do QLNextRemote: {path} é o nome de um ficheiro enviado com a compilação ({file}); nada foi enviado.",
+        "QLNextRemote update: {path} is longer than the {limit} bytes a path on the QL may have — choose a shorter folder; nothing was sent.":
+            "Atualização do QLNextRemote: {path} excede os {limit} bytes que um caminho no QL pode ter — escolhe uma pasta mais curta; nada foi enviado.",
+        "QLNextRemote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Atualização do QLNextRemote: trocar {path} precisaria de um comando de renomeação maior do que os {limit} bytes que um ouvinte aceita — escolhe uma pasta mais curta; nada foi enviado.",
+        "QLNextRemote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
+            "Atualização do QLNextRemote: o deploypak.txt lista {files} ficheiro(s) e {folders} pasta(s) para {dir}: {items}",
+        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's qemulator/qlnextremote_exe; nothing was sent.":
+            "Atualização remota de {name} recusada: {path} não começa pelo cabeçalho de executável QDOS (tipo 1) — envia o qemulator/qlnextremote_exe do pacote; nada foi enviado.",
+        "Remote {name} update failed: the QL's OS protection refused renaming {file} aside — the job must live in HOME, outside the protected roots. Nothing was swapped — the QL still runs its current build.":
+            "A atualização remota de {name} falhou: a proteção do sistema do QL recusou pôr {file} de lado — o trabalho tem de viver na HOME, fora das raízes protegidas. Nada foi trocado — o QL continua a executar a compilação atual.",
+        "Remote {name} update failed: the QL could not rename {file} aside (a driver that locks the running job's file answers so). Nothing was swapped — the QL still runs its current build.":
+            "A atualização remota de {name} falhou: o QL não conseguiu pôr {file} de lado (um controlador que bloqueia o ficheiro do trabalho em execução responde assim). Nada foi trocado — o QL continua a executar a compilação atual.",
+        "Remote {name} update FAILED mid-swap: the QL may be missing {target}. If it no longer starts, rename {backup} back to {file} from SuperBASIC (the staged {staged} can be deleted).":
+            "A atualização remota de {name} FALHOU a meio da troca: pode faltar {target} ao QL. Se já não arrancar, renomeia {backup} de volta para {file} a partir do SuperBASIC (o {staged} preparado pode ser apagado).",
+        "Remote {name} update complete: {version} is on the QL. The QL will now restart into the new build and seat itself again.":
+            "Atualização remota de {name} concluída: {version} está no QL. O QL vai agora reiniciar com a nova compilação e voltar a ligar-se.",
+        "Check for QLNextRemote update on itch.io on startup":
+            "Procurar atualizações do QLNextRemote no itch.io ao arrancar",
         "Update ZX Next Remote on this Next ({old} → {new})…":
             "Atualizar o ZX Next Remote neste Next ({old} → {new})…",
         "ZX Next Remote {old} predates self-update — copy a new build to the Next by hand once":
@@ -3290,6 +3390,55 @@ CATALOGS = {
              "zakończeniu aktualizacji — uruchom potem {command} na "
              "Nexcie ponownie.\n\nKatalog docelowy na Nexcie:"),
         "ZX Next Remote update": "Aktualizacja ZX Next Remote",
+        # ---- QLNextRemote (the QL port) remote update ----
+        "QLNextRemote update": "Aktualizacja QLNextRemote",
+        "Update QLNextRemote on this QL ({old} → {new})…":
+            "Zaktualizuj QLNextRemote na tym QL ({old} → {new})…",
+        "QLNextRemote {old} predates self-update — install 0.5.0 or newer on the QL by hand once":
+            "QLNextRemote {old} jest starszy niż samoaktualizacja — zainstaluj raz ręcznie 0.5.0 lub nowszą na QL",
+        "No QLNextRemote package on this PC — drop a qlnextremote-X.Y.Z.zip into the downloads folder first":
+            "Brak pakietu QLNextRemote na tym PC — najpierw wrzuć qlnextremote-X.Y.Z.zip do folderu pobierania",
+        "Could not obtain the QLNextRemote package to send: {reason}":
+            "Nie udało się pobrać pakietu QLNextRemote do wysłania: {reason}",
+        ("Update QLNextRemote on {machine}: v{old} → v{new}.\n\nThe new job is "
+         "staged in the QL's HOME folder, verified, then swapped in; the "
+         "previous job is kept next to it with a .bak ending (renaming it "
+         "back is the one-step recovery). The QL's OS protection does not "
+         "cover HOME, so the swap never meets a refusal there. On success "
+         "the running job starts the new build and exits, and the new build "
+         "seats itself again.\n\nFull path of the job on the QL:"):
+            ("Aktualizacja QLNextRemote na {machine}: v{old} → v{new}.\n\nNowe "
+             "zadanie jest umieszczane w folderze HOME na QL, weryfikowane, a "
+             "potem podmieniane; poprzednie zadanie zostaje obok z końcówką "
+             ".bak (zmiana nazwy z powrotem to odzyskanie w jednym kroku). "
+             "Ochrona systemu QL nie obejmuje HOME, więc podmiana nigdy nie "
+             "napotka tam odmowy. Po powodzeniu działające zadanie uruchamia "
+             "nową kompilację i kończy pracę, a nowa kompilacja łączy się "
+             "ponownie.\n\nPełna ścieżka zadania na QL:"),
+        "Its deploypak.txt lists {files} file(s) and {folders} folder(s): they are sent into HOME FIRST, each checked against the CRC-32 the QL computes and re-sent up to {retries} times — and written in place, so the .bak revert does not cover them.":
+            "Jego deploypak.txt wymienia {files} plik(ów) i {folders} folder(ów): są wysyłane do HOME NAJPIERW, każdy sprawdzany z CRC-32 liczonym przez QL i wysyłany ponownie do {retries} razy — i zapisywane w miejscu, więc przywracanie .bak ich nie obejmuje.",
+        "QLNextRemote update: enter the FULL path of the job on the QL (e.g. {example}).":
+            "Aktualizacja QLNextRemote: podaj PEŁNĄ ścieżkę zadania na QL (np. {example}).",
+        "QLNextRemote update: {path} is the name of a file sent alongside the build ({file}); nothing was sent.":
+            "Aktualizacja QLNextRemote: {path} to nazwa pliku wysyłanego razem z kompilacją ({file}); nic nie wysłano.",
+        "QLNextRemote update: {path} is longer than the {limit} bytes a path on the QL may have — choose a shorter folder; nothing was sent.":
+            "Aktualizacja QLNextRemote: {path} przekracza {limit} bajtów, jakie może mieć ścieżka na QL — wybierz krótszy folder; nic nie wysłano.",
+        "QLNextRemote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Aktualizacja QLNextRemote: podmiana {path} wymagałaby polecenia zmiany nazwy dłuższego niż {limit} bajtów, które przyjmuje nasłuchujący — wybierz krótszy folder; nic nie wysłano.",
+        "QLNextRemote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
+            "Aktualizacja QLNextRemote: deploypak.txt wymienia {files} plik(ów) i {folders} folder(ów) dla {dir}: {items}",
+        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's qemulator/qlnextremote_exe; nothing was sent.":
+            "Zdalna aktualizacja {name} odrzucona: {path} nie zaczyna się od nagłówka pliku wykonywalnego QDOS (typ 1) — wyślij qemulator/qlnextremote_exe z pakietu; nic nie wysłano.",
+        "Remote {name} update failed: the QL's OS protection refused renaming {file} aside — the job must live in HOME, outside the protected roots. Nothing was swapped — the QL still runs its current build.":
+            "Zdalna aktualizacja {name} nie powiodła się: ochrona systemu QL odmówiła odłożenia {file} — zadanie musi być w HOME, poza chronionymi katalogami. Nic nie podmieniono — QL nadal uruchamia bieżącą kompilację.",
+        "Remote {name} update failed: the QL could not rename {file} aside (a driver that locks the running job's file answers so). Nothing was swapped — the QL still runs its current build.":
+            "Zdalna aktualizacja {name} nie powiodła się: QL nie mógł odłożyć {file} (tak odpowiada sterownik blokujący plik działającego zadania). Nic nie podmieniono — QL nadal uruchamia bieżącą kompilację.",
+        "Remote {name} update FAILED mid-swap: the QL may be missing {target}. If it no longer starts, rename {backup} back to {file} from SuperBASIC (the staged {staged} can be deleted).":
+            "Zdalna aktualizacja {name} NIE POWIODŁA SIĘ w trakcie podmiany: na QL może brakować {target}. Jeśli już się nie uruchamia, zmień z SuperBASIC nazwę {backup} z powrotem na {file} (przygotowany {staged} można usunąć).",
+        "Remote {name} update complete: {version} is on the QL. The QL will now restart into the new build and seat itself again.":
+            "Zdalna aktualizacja {name} zakończona: {version} jest na QL. QL uruchomi się teraz ponownie z nową kompilacją i połączy się znowu.",
+        "Check for QLNextRemote update on itch.io on startup":
+            "Sprawdzaj przy starcie aktualizacje QLNextRemote na itch.io",
         "Update ZX Next Remote on this Next ({old} → {new})…":
             "Zaktualizuj ZX Next Remote na tym Nexcie ({old} → {new})…",
         "ZX Next Remote {old} predates self-update — copy a new build to the Next by hand once":
@@ -4693,6 +4842,55 @@ CATALOGS = {
              "обновления — после этого снова запустите {command} на "
              "Next.\n\nЦелевой каталог на Next:"),
         "ZX Next Remote update": "Обновление ZX Next Remote",
+        # ---- QLNextRemote (the QL port) remote update ----
+        "QLNextRemote update": "Обновление QLNextRemote",
+        "Update QLNextRemote on this QL ({old} → {new})…":
+            "Обновить QLNextRemote на этом QL ({old} → {new})…",
+        "QLNextRemote {old} predates self-update — install 0.5.0 or newer on the QL by hand once":
+            "QLNextRemote {old} старше самообновления — один раз установите 0.5.0 или новее на QL вручную",
+        "No QLNextRemote package on this PC — drop a qlnextremote-X.Y.Z.zip into the downloads folder first":
+            "На этом ПК нет пакета QLNextRemote — сначала положите qlnextremote-X.Y.Z.zip в папку загрузок",
+        "Could not obtain the QLNextRemote package to send: {reason}":
+            "Не удалось получить пакет QLNextRemote для отправки: {reason}",
+        ("Update QLNextRemote on {machine}: v{old} → v{new}.\n\nThe new job is "
+         "staged in the QL's HOME folder, verified, then swapped in; the "
+         "previous job is kept next to it with a .bak ending (renaming it "
+         "back is the one-step recovery). The QL's OS protection does not "
+         "cover HOME, so the swap never meets a refusal there. On success "
+         "the running job starts the new build and exits, and the new build "
+         "seats itself again.\n\nFull path of the job on the QL:"):
+            ("Обновление QLNextRemote на {machine}: v{old} → v{new}.\n\nНовое "
+             "задание размещается в папке HOME на QL, проверяется и затем "
+             "подменяется; прежнее задание остаётся рядом с окончанием .bak "
+             "(переименовать обратно — восстановление в один шаг). Защита "
+             "системы QL не распространяется на HOME, поэтому подмена там "
+             "никогда не встретит отказа. При успехе работающее задание "
+             "запускает новую сборку и завершается, а новая сборка снова "
+             "подключается.\n\nПолный путь задания на QL:"),
+        "Its deploypak.txt lists {files} file(s) and {folders} folder(s): they are sent into HOME FIRST, each checked against the CRC-32 the QL computes and re-sent up to {retries} times — and written in place, so the .bak revert does not cover them.":
+            "В его deploypak.txt перечислено {files} файл(ов) и {folders} папок: они отправляются в HOME ПЕРВЫМИ, каждый сверяется с CRC-32, который считает QL, и пересылается до {retries} раз — и записываются на место, так что откат через .bak их не охватывает.",
+        "QLNextRemote update: enter the FULL path of the job on the QL (e.g. {example}).":
+            "Обновление QLNextRemote: введите ПОЛНЫЙ путь задания на QL (например {example}).",
+        "QLNextRemote update: {path} is the name of a file sent alongside the build ({file}); nothing was sent.":
+            "Обновление QLNextRemote: {path} — имя файла, отправляемого вместе со сборкой ({file}); ничего не отправлено.",
+        "QLNextRemote update: {path} is longer than the {limit} bytes a path on the QL may have — choose a shorter folder; nothing was sent.":
+            "Обновление QLNextRemote: {path} длиннее {limit} байт, допустимых для пути на QL — выберите папку короче; ничего не отправлено.",
+        "QLNextRemote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Обновление QLNextRemote: для подмены {path} потребовалась бы команда переименования длиннее {limit} байт, которые принимает слушатель — выберите папку короче; ничего не отправлено.",
+        "QLNextRemote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
+            "Обновление QLNextRemote: в deploypak.txt перечислено {files} файл(ов) и {folders} папок для {dir}: {items}",
+        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's qemulator/qlnextremote_exe; nothing was sent.":
+            "Удалённое обновление {name} отклонено: {path} не начинается с заголовка исполняемого файла QDOS (тип 1) — отправьте qemulator/qlnextremote_exe из пакета; ничего не отправлено.",
+        "Remote {name} update failed: the QL's OS protection refused renaming {file} aside — the job must live in HOME, outside the protected roots. Nothing was swapped — the QL still runs its current build.":
+            "Удалённое обновление {name} не удалось: защита системы QL отказала в переименовании {file} — задание должно находиться в HOME, вне защищённых корней. Ничего не подменено — QL по-прежнему выполняет текущую сборку.",
+        "Remote {name} update failed: the QL could not rename {file} aside (a driver that locks the running job's file answers so). Nothing was swapped — the QL still runs its current build.":
+            "Удалённое обновление {name} не удалось: QL не смог переименовать {file} (так отвечает драйвер, блокирующий файл работающего задания). Ничего не подменено — QL по-прежнему выполняет текущую сборку.",
+        "Remote {name} update FAILED mid-swap: the QL may be missing {target}. If it no longer starts, rename {backup} back to {file} from SuperBASIC (the staged {staged} can be deleted).":
+            "Удалённое обновление {name} ПРЕРВАНО посреди подмены: на QL может отсутствовать {target}. Если он больше не запускается, переименуйте из SuperBASIC {backup} обратно в {file} (подготовленный {staged} можно удалить).",
+        "Remote {name} update complete: {version} is on the QL. The QL will now restart into the new build and seat itself again.":
+            "Удалённое обновление {name} завершено: {version} на QL. QL сейчас перезапустится с новой сборкой и снова подключится.",
+        "Check for QLNextRemote update on itch.io on startup":
+            "Проверять обновления QLNextRemote на itch.io при запуске",
         "Update ZX Next Remote on this Next ({old} → {new})…":
             "Обновить ZX Next Remote на этом Next ({old} → {new})…",
         "ZX Next Remote {old} predates self-update — copy a new build to the Next by hand once":
@@ -6094,6 +6292,54 @@ CATALOGS = {
              "aktualizace — poté znovu spusťte {command} na "
              "Nextu.\n\nCílový adresář na Nextu:"),
         "ZX Next Remote update": "Aktualizace ZX Next Remote",
+        # ---- QLNextRemote (the QL port) remote update ----
+        "QLNextRemote update": "Aktualizace QLNextRemote",
+        "Update QLNextRemote on this QL ({old} → {new})…":
+            "Aktualizovat QLNextRemote na tomto QL ({old} → {new})…",
+        "QLNextRemote {old} predates self-update — install 0.5.0 or newer on the QL by hand once":
+            "QLNextRemote {old} předchází samoaktualizaci — jednou ručně nainstalujte na QL verzi 0.5.0 nebo novější",
+        "No QLNextRemote package on this PC — drop a qlnextremote-X.Y.Z.zip into the downloads folder first":
+            "Na tomto PC není žádný balíček QLNextRemote — nejprve vložte qlnextremote-X.Y.Z.zip do složky stahování",
+        "Could not obtain the QLNextRemote package to send: {reason}":
+            "Nepodařilo se získat balíček QLNextRemote k odeslání: {reason}",
+        ("Update QLNextRemote on {machine}: v{old} → v{new}.\n\nThe new job is "
+         "staged in the QL's HOME folder, verified, then swapped in; the "
+         "previous job is kept next to it with a .bak ending (renaming it "
+         "back is the one-step recovery). The QL's OS protection does not "
+         "cover HOME, so the swap never meets a refusal there. On success "
+         "the running job starts the new build and exits, and the new build "
+         "seats itself again.\n\nFull path of the job on the QL:"):
+            ("Aktualizace QLNextRemote na {machine}: v{old} → v{new}.\n\nNová "
+             "úloha se připraví ve složce HOME na QL, ověří a poté vymění; "
+             "předchozí úloha zůstane vedle ní s koncovkou .bak (přejmenování "
+             "zpět je obnova v jednom kroku). Ochrana systému QL se na HOME "
+             "nevztahuje, takže výměna tam nikdy nenarazí na odmítnutí. Při "
+             "úspěchu běžící úloha spustí nové sestavení a skončí a nové "
+             "sestavení se znovu připojí.\n\nÚplná cesta úlohy na QL:"),
+        "Its deploypak.txt lists {files} file(s) and {folders} folder(s): they are sent into HOME FIRST, each checked against the CRC-32 the QL computes and re-sent up to {retries} times — and written in place, so the .bak revert does not cover them.":
+            "Jeho deploypak.txt uvádí {files} soubor(ů) a {folders} složek: posílají se do HOME JAKO PRVNÍ, každý se porovná s CRC-32, které spočítá QL, a pošle se znovu až {retries}krát — a zapisují se na místo, takže obnova z .bak se na ně nevztahuje.",
+        "QLNextRemote update: enter the FULL path of the job on the QL (e.g. {example}).":
+            "Aktualizace QLNextRemote: zadejte ÚPLNOU cestu úlohy na QL (např. {example}).",
+        "QLNextRemote update: {path} is the name of a file sent alongside the build ({file}); nothing was sent.":
+            "Aktualizace QLNextRemote: {path} je název souboru posílaného spolu se sestavením ({file}); nic nebylo odesláno.",
+        "QLNextRemote update: {path} is longer than the {limit} bytes a path on the QL may have — choose a shorter folder; nothing was sent.":
+            "Aktualizace QLNextRemote: {path} je delší než {limit} bajtů, které může mít cesta na QL — zvolte kratší složku; nic nebylo odesláno.",
+        "QLNextRemote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Aktualizace QLNextRemote: výměna {path} by vyžadovala příkaz k přejmenování delší než {limit} bajtů, které posluchač přijme — zvolte kratší složku; nic nebylo odesláno.",
+        "QLNextRemote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
+            "Aktualizace QLNextRemote: deploypak.txt uvádí {files} soubor(ů) a {folders} složek pro {dir}: {items}",
+        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's qemulator/qlnextremote_exe; nothing was sent.":
+            "Vzdálená aktualizace {name} odmítnuta: {path} nezačíná hlavičkou spustitelného souboru QDOS (typ 1) — pošlete qemulator/qlnextremote_exe z balíčku; nic nebylo odesláno.",
+        "Remote {name} update failed: the QL's OS protection refused renaming {file} aside — the job must live in HOME, outside the protected roots. Nothing was swapped — the QL still runs its current build.":
+            "Vzdálená aktualizace {name} selhala: ochrana systému QL odmítla odložit {file} — úloha musí být v HOME, mimo chráněné kořeny. Nic nebylo vyměněno — QL stále běží s aktuálním sestavením.",
+        "Remote {name} update failed: the QL could not rename {file} aside (a driver that locks the running job's file answers so). Nothing was swapped — the QL still runs its current build.":
+            "Vzdálená aktualizace {name} selhala: QL nemohl odložit {file} (tak odpovídá ovladač, který zamyká soubor běžící úlohy). Nic nebylo vyměněno — QL stále běží s aktuálním sestavením.",
+        "Remote {name} update FAILED mid-swap: the QL may be missing {target}. If it no longer starts, rename {backup} back to {file} from SuperBASIC (the staged {staged} can be deleted).":
+            "Vzdálená aktualizace {name} SELHALA uprostřed výměny: na QL může chybět {target}. Pokud se už nespustí, přejmenujte ze SuperBASICu {backup} zpět na {file} (připravený {staged} lze smazat).",
+        "Remote {name} update complete: {version} is on the QL. The QL will now restart into the new build and seat itself again.":
+            "Vzdálená aktualizace {name} dokončena: {version} je na QL. QL se nyní restartuje do nového sestavení a znovu se připojí.",
+        "Check for QLNextRemote update on itch.io on startup":
+            "Při spuštění kontrolovat aktualizace QLNextRemote na itch.io",
         "Update ZX Next Remote on this Next ({old} → {new})…":
             "Aktualizovat ZX Next Remote na tomto Nextu ({old} → {new})…",
         "ZX Next Remote {old} predates self-update — copy a new build to the Next by hand once":
@@ -7498,6 +7744,56 @@ CATALOGS = {
              "finie — relancez ensuite {command} sur le "
              "Next.\n\nRépertoire cible sur le Next :"),
         "ZX Next Remote update": "Mise à jour de ZX Next Remote",
+        # ---- QLNextRemote (the QL port) remote update ----
+        "QLNextRemote update": "Mise à jour de QLNextRemote",
+        "Update QLNextRemote on this QL ({old} → {new})…":
+            "Mettre à jour QLNextRemote sur ce QL ({old} → {new})…",
+        "QLNextRemote {old} predates self-update — install 0.5.0 or newer on the QL by hand once":
+            "QLNextRemote {old} précède la mise à jour automatique — installez une fois à la main la 0.5.0 ou plus récente sur le QL",
+        "No QLNextRemote package on this PC — drop a qlnextremote-X.Y.Z.zip into the downloads folder first":
+            "Aucun paquet QLNextRemote sur ce PC — déposez d'abord un qlnextremote-X.Y.Z.zip dans le dossier de téléchargements",
+        "Could not obtain the QLNextRemote package to send: {reason}":
+            "Impossible d'obtenir le paquet QLNextRemote à envoyer : {reason}",
+        ("Update QLNextRemote on {machine}: v{old} → v{new}.\n\nThe new job is "
+         "staged in the QL's HOME folder, verified, then swapped in; the "
+         "previous job is kept next to it with a .bak ending (renaming it "
+         "back is the one-step recovery). The QL's OS protection does not "
+         "cover HOME, so the swap never meets a refusal there. On success "
+         "the running job starts the new build and exits, and the new build "
+         "seats itself again.\n\nFull path of the job on the QL:"):
+            ("Mise à jour de QLNextRemote sur {machine} : v{old} → v{new}.\n\nLe "
+             "nouveau job est déposé dans le dossier HOME du QL, vérifié, puis "
+             "mis en place ; l'ancien job est conservé à côté avec la "
+             "terminaison .bak (le renommer est la récupération en une "
+             "étape). La protection du système du QL ne couvre pas HOME, "
+             "l'échange n'y rencontre donc jamais de refus. En cas de succès, "
+             "le job en cours lance la nouvelle version et se termine, et la "
+             "nouvelle version se reconnecte.\n\nChemin complet du job sur "
+             "le QL :"),
+        "Its deploypak.txt lists {files} file(s) and {folders} folder(s): they are sent into HOME FIRST, each checked against the CRC-32 the QL computes and re-sent up to {retries} times — and written in place, so the .bak revert does not cover them.":
+            "Son deploypak.txt liste {files} fichier(s) et {folders} dossier(s) : ils sont envoyés dans HOME EN PREMIER, chacun vérifié avec le CRC-32 calculé par le QL et renvoyé jusqu'à {retries} fois — et écrits sur place, le retour au .bak ne les couvre donc pas.",
+        "QLNextRemote update: enter the FULL path of the job on the QL (e.g. {example}).":
+            "Mise à jour de QLNextRemote : saisissez le chemin COMPLET du job sur le QL (p. ex. {example}).",
+        "QLNextRemote update: {path} is the name of a file sent alongside the build ({file}); nothing was sent.":
+            "Mise à jour de QLNextRemote : {path} est le nom d'un fichier envoyé avec la version ({file}) ; rien n'a été envoyé.",
+        "QLNextRemote update: {path} is longer than the {limit} bytes a path on the QL may have — choose a shorter folder; nothing was sent.":
+            "Mise à jour de QLNextRemote : {path} dépasse les {limit} octets qu'un chemin peut avoir sur le QL — choisissez un dossier plus court ; rien n'a été envoyé.",
+        "QLNextRemote update: swapping {path} would need a rename command longer than the {limit} bytes a listener accepts — choose a shorter folder; nothing was sent.":
+            "Mise à jour de QLNextRemote : échanger {path} demanderait une commande de renommage plus longue que les {limit} octets qu'un serveur d'écoute accepte — choisissez un dossier plus court ; rien n'a été envoyé.",
+        "QLNextRemote update: deploypak.txt lists {files} file(s) and {folders} folder(s) for {dir}: {items}":
+            "Mise à jour de QLNextRemote : deploypak.txt liste {files} fichier(s) et {folders} dossier(s) pour {dir} : {items}",
+        "Remote {name} update refused: {path} does not start with the QDOS executable header (type 1) — send the package's qemulator/qlnextremote_exe; nothing was sent.":
+            "Mise à jour distante de {name} refusée : {path} ne commence pas par l'en-tête d'exécutable QDOS (type 1) — envoyez le qemulator/qlnextremote_exe du paquet ; rien n'a été envoyé.",
+        "Remote {name} update failed: the QL's OS protection refused renaming {file} aside — the job must live in HOME, outside the protected roots. Nothing was swapped — the QL still runs its current build.":
+            "La mise à jour distante de {name} a échoué : la protection du système du QL a refusé de mettre {file} de côté — le job doit vivre dans HOME, hors des racines protégées. Rien n'a été échangé — le QL exécute toujours sa version actuelle.",
+        "Remote {name} update failed: the QL could not rename {file} aside (a driver that locks the running job's file answers so). Nothing was swapped — the QL still runs its current build.":
+            "La mise à jour distante de {name} a échoué : le QL n'a pas pu mettre {file} de côté (un pilote qui verrouille le fichier du job en cours répond ainsi). Rien n'a été échangé — le QL exécute toujours sa version actuelle.",
+        "Remote {name} update FAILED mid-swap: the QL may be missing {target}. If it no longer starts, rename {backup} back to {file} from SuperBASIC (the staged {staged} can be deleted).":
+            "La mise à jour distante de {name} a ÉCHOUÉ en plein échange : {target} manque peut-être au QL. S'il ne démarre plus, renommez depuis SuperBASIC {backup} en {file} (le {staged} déposé peut être supprimé).",
+        "Remote {name} update complete: {version} is on the QL. The QL will now restart into the new build and seat itself again.":
+            "Mise à jour distante de {name} terminée : {version} est sur le QL. Le QL va maintenant redémarrer dans la nouvelle version et se reconnecter.",
+        "Check for QLNextRemote update on itch.io on startup":
+            "Vérifier au démarrage les mises à jour de QLNextRemote sur itch.io",
         "Update ZX Next Remote on this Next ({old} → {new})…":
             "Mettre à jour ZX Next Remote sur ce Next ({old} → {new})…",
         "ZX Next Remote {old} predates self-update — copy a new build to the Next by hand once":

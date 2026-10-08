@@ -2537,6 +2537,33 @@ def build_emulator_ops(
     # "ZXNextRemote", True) command.
     host._resolve_zxnr_update_binary = _resolve_zxnr_update_binary
 
+    def _resolve_qlnr_update_binary():
+        """The QLNextRemote twin: the newest installed QL package's
+        ``qemulator/qlnextremote_exe`` as ``(path, version, "")`` or
+        ``(None, None, reason)``. A ``qlnextremote-X.Y.Z.zip`` dropped into
+        the downloads folder is adopted first (moved under the package files
+        folder and extracted), so a package Julien builds by hand is seen
+        the moment the session-tab menu opens. LOCAL FILESYSTEM ONLY, like
+        the ZXNR resolver; the QL zip is small, so the extraction is fine on
+        the UI thread."""
+        try:
+            install_loose_qlnextremote_zips(ZXNU_DATA_ROOT)
+        except Exception:                       # noqa: BLE001
+            logging.exception("QLNextRemote: loose package adoption failed")
+        folder_name, folder_path = \
+            find_installed_qlnextremote_version(ZXNU_DATA_ROOT)
+        if not folder_name or not folder_path:
+            return None, None, (
+                "no QLNextRemote package was found on this PC - drop a "
+                "qlnextremote-X.Y.Z.zip into the downloads folder, or turn "
+                "on the Settings tab's QLNextRemote update check")
+        return qlnextremote_package_binary(folder_path)
+
+    # Consumed by the Remote Explorer's QLNextRemote update action, which
+    # hands the resolved file to the session's ("update_dot", …,
+    # "qlnextremote_exe", "QLNextRemote", True, extras) command.
+    host._resolve_qlnr_update_binary = _resolve_qlnr_update_binary
+
     # ── CSpect update check (itch.io) ──────────────────────────────────
     # Mirrors the MAME startup update check above, but sources the build
     # from the user's *owned* itch.io CSpect item instead of GitHub. The
@@ -3026,6 +3053,168 @@ def build_emulator_ops(
         getit_run_in_thread(_job, _on_result, _on_error)
 
     host._check_zxnextremote_update_async = _check_zxnextremote_update_async
+
+    # ── QLNextRemote (the QL port) update check (itch.io) ──────────────
+    # The ZX Next Remote check's twin, gated on its own Settings toggle
+    # (OFF by default) and reading its own itch.io page and download folder.
+    # Simpler than the ZXNR one on purpose: the newest package only, no
+    # version picker - the QL seat's update picks from what is installed.
+
+    def _start_qlnextremote_update_install(info, upload):
+        if getattr(host, "_qlnextremote_update_installing", False):
+            return
+        host._qlnextremote_update_installing = True
+        game = info.get("game") or {"url": QLNEXTREMOTE_ITCH_URL,
+                                    "title": "QLNextRemote"}
+        api_key = (configuration_dictionary.get(SETTING_ITCHIO_API_KEY, "")
+                   or "").strip()
+        name = upload.get("version_name") or "the chosen package"
+        dest_dir = _cspect_update_dest_dir()   # the shared downloads/itchio root
+        add_main_log_window(ui_tr_now(
+            "QLNextRemote update ▸ Starting download of {name} ({file}) "
+            "from itch.io into {folder}.").format(
+                name=name, file=upload.get("filename") or "archive",
+                folder=dest_dir))
+        sig = MameInstallSignals()
+        sig.status.connect(lambda line: add_main_log_window(line),
+                           Qt.QueuedConnection)
+        host._qlnextremote_update_signals = sig
+
+        def _log_cb(line):
+            try:
+                sig.status.emit(str(line))
+            except RuntimeError:
+                pass
+
+        def _job():
+            # The ZXNR installer takes the game it is given: the download
+            # and the extract step key off the game's URL, so the QL page's
+            # package lands under its own author/slug folder.
+            return zxnu_itchio.install_zxnextremote_update(
+                game, api_key, dest_dir, upload,
+                key_id=info.get("key_id"), log_cb=_log_cb)
+
+        def _ok(extracted):
+            host._qlnextremote_update_installing = False
+            add_main_log_window(ui_tr_now(
+                "QLNextRemote update ▸ SUCCESS — {name} extracted "
+                "to: {path}").format(name=name, path=extracted))
+            # The Remote Explorer caches its "is a newer package installed?"
+            # probe: poke it so a seated QL's top-bar link appears now.
+            _rew = getattr(host, "_re_widget", None)
+            if _rew is not None:
+                try:
+                    _rew._qlnr_resolve_cache = None
+                    _rew._update_next_path_label()
+                except (RuntimeError, AttributeError):
+                    pass
+
+        def _err(err):
+            host._qlnextremote_update_installing = False
+            detail = (err[1] if isinstance(err, (tuple, list)) and len(err) > 1
+                      else err)
+            add_main_log_window(ui_tr_now(
+                "QLNextRemote update ▸ FAILED — {error}"
+            ).format(error=detail))
+            logging.error(f"QLNextRemote update failed: {detail}")
+
+        getit_run_in_thread(_job, _ok, _err)
+
+    def _prompt_qlnextremote_update(info):
+        installed_name = info.get("installed_name") or "the current package"
+        latest_name = info.get("version_name") or "a newer package"
+        box = QMessageBox(host)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle(ui_tr_now("QLNextRemote update available"))
+        box.setText(ui_tr_now(
+            "A newer version of QLNextRemote is available on itch.io.\n\n"
+            "Installed: {installed}\nLatest: {latest}\n\n"
+            "Download it now?").format(installed=installed_name,
+                                       latest=latest_name))
+        yes = box.addButton(ui_tr_now("Yes"), QMessageBox.AcceptRole)
+        box.addButton(ui_tr_now("Cancel"), QMessageBox.RejectRole)
+        box.setDefaultButton(yes)
+        box.exec()
+        if box.clickedButton() is not yes:
+            add_main_log_window(ui_tr_now(
+                "QLNextRemote update ▸ user cancelled the update."))
+            return
+        uploads = info.get("uploads") or []
+        if uploads:
+            _start_qlnextremote_update_install(info, uploads[0])
+
+    def _check_qlnextremote_update_async():
+        if getattr(host, "_qlnextremote_update_checked", False):
+            return
+        if getattr(host, "_qlnextremote_update_installing", False):
+            return
+        pref = configuration_dictionary.get(
+            SETTING_QLNEXTREMOTE_UPDATE_CHECK, "").strip().lower()
+        if pref not in ("true", "1", "yes"):
+            return  # off unless the user turned it on in Settings
+        api_key = (configuration_dictionary.get(SETTING_ITCHIO_API_KEY, "")
+                   or "").strip()
+        if not api_key:
+            return  # no itch.io account configured - nothing to check
+        host._qlnextremote_update_checked = True
+        app_dir = ZXNU_DATA_ROOT
+
+        def _job():
+            installed_name, installed_dir = \
+                find_installed_qlnextremote_version(app_dir)
+            info = zxnu_itchio.latest_qlnextremote_upload(api_key)
+            if not info:
+                return {"skip": "itch.io lists no QLNextRemote download "
+                                "for this account (not the creator, not "
+                                "owned, or only BETA builds)"}
+            info = dict(info)
+            info["installed_name"] = installed_name
+            info["installed_dir"] = installed_dir
+            # No package installed yet counts as "older": unlike ZXNR this
+            # check is opt-in, so whoever turned it on wants the package.
+            info["newer"] = (not installed_name) or qlnextremote_version_newer(
+                info.get("filename") or info.get("version_name") or "",
+                installed_name)
+            return info
+
+        def _on_result(info):
+            try:
+                skip = info.get("skip")
+                if skip:
+                    _log_update(ui_tr_now(
+                        "QLNextRemote update check: {reason}."
+                    ).format(reason=skip))
+                    return
+                installed_name = info.get("installed_name") or "none"
+                latest_name = info.get("version_name")
+                if not info.get("newer"):
+                    _log_update(ui_tr_now(
+                        "QLNextRemote is up to date (installed "
+                        "{installed}, latest {latest})."
+                    ).format(installed=installed_name, latest=latest_name))
+                    return
+                _log_update(ui_tr_now(
+                    "QLNextRemote update ▸ newer package available: "
+                    "installed {installed}, latest {latest}."
+                ).format(installed=installed_name, latest=latest_name))
+                _prompt_qlnextremote_update(info)
+            except Exception as exc:
+                logging.info(
+                    f"QLNextRemote update result handling failed: {exc}")
+
+        def _on_error(err):
+            detail = (err[1] if isinstance(err, (tuple, list)) and len(err) > 1
+                      else err)
+            _log_update(ui_tr_now(
+                "QLNextRemote update check skipped: {reason}"
+            ).format(reason=detail))
+            logging.info(f"QLNextRemote update check skipped: {detail}")
+
+        _log_update(ui_tr_now(
+            "Checking itch.io for a newer QLNextRemote release…"))
+        getit_run_in_thread(_job, _on_result, _on_error)
+
+    host._check_qlnextremote_update_async = _check_qlnextremote_update_async
 
 
     # Expose the emulator launch helpers so other UI surfaces (e.g. the

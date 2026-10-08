@@ -198,6 +198,9 @@ def make_widget(**kw):
         sync5_update_source=kw.get("sync5_update_source"),
         zxnr_update_source=kw.get("zxnr_update_source"),
         zxnr_choose_package=kw.get("zxnr_choose_package"),
+        # QLNextRemote (the QL port): its own resolver and remembered path.
+        qlnr_update_source=kw.get("qlnr_update_source"),
+        qlnr_update_path=kw.get("qlnr_update_path"),
         update_prompt_enabled=kw.get("update_prompt_enabled"),
         on_update_prompt=kw.get("on_update_prompt"),
         # The sync-root box's remembered folders (9.7.22): handed in and
@@ -3511,6 +3514,155 @@ def test_zxnr_update_chosen_package():
 
 
 
+def _qlnr_pkg(tag, version, readme=True, exe=True, broken_pak=False):
+    """A fake extracted QLNextRemote package folder: qlnextremote-X.Y.Z/
+    with qemulator/qlnextremote_exe (the Q-emuLator header in the bytes),
+    README.md and the deploypak.txt that lists it."""
+    d = tempfile.mkdtemp(prefix="qlnr_%s_" % tag)
+    d2 = os.path.join(d, "qlnextremote-" + version)
+    os.makedirs(os.path.join(d2, "qemulator"))
+    if exe:
+        hdr = (b"]!QDOS File Header" + bytes([0, 15]) + bytes([0, 1])
+               + (140 * 1024).to_bytes(4, "big") + bytes(4))
+        with open(os.path.join(d2, "qemulator", "qlnextremote_exe"), "wb") as fh:
+            fh.write(hdr + b"QLNextRemote\x00" + version.encode() + b"\x00")
+    if readme:
+        with open(os.path.join(d2, "README.md"), "wb") as fh:
+            fh.write(b"# QLNextRemote\n")
+        with open(os.path.join(d2, "deploypak.txt"), "w", encoding="utf-8") as fh:
+            fh.write("missing.txt\n" if broken_pak else "README.md\n")
+    return d2
+
+
+def test_qlnr_update():
+    """QLNextRemote, the Sinclair QL port (the third brand): the connect-time
+    offer is gated on the 'qlnextremote' ident, the 0.5.0 self-update floor
+    and a NEWER installed package; the accept rides its own door; the
+    update prompts for the job's full path (default W:/HOME/qlnextremote_exe,
+    or the remembered one) and enqueues the 8-tuple with the package's
+    deploypak.txt extras on the TARGET session's queue. A dot or ZXNR seat
+    never sees any of it."""
+    from zxnu_nextsync_pane import dot_update_toast_title
+    pkg = _qlnr_pkg("new", "0.5.1")
+    exe = os.path.join(pkg, "qemulator", "qlnextremote_exe")
+    readme = os.path.join(pkg, "README.md")
+    prompts, links, paths = [], [], []
+    w, calls = make_widget(
+        qlnr_update_source=lambda: (exe, "0.5.1", ""),
+        update_prompt_enabled=lambda: True,
+        on_update_prompt=lambda body, accept: prompts.append((body, accept)))
+    w._on_qlnr_update_path_changed = paths.append
+    connect_widget(w, calls)
+    w.on_peers((1, [(1, "10.0.0.9")]))
+    w._update_qlnr_on_session = lambda sid, old: links.append(("qlnr", sid, old))
+    w.on_ident("qlnextremote", "0.5.0")
+    check("a 0.5.0 QL seat with a 0.5.1 package earns the offer",
+          w._qlnr_update_offer() == ("0.5.0", "0.5.1"), str(w._qlnr_update_offer()))
+    check("...and the top-bar link",
+          "qlnr-update" in w._qlnr_update_link_html()
+          and "qlnr-update" in w._ident_update_link_html(), w._ident_update_link_html())
+    check("...and one prompt naming QLNextRemote and both versions",
+          len(prompts) == 1 and "QLNextRemote" in prompts[0][0]
+          and "0.5.0" in prompts[0][0] and "0.5.1" in prompts[0][0],
+          prompts[0][0] if prompts else "")
+    if prompts:
+        prompts[0][1]()
+    check("...whose accept rides the QLNextRemote door for that session",
+          links == [("qlnr", 1, "0.5.0")], str(links))
+    links.clear()
+    w._on_sync5_update_link("qlnr-update")
+    check("the top-bar link click rides the same door",
+          links == [("qlnr", 1, "0.5.0")], str(links))
+    w.on_ident("qlnextremote", "0.4.0")
+    check("a 0.4.0 seat is below the floor: no offer, no link, no prompt",
+          w._qlnr_update_offer() is None and w._ident_update_link_html() == ""
+          and len(prompts) == 1, str((w._qlnr_update_offer(), len(prompts))))
+    w.on_ident("qlnextremote", "0.5.1")
+    check("a seat already at the package's version is left alone",
+          w._qlnr_update_offer() is None and len(prompts) == 1)
+    w.on_ident("qlnextremote", "0.6.0")
+    check("a seat newer than the package is left alone",
+          w._qlnr_update_offer() is None and len(prompts) == 1)
+    w.on_ident("n2n", "1.0.5")
+    check("a ZXNR seat never earns the QL offer (nor its link, the ZXNR source being absent)",
+          w._qlnr_update_offer() is None and w._ident_update_link_html() == ""
+          and len(prompts) == 1)
+    # The session-tab menu's classification is what the offer reads too:
+    # no package at all = no offer, whatever the seat says.
+    w2, calls2 = make_widget(qlnr_update_source=lambda: (None, None, "none here"))
+    connect_widget(w2, calls2)
+    w2.on_peers((1, [(1, "10.0.0.9")]))
+    w2.on_ident("qlnextremote", "0.5.0")
+    check("no installed package: no offer", w2._qlnr_update_offer() is None)
+
+    # The update itself: the path prompt, its default, the 8-tuple.
+    del w._update_qlnr_on_session                   # the real method again
+    w.on_ident("qlnextremote", "0.5.0")
+    FakeInput.queue = [("W:/HOME/qlnextremote_exe", True)]; FakeInput.seen = []
+    calls["q_to"].clear(); calls["log"].clear()
+    started = w._update_qlnr_on_session(1, "0.5.0")
+    check("the update prompts once, defaulting to W:/HOME/qlnextremote_exe",
+          len(FakeInput.seen) == 1 and FakeInput.seen[0][4] == "W:/HOME/qlnextremote_exe",
+          str(FakeInput.seen[0][4] if FakeInput.seen else None))
+    body = FakeInput.seen[0][2] if FakeInput.seen else ""
+    check("...its body names the QL, HOME and the README going first",
+          "HOME" in body and "QL" in body and "deploypak.txt lists 1 file(s)" in body, body)
+    check("...and enqueues the 8-tuple on the target session: the exe, W:/HOME, "
+          "the version, the base, the brand, marked, the README plan",
+          started is True
+          and calls["q_to"] == [(1, ("update_dot", exe, "W:/HOME", "0.5.1",
+                                     "qlnextremote_exe", "QLNextRemote", True,
+                                     [("put", readme, "README.md")]))],
+          str(calls["q_to"]))
+    check("...and remembers the path through the host hook",
+          paths == ["W:/HOME/qlnextremote_exe"], str(paths))
+    check("...and the log lists the manifest",
+          any("deploypak.txt lists 1 file(s)" in l and "README.md" in l for l in calls["log"]),
+          str(calls["log"]))
+    # A remembered path pre-fills the prompt; a typed folder is honoured.
+    w._qlnr_update_path = "W:/QLNR/qlnextremote_exe"
+    FakeInput.queue = [("W:/QLNR/qlnextremote_exe", True)]; FakeInput.seen = []
+    calls["q_to"].clear()
+    w._update_qlnr_on_session(1, "0.5.0")
+    check("a remembered path is the default next time",
+          FakeInput.seen and FakeInput.seen[0][4] == "W:/QLNR/qlnextremote_exe"
+          and calls["q_to"] and calls["q_to"][0][1][2] == "W:/QLNR",
+          str((FakeInput.seen[0][4] if FakeInput.seen else None, calls["q_to"])))
+    # A cancel, a bare name and a refused session enqueue nothing.
+    FakeInput.queue = []; calls["q_to"].clear()
+    check("cancel: nothing enqueued, False",
+          w._update_qlnr_on_session(1, "0.5.0") is False and calls["q_to"] == [])
+    FakeInput.queue = [("qlnextremote_exe", True)]; calls["log"].clear()
+    check("a bare file name is refused with the FULL-path advice",
+          w._update_qlnr_on_session(1, "0.5.0") is False and calls["q_to"] == []
+          and any("FULL path" in l for l in calls["log"]), str(calls["log"]))
+    # No package: the warning, nothing enqueued.
+    FakeMsg.warnings = []; FakeInput.seen = []
+    check("no package: a warning names the reason, nothing enqueued",
+          w2._update_qlnr_on_session(1, "0.5.0") is False
+          and FakeMsg.warnings and "none here" in FakeMsg.warnings[0]
+          and FakeInput.seen == [], str(FakeMsg.warnings))
+    # A broken manifest refuses BEFORE the prompt.
+    bad = _qlnr_pkg("bad", "0.5.2", broken_pak=True)
+    w3, calls3 = make_widget(qlnr_update_source=lambda: (
+        os.path.join(bad, "qemulator", "qlnextremote_exe"), "0.5.2", ""))
+    connect_widget(w3, calls3)
+    w3.on_peers((1, [(1, "10.0.0.9")]))
+    FakeMsg.warnings = []; FakeInput.seen = []
+    check("a broken deploypak.txt refuses before the prompt",
+          w3._update_qlnr_on_session(1, "0.5.0") is False
+          and FakeMsg.warnings and "deploypak.txt is broken" in FakeMsg.warnings[0]
+          and FakeInput.seen == [] and calls3["q_to"] == [], str(FakeMsg.warnings))
+    # The toast title follows the brand - the third branch.
+    check("the dot_update toast title has a QLNextRemote branch, the two others unchanged",
+          dot_update_toast_title("QLNextRemote") == "QLNextRemote update"
+          and dot_update_toast_title("ZXNextRemote") == "ZX Next Remote update"
+          and dot_update_toast_title("NextSync") == "Remote .sync5 update"
+          and dot_update_toast_title("") == "Remote .sync5 update")
+    for d in (pkg, bad):
+        shutil.rmtree(os.path.dirname(d), ignore_errors=True)
+
+
 def test_zxnr_update_reports_whether_it_started():
     """_update_zxnr_on_session returns True ONLY when the macro was actually
     enqueued (9.7.11). The itch.io tab's send is the one caller with no
@@ -3920,6 +4072,7 @@ def main():
         test_zxnr_update_chosen_package()
         test_zxnr_menu_picker_hook()
         test_zxnr_update_reports_whether_it_started()
+        test_qlnr_update()
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")

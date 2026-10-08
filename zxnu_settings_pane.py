@@ -51,6 +51,7 @@ SETTINGS_TAB_ROWS = (
     "re_update_prompt",
     "sync5_img_autodeploy",
     "zxnextremote_itch_link",
+    "qlnextremote_update_check",
     "ui_language",
     "wizard",
     "desktop_theme",
@@ -240,6 +241,36 @@ def build_settings_pane(
     grid_tab_Settings.addWidget(
         host.settings_zxnextremote_itch_link,
         settings_grid_row("zxnextremote_itch_link"), 0, 1, 2)
+
+    # -- QLNextRemote (the QL port): the same itch.io check, OFF by default -
+    # the QL seat's remote update reads the package from the same downloads
+    # layout, so the check is the convenient way to land one; off by default
+    # because the page may still be a draft and most users have no QL.
+    def settings_qlnextremote_update_check_changed():
+        on = host.settings_qlnextremote_update_check_checkbox.isChecked()
+        configuration_dictionary[SETTING_QLNEXTREMOTE_UPDATE_CHECK] = (
+            "true" if on else "false")
+        save_configuration_file()
+
+    host.settings_qlnextremote_update_check_checkbox = QCheckBox(
+        "Check for QLNextRemote update on itch.io on startup")
+    _qlnr_upd_pref = configuration_dictionary.get(
+        SETTING_QLNEXTREMOTE_UPDATE_CHECK, "").strip().lower()
+    host.settings_qlnextremote_update_check_checkbox.setChecked(
+        _qlnr_upd_pref in ("true", "1", "yes"))  # default off
+    host.settings_qlnextremote_update_check_checkbox.setToolTip(
+        "When an itch.io API key is configured and a QLNextRemote package\n"
+        "(the Sinclair QL port) was installed from itch.io, check at startup\n"
+        "whether a newer package is available and offer to download it.\n"
+        "Each version is kept in its own folder under downloads/itchio,\n"
+        "ready to push to a seated QL from the Remote Explorer. A\n"
+        "qlnextremote-X.Y.Z.zip dropped into the downloads folder is adopted\n"
+        "too. Off by default. Saved to the configuration file.")
+    host.settings_qlnextremote_update_check_checkbox.stateChanged.connect(
+        lambda _s: settings_qlnextremote_update_check_changed())
+    grid_tab_Settings.addWidget(
+        host.settings_qlnextremote_update_check_checkbox,
+        settings_grid_row("qlnextremote_update_check"), 0, 1, 2)
 
     # ── Desktop theme (top of the Settings pane) ───────────────────────
     # Drives the SD Card explorer font colours. Automatic follows the OS

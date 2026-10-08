@@ -534,6 +534,16 @@ def build_config_io(
                 host.settings_zxnextremote_update_check_checkbox.setChecked(_zxnr_upd_on)
                 host.settings_zxnextremote_update_check_checkbox.blockSignals(False)
 
+            # QLNextRemote (the QL port) "check itch.io for a newer package"
+            # toggle - the ZXNR toggle's twin, but default OFF.
+            if hasattr(host, "settings_qlnextremote_update_check_checkbox"):
+                _qlnr_upd = configuration_dictionary.get(
+                    SETTING_QLNEXTREMOTE_UPDATE_CHECK, "").strip().lower()
+                _qlnr_upd_on = _qlnr_upd in ("true", "1", "yes")
+                host.settings_qlnextremote_update_check_checkbox.blockSignals(True)
+                host.settings_qlnextremote_update_check_checkbox.setChecked(_qlnr_upd_on)
+                host.settings_qlnextremote_update_check_checkbox.blockSignals(False)
+
             # CSpect "check for a newer version on itch.io at startup" toggle
             # (default on). Always present as a widget (unlike MAME's, which
             # is gated on detection).

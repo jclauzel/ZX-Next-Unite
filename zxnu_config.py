@@ -24,7 +24,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.43"
+ZX_NEXT_UNITE_VERSION = "9.7.44"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -290,6 +290,10 @@ CSPECT_ITCH_URL = "https://mdf200.itch.io/cspect"
 # folder every fetched build lands under - the layout the future
 # send-via-NextSync automation will read.
 ZXNEXTREMOTE_ITCH_URL = "https://jclauzel.itch.io/zxnextremote"
+# The QL port (QLNextRemote, a Sinclair QL job that seats itself as a
+# 'qlnextremote' listener): its own itch.io page, and so its own
+# downloads/itchio/jclauzel/qlnextremote folder for fetched packages.
+QLNEXTREMOTE_ITCH_URL = "https://jclauzel.itch.io/qlnextremote"
 # Safety bound on how many API pages the owned-games / collection / library
 # walks will follow. The walks stop naturally on the last (short) page; this is
 # only a runaway guard. Set high so large libraries (a user with 1000s of
@@ -516,6 +520,8 @@ SETTING_SYNC5_IMG_AUTODEPLOY   = "sync5_img_autodeploy"   # "false" => never off
 SETTING_DELETE_TO_RECYCLE_BIN  = "delete_to_recycle_bin"   # "false" => local explorer deletes are permanent; default on = send to the Recycle Bin (needs Send2Trash)
 SETTING_DOTN_LAST_VERSION      = "dotn_last_version"       # bundled .sync5 dotN version last seen by this cfg (drives the "update the dot on your Next" advisory)
 SETTING_ZXNR_UPDATE_PATH       = "zxnr_update_path"        # last full Next-side path a ZX Next Remote self-update swapped (Remote Explorer; empty => ZXNR_HOME_DIR + "/zxnextremote-<flavor>.nex", i.e. c:/home/…; 9.7.2)
+SETTING_QLNEXTREMOTE_UPDATE_CHECK = "qlnextremote_update_check"  # "true" => check itch.io for a newer QLNextRemote package at startup (default OFF: the QL port's page may still be a draft, and the check needs an API key)
+SETTING_QLNR_UPDATE_PATH       = "qlnr_update_path"        # last full QL-side path a QLNextRemote self-update swapped (Remote Explorer; empty => QLNR_HOME_DIR + "/qlnextremote_exe", i.e. W:/HOME/qlnextremote_exe)
 # Per-pane item-viewer mode: "true" => open items in the Retro (pygame) viewer
 # (renders .txt/instruction pages as a log console), else the Classic Qt viewer.
 SETTING_GETIT_ITEM_RETRO       = "getit_item_retro"
@@ -1138,7 +1144,7 @@ SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVO
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_MAME_RS232_ESP, SETTING_MAME_RS232_ESP_PORT, SETTING_MAME_RS232_ESP_VERBOSE, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
 SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_VERIFY_CRC, SETTING_NEXTSYNC_SESSIONS, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_SDCARD_HSPLITTER, SETTING_NEXTSYNC_RE_SPLITTER, SETTING_NEXTSYNC_RE_LOG_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE, SETTING_GENERAL_FONT_SIZE, SETTING_RE_UPDATE_PROMPT, SETTING_SYNC5_IMG_AUTODEPLOY,
-SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNEXTREMOTE_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_ZXNR_UPDATE_PATH, SETTING_DELETE_TO_RECYCLE_BIN,
+SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNEXTREMOTE_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_ZXNR_UPDATE_PATH, SETTING_DELETE_TO_RECYCLE_BIN, SETTING_QLNEXTREMOTE_UPDATE_CHECK, SETTING_QLNR_UPDATE_PATH,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
 SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
 SETTING_WINDOW_SCREEN, SETTING_WINDOW_SIZE, SETTING_SDCARD_TREE_COLS, SETTING_IMAGE_TREE_COLS, SETTING_RE_LOCAL_COLS, SETTING_RE_NEXT_COLS, SETTING_RE_REMOTE_CWDS, SETTING_RE_MACHINE_NAMES, SETTING_RE_MACHINE_COLORS,
@@ -3017,6 +3023,166 @@ def zxnextremote_package_binary(folder, flavor):
             "runs the {} transport, so that is the file the swap "
             "needs".format(name, flavor, flavor))
     return nex, version, ""
+
+
+# ── QLNextRemote: the QL port's package, the ZXNR helpers' twins ─────────
+# A QLNextRemote release is one zip, qlnextremote-X.Y.Z.zip, extracted (like
+# a ZXNR build) into downloads/itchio/jclauzel/qlnextremote/files/
+# qlnextremote-X.Y.Z/. The file the remote update pushes is the package's
+# qemulator/qlnextremote_exe: the form that starts with the 30-byte
+# "]!QDOS File Header" (type 1 and the dataspace travel in the bytes, and the
+# QL job sets them on its own file header when it receives the put). The
+# version comes from the package folder's name, as for ZXNextRemote. The
+# helpers are deliberate twins, not a prefix parameter on the ZXNR ones: the
+# ZXNR path must stay byte for byte what it was.
+QLNR_PACKAGE_PREFIX = "qlnextremote-"
+QLNR_EXE_NAME = "qlnextremote_exe"
+QLNR_EXE_RELPATH = os.path.join("qemulator", QLNR_EXE_NAME)
+# The 30-byte prefix of the qemulator form: 18 magic bytes, the header
+# length in words (15), the access byte, the type (1 = executable), the
+# dataspace (big-endian) and 4 reserved bytes.
+QLNR_QDOS_HEADER_MAGIC = b"]!QDOS File Header"
+QLNR_QDOS_HEADER_LEN = 30
+
+
+def qlnextremote_name_version(name):
+    """The bare version a QLNextRemote package name carries - ``"0.5.0"``
+    for ``qlnextremote-0.5.0`` (or that name with a ``.zip``) - or ``""``
+    when it carries none. The ZXNR rule, twinned: the prefix is stripped
+    repeatedly, what is left must be three dotted integers."""
+    stem = os.path.basename(_version_stem(name or ""))
+    if not stem.lower().startswith(QLNR_PACKAGE_PREFIX):
+        return ""
+    while stem.lower().startswith(QLNR_PACKAGE_PREFIX):
+        stem = stem[len(QLNR_PACKAGE_PREFIX):]
+    stem = stem.strip()
+    parts = stem.split(".")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        return ""
+    return stem
+
+
+def qlnextremote_sort_key(name):
+    """Ordering key for a QLNextRemote package/upload NAME (``reverse=True``
+    for newest first): a name with no readable version sorts below every
+    name that has one, ties fall to the shorter spelling (see
+    :func:`zxnextremote_sort_key`)."""
+    version = qlnextremote_name_version(name)
+    parts = tuple(int(p) for p in version.split(".")) if version else ()
+    stem = _version_stem(name or "")
+    return (1 if parts else 0, parts, -len(stem), stem.lower())
+
+
+def qlnextremote_version_newer(candidate_name, installed_name):
+    """True when QLNextRemote package *candidate_name* is a newer VERSION
+    than *installed_name*; only the version halves of the keys compare, so
+    a different spelling of the same version is never an update."""
+    return (qlnextremote_sort_key(candidate_name)[:2]
+            > qlnextremote_sort_key(installed_name)[:2])
+
+
+def qlnextremote_files_dir(base_dir):
+    """``<base_dir>/downloads/itchio/jclauzel/qlnextremote/files`` - where
+    every fetched or dropped QLNextRemote package is extracted."""
+    author, slug = "jclauzel", "qlnextremote"
+    return os.path.join(base_dir, DOWNLOADS_CSPECT_DIRNAME, author, slug,
+                        "files")
+
+
+def install_loose_qlnextremote_zips(base_dir):
+    """Adopt a ``qlnextremote-X.Y.Z.zip`` the user dropped into the
+    downloads root (``<base_dir>/downloads``) or straight into the package
+    files folder: move it under ``files/`` and extract it into its own
+    version folder, exactly where the itch.io fetch would have put it.
+    Returns the list of folders extracted this call (``[]`` when nothing
+    was waiting). Errors are swallowed per archive: a broken zip must not
+    silence the resolver that calls this on every menu open."""
+    done = []
+    files_dir = qlnextremote_files_dir(base_dir)
+    roots = [os.path.join(base_dir, "downloads"), files_dir]
+    for root in roots:
+        try:
+            names = os.listdir(root)
+        except OSError:
+            continue
+        for name in names:
+            if (not name.lower().endswith(".zip")
+                    or not qlnextremote_name_version(name)):
+                continue
+            src = os.path.join(root, name)
+            if not os.path.isfile(src):
+                continue
+            dst = os.path.join(files_dir, name)
+            target = os.path.join(files_dir, _version_stem(name))
+            try:
+                if os.path.isdir(target):
+                    # Already extracted once: a leftover in the downloads
+                    # root is simply tidied under files/ beside its folder.
+                    if os.path.abspath(src) != os.path.abspath(dst):
+                        os.makedirs(files_dir, exist_ok=True)
+                        shutil.move(src, dst)
+                    continue
+                os.makedirs(files_dir, exist_ok=True)
+                if os.path.abspath(src) != os.path.abspath(dst):
+                    shutil.move(src, dst)
+                with zipfile.ZipFile(dst) as zf:
+                    zf.extractall(target)
+                done.append(target)
+            except (OSError, zipfile.BadZipFile, shutil.Error) as exc:
+                logging.info(f"QLNextRemote: loose package {src} skipped: {exc}")
+    return done
+
+
+def find_installed_qlnextremote_version(base_dir):
+    """``(version_name, folder_path)`` for the newest QLNextRemote package
+    extracted under the files folder (see :func:`qlnextremote_files_dir`),
+    or ``(None, None)``. Ordered by :func:`qlnextremote_sort_key`."""
+    try:
+        files_dir = qlnextremote_files_dir(base_dir)
+        if not os.path.isdir(files_dir):
+            return (None, None)
+        best_name, best_path = None, None
+        for name in os.listdir(files_dir):
+            full = os.path.join(files_dir, name)
+            if not os.path.isdir(full):
+                continue
+            if best_name is None or (qlnextremote_sort_key(name)
+                                     > qlnextremote_sort_key(best_name)):
+                best_name, best_path = name, full
+        return (best_name, best_path)
+    except OSError:
+        return (None, None)
+
+
+def qlnextremote_package_binary(folder):
+    """The ``qemulator/qlnextremote_exe`` inside ONE package folder, as
+    ``(path, version, reason)``. The version is the folder name's; a folder
+    with no readable version is refused (the macro's step-0 check greps the
+    version bytes in the blob, and an empty version would weaken it to a
+    brand-only check). Reasons stay English like the ZXNR resolver's."""
+    name = os.path.basename(os.path.normpath(folder)) if folder else ""
+    version = qlnextremote_name_version(name)
+    if not version:
+        return None, None, (
+            "the package folder ({}) does not carry a qlnextremote-<version> "
+            "name, so its version is unknown".format(name or folder))
+    exe = os.path.join(folder, QLNR_EXE_RELPATH)
+    if not os.path.isfile(exe):
+        return None, None, (
+            "the package ({}) has no {} - the remote update needs the "
+            "Q-emuLator form, whose QDOS header travels in the "
+            "bytes".format(name, QLNR_EXE_RELPATH.replace(os.sep, "/")))
+    return exe, version, ""
+
+
+def qlnextremote_blob_has_header(blob):
+    """True when *blob* starts with the 30-byte Q-emuLator header of a type-1
+    (executable) file: the magic, the length word 15 and type 1. The remote
+    update refuses any other form before a byte moves - a put of the bare
+    body would land a data file the QL cannot EXEC."""
+    return (len(blob) >= QLNR_QDOS_HEADER_LEN
+            and blob[:18] == QLNR_QDOS_HEADER_MAGIC
+            and blob[19] == 15 and blob[21] == 1)
 
 
 # ── deploypak.txt: extra files an itch.io package ships alongside its build ──

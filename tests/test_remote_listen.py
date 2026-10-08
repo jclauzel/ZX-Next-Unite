@@ -1815,6 +1815,177 @@ def main():
     else:
         print("FAIL pak-death-all: ops=", ops, "upd=", upd); ok = False
 
+    # ── QLNextRemote (the Sinclair QL port): the third brand ───────────
+    # cmd = ("update_dot", <pkg>/qemulator/qlnextremote_exe, "W:/HOME", ver,
+    #        "qlnextremote_exe", "QLNextRemote", True, extras). The wire is
+    # the ZXNR macro byte for byte - only the brand's step-0 check and its
+    # verdict wordings differ: the blob must start with the 30-byte
+    # Q-emuLator header of a type-1 file (the QL job turns it into the real
+    # file header on the put), the companions are the package's
+    # deploypak.txt (README.md alone), and the marked quit has the job
+    # start the new build and exit. A 0.5.0 seat answers 'K'.
+    ql_hdr = (b"]!QDOS File Header" + bytes([0, 15]) + bytes([0, 1])
+              + (140 * 1024).to_bytes(4, "big") + bytes(4))
+    ql_body = (b"\x60\x00" + bytes(range(256)) * 3
+               + b"QLNextRemote\x00" + b"0.5.1\x00tail")
+    ql_blob = ql_hdr + ql_body
+    ql_pkg = os.path.join(tmp, "qlnextremote-0.5.1")
+    os.makedirs(os.path.join(ql_pkg, "qemulator"))
+    ql_file = os.path.join(ql_pkg, "qemulator", "qlnextremote_exe")
+    open(ql_file, "wb").write(ql_blob)
+    ql_readme = os.path.join(ql_pkg, "README.md")
+    ql_readme_b = b"# QLNextRemote 0.5.1\r\nThe manual holds the documentation.\r\n"
+    open(ql_readme, "wb").write(ql_readme_b)
+    ql_plan = [("put", ql_readme, "README.md")]
+    ql_cmd = ("update_dot", ql_file, "W:/HOME", "0.5.1", "qlnextremote_exe",
+              "QLNextRemote", True, ql_plan)
+    ql050 = b'Oqlnextremote' + bytes([0]) + b'0.5.0'
+    qb = "W:/HOME/qlnextremote_exe"
+    ql_readme_r = "W:/HOME/README.md"
+    ql_head = [('P', ql_readme_r), ('Y', ""), ('K', ql_readme_r)]
+    ql_tail = [('P', qb + ".new"), ('K', qb + ".new"), ('U', ""),
+               ('X', qb + ".bak"), ('V', qb + "\x00" + qb + ".bak"),
+               ('V', qb + ".new\x00" + qb), ('Q', "X")]
+
+    # Happy path: README first (P+K, the 'Y' probe riding its verify), then
+    # the unchanged stage/verify/swap tail ending in the MARKED quit; the
+    # header travels in the staged bytes verbatim; the verdict carries the
+    # QLNextRemote brand and the QL's own wording.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 80, [ql_cmd], "ok", ql_blob, ident=ql050)
+    if (ops == ql_head + ql_tail
+            and staged == [(ql_readme_r, ql_readme_b), (qb + ".new", ql_blob)]
+            and len(upd) == 1 and upd[0][0] and not puts
+            and upd[0][2] == "QLNextRemote"
+            and "restart into the new build and seat itself again" in upd[0][1]
+            and "soft-reset" not in upd[0][1]):
+        print("PASS updot-qlnr: README then P/K/U/X/V/V/'Q'+'X' under W:/HOME, "
+              "header in the bytes, QLNextRemote brand, the QL's done wording")
+    else:
+        print("FAIL updot-qlnr: ops=", ops, "staged=",
+              [(p, len(b)) for p, b in staged], "upd=", upd, "puts=", puts)
+        ok = False
+
+    # Step 0, QL only: a blob without the Q-emuLator header (the sqlux or
+    # qdos form - the bare body) is refused before a byte moves, with a
+    # verdict that names the header; the generic brand/version check still
+    # runs first, so a stale file keeps its own wording.
+    ql_nohdr = os.path.join(ql_pkg, "qemulator", "qlnextremote_bin")
+    open(ql_nohdr, "wb").write(ql_body)
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 81, [ql_cmd[:1] + (ql_nohdr,) + ql_cmd[2:], ("quit",)],
+        "ok", ql_blob, ident=ql050)
+    if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
+            and "QDOS executable header" in upd[0][1]
+            and "qemulator/qlnextremote_exe" in upd[0][1]
+            and upd[0][2] == "QLNextRemote" and not puts):
+        print("PASS updot-qlnr-nohdr: a headerless blob is refused at step 0, naming the header")
+    else:
+        print("FAIL updot-qlnr-nohdr: ops=", ops, "upd=", upd); ok = False
+    ql_type0 = os.path.join(ql_pkg, "qemulator", "qlnextremote_type0")
+    open(ql_type0, "wb").write(ql_hdr[:21] + b"\x00" + ql_hdr[22:] + ql_body)
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 82, [ql_cmd[:1] + (ql_type0,) + ql_cmd[2:], ("quit",)],
+        "ok", ql_blob, ident=ql050)
+    if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
+            and "QDOS executable header" in upd[0][1] and not puts):
+        print("PASS updot-qlnr-type0: a header of type 0 (a data file) is refused at step 0")
+    else:
+        print("FAIL updot-qlnr-type0: ops=", ops, "upd=", upd); ok = False
+    ql_stale = os.path.join(ql_pkg, "qemulator", "qlnextremote_stale")
+    open(ql_stale, "wb").write(ql_hdr + b"\x60\x00" + b"QLNextRemote\x000.4.0\x00")
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 83, [ql_cmd[:1] + (ql_stale,) + ql_cmd[2:], ("quit",)],
+        "ok", ql_blob, ident=ql050)
+    if (ops == [('Q', "")] and staged == [] and len(upd) == 1 and not upd[0][0]
+            and "does not look like a QLNextRemote 0.5.1 build" in upd[0][1]
+            and not puts):
+        print("PASS updot-qlnr-stale: a stale build keeps the generic brand/version refusal")
+    else:
+        print("FAIL updot-qlnr-stale: ops=", ops, "upd=", upd); ok = False
+
+    # CRC mismatch on the staged job: cleanup rm, no 'U', both digests
+    # named - the old job is intact (the README had already landed).
+    ql_bad = ql_blob[:-1] + bytes([ql_blob[-1] ^ 0xFF])
+    ql_crc = "%08X" % (zlib.crc32(ql_blob) & 0xffffffff)
+    ql_bad_crc = "%08X" % (zlib.crc32(ql_bad) & 0xffffffff)
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 84, [ql_cmd, ("quit",)], "ok", ql_bad, ident=ql050)
+    if (ops == ql_head + [('P', qb + ".new"), ('K', qb + ".new"),
+                          ('X', qb + ".new"), ('Q', "")]
+            and not any(o in ('U', 'G') for o, _a in ops)
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and ql_crc in upd[0][1] and ql_bad_crc in upd[0][1]):
+        print("PASS updot-qlnr-corrupt: crc mismatch -> cleanup rm, no 'U', both digests named")
+    else:
+        print("FAIL updot-qlnr-corrupt: ops=", ops, "upd=", upd); ok = False
+
+    # 'U' refused: cleanup only, no .bak rm, no 'V', the old job untouched.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 85, [ql_cmd, ("quit",)], "no_release", ql_blob, ident=ql050)
+    if (ops == ql_head + [('P', qb + ".new"), ('K', qb + ".new"), ('U', ""),
+                          ('X', qb + ".new"), ('Q', "")]
+            and not any(o == 'V' for o, _a in ops)
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and upd[0][2] == "QLNextRemote"):
+        print("PASS updot-qlnr-norel: 'U' refused -> cleanup only, nothing swapped")
+    else:
+        print("FAIL updot-qlnr-norel: ops=", ops, "upd=", upd); ok = False
+
+    # The first rename refused (a driver that locks the running job's
+    # file): the QL's own wording, no mid-swap scare, plain targeted 'Q'.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 86, [ql_cmd, ("rm", "W:/HOME/x")], "ren1_refuse", ql_blob,
+        ident=ql050)
+    if (ops == ql_head + ql_tail[:5] + [('Q', "")]
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and "the QL could not rename qlnextremote_exe aside" in upd[0][1]
+            and "the QL still runs its current build" in upd[0][1]
+            and "may be missing" not in upd[0][1]):
+        print("PASS updot-qlnr-ren1: a refused first rename -> the QL's 'could not rename' wording, plain 'Q'")
+    else:
+        print("FAIL updot-qlnr-ren1: ops=", ops, "upd=", upd); ok = False
+    # ...and the marked refusal ('F'+OSP): the job was installed under a
+    # protected root instead of HOME - the verdict says where it must live.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 87, [ql_cmd], "ren1_osp", ql_blob, ident=ql050)
+    if (ops[-2:] == [('V', qb + "\x00" + qb + ".bak"), ('Q', "")]
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and "the QL's OS protection refused renaming qlnextremote_exe aside" in upd[0][1]
+            and "must live in HOME" in upd[0][1]
+            and upd[0][2] == "QLNextRemote"):
+        print("PASS updot-qlnr-osp: ren1 'F'+OSP -> the QL's OS-protection wording, naming HOME")
+    else:
+        print("FAIL updot-qlnr-osp: ops=", ops, "upd=", upd); ok = False
+
+    # Killed mid-swap: the recovery wording names qlnextremote_exe.bak
+    # and SuperBASIC, never the NextZXOS Browser.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 88, [ql_cmd], "kill_after_ren1", ql_blob, ident=ql050)
+    if (ops == ql_head + ql_tail[:5]
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and "the QL may be missing " + qb in upd[0][1]
+            and qb + ".bak" in upd[0][1]
+            and "from SuperBASIC" in upd[0][1]
+            and "NextZXOS" not in upd[0][1]
+            and upd[0][2] == "QLNextRemote"):
+        print("PASS updot-qlnr-killV: mid-swap death -> the QL's recovery wording names qlnextremote_exe.bak")
+    else:
+        print("FAIL updot-qlnr-killV: ops=", ops, "upd=", upd); ok = False
+
+    # A 0.5.0 seat below the crc floor does not exist (0.1.0 answers 'K'),
+    # and a seat is never gated here - the widget's floor is the gate; the
+    # macro itself takes whatever ident answers. The 7-tuple (no extras)
+    # shape stages the job alone.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 89, [ql_cmd[:7]], "ok", ql_blob, ident=ql050)
+    if (ops == [('P', qb + ".new"), ('Y', "")] + ql_tail[1:]
+            and staged == [(qb + ".new", ql_blob)]
+            and len(upd) == 1 and upd[0][0] and not puts):
+        print("PASS updot-qlnr-noextras: the 7-tuple stages the job alone, marked quit")
+    else:
+        print("FAIL updot-qlnr-noextras: ops=", ops, "upd=", upd); ok = False
+
     # ── verify-after-put (Settings → Verify CRC, 9.7.3) ────────────────
     # A UI put is followed by the worker's own 'K' exchange as a local_cmds
     # continuation, gated on the session's 'Y' ident (self-probed when nobody

@@ -28,7 +28,7 @@ from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
                          cspect_can_autostart, emulator_offers_autostart,
                          log_size,
                          is_filetype_a_directory, mame_autostart_staging_dir,
-                         mame_can_autostart)
+                         mame_can_autostart, qlnextremote_blob_has_header)
 from PySide6.QtCore import (
     QEvent, QItemSelection, QItemSelectionModel, QObject, QPoint, QRect,
     QRunnable, QSize, QSortFilterProxyModel, QTimer, Qt, Signal, Slot,
@@ -3174,6 +3174,25 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 brand)
                             _idle()
                             continue
+                        # QLNextRemote only (the Sinclair QL port): the
+                        # file must be the package's qemulator form, which
+                        # starts with the 30-byte "]!QDOS File Header" of
+                        # a type-1 (executable) file - the QL job turns
+                        # that prefix into the real file header on the
+                        # put. The bare body (the sqlux or qdos forms)
+                        # would land a data file the QL cannot EXEC, so
+                        # it is refused before a byte moves.
+                        if (brand == "QLNextRemote"
+                                and not qlnextremote_blob_has_header(blob)):
+                            sig.dot_update.emit(False, ui_tr_now(
+                                "Remote {name} update refused: {path} does "
+                                "not start with the QDOS executable header "
+                                "(type 1) — send the package's "
+                                "qemulator/qlnextremote_exe; nothing was "
+                                "sent.").format(name=disp, path=local),
+                                brand)
+                            _idle()
+                            continue
                         # cmd[7] (9.7.6): the deploypak.txt plan — the
                         # extras the package lists, sent BEFORE the staging
                         # put (see _upd_extra_step). Checked whole here so a
@@ -3713,19 +3732,59 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             # ZXNR's OS protection (default-on over apps/,
                             # dot/, sys/, …) is the expected refuser there:
                             # name it, or the user hunts a phantom SD error.
+                            # A QL seat (QLNextRemote) gets its own words:
+                            # its job lives in HOME, outside the protected
+                            # roots, so a refusal there means the job was
+                            # installed elsewhere - or a driver that locks
+                            # the running job's file.
+                            if job.get('brand') == "QLNextRemote":
+                                sig.dot_update.emit(False, (ui_tr_now(
+                                    "Remote {name} update failed: the QL's "
+                                    "OS protection refused renaming {file} "
+                                    "aside — the job must live in HOME, "
+                                    "outside the protected roots. Nothing "
+                                    "was swapped — the QL still runs its "
+                                    "current build.")
+                                    if res['osp'] else ui_tr_now(
+                                    "Remote {name} update failed: the QL "
+                                    "could not rename {file} aside (a driver "
+                                    "that locks the running job's file "
+                                    "answers so). Nothing was swapped — the "
+                                    "QL still runs its current build."))
+                                    .format(name=job['name'],
+                                            file=job['base'])
+                                    + _upd_extras_note(job),
+                                    job.get('brand'))
+                            else:
+                                sig.dot_update.emit(False, ui_tr_now(
+                                    "Remote {name} update failed: {reason}. "
+                                    "Nothing was swapped — the Next still runs "
+                                    "its current build.").format(
+                                        name=job['name'],
+                                        reason=("the far side's OS protection "
+                                                "refused renaming " + job['base']
+                                                + " (Settings on the Next)")
+                                               if res['osp'] else
+                                               ("could not rename " + job['base']
+                                                + " aside"))
+                                    + _upd_extras_note(job),
+                                    (job or {}).get('brand', 'NextSync'))
+                        elif job.get('brand') == "QLNextRemote":
+                            # Mid-swap on a QL: the recovery is a RENAME
+                            # from SuperBASIC, not the NextZXOS Browser.
                             sig.dot_update.emit(False, ui_tr_now(
-                                "Remote {name} update failed: {reason}. "
-                                "Nothing was swapped — the Next still runs "
-                                "its current build.").format(
+                                "Remote {name} update FAILED mid-swap: the "
+                                "QL may be missing {target}. If it no "
+                                "longer starts, rename {backup} back to "
+                                "{file} from SuperBASIC (the staged "
+                                "{staged} can be deleted).").format(
                                     name=job['name'],
-                                    reason=("the far side's OS protection "
-                                            "refused renaming " + job['base']
-                                            + " (Settings on the Next)")
-                                           if res['osp'] else
-                                           ("could not rename " + job['base']
-                                            + " aside"))
+                                    target=cur,
+                                    backup=cur + ".bak",
+                                    file=job['base'],
+                                    staged=cur + ".new")
                                 + _upd_extras_note(job),
-                                (job or {}).get('brand', 'NextSync'))
+                                job.get('brand'))
                         else:
                             # ren2 refused, or either rename's reply lost:
                             # the card is (or may be) mid-swap. Delete
@@ -3754,7 +3813,20 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         # into NextZXOS, where the swapped build relaunches.
                         jid = cmd[1]
                         job = upd_jobs.pop(jid, None) or {}
-                        if job.get('marked'):
+                        if job.get('marked') and job.get('brand') == "QLNextRemote":
+                            # The QL's marked quit: the job starts the new
+                            # build from HOME and exits; the new build dials
+                            # back and seats itself, so the top bar shows
+                            # the new version on its own.
+                            sig.dot_update.emit(True, ui_tr_now(
+                                "Remote {name} update complete: {version} is "
+                                "on the QL. The QL will now restart into the "
+                                "new build and seat itself again.").format(
+                                    name=job.get('name', ''),
+                                    version=job.get('ver', '')),
+                                job.get('brand'))
+                            _re_sendpacket(conn, b"Q" + RE_QUIT_EXIT_MARK, 0)
+                        elif job.get('marked'):
                             sig.dot_update.emit(True, ui_tr_now(
                                 "Remote {name} update complete: {version} is "
                                 "on the card. The Next will now soft-reset "
@@ -4044,6 +4116,22 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         name=_job.get('name', ''),
                         path=_job['dir'] + "/" + _last),
                     _job.get('brand', 'NextSync'))
+            elif (_job.get('swap_started')
+                    and _job.get('brand') == "QLNextRemote"):
+                # The QL's words for the same mid-swap death (see the
+                # upd_ren1/upd_ren2 arm).
+                sig.dot_update.emit(False, ui_tr_now(
+                    "Remote {name} update FAILED mid-swap: the QL may be "
+                    "missing {target}. If it no longer starts, rename "
+                    "{backup} back to {file} from SuperBASIC (the staged "
+                    "{staged} can be deleted).").format(
+                        name=_job.get('name', ''),
+                        target=_cur,
+                        backup=_cur + ".bak",
+                        file=_job.get('base', ''),
+                        staged=_cur + ".new")
+                    + _upd_extras_note(_job),
+                    _job.get('brand'))
             elif _job.get('swap_started'):
                 sig.dot_update.emit(False, ui_tr_now(
                     "Remote {name} update FAILED mid-swap: the Next may be "

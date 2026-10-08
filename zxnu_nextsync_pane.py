@@ -54,6 +54,19 @@ from zxnu_media import *
 from zxnu_workers import *
 
 
+def dot_update_toast_title(brand):
+    """The toast title of an ("update_dot", …) verdict, by the BRAND the
+    worker's dot_update signal carries: the .sync5 dot, a ZX Next Remote
+    .nex, or (the third brand) the QLNextRemote job of a Sinclair QL seat.
+    A plain function so the test suite can pin the three without building
+    the pane; the title is translated by _show_toast's chokepoint."""
+    if brand == "ZXNextRemote":
+        return "ZX Next Remote update"
+    if brand == "QLNextRemote":
+        return "QLNextRemote update"
+    return "Remote .sync5 update"
+
+
 def build_nextsync_pane(
     host,
     *,
@@ -1164,6 +1177,14 @@ def build_nextsync_pane(
         except Exception:
             pass
 
+    def _re_on_qlnr_update_path_changed(path):
+        # The QLNextRemote twin: the full QL-side path of the swapped job.
+        try:
+            configuration_dictionary[SETTING_QLNR_UPDATE_PATH] = path or ""
+            save_configuration_file()
+        except Exception:
+            pass
+
     # ── ZX Next Remote: the build picker, one for both doors (9.7.11) ──
     # Asked by the session tab's "Update ZX Next Remote on this Next…" (via
     # the widget's zxnr_choose_package hook) AND by the itch.io tab's "Send
@@ -1321,8 +1342,7 @@ def build_nextsync_pane(
         # Remote verdict used to toast under the dot's title while its body
         # named zxnextremote-*.nex.
         add_nextsync_log_window(str(message))
-        host._show_toast("ZX Next Remote update" if brand == "ZXNextRemote"
-                         else "Remote .sync5 update", str(message),
+        host._show_toast(dot_update_toast_title(brand), str(message),
                          variant=("green" if ok else "red"),
                          duration_ms=12000)
 
@@ -1420,6 +1440,14 @@ def build_nextsync_pane(
             # and the itch.io tab's "Send via NextSync" ask the SAME
             # closure, so they can never disagree about what is on offer.
             zxnr_choose_package=_re_zxnr_choose_package,
+            # QLNextRemote (the QL port): the same affordances for a
+            # 'qlnextremote' seat, from the newest installed QL package
+            # (zxnu_emulator_ops' _resolve_qlnr_update_binary, disk-only).
+            qlnr_update_source=(
+                lambda: host._resolve_qlnr_update_binary()),
+            qlnr_update_path=configuration_dictionary.get(
+                SETTING_QLNR_UPDATE_PATH) or "",
+            on_qlnr_update_path_changed=_re_on_qlnr_update_path_changed,
             # The local ⇄ Next split (9.7.2): restored from the cfg here -
             # this widget is built lazily, after load_configuration_file's
             # splitter restore has run - and persisted by the move callback.

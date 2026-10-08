@@ -589,6 +589,73 @@ def run_update_tests(tmp):
           and done,
           f"{cap.get('wire')} / {out}")
 
+    # 6c. QLNextRemote (the Sinclair QL port): a 'qlnextremote' listener at
+    # 0.5.0+ updates its own job over the same macro. The staged file is the
+    # package's qemulator/qlnextremote_exe (its 30-byte QDOS header in the
+    # bytes), the version rides the package folder's name, the README the
+    # package's deploypak.txt lists goes into HOME first (crc-checked: a
+    # 0.5.0 seat answers 'K'), the macro ends with the MARKED quit and the
+    # console says the QL restarts into the new build. A 0.4.0 seat, a
+    # headerless blob and a missing remote dir are refused before a byte
+    # moves.
+    qdir = os.path.join(tmp, "qlnextremote-0.5.1")
+    os.makedirs(os.path.join(qdir, "qemulator"), exist_ok=True)
+    qlfile = os.path.join(qdir, "qemulator", "qlnextremote_exe")
+    ql_hdr = (b"]!QDOS File Header" + bytes([0, 15]) + bytes([0, 1])
+              + (140 * 1024).to_bytes(4, "big") + bytes(4))
+    ql_body = (b"\x60\x00" + bytes(range(256)) * 6
+               + b"QLNextRemote\x00" + b"0.5.1\x00tail")
+    with open(qlfile, "wb") as f:
+        f.write(ql_hdr + ql_body)
+    with open(os.path.join(qdir, "README.md"), "wb") as f:
+        f.write(b"# QLNextRemote 0.5.1\r\n")
+    with open(os.path.join(qdir, "deploypak.txt"), "w", encoding="utf-8") as f:
+        f.write("README.md\n")
+    check("updQLv: the version comes from the package folder two levels up",
+          ns._qlnr_staged_ver(qlfile) == "0.5.1"
+          and ns._qlnr_staged_ver(os.path.join(tmp, "elsewhere", "qlnextremote_exe")) == ""
+          and ns._qlnr_blob_has_header(ql_hdr + ql_body)
+          and not ns._qlnr_blob_has_header(ql_body),
+          ns._qlnr_staged_ver(qlfile))
+    qbase = "W:/HOME/qlnextremote_exe"
+    cap, out, done = run([("update", qlfile, "W:/HOME")],
+                         ("qlnextremote", "0.5.0"))
+    want = [('P', "W:/HOME/README.md"), ('K', "W:/HOME/README.md"),
+            ('P', qbase + ".new"), ('K', qbase + ".new"), ('U', ''),
+            ('X', qbase + ".bak"),
+            ('V', qbase + "\x00" + qbase + ".bak"),
+            ('V', qbase + ".new\x00" + qbase),
+            ('Q', 'X')]
+    check("updQL : README first (crc), then P/K/U/X/V/V under W:/HOME, marked "
+          "quit, the QL's done wording",
+          cap.get('wire') == want
+          and cap.get('puts', [])[-1] == (qbase + ".new", ql_hdr + ql_body)
+          and "update COMPLETE" in out and "restart into the new build" in out
+          and "soft-reset" not in out and done,
+          f"{cap.get('wire')} / {out}")
+    cap, out, done = run([("update", qlfile, "W:/HOME")],
+                         ("qlnextremote", "0.4.0"))
+    check("updQLold: a 0.4.0 seat is refused, nothing on the wire",
+          cap.get('wire') == [('Q', '')] and "needs QLNR 0.5.0+" in out and done,
+          f"{cap.get('wire')} / {out}")
+    cap, out, done = run([("update", qlfile, "")], ("qlnextremote", "0.5.0"))
+    check("updQLdir: the QL flavor demands the remote dir",
+          cap.get('wire') == [('Q', '')] and "explicit remote dir" in out and done,
+          f"{cap.get('wire')} / {out}")
+    qlbare = os.path.join(qdir, "qemulator", "qlnextremote_bin")
+    with open(qlbare, "wb") as f:
+        f.write(ql_body)
+    cap, out, done = run([("update", qlbare, "W:/HOME")],
+                         ("qlnextremote", "0.5.0"))
+    check("updQLhdr: a blob without the QDOS header is refused before a byte moves",
+          cap.get('wire') == [('Q', '')] and "QDOS executable header" in out and done,
+          f"{cap.get('wire')} / {out}")
+    cap, out, done = run([("update", qlfile, "W:/HOME")],
+                         ("qlnextremote", "0.5.1"))
+    check("updQLsame: a seat already at the staged version is refused without 'force'",
+          cap.get('wire') == [('Q', '')] and "add 'force'" in out and done,
+          f"{cap.get('wire')} / {out}")
+
     # 7. The crc verify (9.7.5). A listener whose cached 'version' answer
     # names a build with the crc op (dot 5.9.2+ / ZXNR 1.0.8+) is asked for
     # the staged file's CRC-32 with 'K' instead of pulling it back with 'G':
