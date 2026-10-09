@@ -1228,7 +1228,8 @@ class RemoteExplorerWidget(QWidget):
                  splitter_sizes=None, on_splitter_moved=None,
                  on_emulator_recheck=None, update_prompt_enabled=None,
                  on_update_prompt=None,
-                 local_history=None, on_local_history_changed=None):
+                 local_history=None, on_local_history_changed=None,
+                 drop_silent=None):
         super().__init__(parent)
         self._enqueue_raw = enqueue          # host closure: put one command
         # host closure: enqueue_to(sid, cmd) -> bool, delivering ONE command
@@ -1239,6 +1240,15 @@ class RemoteExplorerWidget(QWidget):
         # this pane happens to drive". Without the hook the menu simply
         # offers nothing for a benched machine.
         self._enqueue_to_raw = enqueue_to
+        # host closure: drop_silent(sid) -> bool (9.7.45). Disconnect calls
+        # it with the seat it aimed at, after the quit went out as always.
+        # It only MARKS the seat: the worker's session decides on its OWN
+        # 'Y' answer and silence, and drops nothing but a QLNextRemote seat
+        # that has stopped polling (a QL core reset under a live ESP link
+        # can never collect the quit). The widget makes no ident judgement
+        # of its own here - its caches can be stale across a re-seat.
+        # Absent (None) means Disconnect does exactly what it always did.
+        self._drop_silent_raw = drop_silent
         self._drain_raw = drain              # host closure: empty the queue, -> count
         self._log = log or (lambda s: None)
         # host closure: path -> [EmulatorAutostart] for the emulators that are
@@ -2410,10 +2420,12 @@ class RemoteExplorerWidget(QWidget):
         # progress dialog were all wedged until the app was killed. The
         # worker gives up on a silent peer after PEER_SILENCE_LIMIT and ends
         # the session, which does end the op — 45 s when this was written,
-        # 400 s since 9.7.18 (paired with ZX Next Remote 1.2.0's guard), so
-        # this grace now fires FIRST and is what releases the UI; the
-        # worker's verdict follows later. Cancel is bounded either way:
-        # ask, wait, and if nothing has moved, let go.
+        # 400 s at 9.7.18 (paired with ZX Next Remote 1.2.0's guard) and
+        # 620 s since 9.7.24 (to outlast one relayed bridge op); a
+        # QLNextRemote seat has its own QLNR_PEER_SILENCE_LIMIT, 120 s since
+        # 9.7.45. Both sit above this grace, so it fires FIRST and is what
+        # releases the UI; the worker's verdict follows later. Cancel is
+        # bounded either way: ask, wait, and if nothing has moved, let go.
         self._op_cancel_mark = self._op_completed
         QTimer.singleShot(RE_CANCEL_GRACE_MS, self._op_cancel_timeout)
 
@@ -2429,8 +2441,9 @@ class RemoteExplorerWidget(QWidget):
         _end_operation only releases the UI (dialog, overlay, panes). A put
         already in flight keeps running in the worker and normally still
         lands; a genuinely dead peer is caught separately by the worker's
-        PEER_SILENCE_LIMIT (400 s since 9.7.18 — later than this timer, by
-        design), which ends the session and the operation with it.
+        PEER_SILENCE_LIMIT (620 s since 9.7.24; a QLNextRemote seat's
+        QLNR_PEER_SILENCE_LIMIT is 120 s since 9.7.45 — both later than this
+        timer, by design), which ends the session and the operation with it.
 
         So: no claim about WHY, and no claim that the file was lost."""
         if not self._op_active or not self._op_cancelled:
@@ -3059,7 +3072,27 @@ class RemoteExplorerWidget(QWidget):
             # and saying so beats a silent no-op.
             self._log(ui_tr_now("That Next is no longer on the line."))
             return
+        # 9.7.45: the quit above only ever reaches a seat that POLLS. Also
+        # mark the seat it aimed at (the driven one for the button), and
+        # let the worker decide: it drops only a QLNextRemote seat that has
+        # said nothing since this press, sits idle with the quit next in
+        # line and has been silent for QLNR_DROP_SILENCE - every other seat
+        # ignores the mark, and a QL that polls collects the quit as before.
+        self._drop_if_silent(sid if sid is not None else self._peer_active)
         self._log(ui_tr_now("Asked the Next to leave listen mode and exit."))
+
+    def _drop_if_silent(self, sid):
+        """Hand Disconnect's target to the host's drop_silent hook (9.7.45).
+        False when no hook is wired, no seat is known, or the worker no
+        longer has that sid; never raises (Disconnect has already gone out
+        by the time this runs)."""
+        if self._drop_silent_raw is None or sid is None:
+            return False
+        try:
+            return bool(self._drop_silent_raw(sid))
+        except Exception:                       # noqa: BLE001
+            logging.exception("Remote explorer: drop_silent hook failed")
+            return False
 
     def _enqueue_to(self, sid, cmd):
         """One command to a NAMED session's queue. False when the host wired

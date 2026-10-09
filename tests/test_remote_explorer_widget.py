@@ -182,6 +182,10 @@ def make_widget(**kw):
         enqueue_to=kw.get(
             "enqueue_to",
             lambda sid, cmd: (calls["q_to"].append((sid, cmd)) or True)),
+        # 9.7.45: Disconnect's drop hook. Absent unless a test hands one in,
+        # so every other test keeps the widget exactly as an older host
+        # built it.
+        drop_silent=kw.get("drop_silent"),
         splitter_sizes=kw.get("splitter_sizes"),
         on_splitter_moved=kw.get("on_splitter_moved"),
         local_sort=kw.get("local_sort"),
@@ -2805,6 +2809,100 @@ def test_session_tab_menu():
           and logged(calls, "no longer on the line"))
 
 
+def test_disconnect_marks_the_seat():
+    """9.7.45: Disconnect ALSO hands the seat it aimed at to the host's
+    drop_silent hook - the worker then drops it only if that session's own
+    'Y' answer is QLNextRemote and it has stopped polling (a QL core reset
+    under a live ESP link can never collect the quit). The routing of the
+    quit itself is exactly test_disconnect_button / test_session_tab_menu's:
+    driven seat -> the raw shared queue, named seat -> its own queue. The
+    widget judges nothing by ident: every target is handed over, and the
+    worker decides."""
+    print("\n== Disconnect marks the seat it aimed at ==")
+    seats, sent, marked = {1, 2}, [], []
+
+    def enqueue_to(sid, cmd):
+        if sid not in seats:
+            return False
+        sent.append((sid, cmd))
+        return True
+
+    def drop_silent(sid):
+        marked.append(sid)
+        return sid in seats
+
+    w, calls = make_widget(local_start_dir=tdir("dropmark_root"),
+                           enqueue_to=enqueue_to, drop_silent=drop_silent)
+    w.on_peers((1, [(1, "10.0.0.5"), (2, "10.0.0.7")]))
+    connect_widget(w, calls)
+    # A QL ident on the driven seat, a dot on the benched one: the widget
+    # must NOT route by it (the worker decides on the session's own ident).
+    w._peer_idents[1] = ("qlnextremote", "1.1.4")
+    w._peer_idents[2] = ("sync", "5.9.13")
+
+    FakeMsg.answer = QMessageBox.Yes
+    w._disconnect_peer()
+    check("button: the quit still rides the raw shared queue, alone",
+          drain(calls) == [("quit_app",)] and sent == [], (sent,))
+    check("button: and the DRIVEN seat is handed to the drop hook",
+          marked == [1], marked)
+    check("button: logged as before", logged(calls, "leave listen mode and exit"))
+    marked.clear()
+
+    w._disconnect_session(2)
+    check("benched tab: the quit rides that seat's own queue",
+          sent == [(2, ("quit_app",))] and drain(calls) == [], (sent,))
+    check("benched tab: and THAT seat is handed to the drop hook",
+          marked == [2], marked)
+    sent.clear()
+    marked.clear()
+
+    w._disconnect_session(1)
+    check("driven tab: shared queue, the driven seat handed over",
+          drain(calls) == [("quit_app",)] and sent == [] and marked == [1],
+          (sent, marked))
+    marked.clear()
+
+    FakeMsg.answer = QMessageBox.Cancel
+    w._disconnect_peer()
+    w._disconnect_session(2)
+    check("a cancelled confirm marks nothing and sends nothing",
+          marked == [] and sent == [] and drain(calls) == [], (marked, sent))
+    FakeMsg.answer = QMessageBox.Yes
+
+    seats.discard(2)
+    calls["log"].clear()
+    w._disconnect_session(2)
+    check("a departed seat: refused as before, and nothing is marked",
+          marked == [] and logged(calls, "no longer on the line"), marked)
+    seats.add(2)
+
+    # A hook that raises must not undo or hide the quit already sent.
+    def broken(_sid):
+        raise RuntimeError("boom")
+    w._drop_silent_raw = broken
+    calls["log"].clear()
+    w._disconnect_peer()
+    check("a broken drop hook: the quit still went out and was logged",
+          drain(calls) == [("quit_app",)]
+          and logged(calls, "leave listen mode and exit"))
+
+    # No hook (an older host): Disconnect is exactly what it always was.
+    w._drop_silent_raw = None
+    w._disconnect_peer()
+    check("no drop hook: the plain quit, nothing else",
+          drain(calls) == [("quit_app",)])
+
+    # No roster yet (the button before any peers signal): nothing to name,
+    # so nothing is handed over.
+    w2, calls2 = make_widget(local_start_dir=tdir("dropmark_root2"),
+                             drop_silent=drop_silent)
+    connect_widget(w2, calls2)
+    w2._disconnect_peer()
+    check("no known seat: the quit goes out, no seat is marked",
+          drain(calls2) == [("quit_app",)] and marked == [], marked)
+
+
 def test_machine_colors():
     """The per-machine colour (9.5.27): picked in the name dialog, keyed by
     ADDRESS like the name, and painted on BOTH surfaces that identify a
@@ -4026,6 +4124,7 @@ def main():
         test_single_seat_redial_keeps_the_pane()
         test_machine_names_follow_the_address()
         test_session_tab_menu()
+        test_disconnect_marks_the_seat()
         test_update_prompt()
         test_update_targets()
         test_machine_colors()

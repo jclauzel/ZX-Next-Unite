@@ -775,6 +775,18 @@ def build_nextsync_pane(
             return False
         return bool(fn(sid, cmd))
 
+    def _re_drop_silent(sid):
+        # 9.7.45: Disconnect's second half - mark seat `sid` so a SILENT
+        # QLNextRemote seat (a reset QL core whose ESP still holds the
+        # link) ends now instead of after its silence limit. The worker's
+        # session decides on its own ident and silence; every other seat
+        # ignores the mark. False when the server is not running or the
+        # sid has left - same shape as the targeted enqueue above.
+        fn = host._re_control.get('drop_silent')
+        if fn is None or not host._re_running:
+            return False
+        return bool(fn(sid))
+
     def _nextsync_http_bridge_start():
         if host._re_bridge is not None and host._re_bridge.running:
             return
@@ -1390,6 +1402,10 @@ def build_nextsync_pane(
             # so it needs the same per-session queue the HTTP bridge's
             # ?session=N routes use, not the shared one.
             enqueue_to=_re_bridge_enqueue_to,
+            # Disconnect also marks the seat it aimed at (9.7.45), so a QL
+            # that went silent (its core reset under a live ESP link) is
+            # dropped instead of holding the seat until its silence limit.
+            drop_silent=_re_drop_silent,
             emulator_launchers=_re_emulator_launchers,
             # Right-click on a strip tab also offers the remembered disk
             # images that are writable right now (9.6.2) - the same list

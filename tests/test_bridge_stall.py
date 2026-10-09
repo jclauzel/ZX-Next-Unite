@@ -293,6 +293,33 @@ def test_silence_limit_outlasts_the_next_verdict():
           (zxnu_workers.PEER_SILENCE_LIMIT, LONG_TIMEOUT))
 
 
+def test_ql_silence_limit_sits_between():
+    """9.7.45: a QLNextRemote seat (and ONLY one whose own 'Y' answer says
+    so) is reaped at QLNR_PEER_SILENCE_LIMIT instead - a QL core that is
+    hard-reset leaves the Next's ESP holding the link, with no FIN.
+
+    It must stay ABOVE ~35 s, the longest gap a LIVE QL leaves between
+    messages on the ESP path (a put's lost frame: 10 s wait, 1 s SEND OK
+    and ~24 s of CIPSEND prompt retries before its "Retry"), and strictly
+    BELOW PEER_SILENCE_LIMIT, or it would be no exception at all. It
+    deliberately does NOT honour the >330 s / >LONG_TIMEOUT pair above: a
+    live QL that is reaped hears the close at its next Poll and redials.
+    The pair itself is untouched for every other seat (the checks above)."""
+    ql = zxnu_workers.QLNR_PEER_SILENCE_LIMIT
+    check("silence: the QL limit outlasts a live QL's worst gap (~35 s)",
+          ql > 35.0, ql)
+    check("silence: the QL limit is a real exception (below the Next limit)",
+          ql < zxnu_workers.PEER_SILENCE_LIMIT,
+          (ql, zxnu_workers.PEER_SILENCE_LIMIT))
+    check("silence: Disconnect's drop waits less than the QL limit",
+          0 < zxnu_workers.QLNR_DROP_SILENCE < ql,
+          (zxnu_workers.QLNR_DROP_SILENCE, ql))
+    check("silence: the gate is the exact QLNextRemote ident type",
+          zxnu_workers.RE_QLNR_IDENT_TYPE == "qlnextremote"
+          and "qlnextremote" in zxnu_workers.RE_CRC_FLOORS,
+          zxnu_workers.RE_QLNR_IDENT_TYPE)
+
+
 def test_long_timeout_under_client_patience():
     """The bridge must give up BEFORE its strictest client does, or the user
     sees silence instead of a 504 naming the stalled operation.
@@ -313,6 +340,7 @@ if __name__ == "__main__":
     test_reply_idempotent()
     test_long_timeout_under_client_patience()
     test_silence_limit_outlasts_the_next_verdict()
+    test_ql_silence_limit_sits_between()
     test_stall_resolves_and_session_survives()
     test_dropped_link_resolves_caller()
     test_silent_peer_is_reaped()

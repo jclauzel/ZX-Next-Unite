@@ -1135,6 +1135,8 @@ CATALOGS = {
             "Explorador remoto: el Next cerró la conexión.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Explorador remoto: sin noticias del Next durante {seconds}s: se da por perdido (¿apagado? ¿Wi-Fi caído?)",
+        "Remote explorer: the QL at {address} has been silent for {seconds}s — Disconnect closes its seat now instead of waiting for a quit it cannot collect.":
+            "Explorador remoto: el QL en {address} lleva {seconds}s en silencio — Desconectar cierra ahora su sesión en lugar de esperar una orden de salida que no puede recoger.",
         "Remote explorer: turned away a second Next at {address} — a session is already active (Busy).":
             "Explorador remoto: se rechazó un segundo Next desde {address}: ya hay una sesión activa (Busy).",
         "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
@@ -2589,6 +2591,8 @@ CATALOGS = {
             "Explorador remoto: o Next fechou a ligação.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Explorador remoto: sem resposta do Next há {seconds}s: assume-se que desapareceu (desligado? Wi-Fi caiu?)",
+        "Remote explorer: the QL at {address} has been silent for {seconds}s — Disconnect closes its seat now instead of waiting for a quit it cannot collect.":
+            "Explorador remoto: o QL em {address} está em silêncio há {seconds}s — Desligar fecha agora a sua sessão em vez de esperar por uma ordem de saída que não pode receber.",
         "Remote explorer: turned away a second Next at {address} — a session is already active (Busy).":
             "Explorador remoto: recusou-se um segundo Next em {address}: já há uma sessão ativa (Busy).",
         "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
@@ -4039,6 +4043,8 @@ CATALOGS = {
             "Eksplorator zdalny: Next zamknął połączenie.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Eksplorator zdalny: brak sygnału od Nexta od {seconds}s — uznano za utracony (wyłączony? zerwane Wi-Fi?)",
+        "Remote explorer: the QL at {address} has been silent for {seconds}s — Disconnect closes its seat now instead of waiting for a quit it cannot collect.":
+            "Eksplorator zdalny: QL pod adresem {address} milczy od {seconds}s — Rozłącz zamyka teraz jego sesję, zamiast czekać na polecenie wyjścia, którego nie może odebrać.",
         "Remote explorer: turned away a second Next at {address} — a session is already active (Busy).":
             "Eksplorator zdalny: odrzucono drugiego Nexta z {address} — sesja jest już aktywna (Busy).",
         "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
@@ -5491,6 +5497,8 @@ CATALOGS = {
             "Удалённый проводник: Next закрыл соединение.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Удалённый проводник: от Next нет данных {seconds}с — считаем, что он пропал (выключен? пропал Wi-Fi?)",
+        "Remote explorer: the QL at {address} has been silent for {seconds}s — Disconnect closes its seat now instead of waiting for a quit it cannot collect.":
+            "Удалённый проводник: QL по адресу {address} молчит уже {seconds}с — «Отключить» закрывает его сеанс сейчас, а не ждёт команды выхода, которую он не может получить.",
         "Remote explorer: turned away a second Next at {address} — a session is already active (Busy).":
             "Удалённый проводник: второй Next с {address} отклонён — сеанс уже активен (Busy).",
         "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
@@ -6939,6 +6947,8 @@ CATALOGS = {
             "Vzdálený průzkumník: Next ukončil spojení.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Vzdálený průzkumník: od Nextu {seconds}s nic nepřišlo — považuje se za ztracený (vypnutý? spadla Wi-Fi?)",
+        "Remote explorer: the QL at {address} has been silent for {seconds}s — Disconnect closes its seat now instead of waiting for a quit it cannot collect.":
+            "Vzdálený průzkumník: QL na {address} mlčí už {seconds}s — Odpojit teď zavře jeho relaci, místo aby čekal na příkaz k ukončení, který si nemůže vyzvednout.",
         "Remote explorer: turned away a second Next at {address} — a session is already active (Busy).":
             "Vzdálený průzkumník: druhý Next z {address} byl odmítnut — relace už běží (Busy).",
         "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":
@@ -8396,6 +8406,8 @@ CATALOGS = {
             "Explorateur distant : le Next a fermé la connexion.",
         "Remote explorer: no word from the Next for {seconds}s — assuming it is gone (powered off? Wi-Fi dropped?)":
             "Explorateur distant : plus de nouvelles du Next depuis {seconds}s — considéré comme perdu (éteint ? Wi-Fi coupé ?)",
+        "Remote explorer: the QL at {address} has been silent for {seconds}s — Disconnect closes its seat now instead of waiting for a quit it cannot collect.":
+            "Explorateur distant : le QL à {address} est muet depuis {seconds}s — Déconnecter ferme sa session maintenant au lieu d'attendre un ordre de sortie qu'il ne peut pas recevoir.",
         "Remote explorer: turned away a second Next at {address} — a session is already active (Busy).":
             "Explorateur distant : un second Next depuis {address} a été refusé — une session est déjà active (Busy).",
         "Remote explorer: server keeps running in the background — stop it from the Remote Explorer view.":

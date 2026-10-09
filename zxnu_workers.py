@@ -1208,6 +1208,71 @@ RE_REPLY_TIMEOUT = 60.0
 #: of letting a multi-megabyte file cross the bridge.
 PEER_SILENCE_LIMIT = 620.0
 
+#: 9.7.45: the QLNextRemote exception. Everything below is gated on the
+#: SESSION'S OWN 'Y' answer (sess_ident, the one this session's own TCP
+#: peer gave): its type, stripped and lower-cased, must equal THIS exactly.
+#: An ident never asked (None), a listener too old for 'Y' (("", "")) and
+#: every other brand - the .sync5 dot "sync", ZX Next Remote "httpbridge" /
+#: "n2n", CSpect/MAME Nexts running either - keep PEER_SILENCE_LIMIT and
+#: the code path above untouched. Hand-kept twin of the widget's
+#: QLNR_IDENT_TYPE (zxnu_remote_explorer) and RE_CRC_FLOORS' key below.
+RE_QLNR_IDENT_TYPE = "qlnextremote"
+
+#: Seconds of silence after which a QLNextRemote seat is reaped (9.7.45).
+#: Why a QL gets its own limit: a QL core that is hard-reset cannot reset
+#: the Next's ESP8266, which keeps the TCP link up, so no FIN ever arrives
+#: and the dead seat used to sit for the full 620 s, shown connected. A
+#: LIVE QL polls every 0.2-0.5 s when idle (QLNextRemote listener.c,
+#: LS_IDLE_PAUSE), and its worst legitimate gap between messages is ~35 s
+#: on the ESP path (a put's lost frame: 10 s wait + 1 s SEND OK + ~24 s of
+#: CIPSEND prompt retries before its "Retry"); 120 s leaves over 3x that.
+#: It deliberately does NOT follow the ">330 s and > LONG_TIMEOUT" pairing
+#: PEER_SILENCE_LIMIT keeps for Nexts and the bridge. For a QL that is
+#: acceptable: the QL's own 56-poll / 300 s verdict no longer lands first,
+#: and the cost for a live QL that is reaped is a fresh seat: over a Next's
+#: ESP the module reports the close ("0,CLOSED") and QLNextRemote redials
+#: at once (listener.c's redial ladder). Over a PC emulator's TCP_ device
+#: it may not: on sQLux (QLNextRemote 1.1.4, checked 2026-10-09) a QL whose
+#: far side closes never notices - its send waits without a timeout - and
+#: stays off until restarted, exactly as after any other server-side close.
+#: A live emulated QL is never silent for this long unless the emulator is
+#: frozen, so that case is a resumed-emulator one. The clock restarts when a command FINISHES
+#: (not only when a byte arrives): a long get/crc/rename is read inside
+#: _re_reply_call, so last_rx alone would reap a QL the moment the first
+#: idle timeout followed a 5-minute download. Read at CALL time (the suite
+#: patches it); tests/test_bridge_stall.py pins it strictly between 35 s
+#: and PEER_SILENCE_LIMIT.
+QLNR_PEER_SILENCE_LIMIT = 120.0
+
+#: Seconds a QLNextRemote seat must have been silent for Disconnect to drop
+#: it (9.7.45). Disconnect's quit is only ever served in reply to a Poll,
+#: and a reset QL core never polls again, so the quit alone could not clear
+#: it. The session drops such a seat itself, from its idle recv, only when
+#: ALL of these hold (the drop gate in _re_session's timeout arm):
+#:   - Disconnect marked it (control['drop_silent']) and the peer has said
+#:     nothing since that mark - a QL heard after the press is alive, and
+#:     the mark is moot from then on;
+#:   - the peer is idle BETWEEN commands: its last word was a Poll, no put
+#:     is being pulled and no walk/macro/verify step is queued. Mid-put the
+#:     last word is "Get"/"Retry" - after the last data frame the QL still
+#:     pulls the empty EOF frame (it waits LS_DATA_TICKS = 10 s per frame),
+#:     and cutting it there makes it delete the file it just received;
+#:   - the next command it would take is the quit itself. A batch still
+#:     queued ahead of it (a paste, a bridge script) means the QL is busy in
+#:     the user's eyes: dropping it would hand the rest of that batch to the
+#:     next baton holder - another machine - so such a seat is left to
+#:     finish and collect the quit, or to meet QLNR_PEER_SILENCE_LIMIT;
+#:   - it has been this quiet: twice the QL's 5 s Poll-reply wait, dozens
+#:     of its 0.2 s idle Poll intervals.
+#: The residual, accepted: a LIVE idle QL whose polls happen to stall for
+#: longer than this across the press (two lost 'I' answers, or the ESP's
+#: CIPSEND prompt ladder, ~24-30 s at worst) is dropped too. Over the ESP
+#: it hears the close and redials, so the user sees it come back and
+#: presses Disconnect again - nothing it was doing is cut, and nothing goes
+#: to another seat.
+#: Read at CALL time (the suite patches it).
+QLNR_DROP_SILENCE = 10.0
+
 #: How many Nexts may sit on the listen server at once (option B). One
 #: past the cap gets the framed "Busy" turn-away -- the option-A reply,
 #: kept as the over-capacity answer.
@@ -1259,7 +1324,8 @@ RE_UPD_EXTRA_RETRIES = 3
 # left half-written, but a Next that has stopped answering never reports
 # that file done, which used to wedge the operation for good. It sat past
 # PEER_SILENCE_LIMIT (then 45 s) so the worker's dead-peer detector got
-# first refusal; since 9.7.18 that limit is 400 s and THIS fires first.
+# first refusal; since 9.7.18 that limit is 400 s (620 s since 9.7.24, and
+# 120 s for a QLNextRemote seat since 9.7.45) and THIS fires first.
 # That is fine because of what 9.7.14 made it: it only stops WAITING and
 # releases the UI, claims nothing about the Next, and the put keeps running
 # in the worker — the dead-peer verdict still arrives, later, and ends the
@@ -1288,6 +1354,78 @@ def re_verify_wait(size_bytes):
     """Seconds to wait for ONE 'K' answer over a file of size_bytes."""
     return min(3600.0, RE_VERIFY_WAIT_FLOOR
                + max(0, int(size_bytes)) / RE_VERIFY_BYTES_PER_S)
+
+
+def re_ident_is_qlnr(ident):
+    """True only when a session's cached 'Y' answer (type, number) names a
+    QLNextRemote Listener (9.7.45): the type, stripped and lower-cased, is
+    exactly RE_QLNR_IDENT_TYPE (read at call time). None (never asked),
+    ("", "") (a listener too old for 'Y') and every other brand => False,
+    so each QL-only rule falls back to the code path every Next takes."""
+    if not ident:
+        return False
+    rtype = ident[0]
+    if not isinstance(rtype, str):
+        return False
+    return rtype.strip().lower() == RE_QLNR_IDENT_TYPE
+
+
+def _re_is_quit_app(cmd):
+    """A Disconnect / /forceexit command tuple: the UI's plain
+    ("quit_app",) or the bridge's ("quit_app", <BridgeReply>)."""
+    return (isinstance(cmd, tuple) and len(cmd) in (1, 2)
+            and cmd[0] == "quit_app"
+            and (len(cmd) == 1 or isinstance(cmd[1], BridgeReply)))
+
+
+def _re_queue_head(q):
+    """(True, the item a get() would return next) or (False, None) for an
+    empty queue (9.7.45) - a PEEK, under the queue's own mutex, that takes
+    nothing. (False, None) too for anything that is not a queue.Queue, so a
+    caller that gates on it fails safe."""
+    mutex = getattr(q, 'mutex', None)
+    items = getattr(q, 'queue', None)
+    if mutex is None or not isinstance(items, deque):
+        return False, None
+    with mutex:
+        if not items:
+            return False, None
+        return True, items[0]
+
+
+def _re_purge_quit_apps(q, plain_only=False):
+    """Take every quit_app command off the SHARED command queue IN PLACE,
+    leaving every other item where it was (9.7.45). Returns (how many went,
+    [the BridgeReply sinks among them, for the caller to fail]).
+    ``plain_only`` takes only the UI's plain ("quit_app",) and leaves a
+    bridge client's ("quit_app", reply) where it is (the Sessions Off
+    takeover, which hands targeted bridge commands on as well).
+
+    Done under the queue's own mutex, on its deque, rather than by draining
+    and re-putting: the UI thread and the HTTP bridge threads put() without
+    any lock of ours, and a drain-and-refill would let one of their items
+    slip in AHEAD of the ones being put back - a reorder of somebody's
+    queued operation. Holding Queue.mutex makes the filter one atomic step
+    against every put()/get(). The caller holds plock as well, which every
+    shared-queue pop also takes first (_pop_shared), so the lock order here
+    (plock, then the queue's mutex) is the one that path already uses."""
+    mutex = getattr(q, 'mutex', None)
+    items = getattr(q, 'queue', None)
+    if mutex is None or not isinstance(items, deque):
+        return 0, []
+    sinks = []
+
+    def _goes(c):
+        return _re_is_quit_app(c) and not (plain_only and len(c) == 2)
+    with mutex:
+        keep = [c for c in items if not _goes(c)]
+        removed = len(items) - len(keep)
+        if removed:
+            sinks = [c[1] for c in items if _goes(c) and len(c) == 2]
+            items.clear()
+            items.extend(keep)
+            q.not_full.notify(removed)   # as get() does, per item taken
+    return removed, sinks
 
 
 def _re_reply_call(conn, handler, timeout=None, late_ok=False):
@@ -1476,6 +1614,15 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
     newcomer holds the SAME sid, so the active-sid check alone would not
     stop it — and its next recv ends it (the accept loop shuts the socket
     down, so that is at once). None = a bare call (the tests').
+
+    9.7.45 adds two keys. ``ident`` is published here (under plock) each
+    time this session learns its peer's 'Y' answer, so the accept loop can
+    tell a QLNextRemote seat from any other. ``drop_silent`` is the
+    monotonic time control['drop_silent'] last marked the seat (the
+    Disconnect button and the session tab's Disconnect): a seat whose OWN
+    ident is QLNextRemote, silent since that mark and for QLNR_DROP_SILENCE,
+    idle between commands and with the quit next in line, then ends itself
+    from the idle recv (see QLNR_DROP_SILENCE). Every other seat ignores it.
     """
     peers = shared['peers']
     plock = shared['lock']
@@ -1485,6 +1632,61 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
 
     def _evicted():
         return bool(seat.get('evicted'))
+
+    def _ql_self():
+        # 9.7.45: THIS session's own 'Y' answer names QLNextRemote. Read
+        # live - sess_ident is set by the version op and the verify probes,
+        # so a seat nobody asked yet (None) or an old listener (("", ""))
+        # is never a QL here, and keeps every Next's code path.
+        return re_ident_is_qlnr(sess_ident)
+
+    def _ql_drop_shared_quits():
+        # 9.7.45: a QL seat that ENDS - by QLNR_PEER_SILENCE_LIMIT, by the
+        # Disconnect drop, and just as well by EOF (a restarted QLNextRemote
+        # closes the ESP's stale link with AT+CIPCLOSE), a connection error
+        # or its own Bye - takes the quits meant for it off the SHARED
+        # queue (called once, from the finally). Only while it holds the
+        # baton and was not evicted: the one case where a Disconnect
+        # (driven seat) or a selector-less /forceexit put it there for THIS
+        # seat. Left behind, the next baton holder (max sid, quite possibly
+        # a real Next) would pop it and exit its app. Plain ("quit_app",)
+        # tuples go; a bridge's ("quit_app", reply) gets the 410 the finally
+        # gives every sink left on my_q; every other queued item stays where
+        # it was. Under plock: no session can pop the shared queue meanwhile
+        # (_pop_shared takes it first) and the baton cannot move under the
+        # check. A non-QL session never gets here (the caller gates on
+        # _ql_self), so a Next's leftovers are handed on exactly as before.
+        with plock:
+            if state['active'] != sid or _evicted():
+                return
+            n, sinks = _re_purge_quit_apps(cmd_queue)
+        for r in sinks:
+            r.put({'ok': False, 'http': 410,
+                   'error': f"session {sid} is gone - "
+                            "GET /sessions for the live list"})
+        if n:
+            logging.info("Remote explorer: %d quit(s) queued for QL seat "
+                         "#%s (%s) left the shared queue with it", n, sid,
+                         addr[0] if addr else "?")
+
+    def _ql_quit_is_next():
+        # 9.7.45, the Disconnect drop's queue gate: True only when the next
+        # command this seat would take at a Poll is a quit_app - its own
+        # queue first, then (only while it holds the baton, and no link-
+        # loss retry is held in front) the shared one: the order the Poll
+        # arm pops them. A PEEK; nothing is taken. Anything else in front
+        # (a batch's next step, a bridge op, a select_next) means the seat
+        # is busy in the user's eyes, and dropping it would hand that work
+        # to the next baton holder, so the drop waits.
+        with plock:
+            has, head = _re_queue_head(my_q)
+            if has:
+                return _re_is_quit_app(head)
+            if (_evicted() or state['active'] != sid
+                    or control.get('retry') is not None):
+                return False
+            has, head = _re_queue_head(cmd_queue)
+            return has and _re_is_quit_app(head)
 
     def _bye_evicted():
         # The accept loop already told the console who replaced whom; the
@@ -1855,8 +2057,15 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     return True
                 _re_sendpacket(conn, b"Y", 0)
                 got_v = _re_reply_call(conn, _hv)
-                return ((res['type'], res['number'])
-                        if got_v and res['type'] else ("", ""))
+                ident = ((res['type'], res['number'])
+                         if got_v and res['type'] else ("", ""))
+                # 9.7.45: every sess_ident assignment is this function's
+                # answer, so publishing it HERE puts it in the seat for the
+                # accept loop (Sessions Off inheritance) at every site. A
+                # bare call's seat is a private {}.
+                with plock:
+                    seat['ident'] = ident
+                return ident
 
             def _verify_wanted():
                 # The Settings toggle via the injected 0-arg hook, read per
@@ -2232,7 +2441,28 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
             # is read inside _re_reply_call, which has its own timeout — so a
             # slow operation can never be mistaken for a dead peer.
             last_rx = time.monotonic()
+            # 9.7.45: the moment this session last came BACK to this recv
+            # after serving its peer - after a whole command (a long get,
+            # crc, ls or rename and their reply exchanges included, all of
+            # which run inside _re_reply_call and never touch last_rx), a
+            # put's pulled frame, or an idle 'I'. Stamped at the loop head
+            # after a turn that received data, never on the 1 s timeout
+            # spin. Only a QLNextRemote seat reads it (its silence counts
+            # from the later of the two), so a QL that has just finished a
+            # five-minute download is not reaped by the first idle timeout;
+            # every other seat keeps counting from last_rx alone.
+            turn_done = last_rx
+            served = False
+            # 9.7.45: the peer's last main-loop message, as the loop below
+            # classifies it. Only the QL drop gate reads it: a QL BETWEEN
+            # commands only ever polls, while one pulling a put says
+            # "Get"/"Retry"/"Restart" - including the EOF pull that follows
+            # the last data frame, after `pending` has already been cleared.
+            last_word = None
             while not stop_event.is_set():
+                if served:
+                    turn_done = time.monotonic()
+                    served = False
                 if pending is None:
                     # The previous turn's command has reported (a put reports
                     # when its pull ends and keeps its inflight until then).
@@ -2245,6 +2475,57 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     if _evicted():
                         _bye_evicted()
                         break
+                    if _ql_self():
+                        # 9.7.45, QLNextRemote only (this session's OWN
+                        # 'Y' answer): a reset QL core leaves the ESP
+                        # holding the link, so the seat goes quiet with no
+                        # FIN. Silence counts from the later of last_rx
+                        # and the end of the last served turn.
+                        heard = max(last_rx, turn_done)
+                        quiet = time.monotonic() - heard
+                        mark = seat.get('drop_silent')
+                        if (mark is not None and heard < mark
+                                and quiet >= QLNR_DROP_SILENCE
+                                and last_word == b"Poll"
+                                and pending is None and not local_cmds
+                                and _ql_quit_is_next()):
+                            # Disconnect marked this seat and it has said
+                            # nothing since: the quit can never be served
+                            # (only a Poll collects it), so end the seat
+                            # here. Never mid-command: its last word was a
+                            # Poll (mid-put it is "Get"/"Retry", the EOF
+                            # pull included), no put is being pulled and
+                            # no walk, macro or verify step is queued
+                            # (local_cmds) - and never with other work
+                            # queued in front of the quit, which would go
+                            # to the next baton holder. Such a seat is left
+                            # to finish and collect the quit, or, dead, to
+                            # meet the QL limit below. See QLNR_DROP_SILENCE.
+                            log(ui_tr_now(
+                                "Remote explorer: the QL at {address} has "
+                                "been silent for {seconds}s — Disconnect "
+                                "closes its seat now instead of waiting for "
+                                "a quit it cannot collect.").format(
+                                    address=addr[0] if addr else "?",
+                                    seconds=int(quiet)))
+                            logging.info(
+                                "Remote explorer: Disconnect dropped silent "
+                                "QL seat #%s (%s) after %ss", sid,
+                                addr[0] if addr else "?", int(quiet))
+                            break       # the finally purges its quits
+                        if quiet >= QLNR_PEER_SILENCE_LIMIT:
+                            log(ui_tr_now(
+                                "Remote explorer: no word from the Next for "
+                                "{seconds}s — assuming it is gone (powered "
+                                "off? Wi-Fi dropped?)").format(
+                                    seconds=int(QLNR_PEER_SILENCE_LIMIT)))
+                            logging.warning(
+                                "Remote explorer: QL peer silent for %ss — "
+                                "assuming it is gone (seat #%s, %s)",
+                                int(QLNR_PEER_SILENCE_LIMIT), sid,
+                                addr[0] if addr else "?")
+                            break       # the finally purges its quits
+                        continue
                     if time.monotonic() - last_rx >= PEER_SILENCE_LIMIT:
                         log(ui_tr_now(
                             "Remote explorer: no word from the Next for "
@@ -2289,6 +2570,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         addr[0] if addr else "?")
                     break
                 last_rx = time.monotonic()
+                served = True       # 9.7.45: turn_done at the next loop head
+                last_word = data    # 9.7.45: the QL drop gate's "between commands"
 
                 # A put in flight is served by the Next pulling the bytes with
                 # "Get"/"Gee" (or asking to resend with "Retry"/"Restart"). A newer
@@ -4178,6 +4461,18 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     "before the check) — file kept")
                 sig.put_done.emit(True, _vj['remote'])
         vjobs.clear()
+        # 9.7.45: a QLNextRemote session (its OWN 'Y' answer) that ends while
+        # holding the baton - whichever way it ends - takes the quits meant
+        # for it off the shared queue, so the next baton holder is never
+        # told to exit by them. Before the reap: the accept loop moves the
+        # baton only once this thread has finished. Every other session
+        # skips this line entirely.
+        if _ql_self():
+            try:
+                _ql_drop_shared_quits()
+            except Exception:                           # noqa: BLE001
+                logging.exception("Remote explorer: purging a QL seat's "
+                                  "quits from the shared queue failed")
         # Session-TARGETED commands still queued (never taken) would
         # otherwise strand their HTTP callers for the full bridge timeout:
         # fail them now, with the 410 the bridge maps to "session gone".
@@ -4475,8 +4770,26 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                 p['q'].put(cmd)
                 return True
 
+        def _drop_silent(sid):
+            # 9.7.45, the Disconnect button's second half: MARK the seat
+            # with the time of the press, nothing more. Its own session
+            # decides, from its idle recv, whether the mark means anything
+            # - only when the session's OWN 'Y' answer is QLNextRemote, it
+            # has said nothing since this mark, it is idle between commands
+            # with the quit next in line, and it has been silent for
+            # QLNR_DROP_SILENCE. Every other seat ignores it, and a QL heard
+            # after the press is alive: it collects the quit at its Poll as
+            # before. A later press re-marks. False for a sid not seated.
+            with plock:
+                p = peers.get(sid)
+                if p is None:
+                    return False
+                p['drop_silent'] = time.monotonic()
+                return True
+
         control['roster'] = _roster
         control['enqueue_to'] = _enqueue_to
+        control['drop_silent'] = _drop_silent
         control['max_peers'] = RE_MAX_PEERS if _sessions_on() else 1
 
         while not stop_event.is_set():
@@ -4662,11 +4975,49 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                     my_q.put(("version",))
                     for _s, _p in evicted:
                         _p['evicted'] = True
+                        if not re_ident_is_qlnr(_p.get('ident')):
+                            while True:
+                                try:
+                                    my_q.put(_p['q'].get_nowait())
+                                except queue.Empty:
+                                    break
+                            continue
+                        # 9.7.45: the evicted seat's own published 'Y'
+                        # answer was QLNextRemote. A plain ("quit_app",)
+                        # parked on it is a Disconnect pressed while that
+                        # QL was dead (a reset core polls no more), and
+                        # the QL dialing back in must not be told to exit
+                        # by it: skip those. Everything else - a bridge
+                        # client's ("quit_app", reply) included - moves
+                        # over in order, as for every other seat.
                         while True:
                             try:
-                                my_q.put(_p['q'].get_nowait())
+                                _c = _p['q'].get_nowait()
                             except queue.Empty:
                                 break
+                            if _c == ("quit_app",):
+                                logging.info(
+                                    "Remote explorer: a Disconnect queued "
+                                    "for the old QL link of seat #%s is not "
+                                    "handed to the newcomer", _s)
+                                continue
+                            my_q.put(_c)
+                        # ...and the button's OWN route. With Sessions Off
+                        # the one seat is always the driven one, so the
+                        # Disconnect button put its plain quit on the
+                        # SHARED queue, which the newcomer (same sid, the
+                        # baton) pops right after its ('version',). Same
+                        # rule: plain quits only, the rest stays in order.
+                        # (The evicted session's own finally skips its
+                        # purge - it is evicted - so this is the one.)
+                        if _s == state['active']:
+                            _n, _ = _re_purge_quit_apps(cmd_queue,
+                                                        plain_only=True)
+                            if _n:
+                                logging.info(
+                                    "Remote explorer: %d Disconnect(s) "
+                                    "queued for the old QL link of seat #%s "
+                                    "left the shared queue with it", _n, _s)
                     peers.clear()
                 if sid is None:
                     state['seq'] += 1

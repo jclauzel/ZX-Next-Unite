@@ -66,6 +66,10 @@ SUITES = [
     ("test_listen.py",          120, None),
     ("test_remote_listen.py",   120, None),
     ("test_bridge_stall.py",    180, None),
+    # A QLNextRemote seat that went silent (9.7.45): the QL-only silence
+    # limit, Disconnect's drop, and no quit left behind for another seat -
+    # fake peers over real sockets, with every other brand as a twin.
+    ("test_qlnr_stale_seat.py", 240, None),
     # The narrow unit test of bind_select_all_except_updir, against a
     # synthetic fixture: it is the only cover for the SD-tab regression
     # where SingleSelection killed Ctrl-A. The Remote Explorer's two
