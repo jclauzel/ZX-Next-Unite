@@ -265,11 +265,11 @@ halves are `extra\Send-ToNext.ps1` (PC) and `extra\autoexec.bas` (Next).
      to `/home/` on the SD card. Both carry the NextSync **Listener**, and
      the Listener is what Unite's HTTP bridge drives, so a push lands the
      same way either way. The flavour only decides which transport you
-     *also* get as a Controler when you are not pushing builds.
+     *also* get as a Controller when you are not pushing builds.
 2. *(the `.nex` flavours only)* In its Settings, set
    **NextSync → controller IP** to the PC running
    Unite. That is the field the Listener dials out on — *not* the bridge IP
-   and port, which belong to Http Bridge (Controler) mode and play no part
+   and port, which belong to Http Bridge (Controller) mode and play no part
    in receiving a push. The two are separate on purpose, so the two modes
    can face different machines.
 3. *(the `.nex` flavours only)* Set **Auto start** to `2 Listener`.
