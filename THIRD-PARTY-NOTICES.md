@@ -10,7 +10,7 @@ the provenance and licenses of those components.
 ### NextSync — Jari Komppa (Unlicense)
 
 The NextSync protocol, the original `.sync` dot command and the original
-server are by Jari Komppa (<https://github.com/jarikomppa/nextsync>), released
+server are by Jari Komppa (<https://github.com/jarikomppa/specnext/tree/master/sync>), released
 under the **Unlicense** (effectively public domain — see
 [nextsync/LICENSE](nextsync/LICENSE)). The `nextsync/` subtree of this
 repository retains his original files and license headers.
