@@ -336,7 +336,7 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
 
 def mock_update_next(sock, ops, staged, scenario, verify_bytes,
                      ident=b'Osync' + bytes([0]) + b'9.9.9', k_mode="ok",
-                     pak=None):
+                     pak=None, ql_ls=None):
     """Play the dot's half of an ("update_dot", ...) macro session. Records
     every command the wire carries into ``ops`` as (op, arg) — 'I' idle
     answers excluded, they are the worker saying "nothing queued" — and each
@@ -363,7 +363,22 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes,
     ignored, re-poll), 'p_refuse': {remote: n} (the first n 'P' for that
     extra are refused with a plain 'F'), 'p_osp': {remote,...} ('P' refused
     with the marked 'F'+OSP), 'kill_at': remote (drop the link when that
-    extra's 'P' arrives)}."""
+    extra's 'P' arrives)}.
+
+    ``ql_ls`` (9.7.46, the QL's fresh-install probe) scripts an 'L' of a
+    given folder: {remote_dir: [names] (a complete listing: 'D' blocks of
+    two rows each, then 'E') | 'F' (the folder did not open) | 'kill' (the
+    link drops on the 'L')}; any other 'L' keeps ``pak``'s answer. Three
+    more scenarios refuse the first rename like "ren1_refuse" and then meet
+    the install rename (<base>.new -> <base>, the 'V' that is not the
+    first one): "ren1_install_refuse" answers it 'F', "ren1_install_lost"
+    drops the link without a reply, "ren1_install_ackkill" acks it 'O' and
+    then drops the link; "ren1_refuse_kill" drops the link right after
+    refusing the first rename."""
+    ql_ls = ql_ls or {}
+    ren1_refusers = ("ren1_refuse", "ren1_install_refuse",
+                     "ren1_install_lost", "ren1_install_ackkill",
+                     "ren1_refuse_kill")
     pak = pak or {}
     by_path = {}                 # remote -> bytes the Next holds for an EXTRA
     k_bad = dict(pak.get('k_bad', {}))
@@ -428,6 +443,23 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes,
                 by_path[arg] = buf
         elif op == b'M':
             push({'O': b'O', 'F': b'F', 'FOSP': b'FOSP'}[pak.get('mkdir', 'O')], 0)
+        elif op == b'L' and arg in ql_ls:
+            plan = ql_ls[arg]
+            if plan == 'kill':
+                sock.close()                 # the link drops on the listing
+                break
+            if plan == 'F':
+                push(b'F', 0)                # the folder did not open
+                continue
+            pkt = 0
+            for i in range(0, len(plan), 2):
+                blk = b'D'
+                for nm in plan[i:i + 2]:
+                    raw = nm.encode()
+                    blk += (bytes([0]) + (len(raw) * 7).to_bytes(4, "little")
+                            + bytes([len(raw)]) + raw)
+                push(blk, pkt); pkt += 1
+            push(b'E', pkt)
         elif op == b'L':
             mode = pak.get('ls', 'E')
             if mode == 'DE':
@@ -491,21 +523,33 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes,
             ren1 = "\x00" in arg and arg.split("\x00", 1)[1].endswith(".bak")
             if ren1 and scenario == "ren1_osp":
                 push(b'FOSP', 0)        # refused by the OS protection (marked)
+            elif not ren1 and scenario == "ren1_install_refuse":
+                push(b'F', 0)           # the QL install rename, refused
+            elif not ren1 and scenario == "ren1_install_lost":
+                sock.close()            # the install rename's reply never comes
+                break
             else:
-                push(b'F' if (scenario == "ren1_refuse" and ren1) else b'O', 0)
+                push(b'F' if (scenario in ren1_refusers and ren1) else b'O', 0)
             if scenario == "kill_after_ren1" and ren1:
                 sock.close()
+                break
+            if scenario == "ren1_install_ackkill" and not ren1:
+                sock.close()            # acked, then the link drops
+                break
+            if scenario == "ren1_refuse_kill" and ren1:
+                sock.close()            # refused, then the link drops
                 break
         else:
             push(b'F', 0)                # unexpected op: refuse loudly
 
 def run_update_scenario(port, cmds, scenario, verify_bytes,
                         ident=b'Osync' + bytes([0]) + b'9.9.9', k_mode="ok",
-                        pak=None):
+                        pak=None, ql_ls=None):
     """Fresh worker + mock Next for one update_dot scenario. Returns
     (ops, staged, upd, puts, logs): the wire ops seen, the staged put(s),
     every dot_update emission, every (stray) put_done emission and the log
-    lines. ``ident``/``k_mode``/``pak`` reach :func:`mock_update_next`."""
+    lines. ``ident``/``k_mode``/``pak``/``ql_ls`` reach
+    :func:`mock_update_next`."""
     sig = RemoteExplorerSignals()
     upd, puts, logs = [], [], []
     # (ok, message, brand) since 9.7.10: the brand picks the toast's title.
@@ -528,7 +572,7 @@ def run_update_scenario(port, cmds, scenario, verify_bytes,
     s = socket.create_connection(("127.0.0.1", port), timeout=5)
     try:
         mock_update_next(s, ops, staged, scenario, verify_bytes,
-                         ident=ident, k_mode=k_mode, pak=pak)
+                         ident=ident, k_mode=k_mode, pak=pak, ql_ls=ql_ls)
     finally:
         stop.set(); t.join(timeout=5); s.close()
     return ops, staged, upd, puts, logs
@@ -1778,9 +1822,10 @@ def main():
     if (ops[-2:] == [('V', zb + "\x00" + zb + ".bak"), ('Q', "")]
             and len(upd) == 1 and not upd[0][0]
             and "could not rename" in upd[0][1]
-            and "3 of the 3 deploypak.txt file(s) had already been replaced" in upd[0][1]
+            and "3 of the 3 deploypak.txt file(s) had already been replaced on the card" in upd[0][1]
+            and "in HOME" not in upd[0][1]
             and not puts):
-        print("PASS pak-ren1-note: a refused swap after the extras landed names the replaced files")
+        print("PASS pak-ren1-note: a refused swap after the extras landed names the replaced files (on the card)")
     else:
         print("FAIL pak-ren1-note: ops=", ops, "upd=", upd); ok = False
 
@@ -1858,12 +1903,19 @@ def main():
             and len(upd) == 1 and upd[0][0] and not puts
             and upd[0][2] == "QLNextRemote"
             and "restart into the new build and seat itself again" in upd[0][1]
-            and "soft-reset" not in upd[0][1]):
+            and "soft-reset" not in upd[0][1]
+            # the progress log speaks of HOME and the QL, never of a card
+            and any("all 1 deploypak.txt file(s) are in HOME" in l for l in logs)
+            and any("crc32 " + ql_readme_r + ": verifying" in l
+                    and "bytes on the QL" in l for l in logs)
+            and not any("on the card" in l or "bytes on the Next" in l for l in logs)):
         print("PASS updot-qlnr: README then P/K/U/X/V/V/'Q'+'X' under W:/HOME, "
-              "header in the bytes, QLNextRemote brand, the QL's done wording")
+              "header in the bytes, QLNextRemote brand, the QL's done wording, "
+              "'in HOME' / 'on the QL' in the progress log")
     else:
         print("FAIL updot-qlnr: ops=", ops, "staged=",
-              [(p, len(b)) for p, b in staged], "upd=", upd, "puts=", puts)
+              [(p, len(b)) for p, b in staged], "upd=", upd, "puts=", puts,
+              "logs=", logs)
         ok = False
 
     # Step 0, QL only: a blob without the Q-emuLator header (the sqlux or
@@ -1932,17 +1984,30 @@ def main():
     else:
         print("FAIL updot-qlnr-norel: ops=", ops, "upd=", upd); ok = False
 
-    # The first rename refused (a driver that locks the running job's
-    # file): the QL's own wording, no mid-swap scare, plain targeted 'Q'.
+    # The first rename refused with a plain 'F' (9.7.46): the QL seat's
+    # folder is listed on the next Poll. Here the listing is complete but
+    # EMPTY - no staged .new in it, so it proves nothing about the job:
+    # the failure path, the wording naming both likely causes and the
+    # guide, no mid-swap scare, plain targeted 'Q', the queued rm never
+    # served.
     ops, staged, upd, puts, logs = run_update_scenario(
         PORT + 86, [ql_cmd, ("rm", "W:/HOME/x")], "ren1_refuse", ql_blob,
         ident=ql050)
-    if (ops == ql_head + ql_tail[:5] + [('Q', "")]
+    if (ops == ql_head + ql_tail[:5] + [('L', "W:/HOME"), ('Q', "")]
             and len(upd) == 1 and not upd[0][0] and not puts
-            and "the QL could not rename qlnextremote_exe aside" in upd[0][1]
+            and "the QL could not rename " + qb + " aside" in upd[0][1]
+            and "could not be checked" in upd[0][1]
+            and "dos1_" in upd[0][1] and "locked" in upd[0][1]
+            and "Updating the job from ZX-Next-Unite" in upd[0][1]
             and "the QL still runs its current build" in upd[0][1]
-            and "may be missing" not in upd[0][1]):
-        print("PASS updot-qlnr-ren1: a refused first rename -> the QL's 'could not rename' wording, plain 'Q'")
+            and "may be missing" not in upd[0][1]
+            # The README had landed: the QL's own extras note, in HOME.
+            and "1 of the 1 deploypak.txt file(s) had already been replaced in HOME" in upd[0][1]
+            and "on the card" not in upd[0][1]
+            and upd[0][2] == "QLNextRemote"):
+        print("PASS updot-qlnr-ren1: a refused first rename -> one 'L' of HOME, "
+              "an inconclusive listing keeps the failure (both causes + the "
+              "guide named, the README noted as replaced in HOME), plain 'Q'")
     else:
         print("FAIL updot-qlnr-ren1: ops=", ops, "upd=", upd); ok = False
     # ...and the marked refusal ('F'+OSP): the job was installed under a
@@ -1985,6 +2050,318 @@ def main():
         print("PASS updot-qlnr-noextras: the 7-tuple stages the job alone, marked quit")
     else:
         print("FAIL updot-qlnr-noextras: ops=", ops, "upd=", upd); ok = False
+
+    # ── QLNextRemote run from out of reach (9.7.46) ───────────────────
+    # Julien's QPC2: the job runs from dos1_ (a Windows folder the Listener
+    # cannot serve), so W:/HOME holds no qlnextremote_exe and the first
+    # rename meets QDOS -7 - a plain 'F'. The seat's own 'Y' says
+    # qlnextremote, so the macro lists W:/HOME on the next Poll: a complete
+    # listing that shows the staged .new and NOT the job proves there is
+    # nothing to swap, and the new build is renamed INTO place - the same
+    # '<base>.new -> <base>' as the swap's second rename, which is what the
+    # QL records as the file to start on Q+X.
+    ql_probe = ql_head + ql_tail[:5] + [('L', "W:/HOME")]
+    ql_install_v = ('V', qb + ".new\x00" + qb)
+    ql_fresh_ls = {"W:/HOME": ["README.md", "qlnextremote_exe.new", "sub"]}
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 90, [ql_cmd, ("rm", "W:/HOME/x")], "ren1_refuse", ql_blob,
+        ident=ql050, ql_ls=ql_fresh_ls)
+    if (ops == ql_probe + [ql_install_v, ('Q', "X")]
+            and ('X', "W:/HOME/x") not in ops
+            and staged == [(ql_readme_r, ql_readme_b), (qb + ".new", ql_blob)]
+            and len(upd) == 1 and upd[0][0] and not puts
+            and upd[0][2] == "QLNextRemote"
+            and "installed as " + qb in upd[0][1]
+            and "EXEC_W win1_HOME_qlnextremote_exe" in upd[0][1]
+            and "dos1_" in upd[0][1]
+            and "will now start the new build" in upd[0][1]
+            and "restart into" not in upd[0][1]):
+        print("PASS updot-qlnr-fresh: no job in HOME -> 'L', install rename "
+              ".new -> job, marked 'Q'+'X', dot_update(True) naming the path "
+              "and EXEC_W win1_HOME_qlnextremote_exe")
+    else:
+        print("FAIL updot-qlnr-fresh: ops=", ops, "upd=", upd, "puts=", puts)
+        ok = False
+    if any("listing W:/HOME" in l for l in logs) and any(
+            "installing the new build as " + qb in l for l in logs):
+        print("PASS updot-qlnr-fresh-log: the console says why it lists and what it installs")
+    else:
+        print("FAIL updot-qlnr-fresh-log: logs=", logs); ok = False
+
+    # QDOS names are case-blind: a listing in capitals is the same proof.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 91, [ql_cmd], "ren1_refuse", ql_blob, ident=ql050,
+        ql_ls={"W:/HOME": ["QLNEXTREMOTE_EXE.NEW", "readme.md"]})
+    if (ops == ql_probe + [ql_install_v, ('Q', "X")]
+            and len(upd) == 1 and upd[0][0]):
+        print("PASS updot-qlnr-fresh-case: the .new found case-insensitively -> installed")
+    else:
+        print("FAIL updot-qlnr-fresh-case: ops=", ops, "upd=", upd); ok = False
+
+    # The job IS there (a locked file, a write-protected drive): never a
+    # second rename - one onto an existing file would go through the QL's
+    # copy-then-delete and overwrite it - the failure wording that says the
+    # file is listed, plain 'Q'.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 92, [ql_cmd], "ren1_refuse", ql_blob, ident=ql050,
+        ql_ls={"W:/HOME": ["qlnextremote_exe", "qlnextremote_exe.new",
+                           "README.md"]})
+    if (ops == ql_probe + [('Q', "")]
+            and sum(1 for o, _a in ops if o == 'V') == 1
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and "refused to rename " + qb + " aside although its folder lists a file of that name" in upd[0][1]
+            and "locked" in upd[0][1]
+            and "without real folders" in upd[0][1]
+            and "the job at the drive's root" in upd[0][1]
+            and "Updating the job from ZX-Next-Unite" in upd[0][1]
+            and "installed as" not in upd[0][1]
+            and "may be missing" not in upd[0][1]
+            and upd[0][2] == "QLNextRemote"):
+        print("PASS updot-qlnr-present: the job listed -> no install rename, "
+              "the 'although its folder lists a file of that name' failure "
+              "(locked / write-protected / a drive's root copy), plain 'Q'")
+    else:
+        print("FAIL updot-qlnr-present: ops=", ops, "upd=", upd); ok = False
+    # ...matched case-insensitively too: the dangerous direction.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 93, [ql_cmd], "ren1_refuse", ql_blob, ident=ql050,
+        ql_ls={"W:/HOME": ["QLNextRemote_EXE", "qlnextremote_exe.new"]})
+    if (ops == ql_probe + [('Q', "")] and len(upd) == 1 and not upd[0][0]
+            and "although its folder lists a file of that name" in upd[0][1]):
+        print("PASS updot-qlnr-present-case: the job found case-insensitively -> no install")
+    else:
+        print("FAIL updot-qlnr-present-case: ops=", ops, "upd=", upd); ok = False
+
+    # sQLux on a qdos-like mount (the documented sQLux recipe) lists a host
+    # '.' as '_': a real QLNextRemote 1.1.4 lists W:/HOME as
+    # qlnextremote_exe_new and README_md for the files the put wrote as
+    # qlnextremote_exe.new and README.md. That '_' twin is the staged .new's
+    # proof too: the install rename still names the real '.new' file.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 76, [ql_cmd], "ren1_refuse", ql_blob, ident=ql050,
+        ql_ls={"W:/HOME": ["qlnextremote_exe_new", "README_md"]})
+    if (ops == ql_probe + [ql_install_v, ('Q', "X")]
+            and len(upd) == 1 and upd[0][0] and not puts
+            and "installed as " + qb in upd[0][1]
+            and "EXEC_W win1_HOME_qlnextremote_exe" in upd[0][1]
+            and upd[0][2] == "QLNextRemote"):
+        print("PASS updot-qlnr-fresh-twin: a qdos-like listing (qlnextremote_exe_new, "
+              "README_md) -> the '_' twin proves the .new, installed, 'Q'+'X'")
+    else:
+        print("FAIL updot-qlnr-fresh-twin: ops=", ops, "upd=", upd); ok = False
+
+    # ...and the twin counts on the job's side as well, so it only ever
+    # widens "present": the job listed beside the '_' twin of its .new is
+    # never installed over (qlnextremote_exe has no '.', so it is its own
+    # twin - the realistic qdos-like case)...
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 77, [ql_cmd], "ren1_refuse", ql_blob, ident=ql050,
+        ql_ls={"W:/HOME": ["qlnextremote_exe_new", "QLNEXTREMOTE_EXE",
+                           "README_md"]})
+    if (ops == ql_probe + [('Q', "")]
+            and sum(1 for o, _a in ops if o == 'V') == 1
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and "although its folder lists a file of that name" in upd[0][1]
+            and "installed as" not in upd[0][1]):
+        print("PASS updot-qlnr-present-twin: the job beside a '_'-twin .new -> no install, plain 'Q'")
+    else:
+        print("FAIL updot-qlnr-present-twin: ops=", ops, "upd=", upd); ok = False
+    # ...and for a job name WITH a dot (still ending in qlnextremote_exe,
+    # so the probe runs), the '_' twin of the job itself is "present": no
+    # install, whichever form the .new is listed in.
+    qd = "W:/HOME/v2.qlnextremote_exe"
+    for _port, _new, _label in ((PORT + 78, "v2_qlnextremote_exe_new", "twin-new"),
+                                (PORT + 29, "v2.qlnextremote_exe.new", "dot-new")):
+        ops, staged, upd, puts, logs = run_update_scenario(
+            _port, [ql_cmd[:4] + ("v2.qlnextremote_exe",) + ql_cmd[5:]],
+            "ren1_refuse", ql_blob, ident=ql050,
+            ql_ls={"W:/HOME": [_new, "v2_qlnextremote_exe", "README_md"]})
+        if (ops == ql_head + [('P', qd + ".new"), ('K', qd + ".new"), ('U', ""),
+                              ('X', qd + ".bak"), ('V', qd + "\x00" + qd + ".bak"),
+                              ('L', "W:/HOME"), ('Q', "")]
+                and len(upd) == 1 and not upd[0][0] and not puts
+                and "refused to rename " + qd + " aside although its folder lists a file of that name" in upd[0][1]
+                and "installed as" not in upd[0][1]):
+            print(f"PASS updot-qlnr-present-jobtwin-{_label}: the '_' twin of a dotted job "
+                  "name counts as the job -> no install, plain 'Q'")
+        else:
+            print(f"FAIL updot-qlnr-present-jobtwin-{_label}: ops=", ops, "upd=", upd)
+            ok = False
+
+    # THE NAME GATE: the QL Listener starts the installed build on Q+'X'
+    # only when the target ends in "qlnextremote_exe" (listener.c
+    # do_rename). Any other name - a typo, a custom name - would be
+    # installed and never started, so the probe is never run for it: the
+    # refused first rename keeps the inconclusive failure, no 'L', no
+    # second 'V', a plain 'Q' - even with a listing scripted that would
+    # prove a fresh install.
+    qt = "W:/HOME/qlnextremot_exe"
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 79, [ql_cmd[:4] + ("qlnextremot_exe",) + ql_cmd[5:]],
+        "ren1_refuse", ql_blob, ident=ql050,
+        ql_ls={"W:/HOME": ["qlnextremot_exe.new", "README.md"]})
+    if (ops == ql_head + [('P', qt + ".new"), ('K', qt + ".new"), ('U', ""),
+                          ('X', qt + ".bak"), ('V', qt + "\x00" + qt + ".bak"),
+                          ('Q', "")]
+            and not any(o == 'L' for o, _a in ops)
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and "the QL could not rename " + qt + " aside" in upd[0][1]
+            and "could not be checked" in upd[0][1]
+            and "installed as" not in upd[0][1]
+            and "will now start the new build" not in upd[0][1]
+            and upd[0][2] == "QLNextRemote"):
+        print("PASS updot-qlnr-gate-name: a job not named ...qlnextremote_exe -> no 'L', "
+              "no install, the inconclusive failure, plain 'Q'")
+    else:
+        print("FAIL updot-qlnr-gate-name: ops=", ops, "upd=", upd); ok = False
+
+    # The listing itself fails ('F': the folder did not open) -> nothing
+    # proven, the failure naming both causes, no install rename.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 94, [ql_cmd], "ren1_refuse", ql_blob, ident=ql050,
+        ql_ls={"W:/HOME": 'F'})
+    if (ops == ql_probe + [('Q', "")]
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and "could not be checked" in upd[0][1]
+            and "dos1_" in upd[0][1] and "locked" in upd[0][1]
+            and "installed as" not in upd[0][1]):
+        print("PASS updot-qlnr-probeF: the listing refused -> failure, both causes, no install")
+    else:
+        print("FAIL updot-qlnr-probeF: ops=", ops, "upd=", upd); ok = False
+
+    # A complete listing WITHOUT the staged .new does not cover the folder
+    # the staging put wrote to (a prefix quirk): nothing proven either.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 95, [ql_cmd], "ren1_refuse", ql_blob, ident=ql050,
+        ql_ls={"W:/HOME": ["README.md", "other_exe"]})
+    if (ops == ql_probe + [('Q', "")]
+            and len(upd) == 1 and not upd[0][0]
+            and "could not be checked" in upd[0][1]):
+        print("PASS updot-qlnr-nonew: a listing without the staged .new -> failure, no install")
+    else:
+        print("FAIL updot-qlnr-nonew: ops=", ops, "upd=", upd); ok = False
+
+    # The install rename refused: nothing replaced, the staged build named,
+    # a PLAIN 'Q' (failure quits are never marked).
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 96, [ql_cmd], "ren1_install_refuse", ql_blob, ident=ql050,
+        ql_ls=ql_fresh_ls)
+    if (ops == ql_probe + [ql_install_v, ('Q', "")]
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and "no job at " + qb + " to replace" in upd[0][1]
+            and "refused to install the new build there" in upd[0][1]
+            and qb + ".new" in upd[0][1]
+            and upd[0][2] == "QLNextRemote"):
+        print("PASS updot-qlnr-installF: the install rename refused -> failure naming the staged build, plain 'Q'")
+    else:
+        print("FAIL updot-qlnr-installF: ops=", ops, "upd=", upd); ok = False
+
+    # The link drops on the 'L': ONE verdict (the arm's or the finally's),
+    # the inconclusive wording - never the mid-swap / .bak scare, since the
+    # refused first rename moved nothing.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 97, [ql_cmd], "ren1_refuse", ql_blob, ident=ql050,
+        ql_ls={"W:/HOME": 'kill'})
+    if (ops == ql_probe
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and "could not be checked" in upd[0][1]
+            and "mid-swap" not in upd[0][1] and ".bak" not in upd[0][1]
+            and upd[0][2] == "QLNextRemote"):
+        print("PASS updot-qlnr-killL: link lost on the listing -> one inconclusive verdict, no mid-swap scare")
+    else:
+        print("FAIL updot-qlnr-killL: ops=", ops, "upd=", upd); ok = False
+    # ...and the link lost right after the refusal, before the Poll that
+    # would carry the 'L': the session's finally owes the one verdict, with
+    # the same words (never the mid-swap scare its swap_started mark would
+    # otherwise draw).
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 75, [ql_cmd], "ren1_refuse_kill", ql_blob, ident=ql050,
+        ql_ls=ql_fresh_ls)
+    if (ops == ql_head + ql_tail[:5]
+            and len(upd) == 1 and not upd[0][0] and not puts
+            and "could not be checked" in upd[0][1]
+            and "mid-swap" not in upd[0][1] and ".bak" not in upd[0][1]
+            and upd[0][2] == "QLNextRemote"):
+        print("PASS updot-qlnr-killprobe: link lost before the listing -> the finally's "
+              "inconclusive verdict, no mid-swap scare")
+    else:
+        print("FAIL updot-qlnr-killprobe: ops=", ops, "upd=", upd); ok = False
+
+    # The link drops right after the install rename was acked (the finally
+    # reports), and before its reply (the arm reports): either way ONE
+    # verdict, "interrupted", with the QDOS start command and the staged
+    # name to rename from SuperBASIC.
+    for _port, _scen, _label in ((PORT + 98, "ren1_install_ackkill", "acked"),
+                                 (PORT + 99, "ren1_install_lost", "lost")):
+        ops, staged, upd, puts, logs = run_update_scenario(
+            _port, [ql_cmd], _scen, ql_blob, ident=ql050, ql_ls=ql_fresh_ls)
+        if (ops == ql_probe + [ql_install_v]
+                and len(upd) == 1 and not upd[0][0] and not puts
+                and "interrupted while installing the new build as " + qb in upd[0][1]
+                and "EXEC_W win1_HOME_qlnextremote_exe" in upd[0][1]
+                and "win1_HOME_qlnextremote_exe.new" in upd[0][1]
+                and "mid-swap" not in upd[0][1]
+                and upd[0][2] == "QLNextRemote"):
+            print(f"PASS updot-qlnr-killinstall-{_label}: link lost at the install "
+                  "rename -> one 'interrupted' verdict with EXEC_W and the staged name")
+        else:
+            print(f"FAIL updot-qlnr-killinstall-{_label}: ops=", ops, "upd=", upd)
+            ok = False
+
+    # THE GATE, part 1: a QLNextRemote job on a session whose own 'Y'
+    # answer is NOT qlnextremote (a Next) never lists after 'U' - the
+    # post-'U' contract binds a Next - so the refused first rename ends the
+    # session at once with the inconclusive QL wording.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 72, [ql_cmd], "ren1_refuse", ql_blob,
+        ident=b'On2n' + bytes([0]) + b'1.0.8', ql_ls=ql_fresh_ls)
+    if (ops == ql_head + ql_tail[:5] + [('Q', "")]
+            and not any(o == 'L' for o, _a in ops)
+            and len(upd) == 1 and not upd[0][0]
+            and "the QL could not rename " + qb + " aside" in upd[0][1]
+            and "could not be checked" in upd[0][1]):
+        print("PASS updot-qlnr-gate-ident: a QL job on a non-QL seat -> no 'L' after 'U', plain 'Q'")
+    else:
+        print("FAIL updot-qlnr-gate-ident: ops=", ops, "upd=", upd); ok = False
+
+    # THE GATE, part 2: every Next brand keeps today's refusal byte for
+    # byte - the exact wire and the exact verdict - even with a listing
+    # scripted that WOULD prove a fresh install: the ZXNR .nex on its n2n
+    # seat...
+    zx_fresh = {"c:/apps": ["zxnextremote-n2n.nex.new"]}
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 73, [("update_dot", zx_file, "c:/apps", "9.9.9",
+                     "zxnextremote-n2n.nex", "ZXNextRemote", True)],
+        "ren1_refuse", zx_blob, ident=b'On2n' + bytes([0]) + b'1.0.8',
+        ql_ls=zx_fresh)
+    if (ops == [('P', zb + ".new"), ('Y', ""), ('K', zb + ".new"), ('U', ""),
+                ('X', zb + ".bak"), ('V', zb + "\x00" + zb + ".bak"),
+                ('Q', "")]
+            and upd == [(False, "Remote zxnextremote-n2n.nex update failed: "
+                         "could not rename zxnextremote-n2n.nex aside. "
+                         "Nothing was swapped — the Next still runs its "
+                         "current build.", "ZXNextRemote")]
+            and not puts):
+        print("PASS updot-zxnr-ren1-unchanged: ZXNR refused ren1 -> today's exact wire "
+              "and verdict, no 'L'")
+    else:
+        print("FAIL updot-zxnr-ren1-unchanged: ops=", ops, "upd=", upd); ok = False
+    # ...and the .sync5 dot, even on a seat whose 'Y' says qlnextremote:
+    # the brand gate alone keeps the probe off it.
+    ops, staged, upd, puts, logs = run_update_scenario(
+        PORT + 74, [("update_dot", upd_file, "c:/dot", "5.9.0")],
+        "ren1_refuse", upd_blob, ident=ql050,
+        ql_ls={"c:/dot": ["sync5.new"]})
+    if (ops[-2:] == [('V', "c:/dot/sync5\x00c:/dot/sync5.bak"), ('Q', "")]
+            and not any(o == 'L' for o, _a in ops)
+            and upd == [(False, "Remote .sync5 update failed: could not "
+                         "rename sync5 aside. Nothing was swapped — the "
+                         "Next still runs its current build.", "NextSync")]
+            and not puts):
+        print("PASS updot-dot-ren1-unchanged: the .sync5 dot's refused ren1 -> today's "
+              "exact verdict, no 'L', whatever the seat's ident")
+    else:
+        print("FAIL updot-dot-ren1-unchanged: ops=", ops, "upd=", upd); ok = False
 
     # ── verify-after-put (Settings → Verify CRC, 9.7.3) ────────────────
     # A UI put is followed by the worker's own 'K' exchange as a local_cmds

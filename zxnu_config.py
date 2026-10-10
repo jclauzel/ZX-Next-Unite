@@ -24,7 +24,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.45"
+ZX_NEXT_UNITE_VERSION = "9.7.46"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -3183,6 +3183,37 @@ def qlnextremote_blob_has_header(blob):
     return (len(blob) >= QLNR_QDOS_HEADER_LEN
             and blob[:18] == QLNR_QDOS_HEADER_MAGIC
             and blob[19] == 15 and blob[21] == 1)
+
+
+# The QLNextRemote Listener's wire drive letters -> QDOS devices: a twin of
+# the drives[] table in QLNextRemote's src/qlfs.c (9.7.46). Only these are
+# reachable over the wire; QPC2's dos1_ and every other device are not.
+QLNR_WIRE_DRIVES = {"W": "win1", "X": "win2", "F": "flp1", "G": "flp2",
+                    "R": "ram1", "M": "mdv1", "N": "mdv2"}
+
+
+def qlnr_wire_to_qdos(path):
+    """The QDOS name the QLNextRemote Listener opens for a wire *path* - a
+    twin of its qlfs_wire_to_qdos (9.7.46): "W:/HOME/qlnextremote_exe" ->
+    "win1_HOME_qlnextremote_exe". Separators are "/" or "\\", "." segments
+    vanish, segments are joined by "_". None when the answer would depend on
+    the QL's current drive (no drive letter), for a letter the Listener does
+    not serve, or for a ".." the Listener refuses. Used to tell the user the
+    SuperBASIC command that starts a job the update installed."""
+    p = (path or "").lstrip(" ")
+    if len(p) < 2 or p[1] != ":":
+        return None
+    root = QLNR_WIRE_DRIVES.get(p[0].upper())
+    if root is None:
+        return None
+    segs = []
+    for seg in p[2:].replace("\\", "/").split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            return None
+        segs.append(seg)
+    return "_".join([root] + segs)
 
 
 # ── deploypak.txt: extra files an itch.io package ships alongside its build ──

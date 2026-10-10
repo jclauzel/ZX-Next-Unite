@@ -3705,6 +3705,20 @@ def test_qlnr_update():
     body = FakeInput.seen[0][2] if FakeInput.seen else ""
     check("...its body names the QL, HOME and the README going first",
           "HOME" in body and "QL" in body and "deploypak.txt lists 1 file(s)" in body, body)
+    # 9.7.46: a QL that runs its job from elsewhere (QPC2's dos1_) has no
+    # job at the path - the body says beforehand that the build is then
+    # INSTALLED there, in its own paragraph after the manifest's and
+    # before the closing prompt line.
+    _paras = body.split("\n\n")
+    _else = next((i for i, p in enumerate(_paras) if "dos1_" in p), -1)
+    _pak = next((i for i, p in enumerate(_paras) if "deploypak.txt" in p), -1)
+    check("...and says a job run from elsewhere (QPC2's dos1_) gets the build "
+          "installed at this path, in its own paragraph between the "
+          "manifest's and the prompt",
+          _else >= 0 and _pak >= 0 and _pak < _else == len(_paras) - 2
+          and _paras[-1].startswith("Full path of the job on the QL:")
+          and "installed" in _paras[_else]
+          and "started from" in " ".join(_paras[_else].split()), body)
     check("...and enqueues the 8-tuple on the target session: the exe, W:/HOME, "
           "the version, the base, the brand, marked, the README plan",
           started is True

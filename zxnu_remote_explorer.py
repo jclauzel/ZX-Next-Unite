@@ -3716,9 +3716,13 @@ class RemoteExplorerWidget(QWidget):
         (Q + the exit mark) has the job save its settings, start the new
         build from HOME and exit. The default target is
         ``W:/HOME/qlnextremote_exe``, remembered per cfg under
-        qlnr_update_path. Delivery follows _update_zxnr_on_session's rule to
-        the letter: the TARGET session's OWN queue, a wired channel's refusal
-        final. Returns True only when the macro was ENQUEUED."""
+        qlnr_update_path. A QL that runs its job from somewhere the update
+        cannot reach (QPC2's dos1_, the root of sQLux's win1) has no job at
+        that path: the worker then INSTALLS the new build there (9.7.46), and
+        the prompt says so beforehand. Delivery follows
+        _update_zxnr_on_session's rule to the letter: the TARGET session's
+        OWN queue, a wired channel's refusal final. Returns True only when
+        the macro was ENQUEUED."""
         if self._qlnr_update_source is None:
             return False
         path, version, reason = self._qlnr_resolve(fresh=True)
@@ -3759,17 +3763,30 @@ class RemoteExplorerWidget(QWidget):
             "build and exits, and the new build seats itself again.\n\n"
             "Full path of the job on the QL:").format(
                 machine=machine, old=old_version, new=version)
+        # Their own paragraphs, slotted in before the closing prompt line
+        # (every catalog keeps that final "\n\n" paragraph): what the
+        # manifest adds, then (9.7.46) what happens when no job is at the
+        # path at all - a QL that runs its job from QPC2's dos1_ (or the
+        # root of sQLux's win1) gets the new build INSTALLED there, and must
+        # be started from there from then on.
+        head, _sep, tail = body.rpartition("\n\n")
+        paras = []
         if n_files or n_dirs:
-            head, _sep, tail = body.rpartition("\n\n")
-            para = ui_tr_now(
+            paras.append(ui_tr_now(
                 "Its deploypak.txt lists {files} file(s) and {folders} "
                 "folder(s): they are sent into HOME FIRST, each checked "
                 "against the CRC-32 the QL computes and re-sent up to "
                 "{retries} times — and written in place, so the .bak "
                 "revert does not cover them.").format(
                     files=n_files, folders=n_dirs,
-                    retries=RE_UPD_EXTRA_RETRIES)
-            body = head + "\n\n" + para + "\n\n" + tail
+                    retries=RE_UPD_EXTRA_RETRIES))
+        paras.append(ui_tr_now(
+            "If this QL runs QLNextRemote from somewhere else — QPC2's dos1_ "
+            "drive, say, which the update cannot reach — there is no job at "
+            "this path to swap: the new build is then installed here, the QL "
+            "starts it, and from then on QLNextRemote must be started from "
+            "this path."))
+        body = head + "\n\n" + "\n\n".join(paras) + "\n\n" + tail
         body = _wrap_dialog_text(body)
         target, okd = QInputDialog.getText(
             self, ui_tr_now("QLNextRemote update"), body,

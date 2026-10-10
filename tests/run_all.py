@@ -64,7 +64,9 @@ SUITES = [
     ("test_esp_emu.py",         120, None),
     ("test_classic_sync.py",    180, None),
     ("test_listen.py",          120, None),
-    ("test_remote_listen.py",   120, None),
+    # 240 since 9.7.46: ~111 s before it, ~130 s with the QLNextRemote
+    # fresh-install cases (each update scenario is a fresh worker, ~1.3 s).
+    ("test_remote_listen.py",   240, None),
     ("test_bridge_stall.py",    180, None),
     # A QLNextRemote seat that went silent (9.7.45): the QL-only silence
     # limit, Disconnect's drop, and no quit left behind for another seat -

@@ -515,6 +515,33 @@ check("sync5 banner: the bare version without the prefix is not enough",
 check("sync5 banner: empty blob -> False",
       not sync5_blob_has_banner(b"", "9.9.9"))
 
+# ---- QLNextRemote wire path -> QDOS name (zxnu_config, 9.7.46) -------------
+# The twin of the QL Listener's qlfs_wire_to_qdos: the update's fresh-install
+# verdict names the EXEC_W command built from it.
+from zxnu_config import qlnr_wire_to_qdos  # noqa: E402
+
+check("qlnr wire->qdos: the default job path",
+      qlnr_wire_to_qdos("W:/HOME/qlnextremote_exe") == "win1_HOME_qlnextremote_exe",
+      repr(qlnr_wire_to_qdos("W:/HOME/qlnextremote_exe")))
+check("qlnr wire->qdos: backslashes and a lower-case letter",
+      qlnr_wire_to_qdos("w:\\HOME\\x") == "win1_HOME_x",
+      repr(qlnr_wire_to_qdos("w:\\HOME\\x")))
+check("qlnr wire->qdos: '.' segments and doubled separators vanish",
+      qlnr_wire_to_qdos("X:/a/./b") == "win2_a_b"
+      and qlnr_wire_to_qdos(" R:/a//b/") == "ram1_a_b",
+      repr((qlnr_wire_to_qdos("X:/a/./b"), qlnr_wire_to_qdos(" R:/a//b/"))))
+check("qlnr wire->qdos: every drive letter of the Listener's table",
+      [qlnr_wire_to_qdos(d + ":/f") for d in "WXFGRMN"]
+      == ["win1_f", "win2_f", "flp1_f", "flp2_f", "ram1_f", "mdv1_f", "mdv2_f"])
+check("qlnr wire->qdos: a bare drive is its root device",
+      qlnr_wire_to_qdos("W:") == "win1", repr(qlnr_wire_to_qdos("W:")))
+check("qlnr wire->qdos: no drive letter, an unserved letter, '..' -> None",
+      qlnr_wire_to_qdos("/HOME/x") is None
+      and qlnr_wire_to_qdos("Q:/x") is None
+      and qlnr_wire_to_qdos("W:/../x") is None
+      and qlnr_wire_to_qdos("") is None
+      and qlnr_wire_to_qdos(None) is None)
+
 # tar.gz package: one version-stamped binary inside, exec bit restored.
 _pkg_dir = tempfile.mkdtemp(prefix="zxnu-pkg-")
 _bin_src = os.path.join(_pkg_dir, "zx-next-unite-v9.2.0")

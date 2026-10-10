@@ -28,7 +28,8 @@ from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
                          cspect_can_autostart, emulator_offers_autostart,
                          log_size,
                          is_filetype_a_directory, mame_autostart_staging_dir,
-                         mame_can_autostart, qlnextremote_blob_has_header)
+                         mame_can_autostart, qlnextremote_blob_has_header,
+                         qlnr_wire_to_qdos)
 from PySide6.QtCore import (
     QEvent, QItemSelection, QItemSelectionModel, QObject, QPoint, QRect,
     QRunnable, QSize, QSortFilterProxyModel, QTimer, Qt, Signal, Slot,
@@ -1370,6 +1371,15 @@ def re_ident_is_qlnr(ident):
     return rtype.strip().lower() == RE_QLNR_IDENT_TYPE
 
 
+def _re_qlnr_exec_command(target):
+    """The SuperBASIC command that starts the QLNextRemote job at the wire
+    path *target* (9.7.46, the update's fresh install): "EXEC_W " + the QDOS
+    name the QL Listener opens for it ("W:/HOME/qlnextremote_exe" ->
+    "EXEC_W win1_HOME_qlnextremote_exe"). A path the twin cannot map (no
+    drive letter) keeps its wire form, which is still the best hint."""
+    return "EXEC_W " + (qlnr_wire_to_qdos(target) or target)
+
+
 def _re_is_quit_app(cmd):
     """A Disconnect / /forceexit command tuple: the UI's plain
     ("quit_app",) or the bridge's ("quit_app", <BridgeReply>)."""
@@ -1790,7 +1800,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
 
     # Remote .sync5 self-update jobs (the "update_dot" macro): id ->
     # {'data': staged bytes, 'dir': remote dot dir, 'ver': version, plus the
-    # 'released'/'swap_started' step markers}. Declared OUTSIDE the try so
+    # 'released'/'swap_started' step markers, and - QLNextRemote only, 9.7.46
+    # - 'ql_probe'/'ql_install'/'ql_fresh'}. Declared OUTSIDE the try so
     # the finally below can honour dot_update's exactly-once contract when
     # the session dies mid-macro (Wi-Fi drop, a Bye during staging, stop).
     # Steps ride local_cmds like rmtree's walk, so nothing interleaves.
@@ -1811,7 +1822,16 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         job = job or {}
         note = ""
         sent = len(job.get('ex_sent', ()))
-        if sent:
+        if sent and job.get('brand') == "QLNextRemote":
+            # A QL has no card: its companions (the README) go into the
+            # job's folder, HOME.
+            note += " " + ui_tr_now(
+                "{landed} of the {total} deploypak.txt file(s) had already "
+                "been replaced in HOME — the previous build now runs "
+                "against the new data files; run the update again to put "
+                "them back in step.").format(
+                    landed=sent, total=_upd_extra_total(job))
+        elif sent:
             note += " " + ui_tr_now(
                 "{landed} of the {total} deploypak.txt file(s) had already "
                 "been replaced on the card — the previous build now runs "
@@ -2326,7 +2346,14 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 nonlocal put_data, put_ofs, put_pkt, pending
                 _newp = job['dir'] + "/" + job['base'] + ".new"
                 job['staged'] = True
-                if _upd_extra_total(job):
+                if _upd_extra_total(job) and job.get('brand') == "QLNextRemote":
+                    # A QL has no card: its companions went into HOME.
+                    sig.log.emit(ui_tr_now(
+                        "Remote {name} update: all {count} deploypak.txt "
+                        "file(s) are in HOME — staging the build "
+                        "itself…").format(
+                            name=job['name'], count=_upd_extra_total(job)))
+                elif _upd_extra_total(job):
                     sig.log.emit(ui_tr_now(
                         "Remote {name} update: all {count} deploypak.txt "
                         "file(s) are on the card — staging the build "
@@ -3402,7 +3429,13 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         #   could be handed the freed handle number, which
                         #   NextZXOS's exit tidy-up still closes (nextsync.c,
                         #   the 'U' protocol comment) — so once released,
-                        #   every failure path ends the session too.
+                        #   every failure path ends the session too. The ONE
+                        #   exception (9.7.46): a session whose own 'Y'
+                        #   answer is qlnextremote, running a QLNextRemote
+                        #   job named like the Listener's relaunch rule
+                        #   (…qlnextremote_exe), may be sent a single 'L'
+                        #   after 'U' (upd_ql_probe) — a QL's 'U' is a bare
+                        #   ack and it holds no handle to free.
                         # cmd = ("update_dot", local_path, remote_dir, version
                         #        [, base_file, brand, marked_exit, extras]) —
                         # the trailing four default to the .sync5 dot and no
@@ -3713,8 +3746,10 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             continue
                         want = job['ex_crc']
                         wait = re_verify_wait(job['ex_size'])
+                        _where = ("on the QL" if job.get('brand') == "QLNextRemote"
+                                  else "on the Next")
                         log(f"crc32 {remote}: verifying {job['ex_size']} "
-                            "bytes on the Next…")
+                            f"bytes {_where}…")
                         res = {'crc32': "", 'fail': False, 'osp': False}
 
                         def _hk(payload, _r=res):
@@ -4007,6 +4042,38 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 ("upd_ren2", jid) if op == "upd_ren1"
                                 else ("upd_done", jid))
                             continue
+                        if (got_reply and op == "upd_ren1" and not res['osp']
+                                and job.get('brand') == "QLNextRemote"
+                                and _ql_self()
+                                and job['base'].lower().endswith(
+                                    "qlnextremote_exe")):
+                            # 9.7.46, QLNextRemote only — the job's brand AND
+                            # this session's own 'Y' answer: a plain 'F' on
+                            # the first rename most often means there is NO
+                            # job at this path (QDOS -7): the QL runs its job
+                            # from somewhere the update cannot reach (QPC2's
+                            # dos1_, the root of sQLux's win1). List the
+                            # folder on the next Poll (upd_ql_probe) before
+                            # giving up. Legal after 'U' on a QL only: its
+                            # 'U' is a bare ack and it holds no handle, so the
+                            # post-'U' contract that keeps a Next to V/X/Q
+                            # does not bind it. Only for a job named the way
+                            # the QL Listener's relaunch rule wants it (the
+                            # target ends in "qlnextremote_exe", case-blind:
+                            # listener.c do_rename): any other name - a typo
+                            # in the dialog, a custom name - would be
+                            # installed and then never started, the old
+                            # build coming back as if nothing happened, so
+                            # it keeps the failure below and no 'L' is sent.
+                            # Every Next (the .sync5 dot, ZXNR on hardware,
+                            # CSpect or MAME) and an OSP refusal fall through
+                            # to the arms below as before.
+                            job['ql_probe'] = True
+                            log(f"ren {cur} -> {cur}.bak refused: listing "
+                                f"{job['dir']} to see whether {job['base']} "
+                                "is there")
+                            local_cmds.appendleft(("upd_ql_probe", jid))
+                            continue
                         upd_jobs.pop(jid, None)
                         if got_reply and op == "upd_ren1":
                             # The far side REFUSED the first rename: nothing
@@ -4015,11 +4082,14 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             # ZXNR's OS protection (default-on over apps/,
                             # dot/, sys/, …) is the expected refuser there:
                             # name it, or the user hunts a phantom SD error.
-                            # A QL seat (QLNextRemote) gets its own words:
-                            # its job lives in HOME, outside the protected
-                            # roots, so a refusal there means the job was
-                            # installed elsewhere - or a driver that locks
-                            # the running job's file.
+                            # A QL job gets its own words: its job lives in
+                            # HOME, outside the protected roots. A plain 'F'
+                            # from a session that names itself QLNextRemote,
+                            # for a job named ...qlnextremote_exe, never gets
+                            # here (upd_ql_probe above); the rest (a QL job
+                            # on a session whose 'Y' answer is not QL, or a
+                            # job under another name) cannot tell a missing
+                            # job from a locked one, so the words name both.
                             if job.get('brand') == "QLNextRemote":
                                 sig.dot_update.emit(False, (ui_tr_now(
                                     "Remote {name} update failed: the QL's "
@@ -4030,12 +4100,18 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                     "current build.")
                                     if res['osp'] else ui_tr_now(
                                     "Remote {name} update failed: the QL "
-                                    "could not rename {file} aside (a driver "
-                                    "that locks the running job's file "
-                                    "answers so). Nothing was swapped — the "
-                                    "QL still runs its current build."))
+                                    "could not rename {target} aside, and "
+                                    "whether that file is there could not be "
+                                    "checked. Most likely the QL runs "
+                                    "QLNextRemote from somewhere else (such "
+                                    "as QPC2's dos1_ drive or the root of an "
+                                    "sQLux win1 folder), or the file is "
+                                    "locked. Nothing was swapped — the QL "
+                                    "still runs its current build. See "
+                                    "\"Updating the job from ZX-Next-Unite\" "
+                                    "in the QLNextRemote user guide."))
                                     .format(name=job['name'],
-                                            file=job['base'])
+                                            file=job['base'], target=cur)
                                     + _upd_extras_note(job),
                                     job.get('brand'))
                             else:
@@ -4088,6 +4164,188 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         _re_sendpacket(conn, b"Q", 0)
                         _re_goodbye_linger(conn)
                         break
+                    elif op == "upd_ql_probe":
+                        # 9.7.46, QLNextRemote only (queued by the ren arm
+                        # above, gated there on the job's brand, this
+                        # session's own 'Y' answer AND a job name ending in
+                        # qlnextremote_exe): the first rename was
+                        # refused with a plain 'F'. One 'L' of the job's
+                        # folder tells why. Only a COMPLETE listing ('E'
+                        # reached) that shows the staged <base>.new — the
+                        # proof it covers the folder the staging put wrote
+                        # to — and does NOT show <base> proves there is no
+                        # job here to swap; then the next Poll installs the
+                        # new build under the job's name (upd_ql_install).
+                        # Anything else — <base> listed (a locked file, a
+                        # write-protected drive), an 'F', silence, a lost
+                        # link, no .new — keeps today's failure path: a
+                        # rename onto an EXISTING file would go through the
+                        # QL's copy-then-delete fallback, which overwrites
+                        # it with no .bak left, so doubt never installs.
+                        # Names are compared case-insensitively (QDOS is),
+                        # and each one's '_' twin counts as well: sQLux on
+                        # a qdos-like mount (the documented sQLux recipe)
+                        # lists a host '.' as '_', so the qlnextremote_exe.new
+                        # the put just wrote shows as qlnextremote_exe_new
+                        # (and README.md as README_md). The twin is taken
+                        # on both sides - as the staged .new's proof, and as
+                        # the job being THERE - so it widens "present" too
+                        # and doubt still never installs.
+                        jid = cmd[1]
+                        job = upd_jobs.get(jid)
+                        if job is None:
+                            _idle()
+                            continue
+                        cur = job['dir'] + "/" + job['base']
+                        names = set()
+                        st = {'end': False, 'failed': False}
+
+                        def _hp(payload, _n=names, _st=st):
+                            o = payload[0:1]
+                            if o == b'E':
+                                _st['end'] = True
+                                return True
+                            if o == b'F':
+                                _st['failed'] = True
+                                return True
+                            if o == b'D':
+                                # The 'ls' arm's row format: flags(1)
+                                # size(4 LE) namelen(1) name.
+                                i = 1
+                                while i + 6 <= len(payload):
+                                    nl = payload[i + 5]
+                                    _n.add(payload[i + 6:i + 6 + nl].decode(
+                                        errors='replace').lower())
+                                    i += 6 + nl
+                            return False
+                        _re_sendpacket(conn, b"L" + job['dir'].encode(), 0)
+                        got_ls = _re_reply_call(conn, _hp)
+                        _b = job['base'].lower()
+                        _tw = _b.replace(".", "_")
+                        has_new = ((_b + ".new") in names
+                                   or (_tw + "_new") in names)
+                        has_job = _b in names or _tw in names
+                        listed = bool(got_ls) and st['end'] and not st['failed']
+                        if listed and has_new and not has_job:
+                            log(f"ls {job['dir']}: no {job['base']} there, "
+                                f"{job['base']}.new is — installing the new "
+                                f"build as {cur}")
+                            job['ql_install'] = True
+                            local_cmds.appendleft(("upd_ql_install", jid))
+                            continue
+                        upd_jobs.pop(jid, None)
+                        if listed and has_job:
+                            # A drive without real folders (sQLux on Windows
+                            # cannot make one; a level-1 device) can open the
+                            # job's folder as the drive's root, where the
+                            # root copy of the job shows under the same leaf
+                            # name: the words name that cause too.
+                            log(f"ls {job['dir']}: {job['base']} is there — "
+                                "the QL refused to rename it")
+                            sig.dot_update.emit(False, ui_tr_now(
+                                "Remote {name} update failed: the QL refused "
+                                "to rename {target} aside although its folder "
+                                "lists a file of that name. That file may be "
+                                "locked (in use by a job or another program) "
+                                "or on a write-protected drive; on a drive "
+                                "without real folders, it may instead be the "
+                                "job at the drive's root, listed under the "
+                                "same name. Nothing was swapped — the QL "
+                                "still runs its current build. See "
+                                "\"Updating the job from ZX-Next-Unite\" in "
+                                "the QLNextRemote user guide.").format(
+                                    name=job['name'], target=cur)
+                                + _upd_extras_note(job),
+                                job.get('brand'))
+                        else:
+                            log(f"ls {job['dir']}: "
+                                + ("no answer" if not got_ls else
+                                   "the folder did not open" if st['failed']
+                                   else "the listing does not show "
+                                   + job['base'] + ".new")
+                                + f" — cannot tell whether {job['base']} "
+                                "is there")
+                            sig.dot_update.emit(False, ui_tr_now(
+                                "Remote {name} update failed: the QL could "
+                                "not rename {target} aside, and whether that "
+                                "file is there could not be checked. Most "
+                                "likely the QL runs QLNextRemote from "
+                                "somewhere else (such as QPC2's dos1_ drive "
+                                "or the root of an sQLux win1 folder), or the "
+                                "file is locked. Nothing was swapped — the QL "
+                                "still runs its current build. See "
+                                "\"Updating the job from ZX-Next-Unite\" in "
+                                "the QLNextRemote user guide.").format(
+                                    name=job['name'], target=cur)
+                                + _upd_extras_note(job),
+                                job.get('brand'))
+                        _re_sendpacket(conn, b"Q", 0)
+                        _re_goodbye_linger(conn)
+                        break
+                    elif op == "upd_ql_install":
+                        # 9.7.46, QLNextRemote only: upd_ql_probe proved
+                        # there is no job at <dir>/<base> — the QL runs its
+                        # job from somewhere the update cannot reach — so
+                        # the staged build is renamed INTO that place. Its
+                        # source ends in ".new" and its target names the
+                        # job, so the QL Listener records it as the file to
+                        # start on the marked quit (listener.c do_rename),
+                        # exactly as for the swap's second rename: on 'O'
+                        # upd_done reports the install — with the QDOS
+                        # command to start the job from here on — and sends
+                        # Q+'X'. A refusal or a lost reply ends the session
+                        # with a plain 'Q', as every failure after 'U' does.
+                        jid = cmd[1]
+                        job = upd_jobs.get(jid)
+                        if job is None:
+                            _idle()
+                            continue
+                        cur = job['dir'] + "/" + job['base']
+                        res = {'ok': None}
+
+                        def _h(payload, _r=res):
+                            _r['ok'] = (payload[0:1] == b'O')
+                            return True
+                        _re_sendpacket(conn, b"V" + (cur + ".new").encode()
+                                       + b"\x00" + cur.encode(), 0)
+                        got_reply = _re_reply_call(conn, _h)
+                        if got_reply and res['ok']:
+                            job['ql_fresh'] = True
+                            local_cmds.appendleft(("upd_done", jid))
+                            continue
+                        upd_jobs.pop(jid, None)
+                        if got_reply:
+                            sig.dot_update.emit(False, ui_tr_now(
+                                "Remote {name} update failed: there was no "
+                                "job at {target} to replace, and the QL "
+                                "refused to install the new build there. "
+                                "Nothing was replaced — the QL still runs its "
+                                "current build, and the new build waits as "
+                                "{staged}. See \"Updating the job from "
+                                "ZX-Next-Unite\" in the QLNextRemote user "
+                                "guide.").format(
+                                    name=job['name'], target=cur,
+                                    staged=cur + ".new")
+                                + _upd_extras_note(job),
+                                job.get('brand'))
+                        else:
+                            sig.dot_update.emit(False, ui_tr_now(
+                                "Remote {name} update interrupted while "
+                                "installing the new build as {target} (there "
+                                "was no job at that path to replace). The QL "
+                                "still runs its current build. Start the new "
+                                "one with {command}; if the QL cannot find "
+                                "that file, rename {staged} to it from "
+                                "SuperBASIC first.").format(
+                                    name=job['name'], target=cur,
+                                    command=_re_qlnr_exec_command(cur),
+                                    staged=(qlnr_wire_to_qdos(cur + ".new")
+                                            or cur + ".new"))
+                                + _upd_extras_note(job),
+                                job.get('brand'))
+                        _re_sendpacket(conn, b"Q", 0)
+                        _re_goodbye_linger(conn)
+                        break
                     elif op == "upd_done":
                         # Step 6: success. Report, then a TARGETED quit — the
                         # broadcast "quit" arm would stop every other session.
@@ -4101,13 +4359,40 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             # build from HOME and exits; the new build dials
                             # back and seats itself, so the top bar shows
                             # the new version on its own.
-                            sig.dot_update.emit(True, ui_tr_now(
-                                "Remote {name} update complete: {version} is "
-                                "on the QL. The QL will now restart into the "
-                                "new build and seat itself again.").format(
-                                    name=job.get('name', ''),
-                                    version=job.get('ver', '')),
-                                job.get('brand'))
+                            if job.get('ql_fresh'):
+                                # 9.7.46: no job was at the path, so the new
+                                # build was INSTALLED there (upd_ql_install)
+                                # rather than swapped in. Same quit, but the
+                                # user must hear where it now lives and how
+                                # to start it from there - their old start
+                                # command (QPC2's dos1_ ...) still names the
+                                # old copy, left untouched.
+                                _tgt = (job.get('dir', '') + "/"
+                                        + job.get('base', ''))
+                                sig.dot_update.emit(True, ui_tr_now(
+                                    "Remote {name} update complete: {version} "
+                                    "is on the QL, installed as {target}. "
+                                    "There was no job at that path to "
+                                    "replace, so this QL was running "
+                                    "QLNextRemote from somewhere else (such "
+                                    "as QPC2's dos1_ drive); that copy was "
+                                    "left as it was. The QL will now start "
+                                    "the new build and seat itself again — "
+                                    "from now on, start QLNextRemote with "
+                                    "{command}.").format(
+                                        name=job.get('name', ''),
+                                        version=job.get('ver', ''),
+                                        target=_tgt,
+                                        command=_re_qlnr_exec_command(_tgt)),
+                                    job.get('brand'))
+                            else:
+                                sig.dot_update.emit(True, ui_tr_now(
+                                    "Remote {name} update complete: {version} is "
+                                    "on the QL. The QL will now restart into the "
+                                    "new build and seat itself again.").format(
+                                        name=job.get('name', ''),
+                                        version=job.get('ver', '')),
+                                    job.get('brand'))
                             _re_sendpacket(conn, b"Q" + RE_QUIT_EXIT_MARK, 0)
                         elif job.get('marked'):
                             sig.dot_update.emit(True, ui_tr_now(
@@ -4399,6 +4684,39 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         name=_job.get('name', ''),
                         path=_job['dir'] + "/" + _last),
                     _job.get('brand', 'NextSync'))
+            elif _job.get('ql_install'):
+                # 9.7.46, QLNextRemote only: died installing the new build
+                # where no job was (upd_ql_install) - before its 'V', under
+                # it, or before the Poll that would report it. The QL still
+                # runs its old copy; the new build is at the path or still
+                # staged beside it.
+                sig.dot_update.emit(False, ui_tr_now(
+                    "Remote {name} update interrupted while installing the "
+                    "new build as {target} (there was no job at that path to "
+                    "replace). The QL still runs its current build. Start the "
+                    "new one with {command}; if the QL cannot find that file, "
+                    "rename {staged} to it from SuperBASIC first.").format(
+                        name=_job.get('name', ''), target=_cur,
+                        command=_re_qlnr_exec_command(_cur),
+                        staged=qlnr_wire_to_qdos(_cur + ".new") or _cur + ".new")
+                    + _upd_extras_note(_job),
+                    _job.get('brand'))
+            elif _job.get('ql_probe'):
+                # 9.7.46, QLNextRemote only: died while listing the job's
+                # folder after the first rename was refused - nothing was
+                # swapped, and whether the job is there is unknown.
+                sig.dot_update.emit(False, ui_tr_now(
+                    "Remote {name} update failed: the QL could not rename "
+                    "{target} aside, and whether that file is there could not "
+                    "be checked. Most likely the QL runs QLNextRemote from "
+                    "somewhere else (such as QPC2's dos1_ drive or the root of "
+                    "an sQLux win1 folder), or the file is locked. Nothing was "
+                    "swapped — the QL still runs its current build. See "
+                    "\"Updating the job from ZX-Next-Unite\" in the "
+                    "QLNextRemote user guide.").format(
+                        name=_job.get('name', ''), target=_cur)
+                    + _upd_extras_note(_job),
+                    _job.get('brand'))
             elif (_job.get('swap_started')
                     and _job.get('brand') == "QLNextRemote"):
                 # The QL's words for the same mid-swap death (see the
@@ -4558,7 +4876,23 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                                      file name, "ZXNextRemote", and
                                      marked_exit=True (Q+'X': the .nex saves
                                      settings and soft-resets into NextZXOS,
-                                     ZXNR 1.0.3+ answers 'U').
+                                     ZXNR 1.0.3+ answers 'U'). The
+                                     QLNextRemote flavor ("QLNextRemote",
+                                     marked) adds one branch, gated on the
+                                     brand, the session's own 'Y' answer
+                                     AND a job name ending in
+                                     qlnextremote_exe (9.7.46): a first
+                                     rename refused with a plain 'F' lists
+                                     the folder ('L', legal after the QL's
+                                     bare-ack 'U'), and when the listing
+                                     proves no job is at the path (the QL
+                                     runs it from QPC2's dos1_ or elsewhere
+                                     out of reach; a name's '_' twin, as a
+                                     qdos-like sQLux lists it, counts on
+                                     both sides) the staged
+                                     build is renamed into place and started
+                                     by the marked quit, the verdict naming
+                                     the EXEC_W command to use from then on.
         ("mark",  token)          -> echoes back via sig.marked once reached
         ("quit",)
     ``stop_event`` (threading.Event) ends the session/thread.
