@@ -298,16 +298,21 @@ def start_server(cmd_q, stop, control, **kw):
     return th, state
 
 
-def connect_next(local=False):
+def connect_raw():
+    """A plain connection to the listen server, retried while the worker
+    thread has not bound its port yet (start_server returns at once, and a
+    first connect can beat the bind: Linux CI runners do)."""
     end = time.time() + 5.0
     while time.time() < end:
         try:
-            s = socket.create_connection((ADDR, PORT), timeout=5)
-            break
+            return socket.create_connection((ADDR, PORT), timeout=5)
         except OSError:
             time.sleep(0.05)
-    else:
-        raise AssertionError("listen server never came up")
+    raise AssertionError("listen server never came up")
+
+
+def connect_next(local=False):
+    s = connect_raw()
     if local:
         LOCAL_PORTS.add(s.getsockname()[1])
     s.sendall(b"Listen")
@@ -1681,7 +1686,7 @@ def test_keepalive_on_every_seat():
 
     def body(cmd_q, control, state, socks):
         n_file = len(FILELOG.lines)
-        probe = socket.create_connection((ADDR, PORT), timeout=5)
+        probe = connect_raw()
         probe.close()                             # a silent probe
         other = socket.create_connection((ADDR, PORT), timeout=5)
         other.sendall(b"Sync3!")                  # not a -listen client
@@ -2001,7 +2006,7 @@ def test_update_macro_not_reaped():
                          ident=ident, brand=brand, want_ops=want_ops,
                          press=press, label=label):
                     cmd_q.put(cmd)
-                    s = socket.create_connection((ADDR, PORT), timeout=5)
+                    s = connect_raw()
                     socks.append(s)
                     ops, staged = [], []
 
