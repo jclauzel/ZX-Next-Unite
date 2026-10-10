@@ -24,7 +24,7 @@ import zlib
 from collections import deque, namedtuple
 from zxnu_config import (IGNOREFILE, MAX_PAYLOAD, PORT, SYNCPOINT,
                          TREE_FONT_MAX_PT, TREE_FONT_MIN_PT,
-                         UP_DIRECTORY, VERSION3, VERSION4,
+                         UP_DIRECTORY, VERSION3, VERSION4, ZXNR_NEX_FLAVORS,
                          cspect_can_autostart, emulator_offers_autostart,
                          log_size,
                          is_filetype_a_directory, mame_autostart_staging_dir,
@@ -1215,8 +1215,10 @@ PEER_SILENCE_LIMIT = 620.0
 #: An ident never asked (None), a listener too old for 'Y' (("", "")) and
 #: every other brand - the .sync5 dot "sync", ZX Next Remote "httpbridge" /
 #: "n2n", CSpect/MAME Nexts running either - keep PEER_SILENCE_LIMIT and
-#: the code path above untouched. Hand-kept twin of the widget's
-#: QLNR_IDENT_TYPE (zxnu_remote_explorer) and RE_CRC_FLOORS' key below.
+#: the code path above untouched, except a ZX Spectrum Next dialing from
+#: another machine since 9.7.47 (RE_NEXT_IDENT_TYPES and the NEXT_*
+#: numbers below). Hand-kept twin of the widget's QLNR_IDENT_TYPE
+#: (zxnu_remote_explorer) and RE_CRC_FLOORS' key below.
 RE_QLNR_IDENT_TYPE = "qlnextremote"
 
 #: Seconds of silence after which a QLNextRemote seat is reaped (9.7.45).
@@ -1271,8 +1273,185 @@ QLNR_PEER_SILENCE_LIMIT = 120.0
 #: it hears the close and redials, so the user sees it come back and
 #: presses Disconnect again - nothing it was doing is cut, and nothing goes
 #: to another seat.
+#: 9.7.47 widened the gate in three places, for the QL and the Next alike
+#: (_re_session's _drop_due): "heard since the mark" is now judged on the
+#: PEER's evidence - a byte received or a reply that COMPLETED (alive_at) -
+#: not on the end of Unite's own turn, so a press landing while a command
+#: waits on a peer that is already dead is not moot when that wait times
+#: out; no update, verify or rmtree job may be open; and the "quit next in
+#: line" peek looks past reply-less reads and baton moves queued ahead of
+#: it (RE_DROP_SKIP_OPS: a Refresh, a folder click, "Switch to this Next"),
+#: which stay queued for the next baton holder exactly as a reap leaves
+#: them - never past a write, a widget write chain's link (RE_WRITE_CHAIN_OPS:
+#: a move's get or mark, a paste check's fsize) or anything carrying a
+#: bridge reply sink. The residual alive_at adds, accepted: a LIVE QL still
+#: busy after Unite gave up waiting for its reply (RE_REPLY_TIMEOUT) has
+#: completed nothing since the press, so it can now be dropped 10 s after
+#: that timeout; over a Next's ESP it hears the close and redials, while a
+#: QL on sQLux or QPC2 never notices the close and stays hung until it is
+#: restarted (the QLNR_PEER_SILENCE_LIMIT note's emulator case).
 #: Read at CALL time (the suite patches it).
 QLNR_DROP_SILENCE = 10.0
+
+#: 9.7.47: the ZX Spectrum Next extension of the three 9.7.45 pieces (the
+#: short silence limit, Disconnect's drop and the exit purge). The field
+#: case is the QL's, on a Next core: a Next running ZX Next Remote's
+#: NextSync Listener or the .sync5 dot in -L that is hard-reset leaves its
+#: ESP holding the TCP link - no FIN, no more Polls - so the dead seat sat
+#: for PEER_SILENCE_LIMIT and Disconnect could not clear it. A seat is
+#: under the Next rule (_re_session's _next_self) only when ALL hold:
+#:   - its OWN 'Y' type is one of these ("sync" = the dot, the ZXNR
+#:     flavours from zxnu_config, never a hand-kept twin), or it was never
+#:     asked (None: benched since it connected under Sessions On), or it
+#:     answered ("", "") - a listener too old for 'Y', OR any seat whose
+#:     'Y' query FAILED (a timeout, a garbled block), which caches the same
+#:     value until the next version op. "qlnextremote" keeps the QL rule,
+#:     "test" (ZXNR's unit build) and any type this build does not know
+#:     keep the 620 s path. A QLNextRemote seat never asked (a KS2 QL core
+#:     benched under Sessions On) or whose 'Y' failed is indistinguishable
+#:     from a Next here and takes the Next rule - harmless: the same 120 s
+#:     and 10 s, plus the Next's guards, its "the Next at" line and the
+#:     Settings switch below;
+#:   - it did NOT dial from this PC (seat['local'], _re_same_host: MAME
+#:     through Unite's espemu and anything on loopback can sit paused in a
+#:     debugger for any length of time);
+#:   - Settings → "Drop a silent Next after 2 minutes" is On (the
+#:     drop_silent_next hook of run_remote_listen_server; default On).
+#: The exit purge needs only the first two (_re_session's _next_seat): it
+#: is no silence rule, so a quit meant for a dead Next never reaches
+#: another seat whatever the switch says - a debugger-paused machine that
+#: resumes collects its own quit, one that ends has it purged.
+RE_NEXT_IDENT_TYPES = ("sync",) + tuple(ZXNR_NEX_FLAVORS)
+
+#: Seconds of silence after which a Next seat under the rule above is
+#: reaped (9.7.47), taken as min() with PEER_SILENCE_LIMIT and counted, as
+#: for the QL, from the later of the last byte, the end of the last served
+#: turn and the stall guard's resume (RE_TICK_STALL_S). A LIVE Next polls
+#: every ~0.25-0.4 s when idle; the longest gap its code bounds while Unite
+#: awaits nothing is ~37 s for ZX Next Remote (a lost put frame, its 10 s
+#: frame wait, then a "Retry" through a 9 x 3 s CIPSEND prompt ladder;
+#: fsrv.c, esp.c) and ~22 s for the dot at -slow (one cipxfer timeout).
+#: 120 s is over 3x the first. It deliberately sits BELOW the >330 s /
+#: >LONG_TIMEOUT pairing PEER_SILENCE_LIMIT keeps: the case that pairing
+#: was raised for - an idle Wi-Fi seat starved of air while ANOTHER seat
+#: moves data (ZX Next Remote 1.2.0's field case) - is answered by the
+#: transfer hold (NEXT_XFER_HOLD), which puts the seat back on the 620 s
+#: path. The cost of a mistake: a live ZXNR that is reaped hears the close
+#: and redials (Sessions On: a new sid); a live dot stops with "Connection
+#: lost - stopping" and has to be re-run - it never redials in -L. Read at
+#: CALL time (the suite patches it); tests/test_bridge_stall.py pins it
+#: strictly between ~37 s and PEER_SILENCE_LIMIT.
+NEXT_PEER_SILENCE_LIMIT = 120.0
+
+#: Seconds a marked Next seat must have been silent for Disconnect to drop
+#: it (9.7.47) - QLNR_DROP_SILENCE's gate clause for clause (see its note
+#: and _drop_due), PLUS, for the Next only: never while it holds the baton
+#: and the shared queue holds a write or a write chain's link ANYWHERE
+#: (RE_WRITE_OPS, RE_WRITE_CHAIN_OPS) - even behind the quit, where a paste
+#: made in the seconds after the press would otherwise go straight to the
+#: next baton holder, or with a /forceexit for this sid on its own queue
+#: in front. Twice ZX Next Remote's 5 s Poll-reply wait, the QL's own
+#: reasoning; a live idle Next is heard again within
+#: ~0.4 s, so "nothing heard since the press" stops being true at once.
+#: The same accepted residual: a LIVE idle Next whose polls stall for 10 s
+#: or more across the press (two lost 'I' answers for ZXNR, one cipxfer
+#: timeout for a dot at -slow) is dropped too - ZXNR redials, the dot ends
+#: up in BASIC as Disconnect asked, saying "Connection lost" instead of
+#: "Listen ended". Read at CALL time (the suite patches it).
+NEXT_DROP_SILENCE = 10.0
+
+#: The seat-aware transfer hold (9.7.47). A session on a seat dialing from
+#: ANOTHER machine stamps shared['xfer_at'][its sid] = monotonic() whenever
+#: FILE DATA crosses its link - a put data frame served, or a 'D' block of
+#: a get (the bridge's /get and /sum relays included) or of an update's
+#: read-back ('G') - never for a listing's, an rfsize's or an rcpy's
+#: progress blocks (small, or Next-local work: browsing the other Next must
+#: not keep a dead one), never for a seat dialing from this PC (loopback
+#: uses no air). The HTTP bridge adds its own legs through the
+#: bridge_xfer_at hook of run_remote_listen_server: a /put body being read
+#: or a /get body being written to a client that is not on this PC (for at
+#: least its length at a 115200 Controller's ~10 KB/s: the OS takes a big
+#: send at once, so the app cannot see the bytes leave). A Next
+#: seat whose OTHER seats stamped, or whose bridge moved an HTTP body,
+#: within this many seconds is reaped by the 620 s path instead of
+#: NEXT_PEER_SILENCE_LIMIT: ZX Next Remote's 1.2.0 field case was an idle
+#: Wi-Fi seat whose tiny Poll/'I' round trips were starved by a
+#: Controller's paste (measured at more than 35 s, no upper bound) - its
+#: HTTP upload to the bridge as much as the relay to the other seat. Over
+#: 2x the ~29 s one slow-prompt bad poll costs ZXNR before its queued polls
+#: land again. A get or a targeted relay stuck on the DEAD seat itself
+#: moves nothing, so it never holds that seat (a non-targeted bridge /put
+#: parked on the shared queue still keeps it through the write guard,
+#: RE_WRITE_OPS). Disconnect's drop ignores the hold - that is an explicit
+#: user request. Read at CALL time (the suite patches it).
+NEXT_XFER_HOLD = 60.0
+
+#: The stall guard (9.7.47, every silence arm: QL, Next and the 620 s one).
+#: A 1 s idle recv that returns more than this many seconds after it began
+#: means THIS process or THIS PC was frozen - a sleep/resume, a debugger
+#: holding Unite - not that the peer went quiet: the moment is stamped as
+#: ``resumed`` and every silence is counted from it as well. It only ever
+#: reaps LATER (the theoretical limit: a host so starved that EVERY 1 s
+#: recv returned over 5 s late would restamp at each tick and reap
+#: nothing - only a FIN, an RST or the keepalive below would end a seat).
+#: Read at CALL time (the suite patches it).
+RE_TICK_STALL_S = 5.0
+
+#: TCP keepalive on every seated link (9.7.47, set after the "Listening"
+#: handshake by _re_set_keepalive): first probe after this many idle
+#: seconds, then every RE_KEEPALIVE_INTERVAL_S, given up after
+#: RE_KEEPALIVE_COUNT unanswered probes. A Next whose ESP was RESET after
+#: the link came up (the relaunch's ESP reset, ZXNR's wedge reset) holds
+#: no record of the connection, so - once the module has rejoined the
+#: Wi-Fi under the same IP - it is expected to answer the first probe with
+#: RST (lwIP's answer to a segment for a connection it does not know; not
+#: yet observed on hardware), ending the seat within ~30 s with
+#: "connection error" whatever its rule or queue. A live peer, a frozen
+#: Z80 (the ESP still acks) and a paused emulator (its host's TCP stack
+#: acks) answer every probe; one that answers nothing is cut only after
+#: IDLE + COUNT x INTERVAL = 630 s, no sooner than PEER_SILENCE_LIMIT. The
+#: short idle/interval are armed ONLY once the count has taken: a Windows
+#: older than 10 1703 has no TCP_KEEPCNT and would keep its fixed 10
+#: probes (30 + 10 x 30 = 330 s, below PEER_SILENCE_LIMIT, which could cut
+#: a live starved seat the transfer hold keeps), so such a link stays on
+#: the OS defaults. Before 9.7.47 SO_KEEPALIVE ran on the OS defaults (2 h
+#: on Windows) and never fired in practice.
+RE_KEEPALIVE_IDLE_S = 30
+RE_KEEPALIVE_INTERVAL_S = 30
+RE_KEEPALIVE_COUNT = 20
+
+#: Commands that WRITE to the Next (9.7.47). While a Next seat under the
+#: new rule holds the baton and one of these (or a RE_WRITE_CHAIN_OPS link)
+#: sits on the shared queue, the seat keeps the 620 s path: reaped at
+#: 120 s, it would hand the rest of a paste or a bridge script to the next
+#: baton holder - another machine's card - and Disconnect's drop refuses
+#: it the same way. Cancel drains the queue (the pane's _re_drain), after
+#: which the short limit applies at the next idle tick.
+RE_WRITE_OPS = frozenset(("put", "mkdir", "rmdir", "rm", "rmtree",
+                          "rename", "rcpy", "update_dot"))
+
+#: 9.7.47: UI commands that write nothing themselves but whose COMPLETION
+#: makes the widget write to whichever Next then holds the baton - a
+#: Move-to-PC's ("get", ...) and its ("mark", token) (on_marked queues the
+#: source's rm/rmdir) and a Next->Next paste check's ("fsize", ...) (its
+#: verdict queues the rcpy); a plain Copy-to-PC's get would also fetch
+#: ANOTHER machine's file over the local one. Held like a write by the
+#: write guard and never looked past by the drop - but only when they carry
+#: no BridgeReply sink: a bridge get / rfsize only answers its own caller,
+#: who follows the bridge's "active machine" contract. The cost, accepted:
+#: a dead holder with a pending Size request keeps the 620 s path until
+#: Cancel.
+RE_WRITE_CHAIN_OPS = frozenset(("get", "mark", "fsize"))
+
+#: Commands Disconnect's drop may look past on the way to the quit (9.7.47,
+#: QL and Next alike), when they carry no BridgeReply sink: the widget's
+#: reply-less reads and a baton move. Left queued, they are served by the
+#: next baton holder, exactly as a reap leaves them - and the widget
+#: re-reads everything on a baton move anyway (and abandons a paste check
+#: a departure interrupted: its last item, the "free", may be among them).
+#: Not "fsize": RE_WRITE_CHAIN_OPS.
+RE_DROP_SKIP_OPS = frozenset(("ls", "drives", "free", "version",
+                              "select_next"))
 
 #: How many Nexts may sit on the listen server at once (option B). One
 #: past the cap gets the framed "Busy" turn-away -- the option-A reply,
@@ -1326,7 +1505,8 @@ RE_UPD_EXTRA_RETRIES = 3
 # that file done, which used to wedge the operation for good. It sat past
 # PEER_SILENCE_LIMIT (then 45 s) so the worker's dead-peer detector got
 # first refusal; since 9.7.18 that limit is 400 s (620 s since 9.7.24, and
-# 120 s for a QLNextRemote seat since 9.7.45) and THIS fires first.
+# 120 s for a QLNextRemote seat since 9.7.45 and for a Next dialing from
+# another machine since 9.7.47) and THIS fires first.
 # That is fine because of what 9.7.14 made it: it only stops WAITING and
 # releases the UI, claims nothing about the Next, and the put keeps running
 # in the worker — the dead-peer verdict still arrives, later, and ends the
@@ -1371,6 +1551,94 @@ def re_ident_is_qlnr(ident):
     return rtype.strip().lower() == RE_QLNR_IDENT_TYPE
 
 
+def re_ident_is_next(ident):
+    """True when a session's cached 'Y' answer puts it under the 9.7.47
+    Next rule as far as the ident goes (see RE_NEXT_IDENT_TYPES): None
+    (never asked), a type of "" (("", ""): a listener too old for 'Y', or a
+    'Y' query that FAILED), or a type that is, stripped and lower-cased,
+    one of RE_NEXT_IDENT_TYPES (read at call time). "qlnextremote", "test",
+    an unknown brand and anything malformed => False - the 620 s path."""
+    if ident is None:
+        return True
+    try:
+        rtype = ident[0]
+    except (TypeError, IndexError, KeyError):
+        return False
+    if not isinstance(rtype, str):
+        return False
+    rtype = rtype.strip().lower()
+    return rtype == "" or rtype in RE_NEXT_IDENT_TYPES
+
+
+def _re_same_host(conn, addr):
+    """True when the seat on ``conn`` dialed from THIS PC (9.7.47): its peer
+    is a 127.x address, or its address equals the accepted socket's own
+    (getsockname) - an emulator: MAME through Unite's in-process espemu, or
+    anything else that dials this PC by its LAN IP. Such a seat can sit
+    paused in a debugger for any length of time, so it keeps the 620 s path
+    (seat['local']). The listen socket is IPv4 only, so there are no mapped
+    IPv6 forms to unwrap. Any error => True: unknown keeps today's path.
+    Called once per seat by the accept loop; module-level and looked up at
+    call time, because the suite patches it to run its 127.0.0.1 fakes as
+    real Nexts."""
+    try:
+        peer = addr[0]
+        if peer.startswith("127."):
+            return True
+        return conn.getsockname()[0] == peer
+    except (OSError, TypeError, IndexError, AttributeError):
+        return True
+
+
+def _re_set_keepalive(conn):
+    """Arm TCP keepalive on a seated link (9.7.47): RE_KEEPALIVE_IDLE_S,
+    RE_KEEPALIVE_INTERVAL_S and RE_KEEPALIVE_COUNT, read at call time - see
+    their note. Best effort, never raises. The probe COUNT goes first
+    (TCP_KEEPCNT: Windows 10 1703+, Linux, macOS): without it the short
+    idle/interval are NOT armed - a fixed OS count (Windows: 10) would cut
+    an unanswering link at 330 s, below PEER_SILENCE_LIMIT - and the link
+    keeps the OS defaults. With it, the idle and interval go through
+    TCP_KEEPIDLE (macOS: TCP_KEEPALIVE) and TCP_KEEPINTVL, and Windows'
+    SIO_KEEPALIVE_VALS stands in for whichever of the two did not take (a
+    Windows 10 between 1703 and 1709). Returns the names of the knobs that
+    took, for the suite."""
+    took = []
+    idle = int(RE_KEEPALIVE_IDLE_S)
+    intvl = int(RE_KEEPALIVE_INTERVAL_S)
+    cnt = int(RE_KEEPALIVE_COUNT)
+    try:
+        conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        took.append("SO_KEEPALIVE")
+    except (OSError, AttributeError):
+        return took
+
+    def _tcp(name, value):
+        opt = getattr(socket, name, None)
+        if opt is None:
+            return False
+        try:
+            conn.setsockopt(socket.IPPROTO_TCP, opt, value)
+        except (OSError, ValueError, TypeError):
+            return False
+        took.append(name)
+        return True
+    if not _tcp("TCP_KEEPCNT", cnt):
+        return took
+    idle_opt = ("TCP_KEEPIDLE" if hasattr(socket, "TCP_KEEPIDLE")
+                else "TCP_KEEPALIVE")
+    set_idle = _tcp(idle_opt, idle)
+    set_intvl = _tcp("TCP_KEEPINTVL", intvl)
+    vals = getattr(socket, "SIO_KEEPALIVE_VALS", None)
+    if (not (set_idle and set_intvl) and vals is not None
+            and hasattr(conn, "ioctl")):
+        try:
+            conn.ioctl(vals, (1, idle * 1000, intvl * 1000))
+            took.append("SIO_KEEPALIVE_VALS")
+        except (OSError, ValueError, TypeError):
+            pass
+    return took
+
+
 def _re_qlnr_exec_command(target):
     """The SuperBASIC command that starts the QLNextRemote job at the wire
     path *target* (9.7.46, the update's fresh install): "EXEC_W " + the QDOS
@@ -1388,19 +1656,56 @@ def _re_is_quit_app(cmd):
             and (len(cmd) == 1 or isinstance(cmd[1], BridgeReply)))
 
 
-def _re_queue_head(q):
-    """(True, the item a get() would return next) or (False, None) for an
-    empty queue (9.7.45) - a PEEK, under the queue's own mutex, that takes
-    nothing. (False, None) too for anything that is not a queue.Queue, so a
-    caller that gates on it fails safe."""
+def _re_drop_skippable(cmd):
+    """A queued command Disconnect's drop may look past on the way to the
+    quit (9.7.47): one of RE_DROP_SKIP_OPS with no BridgeReply sink."""
+    return (isinstance(cmd, tuple) and len(cmd) >= 1
+            and cmd[0] in RE_DROP_SKIP_OPS
+            and not isinstance(cmd[-1], BridgeReply))
+
+
+def _re_queue_first_unskippable(q):
+    """(True, the first queued item that is NOT _re_drop_skippable) or
+    (False, None) when there is none (9.7.47; it replaced 9.7.45's plain
+    head peek) - the item a Poll would act on, with the harmless reads and
+    baton moves at the front looked past. A PEEK under the queue's own
+    mutex that takes nothing; (False, None) for anything not a queue.Queue,
+    so a caller that gates on it fails safe."""
     mutex = getattr(q, 'mutex', None)
     items = getattr(q, 'queue', None)
     if mutex is None or not isinstance(items, deque):
         return False, None
     with mutex:
-        if not items:
-            return False, None
-        return True, items[0]
+        for c in items:
+            if not _re_drop_skippable(c):
+                return True, c
+        return False, None
+
+
+def _re_writes_next(cmd):
+    """A queued command the write guard holds for (9.7.47): one of
+    RE_WRITE_OPS, a bridge command's sink or not, or a RE_WRITE_CHAIN_OPS
+    link with no BridgeReply sink (a widget move's get/mark, a paste
+    check's fsize)."""
+    if not (isinstance(cmd, tuple) and len(cmd) >= 1):
+        return False
+    if cmd[0] in RE_WRITE_OPS:
+        return True
+    return (cmd[0] in RE_WRITE_CHAIN_OPS
+            and not isinstance(cmd[-1], BridgeReply))
+
+
+def _re_queue_has_write(q):
+    """True when any command queued on ``q`` writes to the Next or chains a
+    widget write (_re_writes_next) - 9.7.47, the Next reap's write guard
+    and the Next drop's. A PEEK under the queue's own mutex, as
+    _re_purge_quit_apps filters; False for anything not a queue.Queue."""
+    mutex = getattr(q, 'mutex', None)
+    items = getattr(q, 'queue', None)
+    if mutex is None or not isinstance(items, deque):
+        return False
+    with mutex:
+        return any(_re_writes_next(c) for c in items)
 
 
 def _re_purge_quit_apps(q, plain_only=False):
@@ -1633,6 +1938,20 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
     ident is QLNextRemote, silent since that mark and for QLNR_DROP_SILENCE,
     idle between commands and with the quit next in line, then ends itself
     from the idle recv (see QLNR_DROP_SILENCE). Every other seat ignores it.
+
+    9.7.47 extends the three pieces to a ZX Spectrum Next that dials from
+    another machine (a real Next's dot or ZX Next Remote Listener, a seat
+    never asked or too old for 'Y'; see RE_NEXT_IDENT_TYPES). With the
+    Settings switch on it is reaped after NEXT_PEER_SILENCE_LIMIT unless
+    another seat (or the HTTP bridge) moved file data lately
+    (NEXT_XFER_HOLD) or a write or write chain waits on the shared queue
+    while it holds the baton - both keep the 620 s path - and dropped by a
+    Disconnect mark after NEXT_DROP_SILENCE (never with such a write
+    queued); switch on or off, it is purged of its quits when it ends. One
+    more key: ``local`` (set by the accept loop only) is True when the
+    seat dialed from this PC (_re_same_host); a seat dict without it
+    counts as local, i.e. today's path. The QL rule's numbers are untouched
+    by it.
     """
     peers = shared['peers']
     plock = shared['lock']
@@ -1650,6 +1969,71 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         # is never a QL here, and keeps every Next's code path.
         return re_ident_is_qlnr(sess_ident)
 
+    def _next_seat():
+        # 9.7.47: THIS session is a ZX Spectrum Next dialing from another
+        # machine (a seat dict without the key, a bare call's, is local:
+        # today's path) whose own 'Y' answer is the dot's, a ZXNR
+        # flavour's, never asked or ("", "") - whatever the Settings
+        # switch says. Gates the exit purge alone, which is no silence
+        # rule (see RE_NEXT_IDENT_TYPES). Never true for a seat whose own
+        # 'Y' named QLNextRemote (a QL never asked, or whose 'Y' failed, is
+        # indistinguishable from a Next and takes the Next rule).
+        return (not seat.get('local', True)
+                and re_ident_is_next(sess_ident))
+
+    def _next_self():
+        # 9.7.47: _next_seat() AND the Settings switch is on - the Next
+        # rule's silence limit, transfer hold, write guard and Disconnect
+        # drop. Read live, like _ql_self.
+        if not _next_seat():
+            return False
+        fn = shared.get('next_rule_on')
+        return bool(fn()) if fn is not None else False
+
+    def _xfer_stamp():
+        # 9.7.47: FILE DATA crossed THIS seat's link just now (a put frame
+        # served, a get's or a read-back's 'D' block received) - the other
+        # Next seats' transfer hold reads it. Never from a seat dialing
+        # from this PC: loopback starves no Wi-Fi. A plain dict item
+        # store: GIL-atomic.
+        if seat.get('local', True):
+            return
+        xf = shared.get('xfer_at')
+        if xf is not None:
+            xf[sid] = time.monotonic()
+
+    def _holder_has_write():
+        # 9.7.47: this seat holds the baton (not evicted) and the shared
+        # queue holds a write or a write chain's link - reaped or dropped
+        # now, the rest of that batch would go to the next baton holder,
+        # another card. Under plock (the baton cannot move under the
+        # check), then the queue's own mutex.
+        with plock:
+            if _evicted() or state['active'] != sid:
+                return False
+            return _re_queue_has_write(cmd_queue)
+
+    def _next_held():
+        # 9.7.47: True when this Next seat must keep the 620 s path for now
+        # instead of NEXT_PEER_SILENCE_LIMIT. Three cases: ANOTHER seat
+        # moved file data within NEXT_XFER_HOLD, or the HTTP bridge moved a
+        # client's body within it (the air may be starving this one's polls
+        # - ZX Next Remote 1.2.0's field case), or this seat holds the baton
+        # with a write still on the shared queue (_holder_has_write).
+        now = time.monotonic()
+        hold = NEXT_XFER_HOLD
+        # A copy, then the walk: other sessions insert their sids into the
+        # live dict, and dict.copy() is atomic where iterating is not.
+        for s, t in (shared.get('xfer_at') or {}).copy().items():
+            if s != sid and now - t < hold:
+                return True
+        fn = shared.get('bridge_xfer_at')
+        if fn is not None:
+            at = fn()
+            if at is not None and now - at < hold:
+                return True
+        return _holder_has_write()
+
     def _ql_drop_shared_quits():
         # 9.7.45: a QL seat that ENDS - by QLNR_PEER_SILENCE_LIMIT, by the
         # Disconnect drop, and just as well by EOF (a restarted QLNextRemote
@@ -1664,8 +2048,12 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         # gives every sink left on my_q; every other queued item stays where
         # it was. Under plock: no session can pop the shared queue meanwhile
         # (_pop_shared takes it first) and the baton cannot move under the
-        # check. A non-QL session never gets here (the caller gates on
-        # _ql_self), so a Next's leftovers are handed on exactly as before.
+        # check. 9.7.47: a Next dialing from another machine (_next_seat,
+        # whatever the Settings switch says) gets the same - a Disconnect
+        # pressed on a dead driven Next would otherwise make the Next
+        # relaunched beside it exit. Every other session never gets here
+        # (the caller gates on both), so its leftovers are handed on
+        # exactly as before.
         with plock:
             if state['active'] != sid or _evicted():
                 return
@@ -1675,27 +2063,33 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                    'error': f"session {sid} is gone - "
                             "GET /sessions for the live list"})
         if n:
-            logging.info("Remote explorer: %d quit(s) queued for QL seat "
-                         "#%s (%s) left the shared queue with it", n, sid,
+            logging.info("Remote explorer: %d quit(s) queued for %s seat "
+                         "#%s (%s) left the shared queue with it", n,
+                         "QL" if _ql_self() else "Next", sid,
                          addr[0] if addr else "?")
 
     def _ql_quit_is_next():
-        # 9.7.45, the Disconnect drop's queue gate: True only when the next
-        # command this seat would take at a Poll is a quit_app - its own
-        # queue first, then (only while it holds the baton, and no link-
-        # loss retry is held in front) the shared one: the order the Poll
-        # arm pops them. A PEEK; nothing is taken. Anything else in front
-        # (a batch's next step, a bridge op, a select_next) means the seat
-        # is busy in the user's eyes, and dropping it would hand that work
-        # to the next baton holder, so the drop waits.
+        # 9.7.45, the Disconnect drop's queue gate (QL and, since 9.7.47,
+        # Next): True only when the next command this seat would take at a
+        # Poll is a quit_app - its own queue first, then (only while it
+        # holds the baton, and no link-loss retry is held in front) the
+        # shared one: the order the Poll arm pops them. A PEEK; nothing is
+        # taken. Anything else in front (a batch's next step, a bridge op)
+        # means the seat is busy in the user's eyes, and dropping it would
+        # hand that work to the next baton holder, so the drop waits.
+        # 9.7.47: reply-less reads and baton moves in front are looked past
+        # (_re_drop_skippable: a Refresh, a folder click, "Switch to this
+        # Next" clicked on the relaunched machine) - after the drop they
+        # stay queued for the next baton holder, exactly as a reap leaves
+        # them; never a write, never a command with a bridge sink.
         with plock:
-            has, head = _re_queue_head(my_q)
+            has, head = _re_queue_first_unskippable(my_q)
             if has:
                 return _re_is_quit_app(head)
             if (_evicted() or state['active'] != sid
                     or control.get('retry') is not None):
                 return False
-            has, head = _re_queue_head(cmd_queue)
+            has, head = _re_queue_first_unskippable(cmd_queue)
             return has and _re_is_quit_app(head)
 
     def _bye_evicted():
@@ -2020,6 +2414,13 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
             log(line)
             logging.warning("Remote explorer: %s", line)
 
+    # 9.7.47: the moment a reply call last COMPLETED - evidence the peer
+    # itself was alive then, unlike turn_done, which also stamps the end of
+    # a call that timed out on a dead peer. Disconnect's drop judges "heard
+    # since the press" on max(last_rx, alive_at). Pre-try: the reply
+    # wrapper below writes it.
+    alive_at = float("-inf")
+
     def _re_reply_call(conn_, handler, timeout=None, late_ok=False):
         # Shadows the module function for every arm of THIS session
         # (9.7.20): the same contract, plus - when the reply ends in EOF and
@@ -2027,7 +2428,10 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         # the arm's own failure report is skipped and the session-level arm
         # holds the command for the seat that comes back. Windows raises
         # its own OSError out of the recv instead; both land in the same
-        # arm below.
+        # arm below. 9.7.47: a completed reply stamps alive_at (the file
+        # pulls go through _re_pull_call below, which adds the transfer
+        # clock).
+        nonlocal alive_at
         try:
             conn_.settimeout(RE_REPLY_TIMEOUT if timeout is None else timeout)
             r = _re_recv_reply(conn_, handler, late_ok)
@@ -2043,7 +2447,21 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                 raise _ReLinkDead("the link died under " + _inflight_label())
             _retry_spent("the link went down again")
             return False
+        if r:
+            alive_at = time.monotonic()
         return bool(r)
+
+    def _re_pull_call(conn_, handler):
+        # 9.7.47: _re_reply_call for the FILE pulls only - a get, an update's
+        # read-backs - whose every 'D' block received also stamps this
+        # seat's transfer clock (the other Next seats' NEXT_XFER_HOLD). A
+        # listing's, an rfsize's or an rcpy's blocks never do: browsing the
+        # other Next is no transfer. The handler itself is unchanged.
+        def _stamped(payload, _handler=handler):
+            if payload[0:1] == b'D':
+                _xfer_stamp()
+            return _handler(payload)
+        return _re_reply_call(conn_, _stamped)
 
     try:
         with conn:
@@ -2226,7 +2644,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     conn,
                     b"G" + (job['dir'] + "/" + job['base'] + ".new").encode(),
                     0)
-                if (_re_reply_call(conn, _h) and
+                if (_re_pull_call(conn, _h) and
                         bytes(got_back) == job['data']):
                     sig.log.emit(ui_tr_now(
                         "Remote {name} update: staged copy verified "
@@ -2300,7 +2718,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         _g.extend(payload[1:])
                     return o == b'B'
                 _re_sendpacket(conn, b"G" + remote.encode(), 0)
-                if not _re_reply_call(conn, _h):
+                if not _re_pull_call(conn, _h):
                     local_cmds.appendleft(
                         ("upd_extra_fail", jid, rel,
                          "connection dropped while reading " + rel + " back"))
@@ -2474,18 +2892,59 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
             # which run inside _re_reply_call and never touch last_rx), a
             # put's pulled frame, or an idle 'I'. Stamped at the loop head
             # after a turn that received data, never on the 1 s timeout
-            # spin. Only a QLNextRemote seat reads it (its silence counts
-            # from the later of the two), so a QL that has just finished a
-            # five-minute download is not reaped by the first idle timeout;
-            # every other seat keeps counting from last_rx alone.
+            # spin. A QLNextRemote seat and, since 9.7.47, a Next under the
+            # new rule count their silence from the later of the two, so a
+            # seat that has just finished a five-minute download is not
+            # reaped by the first idle timeout. Since 9.7.47 the 620 s arm
+            # counts from it too (it only ever reaps later: a get, crc or
+            # rcpy longer than 620 s followed by a Poll a second late used
+            # to reap a live Next).
             turn_done = last_rx
             served = False
+            # 9.7.47, the stall guard (RE_TICK_STALL_S): `tick` is when the
+            # current 1 s idle recv began; one that returns long after it
+            # began means this process or PC was frozen, and `resumed`
+            # takes that moment, so no silence arm counts the freeze.
+            tick = last_rx
+            resumed = last_rx
             # 9.7.45: the peer's last main-loop message, as the loop below
-            # classifies it. Only the QL drop gate reads it: a QL BETWEEN
+            # classifies it. Only the drop gate reads it: a seat BETWEEN
             # commands only ever polls, while one pulling a put says
             # "Get"/"Retry"/"Restart" - including the EOF pull that follows
             # the last data frame, after `pending` has already been cleared.
             last_word = None
+
+            def _drop_due(quiet, threshold, write_guard=False):
+                # Disconnect's drop gate (9.7.45 for the QL, 9.7.47 for the
+                # Next too): Disconnect marked this seat and the peer has
+                # given no sign of life since - no byte received, no reply
+                # COMPLETED (alive_at; a press landing while a command waits
+                # on a peer already dead is not made moot by that wait's
+                # timeout) - so the quit can never be served (only a Poll
+                # collects it). Never mid-command: its last word was a Poll
+                # (mid-put it is "Get"/"Retry", the EOF pull included), no
+                # put is being pulled, no walk, macro or verify step is
+                # queued (local_cmds) and no update, verify or rmtree job is
+                # open - and never with other work queued in front of the
+                # quit (reply-less reads and baton moves aside: see
+                # _ql_quit_is_next), which would go to the next baton
+                # holder. ``write_guard`` (the Next arm, 9.7.47): nor while
+                # this seat holds the baton with a write or a write chain's
+                # link ANYWHERE on the shared queue - behind the quit too
+                # (_holder_has_write, see NEXT_DROP_SILENCE). Such a seat is
+                # left to finish and collect the quit, or, dead, to meet its
+                # silence limit. Keep the two callers (the QL arm, the Next
+                # arm) on this one gate.
+                mark = seat.get('drop_silent')
+                return (mark is not None
+                        and max(last_rx, alive_at) < mark
+                        and quiet >= threshold
+                        and last_word == b"Poll"
+                        and pending is None and not local_cmds
+                        and not upd_jobs and not vjobs and not rmtree_jobs
+                        and _ql_quit_is_next()
+                        and not (write_guard and _holder_has_write()))
+
             while not stop_event.is_set():
                 if served:
                     turn_done = time.monotonic()
@@ -2497,37 +2956,29 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     inflight_attempt = 0
                 try:
                     conn.settimeout(1.0)
+                    tick = time.monotonic()
                     data = conn.recv(1024)
                 except socket.timeout:
                     if _evicted():
                         _bye_evicted()
                         break
+                    now = time.monotonic()
+                    if now - tick > RE_TICK_STALL_S:
+                        # A 1 s recv that took this long: Unite itself was
+                        # frozen (sleep/resume, a debugger), not the peer.
+                        resumed = now
+                        logging.info(
+                            "Remote explorer: seat #%s - this process was "
+                            "frozen for ~%ss; its silence clocks restart",
+                            sid, int(now - tick))
                     if _ql_self():
                         # 9.7.45, QLNextRemote only (this session's OWN
                         # 'Y' answer): a reset QL core leaves the ESP
                         # holding the link, so the seat goes quiet with no
-                        # FIN. Silence counts from the later of last_rx
-                        # and the end of the last served turn.
-                        heard = max(last_rx, turn_done)
-                        quiet = time.monotonic() - heard
-                        mark = seat.get('drop_silent')
-                        if (mark is not None and heard < mark
-                                and quiet >= QLNR_DROP_SILENCE
-                                and last_word == b"Poll"
-                                and pending is None and not local_cmds
-                                and _ql_quit_is_next()):
-                            # Disconnect marked this seat and it has said
-                            # nothing since: the quit can never be served
-                            # (only a Poll collects it), so end the seat
-                            # here. Never mid-command: its last word was a
-                            # Poll (mid-put it is "Get"/"Retry", the EOF
-                            # pull included), no put is being pulled and
-                            # no walk, macro or verify step is queued
-                            # (local_cmds) - and never with other work
-                            # queued in front of the quit, which would go
-                            # to the next baton holder. Such a seat is left
-                            # to finish and collect the quit, or, dead, to
-                            # meet the QL limit below. See QLNR_DROP_SILENCE.
+                        # FIN. Silence counts from the later of last_rx,
+                        # the end of the last served turn and a resume.
+                        quiet = now - max(last_rx, turn_done, resumed)
+                        if _drop_due(quiet, QLNR_DROP_SILENCE):
                             log(ui_tr_now(
                                 "Remote explorer: the QL at {address} has "
                                 "been silent for {seconds}s — Disconnect "
@@ -2553,7 +3004,56 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                                 addr[0] if addr else "?")
                             break       # the finally purges its quits
                         continue
-                    if time.monotonic() - last_rx >= PEER_SILENCE_LIMIT:
+                    if _next_self():
+                        # 9.7.47, a ZX Spectrum Next dialing from another
+                        # machine (see RE_NEXT_IDENT_TYPES): a hard-reset
+                        # Next leaves its ESP holding the link exactly as a
+                        # reset QL core does. The QL's gate and clock, the
+                        # Next's numbers; the drop ignores the transfer hold
+                        # (an explicit user request), the reap does not.
+                        quiet = now - max(last_rx, turn_done, resumed)
+                        if _drop_due(quiet, NEXT_DROP_SILENCE,
+                                     write_guard=True):
+                            log(ui_tr_now(
+                                "Remote explorer: the Next at {address} has "
+                                "been silent for {seconds}s — Disconnect "
+                                "closes its seat now instead of waiting for "
+                                "a quit it cannot collect.").format(
+                                    address=addr[0] if addr else "?",
+                                    seconds=int(quiet)))
+                            logging.info(
+                                "Remote explorer: Disconnect dropped silent "
+                                "Next seat #%s (%s) after %ss", sid,
+                                addr[0] if addr else "?", int(quiet))
+                            break       # the finally purges its quits
+                        # The silence first, the hold second: _next_held
+                        # peeks the shared queue under its mutex, which is
+                        # worth paying only once the limit is reached. A
+                        # held seat below the limit could not meet the
+                        # 620 s arm either (the same clock, a longer limit).
+                        if quiet < min(NEXT_PEER_SILENCE_LIMIT,
+                                       PEER_SILENCE_LIMIT):
+                            continue
+                        if not _next_held():
+                            # The real silence, not the limit: a seat whose
+                            # hold just ended may have been quiet far
+                            # longer.
+                            log(ui_tr_now(
+                                "Remote explorer: no word from the Next "
+                                "for {seconds}s — assuming it is gone "
+                                "(powered off? Wi-Fi dropped?)").format(
+                                    seconds=int(quiet)))
+                            logging.warning(
+                                "Remote explorer: Next peer silent for "
+                                "%ss — assuming it is gone (seat #%s, %s)",
+                                int(quiet), sid,
+                                addr[0] if addr else "?")
+                            break       # the finally purges its quits
+                        # Held (another seat's or the bridge's transfer, or
+                        # a write queued behind this baton holder): today's
+                        # arm below.
+                    if now - max(last_rx, turn_done,
+                                 resumed) >= PEER_SILENCE_LIMIT:
                         log(ui_tr_now(
                             "Remote explorer: no word from the Next for "
                             "{seconds}s — assuming it is gone (powered off? "
@@ -2598,7 +3098,7 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     break
                 last_rx = time.monotonic()
                 served = True       # 9.7.45: turn_done at the next loop head
-                last_word = data    # 9.7.45: the QL drop gate's "between commands"
+                last_word = data    # 9.7.45: the drop gate's "between commands"
 
                 # A put in flight is served by the Next pulling the bytes with
                 # "Get"/"Gee" (or asking to resend with "Retry"/"Restart"). A newer
@@ -2840,7 +3340,9 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                             return False
                         _re_sendpacket(conn, b"G" + remote.encode(), 0)
                         try:
-                            ok = _re_reply_call(conn, _h)
+                            # xfer: its 'D' blocks feed the other Next
+                            # seats' transfer hold (9.7.47).
+                            ok = _re_pull_call(conn, _h)
                         finally:
                             # Closed on the retry path too (_ReLinkDead): a
                             # half-written file left open here would refuse
@@ -4460,6 +4962,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                     n = min(max_payload, len(put_data) - put_ofs)
                     last_packet = put_data[put_ofs:put_ofs + n]
                     _re_sendpacket(conn, last_packet, put_pkt)
+                    if n:
+                        _xfer_stamp()       # 9.7.47: NEXT_XFER_HOLD
                     put_ofs += n
                     put_pkt += 1
                     xfer['done'] = put_ofs
@@ -4485,6 +4989,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
                         _re_trace("Next asked to retry packet %d (%d so far)"
                                   % ((put_pkt - 1) & 0xff, put_retry))
                     _re_sendpacket(conn, last_packet, (put_pkt - 1) & 0xff)
+                    if last_packet:
+                        _xfer_stamp()       # 9.7.47: NEXT_XFER_HOLD
                 elif data == b"Restart":
                     # PACKET-NUMBER mismatch on the Next: the two sides'
                     # counters have drifted and it is starting the file over.
@@ -4783,14 +5289,17 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
         # holding the baton - whichever way it ends - takes the quits meant
         # for it off the shared queue, so the next baton holder is never
         # told to exit by them. Before the reap: the accept loop moves the
-        # baton only once this thread has finished. Every other session
-        # skips this line entirely.
-        if _ql_self():
+        # baton only once this thread has finished. 9.7.47: so does a Next
+        # dialing from another machine (_next_seat - the purge is no
+        # silence rule, so the Settings switch does not gate it). Every
+        # other session skips this line entirely.
+        if _ql_self() or _next_seat():
             try:
                 _ql_drop_shared_quits()
             except Exception:                           # noqa: BLE001
-                logging.exception("Remote explorer: purging a QL seat's "
-                                  "quits from the shared queue failed")
+                logging.exception("Remote explorer: purging a QL/Next "
+                                  "seat's quits from the shared queue "
+                                  "failed")
         # Session-TARGETED commands still queued (never taken) would
         # otherwise strand their HTTP callers for the full bridge timeout:
         # fail them now, with the 410 the bridge maps to "session gone".
@@ -4812,7 +5321,8 @@ def _re_session(sid, conn, addr, my_q, sig, cmd_queue, stop_event, shared,
 
 def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                              max_payload=512, control=None, verify_crc=None,
-                             sessions=None):
+                             sessions=None, drop_silent_next=None,
+                             bridge_xfer_at=None):
     # max_payload is 512, not the protocol's 1024 cap: ZXNextRemote's bench
     # testing found Next CLONES (N-Go) corrupt >512-byte continuous UART
     # bursts at the Medium/Fast rates — deterministically, close checksums —
@@ -4997,6 +5507,37 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
     stays open across the Next's re-dial. The held command's ONE report is
     the retry's own outcome, or - retries spent, the deadline passed, the
     mode flipped to On - put_done(False) / error from _re_retry_give_up.
+
+    ``drop_silent_next`` (9.7.47) is an optional 0-arg callable read at
+    every idle tick of every seat that could fall under the Next rule
+    (Settings → "Drop a silent Next after 2 minutes"; None = on, a hook
+    that raises = off, logged once). On: a ZX Spectrum Next dialing from
+    another machine - its own 'Y' answer the dot's, a ZX Next Remote
+    flavour's, never asked or ("", "") - is reaped after
+    NEXT_PEER_SILENCE_LIMIT (unless another seat or the bridge moved file
+    data within NEXT_XFER_HOLD, or a write - or a widget write chain's get,
+    mark or fsize, RE_WRITE_CHAIN_OPS - waits on the shared queue while it
+    holds the baton: then the 620 s path) and Disconnect's mark drops it
+    after NEXT_DROP_SILENCE (never with such a write queued while it holds
+    the baton) - the 9.7.45 QLNextRemote pieces, which the hook never
+    touches. Off: every such seat keeps the 620 s path with no drop. On or
+    Off, such a seat takes its quits off the shared queue when it ends
+    (the purge is no silence rule). A seat dialing from this PC
+    (_re_same_host: loopback, or this PC's own address - MAME through
+    espemu) keeps the 620 s path either way. Every seated link also gets
+    TCP keepalive (_re_set_keepalive), so a Next whose ESP was reset under
+    it is expected to end within ~30 s on the RST; and every silence arm
+    counts from the end of the last turn and past a freeze of this PC (the
+    stall guard), whatever the switch says.
+
+    ``bridge_xfer_at`` (9.7.47) is an optional 0-arg callable: the
+    monotonic time the HTTP bridge last moved a client's body (now while
+    one is in motion; None for never) - zxnu_http_bridge's
+    body_moving_at(). A Next seat whose bridge moved a body within
+    NEXT_XFER_HOLD is held on the 620 s path like one whose fellow seat
+    moved data (a Controller's /put upload starves an idle Wi-Fi seat as
+    much as the relay does). A hook that raises counts as "moving now"
+    (held - the 620 s path), logged once. None = no bridge.
     """
     def log(msg):
         sig.log.emit(msg)
@@ -5075,16 +5616,62 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                 logging.exception("Remote explorer: sessions hook failed")
                 return True
 
+        next_hook = {'said': False}
+
+        def _next_rule_on():
+            # Settings → "Drop a silent Next after 2 minutes" (9.7.47), read
+            # at every idle tick of a seat that could fall under the Next
+            # rule, the way sessions is read per dial: a flip applies at
+            # once, no restart. None (bare calls, the tests) = on. A hook
+            # that raises means OFF - today's 620 s path - and is logged
+            # once per worker run, not once a second per seat.
+            if drop_silent_next is None:
+                return True
+            try:
+                return bool(drop_silent_next())
+            except Exception:                                 # noqa: BLE001
+                if not next_hook['said']:
+                    next_hook['said'] = True
+                    logging.exception("Remote explorer: drop_silent_next "
+                                      "hook failed - Next seats keep the "
+                                      "620 s path")
+                return False
+
+        bridge_hook = {'said': False}
+
+        def _bridge_xfer_at():
+            # The HTTP bridge's "a client's body is moving" clock (9.7.47),
+            # read only by a Next seat that has reached its limit. A hook
+            # that raises counts as moving NOW - the hold, today's 620 s
+            # path - and is logged once per worker run.
+            try:
+                return bridge_xfer_at()
+            except Exception:                                 # noqa: BLE001
+                if not bridge_hook['said']:
+                    bridge_hook['said'] = True
+                    logging.exception("Remote explorer: bridge_xfer_at "
+                                      "hook failed - Next seats are held on "
+                                      "the 620 s path")
+                return time.monotonic()
+
         def _emit_peers():
             with plock:
                 payload = (state['active'],
                            [(s, p['addr']) for s, p in sorted(peers.items())])
             sig.peers.emit(payload)
 
+        # 'xfer_at' (9.7.47): sid -> monotonic time file data last crossed
+        # that seat's link (a put frame served, a get's or read-back's 'D'
+        # block received; seats from this PC never stamp), read by the
+        # other Next seats' transfer hold (NEXT_XFER_HOLD), as is
+        # 'bridge_xfer_at' (None without a bridge hook).
         shared = {'peers': peers, 'lock': plock, 'state': state,
                   'emit_peers': _emit_peers, 'verify_crc': verify_crc,
                   'control': control, 'sessions_on': _sessions_on,
-                  'gen': re_gen}
+                  'gen': re_gen, 'next_rule_on': _next_rule_on,
+                  'xfer_at': {},
+                  'bridge_xfer_at': (_bridge_xfer_at
+                                     if bridge_xfer_at is not None else None)}
 
         # ---- the control surface (HTTP bridge -> this worker) ----------
         # Both closures take plock themselves, so a bridge thread's check
@@ -5108,12 +5695,14 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
             # 9.7.45, the Disconnect button's second half: MARK the seat
             # with the time of the press, nothing more. Its own session
             # decides, from its idle recv, whether the mark means anything
-            # - only when the session's OWN 'Y' answer is QLNextRemote, it
-            # has said nothing since this mark, it is idle between commands
-            # with the quit next in line, and it has been silent for
-            # QLNR_DROP_SILENCE. Every other seat ignores it, and a QL heard
-            # after the press is alive: it collects the quit at its Poll as
-            # before. A later press re-marks. False for a sid not seated.
+            # - only when the session's OWN 'Y' answer is QLNextRemote (or,
+            # since 9.7.47, it is a Next under the new rule: _next_self), it
+            # has given no sign of life since this mark, it is idle between
+            # commands with the quit next in line, and it has been silent
+            # for QLNR_DROP_SILENCE (a Next: NEXT_DROP_SILENCE). Every other
+            # seat ignores it, and a seat heard after the press is alive:
+            # it collects the quit at its Poll as before. A later press
+            # re-marks. False for a sid not seated.
             with plock:
                 p = peers.get(sid)
                 if p is None:
@@ -5258,6 +5847,13 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                 except OSError:
                     pass
                 continue
+            # 9.7.47: a seated link gets real keepalive numbers (see
+            # RE_KEEPALIVE_IDLE_S): a Next whose ESP was reset under it
+            # answers the first probe with RST and the seat ends in ~30 s.
+            _re_set_keepalive(conn)
+            # 9.7.47: decided once, here - the only place a seat is made
+            # (module-level lookup: the suite patches it).
+            local = _re_same_host(conn, addr)
             log(ui_tr_now("Remote explorer: connected to {address}").format(
                 address=addr[0]))
             with plock:
@@ -5358,11 +5954,27 @@ def run_remote_listen_server(sig, cmd_queue, stop_event, port=2048,
                     sid = state['seq']
                     control['seq'] = sid   # persists across worker restarts
                 seat = {'addr': addr[0], 'q': my_q, 'thread': None,
-                        'conn': conn, 'evicted': False}
+                        'conn': conn, 'evicted': False, 'local': local}
                 peers[sid] = seat
                 if state['active'] is None or single:
                     state['active'] = sid
                 state['had_any'] = True
+            if local:
+                # File log only: the line that settles, on the first MAME
+                # run, whether Windows reports this PC's own LAN address
+                # for a self-connection the way the rule assumes.
+                logging.info("Remote explorer: seat #%s (%s) dialed from "
+                             "this PC (an emulator) - the 9.7.47 Next "
+                             "silence rule does not apply", sid, addr[0])
+            else:
+                # ...and its twin, so the evidence for a seat taken as
+                # another machine (the KS2 check, a MAME that Windows
+                # reports from another adapter's address) is a line, not
+                # the absence of one.
+                logging.info("Remote explorer: seat #%s (%s) dialed from "
+                             "another machine - the 9.7.47 Next silence "
+                             "rule applies to it when its ident is a Next's "
+                             "and the Settings switch is on", sid, addr[0])
             for _s, _p in evicted:
                 log(ui_tr_now(
                     "Remote explorer: {address} dialed in while {old} was "

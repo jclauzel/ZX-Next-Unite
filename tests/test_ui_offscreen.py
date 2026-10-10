@@ -281,6 +281,7 @@ elif PHASE in (2, 3):
                 + "re_update_prompt=false\n"         # the connect-time update offer, off
                 + "nextsync_verify_crc=false\n"   # the verify-after-put check, off (9.7.3)
                 + "nextsync_sessions=false\n"     # the single-seat -listen mode (9.7.20)
+                + "nextsync_drop_silent_next=false\n"   # Next seats on the 620 s path (9.7.47)
                 # A hand-picked ground, with the Custom mode that picking one
                 # leaves behind - the only mode in which a pick SURVIVES a
                 # restart (every other mode recomputes the palette on load).
@@ -1332,6 +1333,8 @@ def inspect_phase2():
           not win.settings_nextsync_verify_crc_checkbox.isChecked())
     check("NextSync Sessions toggle restored unchecked from cfg",
           not win.settings_nextsync_sessions_checkbox.isChecked())
+    check("Drop-a-silent-Next toggle restored unchecked from cfg",
+          not win.settings_nextsync_drop_silent_next_checkbox.isChecked())
     check("retro color restored from cfg",
           win.img_color_retro_log.name().lower() == "#112233", win.img_color_retro_log.name())
     check("retro swatch shows restored color",
@@ -2516,6 +2519,32 @@ def inspect_phase6():
     ss.setChecked(True)
     QApplication.processEvents()
     check("Sessions toggle persists on to cfg", "nextsync_sessions=true" in cfg_lines())
+    # Drop a silent Next after 2 minutes (9.7.47): the row right under
+    # Sessions, default on, persisted both ways and read through the shared
+    # decoder the worker's per-tick hook uses.
+    dn = win.settings_nextsync_drop_silent_next_checkbox
+    check("Drop-a-silent-Next toggle directly under the Sessions row",
+          spos(dn) == (settings_row("nextsync_drop_silent_next"), 0)
+          and settings_row("nextsync_sessions") + 1
+          == settings_row("nextsync_drop_silent_next"),
+          str(spos(dn)))
+    check("Drop-a-silent-Next toggle on by default", dn.isChecked())
+    dn.setChecked(False)
+    QApplication.processEvents()
+    check("Drop-a-silent-Next toggle persists off to cfg",
+          "nextsync_drop_silent_next=false" in cfg_lines(),
+          str([l for l in cfg_lines() if l.startswith("nextsync_drop_silent")]))
+    _dn_val = next((l.split("=", 1)[1] for l in cfg_lines()
+                    if l.startswith("nextsync_drop_silent_next=")), None)
+    check("Drop-a-silent-Next off reads as off through the shared decoder",
+          _dn_val is not None and not sys.modules["zxnu_config"]
+          .nextsync_drop_silent_next_enabled(
+              {"nextsync_drop_silent_next": _dn_val}),
+          repr(_dn_val))
+    dn.setChecked(True)
+    QApplication.processEvents()
+    check("Drop-a-silent-Next toggle persists on to cfg",
+          "nextsync_drop_silent_next=true" in cfg_lines())
     _red = sys.modules["zxnu_config"].FONT_RED
     win.add_nextsync_log_window("crc pin", color=_red)
     _it = win.nextsync_log.item(0)
@@ -2589,6 +2618,8 @@ def inspect_phase7():
           win.settings_nextsync_verify_crc_checkbox.isChecked())
     check("NextSync Sessions toggle defaults ON (no cfg key)",
           win.settings_nextsync_sessions_checkbox.isChecked())
+    check("Drop-a-silent-Next toggle defaults ON (no cfg key)",
+          win.settings_nextsync_drop_silent_next_checkbox.isChecked())
     check(".sync5 image auto-deploy toggle defaults ON (no cfg key)",
           win.settings_sync5_img_autodeploy_checkbox.isChecked())
     if win.settings_delete_to_recycle_bin_checkbox.isEnabled():
@@ -2683,6 +2714,10 @@ def inspect_phase9():
           win.settings_nextsync_sessions_checkbox.text()
           == CATALOGS["es"]["NextSync — Sessions: seat several Nexts at once (Remote Explorer)"],
           win.settings_nextsync_sessions_checkbox.text())
+    check("Drop-a-silent-Next checkbox translated at startup",
+          win.settings_nextsync_drop_silent_next_checkbox.text()
+          == CATALOGS["es"]["Drop a silent Next after 2 minutes"],
+          win.settings_nextsync_drop_silent_next_checkbox.text())
     check("placeholder translated at startup",
           win.filtertext.placeholderText() == "Filtrar por nombre…",
           win.filtertext.placeholderText())

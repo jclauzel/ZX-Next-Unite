@@ -283,7 +283,15 @@ def test_silence_limit_outlasts_the_next_verdict():
 
     THE SECOND CHECK IS WHY THE REAPER MOVED AT 9.7.24: LONG_TIMEOUT went
     270 -> 570 to follow ZXNextRemote 1.3.4's client patience, and 400 was
-    no longer above it."""
+    no longer above it.
+
+    Since 9.7.47 the pair guards the HELD path: a seat that dials from this
+    PC (an emulator), another brand ("test", unknown), every Next while the
+    Settings switch is off, and a real Next during the transfer hold (a
+    fellow seat's file data, the bridge's HTTP bodies) or with a write or a
+    widget write chain queued behind its baton. A real Next otherwise
+    leaves at NEXT_PEER_SILENCE_LIMIT
+    (test_next_silence_limit_sits_between)."""
     from zxnu_http_bridge import LONG_TIMEOUT
     check("silence: reaper outlasts the Next's ~330 s worst-case verdict",
           zxnu_workers.PEER_SILENCE_LIMIT > 330.0,
@@ -320,6 +328,55 @@ def test_ql_silence_limit_sits_between():
           zxnu_workers.RE_QLNR_IDENT_TYPE)
 
 
+def test_next_silence_limit_sits_between():
+    """9.7.47: a ZX Spectrum Next dialing from another machine (the dot's or
+    a ZX Next Remote flavour's own 'Y' answer, never asked or ("", "")) is
+    reaped at NEXT_PEER_SILENCE_LIMIT, with the QL's drop gate at
+    NEXT_DROP_SILENCE.
+
+    The limit must stay ABOVE ~37 s, the longest gap a LIVE Next's code
+    bounds while Unite awaits nothing (ZX Next Remote: a lost put frame, its
+    10 s frame wait, then a "Retry" through a 9 x 3 s CIPSEND prompt ladder;
+    the dot at -slow ~22 s), and strictly BELOW PEER_SILENCE_LIMIT, or it
+    would be no exception at all. Like the QL limit it does NOT honour the
+    >330 s / >LONG_TIMEOUT pair: the ZX Next Remote 1.2.0 starved-seat case
+    that pair was raised for is answered by the transfer hold, which must
+    outlast one slow-prompt bad poll (~29 s) and sends the seat back to the
+    paired 620 s path. The stall guard must sit above the 1 s idle recv
+    tick, and TCP keepalive must never give up on a silent peer sooner than
+    PEER_SILENCE_LIMIT would."""
+    w = zxnu_workers
+    nl = w.NEXT_PEER_SILENCE_LIMIT
+    check("silence: the Next limit outlasts a live Next's worst gap (~37 s)",
+          nl > 37.0, nl)
+    check("silence: the Next limit is a real exception (below PEER)",
+          nl < w.PEER_SILENCE_LIMIT, (nl, w.PEER_SILENCE_LIMIT))
+    check("silence: Disconnect's Next drop waits less than the Next limit",
+          0 < w.NEXT_DROP_SILENCE < nl, (w.NEXT_DROP_SILENCE, nl))
+    check("silence: the transfer hold outlasts one slow-prompt bad poll (~29 s)",
+          w.NEXT_XFER_HOLD > 29.0, w.NEXT_XFER_HOLD)
+    check("silence: the stall guard sits above the 1 s idle tick",
+          w.RE_TICK_STALL_S > 1.0, w.RE_TICK_STALL_S)
+    ka = (w.RE_KEEPALIVE_IDLE_S
+          + w.RE_KEEPALIVE_COUNT * w.RE_KEEPALIVE_INTERVAL_S)
+    check("silence: keepalive never gives up on a silent peer before "
+          "PEER_SILENCE_LIMIT", ka >= w.PEER_SILENCE_LIMIT,
+          (ka, w.PEER_SILENCE_LIMIT))
+    check("silence: ...and a reset ESP's RST lands within a minute",
+          0 < w.RE_KEEPALIVE_IDLE_S <= 60, w.RE_KEEPALIVE_IDLE_S)
+    # Why _re_set_keepalive arms the short numbers only once TCP_KEEPCNT
+    # took: with Windows' fixed 10 probes they would cut a silent - perhaps
+    # live, starved and held - link BEFORE PEER_SILENCE_LIMIT.
+    check("silence: the OS's fixed 10 probes would undercut PEER (so the "
+          "count must take first)",
+          w.RE_KEEPALIVE_IDLE_S + 10 * w.RE_KEEPALIVE_INTERVAL_S
+          < w.PEER_SILENCE_LIMIT)
+    check("silence: the Next types are the dot's plus the ZXNR flavours",
+          set(w.RE_NEXT_IDENT_TYPES) == {"sync", "httpbridge", "n2n"}
+          and w.RE_QLNR_IDENT_TYPE not in w.RE_NEXT_IDENT_TYPES,
+          w.RE_NEXT_IDENT_TYPES)
+
+
 def test_long_timeout_under_client_patience():
     """The bridge must give up BEFORE its strictest client does, or the user
     sees silence instead of a 504 naming the stalled operation.
@@ -341,6 +398,7 @@ if __name__ == "__main__":
     test_long_timeout_under_client_patience()
     test_silence_limit_outlasts_the_next_verdict()
     test_ql_silence_limit_sits_between()
+    test_next_silence_limit_sits_between()
     test_stall_resolves_and_session_survives()
     test_dropped_link_resolves_caller()
     test_silent_peer_is_reaped()

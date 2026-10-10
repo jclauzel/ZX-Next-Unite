@@ -40,6 +40,18 @@ Everything new is gated on the SESSION'S OWN 'Y' answer being exactly
   to exit by its plain quit - parked on the seat's own queue or, the
   button's real route, on the shared one; taking over a "sync" seat it
   gets that quit, as before.
+* 9.7.47 widened the QL drop gate (shared with the Next's): a press that
+  lands while a command waits on a QL that is already dead is not made
+  moot by that wait's timeout, and reply-less reads plus a "Switch to this
+  Next" queued ahead of the quit are looked past (they run on the next
+  baton holder) - a write still is not (the batch case above).
+
+Every fake peer here dials 127.0.0.1, which the worker takes for a seat
+dialing from THIS PC (zxnu_workers._re_same_host; checked first below):
+so since 9.7.47 the "sync" / "n2n" / "httpbridge" / never-asked / too-old
+twins are LOCAL seats, and pin that an emulator on this PC keeps the 620 s
+path, no drop and the old routing. The same seats dialing from another
+machine follow the 9.7.47 Next rule: tests/test_next_stale_seat.py.
 
 Run with: python tests/test_qlnr_stale_seat.py
 """
@@ -340,13 +352,14 @@ def _limit_round(label, twins, ql_limit=2.0, peer_limit=8.0):
             check(f"{label}: the QL's link is closed", link_closed(q, 2.0))
             for name, sid, s in peers:
                 at = gone[sid] - last[sid] if sid in gone else None
-                check(f"{label}: {name} is NOT reaped at the QL limit",
-                      at is None or at >= peer_limit - 0.3,
+                check(f"{label}: {name} (a local seat) is NOT reaped at the QL "
+                      "limit", at is None or at >= peer_limit - 0.3,
                       f"{at!r}s after its last word (QL limit {ql_limit}s, "
                       f"patched PEER_SILENCE_LIMIT {peer_limit}s)")
-                check(f"{label}: {name} IS reaped at PEER_SILENCE_LIMIT",
+                check(f"{label}: {name} (a local seat) IS reaped at "
+                      "PEER_SILENCE_LIMIT",
                       at is not None and at < peer_limit + 4.0, f"{at!r}s")
-            check(f"{label}: the Next-side line still names PEER_SILENCE_LIMIT",
+            check(f"{label}: the local seats' line still names PEER_SILENCE_LIMIT",
                   logged(state, f"{NO_WORD} {int(peer_limit)}s"),
                   logged(state, NO_WORD))
             check(f"{label}: no error signal along the way", state["errors"] == [],
@@ -1079,8 +1092,82 @@ def test_sessions_off_inheritance():
 # ---------------------------------------------------------------------------
 # 6. the pure helpers
 # ---------------------------------------------------------------------------
+def test_ql_drop_after_dead_reply():
+    """9.7.47 (the refutation round): the QL dies while Unite waits for the
+    reply to a command, and the user presses Disconnect during that wait.
+    The wait's timeout ends Unite's turn AFTER the press, which used to make
+    the press look moot (the QL "heard since"); only a byte or a reply that
+    COMPLETED counts now, so the QL is dropped after the timeout."""
+    print("\n== a press during a reply the dead QL never sends ==")
+
+    def body(q, cmd_q, control, state, _t):
+        cmd_q.put(("ls", "/x"))
+        got = poll(q)
+        check("dead reply: the ls goes out (and is never answered)",
+              got == b"L/x", got)
+        time.sleep(0.3)
+        n_log = len(state["logs"])
+        cmd_q.put(("quit_app",))
+        t0 = time.monotonic()
+        control["drop_silent"](1)
+        check("dead reply: the QL is dropped after its reply timed out",
+              wait_until(lambda: seated(control) == [], timeout=8.0),
+              seated(control))
+        took = time.monotonic() - t0
+        check("dead reply: ...about QLNR_DROP_SILENCE after the 2 s wait",
+              2.0 <= took < 5.5, f"{took:.1f}s")
+        check("dead reply: by the QL drop line, not a silence verdict",
+              logged(state, DROPPED, n_log) and not logged(state, NO_WORD, n_log),
+              state["logs"][n_log:])
+        check("dead reply: the ls reported its loss once",
+              state["errors"] == ["ls /x: connection dropped"], state["errors"])
+    _with_ql("dead reply", body, QLNR_PEER_SILENCE_LIMIT=60.0,
+             PEER_SILENCE_LIMIT=600.0, QLNR_DROP_SILENCE=1.0,
+             RE_REPLY_TIMEOUT=2.0)
+
+
+def test_ql_drop_looks_past_reads():
+    """9.7.47: after a reset the natural moves are a folder click and
+    "Switch to this Next" on the other machine, both queued for the dead
+    baton holder AHEAD of the Disconnect. Such reply-less reads and a baton
+    move no longer block the drop; they stay queued and run on the next
+    baton holder, exactly as a reap leaves them."""
+    print("\n== the QL drop looks past reads and a switch ==")
+
+    def body(q, cmd_q, control, state, n):
+        for c in [("ls", "/"), ("select_next", 2), ("quit_app",)]:
+            cmd_q.put(c)
+        n_log = len(state["logs"])
+        t0 = time.monotonic()
+        control["drop_silent"](1)
+        check("reads: the dead QL is dropped all the same",
+              wait_until(lambda: 1 not in seated(control), timeout=6.0),
+              seated(control))
+        check("reads: ...within about QLNR_DROP_SILENCE",
+              time.monotonic() - t0 < 3.5, f"{time.monotonic() - t0:.1f}s")
+        check("reads: by the QL drop line", logged(state, DROPPED, n_log))
+        check("reads: the quit left, the reads stayed, in order",
+              shared_items(cmd_q) == [("ls", "/"), ("select_next", 2)],
+              shared_items(cmd_q))
+        check("reads: the baton moves to the n2n",
+              wait_until(lambda: active(control) == 2), active(control))
+        got = safe_poll(n)
+        check("reads: the n2n runs the folder click", got == b"L/", got)
+        if got == b"L/":
+            reply(n, b"E")
+        seen = [safe_poll(n) for _ in range(3)]
+        check("reads: then idles - the switch kept the baton there, no 'Q'",
+              seen and all(x == b"I" for x in seen) and active(control) == 2,
+              seen)
+    _with_ql("reads", body, twin=("n2n", N2N), QLNR_PEER_SILENCE_LIMIT=60.0,
+             PEER_SILENCE_LIMIT=600.0, QLNR_DROP_SILENCE=1.0)
+
+
 def test_helpers():
     print("\n== helpers ==")
+    check("every fake peer of this file is a LOCAL seat (127.0.0.1): the "
+          "twins pin the emulator exemption",
+          zxnu_workers._re_same_host(None, ("127.0.0.1", 0)) is True)
     f = zxnu_workers.re_ident_is_qlnr
     check("QL ident: exact type", f(("qlnextremote", "1.1.4")))
     check("QL ident: stripped and case-folded", f((" QLNextRemote ", "")))
@@ -1120,5 +1207,7 @@ if __name__ == "__main__":
     test_benched_ql_leaves_the_dot_quit_alone()
     test_dead_ql_quit_never_reaches_another_seat()
     test_sessions_off_inheritance()
+    test_ql_drop_after_dead_reply()
+    test_ql_drop_looks_past_reads()
     print("\nRESULT: " + ("ALL PASS" if ok else "FAILURES"))
     sys.exit(0 if ok else 1)

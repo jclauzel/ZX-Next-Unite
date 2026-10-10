@@ -1245,7 +1245,9 @@ class RemoteExplorerWidget(QWidget):
         # It only MARKS the seat: the worker's session decides on its OWN
         # 'Y' answer and silence, and drops nothing but a QLNextRemote seat
         # that has stopped polling (a QL core reset under a live ESP link
-        # can never collect the quit). The widget makes no ident judgement
+        # can never collect the quit) or, since 9.7.47, a silent ZX
+        # Spectrum Next dialing from another machine (Settings → "Drop a
+        # silent Next after 2 minutes"). The widget makes no ident judgement
         # of its own here - its caches can be stale across a re-seat.
         # Absent (None) means Disconnect does exactly what it always did.
         self._drop_silent_raw = drop_silent
@@ -1849,6 +1851,11 @@ class RemoteExplorerWidget(QWidget):
                                        # first (the widget test calls
                                        # on_connected directly — the missing
                                        # init was CI failure #31717960490)
+        # 9.7.47: bumped by every on_disconnected. The auto-relisten's new
+        # worker deals sids from 1 again, so a sid alone cannot tell the
+        # machine a modal confirm named from the one seated since; the
+        # epoch can (see _disconnect_session).
+        self._conn_epoch = 0
         self._peer_guard = False
         self.next_machine_combo = QComboBox(self)
         self.next_machine_combo.setToolTip(
@@ -2423,7 +2430,9 @@ class RemoteExplorerWidget(QWidget):
         # 400 s at 9.7.18 (paired with ZX Next Remote 1.2.0's guard) and
         # 620 s since 9.7.24 (to outlast one relayed bridge op); a
         # QLNextRemote seat has its own QLNR_PEER_SILENCE_LIMIT, 120 s since
-        # 9.7.45. Both sit above this grace, so it fires FIRST and is what
+        # 9.7.45, and a Next dialing from another machine
+        # NEXT_PEER_SILENCE_LIMIT, 120 s since 9.7.47. All sit above this
+        # grace, so it fires FIRST and is what
         # releases the UI; the worker's verdict follows later. Cancel is
         # bounded either way: ask, wait, and if nothing has moved, let go.
         self._op_cancel_mark = self._op_completed
@@ -2442,8 +2451,10 @@ class RemoteExplorerWidget(QWidget):
         already in flight keeps running in the worker and normally still
         lands; a genuinely dead peer is caught separately by the worker's
         PEER_SILENCE_LIMIT (620 s since 9.7.24; a QLNextRemote seat's
-        QLNR_PEER_SILENCE_LIMIT is 120 s since 9.7.45 — both later than this
-        timer, by design), which ends the session and the operation with it.
+        QLNR_PEER_SILENCE_LIMIT is 120 s since 9.7.45, a Next dialing from
+        another machine's NEXT_PEER_SILENCE_LIMIT 120 s since 9.7.47 — all
+        later than this timer, by design), which ends the session and the
+        operation with it.
 
         So: no claim about WHY, and no claim that the file was lost."""
         if not self._op_active or not self._op_cancelled:
@@ -2729,6 +2740,7 @@ class RemoteExplorerWidget(QWidget):
         self.refresh()
 
     def on_disconnected(self):
+        self._conn_epoch += 1      # 9.7.47: see _disconnect_session
         self._set_connected(False)
         self._next_ident = ("", "")
         # The per-session idents die with the session, exactly like the
@@ -2815,6 +2827,19 @@ class RemoteExplorerWidget(QWidget):
         self._rebuild_session_strip()
         if active is not None and prev is not None and active != prev:
             # The baton moved: this pane now drives a DIFFERENT machine.
+            # 9.7.47: a paste check or a move still in flight belonged to
+            # the machine that left - _request_machine refuses a user pick
+            # while either is live, so a move WITH one is always a
+            # departure (a reaped or dropped seat). Its answers would now
+            # come from the new holder's card: a check finished there would
+            # start the rcpy on it, a move's mark would delete ITS file.
+            if self._precheck is not None:
+                self._precheck = None
+                self._log("A Next left mid-check; the paste was not started.")
+            if self._cut_jobs:
+                self._log("Connection ended; unfinished moves kept their "
+                          "sources.")
+                self._cut_jobs.clear()
             self._set_connected(False)     # drop the old card's listing
             self.on_connected()            # drives + listing of the new one
 
@@ -3051,6 +3076,12 @@ class RemoteExplorerWidget(QWidget):
         a different Next entirely.
         """
         machine = self._machine_text_for(sid)
+        # 9.7.47: the confirm below is modal, and Qt delivers the worker's
+        # roster and disconnect signals while it is open - with a dead Next
+        # reaped at 120 s, "wait two minutes, then press Disconnect" makes
+        # the two overlap. Note what the dialog names, and re-check after.
+        before_active = self._peer_active
+        before_epoch = self._conn_epoch
         if QMessageBox.question(
                 self, ui_tr_now("Disconnect"),
                 ui_tr_now("Tell this Next to leave listen mode and exit? "
@@ -3060,6 +3091,16 @@ class RemoteExplorerWidget(QWidget):
                 + (f"\n\n{machine}" if machine else ""),
                 QMessageBox.Yes | QMessageBox.Cancel,
                 QMessageBox.Cancel) != QMessageBox.Yes:
+            return
+        if (not self._connected or self._conn_epoch != before_epoch
+                or (sid is None and self._peer_active != before_active)):
+            # The machine the dialog named left while it was open: the
+            # baton moved (the button's quit would go to whoever holds it
+            # now) or the worker ended and the pane relistened (a fresh
+            # queue the relaunched Next would pop first, its sids dealt
+            # from 1 again). Send nothing. A NAMED sid still in this
+            # worker is checked by _enqueue_to below as before.
+            self._log(ui_tr_now("That Next is no longer on the line."))
             return
         if sid is None or sid == self._peer_active:
             # RAW, as the docstring above promises: fire-and-forget with no
@@ -3074,10 +3115,13 @@ class RemoteExplorerWidget(QWidget):
             return
         # 9.7.45: the quit above only ever reaches a seat that POLLS. Also
         # mark the seat it aimed at (the driven one for the button), and
-        # let the worker decide: it drops only a QLNextRemote seat that has
-        # said nothing since this press, sits idle with the quit next in
-        # line and has been silent for QLNR_DROP_SILENCE - every other seat
-        # ignores the mark, and a QL that polls collects the quit as before.
+        # let the worker decide: it drops only a QLNextRemote seat (or,
+        # since 9.7.47, a ZX Spectrum Next dialing from another machine,
+        # while Settings → "Drop a silent Next after 2 minutes" is on) that
+        # has given no sign of life since this press, sits idle with the
+        # quit next in line and has been silent for QLNR_DROP_SILENCE /
+        # NEXT_DROP_SILENCE - every other seat ignores the mark, and a seat
+        # that polls collects the quit as before.
         self._drop_if_silent(sid if sid is not None else self._peer_active)
         self._log(ui_tr_now("Asked the Next to leave listen mode and exit."))
 

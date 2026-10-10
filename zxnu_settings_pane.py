@@ -62,6 +62,7 @@ SETTINGS_TAB_ROWS = (
     "nextsync_send_conflict",
     "nextsync_verify_crc",
     "nextsync_sessions",
+    "nextsync_drop_silent_next",
     "avail_check",
     "multi_search",
     "search_autocomplete",
@@ -2244,6 +2245,47 @@ def build_settings_pane(
         lambda _s: _settings_nextsync_sessions_changed())
     grid_tab_Settings.addWidget(host.settings_nextsync_sessions_checkbox,
                                 settings_grid_row("nextsync_sessions"), 0, 1, 2)
+
+    # ── NextSync: drop a silent Next after 2 minutes (9.7.47) ──
+    # On (default): a ZX Spectrum Next seated from ANOTHER machine that has
+    # said nothing for zxnu_workers.NEXT_PEER_SILENCE_LIMIT (120 s) is taken
+    # for gone, and Disconnect drops a silent one after NEXT_DROP_SILENCE
+    # (10 s) - a Next hard-reset under a live ESP link sends no FIN, and its
+    # seat used to stay for PEER_SILENCE_LIMIT (620 s). Off: such a seat
+    # keeps the pre-9.7.47 620 s path with no drop (counted, since 9.7.47,
+    # from the end of the last turn and past a freeze of this PC; TCP
+    # keepalive and the purge of a dead seat's quits apply either way) -
+    # for a CSpect (UART Replacement plugin) or another Next held paused in
+    # a debugger. QLNextRemote seats keep their own 9.7.45 rule either way,
+    # and a seat dialing from this PC keeps the 620 s path either way. The
+    # worker reads it at every idle tick through a 0-arg hook handed over
+    # by zxnu_nextsync_pane, so a flip applies at once, no restart.
+    def _settings_nextsync_drop_silent_next_changed():
+        on = host.settings_nextsync_drop_silent_next_checkbox.isChecked()
+        configuration_dictionary[SETTING_NEXTSYNC_DROP_SILENT_NEXT] = (
+            "true" if on else "false")
+        save_configuration_file()
+
+    host.settings_nextsync_drop_silent_next_checkbox = QCheckBox(
+        "Drop a silent Next after 2 minutes")
+    host.settings_nextsync_drop_silent_next_checkbox.setChecked(True)   # default on
+    host.settings_nextsync_drop_silent_next_checkbox.setToolTip(
+        "On (default): a ZX Spectrum Next seated in the Remote Explorer from another\n"
+        "machine that has said nothing for 2 minutes is taken for gone, and pressing\n"
+        "Disconnect on a silent one closes its seat after about 10 seconds. A Next that\n"
+        "is hard-reset leaves its Wi-Fi module holding the link without a goodbye,\n"
+        "so its seat used to stay for 10 minutes, shown connected.\n"
+        "Off: Next seats keep the old 10-minute limit, with no Disconnect drop — use it\n"
+        "while a CSpect (UART Replacement plugin) or another Next sits paused in a\n"
+        "debugger, which would otherwise lose its seat ('.sync5 -L' then has to be\n"
+        "run again; ZX Next Remote dials back in by itself).\n"
+        "QLNextRemote seats keep their own rule either way, and emulators dialing from\n"
+        "this PC (MAME through ZX-Next-Unite) always keep the 10-minute limit.\n"
+        "Applies at once. Saved to the configuration file.")
+    host.settings_nextsync_drop_silent_next_checkbox.stateChanged.connect(
+        lambda _s: _settings_nextsync_drop_silent_next_changed())
+    grid_tab_Settings.addWidget(host.settings_nextsync_drop_silent_next_checkbox,
+                                settings_grid_row("nextsync_drop_silent_next"), 0, 1, 2)
 
     # ── Unite! search result sort / render preference ──────────────────
     def _settings_search_sort_changed():

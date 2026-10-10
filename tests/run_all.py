@@ -72,6 +72,11 @@ SUITES = [
     # limit, Disconnect's drop, and no quit left behind for another seat -
     # fake peers over real sockets, with every other brand as a twin.
     ("test_qlnr_stale_seat.py", 240, None),
+    # The same three pieces for a ZX Spectrum Next dialing from another
+    # machine (9.7.47): its fakes patch _re_same_host to count as real
+    # hardware. ~280 s on its own (with the write-chain, bridge-hold and
+    # keepalive cases); 480 leaves room on a loaded runner.
+    ("test_next_stale_seat.py", 480, None),
     # The narrow unit test of bind_select_all_except_updir, against a
     # synthetic fixture: it is the only cover for the SD-tab regression
     # where SingleSelection killed Ctrl-A. The Remote Explorer's two

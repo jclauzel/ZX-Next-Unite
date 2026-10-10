@@ -523,6 +523,14 @@ def build_config_io(
                 host.settings_nextsync_sessions_checkbox.blockSignals(True)
                 host.settings_nextsync_sessions_checkbox.setChecked(_ss_on)
                 host.settings_nextsync_sessions_checkbox.blockSignals(False)
+            # Drop a silent Next after 2 minutes (9.7.47): same default-ON
+            # decode, same signal-blocked restore.
+            if hasattr(host, "settings_nextsync_drop_silent_next_checkbox"):
+                _dn_on = nextsync_drop_silent_next_enabled(
+                    configuration_dictionary)
+                host.settings_nextsync_drop_silent_next_checkbox.blockSignals(True)
+                host.settings_nextsync_drop_silent_next_checkbox.setChecked(_dn_on)
+                host.settings_nextsync_drop_silent_next_checkbox.blockSignals(False)
 
             # ZX Next Remote "check itch.io for a newer build" toggle
             # (default on) - the CSpect toggle's twin below.

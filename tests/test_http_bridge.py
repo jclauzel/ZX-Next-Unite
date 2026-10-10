@@ -817,9 +817,179 @@ def main():
     print()
     phase_crc_no_op()
     print()
+    phase_body_clock()
+    print()
     phase_trace()
     print("\nRESULT:", "ALL PASS" if ok else "FAILURES")
     sys.exit(0 if ok else 1)
+
+
+def _free_port():
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+    finally:
+        probe.close()
+
+
+def _raw_request(port, head, body=b""):
+    """A raw HTTP/1.1 request on a fresh socket (Connection: close) with a
+    small receive buffer, so a client that stops reading really does hold
+    the server's write; the caller reads the answer at its own pace."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8192)
+    s.settimeout(10)
+    s.connect(("127.0.0.1", port))
+    s.sendall(head.encode("latin-1") + body)
+    return s
+
+
+def _read_all(s, timeout=20.0):
+    s.settimeout(timeout)
+    out = bytearray()
+    while True:
+        chunk = s.recv(65536)
+        if not chunk:
+            return bytes(out)
+        out += chunk
+
+
+def phase_body_clock():
+    """9.7.47: NextSyncHttpBridge.body_moving_at() - the app worker's
+    bridge_xfer_at hook. "Now" while a /put body is being READ or a /get
+    body is being WRITTEN to a client that is not on this PC, else the
+    monotonic end of the last such body (None if none ever moved). A relay
+    waiting on a Next is never a body in motion, and a loopback client
+    never moves one (no Wi-Fi crossed)."""
+    import zxnu_http_bridge as zhb
+    big = bytes(range(256)) * (32 * 1024)          # 8 MiB: outlasts the buffers
+    seen = {}
+
+    class _BodyAdapter:
+        def state(self):
+            return {"listening": True, "connected": True,
+                    "current": "C", "drives": ["C"]}
+
+        def run(self, op, a1="", a2="", body=None, timeout=None, **_kw):
+            if op == "get":
+                # The relay leg: sampled while the "Next" is being asked.
+                seen.setdefault("get_relay", []).append(bridge.body_moving_at())
+                time.sleep(0.3)
+                seen["get_relay"].append(bridge.body_moving_at())
+                return {"ok": True, "data": big, "count": 1}
+            if op == "put":
+                seen.setdefault("put_relay", []).append(bridge.body_moving_at())
+                time.sleep(0.6)
+                seen["put_relay"].append(bridge.body_moving_at())
+                seen["put_len"] = len(body or b"")
+                return {"ok": True}
+            return {"ok": False, "http": 501, "error": "n/a"}
+
+    def moving(at, slack=0.4):
+        return at is not None and time.monotonic() - at < slack
+
+    port = _free_port()
+    bridge = NextSyncHttpBridge(_BodyAdapter(), port=port)
+    okd, err = bridge.start()
+    check("BODY bridge started", okd, err)
+    real = zhb._client_on_this_pc
+    try:
+        check("body clock: None before any body moved",
+              bridge.body_moving_at() is None)
+        # Loopback: a script on this PC crosses no Wi-Fi.
+        st, body = http(port, "/get?path=/a.bin")
+        check("body clock: a loopback /get is served", st == 200
+              and len(body) == len(big), (st, len(body)))
+        st, _ = http(port, "/put?path=/b.bin", body=b"x" * 5000)
+        check("body clock: a loopback /put is served", st == 200, st)
+        check("body clock: ...and neither moved a body over the air",
+              bridge.body_moving_at() is None, bridge.body_moving_at())
+
+        # From here on the client counts as on the air (another machine).
+        zhb._client_on_this_pc = lambda addr: False
+        check("body clock: the on-the-air rate is a 115200 client's (~10 KB/s)",
+              0 < NextSyncHttpBridge.AIR_BYTES_PER_S <= 11520,
+              NextSyncHttpBridge.AIR_BYTES_PER_S)
+        # 8 MiB "on the air" for 2 s here (the real rate would be 14 min).
+        bridge.AIR_BYTES_PER_S = len(big) / 2.0
+        seen.clear()
+        s = _raw_request(port, "GET /get?path=/a.bin HTTP/1.1\r\nHost: x\r\n"
+                               "Connection: close\r\n\r\n")
+        try:
+            s.settimeout(10)
+            first = s.recv(1024)            # the headers and a little body
+            t_body = time.monotonic()
+            check("body clock: the relay leg was NOT a body in motion",
+                  len(seen.get("get_relay", [])) == 2
+                  and all(not moving(a) for a in seen["get_relay"]),
+                  seen.get("get_relay"))
+            time.sleep(0.8)                 # the client stalls; the OS may
+            at = bridge.body_moving_at()    # well have taken it all already
+            check("body clock: a /get body being written is moving NOW",
+                  moving(at), at)
+            rest = _read_all(s)
+        finally:
+            s.close()
+        check("body clock: the whole file arrived",
+              len(first) + len(rest) > len(big), len(first) + len(rest))
+        check("body clock: once written, the END time (no longer moving)",
+              wait_until(lambda: not moving(bridge.body_moving_at(), 0.3),
+                         timeout=5.0)
+              and bridge.body_moving_at() is not None,
+              bridge.body_moving_at())
+        end_get = bridge.body_moving_at()
+        check("body clock: a /get counts as moving for at least its length at "
+              "AIR_BYTES_PER_S (the app cannot see the OS send it)",
+              end_get is not None and end_get >= t_body + 2.0 - 0.3,
+              (end_get, t_body))
+
+        # A ranged slice is a body too.
+        st, chunk = http(port, "/get?path=/a.bin&off=0&len=1280")
+        check("body clock: a ranged slice is served", st == 200
+              and len(chunk) == 1280, (st, len(chunk)))
+        check("body clock: ...and stamps a later end",
+              bridge.body_moving_at() is not None
+              and bridge.body_moving_at() > end_get)
+
+        # A /put body trickling in: moving while it is READ; the relay
+        # after it (the adapter's run) is not.
+        payload = b"P" * 200000
+        s = _raw_request(port, "POST /put?path=/c.bin HTTP/1.1\r\nHost: x\r\n"
+                               "Content-Type: application/octet-stream\r\n"
+                               f"Content-Length: {len(payload)}\r\n"
+                               "Connection: close\r\n\r\n",
+                         payload[:1000])
+        try:
+            time.sleep(0.6)
+            at = bridge.body_moving_at()
+            check("body clock: a /put body being read is moving NOW",
+                  moving(at), at)
+            s.sendall(payload[1000:])
+            reply = _read_all(s)
+        finally:
+            s.close()
+        check("body clock: the put was relayed whole",
+              b" 200 " in reply.split(b"\r\n", 1)[0]
+              and seen.get("put_len") == len(payload),
+              (reply[:40], seen.get("put_len")))
+        pr = seen.get("put_relay", [])
+        check("body clock: during the relay to the Next it is the body's END, "
+              "frozen - not now", len(pr) == 2 and pr[0] is not None
+              and pr[0] == pr[1] and not moving(pr[1], 0.5), pr)
+
+        # An early answer (no ?path=) never leaves a token behind.
+        st, _ = http(port, "/put", body=b"zz")
+        check("body clock: a refused /put answers 400", st == 400, st)
+        time.sleep(0.5)
+        check("body clock: ...and leaves nothing moving",
+              not moving(bridge.body_moving_at(), 0.3), bridge.body_moving_at())
+    finally:
+        zhb._client_on_this_pc = real
+        bridge.stop()
+    check("body clock: loopback addresses are this PC, others are not",
+          real("127.0.0.1") and real("::1") and real("::ffff:127.0.0.1")
+          and not real("192.168.1.20") and not real(None))
 
 
 def phase_trace():

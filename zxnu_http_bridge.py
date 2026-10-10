@@ -130,7 +130,11 @@ DEFAULT_TIMEOUT = 45.0     # quick verbs: one poll round-trip + margin
 # (tests/test_bridge_stall.py pins it), or a long relayed op reads as a
 # dead peer — hence 400 -> 620 in zxnu_workers.py. The price is on that
 # constant's own note: a Next that vanishes without a FIN holds its seat
-# for ~10 min rather than ~7.
+# for ~10 min rather than ~7. Since 9.7.47 a Next dialing from another
+# machine leaves after NEXT_PEER_SILENCE_LIMIT (120 s) instead - unless
+# held, and NextSyncHttpBridge.body_moving_at() is one of the things that
+# hold it (a relayed op's own seat is read inside its reply call, so a
+# long relay never counts as silence either way).
 LONG_TIMEOUT = 570.0
 _LONG_OPS = ("get", "put", "rcpy", "rfsize", "rmtree", "crc")
 
@@ -396,6 +400,58 @@ class _ConnectionLimitMiddleware:
             self._sem.release()
 
 
+def _client_on_this_pc(addr):
+    """True for a loopback client address (9.7.47): its HTTP bodies cross
+    no Wi-Fi, so they never feed body_moving_at - a PowerShell script or an
+    emulated Controller on this PC starves no Next's polls. Anything else,
+    an unknown address included, counts as on the air."""
+    a = str(addr or "").strip().lower()
+    return (a.startswith("127.") or a == "::1"
+            or a.startswith("::ffff:127."))
+
+
+class _BodyWatch:
+    """Outermost WSGI wrapper (9.7.47) that ends a /get response's
+    body-in-motion token when the SERVER has finished writing it - the
+    connection limiter below it materialises the body and closes the
+    app's iterable before a byte goes out, so Flask's call_on_close would
+    fire too early. The view marks such a response by putting its token in
+    ``environ["zxnu.body_out"]``; this wrapper hands the server a generator
+    that ends the token once the last chunk was written - or when the
+    generator is closed or collected, as on a client reset mid-write - and
+    ends it at once if the app raises. Every other response passes through
+    untouched."""
+
+    def __init__(self, wsgi_app, done):
+        self._wsgi_app = wsgi_app
+        self._done = done
+
+    def __call__(self, environ, start_response):
+        try:
+            rv = self._wsgi_app(environ, start_response)
+        except BaseException:
+            tok = environ.pop("zxnu.body_out", None)
+            if tok is not None:
+                self._done(tok)
+            raise
+        tok = environ.pop("zxnu.body_out", None)
+        if tok is None:
+            return rv
+        return self._watch(rv, tok)
+
+    def _watch(self, rv, tok):
+        try:
+            for chunk in rv:
+                yield chunk
+        finally:
+            try:
+                close = getattr(rv, "close", None)
+                if close is not None:
+                    close()
+            finally:
+                self._done(tok)
+
+
 class NextSyncHttpBridge:
     """The Flask web server. Construct with a :class:`QueueBridgeHost` (or
     anything exposing ``state()`` and ``run()``), then :meth:`start` /
@@ -501,6 +557,16 @@ class NextSyncHttpBridge:
         self._req_seq = 0
         self._watch_stop = None
         self._watch_thread = None
+        # HTTP bodies in motion (9.7.47), behind body_moving_at(): tokens of
+        # the /put bodies being read and the /get bodies being written to a
+        # client NOT on this PC (token -> its on-the-air estimate's end, or
+        # None), and the monotonic time the last one ended (possibly still
+        # ahead: a /get's estimate). Never the wait on a seat - a relay in
+        # flight moves no HTTP body.
+        self._body_lock = threading.Lock()
+        self._bodies = {}
+        self._body_seq = 0
+        self._body_end = None
 
     # A request still unanswered after SLOW_AFTER seconds is announced, then
     # re-announced every SLOW_EVERY, until it finishes. This is the "who is
@@ -552,6 +618,65 @@ class NextSyncHttpBridge:
                     self._inflight[rid][3] = elapsed
                 self._log(f"HTTP .. still waiting {elapsed:.0f}s: {method} {path}")
 
+    #: The slowest over-the-air bridge client's throughput (9.7.47): ZX Next
+    #: Remote's Controller behind its ESP at 115200, ~10 KB/s. A /get body
+    #: counts as moving until its length at this rate has passed since the
+    #: server began writing it - not merely until the write returned: the
+    #: application cannot see the bytes leave (measured on Windows 11: a
+    #: blocking send of 8 or 64 MiB to a peer reading nothing returns in
+    #: milliseconds, the OS holding the rest), and a ZXNR Controller pulls a
+    #: multi-megabyte file for minutes. A faster client (a PC) only keeps
+    #: the Next seats on their pre-9.7.47 620 s path a little longer.
+    AIR_BYTES_PER_S = 10000.0
+
+    def body_moving_at(self):
+        """When the bridge last moved a client's HTTP body over the air
+        (9.7.47): time.monotonic() while a /put body is being read or a
+        /get body (whole or a ranged slice) is being written to a client
+        that is not on this PC (a /get for at least len / AIR_BYTES_PER_S
+        from the start of its write), else the monotonic time the last such
+        body ended, or None if none ever moved. The app's '-listen' worker
+        reads it as its ``bridge_xfer_at`` hook: a ZX Next Remote
+        Controller's paste starves an idle Wi-Fi seat's polls during its
+        HTTP legs as much as during the relay to the other seat (ZX Next
+        Remote 1.2.0's field case), so such a seat is held on the long
+        silence limit meanwhile. A request waiting on a Next is NOT a body
+        in motion: a relay stuck on a dead seat never holds it."""
+        with self._body_lock:
+            now = time.monotonic()
+            if self._bodies:
+                return now
+            if self._body_end is not None and self._body_end > now:
+                return now                 # a /get still on the air
+            return self._body_end
+
+    def _body_begin(self, nbytes=None):
+        # ``nbytes`` (a /get body's length): the token's end is never
+        # stamped before nbytes / AIR_BYTES_PER_S from now.
+        with self._body_lock:
+            self._body_seq += 1
+            tok = self._body_seq
+            self._bodies[tok] = (None if nbytes is None else
+                                 time.monotonic()
+                                 + max(0, int(nbytes))
+                                 / float(self.AIR_BYTES_PER_S))
+        return tok
+
+    def _body_done(self, tok):
+        # Idempotent: a token is ended once, whichever path gets there
+        # first (the view, the teardown, the _BodyWatch generator). The end
+        # is the later of now and the token's on-the-air estimate, and the
+        # clock only ever moves forward.
+        with self._body_lock:
+            if tok not in self._bodies:
+                return
+            until = self._bodies.pop(tok)
+            end = time.monotonic()
+            if until is not None and until > end:
+                end = until
+            if self._body_end is None or end > self._body_end:
+                self._body_end = end
+
     def forget_idents(self):
         """Drop the per-seat cache behind ``/version-type`` and
         ``/version-number`` (9.7.20). The app calls it on every roster
@@ -598,6 +723,9 @@ class NextSyncHttpBridge:
         self._install_routes(app)
         app.wsgi_app = _ConnectionLimitMiddleware(app.wsgi_app,
                                                   self._connection_limit)
+        # OUTSIDE the limiter (9.7.47): only out here does the server's own
+        # write of a /get body happen inside the wrapper's iteration.
+        app.wsgi_app = _BodyWatch(app.wsgi_app, self._body_done)
         # Pre-flight probe: werkzeug binds with SO_REUSEADDR, which on
         # Windows silently SUCCEEDS even when another program already owns
         # the port (the classic WinError 10048 only surfaces for exclusive
@@ -671,6 +799,14 @@ class NextSyncHttpBridge:
         self._watch_thread = None
         with self._inflight_lock:
             self._inflight.clear()
+        with self._body_lock:
+            if self._bodies:
+                # Nothing new moves once the server is down; a /get already
+                # handed to the OS keeps its estimate.
+                self._bodies.clear()
+                now = time.monotonic()
+                if self._body_end is None or self._body_end < now:
+                    self._body_end = now
         with self._spool_lock:
             self._put_spool.clear()   # drop any unfinished chunked uploads
         with self._get_cache_lock:
@@ -743,6 +879,27 @@ class NextSyncHttpBridge:
             request.environ["zxnu.session"] = n
             return None
 
+        # ---- HTTP bodies in motion (9.7.47, body_moving_at) -------------
+        def _over_the_air():
+            return not _client_on_this_pc(request.remote_addr)
+
+        def _body_in_done():
+            # A /put body is in: whatever follows (the relay to the Next)
+            # is the worker's to stamp. Idempotent.
+            tok = request.environ.pop("zxnu.body_in", None)
+            if tok is not None:
+                self._body_done(tok)
+
+        def _body_out(body):
+            # Called right before a /get view returns ``body``: the server's
+            # write of it is the body in motion, ended by _BodyWatch once
+            # written - and never before len(body) / AIR_BYTES_PER_S. Never
+            # before the relay's answer is in hand: waiting on a seat moves
+            # no HTTP body. Returns ``body`` for the Response.
+            if _over_the_air() and "zxnu.body_out" not in request.environ:
+                request.environ["zxnu.body_out"] = self._body_begin(len(body))
+            return body
+
         # ---- in-flight tracking (always) + -v tracing --------------------
         # Registered unconditionally: the live count and the stall watchdog
         # are diagnostics you want available the moment something wedges,
@@ -757,6 +914,11 @@ class NextSyncHttpBridge:
                 self._inflight[rid] = [request.method, path, time.monotonic(), 0.0]
                 n = len(self._inflight)
             request.environ["zxnu.rid"] = rid
+            if request.path == "/put" and _over_the_air():
+                # Begun HERE, before anything reads the body (the -v trace
+                # below may): ended once the view has it, or by the
+                # teardown whatever happens.
+                request.environ["zxnu.body_in"] = self._body_begin()
             if self._verbose:
                 line = f"HTTP -> [{n}] {request.method} {path}"
                 body = request.get_data(cache=True)
@@ -800,6 +962,15 @@ class NextSyncHttpBridge:
             if rid is not None:
                 with self._inflight_lock:
                     self._inflight.pop(rid, None)
+            if request:
+                # 9.7.47: a /put body token the view never ended (an early
+                # answer, an exception) ends here; a /get body token only on
+                # an exception - otherwise _BodyWatch ends it once written.
+                _body_in_done()
+                if _exc is not None:
+                    tok = request.environ.pop("zxnu.body_out", None)
+                    if tok is not None:
+                        self._body_done(tok)
 
         def wants_json():
             return (request.args.get("json") in ("1", "true", "yes")
@@ -1107,13 +1278,14 @@ class NextSyncHttpBridge:
                 if not res.get("ok"):
                     return fail(res, f"get {path}")
                 data = res.get("data") or b""
+                # _body_out (9.7.47): the body's write is the HTTP leg.
                 if b64:
                     # Base64 body: 7-bit-safe for CSpect's emulated ESP, where
                     # the caller adds .http's -7 flag to decode it back.
-                    return Response(base64.b64encode(data) + b"\n",
+                    return Response(_body_out(base64.b64encode(data) + b"\n"),
                                     mimetype="text/plain")
                 return Response(
-                    data, mimetype="application/octet-stream",
+                    _body_out(data), mimetype="application/octet-stream",
                     headers={"Content-Disposition":
                              f'attachment; filename="{name}"'})
             # ---- ranged slices (ZXNextRemote 0.7.10's overrun-proof retry).
@@ -1151,11 +1323,13 @@ class NextSyncHttpBridge:
                 # relay (off=0) and the final slice keep their trace line.
                 request.environ["zxnu.trace_quiet"] = True
             headers = {"X-Total-Size": str(len(data))}
+            # _body_out (9.7.47): each slice's write is an HTTP leg too.
             if b64:
-                return Response(base64.b64encode(chunk) + b"\n",
+                return Response(_body_out(base64.b64encode(chunk) + b"\n"),
                                 mimetype="text/plain", headers=headers)
             headers["Content-Disposition"] = f'attachment; filename="{name}"'
-            return Response(chunk, mimetype="application/octet-stream",
+            return Response(_body_out(chunk),
+                            mimetype="application/octet-stream",
                             headers=headers)
 
         def _put_append(path, body):
@@ -1217,6 +1391,7 @@ class NextSyncHttpBridge:
                                "or give the full file path")
                 path = path + name
             body = request.get_data() or b""
+            _body_in_done()            # 9.7.47: the HTTP leg is over
             if request.args.get("append") in ("1", "true", "yes"):
                 return _put_append(path, body)
             with self._spool_lock:

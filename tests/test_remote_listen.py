@@ -336,7 +336,7 @@ def mock_next(sock, entries, filebytes, cap, fs, send_listen=True):
 
 def mock_update_next(sock, ops, staged, scenario, verify_bytes,
                      ident=b'Osync' + bytes([0]) + b'9.9.9', k_mode="ok",
-                     pak=None, ql_ls=None):
+                     pak=None, ql_ls=None, k_delay=0.0, on_k=None):
     """Play the dot's half of an ("update_dot", ...) macro session. Records
     every command the wire carries into ``ops`` as (op, arg) — 'I' idle
     answers excluded, they are the worker saying "nothing queued" — and each
@@ -374,7 +374,14 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes,
     first one): "ren1_install_refuse" answers it 'F', "ren1_install_lost"
     drops the link without a reply, "ren1_install_ackkill" acks it 'O' and
     then drops the link; "ren1_refuse_kill" drops the link right after
-    refusing the first rename."""
+    refusing the first rename.
+
+    ``k_delay`` / ``on_k`` (9.7.47, tests/test_next_stale_seat.py): EVERY
+    'K' (the staged build's and a scripted pak's extras' alike) is
+    answered ``k_delay`` seconds late - a digest that outlasts the Next
+    silence limit, read inside the reply call - and ``on_k()``, when given,
+    runs as each 'K' arrives (a Disconnect pressed mid-update). Both
+    default to the old behaviour."""
     ql_ls = ql_ls or {}
     ren1_refusers = ("ren1_refuse", "ren1_install_refuse",
                      "ren1_install_lost", "ren1_install_ackkill",
@@ -491,6 +498,10 @@ def mock_update_next(sock, ops, staged, scenario, verify_bytes,
             push(ident, 0)
         elif op == b'K':
             # The crc verify (9.7.5): the CRC-32 of what the Next holds.
+            if on_k is not None:
+                on_k()
+            if k_delay:
+                time.sleep(k_delay)
             if k_mode == "silent":
                 continue                     # a listener that ignores 'K' re-polls
             if k_mode == "F":

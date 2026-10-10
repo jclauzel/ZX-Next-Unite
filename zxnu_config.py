@@ -24,7 +24,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.46"
+ZX_NEXT_UNITE_VERSION = "9.7.47"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -534,6 +534,7 @@ SETTING_NEXTSYNC_REMOTE_EXPLORER = "nextsync_remote_explorer"  # "true" => reope
 SETTING_NEXTSYNC_RE_AUTOSTART  = "nextsync_re_autostart"   # "true" => start the Remote Explorer '.sync5 -listen' server on startup (default off; needs a sync root)
 SETTING_NEXTSYNC_VERIFY_CRC    = "nextsync_verify_crc"     # "false" => skip the post-upload CRC-32 read-back (+ delete-on-mismatch) of Remote Explorer '-listen' puts (default on, 9.7.3)
 SETTING_NEXTSYNC_SESSIONS      = "nextsync_sessions"       # "false" => the Remote Explorer '-listen' server seats ONE Next: a newcomer is the same machine dialing back in and replaces the held link (default on = up to RE_MAX_PEERS seats, 9.7.20)
+SETTING_NEXTSYNC_DROP_SILENT_NEXT = "nextsync_drop_silent_next"  # "false" => a ZX Spectrum Next seat that dials from another machine keeps the old 620 s silence limit and Disconnect never drops it (default on = gone after NEXT_PEER_SILENCE_LIMIT, 2 min, of silence; Disconnect drops a silent one after ~10 s; 9.7.47). QLNextRemote seats keep their own rule either way
 SETTING_RE_MACHINE_NAMES       = "nextsync_re_machine_names"  # JSON {address: friendly name} for the Remote Explorer's machine combo ("10.0.0.185 #1 - N-Go")
 SETTING_RE_MACHINE_COLORS      = "nextsync_re_machine_colors"  # JSON {address: "#rrggbb"} tint for the Remote Explorer's machine combo and session tabs (empty = untinted)
 SETTING_NEXTSYNC_REMOTE_CWD    = "nextsync_remote_cwd"     # last Next-side folder browsed in the Remote Explorer, restored on reconnect (falls back to "/" if gone)
@@ -1143,7 +1144,7 @@ SETTING_GALLERY_ROWS_PER_PAGE, SETTING_GALLERY_COLS, SETTING_GALLERY_IMG_SIZE, S
 SETTING_ZXART_VIEW_MODE, SETTING_ZXART_LANGUAGE, SETTING_FAVORITES, SETTING_FAVORITES_VIEW_MODE,
 SETTING_ALLINONE_VIEW_MODE, SETTING_ALLINONE_PYGAME_MODE, SETTING_ALLINONE_PYGAME_ANIM, SETTING_BG_IMAGE, SETTING_CRASH_LOG_ENABLED, SETTING_MAME_COMMAND_LINE_PARAMETERS,
 SETTING_DISABLE_NO_EMULATOR_TOAST, SETTING_MAME_ROM_CHOICE, SETTING_MAME_UPDATE_CHECK, SETTING_MAME_INSTALLED_TAG, SETTING_MAME_ASPECT, SETTING_MAME_SOUND, SETTING_MAME_MOUSE, SETTING_MAME_JOYSTICK, SETTING_MAME_ESC, SETTING_MAME_FLATPAK, SETTING_MAME_FLATPAK_ROMPATH, SETTING_MAME_RS232_ESP, SETTING_MAME_RS232_ESP_PORT, SETTING_MAME_RS232_ESP_VERBOSE, SETTING_ALIEN_FLOYD_BG, SETTING_ALIEN_FLOYD_TAB, SETTING_ALIEN_FLOYD_HISCORE, SETTING_ALIEN_FLOYD_HISCORES,
-SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_VERIFY_CRC, SETTING_NEXTSYNC_SESSIONS, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_SDCARD_HSPLITTER, SETTING_NEXTSYNC_RE_SPLITTER, SETTING_NEXTSYNC_RE_LOG_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE, SETTING_GENERAL_FONT_SIZE, SETTING_RE_UPDATE_PROMPT, SETTING_SYNC5_IMG_AUTODEPLOY,
+SETTING_NEXTSYNC_SEND_CONFLICT, SETTING_NEXTSYNC_PYGAME_MODE, SETTING_NEXTSYNC_PYGAME_ANIM, SETTING_NEXTSYNC_REMOTE_EXPLORER, SETTING_NEXTSYNC_RE_AUTOSTART, SETTING_NEXTSYNC_VERIFY_CRC, SETTING_NEXTSYNC_SESSIONS, SETTING_NEXTSYNC_DROP_SILENT_NEXT, SETTING_NEXTSYNC_REMOTE_CWD, SETTING_NEXTSYNC_RE_LOCAL_SORT, SETTING_NEXTSYNC_RE_NEXT_SORT, SETTING_NEXTSYNC_EXTRA_DRIVES, SETTING_NEXTSYNC_HTTP_BRIDGE, SETTING_NEXTSYNC_HTTP_PORT, SETTING_NEXTSYNC_HTTP_CONNECTION_LIMIT, SETTING_NEXTSYNC_HTTP_VERBOSE, SETTING_NEXTSYNC_HTTP_TOKEN_ENABLED, SETTING_NEXTSYNC_HTTP_TOKEN, SETTING_SDCARD_PYGAME_LOG, SETTING_SDCARD_SPLITTER, SETTING_GETIT_SPLITTER, SETTING_SDCARD_HSPLITTER, SETTING_NEXTSYNC_RE_SPLITTER, SETTING_NEXTSYNC_RE_LOG_SPLITTER, SETTING_HELP_PYGAME_LOG, SETTING_RETRO_LOG_FONT_SIZE, SETTING_GENERAL_FONT_SIZE, SETTING_RE_UPDATE_PROMPT, SETTING_SYNC5_IMG_AUTODEPLOY,
 SETTING_ITCHIO_API_KEY, SETTING_SHOW_ITCHIO_TAB, SETTING_ITCHIO_VIEW_MODE, SETTING_CSPECT_UPDATE_CHECK, SETTING_ZXNEXTREMOTE_UPDATE_CHECK, SETTING_ZXNU_UPDATE_CHECK, SETTING_DOTN_LAST_VERSION, SETTING_ZXNR_UPDATE_PATH, SETTING_DELETE_TO_RECYCLE_BIN, SETTING_QLNEXTREMOTE_UPDATE_CHECK, SETTING_QLNR_UPDATE_PATH,
 SETTING_GETIT_ITEM_RETRO, SETTING_ZXDB_ITEM_RETRO, SETTING_ZXART_ITEM_RETRO, SETTING_ITCHIO_ITEM_RETRO, SETTING_FAVORITES_ITEM_RETRO, SETTING_UI_LANGUAGE,
 SETTING_WIZARD_ENABLED, SETTING_WIZARD_INTRO_SHOWN, SETTING_WIZARD_FONT_SIZE, SETTING_WIZARD_SP_OFFERED,
@@ -1207,6 +1208,29 @@ def nextsync_sessions_enabled(cfg):
     six times after a lost link, and for its own n2n "Sessions" row, whose
     Off means the same one-seat assertion."""
     v = cfg.get(SETTING_NEXTSYNC_SESSIONS, "") if cfg else ""
+    return str(v or "").strip().lower() not in ("false", "0", "no")
+
+
+def nextsync_drop_silent_next_enabled(cfg):
+    """Settings 'Drop a silent Next after 2 minutes' (9.7.47), decoded the
+    default-ON way nextsync_sessions_enabled uses: "" (never saved / an
+    upgraded cfg) and anything but an explicit false/0/no mean ON. On, a
+    ZX Spectrum Next seat dialing from another machine (a real Next, or an
+    emulator on another PC) that has said nothing for
+    zxnu_workers.NEXT_PEER_SILENCE_LIMIT (120 s) is taken for gone, and
+    Disconnect drops a silent one after NEXT_DROP_SILENCE (10 s) - the cure
+    for a Next hard-reset under a live ESP link, which sends no FIN. OFF
+    keeps such a seat on the pre-9.7.47 620 s PEER_SILENCE_LIMIT path with
+    no Disconnect drop (counted, since 9.7.47, from the end of the last turn
+    and past a freeze of this PC; the TCP keepalive and the purge of a dead
+    seat's quits apply to every such seat either way): the setting for a
+    CSpect (UART Replacement plugin) or another Next held paused in a
+    debugger. Read by
+    the '-listen' worker at every idle tick through a 0-arg hook, so a flip
+    applies at once. QLNextRemote seats keep their own 9.7.45 rule either
+    way, and seats dialing from this PC (MAME through Unite, loopback)
+    keep the 620 s path either way."""
+    v = cfg.get(SETTING_NEXTSYNC_DROP_SILENT_NEXT, "") if cfg else ""
     return str(v or "").strip().lower() not in ("false", "0", "no")
 
 

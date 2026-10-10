@@ -123,9 +123,16 @@ class FakeMsg:
     criticals = []
     infos = []
     warnings = []      # every warning's text (9.7.6: the deploypak refusal)
+    # 9.7.47: run ONCE while the next question() is "open" - what Qt
+    # delivers to the widget during a real modal confirm (a roster change,
+    # a disconnect, a relisten).
+    while_open = None
 
     @classmethod
     def question(cls, *a, **k):
+        hook, cls.while_open = cls.while_open, None
+        if hook is not None:
+            hook()
         return cls.answer
 
     @classmethod
@@ -2903,6 +2910,178 @@ def test_disconnect_marks_the_seat():
           drain(calls2) == [("quit_app",)] and marked == [], marked)
 
 
+def test_disconnect_confirm_race():
+    """9.7.47: the Disconnect confirm is modal, and Qt delivers the
+    worker's roster and disconnect signals while it is open. With a dead
+    Next reaped at 120 s, "wait two minutes, then press Disconnect" makes
+    the two overlap: the quit must never go to whoever holds the baton by
+    the time the user answers, nor to a fresh worker's queue."""
+    print("\n== Disconnect confirm racing a reap ==")
+    seats, sent, marked = {1, 2}, [], []
+
+    def enqueue_to(sid, cmd):
+        if sid not in seats:
+            return False
+        sent.append((sid, cmd))
+        return True
+
+    def drop_silent(sid):
+        marked.append(sid)
+        return sid in seats
+
+    def fresh():
+        w, calls = make_widget(local_start_dir=tdir("race_root"),
+                               enqueue_to=enqueue_to, drop_silent=drop_silent)
+        w.on_peers((1, [(1, "10.0.0.5"), (2, "10.0.0.7")]))
+        connect_widget(w, calls)
+        sent.clear()
+        marked.clear()
+        return w, calls
+
+    def quits(q):
+        return [c for c in q if c and c[0] == "quit_app"]
+
+    FakeMsg.answer = QMessageBox.Yes
+    # (1) The driven Next is reaped while the dialog is open: the baton
+    #     moves to sid 2. The button's quit would land on the shared queue
+    #     - for sid 2.
+    w, calls = fresh()
+
+    def reap_driven():
+        seats.discard(1)
+        w.on_peers((2, [(2, "10.0.0.7")]))
+    FakeMsg.while_open = reap_driven
+    w._disconnect_peer()
+    q = drain(calls)
+    check("baton moved during the confirm: no quit at all",
+          quits(q) == [] and sent == [], (q, sent))
+    check("...nothing marked", marked == [], marked)
+    check("...and it is said", logged(calls, "no longer on the line"))
+    seats.add(1)
+
+    # (2) The only seat is reaped, the worker returns, the pane relistens
+    #     and the relaunched Next is seated as sid 1 of the NEW worker.
+    w, calls = fresh()
+
+    def relisten():
+        w.on_disconnected()
+        w.on_peers((1, [(1, "10.0.0.5")]))
+        connect_widget(w, calls)
+    FakeMsg.while_open = relisten
+    w._disconnect_peer()
+    q = drain(calls)
+    check("worker ended and relistened during the confirm: no quit on the "
+          "fresh queue (same sid number, another Next)",
+          quits(q) == [] and sent == [] and marked == [], (q, sent, marked))
+    check("...and it is said", logged(calls, "no longer on the line"))
+
+    # (3) Same, through a session tab naming sid 1.
+    w, calls = fresh()
+    FakeMsg.while_open = relisten
+    w._disconnect_session(1)
+    q = drain(calls)
+    check("a named seat across a relisten: nothing sent either",
+          quits(q) == [] and sent == [] and marked == [], (q, sent, marked))
+
+    # (4) A benched Next named on its tab becomes the DRIVEN one while the
+    #     dialog is open (the old driver was reaped): still the machine the
+    #     dialog named, so its quit goes out - now on the shared queue.
+    w, calls = fresh()
+
+    def promote_2():
+        seats.discard(1)
+        w.on_peers((2, [(2, "10.0.0.7")]))
+    FakeMsg.while_open = promote_2
+    w._disconnect_session(2)
+    q = drain(calls)
+    check("the named Next now drives: its quit goes out on the shared queue",
+          quits(q) == [("quit_app",)] and sent == [] and marked == [2],
+          (q, sent, marked))
+    seats.add(1)
+
+    # (5) Nothing changed while it was open: exactly as before.
+    w, calls = fresh()
+    FakeMsg.while_open = lambda: None
+    w._disconnect_peer()
+    check("an undisturbed confirm sends the quit as always",
+          drain(calls) == [("quit_app",)] and marked == [1], marked)
+
+
+def test_baton_move_abandons_check_and_moves():
+    """9.7.47: a baton move the user did not ask for (_request_machine
+    refuses one while an op or a paste check is live) means the driven Next
+    LEFT. A paste check or a move still in flight belonged to it: finished
+    on the new holder, the check would start the rcpy THERE and a move's
+    mark would delete the new holder's file."""
+    print("\n== a departure abandons the paste check and the moves ==")
+    root = tdir("abandon_root")
+    w, calls = make_widget(local_start_dir=root)
+    w.on_peers((1, [(1, "10.0.0.5"), (2, "10.0.0.7")]))
+    connect_widget(w, calls, listing=[(True, 0, "GAMES")])
+
+    # A Next->Next paste whose sizes are in, waiting on the free space.
+    select_next(w, "GAMES")
+    w._copy_next("copy")
+    w.on_listing("/dst", [])
+    calls["q"].clear()
+    w._paste_into_next()
+    check("the paste check is queued",
+          drain(calls) == [("fsize", "/GAMES"), ("free", "C")]
+          and w._precheck is not None)
+    w.on_fsize("/GAMES", {"bytes": 1000, "files": 3, "dirs": 1})
+    w.on_op_done(True, "size", "/GAMES")
+    calls["q"].clear()
+    # The driven Next is reaped / dropped: the baton moves to sid 2.
+    w.on_peers((2, [(2, "10.0.0.7")]))
+    check("the departure drops the check, and says so",
+          w._precheck is None and logged(calls, "mid-check"))
+    # The new holder answers the free-space read left on the queue.
+    w.on_free_space("C", 10_000_000)
+    check("...so the new holder's answer starts no rcpy",
+          not any(c[0] == "rcpy" for c in drain(calls)))
+
+    # A Move-to-PC in flight: its mark must not delete on the new holder.
+    w2, calls2 = make_widget(local_start_dir=tdir("abandon_root2"))
+    w2.on_peers((1, [(1, "10.0.0.5"), (2, "10.0.0.7")]))
+    connect_widget(w2, calls2, listing=[(False, 9, "boot.bas")])
+    select_next(w2, "boot.bas")
+    w2._copy_next("cut")
+    w2._paste_into_local()
+    q = drain(calls2)
+    check("the move queues get + mark", q and q[1][0] == "mark"
+          and len(w2._cut_jobs) == 1)
+    token = q[1][1]
+    w2.on_peers((2, [(2, "10.0.0.7")]))
+    check("the departure abandons the move, and says so",
+          w2._cut_jobs == [] and logged(calls2, "kept their sources"))
+    w2.on_got("/boot.bas", os.path.join(fwd(tdir("abandon_root2")), "boot.bas"))
+    w2.on_marked(token)
+    check("...so the mark answered by the new holder deletes nothing",
+          not any(c[0] in ("rm", "rmdir") for c in drain(calls2)))
+
+    # A user-requested switch never gets here with either one live: the
+    # pick is refused while the op runs.
+    w3, calls3 = make_widget(local_start_dir=tdir("abandon_root3"))
+    w3.on_peers((1, [(1, "10.0.0.5"), (2, "10.0.0.7")]))
+    connect_widget(w3, calls3, listing=[(True, 0, "GAMES")])
+    select_next(w3, "GAMES")
+    w3._copy_next("copy")
+    w3.on_listing("/dst", [])
+    w3._paste_into_next()
+    calls3["q"].clear()
+    w3._request_machine(2)
+    check("a pick during the check is refused (nothing queued)",
+          drain(calls3) == [] and w3._precheck is not None
+          and logged(calls3, "before switching"))
+    # Leave no operation running: its delayed modal progress dialog would
+    # otherwise pop up under the next test (the update prompt waits for
+    # "no modal dialog").
+    for wx in (w, w2, w3):
+        wx.on_disconnected()
+    check("no operation left running", not any(
+        wx._op_active for wx in (w, w2, w3)))
+
+
 def test_machine_colors():
     """The per-machine colour (9.5.27): picked in the name dialog, keyed by
     ADDRESS like the name, and painted on BOTH surfaces that identify a
@@ -4139,6 +4318,8 @@ def main():
         test_machine_names_follow_the_address()
         test_session_tab_menu()
         test_disconnect_marks_the_seat()
+        test_disconnect_confirm_race()
+        test_baton_move_abandons_check_and_moves()
         test_update_prompt()
         test_update_targets()
         test_machine_colors()

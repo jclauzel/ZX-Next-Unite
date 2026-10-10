@@ -766,6 +766,19 @@ def build_nextsync_pane(
             logging.exception("HTTP bridge: forget_idents failed")
     host._re_bridge_forget_idents = _re_bridge_forget_idents
 
+    def _re_bridge_body_at():
+        # 9.7.47: the worker's bridge_xfer_at hook - when the bridge last
+        # moved a client's HTTP body over the air (now while one moves),
+        # so a Controller's paste holds the idle Wi-Fi Next seats it may
+        # starve on the 620 s path. None before the bridge exists or
+        # after it stopped; anything it raises reaches the worker, which
+        # counts it as moving (held) and logs it once.
+        b = host._re_bridge
+        if b is None:
+            return None
+        return b.body_moving_at()
+    host._re_bridge_body_at = _re_bridge_body_at
+
     def _re_bridge_enqueue_to(sid, cmd):
         # Targeted delivery for ?session=N — the session's own queue, the
         # baton untouched. The worker's closure validates sid under its
@@ -778,10 +791,14 @@ def build_nextsync_pane(
     def _re_drop_silent(sid):
         # 9.7.45: Disconnect's second half - mark seat `sid` so a SILENT
         # QLNextRemote seat (a reset QL core whose ESP still holds the
-        # link) ends now instead of after its silence limit. The worker's
-        # session decides on its own ident and silence; every other seat
-        # ignores the mark. False when the server is not running or the
-        # sid has left - same shape as the targeted enqueue above.
+        # link) ends now instead of after its silence limit; since 9.7.47
+        # a silent ZX Spectrum Next dialing from another machine too (a
+        # hard-reset Next leaves its ESP holding the link the same way),
+        # while Settings → "Drop a silent Next after 2 minutes" is on. The
+        # worker's session decides on its own ident and silence; every
+        # other seat ignores the mark. False when the server is not
+        # running or the sid has left - same shape as the targeted enqueue
+        # above.
         fn = host._re_control.get('drop_silent')
         if fn is None or not host._re_running:
             return False
@@ -1935,9 +1952,17 @@ def build_nextsync_pane(
             # the worker PER DIAL — a flip applies to the next Next that
             # connects, no restart. Off = ONE seat, a newcomer replaces the
             # held link as the same machine coming back.
+            # drop_silent_next (9.7.47): Settings → "Drop a silent Next
+            # after 2 minutes", read by the worker at every idle tick of a
+            # Next seat dialing from another machine — a flip applies at
+            # once. Off = such a seat keeps the 620 s limit, no drop.
+            # bridge_xfer_at (9.7.47): the HTTP bridge's bodies in motion,
+            # one input of those seats' transfer hold.
             kwargs={"control": host._re_control,
                     "verify_crc": lambda: nextsync_verify_crc_enabled(configuration_dictionary),
-                    "sessions": lambda: nextsync_sessions_enabled(configuration_dictionary)},
+                    "sessions": lambda: nextsync_sessions_enabled(configuration_dictionary),
+                    "drop_silent_next": lambda: nextsync_drop_silent_next_enabled(configuration_dictionary),
+                    "bridge_xfer_at": _re_bridge_body_at},
             daemon=True)
         host._re_thread.start()
         host._re_running = True
