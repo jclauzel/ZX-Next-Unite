@@ -24,7 +24,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 
-ZX_NEXT_UNITE_VERSION = "9.7.47"
+ZX_NEXT_UNITE_VERSION = "9.7.48"
 # Version of the bundled NextSync .sync5 dotN command (nextsync/sync/server/
 # dot/syncdev, also attached to GitHub releases as the "sync5" asset). MUST be
 # kept in sync with the banner in nextsync/sync/z88dk/nextsync.c ("NextSync
@@ -32,7 +32,7 @@ ZX_NEXT_UNITE_VERSION = "9.7.47"
 # startup dotN-updated advisory compares this against the dotn_last_version
 # persisted in hdfg.cfg, so the user is told to refresh the copy on their
 # Next (which the app cannot deploy automatically).
-ZX_NEXT_UNITE_DOTN_VERSION = "5.9.13"
+ZX_NEXT_UNITE_DOTN_VERSION = "5.9.14"
 # Self-update check (Settings toggle, default on): the app's own releases.
 ZXNU_GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/jclauzel/ZX-Next-Unite/releases/latest"
 # Per-tag lookup: the remote .sync5 self-update fetches THIS app version's
@@ -1022,7 +1022,7 @@ INIT_HELP = ((f"Welcome to zx-next-unite {ZX_NEXT_UNITE_VERSION} help"),
              (""),
              ("The optional RS232 ESP Emulation for MAME (Settings) is a clean full reimplementation in Python of an idea from jesperl by Janko Stamenović - an ESP-AT emulator bridging MAME's emulated Wi-Fi module to the real network. Many thanks for the inspirational idea - see https://sourceforge.net/projects/jesperl/."),
              (""),
-             ("Transfers through the RS232 ESP emulation need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings."),
+             ("A MAME build that carries the built-in ESP8266 card (esp8266_at, in the ZX Spectrum Next MAME fork since October 2026) is launched with that card instead of the RS232 ESP emulation: it follows the Next's UART speed, so '.sync5' and ZX Next Remote connect at every speed (slow, default and fast). Through the RS232 ESP emulation (older MAME builds, the null_modem card) transfers need the Next side on its SLOW pacing: use '.sync5 -s' for the dot, or set UART speed to Slow in ZX Next Remote's settings."),
              (""),
              ("One RS232 ESP emulation serves every running MAME: launch a second MAME on another disk image and it joins the same emulation with its own separate session, so several emulated Nexts can be on the network at once. The emulation stops when the last MAME exits. When two of them ask for the same server port (a Next listening for incoming connections), the second one is moved to the next free port and the log says which port to connect to."),
              (""),
@@ -1676,6 +1676,182 @@ def strip_mame_combo_options(tokens):
             continue
         result.append(token)
     return result
+
+# ── MAME's ESP (Wi-Fi module) card, 9.7.48 ────────────────────────────────
+# The emulated Next's ESP8266 sits in MAME's "rs232_esp" slot, and the slot
+# takes ONE card. Two can give the Next a network:
+#
+#   esp8266_at  MAME's own ESP8266 AT-firmware card (holub/mame PR #9,
+#               October 2026): the AT dialect, the real networking (inside
+#               MAME) and - the point - a serial rate that FOLLOWS the
+#               AT+UART_CUR the dot sends, up to 2,000,000 baud. Every
+#               .sync5 speed works through it, and nothing on this PC is
+#               involved: no proxy, no -bitb socket.
+#   null_modem  the bitbanger card espemu sits behind ("-bitb socket.<host>:
+#               <port>"). Its baud is pinned to MAME's Machine Configuration
+#               list, which tops out at 115200, while the Next's UART in
+#               MAME has always followed its prescaler - so the moment
+#               .sync5 switches to 1152000 or 2000000 the two ends cannot
+#               hear each other and the dot says "No fast esp". Slow only.
+#
+# The launcher asks the installed MAME which cards it offers ("-listslots
+# <machine>", ~0.2 s, cached per binary) and picks the built-in card when it
+# is there, the proxy otherwise - a stock MAME, a Flatpak MAME or a build
+# predating the PR keep working exactly as before. A hand-typed
+# "-rs232_esp <card>" in the Settings MAME parameters box is an explicit
+# choice and wins over the automatic pick (see choose_mame_esp_card).
+MAME_ESP_SLOT = "rs232_esp"
+MAME_ESP_CARD_BUILTIN = "esp8266_at"
+MAME_ESP_CARD_PROXY = "null_modem"
+# "-listslots" loads MAME's whole driver list; the native binary answers in
+# ~0.2 s, a Flatpak launch in a few seconds. Bounded so a wedged binary can
+# never hang the launch click - the probe then answers None and the launch
+# falls back to the proxy, which is what every MAME could do before.
+MAME_ESP_SLOT_PROBE_TIMEOUT_S = 20
+
+
+def parse_mame_listslots(text):
+    """Parse the output of ``mame -listslots <machine>`` into
+    ``{slot_name: [option, ...]}`` for the ONE machine it was asked about.
+
+    MAME prints fixed-width columns under a header line::
+
+        SYSTEM           SLOT NAME        SLOT OPTIONS     SLOT DEVICE NAME
+        ---------------- ---------------- ---------------- ------------------
+        specnext_ks2     ram              2m               RAM
+
+                         rs232_esp        esp8266_at       ESP8266 WiFi ...
+                                          null_modem       RS-232 Null Modem
+
+    The column edges are read from the header, never assumed: the widths
+    are MAME's to change, and a parser that split on runs of spaces would
+    mistake the "RS-232 Null Modem" description for extra columns. A slot
+    name appears only on its block's first line (later lines carry the
+    option alone), and blank lines separate blocks. Anything that is not
+    that shape - an error message, an empty string, None - answers ``{}``,
+    which the chooser reads as "unknown", never as "the slot is empty".
+    """
+    if not text:
+        return {}
+    lines = str(text).replace("\r\n", "\n").split("\n")
+    header = None
+    for i, line in enumerate(lines):
+        up = line.upper()
+        if "SLOT NAME" in up and "SLOT OPTIONS" in up:
+            header = i
+            break
+    if header is None:
+        return {}
+    head = lines[header].upper()
+    c_slot = head.find("SLOT NAME")
+    c_opt = head.find("SLOT OPTIONS")
+    c_dev = head.find("SLOT DEVICE")
+    if c_dev < 0:
+        c_dev = len(head) + 4096
+    slots = {}
+    current = None
+    for line in lines[header + 1:]:
+        if not line.strip():
+            current = None
+            continue
+        if set(line.strip()) <= {"-", " "}:
+            continue                      # the dashed underline
+        slot = line[c_slot:c_opt].strip()
+        option = line[c_opt:c_dev].strip()
+        if slot:
+            current = slot
+            slots.setdefault(current, [])
+        if current is None or not option:
+            continue
+        if option not in slots[current]:
+            slots[current].append(option)
+    return slots
+
+
+def mame_typed_esp_card(tokens):
+    """The card a hand-typed ``-rs232_esp <card>`` names in the MAME
+    parameters, or ``""`` when there is none (a trailing ``-rs232_esp`` with
+    no value counts as none). The LAST one wins, as MAME itself reads
+    repeated options."""
+    card = ""
+    toks = [str(t) for t in (tokens or ())]
+    for i, tok in enumerate(toks):
+        if tok == "-" + MAME_ESP_SLOT and i + 1 < len(toks):
+            nxt = toks[i + 1].strip()
+            # A dangling "-rs232_esp" followed by another OPTION names no
+            # card; reading "-aspect" as one would strip that option too.
+            card = "" if nxt.startswith("-") else nxt
+    return card
+
+
+def choose_mame_esp_card(slot_options, typed=""):
+    """Which card to put in the rs232_esp slot, as ``(card, reason)``.
+
+    *slot_options* is the list the installed MAME offers for the slot (from
+    ``parse_mame_listslots``), or None when the probe could not answer.
+    *typed* is a hand-typed card from the MAME parameters box.
+
+    Reasons, for the launch log: ``typed`` (the hand-typed card, offered -
+    or unverifiable - so honoured), ``typed-missing`` (one of the two cards
+    was typed but an ANSWERED probe does not list it: the automatic pick is
+    taken instead, since passing it would make MAME refuse to start),
+    ``typed-unsupported`` (the typed card is not one of the two this
+    launcher wires - "pty", a typo - whether or not MAME offers it: the
+    automatic pick, and the log must not claim the build lacks it),
+    ``builtin`` (the MAME offers the built-in card), ``proxy`` (it does
+    not), ``unknown`` (no probe answer: the proxy, the path every MAME
+    could take before).
+
+    An unknown probe never selects the built-in card: a wrong "esp8266_at"
+    is a MAME that fails to start, a wrong "null_modem" is a Next that
+    still connects at slow speed.
+    """
+    known = [str(o).strip().lower() for o in (slot_options or ())]
+    want = (typed or "").strip().lower()
+    reason = ""
+    if want:
+        if want not in (MAME_ESP_CARD_BUILTIN, MAME_ESP_CARD_PROXY):
+            reason = "typed-unsupported"
+        elif slot_options is None or want in known:
+            return want, "typed"
+        else:
+            reason = "typed-missing"
+    if slot_options is None:
+        return MAME_ESP_CARD_PROXY, reason or "unknown"
+    if MAME_ESP_CARD_BUILTIN in known:
+        return MAME_ESP_CARD_BUILTIN, reason or "builtin"
+    return MAME_ESP_CARD_PROXY, reason or "proxy"
+
+
+def mame_esp_launch_tokens(tokens, card, port=None, host="127.0.0.1"):
+    """The MAME argv with the chosen ESP card wired in: every hand-typed
+    ``-rs232_esp``/``-bitb`` pair stripped (MAME must never see an option
+    twice, and ``-bitb`` is an unknown option once the card is not the
+    null_modem - the bitbanger "stream" device exists only there), then
+    the card appended: ``-rs232_esp esp8266_at`` alone, or
+    ``-rs232_esp null_modem -bitb socket.<host>:<port>`` for the proxy.
+    Returns a new list; the input is left unchanged."""
+    cleaned, skip = [], 0
+    toks = [str(t) for t in (tokens or ())]
+    for i, tok in enumerate(toks):
+        if skip:
+            skip -= 1
+            continue
+        if tok in ("-" + MAME_ESP_SLOT, "-bitb"):
+            # Consume the VALUE only - a dangling option followed by another
+            # "-option" must not take that option (and orphan its value).
+            if i + 1 < len(toks) and not toks[i + 1].startswith("-"):
+                skip = 1
+            continue
+        cleaned.append(tok)
+    card = (card or "").strip().lower()
+    if card == MAME_ESP_CARD_BUILTIN:
+        return cleaned + ["-" + MAME_ESP_SLOT, MAME_ESP_CARD_BUILTIN]
+    if port is None:
+        raise ValueError("the null_modem card needs the espemu port")
+    return cleaned + ["-" + MAME_ESP_SLOT, MAME_ESP_CARD_PROXY,
+                      "-bitb", f"socket.{host}:{int(port)}"]
+
 
 # The ROM/system (e.g. "tbblue"), the aspect/mouse/joystick options (chosen via
 # the combos above) and the "-hard1 <image>" arguments are NOT part of this
