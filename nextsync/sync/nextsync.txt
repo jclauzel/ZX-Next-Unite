@@ -395,7 +395,11 @@ prints the 8 hex digits on the Next's screen and answers them to the PC - the
 value zlib, PKZIP and 7-Zip compute, so a transfer can be checked against the
 PC's copy without pulling it back. Bit by bit at 28 MHz, about 30 KB/s: a
 1 MB file takes half a minute. (A standalone ".sync -crc" verb did not fit
-the dot's byte budget; ZX Next Remote answers the same request.)
+the dot's byte budget; ZX Next Remote answers the same request.) Since
+5.9.14 the sprite animation keeps flying while the digest is worked out:
+each 2 KB chunk is fed to the CRC in 256-byte slices with an animation step
+between them, so the birds no longer freeze for the half minute a big file
+takes (they used to, because a whole chunk went in one call).
 
 ZX Next Unite 9.7.3 asks by itself after every Remote Explorer upload
 (Settings -> "Verify CRC", on by default), compares with the CRC-32 of what

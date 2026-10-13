@@ -64,10 +64,15 @@ $C000–$FFFF   (mmu6/7)              : NextZXOS (saved/restored by the crt)
 very top of mmu5; v5.2's `0xBF00` wasted the last 256 bytes, which nothing in
 the dotn crt or clib touches). The large buffers (`inbuf`,
 `scratch`, …) are file-scope statics so they land in the main bank and keep the
-stack small. Current layout (v5.9.13): main-bank content ends at `0xB9F6`
-(`__BSS_END_head` in `syncdev.map`), leaving 1546 bytes of stack below `0xC000`
-(5.9.13 *gained* 22 — moving the CPU bump to the top of `main()` shortened the
-code that reads the two nextregs, measured both ways against 5.9.12's 1524)
+stack small. Current layout (v5.9.14): main-bank content ends at `0xBA29`
+(`__BSS_END_head` in `syncdev.map`), leaving 1495 bytes of stack below `0xC000`
+(5.9.14 spent 51 on the slicing loop in `crc_run` that keeps the flock flying
+through a CRC pass — 256-byte slices with the frame-gated `anim_tick` after the
+read and after every slice, so the longest gap between ticks is one read OR
+one slice, never both; the head page did not move, `crc_update` and
+`anim_tick` already lived there. 5.9.13 was `0xB9F6` / 1546, having *gained*
+22 by moving the CPU bump to the top of `main()`, measured both ways against
+5.9.12's 1524)
 (`build_dotn.ps1` refuses a build under 150; 5.7.1's proven floor is 156);
 the primary dot page ends at `0x3EF6` (`__CODE_END_tail`), 10 bytes below the
 hard `0x3F00` line the build enforces (appmake's own fence; the guard said `0x3F0F` until 5.9.5 and was looser than the tool) — content past it triggers appmake's
@@ -696,6 +701,18 @@ update: staging c:/mydir/zxnextremote-n2n.nex.new (115200 bytes)
   mock Next), and the dot side is **hardware-confirmed release by release** on
   real Nexts and clones (most recently v5.9.0's release-and-swap flow, proven
   in both directions).
+- **5.9.14 confirmed on MAME (13 Oct 2026):** the flock keeps flying through a
+  CRC pass (`crc_run` feeds the core in 256-byte slices with `anim_tick`
+  between them). Measured through MAME's built-in `esp8266_at` card at
+  `fast (2000000)`, `Flow on`: `/crc` of a 286,720-byte file answered
+  `5557408B` - zlib's value - in 12.4 s (two runs, 12.5 and 12.4), a 115,200-byte
+  file in 5.8 s; the user watched the birds the whole time. Note that is
+  ~23 KB/s under MAME's SD emulation, below the ~30 KB/s nextsync.txt quotes
+  for hardware; no 5.9.13 baseline was taken on the same setup. Those runs
+  were on the first 5.9.14 build; the shipped one adds a tick right after
+  each 2 KB read (one call, 5 bytes) so a slow card's read and the first
+  slice can no longer add up past a frame - same bytes to the CRC core, same
+  digest.
 - **First-run smoke test on a fresh card:** copy `syncdev` to your card's `C:/DOT/` folder
   and run `.syncdev` from NextZXOS BASIC — it should print its
   `NextSync <version> Clauzel/Komppa` banner (the version is

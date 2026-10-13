@@ -14,7 +14,7 @@
 // version a controller reads over the wire can never drift from the
 // one printed on screen. On a bump ALSO update ZX_NEXT_UNITE_DOTN_VERSION
 // in zxnu_config.py (the app's refresh-your-.sync5 advisory).
-#define SYNC_VERSION "5.9.13"
+#define SYNC_VERSION "5.9.14"
 
 #define TIMEOUT 20000
 #define TIMEOUT_FLUSHUART 10000
@@ -1342,13 +1342,47 @@ unsigned char crc_run(char *path, char *out)
 {
     unsigned char fh = fopen(path, 1);
     unsigned short n;
+    unsigned char *p;
     if (!fh) return 0;
     memset(crc_acc, 0xff, 4);
     for (;;)
     {
         n = fread(fh, inbuf, 2048);
         if (n == 0 || n > 2048) break;
-        crc_update((unsigned char *)inbuf, n);
+        // THE FLOCK KEEPS FLYING THROUGH A CRC (5.9.14). Each 2 KB chunk
+        // used to go to the bit-serial core in one call, with only the -v
+        // spinner between chunks - and at ~30 KB/s a chunk is ~68 ms, three
+        // frames, so the sprites froze for the whole pass (a 1 MB file is
+        // ~35 s of still birds while the PC verifies a put). The chunk is
+        // now fed in 256-byte slices (~8.5 ms each; ~11 ms measured under
+        // MAME's SD emulation) with the frame-gated anim_tick after the
+        // read and after every slice. The longest gap between two ticks is
+        // therefore ONE read or ONE slice, never the two added together -
+        // the tick right after fread is what buys that, for one call: a
+        // slow or fragmented card whose 2 KB read takes longer than the
+        // ~12 ms a frame leaves beside a slice would otherwise drop a
+        // frame at every chunk boundary, a stutter every ~70 ms. A slice
+        // alone always fits a 20 ms frame, so the animation runs at its
+        // full rate and the tick is a ~1 us early-out when the frame has
+        // not changed. The link is idle here (the PC is waiting for the
+        // digest), which is the rule every tick site obeys. The leftover
+        // slice keeps the same bytes in the same order, so the digest is
+        // unchanged (measured equal to zlib's); the n > 2048 read failure
+        // still breaks out above with n untouched. Main-bank cost: the
+        // slicing loop and the extra call, paid from the 1.5 KB of stack
+        // headroom 5.9.5 bought; the head page (crc_update, anim_tick)
+        // does not grow.
+        anim_tick();
+        p = (unsigned char *)inbuf;
+        while (n > 256)
+        {
+            crc_update(p, 256);
+            p += 256;
+            n -= 256;
+            anim_tick();
+        }
+        crc_update(p, n);
+        anim_tick();
         spin(1);
     }
     fclose(fh);
