@@ -1127,7 +1127,7 @@ def test_app_launch_wiring():
           "if host._esp_emu_users == 0:" in src
           and "_stop_esp_emulation()" in src)
     check("MAME is told the port the server ACTUALLY listens on",
-          "{_esp_server.port}" in src)
+          "MAME_ESP_CARD_PROXY, _esp_server.port)" in src)
     check("a verbose change applies live instead of restarting a shared worker",
           "server.set_verbose(verbose)" in src)
     check("the missing-ROM verdict is per launch, not per app",

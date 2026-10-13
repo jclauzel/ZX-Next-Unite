@@ -1719,15 +1719,25 @@ def build_settings_pane(
     host.settings_rs232_esp_checkbox = QCheckBox("RS232 ESP Emulation (Mame)")
     host.settings_rs232_esp_checkbox.setChecked(False)
     host.settings_rs232_esp_checkbox.setToolTip(
-        "When launching MAME, also start a local RS232 ESP (Wi-Fi module)\n"
-        "emulation and pass MAME '-rs232_esp null_modem -bitb\n"
-        "socket.127.0.0.1:<port>' - so network software on the emulated Next\n"
-        "(.sync5, ZX Next Remote, ...) reaches the real network through this\n"
-        "PC. ONE emulation worker serves every running MAME: launch a second\n"
-        "MAME on another disk image and it joins the same proxy with its own\n"
-        "session. The worker stops when the last MAME exits.\n"
-        "IMPORTANT: transfers need the Next side on SLOW pacing - '.sync5 -s',\n"
-        "or UART speed 'Slow' in ZX Next Remote's settings.\n"
+        "Give the emulated Next an ESP (Wi-Fi module) when launching MAME, so\n"
+        "network software on it (.sync5, ZX Next Remote, ...) reaches the real\n"
+        "network through this PC. Which card MAME gets is decided per launch:\n"
+        "- a MAME build that offers the built-in 'esp8266_at' card (the ZX\n"
+        "  Spectrum Next MAME fork since October 2026) is launched with\n"
+        "  '-rs232_esp esp8266_at': the card does the networking inside MAME\n"
+        "  and FOLLOWS the Next's UART speed, so every .sync5 speed (slow,\n"
+        "  default, fast) connects. Nothing else is started.\n"
+        "- any other MAME (stock, Flatpak, older builds) gets the local RS232\n"
+        "  ESP emulation plus '-rs232_esp null_modem -bitb\n"
+        "  socket.127.0.0.1:<port>'. ONE emulation worker serves every running\n"
+        "  MAME (a second MAME on another image joins it with its own session)\n"
+        "  and stops when the last MAME exits. IMPORTANT: on this path\n"
+        "  transfers need the Next side on SLOW pacing - '.sync5 -s', or UART\n"
+        "  speed 'Slow' in ZX Next Remote's settings - the null_modem card's\n"
+        "  baud is fixed at 115200 by MAME.\n"
+        "A '-rs232_esp <card>' typed in the MAME parameters box above is an\n"
+        "explicit choice and wins when that build offers the card. The log\n"
+        "says which card each launch got.\n"
         "Off by default. Saved to the configuration file.")
     host.settings_rs232_esp_checkbox.stateChanged.connect(
         lambda _s: settings_rs232_esp_changed())
@@ -1764,8 +1774,11 @@ def build_settings_pane(
         "Trace the RS232 ESP emulation into the SD Card Utility log console:\n"
         "emulator connect/disconnect, every AT command, connect results and\n"
         "rate-limited transfer summaries (never one line per packet).\n"
-        "Applied at the next MAME launch, to a running worker too. Off by\n"
-        "default (it is chatty).")
+        "Applied at the next MAME launch, to a running worker too. With a\n"
+        "MAME that uses its built-in esp8266_at card there is no local\n"
+        "emulation to trace: MAME is launched with its own '-verbose' instead\n"
+        "and its lines reach the same console as 'MAME: ...'. Off by default\n"
+        "(it is chatty).")
     host.settings_rs232_esp_verbose_checkbox.stateChanged.connect(
         lambda _s: settings_rs232_esp_verbose_changed())
 

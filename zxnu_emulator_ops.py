@@ -50,6 +50,40 @@ import espemu
 import zxnu_itchio
 
 
+def mame_slot_options(launch_prefix, machine, cwd=None,
+                      timeout=MAME_ESP_SLOT_PROBE_TIMEOUT_S):
+    """Ask the installed MAME which slot cards it offers for *machine*:
+    ``{slot: [option, ...]}`` from ``<launcher> -listslots <machine>``, or
+    None when it could not answer (no binary, a machine it does not know, a
+    non-zero exit, a timeout, output in no recognisable shape).
+
+    *launch_prefix* is the same argv prefix the launch uses - the detected
+    binary, or the Flatpak run command - so the probe asks exactly the MAME
+    that will run. *cwd* is MAME's own folder for a native binary (it reads
+    its ini and plugins relative to it; -listslots needs no ROM). None and
+    {} are different answers on purpose: None is "unknown", and the chooser
+    then takes the proxy card every MAME could use before; {} would claim
+    the machine has no slots at all, which no real answer ever says.
+    """
+    prefix = [str(p) for p in (launch_prefix or ())]
+    if not prefix or not prefix[0]:
+        return None
+    argv = prefix + ["-listslots", str(machine)]
+    try:
+        res = subprocess.run(
+            argv, capture_output=True, text=True, timeout=timeout, cwd=cwd,
+            stdin=subprocess.DEVNULL, **subprocess_no_window_kwargs())
+    except (OSError, subprocess.SubprocessError, ValueError) as ex:
+        logging.warning("MAME slot probe failed for %s: %s", machine, ex)
+        return None
+    if res.returncode != 0:
+        logging.warning("MAME slot probe: exit %s for %s: %s", res.returncode,
+                        machine, (res.stdout or res.stderr or "").strip()[:200])
+        return None
+    slots = parse_mame_listslots(res.stdout)
+    return slots or None
+
+
 # ── MAME self-extractor watchdog ─────────────────────────────────────────
 # MAME's official Windows package is a *GUI* 7-Zip self-extractor (the same
 # SFX stub in every release — 0288 and 0289 are byte-identical there). Given
@@ -316,6 +350,34 @@ def build_emulator_ops(
         host._esp_emu_signals = signals      # keep the QObject alive
         host._esp_emu_users = 0
         return server
+
+    # Which ESP card this MAME offers (9.7.48): the "-listslots" answer,
+    # cached per BINARY (its path, size and mtime) and machine, so a launch
+    # pays the probe once (~0.2 s native) and an in-app MAME update - a new
+    # file under the same name - is probed afresh. Only answers are cached:
+    # a failed probe (None) is asked again at the next launch, bounded by
+    # MAME_ESP_SLOT_PROBE_TIMEOUT_S each time.
+    host._mame_slot_cache = {}
+
+    def _mame_slot_options(launch_prefix, machine):
+        prefix = tuple(launch_prefix or ())
+        exe = prefix[0] if prefix else ""
+        try:
+            st = os.stat(exe)
+            ident = (st.st_size, int(st.st_mtime))
+        except OSError:
+            ident = None
+        key = (prefix, str(machine), ident)
+        cache = host._mame_slot_cache
+        if key in cache:
+            return cache[key]
+        slots = mame_slot_options(
+            list(prefix), machine,
+            cwd=(os.path.dirname(exe) or None) if ident else None)
+        if slots is not None:
+            cache[key] = slots
+        return slots
+    host._mame_slot_options = _mame_slot_options
 
     def set_cspect_screen_size():
         configuration_dictionary[SETTING_SCREENSIZE] = host.cspect_screensize.currentIndex()
@@ -1129,36 +1191,87 @@ def build_emulator_ops(
         if mame_image:
             mame_argv += [MAME_HARD_DISK_PARAMETER, mame_image]
 
-        # RS232 ESP emulation (espemu): when the Settings toggle is on,
-        # stand the AT proxy up FIRST (the bind is synchronous, so MAME's
-        # -bitb connect cannot race it), then hand MAME the bitbanger
-        # arguments. A proxy already running for an earlier MAME is
-        # REUSED: it accepts this emulator as a second session, so two
-        # MAMEs on two disk images both get network. The port written
-        # into -bitb is the one the server ACTUALLY listens on, which can
-        # differ from the setting when a live worker is being shared.
-        # When the toggle is on, the toggle is authoritative: hand-typed
-        # -rs232_esp/-bitb copies in the MAME parameters box are stripped
-        # so MAME never sees the option twice (toggle OFF leaves a manual
-        # setup alone). If the proxy cannot bind, MAME starts WITHOUT the
-        # arguments - a wire to nowhere would just hang the Next
-        # software's ESP probes.
+        # The Next's ESP card (Settings "RS232 ESP Emulation (Mame)"). Two
+        # cards can fill MAME's rs232_esp slot, and the launcher picks one
+        # per launch (9.7.48; see the MAME_ESP_* block in zxnu_config):
+        #
+        #   esp8266_at  MAME's own ESP8266 AT card (the ZX Spectrum Next
+        #               MAME fork since October 2026). It does the AT
+        #               dialect and the real networking INSIDE MAME and its
+        #               serial rate follows the dot's AT+UART_CUR up to
+        #               2 Mbaud, so every .sync5 speed connects. Nothing
+        #               on this PC is involved: no proxy, no -bitb.
+        #   null_modem  the bitbanger card espemu sits behind. Its baud is
+        #               pinned by MAME's Machine Configuration (115200 at
+        #               most) while the Next's UART in MAME has always
+        #               followed its prescaler, so the dot's fast rates
+        #               ended in "No fast esp" - slow only.
+        #
+        # The installed MAME is ASKED ("-listslots <machine>", cached per
+        # binary): the built-in card when it is offered, the proxy path
+        # otherwise - a stock MAME, a Flatpak MAME or a build predating
+        # the card keep today's launch byte for byte, and an unanswered
+        # probe counts as "not offered" (a wrong esp8266_at is a MAME that
+        # refuses to start; a wrong null_modem still connects at slow).
+        # A hand-typed "-rs232_esp <card>" in the MAME parameters box is
+        # an explicit choice and wins when this build offers that card;
+        # -bitb copies are always stripped (re-added with the live port on
+        # the proxy path, an unknown option on the other). Toggle OFF
+        # leaves a manual setup alone, as before.
+        #
+        # PROXY PATH: stand the AT proxy up FIRST (the bind is synchronous,
+        # so MAME's -bitb connect cannot race it), then hand MAME the
+        # bitbanger arguments. A proxy already running for an earlier MAME
+        # is REUSED: it accepts this emulator as a second session, so two
+        # MAMEs on two disk images both get network. The port written into
+        # -bitb is the one the server ACTUALLY listens on, which can differ
+        # from the setting when a live worker is being shared. If the proxy
+        # cannot bind, MAME starts WITHOUT the arguments - a wire to nowhere
+        # would just hang the Next software's ESP probes.
         _esp_server = None
+        _esp_card = ""
         if _esp_emulation_enabled():
-            _esp_server = _start_esp_emulation()
-            if _esp_server is not None:
-                _cleaned, _skip = [], 0
-                for _tok in mame_argv:
-                    if _skip:
-                        _skip -= 1
-                        continue
-                    if _tok in ("-rs232_esp", "-bitb"):
-                        _skip = 1
-                        continue
-                    _cleaned.append(_tok)
-                mame_argv = _cleaned + [
-                    "-rs232_esp", "null_modem",
-                    "-bitb", f"socket.127.0.0.1:{_esp_server.port}"]
+            _typed = mame_typed_esp_card(mame_argv)
+            _slots = _mame_slot_options(_launch_prefix, mame_rom)
+            _esp_card, _why = choose_mame_esp_card(
+                None if _slots is None else _slots.get(MAME_ESP_SLOT, []),
+                _typed)
+            if _why == "typed":
+                add_main_log_window(ui_tr_now(
+                    "RS232 ESP: the MAME parameters name the '{card}' card, "
+                    "so that one is used.").format(card=_esp_card))
+            elif _why == "typed-missing":
+                add_main_log_window(ui_tr_now(
+                    "RS232 ESP: the MAME parameters ask for the '{card}' "
+                    "card, which this MAME build does not offer; the card "
+                    "is picked automatically instead.").format(card=_typed))
+            elif _why == "typed-unsupported":
+                add_main_log_window(ui_tr_now(
+                    "RS232 ESP: the MAME parameters name the '{card}' card, "
+                    "which this toggle does not wire (only esp8266_at and "
+                    "null_modem are); the card is picked automatically "
+                    "instead.").format(card=_typed))
+            logging.info("RS232 ESP card for %s: %s (%s; offered: %s)",
+                         mame_rom, _esp_card, _why,
+                         None if _slots is None else _slots.get(MAME_ESP_SLOT))
+            if _esp_card == MAME_ESP_CARD_BUILTIN:
+                mame_argv = mame_esp_launch_tokens(mame_argv, MAME_ESP_CARD_BUILTIN)
+                # The verbose checkbox has no Unite trace to switch on
+                # here - the card logs through MAME's own -verbose, whose
+                # lines the stdout reader below already relays as "MAME:".
+                if _esp_emulation_verbose() and "-verbose" not in mame_argv:
+                    mame_argv.append("-verbose")
+                add_main_log_window(ui_tr_now(
+                    "RS232 ESP: MAME's built-in ESP8266 card is in use "
+                    "('-rs232_esp esp8266_at'). It follows the Next's UART "
+                    "speed, so .sync5 and ZX Next Remote connect at every "
+                    "speed (slow, default and fast); the RS232 ESP emulation "
+                    "is not started."))
+            else:
+                _esp_server = _start_esp_emulation()
+                if _esp_server is not None:
+                    mame_argv = mame_esp_launch_tokens(
+                        mame_argv, MAME_ESP_CARD_PROXY, _esp_server.port)
 
         # Executable that will actually be invoked: the detected MAME binary,
         # or the Flatpak run command when Flatpak mode is enabled.

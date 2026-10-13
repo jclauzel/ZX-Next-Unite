@@ -86,8 +86,16 @@ emulator connection.
 TRANSFER SPEED NOTE: multi-KB transfers through the emulated wire need the
 Next side set to its SLOW pacing — ``.sync5 -s`` for the dot, or UART speed
 "Slow" in ZX Next Remote's settings — and MAME's Machine Configuration RX/TX
-rates left at 115200. The Next software's fast-baud paths switch a REAL
-UART's rate; on the emulated wire that handshake has nothing to act on.
+rates left at 115200. The Next's UART in MAME follows its prescaler, so the
+Next software's fast-baud paths really do move the wire to 1152000 or
+2000000 baud — and the null_modem card this proxy sits behind is pinned to
+its Machine Configuration baud (115200 at most), so after the switch the two
+ends cannot hear each other and the dot reports "No fast esp". Since 9.7.48
+the app does not use this proxy where it can avoid it: a MAME build that
+offers the built-in ``esp8266_at`` card (holub/mame PR #9, October 2026,
+whose serial rate follows the dot's AT+UART_CUR) is launched with that card
+instead, and every speed works there. This module stays the path for every
+other MAME (see ``MAME_ESP_*`` in zxnu_config).
 
 Standalone use (the app drives it in-process; this is for testing outside)::
 

@@ -38,6 +38,10 @@ SUITES = [
     ("test_sync5_img_deploy.py", 120, None),
     ("test_hdfmonkey_discovery.py", 120, None),
     ("test_mame_install.py",     120, None),
+    # Which ESP card the emulated Next gets in MAME (9.7.48): the
+    # -listslots parser, the chooser, the launch tokens; its live probe
+    # skips without a MAME under downloads/, as on CI.
+    ("test_mame_esp_card.py",    120, None),
     ("test_openal_install.py",   120, None),
     ("test_startup_tab_activation.py", 120, None),
     ("test_transfer_tab.py",     120, None),
